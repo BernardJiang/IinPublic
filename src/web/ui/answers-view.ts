@@ -14,7 +14,9 @@ type AnswersViewDeps = {
   getExactChatbotMemory?: () => ExactChatbotMemoryState;
   escapeHtml: (text: string) => string;
   copyAnsweredTalkToTalks: (talkId: string) => void;
-  showTalkDetail: (talkId: string) => void;
+  /** questionId (TODO §P) scrolls/highlights that specific question when the talk opens as a
+   *  multi-question review, instead of only landing on the talk as a whole. */
+  showTalkDetail: (talkId: string, questionId?: string) => void;
   showPreferencesDialog: () => void;
   getTalkContentKey: (talk: any) => string;
   text: (key: UiTranslationKey) => string;
@@ -252,7 +254,7 @@ function renderAnswerItemsHtml(
           : 'background:var(--danger-soft);border-color:var(--danger-border);';
     const contextLabel = (item.contextLabel || item.contextPath.join(' · ')).replace(/→/g, ' -> ');
     return `
-      <div class="answer-outcome-item answer-mode-${modeGroup}" data-answer-mode="${modeGroup}" style="padding: 12px; border-radius: 10px; ${tone} border-width: 1px; border-style: solid;">
+      <div class="answer-outcome-item answer-mode-${modeGroup}" data-answer-mode="${modeGroup}" data-question-id="${deps.escapeHtml(item.questionId)}" style="padding: 12px; border-radius: 10px; ${tone} border-width: 1px; border-style: solid; cursor: pointer;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div style="font-size:0.8em; color:var(--text-tertiary);">${item.kind === 'tag' ? deps.text('meTag') : format('meQuestion', { count: index + 1 })}</div>
           <div style="font-size:0.78em; color:var(--text-tertiary);">
@@ -532,11 +534,17 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     });
   });
 
+  // TODO §P: per-question deep link. If the click landed inside a specific .answer-outcome-item
+  // (one question of a possibly multi-question entry), thread its questionId through so the
+  // talk opens scrolled/highlighted to that question instead of just the talk as a whole.
   listEl?.querySelectorAll<HTMLElement>('.answer-talk-item').forEach((item) => {
     item.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('.answer-copy-talk-btn')) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('.answer-copy-talk-btn')) return;
       const talkId = item.dataset.sourceTalkId || item.dataset.talkId;
-      if (talkId) deps.showTalkDetail(talkId);
+      if (!talkId) return;
+      const outcomeItem = target.closest('.answer-outcome-item') as HTMLElement | null;
+      deps.showTalkDetail(talkId, outcomeItem?.dataset.questionId || undefined);
     });
   });
 

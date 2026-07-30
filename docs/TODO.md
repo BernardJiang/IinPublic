@@ -783,9 +783,23 @@ this is a sequencing index, not new content. Land top-to-bottom.
     appears and correctly navigates after. Confirmed it fails without the fix and passes 3/3 with
     it; regression on `05-talks-edit`, `35-me-answer-dead-end-retry`, `00i-p0-direct-talk-delivery`,
     `00w-talk-lifecycle-flow-multi-responder` (5/5). `tsc`/`lint`/Jest all clean.
-13. **Medium.** P — wire the already-computed `contextHash`/`contextPath` into a per-question deep
+13. [x] **Medium.** P — wire the already-computed `contextHash`/`contextPath` into a per-question deep
     link, so a multi-question entry can scroll/highlight the specific question, not just open the
     talk.
+    **Done 2026-07-30 — used `questionId` rather than `contextHash` as the wire format** (already
+    unique per question, no serialization/parsing needed, and `.review-question-block` — the
+    screen this deep-links into — is naturally keyed by `q.id` already). Each `.answer-outcome-item`
+    now carries `data-question-id`; the Me-tab row click handler reads whichever sub-item was
+    actually clicked and threads it through `showTalkDetailAsAnswer` → `showTalkDetail` →
+    `showTalkResponseDialog({targetQuestionId})` → new `scrollToTargetQuestion` helper in
+    `talk-response-dialog.ts`, which scrolls/highlights the matching `.review-question-block`
+    (reusing the `.answer-item-highlighted` CSS class from item 12). New test
+    `36-per-question-deep-link.spec.ts` — verifies both halves of the fix in isolation (the
+    row's `data-question-id`, and `targetQuestionId`'s scroll/highlight) rather than depending on
+    the real exact-chatbot-memory auto-resolution subsystem's timing to reach the review screen
+    naturally, which proved too flaky to drive reliably in a test. Confirmed it fails without the
+    fix and passes 3/3 with it; regression on 4 Me-tab/answers specs (11/11). `tsc`/`lint`/Jest
+    all clean.
 14. **Medium–hard.** N2 — the cross-tab "pick a conversation" affordance: a new global UI element
     plus a design decision (small dropdown vs. finally reviving `#conversations-list`).
 15. **Medium–hard.** M2/M3 — compress talk/answer rows to title+status (2 lines) with inline icon
@@ -1381,10 +1395,12 @@ inconsistency in destination.
       is — it now honestly describes what clicking does, rather than a new "talk gone for good"
       message; a truly permanent failure still shows this same retryable toast; a follow-up could
       add attempt-count-based wording if that's ever needed, not required by this fix.
-- [ ] Wire the already-computed `contextHash`/`contextPath` into the traceback: passing it through
+- [x] Wire the already-computed `contextHash`/`contextPath` into the traceback: passing it through
       to `showTalkDetail`/`showTalkResponseDialog` so opening a multi-question entry can
       scroll/highlight the specific question that produced the clicked answer, instead of only
       landing on the talk as a whole.
+      **Done 2026-07-30 — build-order item 13.** Used `questionId` as the wire format instead of
+      `contextHash` (already unique per question, matches how `.review-question-block` is keyed).
 - [x] Resolve or explicitly document the `'created'`-vs-`'answered'` destination asymmetry for
       self-answered own talks — decide whether self-test answers should route to the same
       read-only response view as any other answer, or whether routing to the editor is intended
@@ -1398,9 +1414,11 @@ inconsistency in destination.
       retry affordance (not just a dead toast), and a successful retry opens the talk normally.
       **Done 2026-07-30:** `35-me-answer-dead-end-retry.spec.ts`. Confirmed it fails without the
       fix and passes 3/3 with it.
-- [ ] Test: `stage1`/`stage3` — a multi-question flow/route entry: clicking an individual nested
+- [x] Test: `stage1`/`stage3` — a multi-question flow/route entry: clicking an individual nested
       question's answer opens the talk scrolled/highlighted to that specific question, not just
       the talk's first screen.
+      **Done 2026-07-30:** `36-per-question-deep-link.spec.ts` (stage1). Confirmed it fails
+      without the fix and passes 3/3 with it.
 - [x] Test: `stage1` — a self-answered own-created talk's Me-tab entry: confirm which destination
       it opens (editor or response view) matches the resolved design decision above.
       **Done 2026-07-30:** `05-talks-edit.spec.ts` — "Self-answered own talk: Me-tab entry opens

@@ -93,6 +93,10 @@ type TalkResponseDialogOptions = {
   /** TODO §Q: Talk → Me-tab Q&A reverse edge. Present only when this talk has already been
    *  answered by me — shows a "View in My Answers" link that jumps to the Me-tab entry. */
   viewInMyAnswers?: () => void;
+  /** TODO §P: per-question deep link. When viewing a multi-question review, scrolls to and
+   *  highlights the `.review-question-block` for this questionId instead of just landing on
+   *  the talk as a whole. */
+  targetQuestionId?: string;
 };
 
 /**
@@ -204,6 +208,21 @@ function injectViewInMyAnswersLink(modal: HTMLElement, options: TalkResponseDial
   link.textContent = options.text?.('talksViewInMyAnswers') || 'View in My Answers';
   link.addEventListener('click', () => options.viewInMyAnswers?.());
   header.appendChild(link);
+}
+
+/**
+ * TODO §P: per-question deep link. Scrolls/highlights the `.review-question-block` matching
+ * `options.targetQuestionId`, so opening a multi-question entry from a specific answer lands on
+ * that question instead of only the talk's first screen.
+ */
+function scrollToTargetQuestion(modal: HTMLElement, options: TalkResponseDialogOptions): void {
+  if (!options.targetQuestionId) return;
+  const escape = (window.CSS?.escape ?? ((v: string) => v)) as (v: string) => string;
+  const block = modal.querySelector(`.review-question-block[data-question-id="${escape(options.targetQuestionId)}"]`);
+  if (!block) return;
+  block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  block.classList.add('answer-item-highlighted');
+  window.setTimeout(() => block.classList.remove('answer-item-highlighted'), 2000);
 }
 
 export function showTalkResponseDialog(options: TalkResponseDialogOptions): void {
@@ -348,7 +367,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
               </label>`;
             })
             .join('');
-          return `<div class="review-question-block" style="margin-bottom:18px;">
+          return `<div class="review-question-block" data-question-id="${options.escapeHtml(q.id)}" style="margin-bottom:18px;">
             <div style="font-weight:600;margin-bottom:8px;">${options.escapeHtml(q.text)}</div>
             <div class="review-answers-list">${answersHtml}</div>
             ${!filled ? `<p style="color:#999;font-size:0.9em;font-style:italic;">— ${text('responseNeedsInput' as UiTranslationKey, 'Please choose an answer')}</p>` : ''}
@@ -378,6 +397,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
       injectViewInMyAnswersLink(modal, options);
       document.body.appendChild(modal);
+      scrollToTargetQuestion(modal, options);
 
       // Live update reviewAnswers when user selects a radio
       modal.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((radio) => {

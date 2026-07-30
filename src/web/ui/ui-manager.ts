@@ -4724,18 +4724,18 @@ export class UIManager extends EventEmitter {
    * to the editor. Route through showTalkDetail's preferAnswerView option instead of duplicating
    * its role/fullTalk lookup here.
    */
-  private showTalkDetailAsAnswer(talkId: string): void {
-    this.showTalkDetail(talkId, undefined, { preferAnswerView: true });
+  private showTalkDetailAsAnswer(talkId: string, questionId?: string): void {
+    this.showTalkDetail(talkId, undefined, { preferAnswerView: true, ...(questionId ? { questionId } : {}) });
   }
 
-  private showTalkDetail(talkId: string, identityKeyFallback?: string, options?: { preferAnswerView?: boolean }): void {
+  private showTalkDetail(talkId: string, identityKeyFallback?: string, options?: { preferAnswerView?: boolean; questionId?: string }): void {
     const raw = (talkId || '').trim();
     const tid = isValidTalkId(raw) ? raw : '';
     if (!tid && identityKeyFallback) {
       this.emit('demandFullTalkByIdentity', {
         identityKey: identityKeyFallback,
         callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
+          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
           else this.showNotification(this.t('talksCouldNotLoad'), 'error');
         },
       });
@@ -4756,7 +4756,7 @@ export class UIManager extends EventEmitter {
         this.emit('loadTalkForEdit', { talkId: tid });
       } else if ((talk.role === 'answered' || talk.role === 'copied' || preferAnswerView) && talk.fullTalk) {
         // Open response view without auto-answering (avoid instant "Match!" toast when just viewing)
-        this.showTalkResponseDialog(talk.fullTalk, { skipAutoAnswer: true });
+        this.showTalkResponseDialog(talk.fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
       } else {
         this.showNotification(this.tf('talksDetailNotice', { title: talk.title }), 'info');
       }
@@ -4766,7 +4766,7 @@ export class UIManager extends EventEmitter {
         talkId: tid,
         identityKeyFallback: identityKeyFallback || undefined,
         callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
+          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
           // TODO §P: a real retry, not a one-shot toast whose copy claims retry it doesn't
           // perform — clicking re-runs this same lookup (mesh cache/identity-key resolution
           // may have caught up since the first attempt).
@@ -6072,13 +6072,14 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string }): void {
+  showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string; targetQuestionId?: string }): void {
     const talkId = String(talk?.id || '');
     openTalkResponseDialog({
       talk,
       ...(options?.skipAutoAnswer !== undefined ? { skipAutoAnswer: options.skipAutoAnswer } : {}),
       ...(options?.isTalkSuperseded ? { isTalkSuperseded: true } : {}),
       ...(options?.senderName ? { senderName: options.senderName } : {}),
+      ...(options?.targetQuestionId ? { targetQuestionId: options.targetQuestionId } : {}),
       escapeHtml: escapeHtml,
       showNotification: this.showNotification.bind(this),
       completeTalk: this.completeTalk.bind(this),
