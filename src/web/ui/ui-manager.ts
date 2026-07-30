@@ -890,6 +890,12 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
           <div class="header-actions app-bar-right" id="header-actions">
+            <!-- TODO §N2: visible from every tab (no data-appbar-view, so syncAppBarActionsForView's
+                 per-view hide/show never touches it) — opens a sorted list of senders with unread
+                 messages, badge-driven off the same aggregate unread count updateMatchBadge computes. -->
+            <button type="button" class="header-btn" id="dm-inbox-btn" data-testid="dm-inbox-btn" title="Direct messages">
+              <span class="app-bar-btn-icon">💬</span>
+            </button>
             <span class="app-bar-actions" id="app-bar-actions">
               <button class="header-btn app-bar-action-btn" id="create-talk-btn" data-testid="create-talk-btn" data-appbar-view="chatrooms talks" data-appbar-priority="0" title="Create talk"><span class="app-bar-btn-icon">➕</span><span class="app-bar-btn-label">Create talk</span></button>
               <button type="button" class="header-btn app-bar-action-btn status-broadcast-btn" id="broadcast-talk-btn" data-testid="broadcast-talk-btn" data-appbar-view="chatrooms" data-appbar-priority="1" title="Send every talk in your OUT list to everyone in this chatroom"><span class="app-bar-btn-icon">📣</span><span class="app-bar-btn-label">Broadcast</span></button>
@@ -1393,6 +1399,9 @@ export class UIManager extends EventEmitter {
   }
 
   private setupEventListeners(): void {
+    // TODO §N2: always-visible DM inbox affordance, reachable from every tab.
+    document.getElementById('dm-inbox-btn')?.addEventListener('click', () => this.showDmInboxPicker());
+
     const sendButton = document.getElementById('send-button');
     const messageInput = document.getElementById('message-input') as HTMLTextAreaElement;
     const createTalkBtn = document.getElementById('create-talk-btn');
@@ -1990,6 +1999,65 @@ export class UIManager extends EventEmitter {
       if (event.target === modal) close();
     });
     modal.querySelectorAll<HTMLElement>('.talk-dm-picker-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const id = row.dataset.userId || '';
+        const name = row.dataset.userName || '';
+        close();
+        if (id) this.navigateToGraphNode({ type: 'person', id, name });
+      });
+    });
+  }
+
+  /**
+   * TODO §N2: the "no matter which tab" affordance — reachable from every tab via #dm-inbox-btn
+   * (badge-driven off the same aggregate unread count updateMatchBadge computes), lists senders
+   * with unread messages sorted most-recent-first. Modeled on showChooseWhoToDmPicker's modal
+   * skeleton; picking a row navigates via the same navigateToGraphNode 'person' destination.
+   */
+  private showDmInboxPicker(): void {
+    document.getElementById('dm-inbox-modal')?.remove();
+    const conversations = this.getMyConversations();
+    const unread = Object.entries(conversations)
+      .filter(([, conv]: [string, any]) => conv?.unread && conv.supportChannel !== true && conv.otherUserId)
+      .map(([, conv]: [string, any]) => ({
+        id: String(conv.otherUserId),
+        name: this.getPeerName(conv.otherUserId, conv.otherUserName),
+        unreadCount: Number(conv.unreadCount || 0) || 1,
+        lastMessageTime: conv.lastMessageTime || conv.createdAt || '',
+      }))
+      .sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
+
+    const modal = document.createElement('div');
+    modal.id = 'dm-inbox-modal';
+    modal.className = 'modal-overlay';
+    const rows = unread.length > 0
+      ? unread
+          .map(
+            (person) => `
+      <div class="dm-inbox-row" data-user-id="${escapeHtml(person.id)}" data-user-name="${escapeHtml(person.name)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;background:var(--bg-muted);border-radius:8px;margin-bottom:6px;cursor:pointer;">
+        <span style="font-weight:600;">${escapeHtml(person.name)}</span>
+        <span class="notification-badge" style="position:static;">${person.unreadCount > 99 ? '99+' : person.unreadCount}</span>
+      </div>
+    `,
+          )
+          .join('')
+      : `<p style="text-align:center;color:#999;padding:16px 0;">${this.t('dmInboxEmpty')}</p>`;
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:380px;">
+        <div class="modal-header">
+          <h2 class="modal-title">${this.t('dmInboxTitle')}</h2>
+          <button class="close-button" id="close-dm-inbox-modal">&times;</button>
+        </div>
+        <div style="padding:16px;">${rows}</div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    document.getElementById('close-dm-inbox-modal')?.addEventListener('click', close);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) close();
+    });
+    modal.querySelectorAll<HTMLElement>('.dm-inbox-row').forEach((row) => {
       row.addEventListener('click', () => {
         const id = row.dataset.userId || '';
         const name = row.dataset.userName || '';
@@ -8079,6 +8147,20 @@ export class UIManager extends EventEmitter {
         badge.className = 'notification-badge';
         badge.textContent = unreadCount > 99 ? '99+' : unreadCount.toString();
         meTab.appendChild(badge);
+      }
+    }
+
+    // TODO §N2: same aggregate count badges the always-visible DM inbox icon, reachable from
+    // every tab (unlike the Me-tab badge above, which only shows while on the Me tab).
+    const dmInboxBtn = document.getElementById('dm-inbox-btn');
+    if (dmInboxBtn) {
+      const existingBadge = dmInboxBtn.querySelector('.notification-badge');
+      if (existingBadge) existingBadge.remove();
+      if (unreadCount > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'notification-badge';
+        badge.textContent = unreadCount > 99 ? '99+' : unreadCount.toString();
+        dmInboxBtn.appendChild(badge);
       }
     }
   }

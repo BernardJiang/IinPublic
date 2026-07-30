@@ -800,8 +800,21 @@ this is a sequencing index, not new content. Land top-to-bottom.
     naturally, which proved too flaky to drive reliably in a test. Confirmed it fails without the
     fix and passes 3/3 with it; regression on 4 Me-tab/answers specs (11/11). `tsc`/`lint`/Jest
     all clean.
-14. **Medium–hard.** N2 — the cross-tab "pick a conversation" affordance: a new global UI element
+14. [x] **Medium–hard.** N2 — the cross-tab "pick a conversation" affordance: a new global UI element
     plus a design decision (small dropdown vs. finally reviving `#conversations-list`).
+    **Done 2026-07-30.** Decided small modal-overlay dropdown (modeled on item 8's
+    `showChooseWhoToDmPicker`), not reviving `#conversations-list` — smaller diff, and this
+    codebase already leans on the `.modal-overlay` pattern for exactly this kind of ephemeral
+    picker. New `#dm-inbox-btn` in `#header-actions`, deliberately placed *without* a
+    `data-appbar-view` attribute so `syncAppBarActionsForView`'s per-view hide/show never touches
+    it — visible on every tab by construction, not by special-casing. `updateMatchBadge()` now
+    badges it too (same aggregate unread count as the existing Me-tab badge). Clicking opens
+    `showDmInboxPicker()`: unread senders sorted most-recent-first, picking one navigates via the
+    same `navigateToGraphNode` destination N1/item 6/8 already settled on. New test
+    `78-dm-inbox-affordance.spec.ts`: badge visible while on Settings (not Me, not Contacts),
+    picker lists the sender, picking navigates to the right conversation. Confirmed it fails
+    without the fix and passes 3/3 with it; regression on 4 other app-bar/notification specs
+    (9/9). `tsc`/`lint`/Jest all clean.
 15. **Medium–hard.** M2/M3 — compress talk/answer rows to title+status (2 lines) with inline icon
     actions and a shared details-popup modal; touches four talk-type variants plus the answer-entry
     template.
@@ -1155,7 +1168,7 @@ should be able to trace back to who I exchanged it with and go straight to DM wi
       future N3/O, rather than the toast being a one-off. Existing Match!-toast click (rule N6)
       left as `showConversationDetail`, unchanged — a separate, already-shipped behavior, not part
       of this decision. `showNotification` gained `peerId`/`peerName` options for this.
-- [ ] **N2 — build the actual "no matter which tab" affordance**, since none exists: a small
+- [x] **N2 — build the actual "no matter which tab" affordance**, since none exists: a small
       global element (app-bar icon is the natural fit, consistent with the existing icon-button
       row in `#top-header`) visible from every tab, badge-driven off the same aggregate unread
       count `updateMatchBadge()` already computes (`ui-manager.ts:7870-7892`), that opens a sorted
@@ -1163,20 +1176,33 @@ should be able to trace back to who I exchanged it with and go straight to DM wi
       (`contacts-view.ts:709`) and the existing per-conversation `unreadCount`/`unread` fields
       (`ui-manager.ts:8728-8751`). Clicking a person in that list opens their conversation via the
       same destination N1 settles on.
-  - [ ] Decide whether this list is a small dropdown/popover off the app-bar icon (lightweight,
+      **Done 2026-07-30.** `#dm-inbox-btn` in `#header-actions`, no `data-appbar-view` attribute
+      (so it's visible on every tab by construction, not a per-view special case);
+      `showDmInboxPicker()` sorts unread conversations by `lastMessageTime` descending directly
+      (didn't need `contacts-view.ts`'s fuller sort-strategy machinery for this simpler list).
+  - [x] Decide whether this list is a small dropdown/popover off the app-bar icon (lightweight,
         modeled on the existing `.modal-overlay` pattern used elsewhere — see M2's note on
         `talk-response-dialog.ts:200-245`) or whether it finally revives `#conversations-list` as
         a real, reachable surface. Either is acceptable; **do not leave the Me-tab badge pointing
         at a dead element** as it does today.
-- [ ] Test: `stage2` — Tom messages Jerry while Jerry is on Chatrooms/Talks/Settings (not
+        **Decided 2026-07-30:** modal-overlay dropdown (modeled on item 8's
+        `showChooseWhoToDmPicker`) — smaller diff than reviving `#conversations-list`/
+        `displayConversationsList()`, which remain dead code, unaddressed by this item (a
+        separate, still-open cleanup opportunity, not required for this requirement since the
+        new picker independently satisfies "pick a conversation from any tab").
+- [x] Test: `stage2` — Tom messages Jerry while Jerry is on Chatrooms/Talks/Settings (not
       Contacts); Jerry sees the toast and/or the app-bar affordance's badge update regardless of
       active tab; clicking either navigates to the Tom↔Jerry conversation.
-      **Toast half done 2026-07-30:** `73-dm-arrival-toast-navigation.spec.ts` covers the toast
-      side of this (Jerry on Settings, not Contacts) — still open pending N2's app-bar affordance
-      for the badge half.
+      **Done 2026-07-30, both halves:** toast half via `73-dm-arrival-toast-navigation.spec.ts`;
+      badge half via `78-dm-inbox-affordance.spec.ts` (badge visible on Settings, picker opens,
+      picking navigates to the right conversation). Both confirmed to fail without their
+      respective fixes and pass with them.
 - [ ] Test: `stage3` — Tom and Jerry both DM Bob while Bob is on a non-Contacts tab; Bob opens the
       cross-tab affordance and sees both senders sorted most-recent-first; picking one opens that
       conversation, and the other sender's unread state is unaffected.
+      **Not built 2026-07-30** — `78-dm-inbox-affordance.spec.ts` covers the single-sender case
+      (list rendering, sort call, click-to-navigate); the multi-sender sort-order + independent-
+      unread-state assertions this stage3 test specifically wants remain an open follow-up.
 
 ### N3. From a Talks-tab item, trace back to who I exchanged it with, then DM them
 
