@@ -280,8 +280,11 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#contacts-sort-order option[value="weighted"]')).toHaveText('相关性得分');
     const supportContact = p.locator('#contacts-list .contact-support-item');
     await expect(supportContact).toContainText('TechSupport');
-    await expect(supportContact).toContainText('内置支持联系人');
-    await expect(supportContact).toContainText('支持通知已开启');
+    // TODO §M5: the row is compact now — "内置" comes from the pinned badge (the old dedicated
+    // "内置支持联系人" line was dropped as redundant with it), and mute state is a small inline
+    // icon, not a full-sentence line.
+    await expect(supportContact).toContainText('内置');
+    await expect(supportContact.locator('.techsupport-mute-indicator')).toHaveAttribute('data-support-muted', 'false');
     await p.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       await app.gunService.put('user-public-profile/localized-peer', {

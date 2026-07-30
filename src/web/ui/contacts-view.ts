@@ -727,13 +727,16 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     if (status) status.textContent = formatCountText(deps, visiblePeers.length, 'contactsCountOne', 'contactsCount');
 
     const supportOnline = deps.isTechSupportOnline();
+    // TODO §M5: compact to a single line — the "Built-in" badge already conveys what the old
+    // dedicated "Built-in support contact" line said, so that line is dropped entirely rather
+    // than merged; mute state becomes a small inline icon (full explanation still reachable via
+    // openSupportControlsDialog, not lost) instead of its own full-sentence line.
+    const supportMuted = deps.isSupportNotificationsMuted();
     const supportRow = showSupportContact
       ? `
           <div class="contact-item contact-support-item" data-support-contact="true" data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}" data-contact-name="${TECHSUPPORT_STAGE_NAME}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: var(--accent-soft); border-radius: 12px; border: 1px solid var(--accent-border); cursor: pointer;">
             <div style="min-width:0;">
-              <div class="contact-item-name" style="font-weight:700;">${TECHSUPPORT_STAGE_NAME}<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-hover);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsSupportPinned')}</span><span class="techsupport-presence-indicator ${supportOnline ? 'online' : 'away'}" data-techsupport-online="${supportOnline}" aria-label="${deps.text(supportOnline ? 'contactsSupportOnline' : 'contactsSupportAway')}"></span></div>
-              <div class="contact-item-meta" style="font-size:0.85em;color:var(--accent-text);margin-top:4px;">${deps.text('contactsSupportBuiltIn')}</div>
-              <div class="contact-item-meta" style="font-size:0.8em;color:var(--text-tertiary);margin-top:4px;">${deps.text(deps.isSupportNotificationsMuted() ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}</div>
+              <div class="contact-item-name" style="font-weight:700;">${TECHSUPPORT_STAGE_NAME}<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-hover);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsSupportPinned')}</span><span class="techsupport-presence-indicator ${supportOnline ? 'online' : 'away'}" data-techsupport-online="${supportOnline}" aria-label="${deps.text(supportOnline ? 'contactsSupportOnline' : 'contactsSupportAway')}"></span><span class="techsupport-mute-indicator" data-support-muted="${supportMuted}" aria-label="${deps.text(supportMuted ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}" style="margin-left:6px;font-size:0.85em;">${supportMuted ? '🔕' : '🔔'}</span></div>
             </div>
             <span style="color:var(--accent); flex-shrink:0;">›</span>
           </div>

@@ -711,7 +711,17 @@ this is a sequencing index, not new content. Land top-to-bottom.
    currently a no-op. New test `74-talk-row-person-traceback.spec.ts`, confirmed it fails without
    the fix and passes 3/3 with it; regression pass on `05-talks-edit`, `00i-p0-direct-talk-delivery`,
    `69-matched-talk-threads`, `00f-ux-contacts-talks-answers` (5/5). `tsc`/`lint`/Jest all clean.
-7. **Easy–medium.** M5 — compact the TechSupport contact row (well-scoped, one file, no new modal).
+7. [x] **Easy–medium.** M5 — compact the TechSupport contact row (well-scoped, one file, no new modal).
+   **Done 2026-07-30.** Row is now a single content line (down from 3): dropped the dedicated
+   "Built-in support contact" line entirely (redundant — the "Built-in" pinned badge already says
+   this), and replaced the full-sentence mute-status line with a small inline 🔕/🔔 icon
+   (`aria-label` keeps the full text for screen readers; `openSupportControlsDialog`, already
+   reachable, still shows the full explanation). `contactsViewDeps()` untouched, per scope.
+   4 pre-existing E2E specs asserted the removed full-sentence lines directly on the row
+   (`00k-techsupport-contact-mute`, `00-ui-navigation-settings`) — updated to check the badge text
+   + `data-support-muted` attribute instead; added a `.contact-item-meta` count(0) assertion for
+   the line-count requirement. Regression: 12/12 passed across all 5 affected specs. Confirmed the
+   new assertions fail without the fix. `tsc`/`lint`/Jest all clean.
 8. **Medium.** N3, multi-partner case — the "choose who to DM" picker, modeled on the existing
    `#peer-send-picker-modal` pattern.
 9. **Medium.** P — the actual dead-end fix: a real retry when `demandFullTalk` fails, instead of
@@ -934,22 +944,38 @@ somewhere visible), but take up less space than it does today.
     `visiblePeers` (`contacts-view.ts:742`), so it's always pinned to the top regardless of sort
     order, and excluded from the self-heal peer-iteration loop (`contacts-view.ts:787`). Visibility
     (not position) is gated by `showSupportContact` (`contacts-view.ts:669`).
-- [ ] Compress the row to match (or be smaller than) an ordinary row's footprint — collapse the
+- [x] Compress the row to match (or be smaller than) an ordinary row's footprint — collapse the
       "Built-in support contact" label and the notifications-muted/on status into the same line as
       the name (e.g. as a compact badge/icon next to the presence dot, not a separate line each).
       Keep the "Pinned"-to-top positioning and the presence indicator itself — the requirement is
       shrinking the footprint, not removing the special treatment or hiding the contact.
-  - [ ] Move any detail that doesn't fit inline (e.g. full mute-state explanation) into the
+      **Done 2026-07-30.** Went one step further than merging into one meta line: the "Built-in
+      support contact" label was dropped entirely (the "Built-in" pinned badge on the name line
+      already says this — a genuinely redundant line, not just mergeable), and mute-state became a
+      🔕/🔔 icon next to the presence dot. Result: the row's content is a single line, no
+      `.contact-item-meta` divs at all (an ordinary row has 2).
+  - [x] Move any detail that doesn't fit inline (e.g. full mute-state explanation) into the
         existing peer-detail/relationship modal (`openSupportControlsDialog`) rather than a new
         row-level popup — TechSupport already has a dedicated controls dialog reachable from the
         row, unlike the Talks/Me items in M2/M3.
-- [ ] Do not touch `contactsViewDeps()` (`ui-manager.ts:1858-1897`, three call sites at `1900`,
+        **Done 2026-07-30.** Already true without changes needed — `openSupportControlsDialog`
+        (`contacts-view.ts:157`) already renders both the full "Built-in support contact"
+        description and the full mute-status sentence; only the row template needed to stop
+        duplicating that text.
+- [x] Do not touch `contactsViewDeps()` (`ui-manager.ts:1858-1897`, three call sites at `1900`,
       `1904`, `7618`) — the fields it provides (`hasSupportContact`, `isTechSupportOnline`,
       `isSupportNotificationsMuted`) stay the same; only the row template's use of them changes
       from separate lines to inline elements.
-- [ ] Test: `stage1` — TechSupport's contact row renders at (or below) the line-count of an
+      **Confirmed 2026-07-30:** `contactsViewDeps()` diff is empty; only the `supportRow` template
+      in `contacts-view.ts` changed.
+- [x] Test: `stage1` — TechSupport's contact row renders at (or below) the line-count of an
       ordinary row, still appears pinned at the top of Contacts regardless of sort order, and its
       presence indicator + mute state are still readable (inline instead of on their own lines).
+      **Done 2026-07-30:** extended `00k-techsupport-contact-mute.spec.ts` with a
+      `.contact-item-meta` count(0) assertion (line-count) plus `.techsupport-mute-indicator`
+      `data-support-muted` checks (mute state still readable, machine-checkable); pinned-to-top
+      positioning was already covered by existing assertions in that spec and untouched by this
+      change. Confirmed these assertions fail without the fix.
 
 ### M6. Show headshots on ordinary contact rows
 

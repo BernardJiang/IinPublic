@@ -64,7 +64,15 @@ test.describe('TechSupport built-in contact controls', () => {
     await afterNav();
     const supportRow = page.locator(`.contact-support-item[data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await expect(supportRow).toBeVisible({ timeout: 15_000 });
-    await expect(supportRow).toContainText('Built-in support contact');
+    // TODO §M5: the row is compact now — "Built-in" comes from the pinned badge (the old
+    // dedicated "Built-in support contact" line was dropped as redundant with it), and mute
+    // state is a small inline icon, not a full-sentence line.
+    await expect(supportRow).toContainText('Built-in');
+    await expect(supportRow.locator('.techsupport-mute-indicator')).toHaveAttribute('data-support-muted', 'false');
+    // TODO §M5 test: the row renders at or below an ordinary row's line-count. Ordinary rows
+    // carry 2 .contact-item-meta lines; the support row now carries zero (name/badge/presence/
+    // mute-icon all live on the single .contact-item-name line).
+    await expect(supportRow.locator('.contact-item-meta')).toHaveCount(0);
 
     await supportRow.click();
     // Rule N2a: the row click opens the support conversation on top of the User layout.
@@ -79,7 +87,7 @@ test.describe('TechSupport built-in contact controls', () => {
 
     await page.click('#back-from-peer-detail');
     await afterSync();
-    await expect(supportRow).toContainText('Support notifications are muted locally.');
+    await expect(supportRow.locator('.techsupport-mute-indicator')).toHaveAttribute('data-support-muted', 'true');
     await expect
       .poll(() => page!.evaluate((userId) => localStorage.getItem(`iinpublic_support_notifications_muted:${userId}`), currentUserId), {
         timeout: 10_000,
