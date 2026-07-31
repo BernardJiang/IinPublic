@@ -161,10 +161,17 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await afterSync();
     const answersContent = pageJerry.locator('#answers-content');
     await expect(answersContent.getByText('Tom Out Talk').first()).toBeVisible({ timeout: 15000 });
-    await expect(answersContent.getByText('Do you want to join Tom?').first()).toBeVisible({ timeout: 10000 });
-    await expect(answersContent.getByText('No thanks.').first()).toBeVisible({ timeout: 10000 });
-    await expect(answersContent.getByText(/1 item/i).first()).toBeVisible({ timeout: 10000 });
-    await expect(answersContent.getByText(/answered 1 time/i).first()).toBeVisible({ timeout: 10000 });
+    // Outcome is still visible on the entry's own status line (§M3).
     await expect(answersContent.getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
+    // TODO §M3: the metadata line and the per-question prompt/answer detail moved into the
+    // entry's hidden .answer-item-details, opened via its "ℹ️" icon into the shared M2 popup.
+    const answerRow = answersContent.locator('.answer-talk-item').filter({ hasText: 'Tom Out Talk' }).first();
+    await answerRow.locator('.answer-details-btn').click();
+    const popup = pageJerry.locator('#item-details-popup');
+    await expect(popup).toBeVisible({ timeout: 10_000 });
+    await expect(popup.getByText('Do you want to join Tom?').first()).toBeVisible({ timeout: 10000 });
+    await expect(popup.getByText('No thanks.').first()).toBeVisible({ timeout: 10000 });
+    await expect(popup.getByText(/1 item/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(popup.getByText(/answered 1 time/i).first()).toBeVisible({ timeout: 10000 });
   });
 });

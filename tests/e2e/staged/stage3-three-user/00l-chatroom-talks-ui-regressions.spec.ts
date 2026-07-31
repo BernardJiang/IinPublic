@@ -167,18 +167,22 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await expect(copiedOut).toBeVisible({ timeout: 30_000 });
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
     await expect(copiedOut.locator('.talk-badge-broadcast-enabled, .talk-badge-broadcast-disabled')).toHaveCount(0);
-    await expect(copiedBroadcastToggle()).toContainText('Broadcast On');
+    // TODO §M2: the broadcast toggle is now an icon-only inline button — its label lives in the
+    // title attribute, not visible text.
+    await expect(copiedBroadcastToggle()).toHaveAttribute('title', 'Broadcast On');
     await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'true');
     await expect(copiedOut.locator('.edit-talk-btn')).toHaveCount(0);
 
     await copiedBroadcastToggle().dispatchEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
     await expect(copiedOut).toHaveClass(/talk-broadcast-disabled/);
-    await expect(copiedBroadcastToggle()).toContainText('Broadcast Off');
+    // TODO §M2: the broadcast toggle is now an icon-only inline button — its label lives in the
+    // title attribute, not visible text.
+    await expect(copiedBroadcastToggle()).toHaveAttribute('title', 'Broadcast Off');
     await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'false');
 
     await copiedBroadcastToggle().dispatchEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
-    await expect(copiedBroadcastToggle()).toContainText('Broadcast On');
+    await expect(copiedBroadcastToggle()).toHaveAttribute('title', 'Broadcast On');
     await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'true');
 
     await copiedOut.evaluate((row: HTMLElement) => row.click());
