@@ -24,6 +24,27 @@ function warnIfSlow(view: string, ms: number, limit: number): void {
   if (ms > limit) console.warn(`[SLOW] ${view} took ${ms.toFixed(0)}ms (limit ${limit}ms)`);
 }
 
+async function pauseAfterTabSwitch(page: Page, view: ViewName): Promise<void> {
+  const pauseEnabled =
+    (globalThis as { process?: { env?: Record<string, string | undefined> } })
+      .process?.env?.E2E_PAUSE_ON_TAB_SWITCH === '1';
+  if (!pauseEnabled) return;
+
+  console.log(`[pause] Switched to ${view}. Press Space in the browser window to continue...`);
+  await page.evaluate(({ activeView }) => new Promise<void>((resolve) => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return;
+      event.preventDefault();
+      event.stopPropagation();
+      window.removeEventListener('keydown', onKeyDown, true);
+      resolve();
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    console.log(`[pause] Waiting on Space for tab: ${activeView}`);
+  }), { activeView: view });
+}
+
 async function seedLocalData(page: Page, userId: string): Promise<void> {
   await page.evaluate(
     ({ answersCount, authorId, talksPerType }) => {
@@ -237,6 +258,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         const t0 = await browserNow(page);
         await page.locator('.nav-btn[data-view="talks"]').click();
         await expect(page.locator('.nav-btn[data-view="talks"].active')).toBeVisible({ timeout: 15_000 });
+        await pauseAfterTabSwitch(page, 'talks');
         const shellMs = (await browserNow(page)) - t0;
         await expect.poll(() => page!.locator('.talk-list-item').count(), { timeout: E2E_ASSERT_TIMEOUT_MS })
           .toBeGreaterThanOrEqual(talksTotal);
@@ -259,6 +281,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         const t0 = await browserNow(page);
         await page.locator('.nav-btn[data-view="me"]').click();
         await expect(page.locator('.nav-btn[data-view="me"].active')).toBeVisible({ timeout: 15_000 });
+        await pauseAfterTabSwitch(page, 'me');
         const shellMs = (await browserNow(page)) - t0;
         if (NUM_ANSWERS > 0) {
           await expect.poll(() => page!.locator('#answers-content .answer-talk-item').count(), { timeout: E2E_ASSERT_TIMEOUT_MS })
@@ -280,6 +303,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         const t0 = await browserNow(page);
         await page.locator('.nav-btn[data-view="contacts"]').click();
         await expect(page.locator('.nav-btn[data-view="contacts"].active')).toBeVisible({ timeout: 15_000 });
+        await pauseAfterTabSwitch(page, 'contacts');
         const shellMs = (await browserNow(page)) - t0;
         const contactCount = await page.locator('#contacts-list .contact-item').count();
         const contentMs = (await browserNow(page)) - t0;
@@ -306,6 +330,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         const t0 = await browserNow(page);
         await page.locator('.nav-btn[data-view="chatrooms"]').click();
         await expect(page.locator('.chatroom-item').filter({ hasText: 'Global' }).first()).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
+        await pauseAfterTabSwitch(page, 'chatrooms');
         console.log(`[chatrooms] ok, render=${((await browserNow(page)) - t0).toFixed(0)}ms`);
       }
 
@@ -314,6 +339,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         const t0 = await browserNow(page);
         await page.locator('.nav-btn[data-view="settings"]').click();
         await expect(page.locator('#settings-content')).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
+        await pauseAfterTabSwitch(page, 'settings');
         console.log(`[settings]  ok, render=${((await browserNow(page)) - t0).toFixed(0)}ms`);
       }
 
