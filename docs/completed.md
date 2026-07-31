@@ -4164,7 +4164,7 @@ Requirement 2026-07-29 (Bernard): "for all other contacts, their headshots shoul
       re-testing it here would only re-prove the shared helper, not this row's new wiring.
       Confirmed the new spec fails without the fix and passes 3/3 with it.
 
-## 2026-07-30 — N: DM notification, cross-tab "pick a conversation" affordance, talk-row traceback (N1/N3 complete; N2 mostly complete)
+## 2026-07-30 — N: DM notification, cross-tab "pick a conversation" affordance, talk-row traceback (N1/N2/N3 complete)
 
 Moved from `docs/TODO.md` N.
 
@@ -4325,7 +4325,13 @@ clicking one does nothing beyond what clicking anywhere else on the row does.
       answered-history fallback path does, which has no id by design — noted as a pre-existing,
       out-of-scope quirk). Confirmed it fails without the fix, passes 3/3 with it.
 
-**Remaining (still open in `docs/TODO.md`):** N2's stage3 multi-sender test — two people DM the same user while they're on a non-Contacts tab; the cross-tab affordance must list both senders sorted most-recent-first and leave the other's unread state untouched when one is picked.
+- [x] Test: `stage3` — Tom and Jerry both DM Bob while Bob is on a non-Contacts tab; Bob opens the
+      cross-tab affordance and sees both senders sorted most-recent-first; picking one opens that
+      conversation, and the other sender's unread state is unaffected.
+      **Done 2026-07-30:** `79-dm-inbox-multi-sender.spec.ts`. No product code change needed —
+      `showDmInboxPicker` already sorted every unread conversation (not just one sender) by
+      `lastMessageTime` descending, and `showConversationDetail` already scoped its
+      unread-clearing to the opened conversation only. Confirmed 3/3 green.
 
 
 ## 2026-07-30 — O: Peer detail exchanged talks as pickable DM context

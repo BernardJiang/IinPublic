@@ -553,13 +553,9 @@ Storage grows without bound, and the badge data is the worst offender:
 
 ## N. DM notification, cross-tab "pick a conversation" affordance, talk-row traceback `[Opus]`
 
-> **N1 and N3 complete 2026-07-30** — see `docs/completed.md`. N2 (the cross-tab `#dm-inbox-btn`
-> "pick a conversation" affordance) is also complete for the single-sender case — see
-> `docs/completed.md` — but still needs its multi-sender stage3 test:
-
-- [ ] Test: `stage3` — Tom and Jerry both DM Bob while Bob is on a non-Contacts tab; Bob opens the
-      cross-tab affordance and sees both senders sorted most-recent-first; picking one opens that
-      conversation, and the other sender's unread state is unaffected.
+> **Complete 2026-07-30** — see `docs/completed.md`. N1 (clickable DM toast), N2 (`#dm-inbox-btn`
+> cross-tab picker, including the multi-sender stage3 test), and N3 (talk-row person traceback)
+> all done.
 
 ---
 
