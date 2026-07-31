@@ -1812,6 +1812,8 @@ mechanism at all** today, and a complete design for one already exists in the sp
 
 ## T. Chatroom-hierarchy broadcast isolation leak: room-scoped mesh session gets stomped back to a stale boot-time room `[Opus]`
 
+**Done 2026-07-30.** Both root causes resolved — see the two writeups below for full detail.
+
 Found 2026-07-30 investigating a genuinely reproducible (non-flaky, fails in full isolation)
 failure in `stage2/00h-chatroom-hierarchy-broadcast.spec.ts` ("Broadcaster on North America does
 not register inbox for peer joined only under United States" — FR-BM-7, parent-room broadcasts
@@ -1838,34 +1840,57 @@ touches `global` during his own boot) and leaking the broadcast to him.
       mesh-ping, mesh-response-match, and P0 direct-talk-delivery specs; full unit suite (1048
       tests), `tsc`, and `lint` all clean.
 
-**Root cause #2 (found, not yet fixed):** the same test *still* fails after the fix above — a
-second, distinct trigger re-invokes the same stale-'global'-reassignment pattern. Live
-instrumentation after the fix showed `this.currentChatroomId` itself (not just the mesh session)
-reverting to `'global'` a second time, from the same `subscribeToMembers` singular-slot race, but
-the synchronous stack trace only shows the debounced-timeout caller inside
-`WebChatroomService` (async origin lost) — the actual second caller that invokes the
-equivalent of `initializeChatrooms()`'s boot assignment (or emits `'chatroomChanged'` with
-`'global'`) a second time, later in the session, was not pinned down before time was reallocated
-to other work this session. Neither of the two known `'chatroomChanged'` emit sites
-(`chatrooms-view.ts:264`'s row-click, `app.ts:931`'s location-suggestion-banner Join click) fire in
-this test, so it's something else — possibly a second, independent call to
-`findOptimalChatroomHierarchical`-style room (re)assignment triggered by a location update, a
-reconnect/resume path, or similar.
+**Root cause #2 (found and resolved 2026-07-30) — revises the original hypothesis: not a product
+bug.** Instrumented `subscribeToMembers` and the `'chatroomChanged'` handler with synchronous
+stack traces (`new Error().stack`, routed through `console.trace` so the E2E console filter — which
+drops plain `console.log` unless `E2E_VERBOSE_CONSOLE=1` — didn't swallow it) and caught the actual
+second caller directly:
 
-- [ ] Find the second caller: instrument `subscribeToMembers` itself (`web-chatroom-service.ts`)
-      with a synchronous stack trace at the exact call site (not inside the debounced Gun
-      callback, which loses the async origin) to catch the actual second invocation with `'global'`
-      as the target room.
-- [ ] Fix it the same way as root cause #1 (guard against re-asserting a stale/default room once
-      the user has navigated elsewhere), or find the shared underlying cause and fix both at once
-      if it's the same trigger manifesting twice.
-- [ ] Once fixed, confirm `00h-chatroom-hierarchy-broadcast.spec.ts`'s "does not register inbox"
-      test passes reliably (run it standalone at least 3× in a row, per this session's own
-      verification convention for flaky-looking failures).
-- [ ] Audit whether this same class of bug (boot-time default-room assignment racing a fast
-      subsequent navigation) affects other mesh-room-scoped features beyond broadcast — e.g.
-      direct-peer-send, mailbox fallback targeting, or presence — since the underlying race is in
-      shared boot/navigation plumbing, not broadcast-specific code.
+```
+at UIManager.<anonymous> (bundle.js:21798:92)
+at UIManager.emit (bundle.js:3863:5)
+at showChatroomDetail (bundle.js:32594:14)
+at HTMLDivElement.<anonymous> (bundle.js:32522:17)
+```
+
+`showChatroomDetail` is the real source, called from `clickBroadcastUntilBulkAck`
+(`tests/e2e/helpers/talk-demo-ui.ts`) — a **test helper**, not product code. That helper always
+re-clicks the "chatrooms" nav tab internally, which (via `setupBottomNavigation()` in
+`ui-manager.ts`) unconditionally resets to the top-level room list — an existing, intentional, and
+**widely relied-upon** convention: `openHierarchyLeafRoom`/`openHierarchyNodeRoom` and several
+other E2E helpers depend on "click the chatrooms tab -> land on the room list" to then click a
+specific room row. Confirmed by trying the opposite fix first (guard the nav-tab handler so it
+preserves an already-open room detail, mirroring root cause #1's pattern) — it broke this same
+spec file's first test (`openHierarchyLeafRoom` could no longer find room rows, since the list it
+needs was no longer shown), proving the nav-tab reset itself is correct, intended behavior, not a
+race. `clickBroadcastUntilBulkAck`'s own fallback ("not currently showing a room detail? click
+Global") then fires on every call, discarding whatever specific room the caller actually wanted —
+no amount of re-entering the target room *before* calling the helper survives, because the helper's
+own internal nav-tab click undoes it every time it's invoked.
+**Audit answer:** this class of bug does **not** affect any production/user-facing code path —
+`'chatroomChanged'` has only its two known, user-click-driven emit sites (both already ruled out by
+the original investigation); the "stale room" here was never real user state, only this one test's
+interaction with a test-only helper's Global-default assumption.
+
+- [x] Find the second caller: instrumented `subscribeToMembers` and the `'chatroomChanged'`
+      handler with synchronous stack traces; found `clickBroadcastUntilBulkAck` (test helper),
+      not product code.
+- [x] Fix: rather than changing the shared nav-tab convention (proven unsafe above) or the
+      shared `clickBroadcastUntilBulkAck` helper (used correctly, with the Global default, by ~15
+      other spec files), fixed the one test that needed a different room: re-enter `north-america`
+      via `openHierarchyNodeRoom`, then call `app.deliverPendingBroadcastTalksForE2e` directly via
+      `page.evaluate` — the same E2E delivery path this file's own first test and most of this
+      session's other new specs already use — bypassing the click-based helper's room-selection
+      dance entirely instead of fighting it.
+- [x] Confirmed `00h-chatroom-hierarchy-broadcast.spec.ts`'s "does not register inbox" test passes
+      reliably: 5/5 standalone runs, plus the full 3-test file (all three pass together).
+- [x] Audit: not applicable — see "Audit answer" above. The underlying race root cause #1 fixed
+      (boot-time `initializeChatrooms` racing a fast subsequent navigation) was real product
+      plumbing and remains fixed; root cause #2 turned out to be test-only, so there is no second
+      product-level pattern to search for elsewhere (direct-peer-send, mailbox fallback, presence).
+
+`tsc`/`lint`/Jest (1048/1048) all clean. No production code changed for root cause #2 — only
+`tests/e2e/staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts`.
 
 ---
 

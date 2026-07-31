@@ -4,7 +4,6 @@ import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, delay, headless } from '../../helpers/timing';
 import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
@@ -168,12 +167,22 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
 
       await createSimpleFlowTalk(pageTom, 'Parent-room-only isolation');
 
-      await pageTom.click('.nav-btn[data-view="chatrooms"]');
-      await waitForTabActive(pageTom, 'chatrooms');
-      await afterSync();
-      await clickBroadcastUntilBulkAck(pageTom, { minGunPeers: 0 });
-      await waitForTabActive(pageTom, 'chatrooms');
+      // TODO §T root cause #2: clickBroadcastUntilBulkAck (like the generic hierarchy-navigation
+      // helpers) always re-clicks the "chatrooms" nav tab internally, which resets to the
+      // top-level room list — an existing, widely-relied-upon convention for those flows, not
+      // itself a bug. Its own "not in detail -> click Global" fallback then takes over and
+      // silently re-enters Global, discarding the 'north-america' room Tom actually wants to
+      // broadcast from — no amount of re-entering north-america beforehand survives the helper's
+      // own internal reset. Re-enter north-america, then call the E2E delivery path directly
+      // (same app.deliverPendingBroadcastTalksForE2e used throughout the rest of this suite),
+      // bypassing the click-based helper's room-selection dance entirely.
+      await openHierarchyNodeRoom(pageTom, 'north-america');
+      const delivery = await pageTom.evaluate(async () => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        return app.deliverPendingBroadcastTalksForE2e(0, { skipDeliveryAcks: true });
+      });
       // Tom is the only Gun member under `north-america`; Jerry is under `usa` only (FR-BM-7).
+      expect(delivery).toMatchObject({ receivers: 0 });
       await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 0 });
 
       const jerryId = await pageJerry.evaluate(
