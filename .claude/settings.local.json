@@ -56,7 +56,10 @@
       "mcp__plugin_claude-mem_mcp-search__smart_outline",
       "Bash(PW_WORKERS=10 npm run test:e2e)",
       "Bash(python3 -c ' *)",
-      "Bash(grep -v '^[0-9a-f]\\\\{20\\\\}\\\\.json$')"
+      "Bash(grep -v '^[0-9a-f]\\\\{20\\\\}\\\\.json$')",
+      "Bash(mkdir -p /tmp/pw-report-extract)",
+      "Read(//tmp/**)",
+      "Bash(unzip -o report.zip -d extracted)"
     ]
   }
 }
