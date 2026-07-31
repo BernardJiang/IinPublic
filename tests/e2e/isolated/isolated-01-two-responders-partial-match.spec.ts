@@ -5,7 +5,7 @@
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction } from '../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../helpers/broadcast-preamble';
@@ -41,7 +41,7 @@ test.describe('Talks matching — one match one mismatch from two responders', (
   let pageBob: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -63,7 +63,7 @@ test.describe('Talks matching — one match one mismatch from two responders', (
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Jerry matches, Bob mismatches → Tom sees exactly 1 match, no Bob conversation', async () => {

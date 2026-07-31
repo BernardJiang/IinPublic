@@ -26,7 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction, gotoAppReady } from '../helpers/timing';
 import {
   bootstrapUser,
@@ -50,7 +50,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(300_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
 
     const mk = (x: number) => ({
       headless: !!process.env.CI,
@@ -74,7 +74,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
     );
     await browserTom?.close().catch(() => {});
     await browserJerry?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Jerry mailboxes a match response while Tom is offline — Tom drains on reconnect', async () => {

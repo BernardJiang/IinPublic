@@ -255,8 +255,9 @@ fixture, K5's Items 1–5, K6 (fully, including its two stage1 tests), and L1/L2
 retention instrumentation have since landed too — see their `docs/completed.md` entries. What's
 left for the K/L series:
 
-- K4: converting the remaining ~210 `maybeClearGunDatabases()` call sites to progressive
-  multi-user snapshots, and deciding a stage for the non-staged test directories.
+- K4: the `clearGunForStage3/4/5Spec` helpers exist and `talks-matching`/`isolated-01` are wired to
+  them; ~174 call sites remain (stage2/3/4/5/mass/isolated-02) — deferred by scope decision, not a
+  correctness gap (every site already gets a valid built-in TechSupport today).
 - K5: complete except the `answeredBy` open design question (record the answering operator
   internally, display as TechSupport — proposed, not yet decided).
 - L1: removing the legacy visit-count scalars once one full staged run confirms nothing else reads
@@ -333,26 +334,32 @@ constructed in code, not a loaded stage. `maybeClearGunDatabases()`
 > Fixture + regeneration command, the shared baseline guard, and the contract-doc amendment are
 > complete — archived in `docs/completed.md` 2026-07-26.
 
-- [ ] Add `clearGunForStage3Spec` / `4` / `5` mirroring `clearGunForStage2Spec`
-      (`e2e-stage-pipeline.ts:151`), then convert the call sites in the table above,
-      **one directory per commit, running that directory's suite before moving on**:
-      stage2 (15) → stage4 (3) → stage5 (13) → `isolated` (6) → `mass` (9) →
-      `talks-matching` (36) → stage3 (128, largest and last). **Scope note:** every one of these
-      call sites already gets a validated built-in TechSupport today via
-      `seedTechSupportRootBaseline()` (now fixture-backed, see above) — this remaining item is
-      about giving stage3/4/5 the same *progressive multi-user* snapshot shortcut stage1/stage2
-      get in pipeline mode (faster setup, more realistic multi-user starting state), not about
-      TechSupport correctness, which is already guaranteed everywhere by
-      `verifyTechSupportBaseline()`. Not started — genuinely large (~210 call sites), deferred
-      pending a scope/priority decision.
+- [x] Added `clearGunForStage3Spec` / `4` / `5` mirroring `clearGunForStage2Spec`
+      (`e2e-stage-pipeline.ts`) — each loads the prior stage's snapshot under
+      `E2E_STAGE_PIPELINE=1`, falling back to a bare `clearGunDatabases()` otherwise, identical
+      branch structure to the already-proven stage1/stage2 helpers. **Done 2026-07-30.**
+- [x] Converted `talks-matching/`'s 36 call sites (12 files) and `isolated/isolated-01`'s 6 to
+      `clearGunForStage3Spec` — the specific pair the "Still to do" note below called out as
+      blocked on this helper existing. **Done 2026-07-30.** Verified: full `talks-matching/` suite
+      run (12/13 green — the one failure is a pre-existing, unrelated `stopHubProcess` 403 in
+      `07-mesh-ping-after-hub-stop.spec.ts`, confirmed present before this change too) plus
+      `isolated-01` standalone (`E2E_RUN_ISOLATED=1`), both exercising the non-pipeline
+      `clearGunDatabases()` fallback branch — the one actually reached by `run-test-all.sh` today,
+      since neither directory's phase sets `E2E_STAGE_PIPELINE=1`. The pipeline-snapshot branch
+      itself is unexercised in this session (same code shape as the proven stage1/stage2 helpers,
+      but no run script currently drives these two directories in pipeline mode) — flagged
+      honestly, not silently assumed.
+      **Scope decision (2026-07-30, user-confirmed):** the remaining ~174 call sites — stage2 (15),
+      stage4 (3), stage5 (13), `mass` (9), `isolated-02` (part of `mass`'s 9), and stage3 itself
+      (128, largest) — stay deferred. Every one of these already gets a validated built-in
+      TechSupport today via `seedTechSupportRootBaseline()` (fixture-backed); the deferred remainder
+      is purely the *progressive multi-user snapshot* speed/realism shortcut, not a correctness gap.
+      Revisit as its own scoped session if/when it becomes a priority.
 - [x] Non-staged dirs decided: `talks-matching/` and `isolated/`'s three-real-user specs should
       target **stage3** (audited actual `bootstrapUser()` patterns — corrects the earlier "stage2"
       hunch, which undercounted); `mass/`'s (and `isolated-02`'s) ephemeral N-browser-loop specs get
       no benefit from any fixed-population stage and stay on the bare stage0 fixture. Recorded in
       `tests/e2e/staged/README.md`. 2026-07-27.
-      - [ ] Still to do: actually wire `clearGunForStage3Spec` and convert the `talks-matching`/
-            `isolated-01` call sites once stage3's own pipeline helper exists (tracked above,
-            "Add `clearGunForStage3Spec`...").
 
 ### K5. TechSupport DM Q&A: ignore talks, answer questions `[Opus]`
 

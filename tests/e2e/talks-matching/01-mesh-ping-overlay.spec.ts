@@ -9,7 +9,7 @@
  */
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction } from '../helpers/timing';
 import {
   shutdownThreeBrowsers,
@@ -43,7 +43,7 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(180_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     // Launch with WebRTC mDNS flag so split-browser DataChannels work on loopback.
     const mk = (x: number) => ({
       headless: !!process.env.CI,
@@ -76,7 +76,7 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('mesh-ping reaches all three peers and no forbidden Gun writes occur', async () => {

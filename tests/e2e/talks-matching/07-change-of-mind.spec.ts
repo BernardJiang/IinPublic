@@ -20,7 +20,7 @@
 
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction } from '../helpers/timing';
 import {
   shutdownThreeBrowsers,
@@ -49,7 +49,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(300_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     const mk = (x: number) => ({
       headless: !!process.env.CI,
       args: [
@@ -81,7 +81,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Jerry ignores both; changes to match -> Tom+Bob get conversations; stale update rejected', async () => {

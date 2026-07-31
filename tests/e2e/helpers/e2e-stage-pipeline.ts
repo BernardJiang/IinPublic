@@ -165,6 +165,43 @@ export async function saveStage2SnapshotFromAdamJoinBaseline(): Promise<void> {
   await saveStageSnapshot('stage2');
 }
 
+/**
+ * Stage-3 specs expect a predictable TechSupport + Adam + Eve baseline (docs/TODO.md K4).
+ * In the staged pipeline, start from the stage2 snapshot (`saveStageSnapshot('stage2')`,
+ * written by stage2's own `zzz-save-stage2.spec.ts`) rather than a bare clear.
+ */
+export async function clearGunForStage3Spec(): Promise<void> {
+  if (isStagePipeline()) {
+    await loadStageSnapshot('stage2');
+    return;
+  }
+  await clearGunDatabases();
+}
+
+/**
+ * Stage-4 specs start from the stage3 snapshot (written by
+ * `staged/stage3-three-user/00-aaa-stage3-eve-joins.spec.ts`).
+ */
+export async function clearGunForStage4Spec(): Promise<void> {
+  if (isStagePipeline()) {
+    await loadStageSnapshot('stage3');
+    return;
+  }
+  await clearGunDatabases();
+}
+
+/**
+ * Stage-5 specs start from the stage4 snapshot (written by
+ * `staged/stage4-four-user/zzz-save-stage4.spec.ts`).
+ */
+export async function clearGunForStage5Spec(): Promise<void> {
+  if (isStagePipeline()) {
+    await loadStageSnapshot('stage4');
+    return;
+  }
+  await clearGunDatabases();
+}
+
 export async function resetToStage0Empty(): Promise<void> {
   fs.rmSync(stageSnapshotsDir(), { recursive: true, force: true });
   await clearGunDatabases({ seedTechSupportRoot: false });

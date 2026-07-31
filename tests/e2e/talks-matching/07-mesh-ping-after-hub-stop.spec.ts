@@ -5,7 +5,7 @@
  * so the test can terminate the hub process during execution.
  */
 import { chromium, BrowserContext, Page, expect, test } from '@playwright/test';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction } from '../helpers/timing';
 import {
   shutdownThreeBrowsers,
@@ -48,7 +48,7 @@ test.describe('Mesh-ping after process-level hub stop', () => {
 
   test.beforeAll(async ({}) => {
     test.setTimeout(180_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     const mk = (x: number) => ({
       headless: !!process.env.CI,
       args: [

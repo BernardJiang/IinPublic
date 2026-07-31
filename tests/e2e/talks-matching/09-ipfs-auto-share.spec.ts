@@ -10,7 +10,8 @@
 
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases, gotoWebApp } from '../helpers/clear-database';
+import { gotoWebApp } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterAction, afterLoad, afterSync } from '../helpers/timing';
 import {
   shutdownThreeBrowsers,
@@ -98,7 +99,7 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
 
   test.beforeAll(async () => {
     test.setTimeout(TEST_TIMEOUT_MS);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     const launch = (x: number) => chromium.launch({
       headless: !!process.env.CI,
       args: [
@@ -118,7 +119,7 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('shares once, decrypts for the match only, and redrains idempotently', async () => {

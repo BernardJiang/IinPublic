@@ -11,7 +11,7 @@
  */
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction } from '../helpers/timing';
 import {
   shutdownThreeBrowsers,
@@ -64,7 +64,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(180_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test.beforeEach(async () => {
@@ -77,7 +77,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
       await shutdownThreeBrowsers(browsers);
       await afterSync();
     }
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     pageTom = pageJerry = pageBob = undefined;
     contextTom = contextJerry = contextBob = undefined;
     const mk = (x: number) => ({
@@ -104,7 +104,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     if (browsersReady) await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('find-similar broadcast reaches eligible receivers over mesh, ineligible peer excluded', async () => {

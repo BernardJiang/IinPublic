@@ -8,7 +8,7 @@ covers: SPEC-20.3  <!-- auto-seeded; refine by hand -->
 
 ## Flow
 
-1. Tom, Jerry, and Bob bootstrap in parallel (three Chromium browsers) with `maybeClearGunDatabases`.
+1. Tom, Jerry, and Bob bootstrap in parallel (three Chromium browsers) after `clearGunForStage3Spec` (docs/TODO.md K4: loads the stage2 snapshot in pipeline mode, falls back to a bare clear otherwise).
 2. Mesh neighbors are established via `ensureMeshNeighbors` so each peer knows the other two.
 3. **Jerry's mailbox is intercepted:** `GET /api/mailbox/*` returns an empty envelope array to verify that no fallback traffic leaks while Jerry is "online".
 4. Tom retrieves his SEA pair and Jerry's public key, then calls `contentNodeService.publishAttachmentBytes` — encrypting arbitrary bytes for the recipient (Jerry). The blockstore call is monkey-patched so the encrypted ciphertext blob can be captured and later seeded into Jerry's node.
@@ -42,7 +42,7 @@ covers: SPEC-20.3  <!-- auto-seeded; refine by hand -->
 | `bootstrapUser(browser, userId, userName)` | Creates a new page + context, navigates to the app, boots under a given identity. |
 | `ensureMeshNeighbors(...)` | Drives presence so each peer connects its mesh DataChannels to the specified neighbor set. |
 | `finalCleanupPages(pages, contexts)` / `shutdownThreeBrowsers(browsers)` | Teardown helpers (close pages/contexts/browsers). |
-| `maybeClearGunDatabases()` | Clears GUN persistence before and after the test. |
+| `clearGunForStage3Spec()` | Loads the stage2 pipeline snapshot (or clears GUN persistence outside the staged pipeline) before and after the test. |
 
 ## Key design invariants verified
 

@@ -24,7 +24,7 @@
 
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction } from '../helpers/timing';
 import {
   shutdownThreeBrowsers,
@@ -77,7 +77,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(300_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     const mk = (x: number) => ({
       headless: !!process.env.CI,
       args: [
@@ -109,7 +109,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Tom exchanges tennis with Jerry; Jerry rebroadcasts tennis+chess; Tom receives chess only; Bob receives both; edited tennis delivered once', async () => {

@@ -7,7 +7,7 @@
  */
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction } from '../helpers/timing';
 import {
   shutdownThreeBrowsers,
@@ -45,7 +45,7 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(180_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     const mk = (x: number) => ({
       headless: !!process.env.CI,
       args: [
@@ -77,7 +77,7 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('peers keep mesh-ping reachability after hub API loss', async () => {
