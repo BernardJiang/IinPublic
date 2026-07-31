@@ -124,6 +124,7 @@ import {
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
 import { openPeerDetailView, refreshPeerThreadList } from './user-detail-view';
 import { avatarInnerHtml } from './profile-avatar';
+import { renderListProgressively } from './render-list-progressively';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
 import {
   deriveLocalCreatorReplies,
@@ -191,6 +192,8 @@ type CreatorReplyFilterState = {
 
 const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
 const CREATOR_REPLY_PAGE_SIZE = 25;
+/** TODO §R2: first-chunk size for the Talks tab's OUT/IN lists, same precedent as above. */
+const TALKS_FIRST_CHUNK_SIZE = 25;
 
 export type BroadcastAudiencePreview = {
   talkId: string;
@@ -322,6 +325,15 @@ export class UIManager extends EventEmitter {
   private creatorReplyRows: CreatorReplyRow[] = [];
   private creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
   private talksListDelegationBound = false;
+  /**
+   * TODO §R2: delegated (bound once) click handler for talk-row and matched/sender-people
+   * clicks — replaces two per-render `querySelectorAll(...).forEach(...)` listener-binding
+   * loops so a row rendered into `renderListProgressively`'s deferred remainder is
+   * interactive immediately, with nothing to (re-)attach.
+   */
+  private talksListClickDelegationBound = false;
+  /** TODO §R2: lets a newer `displayTalksList()` call's deferred remainder win over a stale one. */
+  private talksRenderSeq = 0;
   private chatroomActionDelegationBound = false;
   private incomingTalkClusters: any[] = [];
   private customChatrooms: CustomChatroomRow[] = [];
@@ -2421,6 +2433,7 @@ export class UIManager extends EventEmitter {
   displayTalksList(): void {
     const talksList = document.getElementById('talks-list');
     if (!talksList) return;
+    const renderSeq = ++this.talksRenderSeq;
     this.syncStatusBarMatchCount();
 
     const myTalks = getMyTalks();
@@ -2682,11 +2695,9 @@ export class UIManager extends EventEmitter {
         </div>
       `;
     } else {
-      const outHtml =
-        filteredOutEntries.length > 0
-          ? filteredOutEntries
-              .map(
-                ([talkId, talk]) => {
+      // TODO §R2: named so it can be passed to renderListProgressively as `renderRow`,
+      // instead of an inline .map() callback over the entire list at once.
+      const renderOutRow = ([talkId, talk]: [string, any]): string => {
                   const stats = this.talkStatsMap[talkId];
                   const matchedPeople = Object.values(conversations)
                     .filter((c: any) => c.talkId === talkId && c.otherUserId)
@@ -2797,15 +2808,10 @@ export class UIManager extends EventEmitter {
           </div>
         </div>
       `;
-                },
-              )
-              .join('')
-          : '';
+      };
 
-      const inHtml =
-        inEntries.length > 0
-          ? inEntries
-              .map((cluster: any) => {
+      // TODO §R2: named so it can be passed to renderListProgressively as `renderRow`.
+      const renderInRow = (cluster: any): string => {
                 const sendersObj = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
                 const senderNames = Array.from(
                   new Set(
@@ -2925,39 +2931,85 @@ export class UIManager extends EventEmitter {
           </div>
         </div>
       `;
-              })
-              .join('')
-          : '';
+      };
 
-      const sectionOut =
-        filteredOutEntries.length > 0
-          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: var(--text-secondary); background: var(--bg-muted); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+      // TODO §R2: header-only prefix (no row HTML — renderListProgressively renders the
+      // rows). Same visible markup as before, just split from the row content.
+      const sectionOutHeader = filteredOutEntries.length > 0
+        ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: var(--text-secondary); background: var(--bg-muted); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
                <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: var(--text-tertiary);">(${this.tf('talksOutSection', { count: this.formatTalkCount(filteredOutEntries.length) })})</span>
-             </div>${outHtml}`
-          : '';
-      const sectionIn =
-        inEntries.length > 0
-          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: var(--text-secondary); background: var(--bg-muted); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+             </div>`
+        : '';
+      const sectionInHeader = inEntries.length > 0
+        ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: var(--text-secondary); background: var(--bg-muted); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
                <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: var(--text-tertiary);">(${this.tf('talksInSection', { count: this.formatTalkCount(inEntries.length), filtered: incomingFilterResult.hiddenCount > 0 ? this.tf('talksFilteredCount', { count: incomingFilterResult.hiddenCount }) : '' })})</span>
-             </div>${inHtml}`
-          : '';
+             </div>`
+        : '';
+      const isStale = () => renderSeq !== this.talksRenderSeq;
+
+      // TODO §R2: re-applies the indeterminate-checkbox JS property (not representable as
+      // a plain HTML attribute) after any render pass — first chunk or deferred remainder.
+      const markIndeterminateTagCheckboxes = () => {
+        talksList.querySelectorAll<HTMLInputElement>('.talk-tag-in-checkbox[data-indeterminate="true"]').forEach((checkbox) => {
+          checkbox.indeterminate = true;
+        });
+      };
 
       if (activeMode === 'in') {
-        talksList.innerHTML = sectionIn || `
+        if (inEntries.length === 0) {
+          talksList.innerHTML = `
           <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
             ${incomingFilterResult.hiddenCount > 0 ? this.tf('talksAllIncomingFiltered', { count: incomingFilterResult.hiddenCount }) : this.t('talksNoIncoming')}
             ${hiddenReasonsText ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;">${escapeHtml(hiddenReasonsText)}</div>` : ''}
             ${!this.currentLocation && rawIncomingEntries.some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;color:var(--warning-text);font-style:italic;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
           </div>
         `;
+        } else {
+          renderListProgressively(talksList, inEntries, {
+            firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
+            prefixHtml: sectionInHeader,
+            renderRow: renderInRow,
+            isStale,
+            onFirstChunkRendered: markIndeterminateTagCheckboxes,
+            onRemainderRendered: markIndeterminateTagCheckboxes,
+          });
+        }
       } else if (activeMode === 'out') {
-        talksList.innerHTML = sectionOut || `
+        if (filteredOutEntries.length === 0) {
+          talksList.innerHTML = `
           <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
             ${this.t('talksNoOutgoing')}
           </div>
         `;
+        } else {
+          renderListProgressively(talksList, filteredOutEntries, {
+            firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
+            prefixHtml: sectionOutHeader,
+            renderRow: renderOutRow,
+            isStale,
+          });
+        }
       } else {
-        talksList.innerHTML = sectionIn + sectionOut;
+        // 'all': two independent sections, IN above OUT (matching the prior concatenation
+        // order), each progressively rendered into its own sub-container so one section's
+        // deferred remainder never clobbers the other's already-rendered rows.
+        talksList.innerHTML = '<div id="talks-in-section"></div><div id="talks-out-section"></div>';
+        const inContainer = document.getElementById('talks-in-section') as HTMLElement;
+        const outContainer = document.getElementById('talks-out-section') as HTMLElement;
+        renderListProgressively(inContainer, inEntries, {
+          firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
+          prefixHtml: sectionInHeader,
+          renderRow: renderInRow,
+          isStale,
+          onFirstChunkRendered: markIndeterminateTagCheckboxes,
+          onRemainderRendered: markIndeterminateTagCheckboxes,
+        });
+        renderListProgressively(outContainer, filteredOutEntries, {
+          firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
+          prefixHtml: sectionOutHeader,
+          renderRow: renderOutRow,
+          isStale,
+        });
       }
 
       // Request stats for out talks (created/copied) only
@@ -2966,42 +3018,47 @@ export class UIManager extends EventEmitter {
         this.emit('needTalkStats', { talkIds });
       }
 
-      talksList.querySelectorAll<HTMLInputElement>('.talk-tag-in-checkbox[data-indeterminate="true"]').forEach((checkbox) => {
-        checkbox.indeterminate = true;
-      });
+      // TODO §R2: delegated (bound once) — replaces two per-render listener-binding loops
+      // so a row landing in renderListProgressively's deferred remainder is interactive
+      // immediately, with nothing to (re-)attach. `getMyTalks()` is re-read at click time
+      // (not closed over), so a stale snapshot from an earlier render can't be used either.
+      if (!this.talksListClickDelegationBound) {
+        this.talksListClickDelegationBound = true;
+        talksList.addEventListener('click', (e) => {
+          const target = e.target as HTMLElement;
 
-      // TODO §N3: trace back from a talk row to whom it was exchanged with, then DM them.
-      // Single exchange partner navigates straight through the dispatcher; multiple partners
-      // opens the "choose who to DM" picker.
-      talksList.querySelectorAll<HTMLElement>('.talk-matched-people, .talk-sender-people').forEach((el) => {
-        el.addEventListener('click', (e) => {
-          e.stopPropagation();
-          let people: Array<{ id: string; name: string }> = [];
-          try {
-            people = JSON.parse(el.dataset.matchedPeople || el.dataset.senderPeople || '[]');
-          } catch {
+          // TODO §N3: trace back from a talk row to whom it was exchanged with, then DM
+          // them. Single exchange partner navigates straight through the dispatcher;
+          // multiple partners opens the "choose who to DM" picker.
+          const peopleEl = target.closest('.talk-matched-people, .talk-sender-people') as HTMLElement | null;
+          if (peopleEl) {
+            e.stopPropagation();
+            let people: Array<{ id: string; name: string }> = [];
+            try {
+              people = JSON.parse(peopleEl.dataset.matchedPeople || peopleEl.dataset.senderPeople || '[]');
+            } catch {
+              return;
+            }
+            if (people.length === 1) {
+              this.navigateToGraphNode({ type: 'person', id: people[0].id, name: people[0].name });
+            } else if (people.length > 1) {
+              this.showChooseWhoToDmPicker(people);
+            }
             return;
           }
-          if (people.length === 1) {
-            this.navigateToGraphNode({ type: 'person', id: people[0].id, name: people[0].name });
-          } else if (people.length > 1) {
-            this.showChooseWhoToDmPicker(people);
-          }
-        });
-      });
 
-      // Row click opens edit/detail only when not clicking an action button (handled in capture above)
-      talksList.querySelectorAll('.talk-list-item').forEach((item) => {
-        const el = item as HTMLElement;
-        const talkId = el.dataset.talkId || '';
-        const identityKey = el.dataset.identityKey || '';
-        const role = el.dataset.role;
-        if (role === 'incoming' && !talkId && !identityKey) return;
-        if (role !== 'incoming' && !talkId) return;
-        item.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
+          // Row click opens edit/detail only when not clicking an action button (handled
+          // in the mousedown-capture delegation above).
+          if (target.closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
+          const item = target.closest('.talk-list-item') as HTMLElement | null;
+          if (!item) return;
+          const talkId = item.dataset.talkId || '';
+          const identityKey = item.dataset.identityKey || '';
+          const role = item.dataset.role;
+          if (role === 'incoming' && !talkId && !identityKey) return;
+          if (role !== 'incoming' && !talkId) return;
           if (role === 'copied') {
-            const copied = myTalks[talkId];
+            const copied = this.getMyTalks()[talkId];
             if (copied?.fullTalk) {
               this.showTalkEditorDialog(this.toOwnedOutgoingTalk(copied.fullTalk));
             } else {
@@ -3013,7 +3070,7 @@ export class UIManager extends EventEmitter {
             this.showTalkDetail(talkId, identityKey || undefined);
           }
         });
-      });
+      }
     }
 
     this.syncStatusBarMatchCount();

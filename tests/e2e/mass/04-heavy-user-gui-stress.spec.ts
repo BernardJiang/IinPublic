@@ -260,13 +260,21 @@ test.describe('M4 heavy-user GUI stress', () => {
         await expect(page.locator('.nav-btn[data-view="talks"].active')).toBeVisible({ timeout: 15_000 });
         await pauseAfterTabSwitch(page, 'talks');
         const shellMs = (await browserNow(page)) - t0;
+
+        // TODO §R2: hard time-to-first-row bound — renderListProgressively's first chunk
+        // (25 OUT + 25 IN) renders synchronously, independent of talksTotal, so it should
+        // land well inside a fraction of a second even with 500 talks seeded.
+        await expect.poll(() => page!.locator('.talk-list-item').count(), { timeout: 500 })
+          .toBeGreaterThan(0);
+        const firstRowMs = (await browserNow(page)) - t0;
+
         await expect.poll(() => page!.locator('.talk-list-item').count(), { timeout: E2E_ASSERT_TIMEOUT_MS })
           .toBeGreaterThanOrEqual(talksTotal);
         const contentMs = (await browserNow(page)) - t0;
         const talkCount = await page.locator('.talk-list-item').count();
         warnIfSlow('talks shell', shellMs, 500);
         warnIfSlow('talks render', contentMs, 5000);
-        console.log(`[talks] shell=${shellMs.toFixed(0)}ms render=${contentMs.toFixed(0)}ms items=${talkCount}`);
+        console.log(`[talks] shell=${shellMs.toFixed(0)}ms firstRow=${firstRowMs.toFixed(0)}ms render=${contentMs.toFixed(0)}ms items=${talkCount}`);
 
         // Scroll test
         const scrollEl = page.locator('#main-view-container');

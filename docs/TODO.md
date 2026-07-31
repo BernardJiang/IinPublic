@@ -684,10 +684,43 @@ pre-render blocking chain, and a single-pass full-list render with no pagination
   has broadcast/received over time (not user-count-bounded) — dozens to low hundreds for an active
   user in practice, 500 only under the stress spec. `04-heavy-user-gui-stress.spec.ts`'s
   `warnIfSlow('talks render', contentMs, 5000)` (line 268) is advisory-only, same as Contacts.
-- [ ] Apply the same slice-first-N + quiet-background-fill treatment as R1, using whatever shared
+> **Complete 2026-07-31.**
+
+- [x] Apply the same slice-first-N + quiet-background-fill treatment as R1, using whatever shared
       helper R's "Recommended approach" below lands on.
-- [ ] Test: `stage5`/`mass` — with 500 seeded talks, the first chunk of OUT+IN rows is visible
+      **Done.** `renderOutRow`/`renderInRow` extracted from the old inline `.map()` callbacks and
+      passed to `renderListProgressively`, applied per view mode: `'out'`/`'in'` render straight
+      into `#talks-list`; `'all'` splits into two sub-containers (`#talks-in-section`/
+      `#talks-out-section`) so one section's deferred remainder can never clobber the other's
+      already-rendered rows. `TALKS_FIRST_CHUNK_SIZE = 25`, same precedent as Contacts.
+      Per-row click listeners (row click, matched/sender-people click) replaced with one
+      delegated listener bound once on `#talks-list`, same reasoning as R1 — a row landing in
+      the deferred remainder needs to be interactive with nothing to re-attach. Unlike R1's
+      `deps`-closure bug, there was no stale-closure risk here (the handler reads off `this`,
+      not a per-call plain object) — but `getMyTalks()` is still re-read at click time rather
+      than closed over, for the same "always current" reason.
+      **Honest scope note, unlike R1:** Talks never had a genuinely blocking pre-render chain
+      (confirmed by the audit above), so — verified empirically via the stash pattern — a
+      first-row timing bound here does *not* cleanly separate fixed-vs-broken the way it did for
+      Contacts: both versions render all 500 rows in ~150-200ms in this test environment, since a
+      single large synchronous `innerHTML` write was already fast enough here. The bound is kept
+      as a forward-looking perf budget (would catch a *future* blocking chain), not as proof of
+      *this* fix.
+      **A real bug found and fixed by the new E2E test, not just theorized:** the `'out'`-only
+      view-mode branch's `renderListProgressively` call was missing the `isStale` guard (present
+      on the other three call sites) — caught by deliberately breaking the guard and confirming
+      `80-talks-list-progressive-render.spec.ts` failed with 100 rows instead of 40 (5 rapid
+      re-renders × their deferred remainders all applying instead of only the latest); fixed by
+      adding the missing `isStale`, confirmed the test then passes cleanly and reliably (4/4).
+- [x] Test: `stage5`/`mass` — with 500 seeded talks, the first chunk of OUT+IN rows is visible
       immediately on opening the Talks tab; the rest fills in without blocking the tab.
+      **Done:** `04-heavy-user-gui-stress.spec.ts`'s Talks-tab block gained the same hard
+      first-row/full-count polling upgrade as Contacts (see the scope note above on what it does
+      and doesn't prove here). Correctness under rapid re-renders — the actual risk this kind of
+      chunking introduces — covered instead by the new
+      `stage1-single-user/80-talks-list-progressive-render.spec.ts` (3/3 stable), plus an 11-spec
+      Talks-tab E2E regression sweep (row click, matched/sender-people click-to-DM, tag
+      checkboxes, broadcast toggle, remove, details popup, survey stats, filter/sort) all green.
 
 ### R3. Me tab Answers list
 
@@ -753,11 +786,11 @@ view reinventing it slightly differently):
       confidence to all of R1-R3 rather than duplicating the same assertion three times.
       **Done:** `src/test/unit/render-list-progressively.test.ts`, 6 tests.
 
-> **R2/R3 remaining:** apply `renderListProgressively` to `displayTalksList()`
-> (`ui-manager.ts`) and `displayAnswersList` (`answers-view.ts`) respectively — neither has R1's
-> blocking-pre-render-chain half of the problem (both are already synchronous, no `await` before
-> first render), so each is a smaller diff than R1 was: just replace the single-pass
-> `.map().join('')` with a `renderListProgressively` call, no two-phase restructuring needed.
+> **R2 done** (see above) — turned out to need the click-delegation conversion too, not just the
+> `.map().join('')` swap, since per-row listeners wouldn't reach rows in a deferred remainder.
+> **R3 remaining:** apply `renderListProgressively` to `displayAnswersList` (`answers-view.ts`) —
+> also no blocking-pre-render-chain half of the problem, but check whether it has the same
+> per-row-listener pattern R2 turned out to have before assuming it's a pure swap.
 > R4/R5 remain explicitly low-priority/no-immediate-work per their own sections above.
 
 ---
