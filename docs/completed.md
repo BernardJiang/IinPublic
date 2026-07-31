@@ -3327,10 +3327,25 @@ recourse a stuck user has, so TechSupport must never be blocked, muted, or filte
   client*, not a cryptographic one. A user running patched code can always drop TechSupport's
   traffic locally. The contract doc records this as a design-for-the-shipped-client statement
   rather than implying enforcement.
-- **Remaining (still open in `docs/TODO.md`):** an explicit support-channel carve-out on the talk
-  intake path (age-gate/language/distance) is deferred — not reachable today because TechSupport
-  neither sends nor receives talks (K5) — plus the two stage1 E2E tests exercising every
-  block/filter route and a maximally-restrictive-filter DM-still-arrives check.
+- **Talk-intake carve-out: closed as not applicable, 2026-07-30.** Age-gate/language/distance
+  rejection on the *talk* intake path (`talkPassesIntakeFilters`) has no TechSupport interaction to
+  carve out — K5 makes TechSupport neither a talk sender nor a talk receiver
+  (`acceptsIncomingTalks`/the sender-side receiver-resolution exclusion, both hard rules on the
+  canonical root id, not `TalkIntakeFilters` entries). No code change without a reachable code path
+  to guard would be validating a scenario that can't happen; revisit only if TechSupport ever gains
+  a talk-sending/receiving capability.
+- **Test 2026-07-30:** `stage1/78-techsupport-unblockable-every-route.spec.ts` — the Contacts-tab
+  support row's only affordance is mute (`openSupportControlsDialog`, no block button rendered at
+  all, confirmed live via DOM); a direct `WebUserService.blockUser` call and a raw
+  `POST /api/users/:id/blocks` call (bypassing the client entirely) both throw/400 with
+  `TECHSUPPORT_UNBLOCKABLE_ERROR`; the contact row and a real message round-trip survive every
+  attempt. `stage1/79-techsupport-survives-restrictive-filters.spec.ts` — every `TalkIntakeFilters`
+  dimension maxed out (0-mile radius, an unmatched language, grammar + dirty-word gates on, no
+  allowed talk types) plus a never-age-verified receiver: the signed greeting still renders and a
+  full new-question → FAQ-answer round trip still delivers, because the support channel is plain DM
+  messaging and was never inside the talk-intake pipeline. Both specs confirmed 3/3 green.
+
+K6 is now fully complete.
 
 ## 2026-07-25 — L1: room visit counters as a CRDT G-Counter
 

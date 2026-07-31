@@ -247,19 +247,18 @@ and a signed identity/pointer record. No support database on the server.
   `e2e-stage-pipeline.ts:95-103` asserts on has to be reworked, since there is no longer a stored
   greeting message per user.
 
-### Current state (K1–K3 complete; K4/K5/K6/L1/L2 mostly complete)
+### Current state (K1–K3 and K6 complete; K4/K5/L1/L2 mostly complete)
 
 K1, K2, and K3 (below) landed 2026-07-25/26 — see `docs/completed.md` and the three design notes
 (`docs/design/techsupport-k1-design-note.md`, `-k2-`, `-k3-`) for the implementation record. K4's
-fixture, K5's Items 1–5, K6's block/filter/mute enforcement, and L1/L2's CRDT counter + retention
-instrumentation have since landed too — see their `docs/completed.md` entries. What's left for the
-K/L series:
+fixture, K5's Items 1–5, K6 (fully, including its two stage1 tests), and L1/L2's CRDT counter +
+retention instrumentation have since landed too — see their `docs/completed.md` entries. What's
+left for the K/L series:
 
 - K4: converting the remaining ~210 `maybeClearGunDatabases()` call sites to progressive
   multi-user snapshots, and deciding a stage for the non-staged test directories.
 - K5: complete except the `answeredBy` open design question (record the answering operator
   internally, display as TechSupport — proposed, not yet decided).
-- K6: the talk-intake carve-out (not reachable today) and its two stage1 tests.
 - L1: removing the legacy visit-count scalars once one full staged run confirms nothing else reads
   them.
 - L2: the retention-policy decisions (real-deployment numbers, tombstone semantics, where trimming
@@ -285,24 +284,9 @@ K/L series:
 
 ### K6. TechSupport is unblockable / unfilterable `[Sonnet]`
 
-Requirement 2026-07-25. TechSupport must never be blocked, muted, or filtered out by an ordinary
-user — the support channel is the only recourse a stuck user has.
-
-> Block path, content-filter exemption, mute reconciliation, and the shared
-> `isTechSupportId`/`canBlockTarget` enforcement are complete — archived in `docs/completed.md`
-> 2026-07-25.
-
-- [ ] Age-gate/language/distance rejection on the *talk* intake path still needs an explicit
-      support-channel carve-out if TechSupport ever sends anything through it. Not reachable today
-      because TechSupport neither sends nor receives talks (K5) — revisit if that changes.
-- [ ] Test: `stage1` — attempt to block/filter TechSupport by every available route; contact row and
-      message delivery survive all of them.
-- [ ] Test: `stage1` — set maximally restrictive intake filters (language, distance, age, grammar,
-      dirty words); a TechSupport DM still arrives.
-
-> **Honest scope note:** in a P2P network this is a guarantee about the *shipped client*, not a
-> cryptographic one. A user running patched code can always drop TechSupport's traffic locally.
-> Design for the shipped client and say so in the contract doc rather than implying enforcement.
+> **Complete 2026-07-30** — see `docs/completed.md`. The talk-intake carve-out closed as not
+> applicable (TechSupport neither sends nor receives talks per K5 — no reachable code path to
+> guard); both stage1 tests (every block/filter route; maximally restrictive intake filters) done.
 
 ### K4. Every stage but stage0 loads a TechSupport-bearing snapshot `[Sonnet]`
 
