@@ -305,11 +305,31 @@ test.describe('M4 heavy-user GUI stress', () => {
         await expect(page.locator('.nav-btn[data-view="contacts"].active')).toBeVisible({ timeout: 15_000 });
         await pauseAfterTabSwitch(page, 'contacts');
         const shellMs = (await browserNow(page)) - t0;
+
+        // TODO §R1: hard time-to-first-row bound, not just an advisory warn — this is the
+        // actual regression the requirement exists to prevent. renderListProgressively's
+        // first chunk renders synchronously, independent of beforeRender's prefetch chain
+        // (mesh exchange sync + location prefetch — the latter races a 2000ms timeout on
+        // its own, `prefetchPeerLocations` in ui-manager.ts) and independent of
+        // NUM_CONTACTS, so the first row should appear in comfortably under 500ms even
+        // with 500 contacts seeded. Confirmed empirically: without this fix, first-row
+        // time in this exact scenario lands at ~1950ms (dominated by the location-prefetch
+        // race), so 500ms cleanly separates fixed from broken rather than sitting on top
+        // of that race's own timeout.
+        const FIRST_ROW_BOUND_MS = 500;
+        await expect.poll(() => page!.locator('#contacts-list .contact-item').count(), { timeout: FIRST_ROW_BOUND_MS })
+          .toBeGreaterThan(0);
+        const firstRowMs = (await browserNow(page)) - t0;
+
+        // Full-500 fill still has to actually complete — was previously only snapshotted
+        // once and warned-on, never enforced.
+        await expect.poll(() => page!.locator('#contacts-list .contact-item').count(), { timeout: E2E_ASSERT_TIMEOUT_MS })
+          .toBeGreaterThanOrEqual(NUM_CONTACTS);
         const contactCount = await page.locator('#contacts-list .contact-item').count();
         const contentMs = (await browserNow(page)) - t0;
         warnIfSlow('contacts shell', shellMs, 500);
         warnIfSlow('contacts render', contentMs, 10_000);
-        console.log(`[contacts] shell=${shellMs.toFixed(0)}ms items=${contactCount}`);
+        console.log(`[contacts] shell=${shellMs.toFixed(0)}ms firstRow=${firstRowMs.toFixed(0)}ms render=${contentMs.toFixed(0)}ms items=${contactCount}`);
 
         // Verify all label groups visible
         const labelsFound: boolean[] = [];

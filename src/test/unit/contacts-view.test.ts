@@ -345,4 +345,80 @@ describe('Contacts ranking and relationship filters', () => {
     await Promise.resolve();
     expect(setSupportNotificationsMuted).toHaveBeenCalledWith(true);
   });
+
+  describe('TODO §R1: fast first-chunk render for long contact lists', () => {
+    function seedManyPeers(count: number): KnownPerson[] {
+      const known: KnownPerson[] = [];
+      const exchanges: Record<string, unknown> = {};
+      for (let i = 0; i < count; i += 1) {
+        const id = `peer-${String(i).padStart(3, '0')}`;
+        known.push({ userId: id, label: 'friend', addedAt: new Date('2026-05-01T00:00:00.000Z') });
+        exchanges[`${id}::talk-${i}`] = {
+          peerId: id,
+          peerName: id,
+          talkId: `talk-${i}`,
+          title: 'T',
+          outcome: 'match',
+          direction: 'sent',
+          date: `2026-05-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+        };
+      }
+      localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
+      return known;
+    }
+
+    it('renders the first chunk immediately, before beforeRender resolves', async () => {
+      const known = seedManyPeers(60);
+      let releaseBeforeRender: () => void = () => {};
+      const gate = new Promise<void>((resolve) => { releaseBeforeRender = resolve; });
+      const contactDeps = { ...deps(known), beforeRender: () => gate };
+
+      const renderDone = displayContactsList(contactDeps);
+      // Give the synchronous first phase a chance to run without letting beforeRender resolve.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(document.querySelectorAll('.contact-item').length).toBeGreaterThan(0);
+      expect(document.querySelectorAll('.contact-item').length).toBeLessThanOrEqual(25);
+
+      releaseBeforeRender();
+      await renderDone;
+    });
+
+    it('fills the remainder in without dropping or duplicating any row, and every row is clickable', async () => {
+      const known = seedManyPeers(60);
+      await displayContactsList(deps(known));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const rows = Array.from(document.querySelectorAll('.contact-item[data-contact-user-id]'));
+      const ids = rows.map((row) => (row as HTMLElement).dataset.contactUserId);
+      expect(ids).toHaveLength(60);
+      expect(new Set(ids).size).toBe(60); // no duplicates from the two renderContactsListCore passes
+
+      const openPeerDetail = jest.fn();
+      const clickableDeps = { ...deps(known), openPeerDetail };
+      await displayContactsList(clickableDeps);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // A row from the deferred remainder (well past the first-chunk size) is clickable
+      // with no per-row listener re-attachment needed — delegated on the container.
+      const remainderRow = document.querySelector('.contact-item[data-contact-user-id="peer-059"]') as HTMLElement;
+      expect(remainderRow).toBeTruthy();
+      remainderRow.click();
+      expect(openPeerDetail).toHaveBeenCalledWith('peer-059', 'peer-059');
+    });
+
+    it('does not duplicate rows when beforeRender resolves and triggers the post-enrichment re-render', async () => {
+      const known = seedManyPeers(60);
+      const contactDeps = { ...deps(known), beforeRender: async () => { /* resolves immediately */ } };
+
+      await displayContactsList(contactDeps);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const ids = Array.from(document.querySelectorAll('.contact-item[data-contact-user-id]'))
+        .map((row) => (row as HTMLElement).dataset.contactUserId);
+      expect(ids).toHaveLength(60);
+      expect(new Set(ids).size).toBe(60);
+    });
+  });
 });

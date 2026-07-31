@@ -620,31 +620,57 @@ pre-render blocking chain, and a single-pass full-list render with no pagination
 
 **Work**
 
-- [ ] Split `displayContactsList()`'s render into two phases: render `visiblePeers.slice(0, N)`
+> **Complete 2026-07-31.** All items below done — see `docs/completed.md` for the full
+> implementation record. Shared helper: `src/web/ui/render-list-progressively.ts`
+> (`renderListProgressively`), reusable as-is by R2/R3.
+
+- [x] Split `displayContactsList()`'s render into two phases: render `visiblePeers.slice(0, N)`
       (first-chunk size to be decided, e.g. matching `CREATOR_REPLY_PAGE_SIZE`'s precedent of 25,
       or a smaller "above the fold" count) **without waiting on `runBeforeRender`'s awaits**, then
       run `contactPreRenderSync`/`prefetchPeerLocations` in the background and re-render/append the
       remaining peers once they resolve — mirroring the existing Replies-panel slice pattern
       (`ui-manager.ts:191,320,2898,2935-2941`), just applied here for the first time.
-  - [ ] Decide whether "the rest" appends automatically in the background (true "quietly" per the
-        requirement) or behind a `#load-more`-style control like the Replies panel uses — the
-        requirement's wording ("backend thread retrieves all data quietly") points at automatic
-        background fill, not a manual button, but confirm before implementing.
-- [ ] Make sure the first-chunk render doesn't depend on `contactPreRenderSync`/
+      **Done.** `renderContactsListCore` now runs synchronously (no `beforeRender` await inside
+      it) and is called twice per `displayContactsList` invocation: immediately, then again after
+      the background enrichment chain resolves. `CONTACTS_FIRST_CHUNK_SIZE = 25`, matching the
+      Replies-panel precedent.
+  - [x] Decided: automatic quiet background fill, no manual button — matches the requirement's
+        own wording ("retrieved quietly in the background"), not the Replies panel's manual
+        load-more (that panel's *pattern*, not its manual-button UX, was the reusable part).
+- [x] Make sure the first-chunk render doesn't depend on `contactPreRenderSync`/
       `prefetchPeerLocations` data at all for its basic fields (name, sort key) — only badges/
       distance/etc. that genuinely need that data should update in place once it arrives, so the
       first chunk is a real fast-path, not just a smaller version of the same blocking wait.
-- [ ] Revisit M6's `prefetchPeerHeadshots` design in light of this: it should follow the same
+      **Done** — the first `renderContactsListCore` call runs before `runBeforeRender` is even
+      called; the second call (after enrichment) re-derives and re-renders from scratch rather
+      than patching in place, so newly-discovered contacts (not just enriched badges) appear too.
+- [x] Revisit M6's `prefetchPeerHeadshots` design in light of this: it should follow the same
       non-blocking, fill-in-place pattern as the location/mesh-sync data once this item lands, not
       add a third sequential blocking `await` to `beforeRender`.
-- [ ] Add a real timing assertion to (or alongside) `04-heavy-user-gui-stress.spec.ts` — the
+      **Already correct** — M6's `resolvePeerHeadshot` (`ui-manager.ts`) was already implemented
+      non-blocking, with its own comment citing this exact concern; no change needed here.
+- [x] Add a real timing assertion to (or alongside) `04-heavy-user-gui-stress.spec.ts` — the
       existing `warnIfSlow`/`catch`-and-log checks should gain a hard time-to-first-row bound (e.g.
       "first contact row visible within Xs of navigating to Contacts, with 500 seeded contacts"),
       so this can't silently regress again the way it did before this requirement was raised.
-- [ ] Test: `stage5`/`mass` — with 500 seeded contacts, the first chunk of rows is visible well
+      **Done.** `FIRST_ROW_BOUND_MS = 500` (`expect.poll`, hard-failing, not advisory); the
+      previous single-snapshot contact count is now a hard `toBeGreaterThanOrEqual(NUM_CONTACTS)`
+      poll too, not just a `console.warn`. Verified via the stash pattern: fails reliably at
+      ~1950ms without the fix (dominated by `prefetchPeerLocations`'s own 2000ms race timeout),
+      passes reliably at ~400ms with it.
+- [x] Test: `stage5`/`mass` — with 500 seeded contacts, the first chunk of rows is visible well
       before `contactPreRenderSync`/`prefetchPeerLocations` would have resolved (assert on wall
       time, not just eventual correctness); the remaining ~475 rows appear shortly after, without
       the user having to do anything if "automatic quiet fill" is the chosen design.
+      **Done** as the timing assertion above (`04-heavy-user-gui-stress.spec.ts`), plus new unit
+      coverage: `render-list-progressively.test.ts` (6 tests, the helper in isolation) and three
+      new tests in `contacts-view.test.ts` (first chunk renders before `beforeRender` resolves; no
+      dropped/duplicated rows across the two `renderContactsListCore` passes; a deferred-remainder
+      row is clickable via the delegated listener). A real bug surfaced and was fixed while
+      writing these: the delegated click listener originally closed over `deps` at bind time,
+      so a later render with a fresh `deps` object would silently keep calling the first
+      render's stale callback — fixed by stashing the current `deps` on the element and reading
+      it at click time.
 
 ### R2. Talks tab main list (`#talks-list`)
 
@@ -709,17 +735,30 @@ neither is shared, and R1-R3 each need both halves combined. Following the same 
 for `navigateToGraphNode` (build one small shared piece of infrastructure once, rather than each
 view reinventing it slightly differently):
 
-- [ ] Extract one small shared helper — e.g. `renderListProgressively(container, items, {
+- [x] Extract one small shared helper — e.g. `renderListProgressively(container, items, {
       firstChunkSize, renderRow, onFirstChunkRendered? })` — that does exactly the R1 two-phase
       split (slice first N, write it immediately, then process the rest off the main blocking path
       and append/patch in place) and use it for R1 (Contacts), R2 (Talks), and R3 (Answers) rather
       than three separate implementations. R4/R5 can adopt it later without urgency.
-- [ ] Land this helper alongside (or as part of) R1's implementation, since R1 is first in Q's
+      **Done 2026-07-31:** `src/web/ui/render-list-progressively.ts`. Signature ended up slightly
+      richer than the sketch — also takes `prefixHtml` (for Contacts' pinned TechSupport row) and
+      an `isStale`/`scheduleRemainder` pair (staleness guard + test-injectable scheduler) — but
+      the core shape (slice-first-N, defer remainder, append not replace) is exactly this.
+- [x] Land this helper alongside (or as part of) R1's implementation, since R1 is first in Q's
       build order and needs the most complete version of it (first-chunk render decoupled from a
       genuinely blocking prefetch chain, not just decoupled from a big array).
-- [ ] Test: unit test for the shared helper itself (first-chunk-immediate, remainder
+      **Done** — landed as part of R1, see R1's Work section above.
+- [x] Test: unit test for the shared helper itself (first-chunk-immediate, remainder
       deferred/appended, no item duplicated or dropped across the two phases) — one test giving
       confidence to all of R1-R3 rather than duplicating the same assertion three times.
+      **Done:** `src/test/unit/render-list-progressively.test.ts`, 6 tests.
+
+> **R2/R3 remaining:** apply `renderListProgressively` to `displayTalksList()`
+> (`ui-manager.ts`) and `displayAnswersList` (`answers-view.ts`) respectively — neither has R1's
+> blocking-pre-render-chain half of the problem (both are already synchronous, no `await` before
+> first render), so each is a smaller diff than R1 was: just replace the single-pass
+> `.map().join('')` with a `renderListProgressively` call, no two-phase restructuring needed.
+> R4/R5 remain explicitly low-priority/no-immediate-work per their own sections above.
 
 ---
 

@@ -7,6 +7,15 @@ import {
   deriveLocalPeers,
   localTalkHistoryForPeer,
 } from '../services/local-peer-derivation';
+import { renderListProgressively } from './render-list-progressively';
+
+/**
+ * TODO §R1: how many contact rows render synchronously, immediately — matches
+ * CREATOR_REPLY_PAGE_SIZE's existing precedent (ui-manager.ts) for "above the fold".
+ * The rest renders quietly in the background (`renderListProgressively`), never behind
+ * a manual "load more" control — the requirement asks for automatic quiet fill.
+ */
+const CONTACTS_FIRST_CHUNK_SIZE = 25;
 
 export type ContactsViewDeps = {
   apiBase: string;
@@ -593,22 +602,26 @@ export function showContactsList(deps: ContactsViewDeps): void {
 /** Monotonic render token: a re-render started later always wins over an older in-flight one. */
 let contactsRenderSeq = 0;
 
-export async function displayContactsList(deps: ContactsViewDeps): Promise<void> {
-  const renderSeq = ++contactsRenderSeq;
-  const listEl = document.getElementById('contacts-list');
-  if (!listEl) return;
+/**
+ * TODO §R1: separate, finer-grained token than `contactsRenderSeq` — `renderContactsListCore`
+ * now runs twice per `displayContactsList` call (immediate + post-enrichment), so each call's
+ * own deferred `renderListProgressively` remainder must only apply if THAT call is still the
+ * latest one, not just the latest `displayContactsList` invocation. Without this, the first
+ * call's remainder would still fire after the second call's synchronous re-render already
+ * replaced the list, duplicating every row past the first chunk.
+ */
+let contactsCoreRenderSeq = 0;
 
-  if (!deps.apiBase || !deps.currentUserId) {
-    listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsUnavailable')}</p>`;
-    return;
-  }
-
-  listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsLoading')}</p>`;
-
-  try {
-    await runBeforeRender(deps);
-    // A newer render started while we awaited — let it win (its control values are fresher).
-    if (renderSeq !== contactsRenderSeq) return;
+/**
+ * TODO §R1: renders whatever's already available locally, without waiting on
+ * `beforeRender`'s enrichment chain. Called twice per `displayContactsList` invocation —
+ * once immediately (so first paint never blocks on the prefetch chain), once again after
+ * that chain resolves in the background (so newly-discovered contacts and
+ * enriched badges/distance appear). Purely synchronous itself; row-level async patches
+ * (rename self-heal, headshot fill) remain fire-and-forget, as before.
+ */
+function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): void {
+    const coreSeq = ++contactsCoreRenderSeq;
     // P0 step 5: peers derived from local stores only — no server call.
     const rawPeers = deriveLocalPeers({
       currentUserId: deps.currentUserId,
@@ -747,20 +760,19 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
           </div>
         `
       : '';
-    listEl.innerHTML = supportRow + visiblePeers
-      .map((peer) => {
-        const known = knownMap.get(peer.peerId);
-        const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
-        const displayName = buildDisplayName(resolvedStageName, known);
-        const relationship = known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger');
-        const metrics = rankingMetrics(peer, known, deps);
-        const matchPercent = Math.round(metrics.matchRate * 100);
-        const blockedBadge = deps.isBlockedByMe(peer.peerId)
-          ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--warning-soft);color:var(--warning-text);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`
-          : '';
-        const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:var(--accent);font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
-        const headshotHtml = avatarInnerHtml(deps.getCachedHeadshot?.(peer.peerId) ?? undefined, '?', deps.escapeHtml);
-        return `
+    const renderContactRow = (peer: PeerSummary): string => {
+      const known = knownMap.get(peer.peerId);
+      const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
+      const displayName = buildDisplayName(resolvedStageName, known);
+      const relationship = known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger');
+      const metrics = rankingMetrics(peer, known, deps);
+      const matchPercent = Math.round(metrics.matchRate * 100);
+      const blockedBadge = deps.isBlockedByMe(peer.peerId)
+        ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--warning-soft);color:var(--warning-text);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`
+        : '';
+      const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:var(--accent);font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
+      const headshotHtml = avatarInnerHtml(deps.getCachedHeadshot?.(peer.peerId) ?? undefined, '?', deps.escapeHtml);
+      return `
           <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
             <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
               <span class="contact-item-avatar" style="width:40px;height:40px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-size:1.2em;flex-shrink:0;overflow:hidden;">${headshotHtml}</span>
@@ -775,20 +787,43 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
             <span style="color: #999; flex-shrink: 0;">›</span>
           </div>
         `;
-      })
-      .join('');
+    };
 
-    listEl.querySelectorAll('.contact-item').forEach((el) => {
-      el.addEventListener('click', () => {
-        const userId = (el as HTMLElement).dataset.contactUserId;
-        const stageName = (el as HTMLElement).dataset.contactName;
+    // TODO §R1: first CONTACTS_FIRST_CHUNK_SIZE rows render synchronously (right now,
+    // whatever this call's data already is); the rest — which, on the very first call of
+    // a tab visit, is most of a 500-contact list — renders quietly a moment later, off the
+    // blocking render path. Never touches the support row or already-rendered first-chunk
+    // nodes when it does.
+    renderListProgressively(listEl, visiblePeers, {
+      firstChunkSize: CONTACTS_FIRST_CHUNK_SIZE,
+      prefixHtml: supportRow,
+      renderRow: renderContactRow,
+      isStale: () => coreSeq !== contactsCoreRenderSeq,
+    });
+
+    // Delegated click handling (bound once, survives every re-render/re-chunk): a row
+    // rendered into the deferred remainder is clickable the instant it lands in the DOM,
+    // with no per-row listener to (re-)attach. `deps` is stashed on the element and read
+    // at click time rather than closed over at bind time — `renderContactsListCore` runs
+    // twice per `displayContactsList` call (and again on every subsequent re-render), each
+    // with its own freshly-built `deps`, and the bind-once guard means only the FIRST
+    // call's listener closure would ever fire without this indirection.
+    (listEl as unknown as { __contactsDeps?: ContactsViewDeps }).__contactsDeps = deps;
+    if (listEl.dataset.contactsClickBound !== '1') {
+      listEl.dataset.contactsClickBound = '1';
+      listEl.addEventListener('click', (event) => {
+        const currentDeps = (listEl as unknown as { __contactsDeps?: ContactsViewDeps }).__contactsDeps;
+        if (!currentDeps) return;
+        const row = (event.target as HTMLElement).closest('.contact-item') as HTMLElement | null;
+        const userId = row?.dataset.contactUserId;
+        const stageName = row?.dataset.contactName;
         if (userId && stageName) {
           // Rule N2a: contact click lands on the DM Conversation with the shared
           // User layout underneath (same destination as a chatroom member click).
-          deps.openPeerDetail(userId, stageName);
+          currentDeps.openPeerDetail(userId, stageName);
         }
       });
-    });
+    }
 
     // Render-time self-heal: rows carry the best locally-known name, which can be stale if
     // it was captured (exchange/conversation record) before the peer renamed. Look up each
@@ -840,9 +875,50 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     window.setTimeout(() => {
       if (typeof savedState.scrollTop === 'number') listEl.scrollTop = savedState.scrollTop;
     }, 0);
-    listEl.addEventListener('scroll', persistControls, { passive: true });
+    if (listEl.dataset.contactsScrollBound !== '1') {
+      listEl.dataset.contactsScrollBound = '1';
+      listEl.addEventListener('scroll', persistControls, { passive: true });
+    }
+}
+
+/**
+ * TODO §R1: renders immediately from whatever's already available locally — never
+ * blocks first paint on `beforeRender`'s enrichment chain (mesh exchange sync + location
+ * prefetch, up to ~3.2s worst case) — then re-renders in the background once that chain
+ * resolves, so newly-discovered contacts and enriched badges/distance appear without a
+ * second blocking wait. `contactsRenderSeq` lets a newer render (e.g. a fast sort change
+ * right after the tab opens) win over a stale enrichment re-render, same guard the
+ * function already relied on before this split.
+ */
+export async function displayContactsList(deps: ContactsViewDeps): Promise<void> {
+  const renderSeq = ++contactsRenderSeq;
+  const listEl = document.getElementById('contacts-list');
+  if (!listEl) return;
+
+  if (!deps.apiBase || !deps.currentUserId) {
+    listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsUnavailable')}</p>`;
+    return;
+  }
+
+  try {
+    renderContactsListCore(deps, listEl);
   } catch {
     listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #c00;">${deps.text('contactsUnavailable')}</p>`;
+    return;
+  }
+
+  try {
+    await runBeforeRender(deps);
+  } catch {
+    return;
+  }
+  // A newer render started while we awaited — let it win (its control values are fresher).
+  if (renderSeq !== contactsRenderSeq) return;
+  try {
+    renderContactsListCore(deps, listEl);
+  } catch {
+    // The first-chunk render above already succeeded; leave it up rather than replacing
+    // working content with an error from the enrichment-driven re-render.
   }
 }
 
