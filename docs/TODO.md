@@ -564,6 +564,10 @@ Storage grows without bound, and the badge data is the worst offender:
 
 ## R. Fast-first-render as a general principle for every long list, not just Contacts `[Sonnet]`
 
+> **R1/R2/R3 complete 2026-07-31** — see their sections below and `docs/completed.md`'s eventual
+> archive entry. R4/R5 stay low-priority/no-immediate-work, as already noted in their own
+> sections; not part of this pass.
+
 Requirement 2026-07-29 (Bernard): loading 500 contacts is too slow; there should be a way to get
 the first few contacts and display them ASAP, with the rest retrieved quietly in the background —
 **and this should be a general principle across every long-list view, not a one-off fix for
@@ -729,9 +733,46 @@ pre-render blocking chain, and a single-pass full-list render with no pagination
   blocking chain. But both its row builders iterate the *entire* history array and
   `appendChild` per entry with no limit (`answers-view.ts:389,455`). Same advisory-only timing
   check exists (`warnIfSlow('me render', contentMs, 5000)`, `04-heavy-user-gui-stress.spec.ts:295`).
-- [ ] Same slice-first-N + quiet-background-fill treatment, same shared helper.
-- [ ] Test: `stage5`/`mass` — with 500 seeded answers, the first chunk of entries is visible
+> **Complete 2026-07-31.**
+
+- [x] Same slice-first-N + quiet-background-fill treatment, same shared helper.
+      **Done.** Unlike R1/R2, both row builders used `document.createElement` +
+      `appendChild` (DOM construction), not `.map().join('')` — converted to string
+      templates (`data-xxx="..."` attributes instead of `.dataset.xxx =` assignments) so
+      `renderListProgressively` could take over the write. `flattenedHistory`/`deduped` (the
+      two possible sources — always mutually exclusive: `deduped` is empty whenever
+      `flattenedHistory` is non-empty) unified into one tagged array (`FlatRow | LegacyRow`)
+      so a single `renderListProgressively` call handles both, rather than two.
+      `ANSWERS_FIRST_CHUNK_SIZE = 25`, same precedent. Four per-render listener bindings (row
+      click, copy button, details button, and the empty-state preferences button — previously
+      handled by two *different* mechanisms) replaced by one delegated listener bound once on
+      the stable `#answers-content` container (not `#answers-list`, which gets recreated every
+      render) — same `deps`-stashed-on-element fix as R1, since `ui-manager.ts` rebuilds a
+      fresh `deps` object every call. New `onRowsRendered` hook on `AnswersViewDeps` fires
+      after both the first chunk and the deferred remainder, since `applyMeAnswerFilter`
+      (ui-manager.ts) only re-scans whatever `.answer-talk-item` rows exist in the DOM *right
+      now* — without the hook, a filter set before the remainder landed would never reach the
+      rows that arrived after it.
+      **A real bug found by the E2E regression sweep, not just theorized:**
+      `29-me-answers-search.spec.ts` failed after the conversion — the new string-template
+      row wrote `style="display:flex; ..."` (no space after the colon) verbatim into the
+      attribute, whereas the old `item.style.cssText = ...` assignment went through the
+      CSSOM and got re-serialized with `display: flex;` (with a space) on read-back, which
+      the test's `[style*="display: flex"]` selector depended on. Fixed by writing the style
+      string with normalized `key: value;` spacing throughout, matching what CSSOM would
+      have produced.
+- [x] Test: `stage5`/`mass` — with 500 seeded answers, the first chunk of entries is visible
       immediately on opening the Me tab; the rest fills in without blocking the tab.
+      **Done:** `04-heavy-user-gui-stress.spec.ts`'s Me-tab block gained the same hard
+      first-row/full-count polling as Contacts/Talks (same honest scope note: Me tab never had
+      a blocking chain either, so this is a forward-looking perf budget, not proof of this
+      specific fix). Correctness under rapid re-renders covered by 5 new unit tests
+      (`answers-view.test.ts`, including one that deliberately exercises two rapid renders with
+      *different* `deps` objects to prove the delegated listener reads the current one, not a
+      stale closure) plus a new
+      `stage1-single-user/81-answers-list-progressive-render.spec.ts` (4/4 stable), and a
+      6-spec Me-tab E2E regression sweep (search filter, compact-row popup/copy, dead-end
+      retry, per-question deep link, dialogs, copy-talk flow) all green.
 
 ### R4. Chatroom member list — lower priority, already partly right
 
@@ -786,12 +827,11 @@ view reinventing it slightly differently):
       confidence to all of R1-R3 rather than duplicating the same assertion three times.
       **Done:** `src/test/unit/render-list-progressively.test.ts`, 6 tests.
 
-> **R2 done** (see above) — turned out to need the click-delegation conversion too, not just the
-> `.map().join('')` swap, since per-row listeners wouldn't reach rows in a deferred remainder.
-> **R3 remaining:** apply `renderListProgressively` to `displayAnswersList` (`answers-view.ts`) —
-> also no blocking-pre-render-chain half of the problem, but check whether it has the same
-> per-row-listener pattern R2 turned out to have before assuming it's a pure swap.
-> R4/R5 remain explicitly low-priority/no-immediate-work per their own sections above.
+> **R1, R2, and R3 all complete** (see their sections above) — R2 needed the click-delegation
+> conversion too, not just the `.map().join('')` swap, since per-row listeners wouldn't reach a
+> row in a deferred remainder; R3 needed the same plus converting its DOM-construction
+> (`appendChild`) row builders to string templates first. R4/R5 remain explicitly
+> low-priority/no-immediate-work per their own sections above — not part of this pass.
 
 ---
 

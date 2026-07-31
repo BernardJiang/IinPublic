@@ -3330,9 +3330,13 @@ export class UIManager extends EventEmitter {
       formatDate: this.formatUiDate.bind(this),
       formatType: this.formatTalkType.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
+      // TODO §R3: fires after both the first chunk and the deferred remainder, so a
+      // filter applied before the remainder lands still reaches the rows that arrive
+      // after it — a single call right after renderAnswersList returns (the old
+      // behavior) would miss those.
+      onRowsRendered: () => this.applyMeAnswerFilter(),
     });
     document.getElementById('answers-search-input')?.addEventListener('input', () => this.applyMeAnswerFilter());
-    this.applyMeAnswerFilter();
   }
 
   private applyMeAnswerFilter(): void {

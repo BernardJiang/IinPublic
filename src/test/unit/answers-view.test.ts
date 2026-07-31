@@ -403,4 +403,140 @@ describe('answers view models', () => {
     expect(answerTalkMatchesQuery(model, '  CAFE ')).toBe(true);
     expect(answerTalkMatchesQuery(model, 'tennis')).toBe(false);
   });
+
+  describe('TODO §R3: progressive render for long answer lists', () => {
+    function buildFlatHistory(count: number): Record<string, unknown> {
+      const history: Record<string, unknown> = {};
+      for (let i = 0; i < count; i += 1) {
+        const id = `answer-${String(i).padStart(3, '0')}`;
+        history[id] = {
+          id,
+          talkId: `talk-${id}`,
+          title: `Answer Talk ${i}`,
+          type: 'flow',
+          language: 'en',
+          outcome: 'match',
+          answeredAt: new Date(2026, 0, 1, 0, 0, i).toISOString(),
+          senderIds: [],
+          items: [{
+            questionId: `q-${id}`,
+            answerId: `a-${id}`,
+            prompt: `Question ${i}?`,
+            choice: `Answer ${i}`,
+            kind: 'question' as const,
+            contextPath: [],
+            contextHash: '',
+          }],
+        };
+      }
+      return history;
+    }
+
+    function baseDeps(count: number, overrides: Record<string, unknown> = {}) {
+      return {
+        getMyTalks: () => ({}),
+        getFlatAnswerHistory: () => buildFlatHistory(count),
+        escapeHtml: (value: string) => value,
+        copyAnsweredTalkToTalks: jest.fn(),
+        showTalkDetail: jest.fn(),
+        showPreferencesDialog: jest.fn(),
+        showItemDetailsPopup: jest.fn(),
+        getTalkContentKey: jest.fn(),
+        text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+        formatDate: () => 'date',
+        formatType: () => 'Flow',
+        formatLanguage: () => 'English',
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      document.body.innerHTML = '<div id="answers-content"></div>';
+    });
+
+    it('renders the first chunk immediately; the remainder fills in without dropping or duplicating', async () => {
+      displayAnswersList(baseDeps(40) as any);
+
+      const immediate = document.querySelectorAll('.answer-talk-item').length;
+      expect(immediate).toBeGreaterThan(0);
+      expect(immediate).toBeLessThanOrEqual(25);
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const ids = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item'))
+        .map((row) => row.dataset.talkId);
+      expect(ids).toHaveLength(40);
+      expect(new Set(ids).size).toBe(40);
+    });
+
+    it('does not duplicate rows across several rapid successive re-renders', async () => {
+      for (let i = 0; i < 5; i += 1) displayAnswersList(baseDeps(40) as any);
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const ids = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item'))
+        .map((row) => row.dataset.talkId);
+      expect(ids).toHaveLength(40);
+      expect(new Set(ids).size).toBe(40);
+    });
+
+    it('fires onRowsRendered after the first chunk and again after the deferred remainder', async () => {
+      const onRowsRendered = jest.fn();
+      displayAnswersList(baseDeps(40, { onRowsRendered }) as any);
+
+      expect(onRowsRendered).toHaveBeenCalledTimes(1);
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(onRowsRendered).toHaveBeenCalledTimes(2);
+    });
+
+    it('a deferred-remainder row is fully interactive: copy button, details button, and row click all reach the current deps', async () => {
+      const copyAnsweredTalkToTalks = jest.fn();
+      const showItemDetailsPopup = jest.fn();
+      const showTalkDetail = jest.fn();
+      displayAnswersList(baseDeps(40, { copyAnsweredTalkToTalks, showItemDetailsPopup, showTalkDetail }) as any);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // A second render (fresh deps object, matching how ui-manager.ts rebuilds deps
+      // every call) — the delegated listener must read this new one, not the first.
+      const copyAnsweredTalkToTalks2 = jest.fn();
+      const showTalkDetail2 = jest.fn();
+      displayAnswersList(baseDeps(40, { copyAnsweredTalkToTalks: copyAnsweredTalkToTalks2, showTalkDetail: showTalkDetail2 }) as any);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const remainderRow = document.querySelector<HTMLElement>('.answer-talk-item[data-source-talk-id="talk-answer-039"]');
+      expect(remainderRow).toBeTruthy();
+
+      const copyBtn = remainderRow!.querySelector<HTMLElement>('.answer-copy-talk-btn');
+      copyBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(copyAnsweredTalkToTalks2).toHaveBeenCalledWith('talk-answer-039');
+      expect(copyAnsweredTalkToTalks).not.toHaveBeenCalled();
+
+      remainderRow!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(showTalkDetail2).toHaveBeenCalled();
+      expect(showTalkDetail).not.toHaveBeenCalled();
+    });
+
+    it('preferences button works from the empty state too, exactly once', () => {
+      const showPreferencesDialog = jest.fn();
+      displayAnswersList({
+        getMyTalks: () => ({}),
+        getFlatAnswerHistory: () => ({}),
+        escapeHtml: (value: string) => value,
+        copyAnsweredTalkToTalks: jest.fn(),
+        showTalkDetail: jest.fn(),
+        showPreferencesDialog,
+        showItemDetailsPopup: jest.fn(),
+        getTalkContentKey: jest.fn(),
+        text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+        formatDate: () => 'date',
+        formatType: () => 'Flow',
+        formatLanguage: () => 'English',
+      } as any);
+
+      document.getElementById('view-preferences-btn')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(showPreferencesDialog).toHaveBeenCalledTimes(1);
+    });
+  });
 });

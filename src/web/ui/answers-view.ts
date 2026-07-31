@@ -7,6 +7,12 @@ import {
 } from '../../shared/exact-chatbot-memory';
 import type { FlatAnswerHistoryRecord } from './answer-history-storage';
 import type { UiTranslationKey } from './ui-translations';
+import { renderListProgressively } from './render-list-progressively';
+
+/** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
+const ANSWERS_FIRST_CHUNK_SIZE = 25;
+/** TODO §R3: lets a newer `displayAnswersList()` call's deferred remainder win over a stale one. */
+let answersRenderSeq = 0;
 
 type AnswersViewDeps = {
   getMyTalks: () => Record<string, any>;
@@ -27,6 +33,13 @@ type AnswersViewDeps = {
   formatDate: (date: Date) => string;
   formatType: (type: string) => string;
   formatLanguage: (code: string) => string;
+  /**
+   * TODO §R3: fired after each render pass — first chunk and, separately, the deferred
+   * remainder — since `applyMeAnswerFilter` (ui-manager.ts) re-scans whatever
+   * `.answer-talk-item` rows currently exist in the DOM; without this hook, a filter set
+   * before the remainder lands would never apply to the rows that arrive after it.
+   */
+  onRowsRendered?: () => void;
 };
 
 type AnswerEntry = { questionId: string; answerId: string; answerText?: string; mode?: string };
@@ -343,6 +356,61 @@ function tagStateForItems(items: AnswerItemModel[]): 'checked' | 'unchecked' | '
 export function displayAnswersList(deps: AnswersViewDeps): void {
   const container = document.getElementById('answers-content');
   if (!container) return;
+  const renderSeq = ++answersRenderSeq;
+
+  // TODO §R3: delegated (bound once on the stable #answers-content container, which
+  // persists across renders even though its children are recreated every call) —
+  // replaces four per-render listener-binding calls (row click, copy button, details
+  // button, preferences button — the last of which exists in both the empty-state and
+  // normal render branches) so nothing needs re-attaching for rows in a deferred
+  // remainder, and so the empty-state button isn't handled by one mechanism while the
+  // normal-state button is handled by another. `deps` is stashed on the element and read
+  // at click time rather than closed over at bind time, since a later render passes a
+  // freshly-built `deps` object (same reasoning as the Contacts fix in contacts-view.ts).
+  (container as unknown as { __answersDeps?: AnswersViewDeps }).__answersDeps = deps;
+  if (container.dataset.answersClickBound !== '1') {
+    container.dataset.answersClickBound = '1';
+    container.addEventListener('click', (e) => {
+      const currentDeps = (container as unknown as { __answersDeps?: AnswersViewDeps }).__answersDeps;
+      if (!currentDeps) return;
+      const target = e.target as HTMLElement;
+
+      if (target.closest('#view-preferences-btn')) {
+        currentDeps.showPreferencesDialog();
+        return;
+      }
+
+      const copyBtn = target.closest('.answer-copy-talk-btn') as HTMLElement | null;
+      if (copyBtn) {
+        e.stopPropagation();
+        const talkId = copyBtn.dataset.talkId;
+        if (talkId) currentDeps.copyAnsweredTalkToTalks(talkId);
+        return;
+      }
+
+      // TODO §M3: "ℹ️" opens the entry's hidden .answer-item-details in the shared M2 popup.
+      const detailsBtn = target.closest('.answer-details-btn') as HTMLElement | null;
+      if (detailsBtn) {
+        e.stopPropagation();
+        const item = detailsBtn.closest('.answer-talk-item') as HTMLElement | null;
+        const details = item?.querySelector('.answer-item-details') as HTMLElement | null;
+        if (item && details) currentDeps.showItemDetailsPopup(details, item);
+        return;
+      }
+
+      // TODO §P: per-question deep link. If the click landed inside a specific
+      // .answer-outcome-item (one question of a possibly multi-question entry), thread its
+      // questionId through so the talk opens scrolled/highlighted to that question instead
+      // of just the talk as a whole.
+      if (target.closest('.answer-item-details')) return;
+      const item = target.closest('.answer-talk-item') as HTMLElement | null;
+      if (!item) return;
+      const talkId = item.dataset.sourceTalkId || item.dataset.talkId;
+      if (!talkId) return;
+      const outcomeItem = target.closest('.answer-outcome-item') as HTMLElement | null;
+      currentDeps.showTalkDetail(talkId, outcomeItem?.dataset.questionId || undefined);
+    });
+  }
 
   const myTalks = deps.getMyTalks();
   const flatHistory = deps.getFlatAnswerHistory?.() || {};
@@ -377,7 +445,9 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
       </div>
     `;
-    document.getElementById('view-preferences-btn')?.addEventListener('click', () => deps.showPreferencesDialog());
+    // #view-preferences-btn's click is handled by the delegated container listener bound
+    // above — no separate direct listener needed here.
+    deps.onRowsRendered?.();
     return;
   }
 
@@ -392,7 +462,18 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
 
   const listEl = document.getElementById('answers-list');
   if (listEl) {
-    flattenedHistory.forEach(({ id, record, itemIndex }) => {
+    // TODO §R3: unified render-row type over both sources — `deduped` is always empty
+    // whenever `answeredEntriesFromFlatHistory` is non-empty (see the ternary above), so
+    // in practice exactly one of the two ever has entries; treating them as one combined
+    // list lets a single renderListProgressively call handle both instead of two.
+    type FlatRow = { kind: 'flat'; id: string; record: FlatAnswerHistoryRecord; itemIndex: number };
+    type LegacyRow = { kind: 'legacy'; talkId: string; talk: any; answeredCount: number };
+    const rows: Array<FlatRow | LegacyRow> = [
+      ...flattenedHistory.map(({ id, record, itemIndex }) => ({ kind: 'flat' as const, id, record, itemIndex })),
+      ...deduped.map(({ talkId, talk, answeredCount }) => ({ kind: 'legacy' as const, talkId, talk, answeredCount })),
+    ];
+
+    const renderFlatRow = ({ id, record, itemIndex }: FlatRow): string => {
       const answeredCount = 1;
       const outcome = record.outcome === 'match' ? 'match' : 'mismatch';
       const answeredAt = new Date(record.answeredAt || Date.now());
@@ -426,45 +507,37 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         outcome,
         ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '', answerItem.contextLabel]),
       ].join(' ').toLowerCase();
-      const item = document.createElement('div');
       const talkType = String(record.type || 'flow').toLowerCase();
-      item.className = `answer-question-item answer-talk-item talk-type-${deps.escapeHtml(talkType)}`;
-      item.dataset.talkId = id;
-      item.dataset.sourceTalkId = record.talkId;
-      item.dataset.talkType = talkType;
-      item.dataset.tagState = talkType === 'tag' ? tagStateForItems(answerItems) : '';
-      item.dataset.outcome = outcome;
-      item.dataset.answeredAt = String(answeredAt.getTime());
-      item.dataset.chatbotUseCount = String(answerItems.reduce((total, answer) => total + answer.autoUseCount, 0));
-      item.dataset.chatbotLastUsedAt = String(Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0)));
-      item.dataset.answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
-      item.dataset.searchText = searchText;
-      item.style.cssText = `display:flex; flex-direction:column; gap:4px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border:1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
+      const chatbotUseCount = answerItems.reduce((total, answer) => total + answer.autoUseCount, 0);
+      const chatbotLastUsedAt = Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0));
+      const answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
+      const rowStyle = `display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; cursor: pointer; background: ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border: 1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
       // TODO §M3: 2 visible lines (title, status) with the copy action as an inline icon; the
       // metadata line, type/language badges, and full per-question breakdown move into
       // .answer-item-details — still a normal DOM child, just display:none until the "ℹ️" icon
       // reparents it into the shared M2 popup (showItemDetailsPopup).
-      item.innerHTML = `
-        <div class="answer-item-title" style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
-        <div class="answer-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <span style="font-size:0.85em;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</span>
-          <span style="display:flex;gap:4px;flex-shrink:0;">
-            <button type="button" class="btn answer-copy-talk-btn answer-icon-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" title="${deps.text('copy')}">📋</button>
-            <button type="button" class="btn answer-details-btn answer-icon-btn" title="${deps.text('talksDetails')}">ℹ️</button>
-          </span>
-        </div>
-        <div class="answer-item-details" style="display:none;">
-          <div style="font-size: 0.85em; color: #666;">${deps.escapeHtml(metadata)}</div>
-          <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;">${deps.escapeHtml(deps.formatType(record.type))} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
-          <div class="answer-question-list" style="display: grid; gap: 8px; margin-top: 8px;">
-            ${renderAnswerItemsHtml(answerItems, deps)}
+      return `
+        <div class="answer-question-item answer-talk-item talk-type-${deps.escapeHtml(talkType)}" data-talk-id="${deps.escapeHtml(id)}" data-source-talk-id="${deps.escapeHtml(record.talkId)}" data-talk-type="${deps.escapeHtml(talkType)}" data-tag-state="${deps.escapeHtml(talkType === 'tag' ? tagStateForItems(answerItems) : '')}" data-outcome="${deps.escapeHtml(outcome)}" data-answered-at="${answeredAt.getTime()}" data-chatbot-use-count="${chatbotUseCount}" data-chatbot-last-used-at="${chatbotLastUsedAt}" data-answer-text="${deps.escapeHtml(answerText)}" data-search-text="${deps.escapeHtml(searchText)}" style="${rowStyle}">
+          <div class="answer-item-title" style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
+          <div class="answer-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span style="font-size:0.85em;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</span>
+            <span style="display:flex;gap:4px;flex-shrink:0;">
+              <button type="button" class="btn answer-copy-talk-btn answer-icon-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" title="${deps.text('copy')}">📋</button>
+              <button type="button" class="btn answer-details-btn answer-icon-btn" title="${deps.text('talksDetails')}">ℹ️</button>
+            </span>
+          </div>
+          <div class="answer-item-details" style="display:none;">
+            <div style="font-size: 0.85em; color: #666;">${deps.escapeHtml(metadata)}</div>
+            <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;">${deps.escapeHtml(deps.formatType(record.type))} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
+            <div class="answer-question-list" style="display: grid; gap: 8px; margin-top: 8px;">
+              ${renderAnswerItemsHtml(answerItems, deps)}
+            </div>
           </div>
         </div>
       `;
-      listEl.appendChild(item);
-    });
+    };
 
-    deduped.forEach(({ talkId, talk, answeredCount }) => {
+    const renderLegacyRow = ({ talkId, talk, answeredCount }: LegacyRow): string => {
       const outcome = talk.outcome === 'match' ? 'match' : 'mismatch';
       const senders = talk.senders && talk.senders.length > 0
         ? talk.senders.length === 1
@@ -494,37 +567,43 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         outcome,
         ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '', answerItem.contextLabel]),
       ].join(' ').toLowerCase();
-      const item = document.createElement('div');
       const talkType = String(talk.fullTalk?.type || talk.type || 'flow').toLowerCase();
-      item.className = `answer-question-item answer-talk-item talk-type-${deps.escapeHtml(talkType)}`;
-      item.dataset.talkId = talkId;
-      item.dataset.talkType = talkType;
-      item.dataset.tagState = talkType === 'tag' ? tagStateForItems(answerItems) : '';
-      item.dataset.outcome = outcome;
-      item.dataset.answeredAt = String(answeredAt.getTime());
-      item.dataset.chatbotUseCount = String(answerItems.reduce((total, answer) => total + answer.autoUseCount, 0));
-      item.dataset.chatbotLastUsedAt = String(Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0)));
-      item.dataset.answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
-      item.dataset.searchText = searchText;
-      item.style.cssText = `display:flex; flex-direction:column; gap:4px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border:1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
-      item.innerHTML = `
-        <div class="answer-item-title" style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
-        <div class="answer-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <span style="font-size:0.85em;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</span>
-          <span style="display:flex;gap:4px;flex-shrink:0;">
-            <button type="button" class="btn answer-copy-talk-btn answer-icon-btn" data-talk-id="${talkId}" title="${deps.text('copy')}">📋</button>
-            <button type="button" class="btn answer-details-btn answer-icon-btn" title="${deps.text('talksDetails')}">ℹ️</button>
-          </span>
-        </div>
-        <div class="answer-item-details" style="display:none;">
-          <div style="font-size: 0.85em; color: #666;">${deps.escapeHtml(metadata)}</div>
-          <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;"><span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
-          <div class="answer-question-list" style="display: grid; gap: 8px; margin-top: 8px;">
-            ${renderAnswerItemsHtml(answerItems, deps)}
+      const chatbotUseCount = answerItems.reduce((total, answer) => total + answer.autoUseCount, 0);
+      const chatbotLastUsedAt = Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0));
+      const answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
+      const rowStyle = `display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; cursor: pointer; background: ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border: 1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
+      return `
+        <div class="answer-question-item answer-talk-item talk-type-${deps.escapeHtml(talkType)}" data-talk-id="${deps.escapeHtml(talkId)}" data-talk-type="${deps.escapeHtml(talkType)}" data-tag-state="${deps.escapeHtml(talkType === 'tag' ? tagStateForItems(answerItems) : '')}" data-outcome="${deps.escapeHtml(outcome)}" data-answered-at="${answeredAt.getTime()}" data-chatbot-use-count="${chatbotUseCount}" data-chatbot-last-used-at="${chatbotLastUsedAt}" data-answer-text="${deps.escapeHtml(answerText)}" data-search-text="${deps.escapeHtml(searchText)}" style="${rowStyle}">
+          <div class="answer-item-title" style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
+          <div class="answer-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span style="font-size:0.85em;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</span>
+            <span style="display:flex;gap:4px;flex-shrink:0;">
+              <button type="button" class="btn answer-copy-talk-btn answer-icon-btn" data-talk-id="${deps.escapeHtml(talkId)}" title="${deps.text('copy')}">📋</button>
+              <button type="button" class="btn answer-details-btn answer-icon-btn" title="${deps.text('talksDetails')}">ℹ️</button>
+            </span>
+          </div>
+          <div class="answer-item-details" style="display:none;">
+            <div style="font-size: 0.85em; color: #666;">${deps.escapeHtml(metadata)}</div>
+            <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;"><span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
+            <div class="answer-question-list" style="display: grid; gap: 8px; margin-top: 8px;">
+              ${renderAnswerItemsHtml(answerItems, deps)}
+            </div>
           </div>
         </div>
       `;
-      listEl.appendChild(item);
+    };
+
+    // TODO §R3: first-chunk-immediate + quiet-background-fill, same shared helper as R1/R2.
+    // onRowsRendered fires after both the first chunk and the deferred remainder — see the
+    // AnswersViewDeps doc comment for why the remainder needs it too.
+    const onRowsRendered = deps.onRowsRendered;
+    renderListProgressively(listEl, rows, {
+      firstChunkSize: ANSWERS_FIRST_CHUNK_SIZE,
+      renderRow: (row) => (row.kind === 'flat' ? renderFlatRow(row) : renderLegacyRow(row)),
+      isStale: () => renderSeq !== answersRenderSeq,
+      ...(onRowsRendered
+        ? { onFirstChunkRendered: onRowsRendered, onRemainderRendered: onRowsRendered }
+        : {}),
     });
   }
 
@@ -538,37 +617,4 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     window.dispatchEvent(new CustomEvent('iinpublic:answers-filter-change'));
   });
 
-  listEl?.querySelectorAll('.answer-copy-talk-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
-      if (talkId) deps.copyAnsweredTalkToTalks(talkId);
-    });
-  });
-
-  // TODO §M3: "ℹ️" opens the entry's hidden .answer-item-details in the shared M2 popup.
-  listEl?.querySelectorAll<HTMLElement>('.answer-details-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const item = (e.currentTarget as HTMLElement).closest('.answer-talk-item') as HTMLElement | null;
-      const details = item?.querySelector('.answer-item-details') as HTMLElement | null;
-      if (item && details) deps.showItemDetailsPopup(details, item);
-    });
-  });
-
-  // TODO §P: per-question deep link. If the click landed inside a specific .answer-outcome-item
-  // (one question of a possibly multi-question entry), thread its questionId through so the
-  // talk opens scrolled/highlighted to that question instead of just the talk as a whole.
-  listEl?.querySelectorAll<HTMLElement>('.answer-talk-item').forEach((item) => {
-    item.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('.answer-copy-talk-btn') || target.closest('.answer-details-btn') || target.closest('.answer-item-details')) return;
-      const talkId = item.dataset.sourceTalkId || item.dataset.talkId;
-      if (!talkId) return;
-      const outcomeItem = target.closest('.answer-outcome-item') as HTMLElement | null;
-      deps.showTalkDetail(talkId, outcomeItem?.dataset.questionId || undefined);
-    });
-  });
-
-  document.getElementById('view-preferences-btn')?.addEventListener('click', () => deps.showPreferencesDialog());
 }

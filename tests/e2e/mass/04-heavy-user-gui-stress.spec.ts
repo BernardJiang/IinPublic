@@ -291,7 +291,14 @@ test.describe('M4 heavy-user GUI stress', () => {
         await expect(page.locator('.nav-btn[data-view="me"].active')).toBeVisible({ timeout: 15_000 });
         await pauseAfterTabSwitch(page, 'me');
         const shellMs = (await browserNow(page)) - t0;
+        let firstRowMs = shellMs;
         if (NUM_ANSWERS > 0) {
+          // TODO §R3: same hard first-row bound as Talks (R2) — a forward-looking perf
+          // budget, not proof of a specific fixed regression (Me tab never had a blocking
+          // pre-render chain either).
+          await expect.poll(() => page!.locator('#answers-content .answer-talk-item').count(), { timeout: 500 })
+            .toBeGreaterThan(0);
+          firstRowMs = (await browserNow(page)) - t0;
           await expect.poll(() => page!.locator('#answers-content .answer-talk-item').count(), { timeout: E2E_ASSERT_TIMEOUT_MS })
             .toBeGreaterThanOrEqual(NUM_ANSWERS);
         } else {
@@ -301,7 +308,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         const answerCount = await page.locator('#answers-content .answer-talk-item').count();
         warnIfSlow('me shell', shellMs, 500);
         warnIfSlow('me render', contentMs, 5000);
-        console.log(`[me]    shell=${shellMs.toFixed(0)}ms render=${contentMs.toFixed(0)}ms items=${answerCount}`);
+        console.log(`[me]    shell=${shellMs.toFixed(0)}ms firstRow=${firstRowMs.toFixed(0)}ms render=${contentMs.toFixed(0)}ms items=${answerCount}`);
 
         await page.waitForTimeout(3000);
       }
