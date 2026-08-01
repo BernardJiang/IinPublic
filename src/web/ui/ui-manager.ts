@@ -6284,6 +6284,11 @@ export class UIManager extends EventEmitter {
     modal.id = 'capture-question-confirm-modal';
     modal.dataset.testid = 'capture-question-confirm-modal';
     modal.className = 'modal-overlay';
+    // This dialog is opened from *inside* an already-open conversation detail overlay
+    // (z-index 1001), which sits above .modal-overlay's own default (1000) — found via
+    // real E2E run (docs/TODO.md §V), matching the z-index tier the media lightbox
+    // already uses for the same "float above an open conversation" requirement.
+    modal.style.zIndex = '2000';
     modal.innerHTML = `
       <div class="modal-content" style="max-width:420px;">
         <div class="modal-header">
