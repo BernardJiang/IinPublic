@@ -4769,13 +4769,9 @@ export class IinPublicApp {
           ...talkFields,
           ...(ipfsAttachments ? { ipfsAttachments } : {}),
           authorId: this.currentUser!.id,
+          // TODO §X: blurred by default (docs/TODO.md) — never the precise coordinate.
           ...(this.currentLocation
-            ? {
-                authorLocation: {
-                  latitude: this.currentLocation.latitude,
-                  longitude: this.currentLocation.longitude,
-                },
-              }
+            ? { authorLocation: LocationPrivacy.blurCoordinatePair(this.currentLocation) }
             : {}),
         });
 

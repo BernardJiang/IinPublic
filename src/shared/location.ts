@@ -7,22 +7,41 @@ import { GPSCoordinate, BlurredLocation } from './types';
 export class LocationPrivacy {
 
   /**
+   * Snap a coordinate to the ~2km x 2km privacy grid. Shared by `blurLocation` (region id)
+   * and `blurCoordinatePair` (numeric pair) so both ever expose the same coarse precision.
+   */
+  private static gridSnap(coordinate: GPSCoordinate): { latitude: number; longitude: number } {
+    return {
+      latitude: Math.floor(coordinate.latitude * 100) / 100,
+      longitude: Math.floor(coordinate.longitude * 100) / 100,
+    };
+  }
+
+  /**
    * Blur a GPS coordinate to a region identifier
    * Uses grid-based blurring for consistent regional grouping
    */
   static blurLocation(coordinate: GPSCoordinate): BlurredLocation {
-    // Convert to grid system (approximately 2km x 2km cells)
-    const gridLat = Math.floor(coordinate.latitude * 100) / 100;
-    const gridLon = Math.floor(coordinate.longitude * 100) / 100;
-    
+    const { latitude: gridLat, longitude: gridLon } = this.gridSnap(coordinate);
+
     // Create region identifier
     const region = `region_${gridLat}_${gridLon}`;
-    
+
     return {
       region,
       chatrooms: [], // Will be populated by chatroom service
       trueLocation: coordinate // Only stored locally, never transmitted
     };
+  }
+
+  /**
+   * Blur a GPS coordinate to the same ~2km grid as `blurLocation`, but returns a plain
+   * `{latitude, longitude}` pair instead of a region string — for fields (like
+   * `Talk.authorLocation`) that need to stay numeric for existing distance-filter consumers
+   * (`haversineMilesBetween` et al.) without inventing a second, string-only representation.
+   */
+  static blurCoordinatePair(coordinate: GPSCoordinate): { latitude: number; longitude: number } {
+    return this.gridSnap(coordinate);
   }
 
   /**

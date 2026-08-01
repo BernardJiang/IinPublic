@@ -1411,6 +1411,8 @@ path described above. Candidate for removal, or at minimum: don't build on it, i
 
 ## X. Talk.authorLocation stores a raw coordinate — violates the SRS's own blurred-location requirement `[Sonnet]`
 
+> **Complete 2026-08-01** — see the Done note below. Fixed, unit-tested, full suite green.
+
 Found 2026-08-01 while working §V's two-author credit model, confirmed as a real bug (not a
 judgment call) by Bernard: *"blurred location should be used by default; precise location can only
 be used when the user specifically requests it, and not saved by default."* This restates the SRS's
@@ -1438,13 +1440,23 @@ already does this). `LocationPrivacy.blurLocation()` (`src/shared/location.ts:13
 coordinate to a coarse ~2km grid `region` string and its own `BlurredLocation` type explicitly keeps
 the precise coordinate as `trueLocation`, doc-commented *"only stored locally, never transmitted"*.
 
-- [ ] Switch `Talk.authorLocation` (and the two new author-location fields §V is adding —
-      `originalAuthorLocation` and the repurposed current-editor `authorLocation`) to store
-      `LocationPrivacy.blurLocation(coordinate).region` instead of the raw `{latitude, longitude}`
-      pair, at every write site (`app.ts:4772-4776` and wherever §V's edit path writes it).
-- [ ] Confirm `formatTalkDistanceFromAuthor` (`ui-manager.ts:416`) and any other reader of
-      `authorLocation` still work against a region string rather than a lat/lng pair (distance
-      becomes approximate — expected and already how this SRS asks the rest of the system to work).
+- [x] **Done 2026-08-01.** Switched `Talk.authorLocation`'s one real write site
+      (`app.ts:4768-4776`) to a blurred value — but as a **numeric pair, not the `region` string**
+      originally sketched above. Reason for the refinement, found during implementation: three real
+      consumers already expect `{latitude, longitude}` numbers — `haversineMilesBetween`
+      (`talk-intake-filters.ts:197`, the actual delivery-radius filter), `formatTalkDistanceFromAuthor`
+      (`ui-manager.ts:416`), and `cid.ts`'s optional `includeLocation` hash inclusion — switching the
+      field to a string would have forced every one of them to parse it back out. Instead added
+      `LocationPrivacy.blurCoordinatePair()` (`src/shared/location.ts`) — same ~2km grid-snap math
+      `blurLocation` already uses (extracted into a shared private `gridSnap` helper so both stay in
+      sync), returning a coarse numeric pair instead of a region string. **Zero consumers needed to
+      change** — they all keep working exactly as before, just against already-blurred input, and
+      `locationRadiusMiles` filtering degrades to approximate exactly as the SRS's own "approximate
+      is acceptable" precedent (line 4027) already calls for. Unit-tested
+      (`location.test.ts`: grid-match with `blurLocation`, never returns the precise value,
+      consistent blurring for nearby coordinates) — full suite green (91/91 suites). The other
+      `authorLocation`-touching call site (`app.ts:4941`'s `updateTalk`) never passes a fresh value
+      at all, so it inherits the already-blurred one with no change needed there.
 - [x] "Share my precise location with this specific talk/person" is out of scope for this fix —
       **confirmed 2026-08-01 (Bernard): "share location with someone is another feature in the
       future."** Blurred-only is a complete fix on its own here; a real opt-in precise-sharing

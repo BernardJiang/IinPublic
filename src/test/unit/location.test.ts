@@ -40,6 +40,45 @@ describe('LocationPrivacy', () => {
     });
   });
 
+  describe('blurCoordinatePair (docs/TODO.md §X)', () => {
+    it('snaps to the same grid as blurLocation, returned as a numeric pair', () => {
+      const coordinate: GPSCoordinate = {
+        latitude: 40.7128,
+        longitude: -74.006,
+        accuracy: 10,
+        timestamp: new Date(),
+      };
+
+      const pair = LocationPrivacy.blurCoordinatePair(coordinate);
+
+      expect(pair).toEqual({ latitude: 40.71, longitude: -74.01 });
+      // Same grid cell as blurLocation's region string, just numeric instead of a string —
+      // existing consumers (haversineMilesBetween, cid.ts's includeLocation) need no changes.
+      expect(LocationPrivacy.blurLocation(coordinate).region).toBe('region_40.71_-74.01');
+    });
+
+    it('never returns the precise coordinate', () => {
+      const coordinate: GPSCoordinate = {
+        latitude: 40.7128,
+        longitude: -74.006,
+        accuracy: 10,
+        timestamp: new Date(),
+      };
+
+      const pair = LocationPrivacy.blurCoordinatePair(coordinate);
+
+      expect(pair.latitude).not.toBe(coordinate.latitude);
+      expect(pair.longitude).not.toBe(coordinate.longitude);
+    });
+
+    it('consistently blurs nearby coordinates to the same pair', () => {
+      const coord1: GPSCoordinate = { latitude: 40.7128, longitude: -74.006, accuracy: 10, timestamp: new Date() };
+      const coord2: GPSCoordinate = { latitude: 40.7129, longitude: -74.0061, accuracy: 10, timestamp: new Date() };
+
+      expect(LocationPrivacy.blurCoordinatePair(coord1)).toEqual(LocationPrivacy.blurCoordinatePair(coord2));
+    });
+  });
+
   describe('calculateDistance', () => {
     it('should calculate distance between two coordinates', () => {
       const coord1: GPSCoordinate = {
