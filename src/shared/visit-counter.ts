@@ -200,3 +200,100 @@ export function legacyMigrationState(legacyVisitCount: unknown, now: string): Vi
     },
   };
 }
+
+/**
+ * TODO §L2 (docs/TODO.md): one node per user per room, forever, is the "worst offender
+ * but one node not one per visit" growth path this module's own doc comment flags.
+ * Per Bernard's 2026-08-01 decision: prune by time by default (oldest `lastVisitedAt`
+ * first) once a room's slot count crosses a threshold; each pruned slot's count is
+ * folded into a small aggregate node first (not deleted outright) so the lifetime
+ * `visitCount`/`uniqueVisitorCount` badges stay numerically correct even after the
+ * per-user detail behind them is gone — "only an overall headcount is needed" for users
+ * who are no longer active. Trimming runs per-device (each Gun peer, server and browser
+ * alike, decides for its own local graph — no relay-is-authoritative special case).
+ */
+export type PrunedVisitAggregate = {
+  /** Sum of every pruned slot's count, folded in so the lifetime total stays correct. */
+  count: number;
+  /** Count of pruned slots that had count > 0, folded into the unique-visitor total. */
+  uniqueCount: number;
+  /** Latest lastVisitedAt among everything ever folded in here — informational only. */
+  lastPrunedAt: string;
+};
+
+const EMPTY_PRUNED_AGGREGATE: PrunedVisitAggregate = { count: 0, uniqueCount: 0, lastPrunedAt: '' };
+
+/** Gun path to a room's aggregate of already-pruned visit-counter slots. */
+export function prunedVisitAggregatePath(chatroomId: string): string[] {
+  return ['chatrooms', chatroomId, 'visitCounterPruned'];
+}
+
+/** Coerce a raw Gun node into a PrunedVisitAggregate, defaulting to empty. */
+export function readPrunedVisitAggregate(raw: unknown): PrunedVisitAggregate {
+  if (!raw || typeof raw !== 'object') return { ...EMPTY_PRUNED_AGGREGATE };
+  const record = raw as Partial<PrunedVisitAggregate>;
+  return {
+    count: toCount(record.count),
+    uniqueCount: toCount(record.uniqueCount),
+    lastPrunedAt: String(record.lastPrunedAt || ''),
+  };
+}
+
+/** Fold a batch of about-to-be-deleted slots into an existing pruned aggregate. */
+export function foldSlotsIntoPrunedAggregate(
+  existing: PrunedVisitAggregate,
+  slots: ReadonlyArray<VisitCounterSlot>,
+): PrunedVisitAggregate {
+  let count = existing.count;
+  let uniqueCount = existing.uniqueCount;
+  let lastPrunedAt = existing.lastPrunedAt;
+  for (const slot of slots) {
+    const slotCount = toCount(slot.count);
+    if (slotCount > 0) {
+      count += slotCount;
+      uniqueCount += 1;
+    }
+    lastPrunedAt = latest(lastPrunedAt, slot.lastVisitedAt);
+  }
+  return { count, uniqueCount, lastPrunedAt };
+}
+
+/**
+ * Both lifetime badges, including history already folded into the pruned aggregate —
+ * this is what any reader of the totals (getChatroom, the client's own subscription)
+ * should use once pruning is live, so a prune never changes what a user sees.
+ */
+export function visitTotalsWithPruned(
+  state: VisitCounterState | undefined,
+  pruned: PrunedVisitAggregate | undefined,
+): VisitTotals {
+  const live = visitTotals(state);
+  return {
+    visitCount: live.visitCount + (pruned?.count || 0),
+    uniqueVisitorCount: live.uniqueVisitorCount + (pruned?.uniqueCount || 0),
+  };
+}
+
+/** Default max live slots per room before the oldest ones get folded into the aggregate and pruned. */
+export const DEFAULT_VISIT_COUNTER_MAX_SLOTS = 500;
+
+export type VisitCounterPrunePlan = {
+  /** Slots to delete, oldest lastVisitedAt first — empty when nothing needs pruning yet. */
+  slotsToPrune: VisitCounterSlot[];
+};
+
+/**
+ * Decide which slots to prune once a room's live slot count exceeds `maxSlots`: oldest
+ * `lastVisitedAt` first, pruning exactly enough to land back at `maxSlots`. Pure —
+ * callers own writing the resulting aggregate and deleting the chosen slots.
+ */
+export function planVisitCounterPrune(
+  state: VisitCounterState,
+  maxSlots: number = DEFAULT_VISIT_COUNTER_MAX_SLOTS,
+): VisitCounterPrunePlan {
+  const slots = Object.values(state);
+  if (slots.length <= maxSlots) return { slotsToPrune: [] };
+  const sorted = [...slots].sort((a, b) => (a.lastVisitedAt < b.lastVisitedAt ? -1 : a.lastVisitedAt > b.lastVisitedAt ? 1 : 0));
+  const excess = slots.length - maxSlots;
+  return { slotsToPrune: sorted.slice(0, excess) };
+}

@@ -2,6 +2,14 @@ import { ChatroomManager } from '../../server/services/chatroom-manager';
 import type { GunService } from '../../server/services/gun-service';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
+import {
+  DEFAULT_VISIT_COUNTER_MAX_SLOTS,
+  prunedVisitAggregatePath,
+  readPrunedVisitAggregate,
+  readVisitCounterState,
+  visitCounterMapPath,
+  visitTotalsWithPruned,
+} from '../../shared/visit-counter';
 
 class MemoryGunService {
   private state: Record<string, any> = {};
@@ -63,6 +71,66 @@ describe('ChatroomManager visit accounting', () => {
 
     await manager.joinChatroom('room_1', 'user_1', 'Tom');
     expect(await manager.getChatroom('room_1')).toMatchObject({ visitCount: 2, uniqueVisitorCount: 1 });
+  });
+
+  it('triggers a prune the moment recordVisit pushes a room past the slot threshold', async () => {
+    const manager = buildManager();
+    const gunService = (manager as any).gunService as MemoryGunService;
+    await manager.createChatroom({ id: 'room_flood', name: 'Flood Room', type: 'custom', createdBy: 'owner' });
+
+    // Seed one slot over the default threshold directly (fast) rather than driving
+    // DEFAULT_VISIT_COUNTER_MAX_SLOTS+1 real joins through the manager.
+    for (let i = 0; i < DEFAULT_VISIT_COUNTER_MAX_SLOTS; i++) {
+      const ts = new Date(2026, 6, 25, 0, 0, i).toISOString();
+      await gunService.putPath(['chatrooms', 'room_flood', 'visitCounter', `u${i}`], {
+        userId: `u${i}`,
+        count: 1,
+        firstVisitedAt: ts,
+        lastVisitedAt: ts,
+      });
+    }
+    const beforeTotals = visitTotalsWithPruned(
+      readVisitCounterState(await gunService.getPath(visitCounterMapPath('room_flood'))),
+      undefined,
+    );
+    expect(beforeTotals).toEqual({ visitCount: DEFAULT_VISIT_COUNTER_MAX_SLOTS, uniqueVisitorCount: DEFAULT_VISIT_COUNTER_MAX_SLOTS });
+
+    // The (DEFAULT_VISIT_COUNTER_MAX_SLOTS + 1)th visitor's own join is what crosses the
+    // threshold — recordVisit fires the prune check itself, same as production.
+    await manager.joinChatroom('room_flood', 'newest_user', 'Newest');
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the fire-and-forget prune settle
+
+    const liveState = readVisitCounterState(await gunService.getPath(visitCounterMapPath('room_flood')));
+    expect(Object.keys(liveState)).toHaveLength(DEFAULT_VISIT_COUNTER_MAX_SLOTS);
+    // The oldest slot (u0, earliest lastVisitedAt) must be the one pruned away.
+    expect(liveState.u0).toBeUndefined();
+    expect(liveState.newest_user).toBeDefined();
+
+    const prunedAggregate = readPrunedVisitAggregate(await gunService.getPath(prunedVisitAggregatePath('room_flood')));
+    expect(prunedAggregate.count).toBe(1);
+    expect(prunedAggregate.uniqueCount).toBe(1);
+
+    // The lifetime badge is numerically identical across the prune: still
+    // DEFAULT_VISIT_COUNTER_MAX_SLOTS + 1 total visits/visitors, split live vs. pruned.
+    const afterTotals = visitTotalsWithPruned(liveState, prunedAggregate);
+    expect(afterTotals).toEqual({
+      visitCount: DEFAULT_VISIT_COUNTER_MAX_SLOTS + 1,
+      uniqueVisitorCount: DEFAULT_VISIT_COUNTER_MAX_SLOTS + 1,
+    });
+    expect(await manager.getChatroom('room_flood')).toMatchObject(afterTotals);
+  });
+
+  it('does not prune anything when the room is still under the threshold', async () => {
+    const manager = buildManager();
+    const gunService = (manager as any).gunService as MemoryGunService;
+
+    await manager.joinChatroom('room_small', 'user_1', 'Tom');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const liveState = readVisitCounterState(await gunService.getPath(visitCounterMapPath('room_small')));
+    expect(Object.keys(liveState)).toEqual(['user_1']);
+    const prunedAggregate = await gunService.getPath(prunedVisitAggregatePath('room_small'));
+    expect(prunedAggregate).toBeUndefined();
   });
 
   it('expires stale active room memberships and republishes the public count', async () => {

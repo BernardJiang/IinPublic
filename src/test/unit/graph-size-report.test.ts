@@ -112,3 +112,134 @@ describe('unboundedGrowthCategories', () => {
     expect(keys).not.toContain('users');
   });
 });
+
+/**
+ * docs/TODO.md L2 — Bernard's 2026-08-01 request: "build size report tool based on
+ * time location event or user ... so that we know which take space and what to trim."
+ */
+describe('buildGraphSizeReport — location/user/age breakdowns', () => {
+  const NOW = Date.parse('2026-08-01T12:00:00.000Z');
+
+  function category(report: ReturnType<typeof buildGraphSizeReport>, key: string) {
+    const found = report.categories.find((c) => c.key === key);
+    if (!found) throw new Error(`category ${key} not found`);
+    return found;
+  }
+
+  it('groups room-visit-counter by room (location) and by user, across rooms', () => {
+    const graph: Record<string, unknown> = {
+      'chatrooms/roomA/visitCounter/u1': { userId: 'u1', count: 1, lastVisitedAt: '2026-08-01T11:00:00.000Z' },
+      'chatrooms/roomA/visitCounter/u2': { userId: 'u2', count: 1, lastVisitedAt: '2026-08-01T11:00:00.000Z' },
+      'chatrooms/roomA/visitCounter/u3': { userId: 'u3', count: 1, lastVisitedAt: '2026-08-01T11:00:00.000Z' },
+      'chatrooms/roomB/visitCounter/u1': { userId: 'u1', count: 1, lastVisitedAt: '2026-08-01T11:00:00.000Z' },
+    };
+    const report = buildGraphSizeReport(graph, NOW);
+    const counter = category(report, 'room-visit-counter');
+    expect(counter.topLocations).toEqual([
+      { id: 'roomA', nodeCount: 3 },
+      { id: 'roomB', nodeCount: 1 },
+    ]);
+    // u1 has a slot in two different rooms, u2/u3 each in one.
+    expect(counter.topUsers).toEqual([
+      { id: 'u1', nodeCount: 2 },
+      { id: 'u2', nodeCount: 1 },
+      { id: 'u3', nodeCount: 1 },
+    ]);
+  });
+
+  it('buckets room-visit-counter slot age off lastVisitedAt', () => {
+    const graph: Record<string, unknown> = {
+      'chatrooms/room1/visitCounter/fresh': { lastVisitedAt: '2026-08-01T11:30:00.000Z' }, // 30 min ago
+      'chatrooms/room1/visitCounter/week': { lastVisitedAt: '2026-07-27T12:00:00.000Z' }, // 5 days ago
+      'chatrooms/room1/visitCounter/month': { lastVisitedAt: '2026-07-10T12:00:00.000Z' }, // 22 days ago
+      'chatrooms/room1/visitCounter/quarter': { lastVisitedAt: '2026-06-01T12:00:00.000Z' }, // ~61 days ago
+      'chatrooms/room1/visitCounter/ancient': { lastVisitedAt: '2026-01-01T12:00:00.000Z' }, // >90 days ago
+      'chatrooms/room1/visitCounter/corrupt': { lastVisitedAt: 'not-a-date' },
+      'chatrooms/room1/visitCounter/missing': {},
+    };
+    const report = buildGraphSizeReport(graph, NOW);
+    expect(category(report, 'room-visit-counter').ageBuckets).toEqual({
+      under1d: 1,
+      d1to7: 1,
+      d7to30: 1,
+      d30to90: 1,
+      over90d: 1,
+      unknown: 2,
+    });
+  });
+
+  it('groups conversation-messages by conversation, sender, and message age', () => {
+    const graph: Record<string, unknown> = {
+      'conversations/c1/messages/m1': { senderId: 'alice', timestamp: '2026-08-01T11:00:00.000Z' },
+      'conversations/c1/messages/m2': { senderId: 'alice', timestamp: '2026-08-01T11:30:00.000Z' },
+      'conversations/c1/messages/m3': { senderId: 'bob', timestamp: '2026-01-01T00:00:00.000Z' },
+      'conversations/c2/messages/m4': { senderId: 'carol', timestamp: '2026-08-01T11:45:00.000Z' },
+    };
+    const report = buildGraphSizeReport(graph, NOW);
+    const messages = category(report, 'conversation-messages');
+    expect(messages.topLocations).toEqual([
+      { id: 'c1', nodeCount: 3 },
+      { id: 'c2', nodeCount: 1 },
+    ]);
+    expect(messages.topUsers).toEqual([
+      { id: 'alice', nodeCount: 2 },
+      { id: 'bob', nodeCount: 1 },
+      { id: 'carol', nodeCount: 1 },
+    ]);
+    expect(messages.ageBuckets).toMatchObject({ under1d: 3, over90d: 1 });
+  });
+
+  it('groups talks by author and age, with no location axis (talks are not room-scoped)', () => {
+    const graph: Record<string, unknown> = {
+      'talks/t1': { authorId: 'alice', createdAt: '2026-08-01T11:00:00.000Z' },
+      'talks/t2': { authorId: 'alice', createdAt: '2026-01-01T00:00:00.000Z' },
+      'talks/t3': { authorId: 'bob', createdAt: '2026-08-01T11:00:00.000Z' },
+    };
+    const report = buildGraphSizeReport(graph, NOW);
+    const talks = category(report, 'talks');
+    expect(talks.topUsers).toEqual([
+      { id: 'alice', nodeCount: 2 },
+      { id: 'bob', nodeCount: 1 },
+    ]);
+    expect(talks.topLocations).toBeUndefined();
+    expect(talks.ageBuckets).toMatchObject({ under1d: 2, over90d: 1 });
+  });
+
+  it('omits breakdown fields entirely for categories with no matching extractor (backward compatible)', () => {
+    const report = buildGraphSizeReport(graphOf(['users/u1', 'users/u2']), NOW);
+    const users = category(report, 'users');
+    expect(users.topLocations).toBeUndefined();
+    expect(users.topUsers).toBeUndefined();
+    expect(users.ageBuckets).toBeUndefined();
+  });
+
+  it('caps breakdown entries at 10 and keeps them sorted biggest-first', () => {
+    const graph: Record<string, unknown> = {};
+    for (let i = 0; i < 15; i++) {
+      // Room i gets (i + 1) visitor slots, so room 14 is the single biggest.
+      for (let u = 0; u <= i; u++) {
+        graph[`chatrooms/room${i}/visitCounter/u${u}`] = { lastVisitedAt: '2026-08-01T11:00:00.000Z' };
+      }
+    }
+    const report = buildGraphSizeReport(graph, NOW);
+    const locations = category(report, 'room-visit-counter').topLocations!;
+    expect(locations).toHaveLength(10);
+    expect(locations[0]).toEqual({ id: 'room14', nodeCount: 15 });
+    for (let i = 1; i < locations.length; i++) {
+      expect(locations[i - 1].nodeCount).toBeGreaterThanOrEqual(locations[i].nodeCount);
+    }
+  });
+
+  it('does not add a location breakdown for user-subgraph but does add a user breakdown', () => {
+    const report = buildGraphSizeReport(
+      graphOf(['users/u1/knownPeople', 'users/u1/talkFilters', 'users/u2/knownPeople']),
+      NOW,
+    );
+    const subgraph = category(report, 'user-subgraph');
+    expect(subgraph.topUsers).toEqual([
+      { id: 'u1', nodeCount: 2 },
+      { id: 'u2', nodeCount: 1 },
+    ]);
+    expect(subgraph.topLocations).toBeUndefined();
+  });
+});

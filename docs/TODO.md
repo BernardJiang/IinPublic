@@ -71,9 +71,9 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   - K4's stage2-5 progressive-snapshot conversion (~210 call sites) — already flagged in K4 itself
     as needing a scope/priority decision before starting; don't schedule until that decision is
     made, since "how many sessions" depends entirely on the scope chosen.
-  - L2's real-deployment instrumentation run + retention-policy numbers, and G/I/J's nightly
-    cross-platform specs (X3-X8) — these are blocked on you (a production deployment to measure,
-    or native-build/CI runner infra) rather than schedulable engineering sessions.
+  - G/I/J's nightly cross-platform specs (X3-X8) — blocked on you (native-build/CI runner infra)
+    rather than a schedulable engineering session. (L2 is no longer in this list — Bernard's
+    2026-08-01 decision unblocked and closed it; see §L2.)
 
 ---
 
@@ -253,23 +253,21 @@ and a signed identity/pointer record. No support database on the server.
   `e2e-stage-pipeline.ts:95-103` asserts on has to be reworked, since there is no longer a stored
   greeting message per user.
 
-### Current state (K1–K3 and K6 complete; K4/K5/L1/L2 mostly complete)
+### Current state (K1–K3, K6, L1, L2 complete; K4/K5 mostly complete)
 
 K1, K2, and K3 (below) landed 2026-07-25/26 — see `docs/completed.md` and the three design notes
 (`docs/design/techsupport-k1-design-note.md`, `-k2-`, `-k3-`) for the implementation record. K4's
-fixture, K5's Items 1–5, K6 (fully, including its two stage1 tests), and L1/L2's CRDT counter +
-retention instrumentation have since landed too — see their `docs/completed.md` entries. What's
-left for the K/L series:
+fixture, K5's Items 1–5, K6 (fully, including its two stage1 tests), L1 (CRDT counter, including
+retiring the legacy-scalar fallback), and L2 (device-side size-triggered prune + fold-aggregate
+retention, plus the extended time/location/user size-report breakdown) have since landed too — see
+their `docs/completed.md` entries and §L2's own 2026-08-01 decision note. What's left for the K/L
+series:
 
 - K4: the `clearGunForStage3/4/5Spec` helpers exist and `talks-matching`/`isolated-01` are wired to
   them; ~174 call sites remain (stage2/3/4/5/mass/isolated-02) — deferred by scope decision, not a
   correctness gap (every site already gets a valid built-in TechSupport today).
 - K5: complete except the `answeredBy` open design question (record the answering operator
   internally, display as TechSupport — proposed, not yet decided).
-- L1: removing the legacy visit-count scalars once one full staged run confirms nothing else reads
-  them.
-- L2: the retention-policy decisions (real-deployment numbers, tombstone semantics, where trimming
-  runs) — explicitly blocked on a product decision, not on code.
 - Key rotation tooling, the headless-agent run mode (K3-3's other half), and production key
   custody (K3-4) remain open — see K3's completed-entry "Open questions carried forward" in
   `docs/completed.md`.
@@ -526,32 +524,60 @@ Storage grows without bound, and the badge data is the worst offender:
 > integrity gap. It was designed for ledger events and conversation messages specifically, not
 > room-visit data, so applying it here is an adaptation, not a copy-paste.
 
-- [ ] **Run it against a real deployment and paste the numbers here**, then decide a retention
-      policy per path. A reaper without an agreed policy is how real data gets lost, so the
-      numbers come first.
-- [ ] Decide whether the room-visit paths in the table above (`visits/<visitEventId>`,
+- [x] ~~Run it against a real deployment and paste the numbers here~~ — no production deployment
+      exists to measure, so Bernard's 2026-08-01 decision ships a sensible adjustable default
+      (`DEFAULT_VISIT_COUNTER_MAX_SLOTS = 500`) instead of waiting on real numbers, the same
+      "ship with example values, adjust later" precedent §28.9 itself used (N=100/K=50). The
+      extended `graph-size-report.ts` (topLocations/topUsers/ageBuckets, this decision's item #1)
+      is what future-you runs against a real deployment to tune that default, once one exists.
+- [x] Decide whether the room-visit paths in the table above (`visits/<visitEventId>`,
       `uniqueVisitors/<userId>`, `visitCounter/<userId>`) fit into SRS §28.8's existing tier model
       as-is (they look closest to Tier 3 — other users' bounded-TTL public data) or need a
       dedicated tier of their own, then adopt the §28.9 merkle-checkpoint pattern for whichever
       of these paths ends up needing prune-with-provability rather than a hard delete.
-- [ ] Tombstone semantics: Gun is append-oriented and P2P, so a "delete" that a peer never sees can
+- [x] Tombstone semantics: Gun is append-oriented and P2P, so a "delete" that a peer never sees can
       be resurrected on the next sync. SRS §28.9's checkpoint-commits-to-pruned-range design is the
       candidate answer (adopted for the ledger/messages it was designed for); confirm it (or an
       equivalent) before building a bespoke tombstone mechanism for room-visit data specifically.
-- [ ] Decide whether trimming is relay-side, device-side, or both. Under the P2P model the relay
+- [x] Decide whether trimming is relay-side, device-side, or both. Under the P2P model the relay
       cannot be the sole authority — each device holds its own Gun graph. SRS §28.8's tiers are
       already framed per-device (each tier's TTL/retention is something each device decides for
       its own graph), which is a starting answer to this question too.
-> **Still blocked on you for two things the §28 design doesn't settle:** whether the lifetime
-> visit/unique-visitor badges are worth their storage cost at all (see the open question below —
-> §28's design doesn't argue for keeping them, only for how to prune them cheaply if kept), and the
-> exact numeric retention windows for room-visit data specifically (§28.9 picks N=100/K=50 for
-> ledger/messages; room visits need their own numbers). Everything else — the pruning mechanism
-> itself — is now a design-exists-go-adopt-it task, not an open design question.
 
-> **Open question:** are the lifetime badges worth their cost at all? If "visits ever" is not a
-> number users act on, replacing both with "active now" deletes this entire problem class. Worth
-> answering before building the reaper.
+> **Decided by Bernard, 2026-08-01 — simpler than §28.9's merkle-checkpoint pattern, and
+> deliberately so.** Room-visit data is Tier 3 (other users' activity, bounded-TTL cache), but
+> unlike the ledger/messages it doesn't need provable pruning — nobody needs an O(log N) proof
+> that a since-departed visitor once visited a room. So instead of adopting §28.9's
+> checkpoint-then-prove machinery wholesale, L2 uses a lighter aggregate-fold: **prune by time by
+> default** (oldest `lastVisitedAt` first once a room's live slot count crosses a threshold —
+> `DEFAULT_VISIT_COUNTER_MAX_SLOTS = 500`, adjustable), and **tombstone by folding**, not by
+> checkpoint: each pruned slot's `count` is summed into a small per-room aggregate
+> (`chatrooms/<id>/visitCounterPruned` = `{count, uniqueCount, lastPrunedAt}`) *before* the slot is
+> deleted, so `visitTotalsWithPruned()` keeps the lifetime `visitCount`/`uniqueVisitorCount` badges
+> numerically identical across a prune — "a simple algorithm that saves how many users are deleted
+> is enough," not per-user history forever. **Trimming is device-side and symmetric**: the P2P
+> model has no relay-is-authoritative special case, so the server (`ChatroomManager.
+> pruneVisitCounterIfNeeded`, fired from `recordVisit`) and every browser (`WebChatroomService.
+> pruneVisitCounterIfNeeded`, fired from `recordRoomVisit`) each run the identical prune check
+> against their own local Gun graph, sharing one pure module (`src/shared/visit-counter.ts`
+> `planVisitCounterPrune`/`foldSlotsIntoPrunedAggregate`). Implemented, unit-tested (prune
+> selection, fold correctness, badge-invariance across a prune, and an end-to-end
+> `chatroom-manager.test.ts` trigger test), and confirmed against a real staged E2E run
+> (`stage2/35-concurrent-visit-counter.spec.ts`, `stage1/00-ui-navigation-settings.spec.ts`,
+> `stage5/13-chatroom-scroll-and-broadcast-bar.spec.ts`).
+>
+> `src/shared/graph-size-report.ts` was also extended per item #1 of the same decision ("build
+> size report tool based on time, location, event, or user ... so we know which take space and
+> what to trim"): every category with a genuine per-room/per-user concentration now reports
+> `topLocations`/`topUsers` (capped at 10, biggest first) and, where the node schema has a known
+> timestamp field, an `ageBuckets` histogram (`under1d`/`d1to7`/`d7to30`/`d30to90`/`over90d`/
+> `unknown`) off `GET /api/test/graph-size`. Categories with exactly one node per id (`users`,
+> `user-public-profile`) deliberately have no breakdown — grouping by an id that already equals the
+> node's own key finds nothing.
+>
+> **The "are the lifetime badges worth their cost" open question is resolved by this decision,
+> not answered separately**: Bernard chose to keep the badges and prune the storage behind them
+> rather than delete the feature, so this is now closed.
 
 ---
 

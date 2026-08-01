@@ -1,14 +1,20 @@
 import {
+  foldSlotsIntoPrunedAggregate,
   incrementVisitSlot,
   legacyMigrationState,
   LEGACY_VISIT_SLOT_ID,
   mergeVisitCounters,
   mergeVisitSlot,
+  planVisitCounterPrune,
+  prunedVisitAggregatePath,
+  readPrunedVisitAggregate,
   readVisitCounterState,
   readVisitSlot,
   visitCounterMapPath,
   visitCounterPath,
   visitTotals,
+  visitTotalsWithPruned,
+  type PrunedVisitAggregate,
   type VisitCounterSlot,
   type VisitCounterState,
 } from '../../shared/visit-counter';
@@ -189,5 +195,115 @@ describe('legacy migration', () => {
     const withUser = mergeVisitCounters(migrated, { u1: incrementVisitSlot(null, 'u1', T1) });
     expect(visitTotals(withUser)).toEqual({ visitCount: 11, uniqueVisitorCount: 2 });
     expect(visitTotals(mergeVisitCounters(withUser, migrated)).visitCount).toBe(11);
+  });
+});
+
+/**
+ * docs/TODO.md L2 — Bernard's 2026-08-01 decision: prune by time by default, oldest
+ * `lastVisitedAt` first, once a room's live slot count crosses a threshold; fold each
+ * pruned slot into a small aggregate before deleting it so the lifetime badges never
+ * change value across a prune — only the per-user detail behind an old slot is gone.
+ */
+describe('planVisitCounterPrune', () => {
+  function stateOf(n: number, startHour = 0): VisitCounterState {
+    const state: VisitCounterState = {};
+    for (let i = 0; i < n; i++) {
+      const ts = `2026-07-25T${String(startHour + i).padStart(2, '0')}:00:00.000Z`;
+      state[`u${i}`] = slot(`u${i}`, 1, ts, ts);
+    }
+    return state;
+  }
+
+  it('prunes nothing while at or under the threshold', () => {
+    expect(planVisitCounterPrune(stateOf(3), 3).slotsToPrune).toEqual([]);
+    expect(planVisitCounterPrune(stateOf(2), 3).slotsToPrune).toEqual([]);
+    expect(planVisitCounterPrune({}, 3).slotsToPrune).toEqual([]);
+  });
+
+  it('prunes exactly the excess, oldest lastVisitedAt first', () => {
+    // u0..u4 have lastVisitedAt hours 0..4 respectively (oldest = u0).
+    const plan = planVisitCounterPrune(stateOf(5), 3);
+    expect(plan.slotsToPrune.map((s) => s.userId)).toEqual(['u0', 'u1']);
+  });
+
+  it('never prunes more than needed to land back at maxSlots', () => {
+    const plan = planVisitCounterPrune(stateOf(10), 7);
+    expect(plan.slotsToPrune).toHaveLength(3);
+  });
+
+  it('uses the default threshold when none is given', () => {
+    expect(planVisitCounterPrune(stateOf(5)).slotsToPrune).toEqual([]);
+  });
+});
+
+describe('foldSlotsIntoPrunedAggregate + visitTotalsWithPruned', () => {
+  const EMPTY: PrunedVisitAggregate = { count: 0, uniqueCount: 0, lastPrunedAt: '' };
+
+  it('folds a batch of slots into an empty aggregate', () => {
+    const slots = [slot('u0', 3, T0, T0), slot('u1', 2, T0, T1)];
+    const folded = foldSlotsIntoPrunedAggregate(EMPTY, slots);
+    expect(folded).toEqual({ count: 5, uniqueCount: 2, lastPrunedAt: T1 });
+  });
+
+  it('accumulates across repeated prune passes rather than overwriting', () => {
+    const first = foldSlotsIntoPrunedAggregate(EMPTY, [slot('u0', 3, T0, T0)]);
+    const second = foldSlotsIntoPrunedAggregate(first, [slot('u1', 4, T1, T2)]);
+    expect(second).toEqual({ count: 7, uniqueCount: 2, lastPrunedAt: T2 });
+  });
+
+  it('excludes zero-count slots from uniqueCount, matching visitTotals semantics', () => {
+    const folded = foldSlotsIntoPrunedAggregate(EMPTY, [slot('u0', 0, T0, T0), slot('u1', 5, T0, T0)]);
+    expect(folded).toEqual({ count: 5, uniqueCount: 1, lastPrunedAt: T0 });
+  });
+
+  it('the lifetime badge is numerically identical before and after a prune', () => {
+    const live: VisitCounterState = { u0: slot('u0', 3, T0, T0), u1: slot('u1', 2, T0, T1), u2: slot('u2', 7, T1, T2) };
+    const before = visitTotalsWithPruned(live, undefined);
+
+    // Prune u0 and u1, folding them into the aggregate and removing them from the live map.
+    const pruned = foldSlotsIntoPrunedAggregate(EMPTY, [live.u0, live.u1]);
+    const afterLive: VisitCounterState = { u2: live.u2 };
+    const after = visitTotalsWithPruned(afterLive, pruned);
+
+    expect(after).toEqual(before);
+  });
+
+  it('does not mutate the existing aggregate or the slot list', () => {
+    const existing = { ...EMPTY };
+    const slots = [slot('u0', 1, T0, T0)];
+    foldSlotsIntoPrunedAggregate(existing, slots);
+    expect(existing).toEqual(EMPTY);
+    expect(slots).toHaveLength(1);
+  });
+});
+
+describe('readPrunedVisitAggregate', () => {
+  it('defaults to empty for missing/malformed input', () => {
+    const empty = { count: 0, uniqueCount: 0, lastPrunedAt: '' };
+    expect(readPrunedVisitAggregate(null)).toEqual(empty);
+    expect(readPrunedVisitAggregate(undefined)).toEqual(empty);
+    expect(readPrunedVisitAggregate('nope')).toEqual(empty);
+  });
+
+  it('coerces a well-formed node', () => {
+    expect(readPrunedVisitAggregate({ count: 5, uniqueCount: 2, lastPrunedAt: T1 })).toEqual({
+      count: 5,
+      uniqueCount: 2,
+      lastPrunedAt: T1,
+    });
+  });
+
+  it('coerces malformed fields instead of throwing', () => {
+    expect(readPrunedVisitAggregate({ count: 'nope', uniqueCount: -1 })).toEqual({
+      count: 0,
+      uniqueCount: 0,
+      lastPrunedAt: '',
+    });
+  });
+});
+
+describe('prunedVisitAggregatePath', () => {
+  it('is stable and namespaced per room', () => {
+    expect(prunedVisitAggregatePath('global')).toEqual(['chatrooms', 'global', 'visitCounterPruned']);
   });
 });

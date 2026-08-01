@@ -5,10 +5,14 @@ import { findAppropriateChildChatroom, getLocationChatroomPath } from '../../sha
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_GLOBAL_ROOM_ID, techSupportRosterMember } from '../../shared/techsupport';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import {
+  foldSlotsIntoPrunedAggregate,
   incrementVisitSlot,
+  planVisitCounterPrune,
+  readPrunedVisitAggregate,
   readVisitCounterState,
   readVisitSlot,
-  visitTotals,
+  visitTotalsWithPruned,
+  type PrunedVisitAggregate,
   type VisitCounterSlot,
 } from '../../shared/visit-counter';
 import type { ChallengeGateConfig } from '../../shared/challenge-plugins';
@@ -436,10 +440,60 @@ export class WebChatroomService {
       });
     });
     slotRef.put(incrementVisitSlot(existing, userId, now));
+    // TODO §L2: fire-and-forget prune check, mirrored from the server's own recordVisit —
+    // "trim occurs on device side" (Bernard, 2026-08-01): every Gun peer, browser included,
+    // evaluates and prunes its own local graph. No relay-is-authoritative special case.
+    void this.pruneVisitCounterIfNeeded(chatroomId).catch((err) => {
+      console.warn('[WebChatroomService] visit-counter prune failed (non-fatal):', chatroomId, err);
+    });
   }
 
   // readNumericRoomMetric was removed with the shared-scalar counters (docs/TODO.md L1).
   // Its 700 ms default-to-0 was bug #3: a slow read wrote 1 over a real total.
+
+  /**
+   * TODO §L2: once a room's live visit-counter slot count exceeds
+   * `DEFAULT_VISIT_COUNTER_MAX_SLOTS`, fold the oldest slots (by `lastVisitedAt`) into the
+   * room's pruned aggregate and delete them. Mirrors `ChatroomManager.pruneVisitCounterIfNeeded`
+   * on the server exactly — same shared pure functions, same fold-before-delete ordering —
+   * because under the P2P model there is no single authoritative pruner; every device (server
+   * included) prunes its own local Gun graph independently.
+   */
+  private async pruneVisitCounterIfNeeded(chatroomId: string): Promise<void> {
+    const gun = this.gunService.getGun();
+    const counterRef = gun.get('chatrooms').get(chatroomId).get('visitCounter');
+    // `.map().once()` is the established one-shot full-child-map read in this file (see
+    // subscribeToRoomMembership's checkCapacityAndEvict) — a parent `.once()` on a Gun child
+    // map is unreliable, so children are collected individually within a sync window.
+    const slots: Record<string, unknown> = {};
+    await new Promise<void>((resolve) => {
+      counterRef.map().once((value: any, key: string) => {
+        if (key) slots[key] = value;
+      });
+      setTimeout(resolve, 600);
+    });
+
+    const plan = planVisitCounterPrune(readVisitCounterState(slots));
+    if (plan.slotsToPrune.length === 0) return;
+
+    const prunedRef = gun.get('chatrooms').get(chatroomId).get('visitCounterPruned');
+    const existingPruned = await new Promise<PrunedVisitAggregate | null>((resolve) => {
+      const timeoutId = setTimeout(() => resolve(null), 700);
+      prunedRef.once((data: any) => {
+        clearTimeout(timeoutId);
+        resolve(data ?? null);
+      });
+    });
+    const updatedAggregate = foldSlotsIntoPrunedAggregate(
+      readPrunedVisitAggregate(existingPruned),
+      plan.slotsToPrune,
+    );
+    prunedRef.put(updatedAggregate);
+
+    for (const slot of plan.slotsToPrune) {
+      counterRef.get(slot.userId).put(null);
+    }
+  }
 
   /**
    * Watch if this user gets evicted from current chatroom by FIFO logic
@@ -893,9 +947,11 @@ export class WebChatroomService {
     const gun = this.gunService.getGun();
     // Both badges now come from one CRDT map (docs/TODO.md L1): total = sum of slots,
     // unique = number of non-zero slots. `.map()` is required — a parent `.once()` on a
-    // Gun child map usually comes back empty.
+    // Gun child map usually comes back empty. TODO §L2: also fold in the pruned aggregate,
+    // so a device-side prune never makes this badge appear to shrink.
     const slots: Record<string, unknown> = {};
-    const emit = () => callback(visitTotals(readVisitCounterState(slots)));
+    let pruned: unknown = null;
+    const emit = () => callback(visitTotalsWithPruned(readVisitCounterState(slots), readPrunedVisitAggregate(pruned)));
     const offSlots = gun
       .get('chatrooms')
       .get(chatroomId)
@@ -906,8 +962,17 @@ export class WebChatroomService {
         slots[key] = value;
         emit();
       });
+    const offPruned = gun
+      .get('chatrooms')
+      .get(chatroomId)
+      .get('visitCounterPruned')
+      .on((value: any) => {
+        pruned = value;
+        emit();
+      });
     this.visitCountSubscriptions.set(chatroomId, () => {
       offSlots?.off?.();
+      offPruned?.off?.();
     });
   }
 

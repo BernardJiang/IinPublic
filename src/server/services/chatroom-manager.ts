@@ -5,15 +5,19 @@ import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import { isTechSupportId, TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
 import { techSupportGlobalMemberFields } from '../../shared/techsupport-graph';
 import {
+  foldSlotsIntoPrunedAggregate,
   incrementVisitSlot,
   LEGACY_VISIT_SLOT_ID,
   legacyMigrationState,
+  planVisitCounterPrune,
+  prunedVisitAggregatePath,
   publishedVisitTotalsPath,
+  readPrunedVisitAggregate,
   readVisitCounterState,
   readVisitSlot,
   visitCounterMapPath,
   visitCounterPath,
-  visitTotals,
+  visitTotalsWithPruned,
 } from '../../shared/visit-counter';
 
 export class ChatroomManager {
@@ -182,8 +186,13 @@ export class ChatroomManager {
     // room's slot map is now seeded from those scalars once by migrateLegacyVisitScalar
     // (called from recordVisit), so the G-Counter alone is always authoritative — no
     // client or E2E fixture reads the legacy scalars directly (docs/TODO.md L1 audit).
-    const counterRaw = await this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null);
-    const totals = visitTotals(readVisitCounterState(counterRaw));
+    // TODO §L2: the pruned aggregate is folded in too, so a prune never changes what a
+    // reader sees — only the per-user detail behind an old slot is gone, not the count.
+    const [counterRaw, prunedRaw] = await Promise.all([
+      this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null),
+      this.gunService.getPath(prunedVisitAggregatePath(chatroomId)).catch(() => null),
+    ]);
+    const totals = visitTotalsWithPruned(readVisitCounterState(counterRaw), readPrunedVisitAggregate(prunedRaw));
     return {
       id: chatroomId,
       ...meta,
@@ -621,6 +630,35 @@ export class ChatroomManager {
     void this.publishRoomVisitTotals(chatroomId).catch(() => {
       /* best-effort public badge */
     });
+    // TODO §L2: fire-and-forget prune check — every visit is a natural checkpoint to
+    // re-evaluate, same shape as the ledger's own maybeCreateCheckpoint (docs/TODO.md §S).
+    void this.pruneVisitCounterIfNeeded(chatroomId).catch((err) => {
+      console.warn('[ChatroomManager] visit-counter prune failed (non-fatal):', chatroomId, err);
+    });
+  }
+
+  /**
+   * TODO §L2: once a room's live visit-counter slot count exceeds
+   * `DEFAULT_VISIT_COUNTER_MAX_SLOTS`, fold the oldest slots (by `lastVisitedAt`) into
+   * the room's pruned aggregate and delete them — "checkpoint (fold) before delete",
+   * the same ordering Section S's ledger pruning established, so a crash between the two
+   * steps never loses a count (the aggregate write, once confirmed, makes the slot's
+   * count safe to lose from the graph).
+   */
+  private async pruneVisitCounterIfNeeded(chatroomId: string): Promise<void> {
+    const counterRaw = await this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null);
+    const state = readVisitCounterState(counterRaw);
+    const plan = planVisitCounterPrune(state);
+    if (plan.slotsToPrune.length === 0) return;
+
+    const prunedRaw = await this.gunService.getPath(prunedVisitAggregatePath(chatroomId)).catch(() => null);
+    const updatedAggregate = foldSlotsIntoPrunedAggregate(readPrunedVisitAggregate(prunedRaw), plan.slotsToPrune);
+    await this.gunService.putPath(prunedVisitAggregatePath(chatroomId), updatedAggregate);
+
+    for (const slot of plan.slotsToPrune) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.gunService.putPath(visitCounterPath(chatroomId, slot.userId), null);
+    }
   }
 
   /**
@@ -649,10 +687,16 @@ export class ChatroomManager {
     await this.gunService.putPath(visitCounterPath(chatroomId, LEGACY_VISIT_SLOT_ID), slot);
   }
 
-  /** Publish `visitTotals` for cheap room-list rendering. The G-Counter stays the source of truth. */
+  /**
+   * Publish visit totals for cheap room-list rendering. The G-Counter (plus whatever has
+   * already been folded into the pruned aggregate) stays the source of truth; this is a cache.
+   */
   private async publishRoomVisitTotals(chatroomId: string): Promise<void> {
-    const raw = await this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null);
-    const totals = visitTotals(readVisitCounterState(raw));
+    const [raw, prunedRaw] = await Promise.all([
+      this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null),
+      this.gunService.getPath(prunedVisitAggregatePath(chatroomId)).catch(() => null),
+    ]);
+    const totals = visitTotalsWithPruned(readVisitCounterState(raw), readPrunedVisitAggregate(prunedRaw));
     await this.gunService.putPath(publishedVisitTotalsPath(chatroomId), {
       ...totals,
       updatedAt: new Date().toISOString(),
