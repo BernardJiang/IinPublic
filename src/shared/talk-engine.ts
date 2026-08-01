@@ -1,6 +1,5 @@
 import { Talk, Question, Answer, ContextStep, AnswerWithContext } from './types';
 import { TalkStructureError, ValidationError } from './errors';
-import { computeTalkIdFromTalkData } from './cid';
 
 /** Answer record as submitted by the user (e.g. from talk response flow) */
 export interface SubmittedAnswer {
@@ -853,89 +852,62 @@ export class FlowCapture {
   }
   
   /**
-   * Converts a chat conversation to a linear talk
+   * True for a line that closes a capture session (docs/TODO.md §V, FR-TK-7/UI-1d): ends
+   * with `.`, no `?` anywhere — a plain sentence, not another `Question? Answer1; ...`  line.
    */
-  static createLinearTalk(
-    userId: string,
-    conversationLines: string[],
-    tags: string[] = [],
-    _location?: string
-  ): Talk {
+  static isTerminatorLine(line: string): boolean {
+    const trimmed = line.trim();
+    return trimmed.endsWith('.') && !trimmed.includes('?');
+  }
+
+  /**
+   * Assembles captured chat lines (docs/TODO.md §V, FR-TK-7) into a draft `flow` Talk.
+   *
+   * Each line's *first* answer continues to the next captured line (or becomes the terminal
+   * match, if it's the last one); every other answer terminates as ignore — Bernard,
+   * 2026-08-01: "first answer matches and goes further, the rest are ignored, keep it simple
+   * enough." No synthetic "Ignore"/"Let's talk in person" buttons are appended — the captured
+   * answers themselves carry the match/ignore split, via the same normalization every ordinary
+   * flow talk already goes through (`TalkAutofix.fix`), not a parallel implementation of it.
+   *
+   * Returns a *draft* — `id` is left empty and `tags`/`authorId`/`authorLocation` are left for
+   * the caller to fill in (FR-TG-6's mandatory tag/location preamble, and the real content-hash
+   * id computed by `WebTalkService.createTalk`) — this function only shapes the questions.
+   * Returns `null` if no line in the input actually parses as a captured question.
+   */
+  static assembleCapturedTalk(conversationLines: string[]): Talk | null {
     const questions: Question[] = [];
     let questionIndex = 0;
-    
+
     for (const line of conversationLines) {
       const parsed = this.parseChatLine(line);
       if (!parsed) continue;
-      
+
       const questionId = `q_${questionIndex}`;
-      const answers: Answer[] = [];
-      
-      // Add parsed answers
-      for (let i = 0; i < parsed.answers.length; i++) {
-        const answer: Answer = {
-          id: `a_${questionIndex}_${i}`,
-          text: parsed.answers[i],
-          isTerminal: questionIndex === conversationLines.length - 1,
-          isIgnore: false,
-          isMatch: false
-        };
-        if (questionIndex < conversationLines.length - 1) {
-          answer.nextQuestionId = `q_${questionIndex + 1}`;
-        }
-        answers.push(answer);
-      }
-      
-      // Always add "Ignore" option
-      answers.push({
-        id: `a_${questionIndex}_ignore`,
-        text: 'Ignore.',
-        isIgnore: true,
-        isTerminal: true
-      });
-      
-      const question: Question = {
-        id: questionId,
-        text: parsed.question,
-        answers
-      };
-      if (questionIndex < conversationLines.length - 1) {
-        question.nextQuestionId = `q_${questionIndex + 1}`;
-      }
-      questions.push(question);
-      
+      const answers: Answer[] = parsed.answers.map((text, i) => ({
+        id: `${questionId}_a${i}`,
+        text,
+      }));
+      questions.push({ id: questionId, text: parsed.question, answers });
       questionIndex++;
     }
-    
-    // Add "Let's talk in person" to final question
-    if (questions.length > 0) {
-      const finalQuestion = questions[questions.length - 1];
-      finalQuestion.answers.push({
-        id: `a_final_match`,
-        text: "Let's talk in person.",
-        isMatch: true,
-        isTerminal: true
-      });
-    }
-    
-    const talk: Talk = {
+
+    if (questions.length === 0) return null;
+
+    const draft: Talk = {
       id: '',
-      title: 'Auto-captured Talk',
-      authorId: userId,
+      title: questions[0].text.replace(/\?+\s*$/, '').trim() || 'Captured Talk',
+      authorId: '',
       type: 'flow',
       isAdult: false,
       language: 'en',
-      tags: tags.map((t: string) => ({ id: t, name: t, category: 'other' as const, popularity: 0 })),
+      tags: [],
       questions,
       createdAt: new Date(),
-      isTemplate: true,
-      usageCount: 0
+      isTemplate: false,
+      usageCount: 0,
     };
-    talk.id = computeTalkIdFromTalkData(talk);
 
-    // Validate the generated talk
-    TalkValidator.validateTalk(talk);
-    
-    return talk;
+    return TalkAutofix.fix(draft).talk;
   }
 }

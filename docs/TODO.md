@@ -1141,6 +1141,14 @@ tagging and no multi-line chaining, so it doesn't actually implement FR-TK-7/UI-
 even in its own limited scope. Historical reference only, not reusable code — it predates and
 doesn't match the current `Talk`/`Question` model (`src/shared/types.ts`).
 
+> **Correction 2026-08-01 (found during implementation):** the SRS's traceability-table row above
+> was more accurate than this entry first gave it credit for. `src/shared/talk-engine.ts` — one
+> hyphen away from the row's predicted `src-shared/talks/TalkEngine.ts` — actually contains a real,
+> same-day-as-the-SRS `FlowCapture` class attempting exactly this (`parseChatLine`/
+> `createLinearTalk`), sitting in the *current* production shared module, not a legacy prototype.
+> The research pass that wrote this entry's "no parser exists anywhere" claim missed it. See the
+> "What still needs building" checklist below for what was actually reused vs. rewritten.
+
 **What the original spec already says (FR-TK-7, FR-TK-8, UI-1d, TC-LIN-01) — this part is decided,
 not open:**
 
@@ -1308,8 +1316,23 @@ creator and the current editor**, not just their ids. Checked against what exist
 
 **What still needs building:**
 
-- The parser itself (grammar is now decided, above — nothing existing implements it against the
-  current data model; the legacy `PatternQuestionWithOptions` regex is reference-only, not reusable).
+- [x] **Done 2026-08-01, and a correction to this entry's own earlier research.** The parser
+      wasn't actually missing — `FlowCapture` (`src/shared/talk-engine.ts`), a same-day-as-the-SRS
+      attempt at FR-TK-7, was already sitting in the *current* production shared module (not the
+      legacy `src/examples/gun-react/` prototype cited earlier — a second, closer miss the original
+      research pass didn't surface). `FlowCapture.parseChatLine()` already matched the decided
+      grammar exactly, so reused as-is (now covered by `flow-capture.test.ts`, previously
+      zero-tested). `FlowCapture.createLinearTalk()`, however, implemented a *different* design —
+      every captured answer advanced the flow with no match/ignore split, plus **synthetic
+      "Ignore."/"Let's talk in person." buttons appended to every question** — that's not what was
+      decided today and had zero callers/tests, so rewritten in place as `assembleCapturedTalk()`,
+      reusing `TalkAutofix.fix()` (already well-tested, already enforces exactly "first answer
+      advances-or-terminal-match, every other answer terminal-ignore" for *any* flow talk) instead
+      of re-implementing the chaining logic a second time. Returns a draft (`id`/`authorId`/`tags`
+      left empty for the caller — `WebTalkService.createTalk` computes the real content-hash id;
+      `originalAuthorId`/preamble attachment are the caller's job, not the parser's). 17 new unit
+      tests, including TC-LIN-01's exact worked example and an end-to-end `checkIfMatch`/
+      `checkIfIgnore` proof. Full suite green (92/92 suites).
 - Multi-line session state: tracking an in-progress capture across several *separately sent*
   messages (per line, waiting for the recipient's chip-tap between each) before finalizing on the
   terminator sentence — this is more than a single-message parse, it's a short-lived capture session.
