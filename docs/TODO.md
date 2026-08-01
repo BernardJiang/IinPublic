@@ -86,18 +86,9 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
     `[Opus]` design note first (custom-label-as-group vs. multi-tag data model; whether the
     mailbox's fixed 48h/72h TTL is acceptable as-is), then the group-picker UI and
     `recipientUserIds` wiring go to Sonnet. See §U.
-  - V (FR-TK-7, spec'd 2026-01-19, never built — corrected + mostly decided 2026-08-01) — Auto
-    Linear Capture from DM shorthand. Grammar, same-session chaining, the compose-time confirmation
-    step (mandatory, never silent), and the edit/append id policy (editing a talk mints a new id;
-    old one deleted by default, Settings-tab override to keep — same shape as the ledger's existing
-    response-versioning) are all decided. Also needs a new two-author credit model — permanent
-    `originalAuthorId`/`originalCreatedAt`/`originalAuthorLocation` vs. current `authorId`/
-    `createdAt`/`authorLocation`, the latter switched to blurred (`LocationPrivacy.blurLocation()`)
-    instead of the raw coordinate it stores today — verified none of this exists yet, see §V. Title
-    edits don't count as authorship, settled; one sub-question left: do metadata-only edits reassign
-    the current-author fields at all. `[Opus]`-tagged for that plus the reference-integrity blast
-    radius of
-    generalizing "edit mints a new id" to the existing Talk Editor path. See §V.
+  - V (FR-TK-7, spec'd 2026-01-19, never built — **complete 2026-08-01**) — Auto Linear Capture
+    from DM shorthand, including the two-author credit model and the append/edit-mints-new-id
+    policy. Real-browser-verified, not just unit-tested. See §V.
 
 ---
 
@@ -1125,6 +1116,18 @@ group-picker UI and the `recipientUserIds` wiring to Sonnet.
 ---
 
 ## V. Auto Linear Capture: create/append a Talk from DM shorthand (FR-TK-7 — spec'd day one, never built) `[Opus]`
+
+> **Complete 2026-08-01.** Every piece below is built, unit-tested, and — because this is
+> genuinely interactive UI (a confirmation dialog, tappable chips), not just logic — verified in
+> real browsers, not just trusted from unit tests (`31-auto-linear-capture.spec.ts`, two real
+> browsers, full pipeline: shorthand → mandatory confirmation → chips on both sides → chip-tap
+> quick-reply → terminator → saved flow Talk in the sender's own Talks/OUT list). That real-browser
+> run caught one genuine bug no unit test could have: the confirmation dialog's default z-index
+> (1000) sat *below* the already-open conversation overlay (1001), so its own message list
+> intercepted the Accept click — fixed by matching the z-index tier this codebase already uses for
+> "float above an open conversation" (the media lightbox, 2000). Full unit suite green throughout
+> (92/92 suites). Kept the detailed research/decision trail below as the historical record of how
+> this item's scope was resolved, rather than deleting it now that it's shipped.
 
 **Correction 2026-08-01: this is not a new idea.** It's `FR-TK-7`/`FR-TK-8`/`UI-1d`/§13.6/`TC-LIN-01`
 in the original SRS, written on the project's first day (`projectplan.md`, commit `b24cdda8`,
