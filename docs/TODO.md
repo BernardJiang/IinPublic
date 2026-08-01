@@ -1219,18 +1219,33 @@ what's still chat-append-specific.)*
   `Message.talkId`-scoped threads already pointing at it — now needs to keep working (or gracefully
   degrade) after an ordinary Talk Editor save, not just after a chat-append. Concrete pieces none of
   which are built yet:
-  - A new field linking the new talk to what it replaces — `Talk.supersedesTalkId?: string` —
-    doesn't exist on `Talk` today (`types.ts:191-234`). Bernard: *"new talk can hold a reference to
-    old talk in case that further work is needed"* — a provenance pointer for whoever needs to trace
-    history later, not a functional coupling; the new talk otherwise stands alone as an ordinary
-    independent `Talk`, same as `TALK_ANSWERED`'s superseding-but-independent pattern in the ledger.
-  - A `deleteTalk` operation — doesn't exist anywhere in `WebTalkService` — now load-bearing as the
-    *default* outcome of every re-hashing edit, not just an eventual nice-to-have.
-  - The "keep the old one" alternative (the Settings-tab override) probably still wants the old
-    talk marked inactive rather than left fully live under two ids at once — `Talk.expiresAt`
-    (`types.ts:220`, doc comment: *"Once expired, talk is not sent automatically but can be
-    re-activated"*) is the natural existing lever for that, reused rather than inventing a second
-    disabled flag, but this needs confirming, not assuming.
+  - [x] **Done 2026-08-01.** `Talk.supersedesTalkId`/`originalAuthorId`/`originalCreatedAt`/
+        `originalAuthorLocation` added (`types.ts`), plus `buildRevisedTalkDraft()`
+        (`talk-engine.ts`) — a pure function seeding the `original*` fields from the
+        predecessor (or its plain fields, on a talk's first edit) and linking
+        `supersedesTalkId`. 11 unit tests. See the earlier commit for the full design.
+  - [x] **Done 2026-08-01, and another correction to this entry's own earlier research:**
+        *"A `deleteTalk` operation — doesn't exist anywhere in `WebTalkService`"* was true
+        narrowly but misleading — a complete, working delete-a-talk flow already exists, just
+        one layer up, on `UIManager`: `deleteMyTalk()` (private, wired to the My Talks dialog's
+        delete button) already removes the `MyTalkMap` entry, cleans up `answeredByContent`
+        links, refreshes the OUT/Answers lists, and emits `withdrawTalk` to notify peers. Third
+        time this research pattern has repeated in this item (after `FlowCapture` and the SRS's
+        traceability table) — worth remembering going forward: check the *UI* layer, not just
+        the service layer, before declaring something missing. **Reused, not rebuilt.** Also
+        found `setTalkDisabled(talkId, disabled)` (already public) — a *stronger* mechanism
+        than the `expiresAt` reuse this entry proposed: marks the `MyTalkEntry.disabled` flag
+        **and** floods a real hard-retraction tombstone (`retractTalk` event, Section S's Step
+        10) so peers learn the talk is withdrawn even if offline — not just "not auto-sent."
+        Added one new method, `UIManager.applyTalkRevisionPolicy(predecessorTalkId)`, that
+        reads the new Settings toggle and calls one or the other — no new deletion/disable
+        logic, just routing to what already existed.
+  - [x] **Settings-tab toggle done 2026-08-01.** `getKeepOldTalkOnEdit()`/
+        `setKeepOldTalkOnEdit()` (`ui-settings-storage.ts`, default `false` = delete), a new
+        checkbox in the existing "Talk Behavior" settings section (next to auto-copy/chatbot
+        toggles — same established pattern, English + Chinese strings), wired to
+        `applyTalkRevisionPolicy` above. Verified via the full settings E2E spec
+        (`00-ui-navigation-settings.spec.ts`, 8/8) plus the full unit suite (92/92 suites).
   - A new Settings-tab preference (default: delete old talk on edit; advanced override: keep it) —
     no settings surface for talk-editing behavior exists today; needs its own small UI addition.
 
@@ -1343,15 +1358,14 @@ creator and the current editor**, not just their ids. Checked against what exist
   always shows the sender a confirmation step before it becomes a talk instead of an ordinary
   message; no longer an open question.
 - Inline chip rendering + the lightweight tap-to-`completeTalk`/`checkIfMatch` wiring.
-- The append/edit-case pieces above: `Talk.supersedesTalkId`, the `deleteTalk` operation (now the
-  *default* path on a re-hashing edit, not just a someday-nicety), reusing `expiresAt` to mark a
-  kept-but-superseded old talk inactive, and the new Settings-tab default-delete/keep preference.
-- The two-author credit model above: `Talk.originalAuthorId`/`originalCreatedAt`/
-  `originalAuthorLocation` (new fields, immutable after first set, seeded from the predecessor or
-  falling back to the talk's existing plain fields), plus the still-open `createdAt`/
-  `authorLocation`/`authorId` edit-path-divergence question just above (title edits are now settled
-  — they touch none of this). The blurred-vs-raw location fix itself is §X, tracked separately since
-  it's a pre-existing bug, not new-to-this-feature work.
+- [x] **Done 2026-08-01** — the append/edit-case pieces (`supersedesTalkId`, delete/keep-disabled
+  policy + Settings toggle) and the two-author credit schema (`originalAuthorId`/`originalCreatedAt`/
+  `originalAuthorLocation`) are both built — see the two checklist items above. What's *not* built
+  yet is actually wiring a real edit into this machinery — `buildRevisedTalkDraft()` and
+  `applyTalkRevisionPolicy()` exist and are tested standalone, but nothing calls them end-to-end
+  until the append-to-existing-talk-thread flow (below) is built. The still-open `createdAt`/
+  `authorLocation`/`authorId` edit-path-divergence question (title edits are settled — they touch
+  none of this) is the one thing here that stays a real open call, not an implementation gap.
 - Routing the finished draft into `talk-editor-dialog.ts` for later refinement — not yet confirmed
   whether the editor's current open/edit path already handles an already-broadcast/already-answered
   talk cleanly, or only ever new-in-progress drafts.

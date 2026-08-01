@@ -104,11 +104,13 @@ import {
   getChatbotTemplate as loadChatbotTemplate,
   getCopyTalkAutoSave,
   getDefaultTalkLanguagePreference,
+  getKeepOldTalkOnEdit,
   getUiLanguagePreference,
   saveChatbotTemplate as storeChatbotTemplate,
   setChatbotEnabled,
   setCopyTalkAutoSave,
   setDefaultTalkLanguagePreference,
+  setKeepOldTalkOnEdit,
   setUiLanguagePreference,
 } from './ui-settings-storage';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
@@ -3673,6 +3675,10 @@ export class UIManager extends EventEmitter {
             <input type="checkbox" id="settings-chatbot-enabled" ${getChatbotEnabled() ? 'checked' : ''}>
             <span>${this.t('settingsChatbot')}</span>
           </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
+            <input type="checkbox" id="settings-keep-old-talk-on-edit" ${getKeepOldTalkOnEdit() ? 'checked' : ''}>
+            <span>${this.t('settingsKeepOldTalkOnEdit')}</span>
+          </label>
         `)}
         ${this.renderSettingsSection({ title: this.t('settingsDistanceHome') }, `
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
@@ -4139,6 +4145,9 @@ export class UIManager extends EventEmitter {
     });
     document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
       setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
+    });
+    document.getElementById('settings-keep-old-talk-on-edit')?.addEventListener('change', (event) => {
+      setKeepOldTalkOnEdit((event.currentTarget as HTMLInputElement).checked);
     });
     document.getElementById('settings-stage-name-input')?.addEventListener('change', async (event) => {
       const input = event.currentTarget as HTMLInputElement;
@@ -7155,6 +7164,22 @@ export class UIManager extends EventEmitter {
       });
     } else {
       this.displayTalksList();
+    }
+  }
+
+  /**
+   * docs/TODO.md §V — after a content edit mints a new talk (`supersedesTalkId` points at
+   * `predecessorTalkId`), retire the predecessor per the user's preference: deleted by
+   * default, or kept-but-disabled for advanced users who opted in via Settings. Reuses the
+   * existing delete/disable machinery verbatim rather than a parallel implementation —
+   * `deleteMyTalk` already handles `answeredByContent` cleanup and the withdrawal-ledger
+   * emit; `setTalkDisabled` already handles the hard-retraction tombstone flood.
+   */
+  applyTalkRevisionPolicy(predecessorTalkId: string): void {
+    if (getKeepOldTalkOnEdit()) {
+      this.setTalkDisabled(predecessorTalkId, true);
+    } else {
+      this.deleteMyTalk(predecessorTalkId);
     }
   }
 

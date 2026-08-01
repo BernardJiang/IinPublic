@@ -44,6 +44,19 @@ export function setDefaultTalkLanguagePreference(language: UiLanguage): void {
   localStorage.setItem('iinpublic_default_talk_language', language);
 }
 
+/**
+ * docs/TODO.md §V — when a content edit mints a new talk, the predecessor is deleted by
+ * default; advanced users can flip this to keep it (disabled) instead. Default false
+ * (delete) matches Bernard's 2026-08-01 decision.
+ */
+export function getKeepOldTalkOnEdit(): boolean {
+  return localStorage.getItem('keepOldTalkOnEdit') === 'true';
+}
+
+export function setKeepOldTalkOnEdit(enabled: boolean): void {
+  localStorage.setItem('keepOldTalkOnEdit', String(enabled));
+}
+
 export function getChatbotTemplate(talkId: string): ChatbotTemplate | null {
   try {
     const raw = localStorage.getItem('chatbotTemplates');
