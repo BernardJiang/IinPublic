@@ -22,6 +22,7 @@ import {
   type TechSupportIdentity,
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
+import { FlowCapture, TalkAutofix, buildRevisedTalkDraft } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
@@ -4819,6 +4820,61 @@ export class IinPublicApp {
         this.uiManager.showNotification(this.uiManager.formatTalkCreateFailed((error as Error).message), 'error');
       }
     });
+
+    // docs/TODO.md §V — Auto Linear Capture: a DM capture session just closed (terminator
+    // line, or any non-captured message sent while one was active). Assemble whatever was
+    // gathered into a real Talk — a new draft in the plain DM thread, or an appended question
+    // on the existing talk if this session started inside that talk's thread. Deliberately
+    // does NOT auto-broadcast to the current chatroom (unlike the Talk Editor's `createTalk`
+    // handler above) — FR-TK-7's own wording is "a linear talk draft ... to reuse and
+    // broadcast later," not immediately, and a DM capture has no chatroom context to begin
+    // with.
+    this.uiManager.on(
+      'finalizeCaptureSession',
+      async (data: { conversationId: string; scopeTalkId: string | undefined; lines: string[] }) => {
+        try {
+          const authorLocation = this.currentLocation
+            ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
+            : undefined;
+
+          if (data.scopeTalkId) {
+            // Append case: extend the existing talk's question chain, then mint a new talk
+            // (editing-mints-a-new-id policy) and retire the predecessor per the user's
+            // delete/keep-disabled preference.
+            const oldTalk = await this.talkService.getTalk(data.scopeTalkId);
+            if (!oldTalk) return;
+            const appended = FlowCapture.buildCapturedQuestions(data.lines, oldTalk.questions.length);
+            if (appended.length === 0) return;
+            const mergedQuestions = TalkAutofix.fix({
+              ...oldTalk,
+              questions: [...oldTalk.questions, ...appended],
+            }).talk.questions;
+            const draft = buildRevisedTalkDraft(oldTalk, mergedQuestions, this.currentUser!.id);
+            const newTalk = await this.talkService.createTalk({
+              ...draft,
+              ...(authorLocation ? { authorLocation } : {}),
+            });
+            this.uiManager.saveCreatedTalk(newTalk, { selfAnswers: [] });
+            this.uiManager.applyTalkRevisionPolicy(data.scopeTalkId);
+            this.uiManager.showNotification(this.uiManager.formatCaptureTalkAppended(), 'success');
+          } else {
+            // New-draft case: the plain DM thread.
+            const assembled = FlowCapture.assembleCapturedTalk(data.lines);
+            if (!assembled) return;
+            const newTalk = await this.talkService.createTalk({
+              ...assembled,
+              authorId: this.currentUser!.id,
+              ...(authorLocation ? { authorLocation } : {}),
+            });
+            this.uiManager.saveCreatedTalk(newTalk, { selfAnswers: [] });
+            this.uiManager.showNotification(this.uiManager.formatCaptureTalkCreated(), 'success');
+          }
+        } catch (error) {
+          console.error('Failed to finalize captured talk:', error);
+          this.uiManager.showNotification(this.uiManager.formatTalkCreateFailed((error as Error).message), 'error');
+        }
+      },
+    );
 
     // Broadcast broadcastable OUT talks: server register + Gun announce (current chatroom only)
     this.uiManager.on(

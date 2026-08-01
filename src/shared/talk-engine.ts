@@ -876,22 +876,7 @@ export class FlowCapture {
    * Returns `null` if no line in the input actually parses as a captured question.
    */
   static assembleCapturedTalk(conversationLines: string[]): Talk | null {
-    const questions: Question[] = [];
-    let questionIndex = 0;
-
-    for (const line of conversationLines) {
-      const parsed = this.parseChatLine(line);
-      if (!parsed) continue;
-
-      const questionId = `q_${questionIndex}`;
-      const answers: Answer[] = parsed.answers.map((text, i) => ({
-        id: `${questionId}_a${i}`,
-        text,
-      }));
-      questions.push({ id: questionId, text: parsed.question, answers });
-      questionIndex++;
-    }
-
+    const questions = this.buildCapturedQuestions(conversationLines);
     if (questions.length === 0) return null;
 
     const draft: Talk = {
@@ -909,6 +894,36 @@ export class FlowCapture {
     };
 
     return TalkAutofix.fix(draft).talk;
+  }
+
+  /**
+   * The question-shaping half of `assembleCapturedTalk`, split out so the append case
+   * (docs/TODO.md §V — captured lines typed into an *existing* talk's thread) can build new
+   * `Question`s that don't collide with an existing talk's own `q_0`, `q_1`, ... ids.
+   * `startIndex` offsets the generated ids; the caller is responsible for concatenating the
+   * result onto the predecessor's `questions` and re-running `TalkAutofix.fix()` on the whole
+   * merged array — `TalkAutofix` recomputes the entire chain from array order every time, so
+   * the predecessor's previously-terminal last question is automatically redirected to link
+   * into the appended ones rather than needing to be rewired by hand.
+   */
+  static buildCapturedQuestions(conversationLines: string[], startIndex = 0): Question[] {
+    const questions: Question[] = [];
+    let questionIndex = startIndex;
+
+    for (const line of conversationLines) {
+      const parsed = this.parseChatLine(line);
+      if (!parsed) continue;
+
+      const questionId = `q_${questionIndex}`;
+      const answers: Answer[] = parsed.answers.map((text, i) => ({
+        id: `${questionId}_a${i}`,
+        text,
+      }));
+      questions.push({ id: questionId, text: parsed.question, answers });
+      questionIndex++;
+    }
+
+    return questions;
   }
 }
 
@@ -958,4 +973,42 @@ export function buildRevisedTalkDraft(
   if (locationRadiusMiles != null) draft.locationRadiusMiles = locationRadiusMiles;
 
   return draft;
+}
+
+/**
+ * docs/TODO.md §V — a confirmed captured question line is sent as a marked payload, the same
+ * pattern this codebase already uses for `IPFS_SHARE:` messages (`ui-manager.ts`'s
+ * `parseIpfsSharePayload`/`renderIpfsAttachmentMessage`): an unambiguous prefix distinguishes
+ * "this specific message is a confirmed capture" from plain text that merely *looks* like the
+ * shorthand grammar. Without this, a sender who declines the confirmation and sends the exact
+ * same text as an ordinary message would still have it silently re-render as tappable chips
+ * for the recipient (whose own renderer re-parses raw text) — exactly the surprise the
+ * mandatory-confirm decision exists to prevent. The confirmed/declined distinction has to
+ * travel with the message, not be re-derived from its shape.
+ */
+export const CAPTURED_QUESTION_MESSAGE_PREFIX = 'CAPTURED_QUESTION:';
+
+export type CapturedQuestionPayload = { question: string; answers: string[] };
+
+export function encodeCapturedQuestionMessage(payload: CapturedQuestionPayload): string {
+  return CAPTURED_QUESTION_MESSAGE_PREFIX + JSON.stringify(payload);
+}
+
+export function decodeCapturedQuestionMessage(text: string): CapturedQuestionPayload | null {
+  const raw = String(text || '');
+  if (!raw.startsWith(CAPTURED_QUESTION_MESSAGE_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(CAPTURED_QUESTION_MESSAGE_PREFIX.length));
+    if (
+      parsed &&
+      typeof parsed.question === 'string' &&
+      Array.isArray(parsed.answers) &&
+      parsed.answers.every((a: unknown) => typeof a === 'string')
+    ) {
+      return { question: parsed.question, answers: parsed.answers };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

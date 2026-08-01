@@ -20,7 +20,7 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
-import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage } from '../../shared/talk-engine';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
@@ -296,6 +296,15 @@ export class UIManager extends EventEmitter {
   private hiddenMessageToastIds = new Set<string>();
   /** Last message set rendered into the open conversation, for filter-toggle re-render (§9). */
   private lastConversationMessages: any[] = [];
+  /**
+   * docs/TODO.md §V — Auto Linear Capture in-progress sessions, keyed by conversationId.
+   * `scopeTalkId` is read once, when the session starts, from `currentThreadTalkId` — set
+   * means "append to this existing talk," unset means "start a brand-new draft." `lines`
+   * accumulates the raw confirmed captured-question lines; `FlowCapture.assembleCapturedTalk`
+   * turns them into a real `Talk` once the session finalizes (a terminator line, or any
+   * non-captured message sent while a session is active).
+   */
+  private captureSessionsByConversationId = new Map<string, { scopeTalkId: string | undefined; lines: string[] }>();
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast delivery. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -5236,6 +5245,15 @@ export class UIManager extends EventEmitter {
     return this.tf('talksCreateFailed', { reason });
   }
 
+  /** docs/TODO.md §V — Auto Linear Capture finalize notices. */
+  public formatCaptureTalkCreated(): string {
+    return this.t('captureTalkCreatedNotice');
+  }
+
+  public formatCaptureTalkAppended(): string {
+    return this.t('captureTalkAppendedNotice');
+  }
+
   public formatTalkUpdated(): string {
     return this.t('talksUpdated');
   }
@@ -5448,19 +5466,49 @@ export class UIManager extends EventEmitter {
       sendBtn.replaceWith(sendBtn.cloneNode(true)); // Remove old listeners
       const newSendBtn = document.getElementById('send-conversation-message');
 
-      const sendMessage = () => {
+      const sendMessage = async () => {
         const message = messageInput.value.trim();
-        if (message) {
-          // Send-path content filter (redesign §9): a blocked message is not sent
-          // and the composer text is preserved for editing.
-          if (!this.allowOutgoingMessage(message)) return;
-          this.emit('sendConversationMessage', {
-            conversationId,
-            message,
-            ...(this.currentThreadTalkId ? { talkId: this.currentThreadTalkId } : {}),
-          });
-          messageInput.value = '';
+        if (!message) return;
+        // Send-path content filter (redesign §9): a blocked message is not sent
+        // and the composer text is preserved for editing.
+        if (!this.allowOutgoingMessage(message)) return;
+
+        // docs/TODO.md §V — Auto Linear Capture: recognize the shorthand *before* the
+        // ordinary send, not after (unlike the IPFS-share precedent, which only ever parses
+        // already-sent text at render time). Mandatory confirm, never silent.
+        const capturedLine = FlowCapture.parseChatLine(message);
+        if (capturedLine) {
+          const confirmed = await this.confirmCapturedQuestionDialog(capturedLine);
+          if (confirmed) {
+            const session = this.captureSessionsByConversationId.get(conversationId)
+              ?? { scopeTalkId: this.currentThreadTalkId, lines: [] };
+            session.lines.push(message);
+            this.captureSessionsByConversationId.set(conversationId, session);
+            this.emit('sendConversationMessage', {
+              conversationId,
+              message: encodeCapturedQuestionMessage(capturedLine),
+              ...(this.currentThreadTalkId ? { talkId: this.currentThreadTalkId } : {}),
+            });
+            messageInput.value = '';
+            return;
+          }
+          // Declined — fall through and send the original text as an ordinary message.
+        } else {
+          const activeSession = this.captureSessionsByConversationId.get(conversationId);
+          if (activeSession) {
+            // FR-TK-7: a non-captured message closes the capture — finalize what's been
+            // gathered so far, then this message itself still sends normally, below.
+            this.captureSessionsByConversationId.delete(conversationId);
+            this.emit('finalizeCaptureSession', { conversationId, ...activeSession });
+          }
         }
+
+        this.emit('sendConversationMessage', {
+          conversationId,
+          message,
+          ...(this.currentThreadTalkId ? { talkId: this.currentThreadTalkId } : {}),
+        });
+        messageInput.value = '';
       };
 
       newSendBtn?.addEventListener('click', sendMessage);
@@ -6218,6 +6266,50 @@ export class UIManager extends EventEmitter {
         </div>
       `;
     }
+  }
+
+  /**
+   * docs/TODO.md §V — Auto Linear Capture's mandatory confirmation step. Bernard, 2026-08-01:
+   * "yes, make it mandatory" — a successful shorthand parse never silently diverts a send;
+   * the sender always confirms first. Declining sends the typed text as an ordinary message
+   * instead (the caller falls through to the normal send path on `false`).
+   */
+  confirmCapturedQuestionDialog(parsed: { question: string; answers: string[] }): Promise<boolean> {
+    document.getElementById('capture-question-confirm-modal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'capture-question-confirm-modal';
+    modal.dataset.testid = 'capture-question-confirm-modal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:420px;">
+        <div class="modal-header">
+          <h2 class="modal-title">${this.t('captureConfirmTitle')}</h2>
+          <p>${this.t('captureConfirmHelp')}</p>
+        </div>
+        <div style="padding:10px 0;">
+          <div style="font-weight:600;">${escapeHtml(parsed.question)}</div>
+          <ul style="margin:8px 0 0;padding-left:20px;font-size:0.9em;color:var(--text-secondary);">
+            ${parsed.answers.map((a) => `<li>${escapeHtml(a)}</li>`).join('')}
+          </ul>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-testid="capture-question-confirm-decline">${this.t('captureConfirmDecline')}</button>
+          <button type="button" class="btn primary-btn" data-testid="capture-question-confirm-accept">${this.t('captureConfirmAccept')}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    return new Promise<boolean>((resolve) => {
+      const finish = (confirmed: boolean): void => {
+        modal.remove();
+        resolve(confirmed);
+      };
+      modal.querySelector('[data-testid="capture-question-confirm-accept"]')?.addEventListener('click', () => finish(true));
+      modal.querySelector('[data-testid="capture-question-confirm-decline"]')?.addEventListener('click', () => finish(false));
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) finish(false);
+      });
+    });
   }
 
   /**

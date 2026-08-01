@@ -1,4 +1,4 @@
-import { FlowCapture, buildRevisedTalkDraft, checkIfMatch, checkIfIgnore } from '../../shared/talk-engine';
+import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch, checkIfIgnore } from '../../shared/talk-engine';
 import type { Talk } from '../../shared/types';
 
 /**
@@ -158,6 +158,34 @@ describe('FlowCapture.assembleCapturedTalk', () => {
  * gets a new id, then treat it as a new talk ... new talk can hold a reference to old talk
  * in case that further work is needed."
  */
+describe('FlowCapture.buildCapturedQuestions (append case)', () => {
+  it('generates ids starting at 0 by default, matching assembleCapturedTalk', () => {
+    const questions = FlowCapture.buildCapturedQuestions(['Do you like tennis? Yes; No.']);
+    expect(questions[0].id).toBe('q_0');
+    expect(questions[0].answers[0].id).toBe('q_0_a0');
+  });
+
+  it('offsets generated ids by startIndex, so they cannot collide with an existing talk\'s questions', () => {
+    const questions = FlowCapture.buildCapturedQuestions(['Hot or iced? Hot; Iced.'], 3);
+    expect(questions[0].id).toBe('q_3');
+    expect(questions[0].answers.map((a) => a.id)).toEqual(['q_3_a0', 'q_3_a1']);
+  });
+
+  it('merging onto a predecessor and re-running TalkAutofix chains them into one flow', () => {
+    const predecessor = FlowCapture.assembleCapturedTalk(['Do you like coffee? Yes; No.'])!;
+    const appended = FlowCapture.buildCapturedQuestions(['Hot or iced? Hot; Iced.'], predecessor.questions.length);
+    const merged = TalkAutofix.fix({ ...predecessor, questions: [...predecessor.questions, ...appended] }).talk;
+
+    expect(merged.questions).toHaveLength(2);
+    // The predecessor's first answer, previously terminal-match (it was the last question),
+    // is now redirected to link into the newly appended question.
+    expect(merged.questions[0].answers[0].nextQuestionId).toBe(merged.questions[1].id);
+    expect(merged.questions[0].answers[0].isMatch).toBeFalsy();
+    // The newly appended question is now the terminal match.
+    expect(merged.questions[1].answers[0].isMatch).toBe(true);
+  });
+});
+
 describe('buildRevisedTalkDraft', () => {
   function pristineTalk(overrides: Partial<Talk> = {}): Talk {
     return {
