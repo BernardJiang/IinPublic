@@ -39,7 +39,9 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   destination decision (decide + doc, or a one-line routing tweak); N1 (clickable DM toast +
   destination decision); N3 single-partner case; M5 (compact TechSupport contact row); K6's two
   remaining tests + the talk-intake carve-out note; L1's legacy-scalar removal (after confirming no
-  reader). None of these need new architecture beyond the Session-1 dispatcher itself.
+  reader); W's Gap 1 fix (new 2026-08-01 — swap the main Broadcast button to the already-existing
+  per-receiver unsent-talk filter, one call-site change). None of these need new architecture beyond
+  the Session-1 dispatcher itself.
 - **Session 2 — DM/talk traceback depth (~5 medium items).** N3 multi-partner picker (reuses
   `#peer-send-picker-modal`); P's actual dead-end fix (real retry on `demandFullTalk` failure); O
   (peer-detail history list clickable + on-demand thread creation); Q's Talk→Me-tab-Q&A reverse
@@ -1264,6 +1266,69 @@ honestly (above) — that's the reason this stays `[Opus]`-tagged, not because a
 open. Write a short design note covering the multi-line session-state mechanics and the
 reference-integrity checklist, then hand the parser, `supersedesTalkId`/`deleteTalk` wiring, the
 Settings toggle, and chip UI to Sonnet.
+
+---
+
+## W. Incremental re-broadcast: don't resend talks a recipient already has `[Sonnet]`
+
+Verification requested 2026-08-01: *"when Adam has exchanged 100 talks with Eve and broadcasts
+total 120 talks again, Eve should only receive 20 new talks — verify this is done or add to TODO."*
+
+**Verdict: the literal scenario as stated is already handled correctly — verified, not a gap.**
+For the specific case where the 100 are *exchanged* (answered), Eve gets only the 20 new ones.
+**But the research surfaced two real, adjacent gaps worth tracking**, both found while confirming
+the literal case, not invented speculatively.
+
+**Why the literal case works:** delivery goes through `deliverTalkToReceiversOverMesh`
+(`src/web/app/app.ts:3338-3395`). For every talk × recipient pair it computes the talk's
+content-hash identity (`buildTalkIdentityKey`, `src/shared/cid.ts:276`) and calls
+`shouldSuppressForPeer(recipientId, identityKey)` (`talk-ledger.ts:237-252`) **before** invoking
+`mesh.broadcastTalk()` — a suppressed recipient is dropped from that talk's delivery list
+pre-send, so the network round trip is genuinely saved, not just deduped after arrival. `doc.exchanged`
+gets populated by a `TALK_ANSWERED` ledger event (`talk-ledger.ts:361-419`), written on Adam's side
+once Eve's answer comes back (`app.ts:2973`) — so "exchanged" in the ledger's sense means
+*answered*, matching the user's own word choice exactly. This check is per-recipient and
+content-hash-keyed, so it doesn't care whether the 20 new talks are mixed into the same 120-item
+batch as the 100 old ones — each of the 100 gets independently suppressed for Eve specifically.
+
+**Gap 1 — received-but-not-yet-answered talks aren't covered by this mechanism.** If some of the
+"100" were delivered to Eve but she hasn't answered them, `doc.exchanged` has no entry yet, so
+ledger suppression won't drop them. A second, coarser filter exists — `broadcastConversationHistory`
+local send-history (`ui-manager.ts:807-838`) — but the actual "Broadcast" button
+(`runBroadcastFromCurrentRoom` → `getPendingBroadcastTalkIds()`, `ui-manager.ts:1618,6948-6955`)
+uses the **room-wide** variant, `getUnsentBroadcastTalkIds` (`ui-manager.ts:824-829`), which checks
+`receiverIds.some(...)` — if **any** other room member still needs a talk, it stays in the batch for
+**every** recipient, Eve included. The **per-receiver** variant that would avoid this,
+`getUnsentBroadcastTalkIdsForReceiver` (`ui-manager.ts:831-836`), exists but is only wired to the
+automatic single-peer on-room-entry path (`broadcastPendingTalksOnRoomEntry`, line 1611), not the
+main Broadcast button. Net effect: in a room with a mix of long-time and brand-new members,
+received-but-unanswered talks can legitimately get re-sent to someone who already has them.
+
+**Gap 2 — three separate, uncoordinated implementations of "don't resend what's already out
+there,"** none sharing logic or a common data source: (1) `broadcastConversationHistory`'s
+localStorage revision-key history (room broadcast), (2) the talk-ledger's `exchanged`
+content-hash suppression (mesh delivery, answered-only), (3) `local-peer-derivation.ts`'s
+`readLocalTalkExchanges` (`user-detail-view.ts`'s separate peer-detail "Send My Talks" button —
+untouched by either of the other two). They can drift out of sync with each other since they key
+on different things (a per-room-per-receiver send record vs. a global per-peer content-hash
+ledger vs. a third local derivation) — worth a design pass to decide whether these should share
+one source of truth, or whether three is actually fine given they cover three genuinely different
+UI entry points.
+
+**Also found, likely dead code, unrelated to the fix but worth flagging while here:**
+`WebTalkService.sendBulkTalk` (`web-talk-service.ts:328-351`) and its server twin
+(`talk-service.ts:38-65`) write a single-`talkId` `BulkSendJob` stub to Gun with no per-recipient
+targeting and no consumer/worker found anywhere in the codebase (`bulkJobs` has no processor) — it's
+wired to a legacy `sendTalk` UI event (`app.ts:4725-4739`) unrelated to the actual room-broadcast
+path described above. Candidate for removal, or at minimum: don't build on it, it isn't live.
+
+- [ ] Fix Gap 1: make the main Broadcast button use per-receiver unsent-talk filtering (like
+      `broadcastPendingTalksOnRoomEntry` already does) instead of the room-wide `.some()` variant,
+      so a new room member needing an old talk doesn't drag it back into everyone else's batch.
+- [ ] Decide on Gap 2: unify the three exchange-tracking mechanisms, or document why three separate
+      ones is the right shape given their different entry points.
+- [ ] Decide whether `sendBulkTalk`/`BulkSendJob` should be removed as dead code or finished as a
+      real feature — currently neither, which is its own small hazard for whoever finds it next.
 
 ---
 
