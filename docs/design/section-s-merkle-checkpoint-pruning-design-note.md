@@ -1,0 +1,387 @@
+# Section S Design Note — Merkle-checkpoint pruning for the ledger and conversation messages
+
+Implementation guide for TODO.md **Section S** ("Adopt merkle-checkpoint pruning for the ledger
+and conversation messages"). The target design already exists in full in
+`docs/specs/iinpublic-technical-specifications.md` §28.9 (Blockchain-Style Integrity Preservation
+During Trim) — this note does not re-derive that design, it grounds it in the actual current code
+(which the spec text does not reference directly) and turns it into concrete edits, file by file,
+in the style of the earlier K1–K3 design notes (`docs/archive/consolidated-2026-07-29/`).
+
+Audience: the implementing engineer. Every item gives **Where** (file + function), **What
+changes**, and **Risks** found by reading the real code, not just the spec prose.
+
+---
+
+## What the spec assumes vs. what the code actually does
+
+Two corrections to make before implementing, both found by reading the code rather than trusting
+the spec's abstract description:
+
+1. **The ledger is currently write-mostly and has no external readers.** `WebLedgerService`'s three
+   read methods (`getEventBySeq`, `getEventsByTalkId`, `isTalkWithdrawn`) are called **only from
+   inside the class itself** (`syncWithPeer` uses `getEventBySeq`) — grep confirms no other file
+   calls any of them. `app.ts` only calls `loadOwnFeedHead`, `startDeltaSync`, and `appendEvent`.
+   Nothing in the product UI renders ledger history back to the user (that's `localTalkExchanges`/
+   `myTalks`, a completely separate local store — see `CLAUDE.md`). **This significantly lowers the
+   blast radius of pruning**: deleting old ledger event nodes cannot break any live UI feature
+   today; the only consumer of old events is a peer catching up via delta-sync.
+2. **Message pruning's proposed retention window (K_retain=200) is already compatible with the
+   existing reconciliation window.** Phase 5 peer↔peer reconciliation
+   (`direct-p2p-conversation-transport.ts` → `gunStore.listLocalWires`) already bounds itself to
+   `DEFAULT_RECONCILE_WINDOW = 500` messages (`conversation-reconcile.ts:42`) — it was never
+   full-history. Since 200 < 500, pruning to keep the last 200 messages doesn't newly break
+   anything reconciliation depends on; it just means the digest reconciliation builds has fewer
+   entries once a conversation exceeds the window, which is the intended, accepted consequence of
+   pruning (SRS §9.4's own "provably committed but not reconstructible" property), not a new bug.
+
+---
+
+## Recommended implementation order
+
+1. **Item 0 first (shared merkle module).** Both the ledger and message checkpoints need the exact
+   same three primitives — root computation, proof generation, proof verification — and the spec
+   describes them identically for both (§9.2 vs §9.4 differ only in what's hashed into the leaves,
+   not in the tree math). One pure, dependency-free module avoids the K1-era "three near-identical
+   builders" problem this codebase has already hit once (see the K1 design note's Item 5).
+2. **Item 1 (ledger checkpoint event kind + creation).** Additive only — writes a new event kind
+   alongside existing ones, no deletion yet. Safe to land and observe in isolation before any data
+   can be lost.
+3. **Item 2 (ledger pruning) only after Item 1 has been observed writing correct checkpoints.**
+   This item deletes data; sequencing it after 1 is confirmed correct is the whole point of the
+   checkpoint-then-delete ordering SRS §8.3 requires.
+4. **Item 3 (delta-sync proof-instead-of-raw-event).** Depends on 1 and 2 both existing — there is
+   nothing to prove until something has actually been pruned.
+5. **Item 4 (message-side checkpoint + pruning), same order internally (create → observe → prune →
+   delta-sync).** Deliberately after the ledger side is proven, since messages add the
+   ciphertext-hash commitment and interact with an existing reconciliation path the ledger doesn't
+   have.
+6. **Item 5 (numeric retention windows) is a decision, not a coding step** — flag it to Bernard
+   before Item 2/4 ship to production; the spec's N/M/K/K_retain values are explicitly "starting
+   points, not settled production values" (TODO.md's own words). Implement 1–4 with the spec's
+   example numbers as defaults so the mechanism itself is provable in tests immediately; wire them
+   through named constants (`LEDGER_CHECKPOINT_INTERVAL`, `LEDGER_RETENTION_WINDOW`,
+   `MESSAGE_CHECKPOINT_INTERVAL`, `MESSAGE_RETENTION_WINDOW`) so the eventual real numbers are a
+   one-line change, not a re-implementation.
+7. **Items 6 + 7 (tests) alongside 1–4, not after.** Given this is cryptographic/data-loss-adjacent
+   code, write the proof-correctness unit test (item 6) *before* item 2 ever deletes anything in a
+   real run, and the stage2/stage3 delta-sync test (item 7) before item 3 ships.
+
+---
+
+## Item 0 — Shared merkle module
+
+**Where**
+
+- New file: `src/shared/merkle-checkpoint.ts`. Pure functions, no Gun/SEA dependency (mirrors how
+  `src/shared/cid.ts` is a pure module the ledger/message code both already import).
+
+**What changes**
+
+```ts
+/** Deterministic leaf ordering — same rule for both ledger CIDv1s and message-checkpoint pairs. */
+export function sortedLeaves(ids: string[]): string[] {
+  return [...ids].sort(); // lexicographic, matches SRS §9.2's "lexicographic_sort"
+}
+
+/** SHA-256 hex of the canonically-sorted, JSON-serialized leaf array (SRS §9.2's merkleRoot). */
+export async function computeMerkleRoot(ids: string[]): Promise<string> { ... }
+
+/** One Merkle proof step: sibling hash + which side it's on. */
+export type MerkleProofStep = { sibling: string; side: 'left' | 'right' };
+
+/** Build an O(log N) inclusion proof for `leaf` within `ids` (must include leaf). */
+export function buildMerkleProof(ids: string[], leaf: string): MerkleProofStep[] { ... }
+
+/** Recompute the root from `leaf` + `proof` and compare against `root`. */
+export function verifyMerkleProof(root: string, leaf: string, proof: MerkleProofStep[]): boolean { ... }
+```
+
+Reuse `canonicalSerialize`/hashing conventions from `src/shared/cid.ts` for consistency (both
+already use Web Crypto `SHA-256`), but do **not** reuse `computeCIDv1` itself for the root — the
+spec's `merkleRoot` is a plain SHA-256 hex digest of the sorted array, not a CIDv1 (no multihash/
+multibase wrapping needed for something that isn't itself a content-addressed reference). Ledger
+event ids and message ids are *already* CIDv1/opaque-id strings today — they become the merkle
+**leaves** unchanged; only the root/proof math is new.
+
+Build the tree as a standard bottom-up binary Merkle tree over the sorted leaf array (pad an odd
+level by duplicating the last node, the conventional approach — document the choice in a comment
+since it affects proof verification symmetry).
+
+**Risks / gotchas**
+
+- **Determinism is everything.** `sortedLeaves` must produce byte-identical output for the same
+  input set on every peer, or two honest peers computing the "same" checkpoint disagree on the
+  root. Lexicographic string sort on the raw CIDv1/messageId strings (no locale-aware collation)
+  is the only safe choice — confirm `Array.prototype.sort()` default (UTF-16 code unit order) is
+  used, not `localeCompare`.
+- Keep this module **framework-free and side-effect-free** (no Gun, no SEA) so it's trivially unit
+  testable in isolation (item 6) without any Gun server or browser context — matches the existing
+  `src/shared/*.ts` convention (e.g. `talk-engine.ts`, `find-similar.ts`).
+
+---
+
+## Item 1 — Ledger: `CHECKPOINT_CREATED` event kind + checkpoint creation
+
+**Where**
+
+- `src/shared/types.ts` — add `CHECKPOINT_CREATED` to the `InteractionKind` enum (line 464) and a
+  `CheckpointCreatedContent` interface alongside the other per-kind content types (line 511+), add
+  it to the `InteractionEventContent` union (line 501).
+- `src/web/services/web-ledger-service.ts` — `appendEvent()` (line 74) needs a hook after a
+  successful append; new private method `maybeCreateCheckpoint()`.
+
+**What changes**
+
+```ts
+export interface CheckpointCreatedContent {
+  rangeStart: number;
+  rangeEnd: number;
+  merkleRoot: string;
+  count: number;
+}
+```
+
+The checkpoint is itself a ledger event — it gets the **next** seq number after the range it
+covers, not a seq inside that range (SRS §9.2: "written as a ledger event of kind
+`CHECKPOINT_CREATED` carrying its own `prev` pointer to event seq N"). So after `appendEvent`
+advances `this.ownFeed` to `{ seq, prevCid: id }`, check `seq % LEDGER_CHECKPOINT_INTERVAL === 0`
+(default 100); if true, gather the CIDv1 `id` of every event in `[seq - 99, seq]`, compute the
+root, and call `appendEvent(InteractionKind.CHECKPOINT_CREATED, { rangeStart, rangeEnd, merkleRoot,
+count })` — a **second**, recursive `appendEvent` call that lands at `seq + 1`.
+
+Two ways to gather the range's ids — pick the first:
+- **In-memory (preferred, avoids N Gun reads every 100 appends):** keep a small rolling array of
+  `{seq, id}` for the current uncheckpointed window (reset after each checkpoint). Since
+  `appendEvent` already builds the full `event` object before writing, push `event.id` here at
+  zero extra Gun cost.
+- **Gun re-read fallback:** call the already-existing `getEventBySeq(this.userId, seq)` for each
+  seq in range. Correct but does 100 Gun reads per checkpoint — only fall back to this if the
+  service can restart mid-window and lose the in-memory array (see Risks).
+
+Store the checkpoint node itself at `ledger/<userId>/checkpoints/seq_<rangeEnd>` (SRS §9.2's own
+path), in addition to it being a normal chained event at `ledger/<userId>/events/<seq+1>` — the
+`checkpoints/` path is the fast lookup index a peer/verifier uses to find "the checkpoint covering
+seq N" (§9.3 step 1) without walking the whole event chain.
+
+**Risks / gotchas**
+
+- **In-memory rolling-window loss on reload.** If the browser reloads mid-window (say at seq 137,
+  37 events into the next 100-window), the in-memory id array is gone. `loadOwnFeedHead()` only
+  restores `{seq, prevCid}`, not the per-event id list. On reload, re-derive the current window's
+  ids via the Gun re-read fallback (`getEventBySeq` for `[checkpointedThrough+1, currentSeq]`) once,
+  at startup, rather than trying to persist the rolling array — simpler and only pays the Gun-read
+  cost once per session, not per append.
+- **Checkpoint-of-checkpoint ambiguity.** Once seq 101 (the checkpoint event) exists, the *next*
+  window is seqs 102–201, and 101 itself must not be counted as part of that window's leaves — it's
+  a separate audit event, not part of the range it attests to. Keep the window boundary strictly
+  the events *before* the checkpoint event, never including it.
+- **Write ordering.** `writeEventToGun` currently has no failure recovery beyond a `console.warn`
+  (line 228). A checkpoint write failing silently would leave the in-memory rolling window
+  advanced past a window whose checkpoint never actually landed — guard `maybeCreateCheckpoint` so
+  it only clears its rolling array *after* `appendEvent` for the checkpoint resolves successfully;
+  on failure, leave the window intact and retry on the next append (don't silently drop it, since
+  Item 2's pruning depends on a confirmed checkpoint existing first).
+
+---
+
+## Item 2 — Ledger: prune events once their checkpoint is confirmed
+
+**Where**
+
+- `src/web/services/web-ledger-service.ts` — new method `pruneLedgerEvents()`, called from
+  `maybeCreateCheckpoint()` after the checkpoint event write resolves.
+
+**What changes**
+
+Per SRS §9.2's pruning window: keep the last `LEDGER_RETENTION_WINDOW` (default M=500) events in
+full detail. After confirming the checkpoint write, compute `deletableThrough = currentSeq -
+LEDGER_RETENTION_WINDOW`; for every already-checkpointed seq `<= deletableThrough` that still has a
+full Gun node, delete it: `gun.get('ledger/<userId>/events/<seq>').put(null)` — the established
+deletion pattern already used once in this codebase (`web-chatroom-service.ts:1127`,
+`.get('locations').get(userId).put(null)`).
+
+Concretely, with N=100 and M=500: nothing is actually deletable until at least 6 checkpoints exist
+(600 events in), since the 500-event retention window is larger than one checkpoint interval —
+don't implement "delete everything this checkpoint just covered," implement "delete anything more
+than 500 events behind the current head that has *any* confirmed checkpoint covering it."
+
+**Risks / gotchas**
+
+- **The two index paths (`ledger/<userId>/index/talkId/<talkId>`, `.../index/withdrawn/<talkId>`)
+  keep referencing event ids by string** (`eventIds: "id1,id2,..."`) — pruning the underlying event
+  node does **not** clean up these indexes, and `getEventsByTalkId`/`isTalkWithdrawn` would then
+  return an id that resolves to nothing. Confirmed via grep that neither is called from outside
+  the service today (see the correction above), so this is not a live-UI risk right now — but
+  document it as a known limitation (the index entry becomes a "this id existed, ask for its proof"
+  pointer once pruned, not a dead reference) rather than silently leaving it unhandled.
+- **This is genuinely deleting data with no application-level undo.** Even though the checkpoint
+  preserves provability, the actual event content is gone. Do not skip item 6's forged-proof
+  rejection test — a bug in `verifyMerkleProof` that silently accepts anything would mean the
+  "provably existed" guarantee is fake exactly when it's needed (after real deletion).
+- Only prune **our own feed** (`ledger/<userId>/...`, `userId === this.userId`). Never prune a
+  different feed's events cached from `ingestRemoteEvent` — this service doesn't currently persist
+  other users' full histories locally anyway (it writes to Gun, which is shared, so "our own feed"
+  is the only one this device is authoritative for pruning).
+
+---
+
+## Item 3 — Ledger: delta-sync serves a proof instead of a raw event for pruned ranges
+
+**Where**
+
+- `src/web/services/web-ledger-service.ts` — `syncWithPeer()` (line 328) and `getEventBySeq()`
+  (line 299); `subscribeToInbox()`'s ingest callback (line 369) and `ingestRemoteEvent()` (line 169).
+
+**What changes**
+
+`syncWithPeer` currently does, per missing seq: `const event = await this.getEventBySeq(...); if
+(!event) continue;` — silently skipping anything pruned. Change to: if `getEventBySeq` returns
+null, check whether a checkpoint covers that seq (read `ledger/<userId>/checkpoints/seq_<N>` for
+the window containing it); if so, build a merkle proof (`buildMerkleProof`) for that seq's known
+event id (the id is still recoverable — it's a leaf of the checkpoint's own committed set, which
+the checkpoint node's `merkleRoot` doesn't literally store per-leaf, so the **id itself must be
+tracked separately** — see Risks) and push `{ proofJson, checkpointJson, deliveredAt }` to the
+peer's inbox instead of `{ eventJson, deliveredAt }`.
+
+The inbox subscriber (`subscribeToInbox`) needs a second branch: entries with `proofJson` (not
+`eventJson`) don't get `ingestRemoteEvent`'d as a full event — instead, verify the proof against
+the checkpoint's SEA signature + merkle root, and if valid, record "seq N of feed X is proven, not
+held in full" in `peerState` (advance past it) without a corresponding `events/<seq>` write. A
+peer that only has proofs, not full events, for a range is in the **exact same position the
+pruning device itself is** — this is the intended end state, not a degraded one.
+
+**Risks / gotchas**
+
+- **The checkpoint node's `merkleRoot` alone cannot regenerate a lost id.** A merkle root commits to
+  a set of leaves but is not invertible — you cannot recover "the id at position K" from the root
+  alone. **The full sorted leaf array must be retained somewhere even after the individual event
+  nodes are pruned**, or no proof can ever be built again after the fact. Store it: either (a) as
+  part of the checkpoint node itself (`leafIds: string[]` field, adding ~3.5KB for 100 CIDv1
+  strings — this changes SRS §9.2's minimal ~256B checkpoint size, worth flagging to Bernard as a
+  real tradeoff against the spec's own storage-savings table in §9.5), or (b) keep the pruning
+  window's `eventIds` CSV already sitting in the talkId index (only covers events with a talkId,
+  not universal) — (a) is the only fully general option. **This is a real gap in the spec text
+  itself**, not just an implementation detail — flag it explicitly when this note is reviewed,
+  since it changes the storage-savings numbers in SRS §9.5.
+- `syncWithPeer`'s loop currently iterates `seq = theirSeq + 1` to `ourSeq` one at a time
+  (line 332) — for a peer far behind a heavily-pruned feed, most of that range is now "return a
+  proof" instead of "return an event," which is far cheaper per-item but still O(range) round
+  trips; batching multiple proofs per Gun write is a reasonable follow-up, not required for
+  correctness.
+
+---
+
+## Item 4 — Messages: analogous checkpoint + pruning for `pairConversations/*/messages/*`
+
+**Where**
+
+- `src/web/services/gun-message-store.ts` — `putMessageRecord()` (line 261, the write path used by
+  both `pairConversations/<pairId>/<convId>/messages/<id>` for direct-p2p and
+  `conversations/<id>/messages/<id>` for other transports) and `listLocalWires()` (line 312, the
+  read path Phase 5 reconciliation already bounds to `DEFAULT_RECONCILE_WINDOW`).
+
+**What changes**
+
+Reuse Item 0's merkle module. Per conversation, every `MESSAGE_CHECKPOINT_INTERVAL` (default K=50)
+messages, compute a checkpoint whose leaves are `msgId + SHA-256(ciphertext)` pairs (SRS §9.4 —
+committing to both ordering and content integrity without disclosing plaintext), write it to
+`pairConversations/<pairId>/<convId>/checkpoints/<seq>` (mirroring the direct-p2p-vs-star-gun path
+split `putMessageRecord` already does for the messages themselves — a `conversations/<id>/
+checkpoints/<seq>` path for the non-direct-p2p case), then prune messages older than
+`MESSAGE_RETENTION_WINDOW` (default K_retain=200) the same "delete via `.put(null)` after confirmed
+checkpoint" way as Item 2.
+
+Track the "messages since last checkpoint" count per conversation the same way as Item 1's ledger
+rolling window (in-memory, rebuilt from a bounded Gun read on session start rather than persisted)
+— `listLocalWires` already exists and already returns the ordered wire list, so counting off its
+result rather than inventing a second read path is the natural fit.
+
+**Risks / gotchas**
+
+- **The same "leaf array must survive pruning" gap from Item 3 applies here, worse** — message
+  content is SEA-encrypted end-to-end, so there is no server-side or Gun-side fallback that could
+  ever recover a pruned ciphertext's exact hash if the leaf array itself is lost. Store
+  `leafHashes: string[]` on the message checkpoint node from the start (this is explicitly
+  budgeted into SRS §9.5's own "~512 bytes" message-checkpoint size estimate, unlike the ledger
+  case above where it wasn't budgeted at all — reconcile that discrepancy when this note is
+  reviewed).
+- **Interaction with `getPairMessageSecret`/decryption**: pruning only removes the Gun node, not any
+  cached-in-memory decrypted `Message[]` the UI is currently holding for an open conversation —
+  those stay visible until the tab reloads, same as any other Gun deletion in this codebase. No
+  special handling needed, just don't assume pruning is instantly reflected in an already-rendered
+  conversation view.
+- **Do not prune a conversation's messages while its live subscription is mid-backfill/reconcile.**
+  `subscribeToMessages`'s Phase 5 reconcile (`getLocalMessageDigest`/`getMessagesForBackfill`) reads
+  via `listLocalWires` at connection time — if a prune runs concurrently and deletes a message
+  between the digest being built and the backfill request landing, the peer could get an
+  inconsistent partial answer. Simplest safe rule: run the prune pass only when no reconcile is
+  currently in flight for that conversation (a per-conversation lock/flag), not on every message
+  send.
+
+---
+
+## Item 5 — Numeric retention windows (policy decision, not code)
+
+**Where:** N/A — this is a product decision for Bernard, per TODO.md's own framing ("the one piece
+of the design that's a policy choice, not an implementation detail").
+
+**What's needed:** confirm or replace SRS §28.9's example values (`LEDGER_CHECKPOINT_INTERVAL=100`,
+`LEDGER_RETENTION_WINDOW=500`, `MESSAGE_CHECKPOINT_INTERVAL=50`, `MESSAGE_RETENTION_WINDOW=200`)
+against real usage numbers once Items 1–4 are implemented and can be measured against actual
+storage growth (the same "run it against a real deployment and paste the numbers" gate L2 is
+already blocked on). Until then, ship with the spec's example values as named constants so this is
+a one-line change later, not a re-implementation.
+
+---
+
+## Item 6 — Test: unit, merkle proof correctness + forgery rejection
+
+**Where:** new `src/test/unit/merkle-checkpoint.test.ts`, pure (no Gun/browser), testing Item 0's
+module directly.
+
+**What it must cover:**
+- A proof for a real leaf in a real tree verifies against the correct root.
+- A proof for a leaf **not** in the tree fails verification.
+- Tampering with any single proof step (or the claimed leaf, or the root) fails verification —
+  the actual "reject a forged proof" case TODO.md's Work list calls out explicitly.
+- Deterministic root: the same leaf set in a different insertion order produces the identical root
+  (proves the lexicographic sort is doing its job).
+- Odd-length leaf arrays (the padding-by-duplication edge case) still produce valid, verifiable
+  proofs for every real leaf, including the duplicated one.
+
+---
+
+## Item 7 — Test: `stage2`/`stage3`, pruning + delta-sync end to end
+
+**Where:** new spec(s) under `tests/e2e/staged/stage2-two-user/` (ledger) and/or
+`stage3-three-user/` (message reconciliation with a third peer catching up).
+
+**What it must cover** (per TODO.md's own Work item, now made concrete against the real service):
+1. Drive enough `appendEvent` calls (or enough real talk/message activity) to cross
+   `LEDGER_CHECKPOINT_INTERVAL` + `LEDGER_RETENTION_WINDOW` (or the message equivalents) so a real
+   prune actually fires.
+2. Assert the older full-detail Gun nodes are gone (`gunService.get('ledger/<id>/events/<seq>')`
+   resolves empty for a pruned seq) **and** the checkpoint node exists with a valid `sig`.
+3. A peer who was offline during the pruning window, then reconnects and runs delta-sync, still
+   ends up caught up — receiving proofs for the pruned range and raw events for the retained range
+   — without the sync silently dropping the pruned portion (this is the regression Item 3 exists to
+   prevent; before Item 3, `syncWithPeer`'s `if (!event) continue;` would silently skip it).
+4. Message history in the UI still renders correctly up to the retention window after a prune (SRS
+   §9.4's "not reconstructible beyond the window" is the *expected* limit — assert the boundary,
+   not that everything is still there).
+
+---
+
+## Contract / doc amendments
+
+- `docs/specs/iinpublic-technical-specifications.md` §28.9 needs two corrections once this lands
+  (flag when this note is reviewed, don't silently patch the spec pre-implementation):
+  1. §9.2's ~256-byte ledger checkpoint size and §9.5's savings table both assume no leaf-array
+     storage; Item 3's finding is that the leaf array must be retained somewhere for proofs to
+     remain buildable after pruning, which changes those numbers materially for the ledger case
+     (message checkpoints already budget for a comparable list, per §9.4's own field description).
+  2. §9.6's "the `ledger/<userId>/state` broadcast is unchanged" line stays true, but add that
+     `peerState` (the in-memory `LedgerState`) also advances past proof-only ranges once Item 3
+     lands, not just past fully-ingested-event ranges.
+- No change needed to `CLAUDE.md`'s architecture summary — the ledger/message storage paths and the
+  P2P transport description are unaffected; only their internal retention behavior changes.

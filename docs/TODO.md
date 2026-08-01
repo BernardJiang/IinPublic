@@ -868,6 +868,22 @@ mechanism at all** today, and a complete design for one already exists in the sp
   higher-priority gap since it's what the §28.7 sizing formulas show actually dominates storage
   growth at scale.
 
+> **Design note complete 2026-07-31:**
+> `docs/design/section-s-merkle-checkpoint-pruning-design-note.md`. Per this file's own
+> model-routing legend, an `[Opus]` item gets a design note before implementation — this is that
+> note, grounding SRS §28.9's design in the actual current code (which the spec text doesn't
+> reference). Two corrections to the spec found while writing it, worth reading before
+> implementing: (1) the ledger is currently write-mostly with **no external readers** — pruning's
+> live-UI blast radius is much smaller than the spec's abstract description implies; (2) the
+> message retention window (K_retain=200) is already compatible with the existing Phase 5
+> reconciliation bound (`DEFAULT_RECONCILE_WINDOW=500`), not a new constraint. Also surfaces a real
+> gap in the spec itself, not just an implementation detail: a checkpoint's merkle root cannot
+> regenerate a lost leaf id, so the full leaf-id (ledger) / leaf-hash (messages) array must be
+> retained on the checkpoint node itself for proofs to remain buildable after pruning — this
+> changes the ~256B ledger-checkpoint size SRS §9.5's savings table assumes (the message case
+> already budgets for a comparable list). Implementation (Items 0–7 in the design note) not yet
+> started.
+
 **Work**
 
 - [ ] Implement `CHECKPOINT_CREATED` as a new ledger event kind (SRS §28.9.2) — merkle root over
