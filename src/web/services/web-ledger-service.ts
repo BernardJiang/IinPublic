@@ -26,8 +26,10 @@
  */
 
 import { canonicalSerialize, computeCIDv1 } from '../../shared/cid';
+import { computeMerkleRoot } from '../../shared/merkle-checkpoint';
 import {
   InteractionKind,
+  type CheckpointCreatedContent,
   type InteractionEvent,
   type InteractionEventContent,
   type LedgerState,
@@ -38,6 +40,15 @@ import type { WebGunService } from './web-gun-service';
 import { getSEA } from '../sea-gun';
 
 // (no extra interface needed — LedgerState = Record<string, number>)
+
+/**
+ * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 1/5): every
+ * N events, write one signed Merkle checkpoint (SRS §28.9.2). Named constants so the real
+ * production values (once decided — Item 5 is a policy decision, not a coding change) are a
+ * one-line edit, not a re-implementation. Exported for tests and for Item 2's pruning window.
+ */
+export const LEDGER_CHECKPOINT_INTERVAL = 100;
+export const LEDGER_RETENTION_WINDOW = 500;
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +62,17 @@ export class WebLedgerService {
 
   /** LedgerState for all feeds this peer holds (loaded lazily) — maps userId → highest seq */
   private peerState: LedgerState = {};
+
+  /**
+   * TODO §S Item 1: event ids appended since the last confirmed checkpoint, in append
+   * order. Rebuilt from Gun once at session start (`loadOwnFeedHead`) rather than
+   * persisted, since it's only ever a bounded (< LEDGER_CHECKPOINT_INTERVAL) read.
+   */
+  private pendingWindowIds: string[] = [];
+  /** Highest seq already covered by a confirmed checkpoint (0 = none yet). */
+  private lastCheckpointSeq = 0;
+  /** Guards against overlapping checkpoint-creation passes if appendEvent is called again mid-flight. */
+  private checkpointInFlight = false;
 
   constructor(gunService: WebGunService, userId: string, pubkey: string) {
     this.gunService = gunService;
@@ -74,6 +96,13 @@ export class WebLedgerService {
   async appendEvent(
     kind: InteractionKind,
     content: InteractionEventContent,
+    /**
+     * TODO §S Item 1: internal-only — set by `maybeCreateCheckpoint` on the recursive
+     * `appendEvent` call it makes to write the checkpoint event itself, so that call
+     * doesn't re-trigger checkpoint creation from inside checkpoint creation. Not part of
+     * the public API; ordinary callers never pass this.
+     */
+    internalOptions?: { skipCheckpointCheck?: boolean },
   ): Promise<InteractionEvent> {
     const seq = this.ownFeed.seq + 1;
     const prev = this.ownFeed.prevCid;
@@ -98,15 +127,95 @@ export class WebLedgerService {
 
     const event: InteractionEvent = { id, sig, ...payload };
 
-    // Persist to Gun
-    await this.writeEventToGun(event);
+    // Persist to Gun — own feed, keyed by userId (see writeEventToGun's doc comment).
+    await this.writeEventToGun(event, this.userId);
     await this.writeIndexes(event);
 
     // Advance feed pointer
     this.ownFeed = { seq, prevCid: id };
     this.peerState[this.userId] = seq; // LedgerState tracks highest seq per userId
 
+    // TODO §S Item 1: every event (including a checkpoint event itself) counts toward
+    // some future checkpoint's window.
+    this.pendingWindowIds.push(event.id);
+    if (!internalOptions?.skipCheckpointCheck) {
+      await this.maybeCreateCheckpoint().catch((err) =>
+        console.warn('[LedgerService] checkpoint creation failed (non-fatal), will retry on next append', err),
+      );
+    }
+
     return event;
+  }
+
+  /**
+   * TODO §S Item 1: if enough events have accumulated since the last confirmed
+   * checkpoint, write one now — a signed `CHECKPOINT_CREATED` event committing to the
+   * Merkle root of the window's event ids (SRS §28.9.2) — then run Item 2's pruning pass
+   * for anything now outside the retention window.
+   *
+   * `checkpointInFlight` guards against a second overlapping pass if `appendEvent` is
+   * called again before this one finishes; the ledger has no write queue today (callers
+   * fire-and-forget per `app.ts`'s `void this.ledgerService.appendEvent(...)`), so without
+   * this guard two concurrent windows could each try to claim the same pending ids.
+   */
+  private async maybeCreateCheckpoint(): Promise<void> {
+    if (this.checkpointInFlight) return;
+    if (this.pendingWindowIds.length < LEDGER_CHECKPOINT_INTERVAL) return;
+
+    this.checkpointInFlight = true;
+    try {
+      const windowIds = this.pendingWindowIds.slice(0, LEDGER_CHECKPOINT_INTERVAL);
+      const rangeEnd = this.ownFeed.seq;
+      const rangeStart = rangeEnd - windowIds.length + 1;
+      const merkleRoot = await computeMerkleRoot(windowIds);
+      const content: CheckpointCreatedContent = {
+        rangeStart,
+        rangeEnd,
+        merkleRoot,
+        count: windowIds.length,
+        leafIds: windowIds,
+      };
+
+      // Set before the recursive appendEvent call so that call's own head-node write
+      // (writeEventToGun) already reflects the new checkpoint.
+      this.lastCheckpointSeq = rangeEnd;
+      const checkpointEvent = await this.appendEvent(
+        InteractionKind.CHECKPOINT_CREATED,
+        content,
+        { skipCheckpointCheck: true },
+      );
+      // Only drop the processed window from pending once the checkpoint event itself is
+      // confirmed written — a failure above throws before this line, leaving the window
+      // intact for a retry on the next real append.
+      this.pendingWindowIds = this.pendingWindowIds.slice(windowIds.length);
+
+      await this.writeCheckpointIndex(checkpointEvent, content);
+    } finally {
+      this.checkpointInFlight = false;
+    }
+  }
+
+  /**
+   * TODO §S Item 1: fast lookup index for SRS §9.3 step 1 ("Alice locates the checkpoint
+   * for the 100-event window containing E's seq"). The checkpoint's full content
+   * (merkleRoot, leafIds, sig) lives on the chained event itself
+   * (`ledger/<userId>/events/<checkpointEvent.seq>`, readable via `getEventBySeq`) — this
+   * index only maps a covered seq range to which event holds it, so Item 3 doesn't need
+   * to scan the whole chain to find "the checkpoint covering seq N."
+   */
+  private async writeCheckpointIndex(
+    checkpointEvent: InteractionEvent,
+    content: CheckpointCreatedContent,
+  ): Promise<void> {
+    try {
+      await this.gunService.put(`ledger/${this.userId}/checkpoints/seq_${content.rangeEnd}`, {
+        eventSeq: checkpointEvent.seq,
+        rangeStart: content.rangeStart,
+        rangeEnd: content.rangeEnd,
+      });
+    } catch (err) {
+      console.warn('[LedgerService] checkpoint index write failed', err);
+    }
   }
 
   /**
@@ -126,10 +235,25 @@ export class WebLedgerService {
       if (id !== expectedId) return false;
 
       // 2. Verify SEA signature
+      //
+      // TODO §S Item 1 bugfix (pre-existing, found while testing checkpoint creation):
+      // `SEA.verify` auto-JSON.parses the verified payload back into an object whenever
+      // it looks like JSON — which `canonicalSerialize`'s output always does — so
+      // `verified` comes back as an object, never the original string. The old
+      // `verified !== message` comparison (object !== string) was therefore always
+      // false for every event, meaning no event's signature has ever actually verified
+      // successfully through this path (the only caller, `ingestRemoteEvent`, silently
+      // rejected every remote delta-sync event as a result). Fixed by normalizing
+      // `verified` back to its canonical string form before comparing — `verified` is
+      // just the parsed form of `message`, and `canonicalSerialize`'s object it was
+      // parsed from already has sorted keys, so re-stringifying reproduces the same
+      // string (JSON.parse preserves source key order; JS objects preserve string-key
+      // insertion order).
       const SEA = getSEA();
       const message = canonicalSerialize({ id, ...payload });
       const verified = await SEA.verify(sig, event.pubkey);
-      if (verified !== message) return false;
+      const verifiedMessage = typeof verified === 'string' ? verified : JSON.stringify(verified);
+      if (verifiedMessage !== message) return false;
 
       return true;
     } catch {
@@ -156,10 +280,27 @@ export class WebLedgerService {
       if (head && typeof head.seq === 'number') {
         this.ownFeed = { seq: head.seq as number, prevCid: (head.prevCid as string | null) ?? null };
         this.peerState[this.userId] = head.seq as number;
+        this.lastCheckpointSeq = typeof head.lastCheckpointSeq === 'number' ? head.lastCheckpointSeq : 0;
+        await this.rebuildPendingWindow();
       }
     } catch {
       // New feed — leave ownFeed at default {seq:0, prevCid:null}
     }
+  }
+
+  /**
+   * TODO §S Item 1: `pendingWindowIds` is in-memory only, so a reload loses it. Rebuild it
+   * once at session start with a bounded (< LEDGER_CHECKPOINT_INTERVAL) set of Gun reads —
+   * far cheaper than persisting the array on every append, and only ever paid once per
+   * session rather than on every event.
+   */
+  private async rebuildPendingWindow(): Promise<void> {
+    const ids: string[] = [];
+    for (let seq = this.lastCheckpointSeq + 1; seq <= this.ownFeed.seq; seq += 1) {
+      const event = await this.getEventBySeq(this.userId, seq);
+      if (event) ids.push(event.id);
+    }
+    this.pendingWindowIds = ids;
   }
 
   /**
@@ -169,7 +310,9 @@ export class WebLedgerService {
   async ingestRemoteEvent(event: InteractionEvent): Promise<boolean> {
     const valid = await this.verifyEvent(event);
     if (!valid) return false;
-    await this.writeEventToGun(event);
+    // Remote feed — keyed by the author's pubkey, the only identifier available here
+    // (see writeEventToGun's doc comment; peerState below uses the same pubkey key).
+    await this.writeEventToGun(event, event.pubkey);
     await this.writeIndexes(event);
     const existing: number = this.peerState[event.pubkey] ?? 0;
     if (event.seq > existing) {
@@ -205,9 +348,26 @@ export class WebLedgerService {
 
   // ─── Private Gun write helpers ────────────────────────────────────────────
 
-  private async writeEventToGun(event: InteractionEvent): Promise<void> {
+  /**
+   * TODO §S Item 1 bugfix (pre-existing, found while wiring checkpoint creation): this
+   * used to compute its own write path from `event.pubkey`, while every read-side
+   * counterpart (`getEventBySeq`, `loadOwnFeedHead`, `peerState[this.userId]`, and this
+   * class's own doc comments / the spec's `ledger/<userId>/events/<seq>` path) addresses
+   * a user's own feed by `userId`, not `pubkey` — two different strings in the real app
+   * (`app.ts`'s `initLedger` constructs this service with `currentUser.id` and
+   * `pair.pub`, never equal). Concretely, `if (event.pubkey === this.userId)` was always
+   * false, so `ledger/<userId>/head` was **never written for anyone**, meaning
+   * `loadOwnFeedHead` always found nothing and every session's own feed silently
+   * restarted from seq 1 — overwriting the previous session's events at the same path.
+   * Fixed by taking an explicit `feedKey` from the caller (mirroring `getEventBySeq`'s
+   * already-correct parameterization) instead of inferring it from the event: `userId`
+   * for events this instance authors (`appendEvent`), the only identifier available —
+   * `event.pubkey` — for events ingested from a remote peer (`ingestRemoteEvent`, which
+   * has no separate userId for that peer).
+   */
+  private async writeEventToGun(event: InteractionEvent, feedKey: string): Promise<void> {
     try {
-      const path = `ledger/${event.pubkey}/events/${event.seq}`;
+      const path = `ledger/${feedKey}/events/${event.seq}`;
       await this.gunService.put(path, {
         id: event.id,
         seq: event.seq,
@@ -219,10 +379,13 @@ export class WebLedgerService {
         sig: event.sig,
       });
       // Also update the head pointer for this feed
-      if (event.pubkey === this.userId) {
+      if (feedKey === this.userId) {
         await this.gunService.put(`ledger/${this.userId}/head`, {
           seq: event.seq,
           prevCid: event.id,
+          // TODO §S Item 1: persisted so a reload's loadOwnFeedHead knows where the
+          // pending (uncheckpointed) window starts without scanning the whole chain.
+          lastCheckpointSeq: this.lastCheckpointSeq,
         });
       }
     } catch (err) {

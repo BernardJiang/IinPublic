@@ -133,6 +133,43 @@ since it affects proof verification symmetry).
 
 ## Item 1 — Ledger: `CHECKPOINT_CREATED` event kind + checkpoint creation
 
+> **Done 2026-07-31.** `leafIds: string[]` added to `CheckpointCreatedContent` from the
+> start (resolving the Item 3 gap noted below immediately, rather than deferring it).
+> `pendingWindowIds`/`lastCheckpointSeq`/`checkpointInFlight` implemented as designed;
+> `rebuildPendingWindow()` added to `loadOwnFeedHead()` for the reload-recovery case.
+>
+> **Two real pre-existing bugs found and fixed while writing this — not introduced by
+> this change, but this is what surfaced them** (nothing previously exercised the
+> ledger's read-after-write path end to end; see the "write-mostly, no external readers"
+> finding at the top of this note):
+> 1. `writeEventToGun` computed its Gun path from `event.pubkey`, while every other method
+>    (`loadOwnFeedHead`, `peerState[this.userId]`, this class's own doc comments, the
+>    spec's own `ledger/<userId>/events/<seq>` path) addresses a feed by `userId` —  a
+>    different string from `pubkey` in the real app (`app.ts`'s `initLedger` constructs
+>    this service with `currentUser.id` and `pair.pub`, never equal). Concretely,
+>    `if (event.pubkey === this.userId)` was **always false**, so `ledger/<userId>/head`
+>    was never written for anyone, so `loadOwnFeedHead` always found nothing, so every
+>    session's own feed silently restarted from seq 1 — **overwriting the previous
+>    session's events at the same Gun path.** Fixed by having `writeEventToGun` take an
+>    explicit `feedKey` from the caller instead of inferring it from the event
+>    (`this.userId` for self-authored events, `event.pubkey` for remotely-ingested ones,
+>    which have no separate userId available).
+> 2. `verifyEvent`'s signature check compared `verified !== message` where `verified` is
+>    `SEA.verify(...)`'s return value — but Gun's SEA auto-`JSON.parse`s the verified
+>    payload back into an object whenever it looks like JSON, which `canonicalSerialize`'s
+>    output always does. Comparing an object to a string was always unequal, so **no
+>    event's signature has ever verified successfully through this path** — the only
+>    caller, `ingestRemoteEvent`, silently rejected every incoming delta-sync event as a
+>    result. Fixed by normalizing `verified` back to a string (`JSON.stringify` if it
+>    isn't already one) before comparing.
+>
+> Both were caught by the new unit tests (`web-ledger-service.test.ts`, 4 tests) — not by
+> any existing test, since nothing previously exercised this path far enough to notice.
+> Confirmed no E2E regression: full Jest suite green (1078/1079, +4 new), plus a targeted
+> E2E sanity check (`00-ui-navigation-settings.spec.ts` full file +
+> `00i-p0-direct-talk-delivery.spec.ts`) both green, since nothing in the E2E suite reads
+> ledger internals directly (same finding as the "no external readers" note above).
+
 **Where**
 
 - `src/shared/types.ts` — add `CHECKPOINT_CREATED` to the `InteractionKind` enum (line 464) and a

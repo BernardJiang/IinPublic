@@ -472,6 +472,13 @@ export enum InteractionKind {
   TALK_RETRACTED     = 'TALK_RETRACTED',
   MATCH_CREATED      = 'MATCH_CREATED',
   CONVERSATION_MSG   = 'CONVERSATION_MSG',
+  /**
+   * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md): a signed
+   * Merkle checkpoint over the preceding LEDGER_CHECKPOINT_INTERVAL events' CIDv1 ids.
+   * Written as a first-class chained event (its own seq + prev), not a side channel, so
+   * it inherits the same signature/chain-integrity guarantees as every other event.
+   */
+  CHECKPOINT_CREATED = 'CHECKPOINT_CREATED',
 }
 
 /**
@@ -506,7 +513,8 @@ export type InteractionEventContent =
   | TalkSupersededContent
   | TalkWithdrawnContent
   | MatchCreatedContent
-  | ConversationMsgContent;
+  | ConversationMsgContent
+  | CheckpointCreatedContent;
 
 export interface TalkCreatedContent {
   talkId: string;        // CIDv1 of the talk definition
@@ -552,6 +560,21 @@ export interface ConversationMsgContent {
   conversationId: string;
   messageId: string;    // CIDv1 of { conversationId, senderPubkey, content, seq }
   seq: number;
+}
+
+/**
+ * TODO §S: SRS §28.9.2's checkpoint content. `leafIds` is the full sorted set of event ids
+ * this checkpoint commits to — the Merkle root alone cannot regenerate a lost leaf id, so
+ * the leaf array must be retained here for a proof to remain buildable after the covered
+ * events are pruned (see the design note's Item 3 risk notes; this changes SRS §9.5's own
+ * ~256B checkpoint-size estimate, which didn't budget for it).
+ */
+export interface CheckpointCreatedContent {
+  rangeStart: number;
+  rangeEnd: number;
+  merkleRoot: string;
+  count: number;
+  leafIds: string[];
 }
 
 /**
