@@ -1,16 +1,17 @@
 /**
- * TODO §S Item 1: unit coverage for WebLedgerService's checkpoint creation
- * (docs/design/section-s-merkle-checkpoint-pruning-design-note.md). Uses a minimal
- * in-memory fake for WebGunService (just get/put/subscribe/getStoredPair, the only
- * methods WebLedgerService calls) rather than a real Gun instance — real SEA crypto runs
- * fine under Jest's node environment (Gun/SEA works in both browser and Node), so
- * signatures are genuinely signed and verified, not stubbed.
+ * TODO §S Items 1+2: unit coverage for WebLedgerService's checkpoint creation and
+ * pruning (docs/design/section-s-merkle-checkpoint-pruning-design-note.md). Uses a
+ * minimal in-memory fake for WebGunService (just get/put/subscribe/getStoredPair, the
+ * only methods WebLedgerService calls) rather than a real Gun instance — real SEA
+ * crypto runs fine under Jest's node environment (Gun/SEA works in both browser and
+ * Node), so signatures are genuinely signed and verified, not stubbed.
  */
 import Gun from 'gun';
 import 'gun/sea';
 import {
   WebLedgerService,
   LEDGER_CHECKPOINT_INTERVAL,
+  LEDGER_RETENTION_WINDOW,
 } from '../../web/services/web-ledger-service';
 import { InteractionKind, type CheckpointCreatedContent } from '../../shared/types';
 import { computeMerkleRoot } from '../../shared/merkle-checkpoint';
@@ -165,5 +166,106 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
     // The 99 ids from session 1 plus the 1 from session 2 — proves the rebuild actually
     // recovered the real ids, not just a count.
     expect(new Set(content.leafIds).size).toBe(LEDGER_CHECKPOINT_INTERVAL);
+  });
+
+  describe('pruning (TODO §S Item 2)', () => {
+    async function appendN(service: WebLedgerService, count: number, label: string): Promise<void> {
+      for (let i = 0; i < count; i += 1) {
+        await service.appendEvent(InteractionKind.TALK_CREATED, {
+          talkId: `${label}-${i}`, title: `${label}${i}`, type: 'flow', language: 'en',
+        });
+      }
+    }
+
+    it('prunes nothing before the retention window is exceeded', async () => {
+      const service = makeService();
+      // 3 checkpoints' worth (300 events) — well under LEDGER_RETENTION_WINDOW (500), so
+      // nothing should be deletable yet even though checkpoints exist.
+      await appendN(service, LEDGER_CHECKPOINT_INTERVAL * 3, 'talk');
+
+      const firstEventRaw = await store.get(`ledger/${userId}/events/1`);
+      expect(firstEventRaw).toBeTruthy();
+      const firstCheckpointRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
+      expect(firstCheckpointRaw).toBeTruthy();
+    }, 20_000);
+
+    it('deletes only events more than LEDGER_RETENTION_WINDOW behind the head, and only once checkpointed', async () => {
+      const service = makeService();
+      // Checkpoint k lands at seq LEDGER_CHECKPOINT_INTERVAL * k + 1 (the window's last
+      // plain event is at LEDGER_CHECKPOINT_INTERVAL * k, the checkpoint takes the next seq).
+      const checkpointSeq = (k: number) => LEDGER_CHECKPOINT_INTERVAL * k + 1;
+
+      // First window: capture checkpoint #1's id before it's eventually pruned by a
+      // later checkpoint's prune pass.
+      await appendN(service, LEDGER_CHECKPOINT_INTERVAL, 'talk');
+      const checkpoint1Raw = await store.get(`ledger/${userId}/events/${checkpointSeq(1)}`);
+      const checkpoint1Id: string = checkpoint1Raw.id;
+
+      // 5 more windows (6 checkpoints total) crosses the retention window: head lands at
+      // seq 606, and min(lastCheckpointSeq=600, 606 - 500) = 106 becomes deletable —
+      // covering the whole first window (seqs 1-100) plus checkpoint #1 itself (seq 101,
+      // an ordinary chain event once checkpoint #2 covers it).
+      await appendN(service, LEDGER_CHECKPOINT_INTERVAL * 5, 'talk');
+
+      const prunedEventRaw = await store.get(`ledger/${userId}/events/1`);
+      expect(prunedEventRaw).toBeNull();
+      const stillPrunedRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL}`);
+      expect(stillPrunedRaw).toBeNull();
+
+      // Checkpoint #1 itself (seq 101) is an ordinary chain event, covered by checkpoint
+      // #2's range (101-200, since checkpoint #1's own id counts toward the next
+      // window) — so it is *also* deletable once it falls behind the retention window,
+      // same as any other event. It must be gone here, not specially preserved.
+      const checkpoint1AfterPruneRaw = await store.get(`ledger/${userId}/events/${checkpointSeq(1)}`);
+      expect(checkpoint1AfterPruneRaw).toBeNull();
+
+      // Checkpoint #2 (seq 201, covering 101-200) is recent enough to survive, and its
+      // retained leafIds include checkpoint #1's own event id — proving checkpoint #1's
+      // existence remains provable even after checkpoint #1's own raw node is pruned
+      // (Item 3's dependency on this chain-of-custody property).
+      const checkpoint2Raw = await store.get(`ledger/${userId}/events/${checkpointSeq(2)}`);
+      expect(checkpoint2Raw).toBeTruthy();
+      expect(checkpoint2Raw.kind).toBe(InteractionKind.CHECKPOINT_CREATED);
+      const checkpoint2Content: CheckpointCreatedContent = JSON.parse(checkpoint2Raw.contentJson);
+      expect(checkpoint2Content.leafIds).toHaveLength(LEDGER_CHECKPOINT_INTERVAL);
+      expect(checkpoint2Content.leafIds).toContain(checkpoint1Id);
+
+      // Recent events (within the retention window of the current head) must survive.
+      const recentEventRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL * 6}`);
+      expect(recentEventRaw).toBeTruthy();
+
+      // Precise boundary: pruning only re-evaluates each time a *new* checkpoint fires,
+      // using the head at that exact moment — not continuously as later plain events
+      // accumulate. Checkpoint #6 itself lands at seq 601 (checkpointSeq(6)), so its own
+      // prune pass computes min(lastCheckpointSeq=600, 601 - LEDGER_RETENTION_WINDOW) =
+      // min(600, 101) = 101. No further checkpoint fires afterward in this test (only 5
+      // more plain events follow, short of a 7th window), so 101 is the final boundary —
+      // deliberately less than "seq 606 minus the window" would naively suggest.
+      const deletableThrough = Math.min(
+        LEDGER_CHECKPOINT_INTERVAL * 6,
+        checkpointSeq(6) - LEDGER_RETENTION_WINDOW,
+      );
+      const lastDeletedRaw = await store.get(`ledger/${userId}/events/${deletableThrough}`);
+      expect(lastDeletedRaw).toBeNull();
+      const firstSurvivingRaw = await store.get(`ledger/${userId}/events/${deletableThrough + 1}`);
+      expect(firstSurvivingRaw).toBeTruthy();
+    }, 20_000);
+
+    it('persists the pruned watermark so a reload does not need to re-derive it', async () => {
+      const service = makeService();
+      await appendN(service, LEDGER_CHECKPOINT_INTERVAL * 6, 'talk');
+
+      const head = await store.get(`ledger/${userId}/head`);
+      expect(head.prunedThroughSeq).toBeGreaterThan(0);
+
+      // A fresh instance over the same store picks up the watermark without re-scanning.
+      const reloaded = makeService();
+      await reloaded.loadOwnFeedHead();
+      // Appending one more event should not error or attempt to re-delete the same range —
+      // if it did throw, this await would reject and fail the test.
+      await reloaded.appendEvent(InteractionKind.TALK_CREATED, {
+        talkId: 'after-reload', title: 'After reload', type: 'flow', language: 'en',
+      });
+    }, 20_000);
   });
 });

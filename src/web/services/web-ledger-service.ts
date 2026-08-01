@@ -71,6 +71,8 @@ export class WebLedgerService {
   private pendingWindowIds: string[] = [];
   /** Highest seq already covered by a confirmed checkpoint (0 = none yet). */
   private lastCheckpointSeq = 0;
+  /** TODO §S Item 2: highest seq already deleted from Gun (0 = nothing pruned yet). */
+  private prunedThroughSeq = 0;
   /** Guards against overlapping checkpoint-creation passes if appendEvent is called again mid-flight. */
   private checkpointInFlight = false;
 
@@ -190,8 +192,57 @@ export class WebLedgerService {
       this.pendingWindowIds = this.pendingWindowIds.slice(windowIds.length);
 
       await this.writeCheckpointIndex(checkpointEvent, content);
+      await this.pruneLedgerEvents();
     } finally {
       this.checkpointInFlight = false;
+    }
+  }
+
+  /**
+   * TODO §S Item 2: delete any already-checkpointed event more than
+   * `LEDGER_RETENTION_WINDOW` behind the current head — SRS §8.3's "write and confirm
+   * the checkpoint before deleting" ordering, satisfied by only calling this after
+   * `writeCheckpointIndex` above resolves. Deletes via `gunService.put(path, null)`, the
+   * established Gun-node-deletion pattern already used once in this codebase
+   * (`web-chatroom-service.ts`'s `.get('locations').get(userId).put(null)`).
+   *
+   * Only ever deletes seqs the caller has *confirmed* are covered by a written
+   * checkpoint (`<= this.lastCheckpointSeq`) — with N=100/M=500 (the spec's own example
+   * values), nothing is actually deletable until at least 6 checkpoints exist, since the
+   * retention window is larger than one checkpoint interval.
+   */
+  private async pruneLedgerEvents(): Promise<void> {
+    const deletableThrough = Math.min(this.lastCheckpointSeq, this.ownFeed.seq - LEDGER_RETENTION_WINDOW);
+    if (deletableThrough <= this.prunedThroughSeq) return;
+
+    let prunedUpTo = this.prunedThroughSeq;
+    for (let seq = this.prunedThroughSeq + 1; seq <= deletableThrough; seq += 1) {
+      try {
+        await this.gunService.put(`ledger/${this.userId}/events/${seq}`, null);
+        prunedUpTo = seq;
+      } catch (err) {
+        // Stop at the first failure rather than skip ahead — the next checkpoint's
+        // prune pass retries from here. `.put(null)` is idempotent, so re-attempting an
+        // already-deleted seq on retry is harmless, just slightly redundant.
+        console.warn('[LedgerService] prune failed at seq', seq, err);
+        break;
+      }
+    }
+
+    if (prunedUpTo === this.prunedThroughSeq) return; // nothing actually deleted
+    this.prunedThroughSeq = prunedUpTo;
+    // The per-append head write (writeEventToGun) already ran with the stale
+    // prunedThroughSeq for this call chain's own checkpoint event — persist the real
+    // value now rather than waiting for some future append.
+    try {
+      await this.gunService.put(`ledger/${this.userId}/head`, {
+        seq: this.ownFeed.seq,
+        prevCid: this.ownFeed.prevCid,
+        lastCheckpointSeq: this.lastCheckpointSeq,
+        prunedThroughSeq: this.prunedThroughSeq,
+      });
+    } catch (err) {
+      console.warn('[LedgerService] failed to persist prunedThroughSeq watermark', err);
     }
   }
 
@@ -281,6 +332,7 @@ export class WebLedgerService {
         this.ownFeed = { seq: head.seq as number, prevCid: (head.prevCid as string | null) ?? null };
         this.peerState[this.userId] = head.seq as number;
         this.lastCheckpointSeq = typeof head.lastCheckpointSeq === 'number' ? head.lastCheckpointSeq : 0;
+        this.prunedThroughSeq = typeof head.prunedThroughSeq === 'number' ? head.prunedThroughSeq : 0;
         await this.rebuildPendingWindow();
       }
     } catch {
@@ -386,6 +438,9 @@ export class WebLedgerService {
           // TODO §S Item 1: persisted so a reload's loadOwnFeedHead knows where the
           // pending (uncheckpointed) window starts without scanning the whole chain.
           lastCheckpointSeq: this.lastCheckpointSeq,
+          // TODO §S Item 2: persisted so a reload doesn't re-attempt pruning the entire
+          // history again (harmless — delete is idempotent — but wasteful).
+          prunedThroughSeq: this.prunedThroughSeq,
         });
       }
     } catch (err) {

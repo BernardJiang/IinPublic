@@ -234,6 +234,33 @@ seq N" (§9.3 step 1) without walking the whole event chain.
 
 ## Item 2 — Ledger: prune events once their checkpoint is confirmed
 
+> **Done 2026-07-31.** `pruneLedgerEvents()` implemented as designed, called from
+> `maybeCreateCheckpoint()` after `writeCheckpointIndex` resolves. Added
+> `prunedThroughSeq` (persisted on the head node, restored via `loadOwnFeedHead`) so a
+> reload doesn't re-attempt deleting the whole history again.
+>
+> **A real design subtlety confirmed by writing the tests, not just theorized:**
+> checkpoint events are themselves ordinary chain events and get pruned like anything
+> else once *they* fall behind the retention window — checkpoint #1 (covering seqs
+> 1–100) sits at seq 101, which checkpoint #2's window (101–200) covers, so checkpoint
+> #1's own existence stays provable via checkpoint #2's retained `leafIds` even after
+> checkpoint #1's raw node is deleted. My first draft test wrongly assumed checkpoint
+> events are specially exempt from pruning — they aren't, and shouldn't be, since a
+> later checkpoint's leaf set is exactly what makes deleting an earlier one safe.
+>
+> Also confirmed empirically: pruning only re-evaluates when a *new* checkpoint fires
+> (using the head at that exact moment), not continuously as later plain events
+> accumulate — so the deletable boundary can lag by up to one checkpoint interval's
+> worth of headroom behind the "true" current head. This is a natural, acceptable
+> consequence of tying pruning to checkpoint cadence (matches the "run pruning after a
+> checkpoint" ordering SRS §8.3 requires), not a bug — but worth knowing when reasoning
+> about exactly how far behind the retention window a given prune pass will reach.
+>
+> 3 new unit tests (`web-ledger-service.test.ts`, now 7 total for this file): no pruning
+> before the window is exceeded, exact-boundary deletion once it is (including the
+> checkpoint-pruning-checkpoint case above), and watermark persistence across a
+> simulated reload. Full Jest suite 1081/1082 (was 1078, +3, 0 regressions).
+
 **Where**
 
 - `src/web/services/web-ledger-service.ts` — new method `pruneLedgerEvents()`, called from
