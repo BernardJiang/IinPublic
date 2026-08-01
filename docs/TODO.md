@@ -82,10 +82,12 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
     `[Opus]` design note first (custom-label-as-group vs. multi-tag data model; whether the
     mailbox's fixed 48h/72h TTL is acceptable as-is), then the group-picker UI and
     `recipientUserIds` wiring go to Sonnet. See §U.
-  - V (new 2026-08-01) — create/append a Talk from DM shorthand needs an `[Opus]` design note
-    first, chiefly the append case's talk-identity question (a content-addressed talk id doesn't
-    naturally support "same talk, appended question" — may need its own design spike before the
-    rest of this feature), plus the compose-time-diversion UX and v1 grammar. See §V.
+  - V (FR-TK-7, spec'd 2026-01-19, never built — corrected 2026-08-01) — Auto Linear Capture from
+    DM shorthand. Grammar is now decided (no `**`/`*` markers; first answer matches and advances,
+    the rest ignore/terminate), and the original SRS already fully specifies the same-session
+    chaining case. What's still `[Opus]`-blocked is narrower than first thought: the append-to-an-
+    already-saved-talk identity question (a content-addressed talk id doesn't naturally support
+    "same talk, appended question") and the compose-time-diversion UX. See §V.
 
 ---
 
@@ -1112,91 +1114,111 @@ group-picker UI and the `recipientUserIds` wiring to Sonnet.
 
 ---
 
-## V. Create/append a Talk inline from a DM chat message, via shorthand syntax `[Opus]`
+## V. Auto Linear Capture: create/append a Talk from DM shorthand (FR-TK-7 — spec'd day one, never built) `[Opus]`
 
-Requested 2026-08-01. Instead of always opening the talk editor, a user types shorthand directly
-into a DM conversation's message box — e.g. `do you like tennis? yes; no.` — and instead of that
-text going out as an ordinary chat bubble, the app parses it into a question + options, renders
-clickable option buttons inline in the chat, and saves it as a real Talk the user can later reopen
-in the talk editor to refine. **Context decides create-vs-append (2026-08-01 clarification):**
-typed in the pair's plain DM thread → creates a **new** Talk; typed while the conversation is
-scoped to an **existing** talk's thread → **appends** a new question onto that talk instead.
+**Correction 2026-08-01: this is not a new idea.** It's `FR-TK-7`/`FR-TK-8`/`UI-1d`/§13.6/`TC-LIN-01`
+in the original SRS, written on the project's first day (`projectplan.md`, commit `b24cdda8`,
+2026-01-19) and still present verbatim in the current
+`docs/specs/iinpublic-technical-specifications.md` (lines 364-369, 534, 1825-1850, 2219-2233, and a
+traceability-table row pointing at a never-realized `AutoCapturePattern`/`src-shared/talks/TalkEngine.ts`)
+— but never implemented against the current `src/shared`/`src/server`/`src/web` architecture. There's even an abandoned prototype attempt: `src/examples/gun-react/{EnhancedEntity,
+ChatAI,Entity}.js` (added 2026-02-15, "merged from 3 folders" — an earlier React+Gun experiment,
+not part of the current build, no tsconfig/webpack reference) has its own hand-rolled regex,
+`PatternQuestionWithOptions = /((.*?)(\x3F)+)((.*)(\x3B)+)*((.*?)(\x2E)+$)/`, and
+`EnhancedEntity.autoCaptureTalk(message)` — but it's a single-question stub with no isMatch/isIgnore
+tagging and no multi-line chaining, so it doesn't actually implement FR-TK-7/UI-1d's fuller behavior
+even in its own limited scope. Historical reference only, not reusable code — it predates and
+doesn't match the current `Talk`/`Question` model (`src/shared/types.ts`).
 
-**What already exists to reuse:**
+**What the original spec already says (FR-TK-7, FR-TK-8, UI-1d, TC-LIN-01) — this part is decided,
+not open:**
 
-- The thread-scoping mechanism this needs already exists exactly as described.
-  `Message.talkId` (`src/shared/types.ts:334-340`) already distinguishes "this pair's plain DM
-  thread" (no `talkId`, or `'direct'`) from "this specific talk's thread" (a real `talkId`) on the
-  *same* Gun path — `showConversationDetail(conversationId, threadTalkId)`
-  (`ui-manager.ts:5277`) sets `currentThreadTalkId`, and `messageInCurrentThread()`
-  (`ui-manager.ts:8388-8394`) filters the rendered list by it. The compose handler already knows
-  which thread it's in (`ui-manager.ts:5409-5419` includes `talkId` in the emitted
-  `sendConversationMessage` event when scoped) — so "which behavior fires" is a read of state that
-  already exists, not new plumbing.
-- Rendering something other than a plain text bubble mid-conversation is an established pattern,
-  not a first: `displayConversationMessages()` (`ui-manager.ts:8838-8918`) already detects a
-  structured payload inside `Message.text` (`parseIpfsSharePayload`, `ui-manager.ts:8419-8437`) and
-  renders it specially (`renderIpfsAttachmentMessage`, line 8486) instead of the default bubble
-  (fallback path: lines 8900-8907). A parsed inline-talk message is the same shape of problem.
-- `survey` is the right talk type for "one question, N independent clickable options, no branching"
-  — confirmed against the type's own doc comment (`types.ts:196-209`): "Independent Q/A pairs (star
-  graph). No shared context; ideal for aggregate statistics." (`tag` doesn't carry question text at
-  all; `flow`/`route` imply chaining this feature doesn't need.)
-- Submitting an answer doesn't have to go through the `talk-response-dialog.ts` modal's DOM —
-  every answer path already bottoms out at one callback, `completeTalk(talk, answers, outcome?)`
-  (`ui-manager.ts:6435`), and the match/ignore computation is the shared, reusable
-  `checkIfMatch`/`checkIfIgnore` (`src/shared/talk-engine.ts:91,104`). Inline chat buttons can call
-  these directly; they do not need the modal's radio/checkbox rendering or review screen.
+1. In a DM chat, a line matching `Question? Answer1; Answer2; …; AnswerN.` renders the answers as
+   tappable chips to the other person, instead of going out as a plain chat bubble.
+2. Tapping a chip records that answer and either advances to the *next* such line the sender sends,
+   or ends the flow — see the ordinal-position rule below for which.
+3. A final plain sentence — ends with `.`, no `?`, no `;`-list — closes the capture and saves
+   everything accumulated in that one session as a single **`flow`-type** talk draft
+   (`FR-TK-8`: *"Route and survey talks MAY only be created or edited in the Talk Editor UI.
+   Auto-captured chats produce flow talks only."* — my prior draft of this entry wrongly reasoned
+   `survey` was the right type; corrected here).
+4. `FR-TG-6`/`NFR-U-3`: the resulting draft must have the sender's tag/location preamble attached
+   before it's eligible for bulk-send — same mandatory preamble every talk gets, auto-captured or not.
+5. `TC-LIN-01`'s worked example: `Do you like coffee? Yes; No.` → recipient taps "Yes" → sender sends
+   `Hot or iced? Hot; Iced.` → recipient taps "Iced" → sender sends `Great, let's meet tomorrow.`
+   (no `?`, no `;`-list) → the two Q&A pairs save as one linear talk draft under the sender's talks.
 
-**What needs building (none of this exists today):**
+**Simplified 2026-08-01 (Bernard, "keep it simple enough"):** the original §13.6 syntax required
+explicit markers on every option — `**` prefix for "the sender's own default answer," `*` prefix for
+"alternative option" (`** yes; * no; * maybe`). **Dropped.** No markers at all — plain
+`Question? Answer1; Answer2; …; AnswerN.` — and match/ignore is decided by **ordinal position**: the
+**first** answer is the one that continues the flow (`isMatch: true`, advances to the sender's next
+captured line); **every other answer ends it** (`isIgnore: true` — the same outcome as tapping
+"Ignore" anywhere else in a flow talk, per `FR-TK-5`/`checkIfIgnore`, `src/shared/talk-engine.ts:104`
+— not special-cased, this is exactly how an ordinary flow question's Ignore branch already works).
+No punctuation burden on the sender beyond writing the correct answer first; word order alone
+encodes intent. This is now the v1 grammar — no longer an open question.
 
-- **The shorthand parser.** No regex/freeform-text-to-question parser exists anywhere in
-  `src/shared/` or `src/web/services/` (checked, including `talk-content-id.ts`, which is just a
-  re-export shim over `cid.ts`'s hashing helpers — no parsing logic). v1 grammar is genuinely
-  undecided: even the given example (`question? opt1; opt2.`) leaves open what happens with a `?`
-  inside the question text itself, more than one question in one message, empty/duplicate options,
-  or an unrecognized shape (silently send as plain text vs. show an inline "couldn't parse this as
-  a talk" hint).
-- **Where parsing happens: compose-time interception vs. send-then-reinterpret.** The IPFS-share
-  precedent parses at *render* time against text that was already sent as a normal message. This
-  feature reads as wanting the opposite — "instead of sending it as plain text" implies the app
-  recognizes the shorthand *before* the ordinary send even happens and diverts to talk-creation
-  instead. That's a different integration point (inside the `sendMessage` closure,
-  `ui-manager.ts:5409`, before `sendConversationMessage` is emitted) and needs its own confirmation
-  step so a user isn't surprised that their "message" silently became a Talk instead of being sent.
-- **Inline option-button rendering + a lightweight answer path.** New UI: render the parsed
-  question as a chat-embedded card with one button per option, wire each button to build an
-  `answers` array and call `completeTalk`/`checkIfMatch` directly — reusing the engine, not the
-  modal's DOM.
-- **"Append a question to an existing Talk" — this operation does not exist at all today.**
-  `WebTalkService.createTalk()` (`web-talk-service.ts:156-186`) only ever makes a whole new Talk,
-  and a Talk's `id` is a **content hash of its questions** (`talk-content-id.ts`/`cid.ts`). Appending
-  a question changes that content, which by the current identity scheme would change the talk's
-  `id` — silently breaking every existing reference to the old id (past broadcasts, recorded
-  answers, `talkId`-scoped message threads already pointing at it). This is the single biggest open
-  design question in this item, not a detail: appending needs either (a) a stable talk identity
-  that survives content changes (a real architectural change to how talk ids work), or (b) "append"
-  actually means "create a new talk that supersedes the old one," with some explicit
-  predecessor/version link — very different from what "append a question after a talk" sounds like
-  it should mean.
-- **Route the created/edited talk back into the existing talk editor.** "Later on, edit it for
-  better form or purpose" implies opening the auto-created talk in `talk-editor-dialog.ts` the same
-  way editing any other existing talk works — not yet confirmed this session whether the editor's
-  current open/edit path already handles being pointed at an already-broadcast/already-answered
+**Two different scenarios, and only one of them has an open design problem:**
+
+- **Same-session chaining into a brand-new draft (FR-TK-7/TC-LIN-01, above): no identity problem.**
+  Nothing is saved or hashed until the terminating plain sentence fires — the whole accumulated
+  sequence becomes exactly one `Talk` with exactly one content-hash `id`, computed once, at the end.
+  This is the plain-DM-thread case.
+- **Appending to an *already-saved* talk later (Bernard's separate 2026-08-01 clarification: "if it
+  starts with an existing talk, it can append new question after a talk"), when the conversation is
+  already scoped to that talk's thread — this is new territory the original SRS never addressed, and
+  still has a real open problem.** `WebTalkService.createTalk()` (`web-talk-service.ts:156-186`)
+  only ever makes a whole new `Talk`, and a talk's `id` is a **content hash of its questions**
+  (`talk-content-id.ts`/`cid.ts`). Appending a question to an already-finalized, possibly
+  already-broadcast-and-answered talk changes that content — which under the current identity scheme
+  changes the talk's `id`, silently breaking every existing reference to the old one (past
+  broadcasts, recorded answers, other `talkId`-scoped threads already pointing at it). Needs either
+  (a) a stable talk identity that survives content changes, or (b) "append" actually means "create a
+  new talk that supersedes the old one" with an explicit predecessor/version link — a materially
+  different thing than what "append a question after a talk" sounds like it should mean. This is the
+  one part of this item that's still a genuine design question.
+
+**What already exists to reuse (still accurate from the prior research pass):**
+
+- Thread scoping is already exactly what's needed to tell the two scenarios apart at runtime.
+  `Message.talkId` (`types.ts:334-340`) distinguishes the plain DM thread (no `talkId`) from a
+  specific talk's thread (a real `talkId`) on the same Gun path; `showConversationDetail(
+  conversationId, threadTalkId)` (`ui-manager.ts:5277`) and `messageInCurrentThread()`
+  (`ui-manager.ts:8388-8394`) already track and filter by which thread is active; the compose
+  handler (`ui-manager.ts:5409-5419`) already knows the current `talkId` when emitting
+  `sendConversationMessage`.
+- Rendering something other than a plain text bubble mid-conversation already has a precedent:
+  `displayConversationMessages()` (`ui-manager.ts:8838-8918`) detects a structured payload inside
+  `Message.text` (`parseIpfsSharePayload`, line 8419) and renders it specially
+  (`renderIpfsAttachmentMessage`, line 8486) instead of the default bubble (fallback: lines
+  8900-8907).
+- Submitting an answer doesn't require the `talk-response-dialog.ts` modal's DOM — every answer path
+  already bottoms out at one callback, `completeTalk(talk, answers, outcome?)`
+  (`ui-manager.ts:6435`), backed by the shared, reusable `checkIfMatch`/`checkIfIgnore`
+  (`talk-engine.ts:91,104`). Inline chat chips can call these directly.
+
+**What still needs building:**
+
+- The parser itself (grammar is now decided, above — nothing existing implements it against the
+  current data model; the legacy `PatternQuestionWithOptions` regex is reference-only, not reusable).
+- Multi-line session state: tracking an in-progress capture across several *separately sent*
+  messages (per line, waiting for the recipient's chip-tap between each) before finalizing on the
+  terminator sentence — this is more than a single-message parse, it's a short-lived capture session.
+- Compose-time interception: "instead of sending it as plain text" implies recognizing the shorthand
+  *before* the ordinary send happens (inside the `sendMessage` closure, `ui-manager.ts:5409`, before
+  `sendConversationMessage` is emitted), not a parse-after-the-fact like the IPFS-share precedent —
+  and whether that diversion needs a sender-facing confirmation step or happens silently on a
+  successful parse is still open.
+- Inline chip rendering + the lightweight tap-to-`completeTalk`/`checkIfMatch` wiring.
+- The append-to-existing-talk identity problem above.
+- Routing the finished draft into `talk-editor-dialog.ts` for later refinement — not yet confirmed
+  whether the editor's current open/edit path already handles an already-broadcast/already-answered
   talk cleanly, or only ever new-in-progress drafts.
 
-**Open questions (decide before/while writing the design note):**
-
-- Compose-time diversion vs. send-then-reinterpret — and if compose-time, does the user get a
-  confirmation step ("this looks like a talk — create it instead of sending?") or does it happen
-  silently on a successful parse?
-- The append case's identity problem above — this alone may be worth its own short design spike
-  before the rest of the feature, since it affects the shared talk-id scheme, not just this feature.
-- Exact v1 grammar and its failure mode (silent plain-text fallback vs. a visible parse-error hint).
-
-This is `[Opus]`-tagged primarily because of the append-case's talk-identity question — that's a
-real architectural tradeoff, not implementation detail. Write a short design note first (per the
-model-routing legend), then hand the parser, inline-button UI, and wiring to Sonnet.
+This is `[Opus]`-tagged primarily for the append-case's talk-identity question and the compose-time
+confirmation-step call — real tradeoffs, not implementation detail. Write a short design note first
+(per the model-routing legend), then hand the parser, session-state tracking, and chip UI to Sonnet.
 
 ---
 
