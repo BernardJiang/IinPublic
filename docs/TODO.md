@@ -1445,14 +1445,17 @@ the precise coordinate as `trueLocation`, doc-commented *"only stored locally, n
 - [ ] Confirm `formatTalkDistanceFromAuthor` (`ui-manager.ts:416`) and any other reader of
       `authorLocation` still work against a region string rather than a lat/lng pair (distance
       becomes approximate — expected and already how this SRS asks the rest of the system to work).
-- [ ] There is currently no "share my precise location with this specific talk" opt-in path at all
-      — Bernard's "can only be used when specifically requested" clause describes a future
-      capability, not something this fix needs to build. Blurred-only is a complete fix on its own;
-      an explicit precise-location-sharing feature (if ever wanted) is separate, later scope.
-- [ ] Audit whether `Chatroom.location`/`BusinessInfo.coordinates` (`types.ts:104-121`) are a
-      similar violation or legitimately different — a business's own published address, entered by
-      its owner, plausibly *is* "specifically requested" precise disclosure rather than a person's
-      incidental current position. Not verified either way this session; flagged rather than assumed.
+- [x] "Share my precise location with this specific talk/person" is out of scope for this fix —
+      **confirmed 2026-08-01 (Bernard): "share location with someone is another feature in the
+      future."** Blurred-only is a complete fix on its own here; a real opt-in precise-sharing
+      capability, if built later, is its own separate backlog item, not a sub-task of this one.
+- [x] **Audited and closed 2026-08-01 (Bernard): `Chatroom.location`/`BusinessInfo.coordinates`
+      are *not* the same violation.** *"Business chat room is the current case in which user can
+      specify the precise location."* A business owner publishing their storefront's exact address
+      when creating a business chatroom is exactly the "specifically requested" precise disclosure
+      `FR-CR-8`/`NFR-S-1` carve out — a deliberate, already-legitimate, different use case from a
+      person's incidental current position leaking through `Talk.authorLocation`. No fix needed
+      there; this item stays scoped to `Talk.authorLocation` only.
 
 ---
 
@@ -1460,6 +1463,10 @@ the precise coordinate as `trueLocation`, doc-commented *"only stored locally, n
 
 - Multiple identities on one device (profile switching). Decided low priority 2026-07-13; v1 stays one identity per device install.
 - Merging message history across linked devices; aggregating reputation across a cluster (`flagged` in I).
+- Explicit "share my precise location with someone" opt-in capability. Not scoped or designed —
+  Bernard, 2026-08-01, while closing §X: *"share location with someone is another feature in the
+  future."* Noted here only so it doesn't get silently reinvented as part of §X's blurred-by-default
+  fix.
 
 ---
 
