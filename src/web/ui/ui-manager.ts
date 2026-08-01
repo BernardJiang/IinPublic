@@ -821,18 +821,41 @@ export class UIManager extends EventEmitter {
     return `${talkId}:${contentKey}:${updated}`;
   }
 
+  /** True when `receiverId` has not yet been sent `talkId` at its current content revision. */
+  private isBroadcastUnsentForReceiver(chatroomId: string, receiverId: string, talkId: string): boolean {
+    const talk = this.getMyTalks()[talkId];
+    return !this.getBroadcastHistory()[`${chatroomId}|${receiverId}|${this.getBroadcastRevisionKey(talkId, talk)}`];
+  }
+
   private getUnsentBroadcastTalkIds(chatroomId: string, receiverIds: string[]): string[] {
-    return this.getBroadcastableTalkIds().filter((talkId) => receiverIds.some((receiverId) => {
-      const talk = this.getMyTalks()[talkId];
-      return !this.getBroadcastHistory()[`${chatroomId}|${receiverId}|${this.getBroadcastRevisionKey(talkId, talk)}`];
-    }));
+    return this.getBroadcastableTalkIds().filter((talkId) => receiverIds.some((receiverId) =>
+      this.isBroadcastUnsentForReceiver(chatroomId, receiverId, talkId)));
   }
 
   private getUnsentBroadcastTalkIdsForReceiver(chatroomId: string, receiverId: string): string[] {
-    return this.getBroadcastableTalkIds().filter((talkId) => {
-      const talk = this.getMyTalks()[talkId];
-      return !this.getBroadcastHistory()[`${chatroomId}|${receiverId}|${this.getBroadcastRevisionKey(talkId, talk)}`];
-    });
+    return this.getBroadcastableTalkIds().filter((talkId) =>
+      this.isBroadcastUnsentForReceiver(chatroomId, receiverId, talkId));
+  }
+
+  /**
+   * docs/TODO.md §W Gap 1: `getUnsentBroadcastTalkIds` above is room-wide — a talk stays in
+   * everyone's batch if *any* member still needs it, which can re-attempt delivery to a
+   * receiver who already has it. This computes the same per-receiver truth
+   * `getUnsentBroadcastTalkIdsForReceiver` already uses, but keyed by talk instead of by
+   * receiver, so a single broadcast call can pass each talk its own narrower receiver list
+   * instead of the full room.
+   */
+  getUnsentBroadcastTalkReceiverIds(
+    chatroomId: string,
+    talkIds: string[],
+    receiverIds: string[],
+  ): Record<string, string[]> {
+    const result: Record<string, string[]> = {};
+    for (const talkId of talkIds) {
+      result[talkId] = receiverIds.filter((receiverId) =>
+        this.isBroadcastUnsentForReceiver(chatroomId, receiverId, talkId));
+    }
+    return result;
   }
 
   recordBroadcastConversation(chatroomId: string, talkIds: string[], receivers: Array<{ userId: string }>): void {
@@ -1678,10 +1701,20 @@ export class UIManager extends EventEmitter {
       return;
     }
 
+    // docs/TODO.md §W Gap 1: talkIds above is the room-wide union (a talk stays in it if any
+    // member still needs it) — pass each talk's own narrower receiver list too, so a member
+    // who already has a given talk isn't re-attempted just because someone else needs it.
+    const talkReceiverIds = this.getUnsentBroadcastTalkReceiverIds(
+      chatroomId,
+      talkIds,
+      members.map((m) => m.userId),
+    );
+
     this.emit('broadcastTalk', {
       chatroomId,
       members,
       talkIds,
+      talkReceiverIds,
     });
 
     const list = document.getElementById('chatroom-members-list');

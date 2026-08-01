@@ -1354,7 +1354,8 @@ total 120 talks again, Eve should only receive 20 new talks — verify this is d
 **Verdict: the literal scenario as stated is already handled correctly — verified, not a gap.**
 For the specific case where the 100 are *exchanged* (answered), Eve gets only the 20 new ones.
 **But the research surfaced two real, adjacent gaps worth tracking**, both found while confirming
-the literal case, not invented speculatively.
+the literal case, not invented speculatively. **Gap 1 is fixed (2026-08-01, see its checklist item)
+— Gap 2 and the `sendBulkTalk` dead-code question remain open below.**
 
 **Why the literal case works:** delivery goes through `deliverTalkToReceiversOverMesh`
 (`src/web/app/app.ts:3338-3395`). For every talk × recipient pair it computes the talk's
@@ -1399,9 +1400,24 @@ targeting and no consumer/worker found anywhere in the codebase (`bulkJobs` has 
 wired to a legacy `sendTalk` UI event (`app.ts:4725-4739`) unrelated to the actual room-broadcast
 path described above. Candidate for removal, or at minimum: don't build on it, it isn't live.
 
-- [ ] Fix Gap 1: make the main Broadcast button use per-receiver unsent-talk filtering (like
-      `broadcastPendingTalksOnRoomEntry` already does) instead of the room-wide `.some()` variant,
-      so a new room member needing an old talk doesn't drag it back into everyone else's batch.
+- [x] **Done 2026-08-01.** Fixed Gap 1 — but by adding a *complementary* per-talk narrowing rather
+      than replacing the room-wide computation, since the two serve different purposes:
+      `getPendingBroadcastTalkIds()`'s room-wide union still decides *which talks to even attempt*
+      (correctly stays a union — if anyone in the room needs a talk, it belongs in the batch), while
+      a new method, `UIManager.getUnsentBroadcastTalkReceiverIds(chatroomId, talkIds, receiverIds)`
+      (`ui-manager.ts`, extracted from a shared `isBroadcastUnsentForReceiver` predicate now used by
+      all three broadcast-history methods), computes *which receivers actually still need each
+      individual talk*. `runBroadcastFromCurrentRoom` now includes this as `talkReceiverIds` on the
+      emitted `broadcastTalk` event; `app.ts`'s handler intersects it with the existing per-talk
+      `eligibleIds` computation (already there for privacy/intake-filter eligibility, `app.ts:4903`)
+      right before calling `deliverTalkToReceiversOverMesh` — so a receiver who already has a given
+      talk is excluded from delivery *for that talk specifically*, without changing which talks the
+      button even considers sending. `broadcastPendingTalksOnRoomEntry`'s existing single-peer path
+      doesn't set this field, so it's unaffected. Verified: full unit suite (91/91), plus real E2E
+      runs including `09-exchange-suppression.spec.ts` (the exact "rebroadcast a mixed batch where
+      one recipient already has some of it" scenario), `06-sender-suppression.spec.ts`,
+      `00-broadcast-abort-clear-all.spec.ts`, `00-broadcast-boundary-match.spec.ts`, and
+      `stage3/00-three-user-talk-matrix.spec.ts` (36 talks/user across a real mixed-membership room).
 - [ ] Decide on Gap 2: unify the three exchange-tracking mechanisms, or document why three separate
       ones is the right shape given their different entry points.
 - [ ] Decide whether `sendBulkTalk`/`BulkSendJob` should be removed as dead code or finished as a

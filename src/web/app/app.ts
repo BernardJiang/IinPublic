@@ -4827,6 +4827,8 @@ export class IinPublicApp {
         chatroomId: string;
         members: Array<{ userId: string; stageName: string }>;
         talkIds?: string[];
+        /** docs/TODO.md §W Gap 1: per-talk narrower receiver list, when the caller has one. */
+        talkReceiverIds?: Record<string, string[]>;
         broadcastTargetTags?: string[];
         broadcastMaxDistanceMiles?: number;
         automatic?: boolean;
@@ -4898,12 +4900,21 @@ export class IinPublicApp {
               batch.map(async ({ tid, talk }) => {
                 if (!broadcastableSnapshot.has(tid)) return false;
                 const preview = previewByTalkId.get(tid);
-                const eligibleIds =
+                let eligibleIds =
                   usesMeshTalkDelivery(this.p2pRuntimeFlags) &&
                   !preview?.previewUnavailable &&
                   Array.isArray(preview?.eligibleReceiverIds)
                     ? preview.eligibleReceiverIds
                     : undefined;
+                // docs/TODO.md §W Gap 1: further narrow to receivers who don't already have
+                // this specific talk, when the caller supplied that per-talk information —
+                // fixes the room-wide "any member still needs it" batch re-attempting
+                // delivery to a receiver who already has it.
+                const perTalkReceiverIds = data.talkReceiverIds?.[tid];
+                if (perTalkReceiverIds !== undefined) {
+                  const allowed = new Set(perTalkReceiverIds);
+                  eligibleIds = (eligibleIds ?? receivers.map((r) => r.userId)).filter((id) => allowed.has(id));
+                }
                 const ok = await this.deliverTalkToReceiversOverMesh(
                   tid,
                   talk,
