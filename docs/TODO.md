@@ -40,8 +40,10 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   destination decision); N3 single-partner case; M5 (compact TechSupport contact row); K6's two
   remaining tests + the talk-intake carve-out note; L1's legacy-scalar removal (after confirming no
   reader); W's Gap 1 fix (new 2026-08-01 — swap the main Broadcast button to the already-existing
-  per-receiver unsent-talk filter, one call-site change). None of these need new architecture beyond
-  the Session-1 dispatcher itself.
+  per-receiver unsent-talk filter, one call-site change); X (new 2026-08-01 — `Talk.authorLocation`
+  raw-coordinate fix, a confirmed violation of the SRS's own day-one blurred-location requirement,
+  mechanical since `LocationPrivacy.blurLocation()` already exists). None of these need new
+  architecture beyond the Session-1 dispatcher itself.
 - **Session 2 — DM/talk traceback depth (~5 medium items).** N3 multi-partner picker (reuses
   `#peer-send-picker-modal`); P's actual dead-end fix (real retry on `demandFullTalk` failure); O
   (peer-detail history list clickable + on-demand thread creation); Q's Talk→Me-tab-Q&A reverse
@@ -1265,20 +1267,18 @@ creator and the current editor**, not just their ids. Checked against what exist
     same shape as everything else in this item.
   - **The editor side needs the same two fields freshly captured at edit time** — nothing today
     tracks "when/where was the most recent edit made" as distinct from the original creation.
-  - **Location must be blurred, and today it isn't.** `Talk.authorLocation` currently stores the
-    **raw, precise** `{latitude, longitude}` — confirmed via `app.ts:4772-4776`, which passes
-    `this.currentLocation` (unblurred) straight through, and the field's own type in `types.ts:224`
-    (plain lat/lng, not `BlurredLocation`). This codebase already has a real blurring mechanism —
-    `LocationPrivacy.blurLocation()` (`src/shared/location.ts:13-26`) — which reduces a coordinate
-    to a coarse ~2km grid `region` string and explicitly keeps the precise coordinate
-    **`trueLocation` "only stored locally, never transmitted"** (its own doc comment). Reusing this
-    (storing the `region` string, not the raw pair) for both the creator's and editor's location is
-    what "blurred" means here — not inventing a new privacy mechanism, applying an existing one to
-    a field that currently skips it. **Worth flagging honestly, found incidentally, not something
-    this item is required to fix:** `Talk.authorLocation` storing a raw coordinate at all looks like
-    a pre-existing inconsistency with this codebase's own stated "never transmitted" location
-    privacy invariant, given talks get synced/broadcast across the P2P graph — separate issue,
-    surfaced here because it's directly adjacent to what's being changed.
+  - **Location must be blurred by default — confirmed 2026-08-01 (Bernard): "blurred location
+    should be used by default; precise location can only be used when the user specifically
+    requests it, and not saved by default."** This isn't a new policy Bernard is inventing here —
+    it restates the SRS's own day-one requirement, `FR-CR-8`/`NFR-S-1`
+    (`docs/specs/iinpublic-technical-specifications.md:254,588`: *"the system SHALL store true
+    location from GPS and use a blurred region for all public operations"* / *"True GPS location
+    must not be exposed directly"*). `Talk.authorLocation`'s current raw-coordinate storage is a
+    **confirmed violation of that existing requirement**, not a judgment call — see **§X**, its own
+    item now, since it's a pre-existing bug affecting every talk ever created, not specific to this
+    feature. The two new fields this item adds (`originalAuthorLocation`, and `authorLocation`
+    repurposed for the editor) should obviously follow the same corrected, blurred-by-default
+    behavior §X establishes — no separate design decision needed here once §X lands.
   - **One real design fork this creates, not yet resolved:** under the new content-edit-mints-a-
     new-talk flow, a fresh `Talk`'s own `createdAt`/`authorLocation` would naturally capture *this
     edit's* moment/place (exactly what's wanted for the editor side) — but the existing in-place
@@ -1325,10 +1325,10 @@ creator and the current editor**, not just their ids. Checked against what exist
   kept-but-superseded old talk inactive, and the new Settings-tab default-delete/keep preference.
 - The two-author credit model above: `Talk.originalAuthorId`/`originalCreatedAt`/
   `originalAuthorLocation` (new fields, immutable after first set, seeded from the predecessor or
-  falling back to the talk's existing plain fields), switching `Talk.authorLocation` from a raw
-  coordinate to `LocationPrivacy.blurLocation()`'s `region` string, and the still-open
-  `createdAt`/`authorLocation`/`authorId` edit-path-divergence question just above (title edits are
-  now settled — they touch none of this).
+  falling back to the talk's existing plain fields), plus the still-open `createdAt`/
+  `authorLocation`/`authorId` edit-path-divergence question just above (title edits are now settled
+  — they touch none of this). The blurred-vs-raw location fix itself is §X, tracked separately since
+  it's a pre-existing bug, not new-to-this-feature work.
 - Routing the finished draft into `talk-editor-dialog.ts` for later refinement — not yet confirmed
   whether the editor's current open/edit path already handles an already-broadcast/already-answered
   talk cleanly, or only ever new-in-progress drafts.
@@ -1341,8 +1341,8 @@ plus checking the reference-integrity blast radius honestly (above) — between 
 remaining authorship-fields question, this stays `[Opus]`-tagged. Write a short design note covering
 the multi-line session-state mechanics, the reference-integrity checklist, and the metadata-edit
 authorship-fields call, then hand the parser, `supersedesTalkId`/`deleteTalk`/`originalAuthorId`/
-`originalCreatedAt`/`originalAuthorLocation` wiring, the location-blurring switch, the Settings
-toggle, and chip UI to Sonnet.
+`originalCreatedAt`/`originalAuthorLocation` wiring and the chip UI to Sonnet (the location-blurring
+fix itself, §X, doesn't need to wait for any of this and can land independently).
 
 ---
 
@@ -1406,6 +1406,53 @@ path described above. Candidate for removal, or at minimum: don't build on it, i
       ones is the right shape given their different entry points.
 - [ ] Decide whether `sendBulkTalk`/`BulkSendJob` should be removed as dead code or finished as a
       real feature — currently neither, which is its own small hazard for whoever finds it next.
+
+---
+
+## X. Talk.authorLocation stores a raw coordinate — violates the SRS's own blurred-location requirement `[Sonnet]`
+
+Found 2026-08-01 while working §V's two-author credit model, confirmed as a real bug (not a
+judgment call) by Bernard: *"blurred location should be used by default; precise location can only
+be used when the user specifically requests it, and not saved by default."* This restates the SRS's
+own day-one requirement — `FR-CR-8` (`docs/specs/iinpublic-technical-specifications.md:254`):
+*"The system SHALL store **true location** from GPS and use a **blurred region** for all public
+operations"*; `NFR-S-1` (line 588): *"True GPS location must not be exposed directly — only
+blurred regions or derived chatroom memberships."* — plus the plain-language version at line 198:
+*"location must be blurred before any public sharing."*
+
+**The violation:** `Talk.authorLocation?: { latitude: number; longitude: number }` (`types.ts:224`)
+stores the **raw, precise** coordinate — confirmed via `app.ts:4772-4776`, which passes
+`this.currentLocation` (the live, unblurred GPS position) straight into a new talk at creation, and
+`WebTalkService.createTalk`/`updateTalk` (`web-talk-service.ts:173,319-320`) which carry it forward
+unchanged. Since talks get synced/broadcast across the P2P graph, this is a real instance of exactly
+what `NFR-S-1` prohibits — every talk ever created has been shipping its author's precise location
+to every recipient, not the blurred region the spec requires.
+
+**The fix is mechanical, not a new design** — this codebase already has the blurring mechanism the
+SRS calls for and already uses it for an analogous purpose (distance-based sorting,
+`docs/specs/iinpublic-technical-specifications.md:4027`: *"Distance uses blurred location (`LocationPrivacy.blurLocation`) —
+approximate is acceptable"* — direct precedent that blurred-region-based distance approximation is
+already the accepted standard elsewhere in this exact system, so switching `Talk.authorLocation`
+won't regress `locationRadiusMiles` filtering, just make it approximate like everything else that
+already does this). `LocationPrivacy.blurLocation()` (`src/shared/location.ts:13-26`) reduces a
+coordinate to a coarse ~2km grid `region` string and its own `BlurredLocation` type explicitly keeps
+the precise coordinate as `trueLocation`, doc-commented *"only stored locally, never transmitted"*.
+
+- [ ] Switch `Talk.authorLocation` (and the two new author-location fields §V is adding —
+      `originalAuthorLocation` and the repurposed current-editor `authorLocation`) to store
+      `LocationPrivacy.blurLocation(coordinate).region` instead of the raw `{latitude, longitude}`
+      pair, at every write site (`app.ts:4772-4776` and wherever §V's edit path writes it).
+- [ ] Confirm `formatTalkDistanceFromAuthor` (`ui-manager.ts:416`) and any other reader of
+      `authorLocation` still work against a region string rather than a lat/lng pair (distance
+      becomes approximate — expected and already how this SRS asks the rest of the system to work).
+- [ ] There is currently no "share my precise location with this specific talk" opt-in path at all
+      — Bernard's "can only be used when specifically requested" clause describes a future
+      capability, not something this fix needs to build. Blurred-only is a complete fix on its own;
+      an explicit precise-location-sharing feature (if ever wanted) is separate, later scope.
+- [ ] Audit whether `Chatroom.location`/`BusinessInfo.coordinates` (`types.ts:104-121`) are a
+      similar violation or legitimately different — a business's own published address, entered by
+      its owner, plausibly *is* "specifically requested" precise disclosure rather than a person's
+      incidental current position. Not verified either way this session; flagged rather than assumed.
 
 ---
 
