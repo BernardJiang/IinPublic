@@ -97,15 +97,21 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
 
 ### Host E2E re-run (verification of 2026-07-15/16 fixes) `[Haiku]`
 
-> Rounds 1–4 complete (2026-07-15/16) — archived in `docs/completed.md`.
+> **Complete 2026-07-31** — Rounds 1–4 (2026-07-15/16) archived in `docs/completed.md`; both
+> remaining verification items confirmed via two full `npm run test:all` runs on this host done
+> while fixing the cross-browser Firefox timeout (see `docs/completed.md`).
 
-- [ ] Re-run the light shard on the host to confirm 0 failed.
-- [ ] Verify the 2026-07-19 `test:all` speed changes on the host: (a) type/lint/jest now
+- [x] Re-run the light shard on the host to confirm 0 failed.
+      **Done.** `light` phase: `rc=0` both runs (315s, then 312s warm).
+- [x] Verify the 2026-07-19 `test:all` speed changes on the host: (a) type/lint/jest now
       overlap the e2e waves instead of gating them (`TEST_ALL_PREFIX_OVERLAP=0` rolls back;
       jest capped at `--maxWorkers=50%` while overlapped), (b) webpack filesystem cache
       (`node_modules/.cache/webpack` — delete it to roll back; cache key covers all
       bundle-baked env vars). Expected: phase 0 ≈ build-only on first run, seconds on
       warm re-runs; watch wave 1 for any jest-contention flakes. `[Haiku]`
+      **Done.** `phase0 (builds gate e2e)`: 5s cold, 1s warm re-run — confirms overlap +
+      webpack cache both working as designed; `type=0 lint=0 jest=0` both runs (no
+      jest-contention flakes in wave 1).
 
 > **H complete 2026-07-15** — message content filters (dirty words + grammar, both
 > directions) landed with specs 70/71; the stage3 intake regression was confirmed green
