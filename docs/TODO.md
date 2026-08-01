@@ -82,6 +82,10 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
     `[Opus]` design note first (custom-label-as-group vs. multi-tag data model; whether the
     mailbox's fixed 48h/72h TTL is acceptable as-is), then the group-picker UI and
     `recipientUserIds` wiring go to Sonnet. See §U.
+  - V (new 2026-08-01) — create/append a Talk from DM shorthand needs an `[Opus]` design note
+    first, chiefly the append case's talk-identity question (a content-addressed talk id doesn't
+    naturally support "same talk, appended question" — may need its own design spike before the
+    rest of this feature), plus the compose-time-diversion UX and v1 grammar. See §V.
 
 ---
 
@@ -1105,6 +1109,94 @@ delivered whenever they next come online, dropped if that never happens within a
 This is `[Opus]`-tagged because both questions above are real data-model/UX tradeoffs, not
 mechanical work — write a short design note first (per the model-routing legend), then hand the
 group-picker UI and the `recipientUserIds` wiring to Sonnet.
+
+---
+
+## V. Create/append a Talk inline from a DM chat message, via shorthand syntax `[Opus]`
+
+Requested 2026-08-01. Instead of always opening the talk editor, a user types shorthand directly
+into a DM conversation's message box — e.g. `do you like tennis? yes; no.` — and instead of that
+text going out as an ordinary chat bubble, the app parses it into a question + options, renders
+clickable option buttons inline in the chat, and saves it as a real Talk the user can later reopen
+in the talk editor to refine. **Context decides create-vs-append (2026-08-01 clarification):**
+typed in the pair's plain DM thread → creates a **new** Talk; typed while the conversation is
+scoped to an **existing** talk's thread → **appends** a new question onto that talk instead.
+
+**What already exists to reuse:**
+
+- The thread-scoping mechanism this needs already exists exactly as described.
+  `Message.talkId` (`src/shared/types.ts:334-340`) already distinguishes "this pair's plain DM
+  thread" (no `talkId`, or `'direct'`) from "this specific talk's thread" (a real `talkId`) on the
+  *same* Gun path — `showConversationDetail(conversationId, threadTalkId)`
+  (`ui-manager.ts:5277`) sets `currentThreadTalkId`, and `messageInCurrentThread()`
+  (`ui-manager.ts:8388-8394`) filters the rendered list by it. The compose handler already knows
+  which thread it's in (`ui-manager.ts:5409-5419` includes `talkId` in the emitted
+  `sendConversationMessage` event when scoped) — so "which behavior fires" is a read of state that
+  already exists, not new plumbing.
+- Rendering something other than a plain text bubble mid-conversation is an established pattern,
+  not a first: `displayConversationMessages()` (`ui-manager.ts:8838-8918`) already detects a
+  structured payload inside `Message.text` (`parseIpfsSharePayload`, `ui-manager.ts:8419-8437`) and
+  renders it specially (`renderIpfsAttachmentMessage`, line 8486) instead of the default bubble
+  (fallback path: lines 8900-8907). A parsed inline-talk message is the same shape of problem.
+- `survey` is the right talk type for "one question, N independent clickable options, no branching"
+  — confirmed against the type's own doc comment (`types.ts:196-209`): "Independent Q/A pairs (star
+  graph). No shared context; ideal for aggregate statistics." (`tag` doesn't carry question text at
+  all; `flow`/`route` imply chaining this feature doesn't need.)
+- Submitting an answer doesn't have to go through the `talk-response-dialog.ts` modal's DOM —
+  every answer path already bottoms out at one callback, `completeTalk(talk, answers, outcome?)`
+  (`ui-manager.ts:6435`), and the match/ignore computation is the shared, reusable
+  `checkIfMatch`/`checkIfIgnore` (`src/shared/talk-engine.ts:91,104`). Inline chat buttons can call
+  these directly; they do not need the modal's radio/checkbox rendering or review screen.
+
+**What needs building (none of this exists today):**
+
+- **The shorthand parser.** No regex/freeform-text-to-question parser exists anywhere in
+  `src/shared/` or `src/web/services/` (checked, including `talk-content-id.ts`, which is just a
+  re-export shim over `cid.ts`'s hashing helpers — no parsing logic). v1 grammar is genuinely
+  undecided: even the given example (`question? opt1; opt2.`) leaves open what happens with a `?`
+  inside the question text itself, more than one question in one message, empty/duplicate options,
+  or an unrecognized shape (silently send as plain text vs. show an inline "couldn't parse this as
+  a talk" hint).
+- **Where parsing happens: compose-time interception vs. send-then-reinterpret.** The IPFS-share
+  precedent parses at *render* time against text that was already sent as a normal message. This
+  feature reads as wanting the opposite — "instead of sending it as plain text" implies the app
+  recognizes the shorthand *before* the ordinary send even happens and diverts to talk-creation
+  instead. That's a different integration point (inside the `sendMessage` closure,
+  `ui-manager.ts:5409`, before `sendConversationMessage` is emitted) and needs its own confirmation
+  step so a user isn't surprised that their "message" silently became a Talk instead of being sent.
+- **Inline option-button rendering + a lightweight answer path.** New UI: render the parsed
+  question as a chat-embedded card with one button per option, wire each button to build an
+  `answers` array and call `completeTalk`/`checkIfMatch` directly — reusing the engine, not the
+  modal's DOM.
+- **"Append a question to an existing Talk" — this operation does not exist at all today.**
+  `WebTalkService.createTalk()` (`web-talk-service.ts:156-186`) only ever makes a whole new Talk,
+  and a Talk's `id` is a **content hash of its questions** (`talk-content-id.ts`/`cid.ts`). Appending
+  a question changes that content, which by the current identity scheme would change the talk's
+  `id` — silently breaking every existing reference to the old id (past broadcasts, recorded
+  answers, `talkId`-scoped message threads already pointing at it). This is the single biggest open
+  design question in this item, not a detail: appending needs either (a) a stable talk identity
+  that survives content changes (a real architectural change to how talk ids work), or (b) "append"
+  actually means "create a new talk that supersedes the old one," with some explicit
+  predecessor/version link — very different from what "append a question after a talk" sounds like
+  it should mean.
+- **Route the created/edited talk back into the existing talk editor.** "Later on, edit it for
+  better form or purpose" implies opening the auto-created talk in `talk-editor-dialog.ts` the same
+  way editing any other existing talk works — not yet confirmed this session whether the editor's
+  current open/edit path already handles being pointed at an already-broadcast/already-answered
+  talk cleanly, or only ever new-in-progress drafts.
+
+**Open questions (decide before/while writing the design note):**
+
+- Compose-time diversion vs. send-then-reinterpret — and if compose-time, does the user get a
+  confirmation step ("this looks like a talk — create it instead of sending?") or does it happen
+  silently on a successful parse?
+- The append case's identity problem above — this alone may be worth its own short design spike
+  before the rest of the feature, since it affects the shared talk-id scheme, not just this feature.
+- Exact v1 grammar and its failure mode (silent plain-text fallback vs. a visible parse-error hint).
+
+This is `[Opus]`-tagged primarily because of the append-case's talk-identity question — that's a
+real architectural tradeoff, not implementation detail. Write a short design note first (per the
+model-routing legend), then hand the parser, inline-button UI, and wiring to Sonnet.
 
 ---
 
