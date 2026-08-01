@@ -39,10 +39,10 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   destination decision (decide + doc, or a one-line routing tweak); N1 (clickable DM toast +
   destination decision); N3 single-partner case; M5 (compact TechSupport contact row); K6's two
   remaining tests + the talk-intake carve-out note; L1's legacy-scalar removal (after confirming no
-  reader); W's Gap 1 fix (new 2026-08-01 — swap the main Broadcast button to the already-existing
-  per-receiver unsent-talk filter, one call-site change); X (new 2026-08-01 — `Talk.authorLocation`
-  raw-coordinate fix, a confirmed violation of the SRS's own day-one blurred-location requirement,
-  mechanical since `LocationPrivacy.blurLocation()` already exists). None of these need new
+  reader); W's Gap 1 (**complete 2026-08-01**) and X (**complete 2026-08-01**) — both already
+  shipped, see §W/§X; Y1 (new 2026-08-01 — stop stamping `authorId` to the copier at copy time,
+  seed `original*` fields from the source talk instead, same shape as §V's already-built
+  `buildRevisedTalkDraft` seeding, just applied to the copy path). None of these need new
   architecture beyond the Session-1 dispatcher itself.
 - **Session 2 — DM/talk traceback depth (~5 medium items).** N3 multi-partner picker (reuses
   `#peer-send-picker-modal`); P's actual dead-end fix (real retry on `demandFullTalk` failure); O
@@ -87,6 +87,10 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   - V (FR-TK-7, spec'd 2026-01-19, never built — **complete 2026-08-01**) — Auto Linear Capture
     from DM shorthand, including the two-author credit model and the append/edit-mints-new-id
     policy. Real-browser-verified, not just unit-tested. See §V.
+  - Y2 (new 2026-08-01) — incoming-talk-cluster trim + post-trim tombstone needs an `[Opus]` design
+    note first (trigger policy, exact tombstone semantics, whether "ignore forever" is ever
+    resettable) — likely reuses §L2's size-triggered/device-side pruning shape, applied to a
+    different Gun path, not a from-scratch mechanism. See §Y.
 
 ---
 
@@ -1534,6 +1538,95 @@ the precise coordinate as `trueLocation`, doc-commented *"only stored locally, n
       `FR-CR-8`/`NFR-S-1` carve out — a deliberate, already-legitimate, different use case from a
       person's incidental current position leaking through `Talk.authorLocation`. No fix needed
       there; this item stays scoped to `Talk.authorLocation` only.
+
+---
+
+## Y. Incoming-talk lifecycle: copy authorship bug + missing trim/tombstone
+
+Verification requested 2026-08-01, checking a description of how copy/disable/delete/dedup/trim
+should work for incoming talks against what's actually built. Five of seven claims verified
+**true** as described — no action needed on those. Two are real gaps, below.
+
+### Y1. Copying an incoming talk stamps you as author immediately, not only on edit `[Sonnet]`
+
+**Verified false.** Bernard: *"he doesn't become the talk author unless he edits it."* Checked
+against the code: both copy paths (auto-copy on answering when `getCopyTalkAutoSave()` is on,
+`ui-manager.ts:6718-6721,6735-6737`; the manual 📋 button, `copyAnsweredTalkToTalks`,
+`ui-manager.ts:4985-5010`) call `toOwnedOutgoingTalk()` (`ui-manager.ts:6674-6681`), which stamps
+`authorId: this.currentUserId` into the stored `fullTalk` **at copy time** — before any edit ever
+happens. `getBroadcastTalkPayload()` re-applies the same stamp for `role==='copied'` rows
+(`ui-manager.ts:7249-7257`), so a copied-but-never-edited talk is already authored by the copier by
+the time it could be broadcast.
+
+Separately confirmed still accurate from earlier this session: `WebTalkService.updateTalk()`
+(`web-talk-service.ts:294-299`) always preserves `authorId: existing.authorId` — an edit never
+changes authorship of an existing record. That's not the bug; the bug is that by the time an edit
+could run on a copy, `existing.authorId` is already the copier's own id, stamped at copy time, not
+the original sender's.
+
+**The fix connects directly to §V's already-built two-author credit model** — this is the same
+`originalAuthorId` (permanent) vs. `authorId` (current author, reassigned only by a real content
+edit) split, just applied to the copy operation instead of the DM-shorthand append case:
+`toOwnedOutgoingTalk()` should seed `originalAuthorId`/`originalCreatedAt`/`originalAuthorLocation`
+from the incoming talk's own author fields (falling back to its plain `authorId`/`createdAt`/
+`authorLocation` the same way `buildRevisedTalkDraft` already does) and leave `authorId` as the
+**original sender's id**, not the copier's — only reassigning to the copier if/when they later make
+a real content edit (which, per §V's already-decided edit-mints-a-new-id policy, would mint a new
+talk id at that point too).
+
+- [ ] Stop stamping `authorId` at copy time; seed `original*` fields from the source talk instead.
+- [ ] Confirm broadcasting a copied-but-unedited talk works correctly with the *original* sender as
+      `authorId` — check whether any delivery/dedup logic assumed the copier's own id was already
+      the author (e.g. sender-suppression, `authorEpub` attachment for pair-encryption).
+- [ ] Wire an actual content edit on a copied talk through the same revise-mints-new-id +
+      `originalAuthorId`-transfer path §V already built for the DM-shorthand case, so "edit" is what
+      finally makes the copier the credited author, not "copy."
+
+### Y2. No trim/tombstone mechanism exists for incoming talk clusters `[Opus]`
+
+**Verified false, on both halves.** Bernard described two paired mechanisms:
+*"in his gun database, he should be able to just keep one copy of the talk and use references to
+link many people as senders"* — **already true** (`IncomingTalkClusterWire`,
+`src/shared/peer-talk-delivery.ts:6-22`, one shared body + a `senders: Record<senderId, {...}>` map,
+merged by `mergeIncomingTalkCluster()`, lines 42-107 — confirmed already exactly this shape, no
+work needed) — but the two mechanisms built *on top of* that clustering are both missing:
+
+- **No trim.** *"When he trims the database, an old talk is finally physically removed."* No
+  trim/prune/TTL/expiry code exists anywhere for incoming talk clusters (`ownerIncomingTalkIndex/
+  <userId>/<identityKey>`, `client-incoming-talk-mirror.ts`) — that module only has put/read/
+  subscribe (lines 58, 91, 118), no delete path at all. This is the same *shape* of problem §L2
+  already solved for room-visit data (size-triggered, oldest-first, device-side pruning) — likely
+  reusable design, not a from-scratch mechanism, but applied to a different Gun path.
+- **No post-trim tombstone.** *"After that, if someone sent the same talk again, a tombstone of
+  talk id will make user ignore it forever."* The only tombstone in the codebase is the
+  sender-initiated hard retraction (`talk-ledger.ts:98-112,357-384` — keyed
+  `${talkId}::${authorId}`, the *author* revoking their own talk, consumed in `app.ts:2275-
+  2279,2459-2465,2517-2527`) — a completely different mechanism from what's being asked for here: a
+  **receiver-side**, content-identity-keyed (`identityKey`, not `talkId::authorId`) "I already saw
+  and discarded this once, don't show it to me again" tombstone. Doesn't exist. Has nothing to
+  attach to until trim (above) exists, since there's currently nothing that ever *removes* a cluster
+  in the first place.
+
+**Also found, doc hygiene, unrelated to the fix but worth flagging while here:** CLAUDE.md's own
+description of this system (*"`incomingTalksByUser/<userId>/<identityKey>` ... server-side `Map`
+is authoritative"*) is stale — no such server-side map or route exists in the current codebase; the
+real implementation is entirely client-side (`ownerIncomingTalkIndex/<userId>/<identityKey>`,
+gated by `p2pClientTalkMirror`/`p2pDirectTalkDelivery`, star-delivery removed per
+`src/shared/p2p-runtime.ts:12`). Worth correcting CLAUDE.md separately from this backlog item.
+
+- [ ] Design the trim trigger and policy (size-triggered? age-triggered? reuse §L2's
+      `DEFAULT_VISIT_COUNTER_MAX_SLOTS`-style threshold pattern for incoming-talk clusters
+      specifically) and where it runs (device-side, per the same P2P-no-relay-authority principle
+      §L2 already established).
+- [ ] Design the tombstone: what gets recorded when a cluster is trimmed (just `identityKey`? a
+      timestamp too, for an eventual "actually I do want to see new ones again" reset?), and where
+      the "already tombstoned, discard silently" check happens in the incoming-delivery path.
+- [ ] Update CLAUDE.md's incoming-talk-cluster description to match the current client-side-only
+      implementation.
+
+This is `[Opus]`-tagged because the trim/tombstone design (unlike Y1's straightforward fix) has
+real open questions — trigger policy, exact tombstone semantics, and whether "ignore forever" should
+ever be resettable. Write a short design note first, then hand implementation to Sonnet.
 
 ---
 
