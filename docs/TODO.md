@@ -74,6 +74,13 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   - G/I/J's nightly cross-platform specs (X3-X8) — blocked on you (native-build/CI runner infra)
     rather than a schedulable engineering session. (L2 is no longer in this list — Bernard's
     2026-08-01 decision unblocked and closed it; see §L2.)
+  - K4's remaining ~174 call sites (stage2/3/4/5, `mass`, `isolated-02`) — scope confirmed
+    2026-08-01 as a **full** conversion, not partial; schedule as its own dedicated session
+    (stage3 alone is 128 of the 174, the bulk of the work) rather than starting mid-session. See §K4.
+  - K7 (new 2026-08-01) — TechSupport answer-delegation/redirect needs an `[Opus]` design note
+    before implementation (co-operator pool storage, how a delegate's answer gets relayed back
+    under a TechSupport-signed reply, `answeredByDelegate` audit trail) — write the design note
+    as its own session, then hand implementation to Sonnet per the model-routing legend.
 
 ---
 
@@ -253,21 +260,24 @@ and a signed identity/pointer record. No support database on the server.
   `e2e-stage-pipeline.ts:95-103` asserts on has to be reworked, since there is no longer a stored
   greeting message per user.
 
-### Current state (K1–K3, K6, L1, L2 complete; K4/K5 mostly complete)
+### Current state (K1–K3, K5, K6, L1, L2 complete; K4 scoped-but-deferred; K7 new)
 
 K1, K2, and K3 (below) landed 2026-07-25/26 — see `docs/completed.md` and the three design notes
 (`docs/design/techsupport-k1-design-note.md`, `-k2-`, `-k3-`) for the implementation record. K4's
-fixture, K5's Items 1–5, K6 (fully, including its two stage1 tests), L1 (CRDT counter, including
-retiring the legacy-scalar fallback), and L2 (device-side size-triggered prune + fold-aggregate
-retention, plus the extended time/location/user size-report breakdown) have since landed too — see
-their `docs/completed.md` entries and §L2's own 2026-08-01 decision note. What's left for the K/L
-series:
+fixture, K5 (fully, including its `answeredBy` question — resolved 2026-08-01), K6 (fully,
+including its two stage1 tests), L1 (CRDT counter, including retiring the legacy-scalar fallback),
+and L2 (device-side size-triggered prune + fold-aggregate retention, plus the extended
+time/location/user size-report breakdown) have since landed too — see their `docs/completed.md`
+entries and §L2's own 2026-08-01 decision note. What's left for the K/L series:
 
 - K4: the `clearGunForStage3/4/5Spec` helpers exist and `talks-matching`/`isolated-01` are wired to
-  them; ~174 call sites remain (stage2/3/4/5/mass/isolated-02) — deferred by scope decision, not a
+  them; ~174 call sites remain (stage2/3/4/5/mass/isolated-02). Scope reconfirmed 2026-08-01 as a
+  **full** conversion (not a partial subset) — deferred to its own dedicated session, not a
   correctness gap (every site already gets a valid built-in TechSupport today).
-- K5: complete except the `answeredBy` open design question (record the answering operator
-  internally, display as TechSupport — proposed, not yet decided).
+- K7 (new 2026-08-01): TechSupport answer delegation — redirect a pending question to a trusted
+  co-operator, relay their answer back through TechSupport. Needs an `[Opus]` design note before
+  implementation; see §K7 for the scope already decided vs. what the design note still has to work
+  out (chiefly: how a delegate's answer gets a real TechSupport signature on the way back).
 - Key rotation tooling, the headless-agent run mode (K3-3's other half), and production key
   custody (K3-4) remain open — see K3's completed-entry "Open questions carried forward" in
   `docs/completed.md`.
@@ -359,6 +369,9 @@ constructed in code, not a loaded stage. `maybeClearGunDatabases()`
       TechSupport today via `seedTechSupportRootBaseline()` (fixture-backed); the deferred remainder
       is purely the *progressive multi-user snapshot* speed/realism shortcut, not a correctness gap.
       Revisit as its own scoped session if/when it becomes a priority.
+      **Reconfirmed 2026-08-01:** convert **all** ~174 remaining sites, not a partial subset — do
+      not cherry-pick just stage3's 128. Schedule as its own dedicated session rather than starting
+      mid-session on other work (see the top-of-file session list).
 - [x] Non-staged dirs decided: `talks-matching/` and `isolated/`'s three-real-user specs should
       target **stage3** (audited actual `bootstrapUser()` patterns — corrects the earlier "stage2"
       hunch, which undercounted); `mass/`'s (and `isolated-02`'s) ephemeral N-browser-loop specs get
@@ -370,8 +383,9 @@ constructed in code, not a loaded stage. `maybeClearGunDatabases()`
 Decision 2026-07-25. Depends on **K2** (signed authorship) and **K3** (TechSupport client).
 Verifiable entirely at **stage1** (one ordinary user + TechSupport).
 
-> **All 6 work items + the full test list complete 2026-07-27/28.** Only the `answeredBy` open
-> design question below remains.
+> **All 6 work items + the full test list complete 2026-07-27/28.** The `answeredBy` open design
+> question below is resolved 2026-08-01 — see its note for why multi-operator answering became its
+> own item, **K7**, instead.
 
 **Behavior**
 
@@ -453,10 +467,57 @@ Verifiable entirely at **stage1** (one ordinary user + TechSupport).
       K2's archived entry already found the Me tab has no conversation-list UI; a contact click
       lands on the DM conversation directly.)
 
-**Open question**
+**Open question — resolved 2026-08-01.** Today there's exactly one operator (Bernard), so a plain
+`answeredBy` field on the direct login-as-TechSupport path has nothing to disambiguate — not
+implementing it. Multi-operator answering instead becomes its own feature, **K7** below, because
+"redirect to someone else, then relay their answer back through TechSupport" is a materially
+different flow (and audit need) than "record which of several people is logged into the one
+TechSupport account right now."
 
-- Does the developer answer as "TechSupport" anonymously, or is the answering operator recorded in
-  `answeredBy`? (Proposed: record internally, display as TechSupport.)
+---
+
+### K7. TechSupport answer delegation: redirect a question, relay the answer back `[Opus]`
+
+Decision 2026-08-01, arising from K5's `answeredBy` open question. Not yet designed at the code
+level — needs a design note (per the model-routing legend) before implementation.
+
+**Motivation.** The primary operator (Bernard) won't always be the right person to answer a queued
+question. Rather than making them the sole bottleneck, TechSupport needs a way to hand a pending
+question to someone better positioned to answer it, then get that answer back to the original
+asker — still delivered and signed as TechSupport, never exposing the delegate's own identity to
+the asker.
+
+**Decisions made (scope, not implementation):**
+
+- **Redirect targets are a fixed, pre-designated pool of trusted co-operators** — not arbitrary
+  app users chosen ad hoc. Needs a place to store that pool (a new Gun path, e.g. something like
+  `techsupport/delegates/<userId>`, or a config list — the design note picks one).
+- **Built-in redirect UI, not a manual copy-paste workaround.** The support-inbox view gets a
+  "redirect to…" action: choosing a co-operator delivers the question into *that person's own*
+  inbox (their normal DM inbox, or a dedicated delegate-inbox view — design note decides which);
+  they answer there as themselves; their typed answer is then auto-relayed back to the original
+  asker's support conversation *through TechSupport*, with no manual step in between.
+- **The relayed answer must still be a real TechSupport-signed message** (invariant 4: every
+  answer is signature-verified before render). Only the device holding TechSupport's private key
+  can produce that signature, so the design note must work out the actual mechanic — e.g. the
+  delegate's answer text is submitted back to whichever device is logged in as TechSupport (K3),
+  which is what actually signs and sends it to the asker. This is the key open design question:
+  the delegate cannot sign as TechSupport themselves, so "relay back" is not just a UI redirect,
+  it's a real second hop through the TechSupport identity.
+- **Internal audit trail, external anonymity preserved.** The system records which delegate
+  actually answered (something like `redirectedTo` / `answeredByDelegate` fields on the FAQ/inbox
+  entry) so quality issues or bad answers can be traced back internally — but the asker's own view
+  never shows anything but "TechSupport" replied, matching K5's existing privacy posture.
+
+**Not yet decided (belongs in the design note):**
+
+- Exact data model for the delegate pool and the redirect/relay records.
+- Where the redirect UI lives (support-inbox view extension vs. a new view).
+- Whether a redirected question still counts toward the same FAQ-bundle auto-answer mechanism K5
+  built (i.e. does a delegate's answer get published into the public FAQ bundle the same way a
+  direct TechSupport answer does, so the next asker of the same question is auto-answered?).
+- Whether a delegate needs any special account flag/role, or is just an ordinary user whose id
+  happens to be in the pool.
 
 ---
 
