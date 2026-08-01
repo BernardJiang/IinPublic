@@ -13,9 +13,16 @@ import { computeMerkleRoot, sha256Hex } from '../../shared/merkle-checkpoint';
  * the retention window — the message-side analogue of the ledger's Items 1/2, reusing
  * Item 0's merkle module. Named constants so the production values (Item 5 is a policy
  * decision) are a one-line edit later.
+ *
+ * TODO §S Item 7: overridable via env, same rationale as LEDGER_CHECKPOINT_INTERVAL in
+ * web-ledger-service.ts — real sequential Gun-backed sends at production scale (50/200)
+ * are too slow to drive hundreds of times in a real-browser E2E test. Unset, these are
+ * exactly the production defaults.
  */
-export const MESSAGE_CHECKPOINT_INTERVAL = 50;
-export const MESSAGE_RETENTION_WINDOW = 200;
+export const MESSAGE_CHECKPOINT_INTERVAL =
+  parseInt(process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || '', 10) || 50;
+export const MESSAGE_RETENTION_WINDOW =
+  parseInt(process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || '', 10) || 200;
 
 /**
  * SRS §28.9.4: leaves commit to both ordering and ciphertext integrity without

@@ -20,20 +20,81 @@ import type { GunPair } from '../../web/services/gun-bridge';
 
 const SEA = (Gun as any).SEA;
 
+/**
+ * TODO §S Item 7: a real nested-node tree, not a flat Map — `gunService.get/put(key)`
+ * (a single `.get(key)` call on the raw Gun instance, per `WebGunService`'s own
+ * implementation) and `gunService.getGun().get(a).get(b)...` (a true multi-level chain,
+ * used by `putLedgerInboxEntry`/`subscribeToInbox`) must resolve to the *same* graph so a
+ * write through one API is visible through the other, exactly like real Gun. Each
+ * `.get(key)` call creates/returns a child node keyed independently at that level;
+ * `.put()` merges object fields into the node's existing value (or replaces wholesale for
+ * `null`, matching Gun's field-vs-whole-node distinction this session's E2E bugfixes
+ * depend on); `.map().on()` replays every currently-held child synchronously.
+ */
+class FakeGunNode {
+  private children = new Map<string, FakeGunNode>();
+  private value: Record<string, unknown> | null | undefined = undefined;
+
+  get(key: string): FakeGunNode {
+    let child = this.children.get(key);
+    if (!child) {
+      child = new FakeGunNode();
+      this.children.set(key, child);
+    }
+    return child;
+  }
+
+  put(data: Record<string, unknown> | null, callback?: (ack: Record<string, unknown>) => void): void {
+    if (data === null || !(this.value && typeof this.value === 'object')) {
+      this.value = data;
+    } else {
+      this.value = { ...this.value, ...data };
+    }
+    if (callback) callback({});
+  }
+
+  once(callback: (data: any) => void): void {
+    callback(this.value ?? undefined);
+  }
+
+  map(): { on: (callback: (data: any, key: string) => void) => void } {
+    return {
+      on: (callback: (data: any, key: string) => void) => {
+        for (const [key, child] of this.children.entries()) {
+          child.once((data) => {
+            if (data) callback(data, key);
+          });
+        }
+      },
+    };
+  }
+
+  off(): void {
+    /* no-op — nothing to tear down in this fake */
+  }
+}
+
 class FakeGunStore {
-  private data = new Map<string, any>();
+  private root = new FakeGunNode();
   constructor(private pair: GunPair) {}
   async put(key: string, value: any): Promise<void> {
-    this.data.set(key, value);
+    this.root.get(key).put(value);
   }
   async get(key: string): Promise<any> {
-    return this.data.get(key) ?? null;
+    let result: any;
+    this.root.get(key).once((data) => {
+      result = data;
+    });
+    return result ?? null;
   }
   subscribe(_key: string, _callback: (data: any) => void): () => void {
     return () => {};
   }
   getStoredPair(): GunPair | null {
     return this.pair;
+  }
+  getGun(): FakeGunNode {
+    return this.root;
   }
 }
 
@@ -207,17 +268,23 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
       // an ordinary chain event once checkpoint #2 covers it).
       await appendN(service, LEDGER_CHECKPOINT_INTERVAL * 5, 'talk');
 
+      // TODO §S Item 7 bugfix: a pruned event is now a node with every field explicitly
+      // nulled (not a bare `null`) — Gun rejects `.put(null)` at a flat string-keyed path
+      // ("Data at root of graph must be a node") since that isn't a delete-one-edge
+      // operation the way `web-chatroom-service.ts`'s nested-chain `.put(null)` is. Assert
+      // the same thing getEventBySeq itself checks (`!raw.contentJson`) rather than the
+      // raw shape, so this stays correct regardless of which representation is used.
       const prunedEventRaw = await store.get(`ledger/${userId}/events/1`);
-      expect(prunedEventRaw).toBeNull();
+      expect(prunedEventRaw?.contentJson).toBeFalsy();
       const stillPrunedRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL}`);
-      expect(stillPrunedRaw).toBeNull();
+      expect(stillPrunedRaw?.contentJson).toBeFalsy();
 
       // Checkpoint #1 itself (seq 101) is an ordinary chain event, covered by checkpoint
       // #2's range (101-200, since checkpoint #1's own id counts toward the next
       // window) — so it is *also* deletable once it falls behind the retention window,
       // same as any other event. It must be gone here, not specially preserved.
       const checkpoint1AfterPruneRaw = await store.get(`ledger/${userId}/events/${checkpointSeq(1)}`);
-      expect(checkpoint1AfterPruneRaw).toBeNull();
+      expect(checkpoint1AfterPruneRaw?.contentJson).toBeFalsy();
 
       // Checkpoint #2 (seq 201, covering 101-200) is recent enough to survive, and its
       // retained leafIds include checkpoint #1's own event id — proving checkpoint #1's
@@ -246,7 +313,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
         checkpointSeq(6) - LEDGER_RETENTION_WINDOW,
       );
       const lastDeletedRaw = await store.get(`ledger/${userId}/events/${deletableThrough}`);
-      expect(lastDeletedRaw).toBeNull();
+      expect(lastDeletedRaw?.contentJson).toBeFalsy();
       const firstSurvivingRaw = await store.get(`ledger/${userId}/events/${deletableThrough + 1}`);
       expect(firstSurvivingRaw).toBeTruthy();
     }, 20_000);
@@ -330,8 +397,14 @@ describe('WebLedgerService delta-sync via checkpoint proof (TODO §S Item 3)', (
 
     // The pruned range (seqs 1-100) is substituted with checkpoint #1 itself — a normal,
     // already-signed InteractionEvent delivered through the same inbox shape as any
-    // other event, not a bespoke proof payload.
-    const checkpointInboxEntry = await store.get(`ledger/${peerId}/inbox/${checkpoint1Id}`);
+    // other event, not a bespoke proof payload. Read via the real nested
+    // ledger/<peerId>/inbox/<id> chain putLedgerInboxEntry actually writes through — a
+    // flat-string lookup would miss it entirely (see putLedgerInboxEntry's own doc
+    // comment on why a flat key is not the same Gun node as a nested chain).
+    let checkpointInboxEntry: any;
+    store.getGun().get('ledger').get(peerId).get('inbox').get(checkpoint1Id).once((data: any) => {
+      checkpointInboxEntry = data;
+    });
     expect(checkpointInboxEntry).toBeTruthy();
     const deliveredCheckpoint = JSON.parse(checkpointInboxEntry.eventJson);
     expect(deliveredCheckpoint.kind).toBe(InteractionKind.CHECKPOINT_CREATED);
@@ -339,7 +412,10 @@ describe('WebLedgerService delta-sync via checkpoint proof (TODO §S Item 3)', (
 
     // The retained tail (seqs 102-106) is delivered as ordinary individual raw events.
     for (const eventId of tailEventIds) {
-      const inboxEntry = await store.get(`ledger/${peerId}/inbox/${eventId}`);
+      let inboxEntry: any;
+      store.getGun().get('ledger').get(peerId).get('inbox').get(eventId).once((data: any) => {
+        inboxEntry = data;
+      });
       expect(inboxEntry).toBeTruthy();
       expect(JSON.parse(inboxEntry.eventJson).id).toBe(eventId);
     }

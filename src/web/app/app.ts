@@ -263,7 +263,7 @@ export class IinPublicApp {
 
   /** Initialize the interaction ledger after the SEA keypair is available. */
   private initLedger(): void {
-    if (process.env.DISABLE_HMR === 'true') return;
+    if (this.isLedgerDisabledForRun()) return;
     try {
       const pair = this.gunService.getStoredPair();
       const userId = this.currentUser?.id || '';
@@ -277,6 +277,19 @@ export class IinPublicApp {
         })
         .catch(() => {/* non-fatal */});
     } catch {/* non-fatal */}
+  }
+
+  /**
+   * The ledger (Phase E+F) is disabled for the whole `DISABLE_HMR=true` E2E run by
+   * default (bundled into a broader background-service-quieting sweep, not a deliberate
+   * "ledger is broken in E2E" decision — see git blame on this check). TODO §S Item 7
+   * needs the ledger genuinely active to prove checkpoint/prune/delta-sync end to end in
+   * a real browser, so `IINPUBLIC_E2E_ENABLE_LEDGER=1` narrowly re-enables it for that one
+   * spec's run without changing behavior for the hundreds of other E2E specs that never
+   * touch the ledger and don't set this var.
+   */
+  private isLedgerDisabledForRun(): boolean {
+    return process.env.DISABLE_HMR === 'true' && process.env.IINPUBLIC_E2E_ENABLE_LEDGER !== '1';
   }
 
   /** Wire P2P transport fallback UI + WebRTC LEDGER_STATE hooks (REQ-LEDGER-06). */
@@ -322,7 +335,7 @@ export class IinPublicApp {
    * All errors are swallowed — delta sync is best-effort and must not block the app.
    */
   private startLedgerDeltaSync(): void {
-    if (process.env.DISABLE_HMR === 'true') return;
+    if (this.isLedgerDisabledForRun()) return;
     if (!this.ledgerService) return;
     const ledger = this.ledgerService;
 
@@ -354,7 +367,7 @@ export class IinPublicApp {
    * Errors are swallowed so that ledger failures never block the main flow.
    */
   private ledgerEmit(kind: InteractionKind, content: Record<string, unknown>): void {
-    if (process.env.DISABLE_HMR === 'true') return;
+    if (this.isLedgerDisabledForRun()) return;
     if (!this.ledgerService) return;
     void this.ledgerService.appendEvent(kind, content as any).catch((err) => {
       console.warn('[Ledger] appendEvent failed (non-fatal):', kind, err);
@@ -4166,6 +4179,88 @@ export class IinPublicApp {
    */
   public getTalkLedgerDocForE2e(): unknown {
     return getTalkLedgerDoc();
+  }
+
+  /**
+   * TODO §S Item 7 E2E hooks: drive real interaction-ledger + message activity fast
+   * enough (via direct service calls, not hundreds of real UI actions) to actually cross
+   * LEDGER_CHECKPOINT_INTERVAL/LEDGER_RETENTION_WINDOW and MESSAGE_CHECKPOINT_INTERVAL/
+   * MESSAGE_RETENTION_WINDOW in a real browser, so the design note's own numbered
+   * requirements (checkpoint+prune actually fires; old nodes gone + checkpoint valid; an
+   * offline-during-pruning peer still catches up; message history still renders correctly
+   * up to the retention window) can be proven end to end rather than only at the unit
+   * level. Mirrors the existing setTalkLedgerQuotaUnlimitedForE2e-style narrow test hooks
+   * above — never a raw exposure of the whole service instance.
+   */
+  public async appendLedgerEventsForE2e(count: number): Promise<void> {
+    if (!this.ledgerService) return;
+    for (let i = 0; i < count; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.ledgerService.appendEvent(InteractionKind.TALK_CREATED, {
+        talkId: `e2e-ledger-fill-${i}-${Date.now()}`,
+        title: `E2E ledger fill ${i}`,
+        type: 'flow',
+        language: 'en',
+      });
+    }
+  }
+
+  public getLedgerStateForE2e(): Record<string, number> {
+    return this.ledgerService?.getState() ?? {};
+  }
+
+  public async isLedgerRawEventPresentForE2e(seq: number): Promise<boolean> {
+    if (!this.ledgerService || !this.currentUser?.id) return false;
+    const event = await this.ledgerService.getEventBySeq(this.currentUser.id, seq);
+    return event !== null;
+  }
+
+  public async pushLedgerSyncToPeerForE2e(peerId: string): Promise<void> {
+    if (!this.ledgerService) return;
+    await this.ledgerService.syncWithPeerById(peerId);
+  }
+
+  /**
+   * Reads the checkpoint event at `checkpointEventSeq` (the caller computes this from the
+   * known LEDGER_CHECKPOINT_INTERVAL cadence — a checkpoint covering seqs 1..N lands at
+   * seq N+1) and confirms it verifies via the service's own verifyEvent, not a
+   * re-implementation. Returns null if no such event exists yet.
+   */
+  public async getLedgerCheckpointVerifiedForE2e(
+    checkpointEventSeq: number,
+  ): Promise<{ verified: boolean; count: number; rangeStart: number; rangeEnd: number } | null> {
+    if (!this.ledgerService || !this.currentUser?.id) return null;
+    const event = await this.ledgerService.getEventBySeq(this.currentUser.id, checkpointEventSeq);
+    if (!event || event.kind !== InteractionKind.CHECKPOINT_CREATED) return null;
+    const verified = await this.ledgerService.verifyEvent(event);
+    const content = event.content as { count: number; rangeStart: number; rangeEnd: number };
+    return { verified, count: content.count, rangeStart: content.rangeStart, rangeEnd: content.rangeEnd };
+  }
+
+  public async sendConversationMessagesForE2e(
+    conversationId: string,
+    otherUserId: string,
+    count: number,
+    textPrefix: string,
+  ): Promise<void> {
+    if (!this.currentUser?.id) return;
+    for (let i = 0; i < count; i += 1) {
+      // Explicit, predictable messageId — the wire's own Gun key is otherwise a random/
+      // timestamp id unrelated to send order, and its `text` field is SEA ciphertext for
+      // direct-p2p, so a caller has no other reliable way to identify "the Nth message
+      // sent" from outside the running app (e.g. via a raw Gun snapshot in a test).
+      // eslint-disable-next-line no-await-in-loop
+      await this.conversationService.sendMessage(conversationId, this.currentUser.id, `${textPrefix}-${i}`, {
+        otherUserId,
+        messageId: `${textPrefix}-${i}`,
+      });
+      // Each send's own checkpoint/prune pass (maybeCreateMessageCheckpoint) is
+      // fire-and-forget — sendMessage returns before it's done. A pass's own
+      // listLocalWires read alone takes >= 500ms; this gap reduces (but per the design
+      // note's Item 4 "Done" note, does not fully eliminate) overlap between passes.
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
   }
 
   public async seedIncomingTagTalkForE2e(params: {

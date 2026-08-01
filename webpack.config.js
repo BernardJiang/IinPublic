@@ -34,6 +34,16 @@ const BUNDLED_ENV_KEYS = [
   // Content-node (IPFS) libp2p bootstrap/relay multiaddr(s) — lets the browser node dial a
   // reachable circuit relay so two browsers can peer for P2P media (dev:multi sets this).
   'IINPUBLIC_P2P_BOOTSTRAP_PEERS',
+  // TODO §S Item 7: ledger E2E enable + checkpoint/retention overrides (see app.ts's
+  // isLedgerDisabledForRun, web-ledger-service.ts, gun-message-store.ts). Missing these
+  // here was itself a real bug found while writing the Item 7 E2E spec: without them in
+  // the cache key, the filesystem cache served a stale bundle built under a *different*
+  // value for these vars, silently ignoring a changed retention window between runs.
+  'IINPUBLIC_E2E_ENABLE_LEDGER',
+  'IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL',
+  'IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW',
+  'IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL',
+  'IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW',
 ];
 
 module.exports = {
@@ -134,6 +144,29 @@ module.exports = {
             ),
             'process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS': JSON.stringify(
               process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS || '',
+            ),
+            // TODO §S Item 7: the ledger (Phase E+F) is disabled for the whole DISABLE_HMR=true
+            // E2E run by default (see app.ts's isLedgerDisabledForRun) — this narrowly
+            // re-enables it for the one spec that needs it (checkpoint/prune/delta-sync E2E
+            // proof), without changing behavior for every other E2E spec.
+            'process.env.IINPUBLIC_E2E_ENABLE_LEDGER': JSON.stringify(
+              process.env.IINPUBLIC_E2E_ENABLE_LEDGER || '',
+            ),
+            // TODO §S Item 7: let the pruning E2E spec shrink the checkpoint/retention
+            // constants so it can cross them without hundreds of slow sequential real Gun
+            // round trips at production scale — unset, these fall back to the real
+            // production values (see web-ledger-service.ts / gun-message-store.ts).
+            'process.env.IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL': JSON.stringify(
+              process.env.IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL || '',
+            ),
+            'process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW': JSON.stringify(
+              process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW || '',
+            ),
+            'process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL': JSON.stringify(
+              process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || '',
+            ),
+            'process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW': JSON.stringify(
+              process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || '',
             ),
           }),
         ]

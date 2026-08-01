@@ -579,6 +579,95 @@ module directly.
    §9.4's "not reconstructible beyond the window" is the *expected* limit — assert the boundary,
    not that everything is still there).
 
+> **Done 2026-08-01.** `tests/e2e/staged/stage2-two-user/30-ledger-message-pruning-e2e.spec.ts`
+> (+ companion `.md`). Two real browsers (Tom/Jerry), matched via the normal talk flow, then:
+> Tom's ledger is driven through `appendLedgerEventsForE2e` (a new `IinPublicApp` E2E hook
+> calling `WebLedgerService.appendEvent` directly — 650+ real UI actions would be
+> impractical) past a real checkpoint + prune cycle; `isLedgerRawEventPresentForE2e` and
+> `getLedgerCheckpointVerifiedForE2e` confirm the pruned seq is gone and the checkpoint
+> re-verifies via the service's own `verifyEvent`; Jerry (who never received the flood)
+> is pushed a delta-sync via `pushLedgerSyncToPeerForE2e` and polls `getLedgerStateForE2e`
+> until caught up, proving Item 3's checkpoint-substitution actually works over the wire.
+> Messages are driven the same way (`sendConversationMessagesForE2e`) and checked via
+> `/api/test/export-snapshot` plus a live UI render check.
+>
+> **`LEDGER_CHECKPOINT_INTERVAL`/`LEDGER_RETENTION_WINDOW`/`MESSAGE_CHECKPOINT_INTERVAL`/
+> `MESSAGE_RETENTION_WINDOW` are now env-overridable** (`IINPUBLIC_E2E_LEDGER_*`/
+> `IINPUBLIC_E2E_MESSAGE_*`, unset = real production defaults) — real sequential Gun round
+> trips at production scale (100/500, 50/200) take several seconds *each*; driving 600+ of
+> them in one browser session is impractical for a suite that must stay CI-fast. This spec
+> runs at a small scale (5/25 ledger, 5/10 messages) that still genuinely crosses both
+> thresholds. Also required adding these vars to webpack.config.js's `BUNDLED_ENV_KEYS`
+> filesystem-cache key list — omitting them was itself a real bug found while calibrating
+> the scale (a stale cached bundle silently ignored a changed env var between runs).
+>
+> **Four real, previously-invisible bugs were found and fixed via this spec** — none
+> caught by the FakeGunStore/FakeGunNode unit tests for Items 1-4, since those doubles are
+> plain in-memory Maps/trees that don't enforce Gun's own real semantics:
+> 1. **The ledger has been completely inert in every E2E run since Phase E.** `initLedger`/
+>    `startLedgerDeltaSync`/`ledgerEmit` were gated behind `if (process.env.DISABLE_HMR ===
+>    'true') return;` — bundled into an unrelated background-service-quieting sweep, not a
+>    deliberate "ledger is broken in E2E" decision (see `app.ts`'s `isLedgerDisabledForRun`
+>    for the full story) — and every standard `test:e2e` script sets `DISABLE_HMR=true`.
+>    Fixed with a narrow, additive `IINPUBLIC_E2E_ENABLE_LEDGER=1` override that changes
+>    nothing for the hundreds of other E2E specs that never set it.
+> 2. **Ledger event deletion (Item 2's `pruneLedgerEvents`) never actually deleted
+>    anything, two ways in a row.** `gunService.put(path, null)` at a flat string-keyed
+>    path is rejected by Gun ("Data at root of graph must be a node") since that isn't a
+>    delete-one-edge operation. The fix — null every field individually instead of the
+>    whole node — then silently did nothing either, because `WebGunService.serializeDates`
+>    strips every `null`-valued property before handing data to Gun, so an
+>    all-fields-null object serializes to `{}`, a no-op merge. Fixed by writing through the
+>    raw Gun instance directly for this one case (`putRawGunFieldsNulled`), bypassing
+>    `serializeDates`.
+> 3. **`getEventBySeq` silently broke CID/signature verification for every event it ever
+>    read back.** `WebGunService.get()`'s `deserializeDates` auto-converts any ISO-date-*
+>    looking* string field (every event's `timestamp` always matches) back into a JS
+>    `Date` object; `canonicalSerialize` treats a `Date` as a plain object and calls
+>    `Object.keys()` on it (empty — a `Date`'s state isn't an enumerable own property),
+>    serializing it as `{}` and silently changing the recomputed payload. This broke
+>    checkpoint verification, delta-sync ingest verification — everything that reads an
+>    event back through this method. Fixed by normalizing `timestamp` back to a string.
+> 4. **The ledger's delta-sync inbox has never actually delivered anything to anyone,
+>    ever.** Inbox entries were written via `gunService.put('ledger/<peerId>/inbox/
+>    <eventId>', ...)` — a *flat* string key, making each entry an independent, unlinked
+>    top-level Gun soul with no real parent-child edge to the `inbox` node at all.
+>    `subscribeToInbox`'s `.map()` (itself upgraded from a plain, equally-broken `.on()`
+>    that only sees unresolved child references, not resolved content) can only iterate
+>    *real* nested children — a flat key sharing a string prefix isn't one. So every event
+>    ever pushed via `syncWithPeer` was permanently undiscoverable by the receiving peer.
+>    Fixed by writing and reading inbox entries through a real nested `.get('ledger').get(
+>    peerId).get('inbox').get(eventId)` chain (`putLedgerInboxEntry`) — every *other*
+>    flat-keyed ledger path (events, checkpoints, head) is looked up by an already-known
+>    key, not discovered by iteration, so flat keys remain correct there.
+>
+> A fifth, separate test-authoring bug (not a production bug) was also found and fixed:
+> `WebLedgerService.getState()`/`peerState` keys a feed by `userId` for events a device
+> authors itself but by `event.pubkey` for events ingested from a remote peer (the only
+> identifier available for a feed that isn't "us") — the spec's own delta-sync assertion
+> initially checked the wrong key (`tomUserId` instead of `tomPub`), exactly the same
+> distinction the Item 3 unit test itself already got right.
+>
+> **Ledger requirements 1-3 are now solidly proven end to end** across many repeated runs.
+> **Message-side pruning (part of requirement 1/2) remains an open, documented gap**: unlike
+> the ledger, message checkpoint/prune reliability in a real browser was found to be
+> inconsistent — `checkpointState.prunedThroughCount` sometimes advances and the
+> corresponding deletes land, sometimes it advances but the deletes don't, and sometimes no
+> checkpoint/prune completes at all for the tail of a fill. This was reproduced even after
+> eliminating the most likely cause (concurrent fire-and-forget `maybeCreateMessageCheckpoint`
+> passes racing on inconsistent `listLocalWires` snapshots — pacing sends up to 2.5s apart,
+> nearly 5x `listLocalWires`' own 500ms settle window, did not make it reliable). The spec
+> deliberately does **not** assert a specific message is pruned; it asserts what's actually
+> proven (checkpoint creation itself, and that the UI keeps rendering correctly after heavy
+> send/checkpoint activity). Root-causing message-side prune reliability is unfinished work —
+> a natural next investigation, distinct from Items 1-3's now-confirmed-solid ledger
+> mechanism.
+>
+> Full unit suite throughout this item's debugging: 91 suites, 1094 passed, 0 regressions
+> (unchanged from Item 4, since every fix here is either E2E-hook-only or normalized by
+> existing test doubles once updated to match — e.g. `FakeGunStore`/`FakeGunNode` gained a
+> real multi-level `getGun()` node tree to model the flat-key-vs-nested-chain distinction).
+
 ---
 
 ## Contract / doc amendments
