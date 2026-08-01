@@ -82,10 +82,8 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
     before implementation (co-operator pool storage, how a delegate's answer gets relayed back
     under a TechSupport-signed reply, `answeredByDelegate` audit trail) — write the design note
     as its own session, then hand implementation to Sonnet per the model-routing legend.
-  - U (new 2026-08-01) — broadcast to a contact group with deferred/offline delivery needs an
-    `[Opus]` design note first (custom-label-as-group vs. multi-tag data model; whether the
-    mailbox's fixed 48h/72h TTL is acceptable as-is), then the group-picker UI and
-    `recipientUserIds` wiring go to Sonnet. See §U.
+  - U (new 2026-08-01 — **complete 2026-08-01**) — broadcast to a contact group with
+    deferred/offline delivery, real-browser-verified. See §U.
   - V (FR-TK-7, spec'd 2026-01-19, never built — **complete 2026-08-01**) — Auto Linear Capture
     from DM shorthand, including the two-author credit model and the append/edit-mints-new-id
     policy. Real-browser-verified, not just unit-tested. See §V.
@@ -1042,6 +1040,18 @@ mechanism at all** today, and a complete design for one already exists in the sp
 ---
 
 ## U. Broadcast to a contact group, online or not, with deferred delivery `[Opus]`
+
+> **Complete 2026-08-01.** `listContactGroups`/`resolveContactGroupUserIds`
+> (`src/shared/contact-groups.ts`, v1-simplest — bucket by `RelationshipLabel`/`customLabel`, no
+> new data model), a "Broadcast to group…" picker on the Contacts tab, and delivery reusing
+> `deliverTalkToReceiversOverMesh` verbatim (the same mesh-flood-plus-mailbox-fallback path every
+> other broadcast already uses — confirming this item's own research finding that "defer until
+> online, drop after timeout" needed nothing new to build, just a new caller). Unit-tested (13
+> tests) and real-browser-verified (`32-broadcast-to-contact-group.spec.ts`) — that run caught and
+> fixed a real test-design flaw (creating a talk while still in a chatroom auto-broadcasts it to
+> the room by default, which would have let the test pass even with a broken handler; fixed by
+> unchecking the talk editor's existing "send to chatroom" option so the assertion cleanly proves
+> only the group-broadcast path delivered it). Full unit suite green throughout (93/93 suites).
 
 Requested 2026-08-01. Today a user broadcasts a talk to a **chatroom** — the recipient set is
 "whoever's in this room" (see `runBroadcastFromCurrentRoom`, `ui-manager.ts:1618`). This adds a
