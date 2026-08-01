@@ -70,6 +70,17 @@ the spec's abstract description:
 
 ## Item 0 — Shared merkle module
 
+> **Done 2026-07-31.** `src/shared/merkle-checkpoint.ts`. One refinement made while
+> implementing: `buildMerkleProof`/`verifyMerkleProof` ended up async (this note's original
+> sketch showed them sync) — they hash pairs internally via Web Crypto, which is inherently
+> async, so there was no way to keep them sync without precomputing every level's hashes
+> some other way. Also confirmed and documented in the module's own header: SRS §9.2's
+> literal "root = SHA-256(JSON.stringify(ordered))" formula is a single flat hash, which
+> cannot support the O(log N) proof §9.3 claims — implemented an actual binary Merkle tree
+> instead (pairwise SHA-256 up the levels, odd levels padded by self-pairing the last
+> node), which is what makes the O(log N) claim true. See Item 6 below for the tests
+> proving this against the real spec numbers (100 leaves → ≤7 proof steps, per §9.3).
+
 **Where**
 
 - New file: `src/shared/merkle-checkpoint.ts`. Pure functions, no Gun/SEA dependency (mirrors how
@@ -335,6 +346,11 @@ a one-line change later, not a re-implementation.
 ---
 
 ## Item 6 — Test: unit, merkle proof correctness + forgery rejection
+
+> **Done 2026-07-31.** `src/test/unit/merkle-checkpoint.test.ts`, 12 tests, all green (plus
+> single-leaf and two-leaf edge cases beyond the list below). Confirmed the O(log N) claim
+> directly: every proof against the 100-leaf set is ≤7 steps, matching SRS §9.3's own
+> number.
 
 **Where:** new `src/test/unit/merkle-checkpoint.test.ts`, pure (no Gun/browser), testing Item 0's
 module directly.
