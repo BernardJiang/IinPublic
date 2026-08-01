@@ -479,9 +479,24 @@ that clobbered a real count with `1`.
 > `stage2/35-concurrent-visit-counter.spec.ts` E2E proof are complete and confirmed green —
 > archived in `docs/completed.md` 2026-07-25.
 
-- [ ] Remove the legacy `visitCount` / `uniqueVisitorCount` scalars and the `visits/<eventId>`
+- [x] Remove the legacy `visitCount` / `uniqueVisitorCount` scalars and the `visits/<eventId>`
       nodes once no client reads them. Blocked on the `max(new, legacy)` fallback in `getChatroom`
       being retired, which needs one full staged run to confirm nothing else reads the scalars.
+
+> **Done 2026-08-01.** Retired the `max(new, legacy)` fallback in
+> `ChatroomManager.getChatroom` (`src/server/services/chatroom-manager.ts`) — the response now
+> comes straight from the G-Counter's `visitTotals()`. A research pass confirmed no client, E2E
+> spec, or committed fixture (`stage0.fixture.json`) reads the legacy `visitCount`/
+> `uniqueVisitorCount` scalars or writes `visits/<eventId>` any more (that write path was already
+> removed per the L2 note above); `migrateLegacyVisitScalar` (the one-time slot-seeding migration
+> from `recordVisit`) is unaffected and stays — it's the mechanism that makes the fallback safe to
+> retire, not part of what's being retired. Confirmed via the full unit suite (91 suites, 1094
+> passed, 0 regressions) plus a real staged E2E run: `stage2/35-concurrent-visit-counter.spec.ts`
+> (2/2) and `stage1/00-ui-navigation-settings.spec.ts` + `stage2/01-login-two-users-headcount.spec.ts`
+> (9/9). `techsupport-graph.ts`'s dev-only baseline graph still hardcodes the legacy fields but is
+> unreachable from any E2E path (only `scripts/dev-techsupport-bootstrap.js` calls it) — left as is,
+> outside this item's scope. Deleting already-written legacy Gun nodes from pre-migration rooms
+> remains L2's reaper/retention-policy scope, not this cleanup's.
 
 ### L2. Nothing is ever trimmed `[Opus]`
 

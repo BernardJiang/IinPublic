@@ -177,20 +177,18 @@ export class ChatroomManager {
       ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 6, 150);
     if (!meta || typeof meta !== 'object') return null;
     if (!this.roomMetaCache.has(chatroomId)) this.roomMetaCache.set(chatroomId, meta);
-    // Both totals come from the CRDT G-Counter (docs/TODO.md L1). Legacy scalars are still
-    // read as a fallback so rooms that predate the migration do not report zero; whichever
-    // source is higher wins, which is safe because both are monotone.
-    const [counterRaw, legacyVisitRaw, legacyUniqueRaw] = await Promise.all([
-      this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null),
-      this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0),
-      this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitorCount']).catch(() => 0),
-    ]);
+    // Both totals come from the CRDT G-Counter (docs/TODO.md L1). The legacy visitCount/
+    // uniqueVisitorCount scalar fallback (max(new, legacy)) was retired 2026-08-01: every
+    // room's slot map is now seeded from those scalars once by migrateLegacyVisitScalar
+    // (called from recordVisit), so the G-Counter alone is always authoritative — no
+    // client or E2E fixture reads the legacy scalars directly (docs/TODO.md L1 audit).
+    const counterRaw = await this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null);
     const totals = visitTotals(readVisitCounterState(counterRaw));
     return {
       id: chatroomId,
       ...meta,
-      visitCount: Math.max(totals.visitCount, Number(legacyVisitRaw) || 0),
-      uniqueVisitorCount: Math.max(totals.uniqueVisitorCount, Number(legacyUniqueRaw) || 0),
+      visitCount: totals.visitCount,
+      uniqueVisitorCount: totals.uniqueVisitorCount,
     };
   }
 
