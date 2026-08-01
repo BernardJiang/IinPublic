@@ -88,10 +88,13 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
     Linear Capture from DM shorthand. Grammar, same-session chaining, the compose-time confirmation
     step (mandatory, never silent), and the edit/append id policy (editing a talk mints a new id;
     old one deleted by default, Settings-tab override to keep — same shape as the ledger's existing
-    response-versioning) are all decided. Also needs a new two-author credit model
-    (`Talk.originalAuthorId`, permanent, vs. `authorId` as "current editor" — verified this doesn't
-    exist today, see §V) with one open sub-question left: whether metadata-only edits reassign
-    `authorId` too. `[Opus]`-tagged for that plus the reference-integrity blast radius of
+    response-versioning) are all decided. Also needs a new two-author credit model — permanent
+    `originalAuthorId`/`originalCreatedAt`/`originalAuthorLocation` vs. current `authorId`/
+    `createdAt`/`authorLocation`, the latter switched to blurred (`LocationPrivacy.blurLocation()`)
+    instead of the raw coordinate it stores today — verified none of this exists yet, see §V. Title
+    edits don't count as authorship, settled; one sub-question left: do metadata-only edits reassign
+    the current-author fields at all. `[Opus]`-tagged for that plus the reference-integrity blast
+    radius of
     generalizing "edit mints a new id" to the existing Talk Editor path. See §V.
 
 ---
@@ -1244,11 +1247,45 @@ matches *neither* half of what's being asked for:
     *first* edit (so a talk that predates this field falls back cleanly to its existing `authorId`
     as the original), then copied forward unchanged on every subsequent edit down the
     `supersedesTalkId` chain. `authorId` itself becomes the "current author" field and gets
-    reassigned to the editor specifically on the new content-edit-mints-new-talk path — but should
-    metadata-only edits (still going through the existing in-place `updateTalk`, per the
-    edit-rehash-scope decision above) also reassign `authorId` to whoever made that edit, or keep
-    preserving it as they do today? That's a real, undecided sub-question the design note should
-    settle, not something to assume either way.
+    reassigned to the editor specifically on the new content-edit-mints-new-talk path.
+
+**Resolved 2026-08-01 (Bernard): title edits don't count as authorship at all** — *"keep the title
+as is, changing the title doesn't count as creator or editor."* Closes the sub-question above
+cleanly: a title-only change touches neither `authorId` nor `originalAuthorId`, and it's already
+architecturally consistent with the edit-rehash-scope decision (title was never part of the
+content-hash payload for `flow` talks to begin with, per `cid.ts:236` — this isn't a new special
+case, it's the same boundary already drawn for a different reason).
+
+**New 2026-08-01 (Bernard): record a timestamp and a blurred location alongside both the original
+creator and the current editor**, not just their ids. Checked against what exists:
+  - The creator side is nearly free — `Talk.createdAt: Date` and `Talk.authorLocation?: {latitude,
+    longitude}` already exist (`types.ts:216,224`) and already get populated at creation
+    (`app.ts:4772-4776` passes `this.currentLocation` in). Mirroring the `originalAuthorId` pattern:
+    add `originalCreatedAt`/`originalAuthorLocation`, seeded once and copied forward unchanged —
+    same shape as everything else in this item.
+  - **The editor side needs the same two fields freshly captured at edit time** — nothing today
+    tracks "when/where was the most recent edit made" as distinct from the original creation.
+  - **Location must be blurred, and today it isn't.** `Talk.authorLocation` currently stores the
+    **raw, precise** `{latitude, longitude}` — confirmed via `app.ts:4772-4776`, which passes
+    `this.currentLocation` (unblurred) straight through, and the field's own type in `types.ts:224`
+    (plain lat/lng, not `BlurredLocation`). This codebase already has a real blurring mechanism —
+    `LocationPrivacy.blurLocation()` (`src/shared/location.ts:13-26`) — which reduces a coordinate
+    to a coarse ~2km grid `region` string and explicitly keeps the precise coordinate
+    **`trueLocation` "only stored locally, never transmitted"** (its own doc comment). Reusing this
+    (storing the `region` string, not the raw pair) for both the creator's and editor's location is
+    what "blurred" means here — not inventing a new privacy mechanism, applying an existing one to
+    a field that currently skips it. **Worth flagging honestly, found incidentally, not something
+    this item is required to fix:** `Talk.authorLocation` storing a raw coordinate at all looks like
+    a pre-existing inconsistency with this codebase's own stated "never transmitted" location
+    privacy invariant, given talks get synced/broadcast across the P2P graph — separate issue,
+    surfaced here because it's directly adjacent to what's being changed.
+  - **One real design fork this creates, not yet resolved:** under the new content-edit-mints-a-
+    new-talk flow, a fresh `Talk`'s own `createdAt`/`authorLocation` would naturally capture *this
+    edit's* moment/place (exactly what's wanted for the editor side) — but the existing in-place
+    `updateTalk` path (metadata-only edits) currently preserves `createdAt`/`authorLocation` from
+    the original untouched. That's a real divergence between the two edit paths' semantics for the
+    same two fields, mirroring the `authorId` sub-question already flagged — the design note needs
+    to settle both together, not independently.
 
 **What already exists to reuse (still accurate from the prior research pass):**
 
@@ -1286,20 +1323,25 @@ matches *neither* half of what's being asked for:
 - The append/edit-case pieces above: `Talk.supersedesTalkId`, the `deleteTalk` operation (now the
   *default* path on a re-hashing edit, not just a someday-nicety), reusing `expiresAt` to mark a
   kept-but-superseded old talk inactive, and the new Settings-tab default-delete/keep preference.
-- The two-author credit model above: `Talk.originalAuthorId` (new field, immutable after first
-  set), the seed-from-`authorId`-on-first-edit fallback, and the still-open sub-question of whether
-  metadata-only edits (which stay on the existing `updateTalk` in-place path) should also reassign
-  `authorId` to the editor or keep preserving it as today.
+- The two-author credit model above: `Talk.originalAuthorId`/`originalCreatedAt`/
+  `originalAuthorLocation` (new fields, immutable after first set, seeded from the predecessor or
+  falling back to the talk's existing plain fields), switching `Talk.authorLocation` from a raw
+  coordinate to `LocationPrivacy.blurLocation()`'s `region` string, and the still-open
+  `createdAt`/`authorLocation`/`authorId` edit-path-divergence question just above (title edits are
+  now settled — they touch none of this).
 - Routing the finished draft into `talk-editor-dialog.ts` for later refinement — not yet confirmed
   whether the editor's current open/edit path already handles an already-broadcast/already-answered
   talk cleanly, or only ever new-in-progress drafts.
 
-Almost every design question in this item is now decided — the one still genuinely open is the
-metadata-edit-authorship sub-question just above. What's otherwise left is implementation, plus
-checking the reference-integrity blast radius honestly (above) — between that and the remaining
-authorship question, this stays `[Opus]`-tagged. Write a short design note covering the multi-line
-session-state mechanics, the reference-integrity checklist, and the metadata-edit-authorship call,
-then hand the parser, `supersedesTalkId`/`deleteTalk`/`originalAuthorId` wiring, the Settings
+Almost every design question in this item is now decided — the one still genuinely open is whether
+metadata-only edits (title, tags, etc. — the ones staying on the existing `updateTalk` in-place
+path) reassign `authorId`/`createdAt`/`authorLocation` to the editor, or keep preserving them as
+today; title itself is now explicitly excluded either way. What's otherwise left is implementation,
+plus checking the reference-integrity blast radius honestly (above) — between that and the
+remaining authorship-fields question, this stays `[Opus]`-tagged. Write a short design note covering
+the multi-line session-state mechanics, the reference-integrity checklist, and the metadata-edit
+authorship-fields call, then hand the parser, `supersedesTalkId`/`deleteTalk`/`originalAuthorId`/
+`originalCreatedAt`/`originalAuthorLocation` wiring, the location-blurring switch, the Settings
 toggle, and chip UI to Sonnet.
 
 ---
