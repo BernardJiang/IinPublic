@@ -84,13 +84,15 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
     `[Opus]` design note first (custom-label-as-group vs. multi-tag data model; whether the
     mailbox's fixed 48h/72h TTL is acceptable as-is), then the group-picker UI and
     `recipientUserIds` wiring go to Sonnet. See §U.
-  - V (FR-TK-7, spec'd 2026-01-19, never built — corrected + fully decided 2026-08-01) — Auto
+  - V (FR-TK-7, spec'd 2026-01-19, never built — corrected + mostly decided 2026-08-01) — Auto
     Linear Capture from DM shorthand. Grammar, same-session chaining, the compose-time confirmation
     step (mandatory, never silent), and the edit/append id policy (editing a talk mints a new id;
     old one deleted by default, Settings-tab override to keep — same shape as the ledger's existing
-    response-versioning) are all decided. `[Opus]`-tagged now only because generalizing "edit mints
-    a new id" to the existing Talk Editor path (not just chat-append) is a real behavior change with
-    a wide reference-integrity blast radius to check, not because any design is still open. See §V.
+    response-versioning) are all decided. Also needs a new two-author credit model
+    (`Talk.originalAuthorId`, permanent, vs. `authorId` as "current editor" — verified this doesn't
+    exist today, see §V) with one open sub-question left: whether metadata-only edits reassign
+    `authorId` too. `[Opus]`-tagged for that plus the reference-integrity blast radius of
+    generalizing "edit mints a new id" to the existing Talk Editor path. See §V.
 
 ---
 
@@ -1219,6 +1221,35 @@ what's still chat-append-specific.)*
   - A new Settings-tab preference (default: delete old talk on edit; advanced override: keep it) —
     no settings surface for talk-editing behavior exists today; needs its own small UI addition.
 
+**Verified 2026-08-01: the two-author credit model Bernard described does not exist yet, and
+directly interacts with the edit-mints-a-new-id decision above.** Bernard: *"each talk should have
+two authors for credit system — the original author goes to the creator of the talk and never
+changes again; a user edits an existing talk then he becomes the current author, overwrites the
+previous one."* Checked against the actual code: `Talk` has exactly **one** author field,
+`authorId` (`types.ts:194`), and today's two write paths disagree with each other in a way that
+matches *neither* half of what's being asked for:
+  - `WebTalkService.createTalk()` (`web-talk-service.ts:163`) sets `authorId` to whoever is
+    creating the talk — the caller in `app.ts:4768` passes `authorId: this.currentUser!.id`.
+  - `WebTalkService.updateTalk()` (`web-talk-service.ts:299`) explicitly **preserves the existing
+    author forever** — `authorId: existing.authorId` — an edit never transfers it, which is the
+    opposite of "the editor becomes the current author."
+  - Under the newly-decided edit-mints-a-new-id flow (above), a content edit produces a fresh `Talk`
+    through something `createTalk`-shaped — meaning, unless specifically wired otherwise, the new
+    talk's sole `authorId` would become the *editor*, and Adam's original-creator credit would be
+    lost outright (recoverable only by manually walking the `supersedesTalkId` chain), not preserved
+    anywhere structured. Today's system cannot express "credit the original creator forever AND
+    show who most recently touched it" — it only has one field doing an inconsistent job of both.
+  - **What this needs:** a new `Talk.originalAuthorId?: string` field, set once and never
+    reassigned after that — seeded from `oldTalk.originalAuthorId ?? oldTalk.authorId` on a talk's
+    *first* edit (so a talk that predates this field falls back cleanly to its existing `authorId`
+    as the original), then copied forward unchanged on every subsequent edit down the
+    `supersedesTalkId` chain. `authorId` itself becomes the "current author" field and gets
+    reassigned to the editor specifically on the new content-edit-mints-new-talk path — but should
+    metadata-only edits (still going through the existing in-place `updateTalk`, per the
+    edit-rehash-scope decision above) also reassign `authorId` to whoever made that edit, or keep
+    preserving it as they do today? That's a real, undecided sub-question the design note should
+    settle, not something to assume either way.
+
 **What already exists to reuse (still accurate from the prior research pass):**
 
 - Thread scoping is already exactly what's needed to tell the two scenarios apart at runtime.
@@ -1255,17 +1286,21 @@ what's still chat-append-specific.)*
 - The append/edit-case pieces above: `Talk.supersedesTalkId`, the `deleteTalk` operation (now the
   *default* path on a re-hashing edit, not just a someday-nicety), reusing `expiresAt` to mark a
   kept-but-superseded old talk inactive, and the new Settings-tab default-delete/keep preference.
+- The two-author credit model above: `Talk.originalAuthorId` (new field, immutable after first
+  set), the seed-from-`authorId`-on-first-edit fallback, and the still-open sub-question of whether
+  metadata-only edits (which stay on the existing `updateTalk` in-place path) should also reassign
+  `authorId` to the editor or keep preserving it as today.
 - Routing the finished draft into `talk-editor-dialog.ts` for later refinement — not yet confirmed
   whether the editor's current open/edit path already handles an already-broadcast/already-answered
   talk cleanly, or only ever new-in-progress drafts.
 
-Every open design question in this item is now decided, including the last scoping ambiguity (which
-edits re-hash — resolved: whatever's already in the content-hash payload, i.e. `questions`, not
-title/metadata). What's left is implementation, plus checking the reference-integrity blast radius
-honestly (above) — that's the reason this stays `[Opus]`-tagged, not because any design call is still
-open. Write a short design note covering the multi-line session-state mechanics and the
-reference-integrity checklist, then hand the parser, `supersedesTalkId`/`deleteTalk` wiring, the
-Settings toggle, and chip UI to Sonnet.
+Almost every design question in this item is now decided — the one still genuinely open is the
+metadata-edit-authorship sub-question just above. What's otherwise left is implementation, plus
+checking the reference-integrity blast radius honestly (above) — between that and the remaining
+authorship question, this stays `[Opus]`-tagged. Write a short design note covering the multi-line
+session-state mechanics, the reference-integrity checklist, and the metadata-edit-authorship call,
+then hand the parser, `supersedesTalkId`/`deleteTalk`/`originalAuthorId` wiring, the Settings
+toggle, and chip UI to Sonnet.
 
 ---
 
