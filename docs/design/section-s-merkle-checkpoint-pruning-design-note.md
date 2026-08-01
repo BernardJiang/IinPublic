@@ -344,6 +344,70 @@ pruning device itself is** — this is the intended end state, not a degraded on
   trips; batching multiple proofs per Gun write is a reasonable follow-up, not required for
   correctness.
 
+> **Done 2026-07-31.** Implemented with one deliberate simplification from the sketch above:
+> `syncWithPeer` now uses a `while` loop with a variable step. On a missing seq it calls a new
+> private `findCheckpointCoveringSeq(feedKey, seq)` — computed directly as
+> `Math.ceil(seq / LEDGER_CHECKPOINT_INTERVAL) * LEDGER_CHECKPOINT_INTERVAL`, then a read of
+> `ledger/<feedKey>/checkpoints/seq_<rangeEnd>` (Item 1's index) — and, if found, fetches the
+> *whole checkpoint event* via `getEventBySeq(feedKey, checkpoint.eventSeq)` and pushes **that**
+> to the peer's inbox, then jumps `seq` straight to `checkpoint.rangeEnd + 1` instead of
+> revisiting every seq in the covered range.
+>
+> **Why "whole checkpoint" instead of a per-leaf `buildMerkleProof`, contra the original sketch
+> above:** the risk section's own worry — "the id at seq N must be tracked separately from the
+> root" — turned out to have no clean answer for a *per-seq* proof. `leafIds` (added in Item 1)
+> is retained in **sorted** order (required for the tree math), not append/seq order, so once the
+> raw event at seq N is gone there is no surviving map from "seq N" to "which entry in `leafIds`
+> was it." A per-leaf proof needs to name a specific leaf; nothing after pruning can name it.
+> Sending the entire checkpoint sidesteps this: it already carries the full sorted leaf set, the
+> committed root, and a SEA signature over all of it — sufficient to prove the whole covered range
+> at once, without targeting any single seq. `buildMerkleProof`/`verifyMerkleProof` (Items 0/6)
+> remain correct and tested infrastructure for a genuinely different case — a third party proving
+> *one specific claimed event id* against a checkpoint without holding the whole leaf array — but
+> that case doesn't arise in delta-sync, since a peer catching up wants "am I missing anything,"
+> not "prove event X specifically."
+>
+> Since a `CHECKPOINT_CREATED` event is just an ordinary, already-signed `InteractionEvent`, it
+> travels the inbox in the **same existing shape** (`{eventJson, deliveredAt}`) and through the
+> **same existing `ingestRemoteEvent` path** as any other event — no `proofJson`/`checkpointJson`
+> wire format, no new `subscribeToInbox` branch was needed. `ingestRemoteEvent` advances
+> `peerState[event.pubkey]` to the checkpoint's own seq (e.g. 101 for the 1-100 window), which is
+> sufficient for `syncWithPeer`'s own gap check (`ourSeq <= theirSeq`) to recognize the peer no
+> longer needs anything in that range.
+>
+> **One gap found and closed while testing:** `verifyEvent`'s SEA check proves *who* signed an
+> event, not that a `CHECKPOINT_CREATED` event's own content is internally consistent — a signer
+> could sign a `merkleRoot` that doesn't actually match its shipped `leafIds`, and the CID +
+> signature checks alone would not catch it (both are computed over whatever content is handed to
+> them, correct or not). Added a targeted check in `ingestRemoteEvent`: for
+> `InteractionKind.CHECKPOINT_CREATED`, recompute `computeMerkleRoot(content.leafIds)` and reject
+> if it doesn't match `content.merkleRoot`. Proven by hand-constructing a validly-signed,
+> correct-CID event with a deliberately wrong `merkleRoot` (`appendEvent` itself doesn't validate
+> this invariant — in the real flow via `maybeCreateCheckpoint` it's always correct by
+> construction) and confirming `verifyEvent` alone passes it while `ingestRemoteEvent` rejects it.
+>
+> **A residual limitation, not fixed here, worth flagging to Bernard alongside Item 5's own open
+> policy questions:** a checkpoint's *content* (its `merkleRoot`/`leafIds`) is only recoverable
+> from its own raw event node — the CID is a one-way hash, so once a checkpoint's own node ages
+> past the retention window and is pruned (an ordinary chain event, subject to the same rule per
+> Item 2's finding), only "checkpoint existed" survives (via a *later* checkpoint's `leafIds`
+> containing its id), not "checkpoint said this." With N=100/M=500, this first becomes possible
+> once a 6th checkpoint's own prune pass reaches back far enough to delete checkpoint #1 (see
+> Item 2's "Done" note) — so sufficiently old history's checkpoint content is not preserved
+> indefinitely under these numbers. Tests here deliberately stop at one unpruned checkpoint to
+> isolate Item 3's own logic from this compounding effect; Item 7's end-to-end tests should decide
+> whether this residual gap needs a policy answer (e.g., a longer-lived "checkpoint of
+> checkpoints") or is acceptable as designed.
+>
+> Tests: `src/test/unit/web-ledger-service.test.ts`, new describe block "delta-sync via
+> checkpoint proof (TODO §S Item 3)" — (1) a pruned range is substituted with its covering
+> checkpoint while a retained tail is still sent as individual raw events, and the receiving
+> side's `ingestRemoteEvent`/`getState()` correctly advances past the pruned range; (2) a
+> checkpoint with an internally-inconsistent `merkleRoot` passes `verifyEvent` but is rejected by
+> `ingestRemoteEvent`. Full suite: 90 suites, 1083 passed (was 1081), 1 skipped, 0 regressions.
+> Targeted E2E sanity (`00-ui-navigation-settings.spec.ts` full file,
+> `00i-p0-direct-talk-delivery.spec.ts`): 9/9 passed.
+
 ---
 
 ## Item 4 — Messages: analogous checkpoint + pruning for `pairConversations/*/messages/*`

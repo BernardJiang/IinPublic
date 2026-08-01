@@ -362,6 +362,19 @@ export class WebLedgerService {
   async ingestRemoteEvent(event: InteractionEvent): Promise<boolean> {
     const valid = await this.verifyEvent(event);
     if (!valid) return false;
+
+    // TODO §S Item 3: a CHECKPOINT_CREATED event's SEA signature only proves *who* signed
+    // it, not that its own content is internally consistent — a buggy or malicious signer
+    // could sign a merkleRoot that doesn't actually match its own leafIds. Since a
+    // checkpoint is meant to be independently re-verifiable (not merely
+    // trusted-because-signed), recompute the root from the retained leaf set and reject
+    // on mismatch. Ordinary event kinds have no such derived-content invariant to check.
+    if (event.kind === InteractionKind.CHECKPOINT_CREATED) {
+      const content = event.content as CheckpointCreatedContent;
+      const recomputed = await computeMerkleRoot(content.leafIds);
+      if (recomputed !== content.merkleRoot) return false;
+    }
+
     // Remote feed — keyed by the author's pubkey, the only identifier available here
     // (see writeEventToGun's doc comment; peerState below uses the same pubkey key).
     await this.writeEventToGun(event, event.pubkey);
@@ -534,11 +547,61 @@ export class WebLedgerService {
   }
 
   /**
+   * TODO §S Item 3: locate the checkpoint covering `seq` on `feedKey`'s feed, given the
+   * fixed checkpoint cadence (`LEDGER_CHECKPOINT_INTERVAL`). A checkpoint's own event seq
+   * (e.g. 101 for the window 1-100) is itself covered by the *next* checkpoint's window
+   * (101-200) rather than its own — so this is computed directly from `seq`, not looked
+   * up by scanning, matching `writeCheckpointIndex`'s `seq_<rangeEnd>` key convention.
+   * Returns null if no such checkpoint index entry exists yet (nothing to hand back for
+   * that seq — the caller just skips it).
+   */
+  private async findCheckpointCoveringSeq(
+    feedKey: string,
+    seq: number,
+  ): Promise<{ eventSeq: number; rangeStart: number; rangeEnd: number } | null> {
+    const rangeEnd = Math.ceil(seq / LEDGER_CHECKPOINT_INTERVAL) * LEDGER_CHECKPOINT_INTERVAL;
+    try {
+      const index = await this.gunService.get(`ledger/${feedKey}/checkpoints/seq_${rangeEnd}`);
+      if (!index || typeof index.eventSeq !== 'number') return null;
+      return {
+        eventSeq: index.eventSeq as number,
+        rangeStart: index.rangeStart as number,
+        rangeEnd: index.rangeEnd as number,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Push the events a peer is missing into their Gun inbox path.
    *
    * For each feed in our peerState, compare against their declared seq:
    * events with seq > theirSeq[feedUserId] are written to
    * `ledger/<peerId>/inbox/<eventId>` so the peer can ingest them.
+   *
+   * TODO §S Item 3: a seq inside an already-pruned range (Item 2) has no raw event node
+   * left to send — `getEventBySeq` returns null for it. Rather than silently skipping it
+   * (leaving the peer permanently missing that history), find the checkpoint covering it
+   * and push *that* — a `CHECKPOINT_CREATED` event is itself an ordinary, already-signed
+   * `InteractionEvent`, so it travels through the exact same inbox shape
+   * (`{eventJson, deliveredAt}`) and the exact same `ingestRemoteEvent` path as any other
+   * event, no new wire format needed. One checkpoint accounts for a whole
+   * `LEDGER_CHECKPOINT_INTERVAL`-sized range, so once we've sent it the loop jumps
+   * straight to `rangeEnd + 1` instead of re-deriving the same checkpoint for every seq
+   * in that range.
+   *
+   * (Sending the whole checkpoint — rather than a per-leaf `buildMerkleProof` for one
+   * specific seq — is a deliberate simplification over the design note's original sketch:
+   * per-leaf proofs need a seq→leaf mapping, but `leafIds` is retained in *sorted* order
+   * for the tree math, not append/seq order, so which leaf belongs to which seq is not
+   * recoverable once the raw event is gone. The whole-checkpoint transfer sidesteps
+   * this — the peer gets the complete leaf set, the recomputed root, and the SEA
+   * signature, which is sufficient to prove the whole range without needing to target
+   * any single seq. `buildMerkleProof`/`verifyMerkleProof` remain correct, tested
+   * primitives (Items 0/6) for a genuinely different use case — proving one *specific*
+   * claimed event id against a checkpoint someone else holds, without needing the whole
+   * leaf array.)
    *
    * This is a best-effort, fire-and-forget operation; missed events will be
    * retried on the next peer connection or on next call to startDeltaSync.
@@ -547,14 +610,34 @@ export class WebLedgerService {
     for (const [feedUserId, ourSeq] of Object.entries(this.peerState)) {
       const theirSeq: number = theirState[feedUserId] ?? 0;
       if (ourSeq <= theirSeq) continue; // peer already has everything we do for this feed
-      for (let seq = theirSeq + 1; seq <= ourSeq; seq++) {
+      let seq = theirSeq + 1;
+      while (seq <= ourSeq) {
         const event = await this.getEventBySeq(feedUserId, seq);
-        if (!event) continue;
-        // Write to peer inbox — uses event.id as key to ensure idempotency
-        await this.gunService.put(`ledger/${peerId}/inbox/${event.id}`, {
-          eventJson: JSON.stringify(event),
-          deliveredAt: new Date().toISOString(),
-        });
+        if (event) {
+          // Write to peer inbox — uses event.id as key to ensure idempotency
+          await this.gunService.put(`ledger/${peerId}/inbox/${event.id}`, {
+            eventJson: JSON.stringify(event),
+            deliveredAt: new Date().toISOString(),
+          });
+          seq += 1;
+          continue;
+        }
+
+        const checkpoint = await this.findCheckpointCoveringSeq(feedUserId, seq);
+        if (!checkpoint) {
+          // Nothing recoverable for this seq (no checkpoint covers it yet) — move on
+          // rather than loop forever on a gap we can't fill.
+          seq += 1;
+          continue;
+        }
+        const checkpointEvent = await this.getEventBySeq(feedUserId, checkpoint.eventSeq);
+        if (checkpointEvent) {
+          await this.gunService.put(`ledger/${peerId}/inbox/${checkpointEvent.id}`, {
+            eventJson: JSON.stringify(checkpointEvent),
+            deliveredAt: new Date().toISOString(),
+          });
+        }
+        seq = checkpoint.rangeEnd + 1; // one checkpoint accounts for its whole range
       }
     }
   }

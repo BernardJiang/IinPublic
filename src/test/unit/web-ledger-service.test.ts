@@ -269,3 +269,119 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
     }, 20_000);
   });
 });
+
+describe('WebLedgerService delta-sync via checkpoint proof (TODO §S Item 3)', () => {
+  let pair: GunPair;
+  let store: FakeGunStore;
+  let userId: string;
+  const peerId = 'ledger-test-peer';
+
+  beforeAll(async () => {
+    pair = await SEA.pair();
+  });
+
+  beforeEach(() => {
+    store = new FakeGunStore(pair);
+    userId = 'ledger-test-sender';
+  });
+
+  function makeService(): WebLedgerService {
+    return new WebLedgerService(store as unknown as WebGunService, userId, pair.pub);
+  }
+
+  async function appendN(service: WebLedgerService, count: number, label: string): Promise<void> {
+    for (let i = 0; i < count; i += 1) {
+      await service.appendEvent(InteractionKind.TALK_CREATED, {
+        talkId: `${label}-${i}`, title: `${label}${i}`, type: 'flow', language: 'en',
+      });
+    }
+  }
+
+  it('substitutes the covering checkpoint for a pruned range, and sends raw events for the retained range', async () => {
+    const service = makeService();
+
+    // One full window (100 plain events + checkpoint #1 at seq 101) — no pruning yet,
+    // since 101 events is nowhere near LEDGER_RETENTION_WINDOW (500).
+    await appendN(service, LEDGER_CHECKPOINT_INTERVAL, 'talk');
+    const checkpoint1Raw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
+    const checkpoint1Id: string = checkpoint1Raw.id;
+
+    // Directly simulate "seqs 1-100 have since been pruned" (Item 2 proves this actually
+    // happens once enough later checkpoints accumulate) without also destroying
+    // checkpoint #1's own raw node (seq 101) — isolates Item 3's substitution logic from
+    // Item 2's own multi-checkpoint aging behavior, which would otherwise also prune
+    // checkpoint #1 itself before this test could exercise "the covering checkpoint is
+    // still present and gets delivered."
+    for (let seq = 1; seq <= LEDGER_CHECKPOINT_INTERVAL; seq += 1) {
+      await store.put(`ledger/${userId}/events/${seq}`, null);
+    }
+
+    // A handful of recent, unpruned plain events after the checkpoint.
+    await appendN(service, 5, 'tail');
+    const tailEventIds: string[] = [];
+    for (let seq = LEDGER_CHECKPOINT_INTERVAL + 2; seq <= LEDGER_CHECKPOINT_INTERVAL + 6; seq += 1) {
+      const event = await service.getEventBySeq(userId, seq);
+      expect(event).toBeTruthy();
+      tailEventIds.push(event!.id);
+    }
+
+    // Peer declares it has nothing at all for this feed.
+    await service.syncWithPeer(peerId, {});
+
+    // The pruned range (seqs 1-100) is substituted with checkpoint #1 itself — a normal,
+    // already-signed InteractionEvent delivered through the same inbox shape as any
+    // other event, not a bespoke proof payload.
+    const checkpointInboxEntry = await store.get(`ledger/${peerId}/inbox/${checkpoint1Id}`);
+    expect(checkpointInboxEntry).toBeTruthy();
+    const deliveredCheckpoint = JSON.parse(checkpointInboxEntry.eventJson);
+    expect(deliveredCheckpoint.kind).toBe(InteractionKind.CHECKPOINT_CREATED);
+    expect(deliveredCheckpoint.id).toBe(checkpoint1Id);
+
+    // The retained tail (seqs 102-106) is delivered as ordinary individual raw events.
+    for (const eventId of tailEventIds) {
+      const inboxEntry = await store.get(`ledger/${peerId}/inbox/${eventId}`);
+      expect(inboxEntry).toBeTruthy();
+      expect(JSON.parse(inboxEntry.eventJson).id).toBe(eventId);
+    }
+
+    // The receiving peer's own ledger service accepts the delivered checkpoint (signature
+    // valid, and the new merkleRoot-vs-leafIds self-consistency check passes) and can
+    // advance past the pruned range without ever holding seqs 1-100 individually.
+    const peerPair: GunPair = await SEA.pair();
+    const peerService = new WebLedgerService(store as unknown as WebGunService, peerId, peerPair.pub);
+    await expect(peerService.ingestRemoteEvent(deliveredCheckpoint)).resolves.toBe(true);
+    // ingestRemoteEvent keys peerState by the event's pubkey (the sender's signing key,
+    // pair.pub here) — not by userId, which is a separate identifier the receiver has no
+    // other way to learn (see writeEventToGun's doc comment on this same distinction).
+    expect(peerService.getState()[pair.pub]).toBe(LEDGER_CHECKPOINT_INTERVAL + 1);
+  }, 20_000);
+
+  it('rejects a checkpoint whose signed content is internally inconsistent (merkleRoot does not match its own leafIds)', async () => {
+    const service = makeService();
+
+    // A well-formed, genuinely signed, correct-CID event — appendEvent doesn't validate
+    // that a CHECKPOINT_CREATED payload's merkleRoot actually matches its leafIds, since
+    // in the real flow (maybeCreateCheckpoint) it never would be wrong. Constructing one
+    // by hand here is the only way to exercise ingestRemoteEvent's new self-consistency
+    // check in isolation from the signature check, which alone cannot detect this class
+    // of forgery (the CID and signature are computed over whatever content is given them,
+    // valid or not).
+    const forgedContent: CheckpointCreatedContent = {
+      rangeStart: 1,
+      rangeEnd: 2,
+      count: 2,
+      leafIds: ['fake-leaf-a', 'fake-leaf-b'],
+      merkleRoot: '0'.repeat(64), // deliberately not computeMerkleRoot(leafIds)
+    };
+    const forgedEvent = await service.appendEvent(
+      InteractionKind.CHECKPOINT_CREATED,
+      forgedContent,
+      { skipCheckpointCheck: true },
+    );
+
+    // Sanity: the signature and CID are genuinely valid — proves the rejection below
+    // comes from the new merkleRoot check, not from an ordinary verifyEvent failure.
+    await expect(service.verifyEvent(forgedEvent)).resolves.toBe(true);
+    await expect(service.ingestRemoteEvent(forgedEvent)).resolves.toBe(false);
+  });
+});
