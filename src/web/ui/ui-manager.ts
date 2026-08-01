@@ -20,7 +20,7 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
-import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
@@ -305,6 +305,10 @@ export class UIManager extends EventEmitter {
    * non-captured message sent while a session is active).
    */
   private captureSessionsByConversationId = new Map<string, { scopeTalkId: string | undefined; lines: string[] }>();
+  /** docs/TODO.md §V — captured-question chip messages already tapped, so re-render disables them. */
+  private answeredCaptureChipMessageIds = new Set<string>();
+  /** One-time delegated click binding for `.captured-question-answer-btn` (see `bindCapturedQuestionChipDelegation`). */
+  private captureChipDelegationBound = false;
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast delivery. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -8629,6 +8633,87 @@ export class UIManager extends EventEmitter {
   }
 
   /**
+   * One-time delegated click binding (same idiom as `talksListDelegationBound` above — the
+   * message list is re-rendered wholesale on every sync, so per-button listeners would need
+   * rebinding on every render; a single body-level delegated listener survives re-renders for
+   * free). Tapping a `.captured-question-answer-btn` sends its answer text back as an
+   * ordinary reply message — see `renderCapturedQuestionMessage`'s doc comment for why this
+   * is a quick-reply convenience, not a formal talk-answer submission.
+   */
+  private bindCapturedQuestionChipDelegation(): void {
+    if (this.captureChipDelegationBound) return;
+    this.captureChipDelegationBound = true;
+    document.body.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const btn = target.closest('.captured-question-answer-btn') as HTMLButtonElement | null;
+      if (!btn || btn.disabled) return;
+      const messageId = btn.dataset.messageId || '';
+      const answerText = btn.dataset.answerText || '';
+      if (!messageId || !answerText || !this.currentConversationId) return;
+
+      this.answeredCaptureChipMessageIds.add(messageId);
+      const card = document.querySelector(`.captured-question-card[data-message-id="${CSS.escape(messageId)}"]`);
+      if (card) {
+        card.classList.add('captured-question-answered');
+        card.querySelectorAll('.captured-question-answer-btn').forEach((b) => {
+          (b as HTMLButtonElement).disabled = true;
+        });
+      }
+
+      this.emit('sendConversationMessage', {
+        conversationId: this.currentConversationId,
+        message: answerText,
+        ...(this.currentThreadTalkId ? { talkId: this.currentThreadTalkId } : {}),
+      });
+    });
+  }
+
+  /**
+   * docs/TODO.md §V — Auto Linear Capture, UI-1d: "lines matching `Question? Answer1; …;
+   * AnswerN.` SHALL render answers as tappable chips" instead of a plain text bubble — same
+   * detect-a-marked-payload-and-render-specially shape as `renderIpfsAttachmentMessage`
+   * above. Tapping a chip is a quick-reply convenience (sends the chosen answer text back as
+   * an ordinary message), not a formal talk-answer submission — the real Talk this session is
+   * building doesn't exist yet mid-capture (it's only created once the sender's session
+   * finalizes), so there's nothing to run `completeTalk`/`checkIfMatch` against until then.
+   * Once `messageId` has been tapped once, `answeredCaptureChipMessageIds` disables it on
+   * re-render so a page refresh mid-conversation doesn't invite a duplicate reply.
+   */
+  private renderCapturedQuestionMessage(
+    payload: { question: string; answers: string[] },
+    isOwn: boolean,
+    timestamp: unknown,
+    messageId: string,
+  ): string {
+    const alreadyAnswered = this.answeredCaptureChipMessageIds.has(messageId);
+    const question = escapeHtml(payload.question);
+    const buttons = payload.answers
+      .map((answer, index) => `
+        <button
+          type="button"
+          class="captured-question-answer-btn"
+          data-testid="captured-question-answer-btn"
+          data-message-id="${escapeHtml(messageId)}"
+          data-answer-index="${index}"
+          data-answer-text="${escapeHtml(answer)}"
+          ${alreadyAnswered ? 'disabled' : ''}
+        >${escapeHtml(answer)}</button>
+      `)
+      .join('');
+    return `
+      <div class="message ${isOwn ? 'message-own' : 'message-other'}">
+        <div class="message-content">
+          <div class="captured-question-card${alreadyAnswered ? ' captured-question-answered' : ''}" data-testid="captured-question-card" data-message-id="${escapeHtml(messageId)}">
+            <div class="captured-question-text">${question}</div>
+            <div class="captured-question-answers">${buttons}</div>
+          </div>
+          <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
    * Inline attachment chip: a small preview thumbnail (images) or file icon, name + size, and
    * a small Download link. Tapping an image thumbnail opens the full-size in-app viewer; the
    * Shared-media gallery (🖼 in the header) collects everything.
@@ -8991,6 +9076,8 @@ export class UIManager extends EventEmitter {
     const messagesContainer = document.getElementById('conversation-messages');
     if (!messagesContainer) return;
 
+    this.bindCapturedQuestionChipDelegation();
+
     const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
     if (isSupportChannel) {
       messages = await this.filterVerifiedSupportMessages(messages);
@@ -9026,6 +9113,13 @@ export class UIManager extends EventEmitter {
         const share = this.parseIpfsSharePayload(text);
         if (share) {
           return this.renderIpfsAttachmentMessage(share, isOwn, msg.timestamp);
+        }
+        // docs/TODO.md §V, UI-1d: a confirmed captured question renders as tappable chips,
+        // not a plain bubble — same detect-a-marked-payload shape as the IPFS share above.
+        const capturedQuestion = decodeCapturedQuestionMessage(text);
+        if (capturedQuestion) {
+          const messageId = String(msg.id || `${msg.senderId || ''}:${msg.timestamp || ''}`);
+          return this.renderCapturedQuestionMessage(capturedQuestion, isOwn, msg.timestamp, messageId);
         }
         // Receive-path content filter (redesign §9): a receiver's own filters hide
         // incoming messages at render (they stay in the Gun graph). Never hide your
