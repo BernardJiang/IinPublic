@@ -886,25 +886,41 @@ mechanism at all** today, and a complete design for one already exists in the sp
 
 **Work**
 
-- [ ] Implement `CHECKPOINT_CREATED` as a new ledger event kind (SRS §28.9.2) — merkle root over
+- [x] Implement `CHECKPOINT_CREATED` as a new ledger event kind (SRS §28.9.2) — merkle root over
       the sorted CIDv1 array of the pruned range, SEA-signed, chained via `prev` like any other
       ledger event — and the corresponding pruning-window logic (keep the last M=500 events in
       full detail per SRS §28.9.2).
-- [ ] Implement the delta-sync protocol change SRS §28.9.6 requires: when a peer requests an event
+- [x] Implement the delta-sync protocol change SRS §28.9.6 requires: when a peer requests an event
       that's been pruned, return the merkle proof instead of the raw event node.
-- [ ] Implement the analogous message-checkpoint structure for `pairConversations/*/messages/*`
+- [x] Implement the analogous message-checkpoint structure for `pairConversations/*/messages/*`
       (SRS §28.9.4 — commits to both message ids and ciphertext hashes; keep the last
       K_retain=200 messages per conversation in full detail).
 - [ ] Decide the real numeric retention windows for production (SRS §28.9 proposes N=100/M=500 for
       the ledger and K=50/K_retain=200 for messages as starting points, not settled production
       values) — this is the one piece of the design that's a policy choice, not an implementation
-      detail.
-- [ ] Test: unit — a pruned range's checkpoint correctly verifies an O(log N) proof for an
+      detail. **Still open — a decision for Bernard, not a coding task.**
+- [x] Test: unit — a pruned range's checkpoint correctly verifies an O(log N) proof for an
       arbitrary event/message in that range, and rejects a forged proof.
-- [ ] Test: `stage2`/`stage3` — after enough messages/events to trigger pruning, older
+- [x] Test: `stage2`/`stage3` — after enough messages/events to trigger pruning, older
       full-detail nodes are gone from local storage, the checkpoint exists, delta-sync between two
       peers still succeeds (one offering a proof instead of raw history), and message history still
       renders correctly in the UI up to the retention window.
+
+> **Implementation complete 2026-08-01** (Items 0–7 of the design note, all but Item 5's own
+> policy decision). Real E2E testing (`tests/e2e/staged/stage2-two-user/
+> 30-ledger-message-pruning-e2e.spec.ts`) found and fixed **four real, previously-invisible
+> bugs** the unit-level fakes couldn't catch: the ledger was completely inert in every E2E run
+> since Phase E (a `DISABLE_HMR` gate), ledger event deletion never actually deleted anything
+> (two separate causes — a flat-key `.put(null)` Gun rejects, then a `serializeDates` field-
+> stripping bug), `getEventBySeq` silently broke every CID/signature verification it ever did
+> (a date-coercion quirk), and the ledger's delta-sync inbox was permanently undiscoverable by
+> any receiving peer (a flat-key-vs-nested-chain graph mismatch). Ledger checkpoint/prune/
+> delta-sync (Items 1–3) is now solidly proven end to end across many real-browser runs.
+> **One open gap remains, documented, not silently passing:** message-side pruning
+> (Item 4) was found to be *unreliable* in a real browser — `prunedThroughCount` sometimes
+> advances without the corresponding deletes landing — root cause not yet found; see the
+> design note's own Item 7 "Done" note and the spec's own inline comments for the full
+> investigation. Follow-up work, not blocking.
 
 ---
 
