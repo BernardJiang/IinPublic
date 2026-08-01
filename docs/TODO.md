@@ -1173,14 +1173,22 @@ what's still chat-append-specific.)*
   This is the plain-DM-thread case.
 - **Appending to an *already-saved* talk later** (Bernard's clarification: "if it starts with an
   existing talk, it can append new question after a talk"), when the conversation is already scoped
-  to that talk's thread — new territory the original SRS never addressed, but decided across two
-  2026-08-01 passes, most recently: **editing a talk mints a new talk id** — this generalizes past
-  just the chat-append case to talk editing broadly (my reading of "change talk id when edit"; the
-  design note should nail down precisely whether *every* edit re-hashes, e.g. a title/tag tweak, or
-  only edits that change `questions` — the content-hash-relevant field. That's the one genuine
-  ambiguity left in this instruction). **When an edit produces a new id, the old talk's fate is an
-  option that defaults to delete** — ordinary users get delete-old-by-default; **advanced users can
-  change that default to "keep" from the Settings tab.** This resolves the identity tension cleanly
+  to that talk's thread — new territory the original SRS never addressed, but decided across three
+  2026-08-01 passes, most recently: **editing a talk mints a new talk id, and the edited talk is
+  then treated as a fully independent new `Talk`** — this generalizes past just the chat-append case
+  to talk editing broadly. The scope ambiguity flagged in the prior pass is now resolved, and it
+  turns out to already match existing code rather than needing new scoping logic: **title is not
+  part of what triggers a new id — it's freeform.** Checked against `buildIdentityPayloadFromTalk`
+  (`src/shared/cid.ts:218-258`), the function that computes a talk's content-hash id today: for a
+  `flow`-type talk (the type this whole feature produces, per `FR-TK-8`) the hashed payload is only
+  `{type, language, questions}` — `title` is only ever hashed for `type === 'tag'` talks (line 236),
+  never for `flow`. So "new id on edit" cashes out precisely as **"new id whenever the edit changes
+  `questions` (or `type`/`language`) — the fields already inside the identity hash"**; a pure
+  title/tag/metadata edit keeps the same id, exactly as the hash function already implies. Nothing
+  new to invent here, just wiring `updateTalk`'s save path to branch on it. **When a re-hashing edit
+  happens, the old talk's fate is an option that defaults to delete** — ordinary users get
+  delete-old-by-default; **advanced users can change that default to "keep" from the Settings tab.**
+  This resolves the identity tension cleanly
   — no in-place mutation of an id other things already reference — and it's not a novel pattern for
   this codebase: it's the same shape of solution the ledger's response-versioning already shipped
   (commit `6591fcb2`, "P0 step 9" — "monotonic version bump on answer change (new responseId CIDv1,
@@ -1195,7 +1203,10 @@ what's still chat-append-specific.)*
   degrade) after an ordinary Talk Editor save, not just after a chat-append. Concrete pieces none of
   which are built yet:
   - A new field linking the new talk to what it replaces — `Talk.supersedesTalkId?: string` —
-    doesn't exist on `Talk` today (`types.ts:191-234`).
+    doesn't exist on `Talk` today (`types.ts:191-234`). Bernard: *"new talk can hold a reference to
+    old talk in case that further work is needed"* — a provenance pointer for whoever needs to trace
+    history later, not a functional coupling; the new talk otherwise stands alone as an ordinary
+    independent `Talk`, same as `TALK_ANSWERED`'s superseding-but-independent pattern in the ledger.
   - A `deleteTalk` operation — doesn't exist anywhere in `WebTalkService` — now load-bearing as the
     *default* outcome of every re-hashing edit, not just an eventual nice-to-have.
   - The "keep the old one" alternative (the Settings-tab override) probably still wants the old
@@ -1246,13 +1257,13 @@ what's still chat-append-specific.)*
   whether the editor's current open/edit path already handles an already-broadcast/already-answered
   talk cleanly, or only ever new-in-progress drafts.
 
-Every open design question in this item is now decided; what's left is implementation plus one
-scope call the design note should pin down precisely (which edits re-hash — content-only, or any
-field). Still `[Opus]`-tagged because generalizing "edit mints a new id" to the existing Talk Editor
-path is a real behavior change with a wide reference-integrity blast radius (above), not because the
-design itself is still open. Write a short design note covering that scope call, the multi-line
-session-state mechanics, and the reference-integrity checklist, then hand the parser,
-`supersedesTalkId`/`deleteTalk` wiring, the Settings toggle, and chip UI to Sonnet.
+Every open design question in this item is now decided, including the last scoping ambiguity (which
+edits re-hash — resolved: whatever's already in the content-hash payload, i.e. `questions`, not
+title/metadata). What's left is implementation, plus checking the reference-integrity blast radius
+honestly (above) — that's the reason this stays `[Opus]`-tagged, not because any design call is still
+open. Write a short design note covering the multi-line session-state mechanics and the
+reference-integrity checklist, then hand the parser, `supersedesTalkId`/`deleteTalk` wiring, the
+Settings toggle, and chip UI to Sonnet.
 
 ---
 
