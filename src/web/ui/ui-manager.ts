@@ -21,6 +21,7 @@ import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
 import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
+import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
@@ -994,6 +995,7 @@ export class UIManager extends EventEmitter {
             <div class="view-content">
               <div class="filter-bar contacts-action-bar">
                 <button type="button" class="filter-bar-toggle" data-testid="contacts-filter-toggle" aria-expanded="false">Filters ▾</button>
+                <button type="button" class="btn" id="contacts-broadcast-group-btn" data-testid="contacts-broadcast-group-btn">${this.t('contactsBroadcastGroupBtn')}</button>
                 <div class="filter-bar-content">
                 <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" style="flex:1 1 160px; min-width:0;">
                 <select class="form-input" id="contacts-filter-relation" style="flex:0 0 150px;">
@@ -1392,6 +1394,10 @@ export class UIManager extends EventEmitter {
         toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
         toggle.textContent = open ? `${this.t('filters')} ▴` : `${this.t('filters')} ▾`;
       });
+    });
+    // docs/TODO.md §U — broadcast to a contact group, from the Contacts tab.
+    document.getElementById('contacts-broadcast-group-btn')?.addEventListener('click', () => {
+      this.showBroadcastToGroupDialog();
     });
     this.syncAppBarOverflow();
   }
@@ -5171,6 +5177,11 @@ export class UIManager extends EventEmitter {
     return this.tf('broadcastFailed', { reason });
   }
 
+  /** docs/TODO.md §U. */
+  public formatBroadcastGroupSent(): string {
+    return this.t('broadcastGroupSent');
+  }
+
   public formatTravelEnabled(): string {
     return this.t('travelEnabled');
   }
@@ -6332,6 +6343,100 @@ export class UIManager extends EventEmitter {
     el.dataset.broadcastReceivers = String(receiversResolved);
     const prev = Number(el.dataset.broadcastBulkGen ?? '0');
     el.dataset.broadcastBulkGen = String(Number.isFinite(prev) ? prev + 1 : 1);
+  }
+
+  /** docs/TODO.md §U — display text for a contact-group option; built-ins reuse the existing relation-filter translation keys, custom groups show the raw typed text as-is. */
+  private formatContactGroupLabel(group: ContactGroupOption): string {
+    const builtInKeys: Record<string, UiTranslationKey> = {
+      all: 'allRelations',
+      friend: 'friends',
+      relative: 'relatives',
+      coworker: 'coworkers',
+      acquaintance: 'acquaintances',
+      partner: 'partners',
+      custom: 'custom',
+    };
+    const key = builtInKeys[group.id];
+    return key ? this.t(key) : group.displayLabel;
+  }
+
+  /**
+   * docs/TODO.md §U — broadcast a talk to a whole contact group, online or not. Delivery
+   * itself reuses the exact same mesh-plus-mailbox path every other broadcast already uses
+   * (`app.ts`'s `broadcastToContactGroup` handler calls `deliverTalkToReceiversOverMesh`) —
+   * this dialog's only job is resolving *who* to send to.
+   */
+  showBroadcastToGroupDialog(): void {
+    const knownPeople = this.getKnownPeople();
+    const groups = listContactGroups(knownPeople);
+    const talkIds = this.getBroadcastableTalkIds();
+    if (talkIds.length === 0) {
+      this.showNotification(this.t('chatroomNoTalksToBroadcast'), 'info');
+      return;
+    }
+    const myTalks = getMyTalks();
+
+    document.getElementById('broadcast-group-modal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'broadcast-group-modal';
+    modal.dataset.testid = 'broadcast-group-modal';
+    modal.className = 'modal-overlay';
+    modal.style.zIndex = '2000';
+
+    const groupOptions = groups
+      .map((g) => `<option value="${escapeHtml(g.id)}">${escapeHtml(this.formatContactGroupLabel(g))} (${g.memberCount})</option>`)
+      .join('');
+    const talkOptions = talkIds
+      .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(myTalks[id]?.title || id)}</option>`)
+      .join('');
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:420px;">
+        <div class="modal-header">
+          <h2 class="modal-title">${this.t('broadcastGroupTitle')}</h2>
+        </div>
+        <label style="display:block;margin-top:10px;font-size:0.9em;">
+          <span>${this.t('broadcastGroupPickGroup')}</span>
+          <select id="broadcast-group-select" class="form-input" data-testid="broadcast-group-select">${groupOptions}</select>
+        </label>
+        <label style="display:block;margin-top:10px;font-size:0.9em;">
+          <span>${this.t('broadcastGroupPickTalk')}</span>
+          <select id="broadcast-group-talk-select" class="form-input" data-testid="broadcast-group-talk-select">${talkOptions}</select>
+        </label>
+        <div id="broadcast-group-preview" style="margin-top:10px;font-size:0.88em;color:var(--text-secondary);" data-testid="broadcast-group-preview"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-testid="broadcast-group-cancel">${this.t('captureConfirmDecline')}</button>
+          <button type="button" class="btn primary-btn" data-testid="broadcast-group-confirm">${this.t('conversationSend')}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const groupSelect = modal.querySelector('#broadcast-group-select') as HTMLSelectElement;
+    const talkSelect = modal.querySelector('#broadcast-group-talk-select') as HTMLSelectElement;
+    const preview = modal.querySelector('#broadcast-group-preview') as HTMLElement;
+    const updatePreview = () => {
+      const userIds = resolveContactGroupUserIds(knownPeople, groupSelect.value, this.currentUser?.blockedUserIds || []);
+      preview.textContent = this.tf('broadcastGroupPreview', { count: userIds.length });
+    };
+    groupSelect.addEventListener('change', updatePreview);
+    updatePreview();
+
+    const close = () => modal.remove();
+    modal.querySelector('[data-testid="broadcast-group-cancel"]')?.addEventListener('click', close);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) close();
+    });
+    modal.querySelector('[data-testid="broadcast-group-confirm"]')?.addEventListener('click', () => {
+      const userIds = resolveContactGroupUserIds(knownPeople, groupSelect.value, this.currentUser?.blockedUserIds || []);
+      if (userIds.length === 0) {
+        this.showNotification(this.t('broadcastGroupEmpty'), 'info');
+        return;
+      }
+      const members = userIds.map((userId) => ({ userId, stageName: this.getPeerName(userId) }));
+      this.emit('broadcastToContactGroup', { talkId: talkSelect.value, members });
+      close();
+    });
   }
 
   confirmBroadcastAudience(previews: BroadcastAudiencePreview[]): Promise<boolean> {

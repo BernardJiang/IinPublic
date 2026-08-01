@@ -5003,6 +5003,50 @@ export class IinPublicApp {
       },
     );
 
+    // docs/TODO.md §U — broadcast a single talk to a contact group, online or not. The
+    // group-picker dialog already resolved *who* (client-side only, per-recipient); delivery
+    // reuses the exact same deliverTalkToReceiversOverMesh path every other broadcast already
+    // uses — mesh-flood to whoever's online, mailbox fallback (48h/72h TTL) for the rest —
+    // nothing new to build for the "online or not, deferred, dropped after timeout" half of
+    // the ask (docs/TODO.md §U's own research finding). No chatroomId/eligibleIds narrowing:
+    // the resolved member list already IS the intended recipient set.
+    this.uiManager.on(
+      'broadcastToContactGroup',
+      async (data: { talkId: string; members: Array<{ userId: string; stageName: string }> }) => {
+        try {
+          if (data.members.length === 0) return;
+          let talk = this.uiManager.getBroadcastTalkPayload(data.talkId);
+          if (!talk) {
+            talk = await this.talkService.getTalkWithRetry(data.talkId, { attempts: 15, gapMs: 100 });
+          }
+          if (!talk) {
+            this.uiManager.showNotification(this.uiManager.formatBroadcastFailed('talk not found'), 'error');
+            return;
+          }
+          talk = { ...talk, authorId: talk.authorId || this.currentUser!.id };
+          if (this.isTalkExpiredForDelivery(talk)) {
+            this.uiManager.showNotification(this.uiManager.formatBroadcastFailed('talk expired'), 'error');
+            return;
+          }
+          const ok = await this.deliverTalkToReceiversOverMesh(data.talkId, talk, data.members);
+          if (ok) {
+            this.ledgerEmit(InteractionKind.TALK_BROADCAST, {
+              talkId: data.talkId,
+              recipientCount: data.members.length,
+              chatroomIds: [],
+            });
+          }
+          this.uiManager.showNotification(
+            ok ? this.uiManager.formatBroadcastGroupSent() : this.uiManager.formatBroadcastFailed('delivery failed'),
+            ok ? 'success' : 'error',
+          );
+        } catch (error) {
+          console.error('Broadcast to contact group failed:', error);
+          this.uiManager.showNotification(this.uiManager.formatBroadcastFailed((error as Error).message), 'error');
+        }
+      },
+    );
+
     this.uiManager.on('updateTalk', async (data: { id: string; title: string; type: string; questions: any[]; language?: string; tags?: any[] }) => {
       try {
         const updatedTalk = await this.talkService.updateTalk(data.id, {
