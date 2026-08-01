@@ -68,9 +68,6 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   session each:**
   - Q's Talk → "people I've separately exchanged this with" edge — hardest item in the whole
     backlog by design (no existing pattern to extend, privacy-sensitive), deliberately last.
-  - K4's stage2-5 progressive-snapshot conversion (~210 call sites) — already flagged in K4 itself
-    as needing a scope/priority decision before starting; don't schedule until that decision is
-    made, since "how many sessions" depends entirely on the scope chosen.
   - G/I/J's nightly cross-platform specs (X3-X8) — blocked on you (native-build/CI runner infra)
     rather than a schedulable engineering session. (L2 is no longer in this list — Bernard's
     2026-08-01 decision unblocked and closed it; see §L2.)
@@ -81,6 +78,10 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
     before implementation (co-operator pool storage, how a delegate's answer gets relayed back
     under a TechSupport-signed reply, `answeredByDelegate` audit trail) — write the design note
     as its own session, then hand implementation to Sonnet per the model-routing legend.
+  - U (new 2026-08-01) — broadcast to a contact group with deferred/offline delivery needs an
+    `[Opus]` design note first (custom-label-as-group vs. multi-tag data model; whether the
+    mailbox's fixed 48h/72h TTL is acceptable as-is), then the group-picker UI and
+    `recipientUserIds` wiring go to Sonnet. See §U.
 
 ---
 
@@ -1030,6 +1031,80 @@ mechanism at all** today, and a complete design for one already exists in the sp
 
 > **Complete 2026-07-30** — see `docs/completed.md`. Both root causes resolved; root cause #2
 > was a test-helper issue (a shared E2E click-helper's Global-default fallback), not product code.
+
+---
+
+## U. Broadcast to a contact group, online or not, with deferred delivery `[Opus]`
+
+Requested 2026-08-01. Today a user broadcasts a talk to a **chatroom** — the recipient set is
+"whoever's in this room" (see `runBroadcastFromCurrentRoom`, `ui-manager.ts:1618`). This adds a
+second broadcast entry point from the **Contacts tab**: pick a group of known contacts — *All*,
+*Friend*, *Tennis Buddy*, etc. — and send to the whole group regardless of whether each member is
+online right now. Members who are online get it immediately; members who aren't get it deferred,
+delivered whenever they next come online, dropped if that never happens within a timeout.
+
+**What already exists to build this on (research finding, not yet wired together):**
+
+- `PeerMeshService.broadcastTalk()` (`src/web/services/peer-mesh-service.ts:482`) already accepts
+  an explicit `recipientUserIds` list, not just "everyone in this room" — the room-broadcast path is
+  one caller of a more general primitive, so a contact-group broadcast is a **second caller**, not a
+  new delivery mechanism.
+- That same call already floods the P2P mesh to whoever's online (`activeExpectedRecipients()`,
+  line 736 — checks `GET /api/presence/nearby` plus live WebRTC neighbors) and falls through to
+  `onMailboxFallback(...)` (line 615) for anyone who doesn't ACK in time — this fallback **is** the
+  offline mailbox (`src/server/services/mailbox-store.ts`): SEA-encrypted, recipient-keyed,
+  `MAILBOX_DEFAULT_TTL_MS = 48h` / `MAILBOX_MAX_TTL_MS = 72h` (server never sees plaintext), drained
+  by the recipient's own client on its next boot/reconnect. **"Defer until online, drop after
+  timeout" is already exactly what this store does** — nothing new to build for that half of the
+  ask, only to reuse it for a bigger, deliberately-offline-inclusive recipient set instead of just
+  the ACK-timeout stragglers from a live room broadcast.
+- Contact data (`KnownPerson`, `src/shared/types.ts:22`) is written only via
+  `WebUserService.putPrivateUserData()` — SEA-encrypted, client-only, per CLAUDE.md's private-data
+  invariant. **Group membership is therefore resolved to a userId list entirely on the sender's own
+  device** before any network call; the server and other users never see group membership, same as
+  today's contact labels.
+
+**What does not exist yet and needs building:**
+
+- **A real "named group" concept.** `KnownPerson.label` (`RelationshipLabel` —
+  `'friend'|'relative'|'coworker'|'acquaintance'|'partner'|'custom'`) is one enum value per
+  contact, plus one freeform `customLabel` string used only when `label === 'custom'`. There is no
+  arbitrary named group like "Tennis Buddy" as a first-class, independently-filterable value today
+  — `customLabel` is free text, but the existing contacts-tab filter dropdown
+  (`ui-manager.ts:961-969`, `contacts-view.ts:699`) only distinguishes the `custom` *bucket* as a
+  whole, not by the specific text inside it. **Proposed (not yet decided):** treat every distinct
+  non-empty `customLabel` value in use as its own selectable group — "Tennis Buddy" falls out of the
+  existing field for free, no schema change, no new group-membership editor. The five built-in
+  `RelationshipLabel` values double as built-in groups the same way. *All* = every known contact not
+  currently blocked (`blockedUserIds` already exists and should obviously still apply).
+- **A group-picker UI on the Contacts tab.** Nothing today lets a user pick a *set* of contacts or a
+  named bucket and hand it to a send action — the closest analogs (single-select relationship
+  filter dropdown for *browsing* the list; one-at-a-time block/unblock) aren't a multi-select-or-
+  bucket send-target picker. Needs: a "Broadcast to…" action that lists All + every group in use,
+  a preview of who's in it and who's currently resolvable-online vs. going to the mailbox (mirroring
+  the existing room-broadcast preview modal's eligible/excluded split, `ui-manager.ts:6201`), then
+  calls `broadcastTalk(talk, { recipientUserIds })` with the resolved list.
+- **Per-broadcast timeout control.** The mailbox's TTL is a fixed constant today
+  (48h default, 72h hard ceiling, not caller-configurable per envelope beyond that clamp). "Defer to
+  a certain time" implies the sender might want to say *how long* to keep waiting (e.g. "by this
+  weekend") — decide whether that's exposed to the sender at all for v1, or whether the existing
+  fixed 48h/72h window is good enough to start.
+
+**Open questions (decide before/while writing the design note):**
+
+- Custom-label-as-group vs. a real first-class multi-tag system: is "one label per contact,
+  bucketed by exact text" enough, or does a person eventually need to be in *more than one* named
+  group (e.g. both "Tennis Buddy" and "Friend")? The current `KnownPerson.label` is single-valued,
+  so multi-group membership is a bigger data-model change than the free-bucket proposal above.
+  Deferring to v1-simplest (bucket by existing single label) unless this is confirmed to need
+  overlap.
+- Is the mailbox's existing fixed 48h/72h window an acceptable "certain time" for this feature, or
+  does the sender need to pick their own wait window per broadcast? Affects whether v1 can ship
+  with zero mailbox changes or needs a new per-envelope custom-TTL parameter.
+
+This is `[Opus]`-tagged because both questions above are real data-model/UX tradeoffs, not
+mechanical work — write a short design note first (per the model-routing legend), then hand the
+group-picker UI and the `recipientUserIds` wiring to Sonnet.
 
 ---
 
