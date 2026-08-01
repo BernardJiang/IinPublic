@@ -5,6 +5,92 @@ import type { ConversationTransportMode } from '../../shared/p2p-runtime';
 import { boundRecentWires, DEFAULT_RECONCILE_WINDOW, type ReconcileMessage } from '../../shared/conversation-reconcile';
 import type { SendMessageOptions } from './web-conversation-service';
 import { WebGunService } from './web-gun-service';
+import { computeMerkleRoot, sha256Hex } from '../../shared/merkle-checkpoint';
+
+/**
+ * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 4): every
+ * N messages, checkpoint a conversation's message window and prune anything older than
+ * the retention window — the message-side analogue of the ledger's Items 1/2, reusing
+ * Item 0's merkle module. Named constants so the production values (Item 5 is a policy
+ * decision) are a one-line edit later.
+ */
+export const MESSAGE_CHECKPOINT_INTERVAL = 50;
+export const MESSAGE_RETENTION_WINDOW = 200;
+
+/**
+ * SRS §28.9.4: leaves commit to both ordering and ciphertext integrity without
+ * disclosing plaintext (`leafHashes` entries are `msgId:SHA-256(wire.text)` — `wire.text`
+ * is already ciphertext for any SEA-encrypted channel). Stored as `contentJson` on the
+ * checkpoint node (Gun cannot hold nested arrays — same convention as the ledger's
+ * `CheckpointCreatedContent`/`contentJson`).
+ */
+export interface MessageCheckpointContent {
+  rangeStartId: string;
+  rangeEndId: string;
+  count: number;
+  merkleRoot: string;
+  leafHashes: string[];
+  createdAt: string;
+}
+
+interface MessageCheckpointLocalState {
+  /** Count of messages (in chronological order) already covered by a written checkpoint. */
+  lastCheckpointedCount: number;
+  /** Count of messages already pruned from Gun (always <= lastCheckpointedCount). */
+  prunedThroughCount: number;
+  /** Rebuilt from Gun once per conversation per instance lifetime (see getMessageCheckpointState). */
+  stateLoaded: boolean;
+  /** Guards against an overlapping pass if another send fires before this one finishes. */
+  checkpointInFlight: boolean;
+}
+
+/**
+ * TODO §S Item 4: pure decision logic, deliberately separated from all Gun read/write
+ * calls — same "no DOM, no Gun, no WebRTC" philosophy as this file's sibling
+ * `conversation-reconcile.ts` ("this module is the pure, single source of truth for
+ * 'what to send / what to keep'... so the convergence logic is fully unit-tested").
+ * `maybeCreateMessageCheckpoint`/`pruneMessages` below call these and only handle the
+ * Gun wiring; keeping the window/root/retention math here lets it be unit-tested without
+ * a real or mocked Gun graph.
+ */
+export async function planMessageCheckpoint(
+  wires: ReadonlyArray<{ id: string; text: string }>,
+  lastCheckpointedCount: number,
+  intervalSize: number,
+): Promise<{ content: MessageCheckpointContent; newLastCheckpointedCount: number } | null> {
+  if (wires.length - lastCheckpointedCount < intervalSize) return null;
+  const window = wires.slice(lastCheckpointedCount, lastCheckpointedCount + intervalSize);
+  const leafHashes = await Promise.all(window.map(async (w) => `${w.id}:${await sha256Hex(w.text)}`));
+  const merkleRoot = await computeMerkleRoot(leafHashes);
+  return {
+    content: {
+      rangeStartId: window[0].id,
+      rangeEndId: window[window.length - 1].id,
+      count: window.length,
+      merkleRoot,
+      leafHashes,
+      createdAt: new Date().toISOString(),
+    },
+    newLastCheckpointedCount: lastCheckpointedCount + window.length,
+  };
+}
+
+/**
+ * TODO §S Item 4: mirrors the ledger's Item 2 "checkpoint before delete" boundary math —
+ * never deletes past what's already been checkpointed, and never re-derives a smaller
+ * boundary than what's already been pruned. Returns null when there's nothing new to
+ * prune (`deletableThrough` hasn't advanced past `prunedThroughCount`).
+ */
+export function planMessagePruning(
+  totalCount: number,
+  lastCheckpointedCount: number,
+  prunedThroughCount: number,
+  retentionWindow: number,
+): { deletableThrough: number } | null {
+  const deletableThrough = Math.min(lastCheckpointedCount, totalCount - retentionWindow);
+  if (deletableThrough <= prunedThroughCount) return null;
+  return { deletableThrough };
+}
 
 /** Wire shape shared by P2P transports when persisting to Gun (REQ-P2P-01). */
 export type ConversationMessageWire = {
@@ -70,7 +156,25 @@ export class GunMessageStore {
   private collectRetryCounts = new Map<string, number>();
   private collectRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  /** TODO §S Item 4: per-conversation checkpoint/prune bookkeeping, keyed by conversationId. */
+  private messageCheckpointState = new Map<string, MessageCheckpointLocalState>();
+  /**
+   * TODO §S Item 4: conversations currently mid-Phase-5-reconcile (digest build or
+   * backfill read) — the prune pass skips a conversation while its flag is set, so a
+   * delete can't interleave with `listLocalWires`'s own multi-hundred-ms collection
+   * window and hand a peer a torn read. Set/cleared by `setReconcileInFlight`, called
+   * from `DirectP2PConversationTransport` around its `getLocalMessageDigest`/
+   * `getMessagesForBackfill` hooks.
+   */
+  private reconcileInFlight = new Set<string>();
+
   constructor(protected gunService: WebGunService) {}
+
+  /** TODO §S Item 4: see reconcileInFlight's doc comment above. */
+  setReconcileInFlight(conversationId: string, inFlight: boolean): void {
+    if (inFlight) this.reconcileInFlight.add(conversationId);
+    else this.reconcileInFlight.delete(conversationId);
+  }
 
   /**
    * Canonical ordinary pair conversations embed both participant ids in the id itself
@@ -294,9 +398,181 @@ export class GunMessageStore {
       // races this used to paper over are handled by the retrying pair-root attach in
       // subscribeToMessages and the canonical conv_pair_ id fallback in
       // getOtherParticipantId.
+    } else {
+      gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
+    }
+
+    // TODO §S Item 4: fire-and-forget checkpoint/prune pass — matches this method's own
+    // fire-and-forget write style (no caller awaits putMessageRecord's Gun ack either).
+    void this.maybeCreateMessageCheckpoint(
+      conversationId,
+      wire.senderId,
+      opts.otherUserId,
+      wire.transport ?? this.mode,
+    ).catch((err) => console.warn('[GunMessageStore] message checkpoint pass failed (non-fatal)', err));
+  }
+
+  /**
+   * TODO §S Item 4: the Gun root for a conversation's non-message children (checkpoints,
+   * checkpointState) — mirrors putMessageRecord's own pair-vs-legacy path split so a
+   * conversation's checkpoint data lives alongside its messages.
+   */
+  private conversationRoot(
+    conversationId: string,
+    transport: string,
+    senderId: string,
+    otherUserId?: string,
+  ): any {
+    const gun = this.gunService.getGun();
+    if (transport === 'direct-p2p' && otherUserId) {
+      return gun.get('pairConversations').get(this.pairIdForUsers(senderId, otherUserId)).get(conversationId);
+    }
+    return gun.get(`conversations/${conversationId}`);
+  }
+
+  private readNodeOnce(root: any, timeoutMs = 200): Promise<any | null> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: any | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      root.once((data: any) => finish(data || null));
+    });
+  }
+
+  private async getMessageCheckpointState(
+    conversationId: string,
+    transport: string,
+    senderId: string,
+    otherUserId?: string,
+  ): Promise<MessageCheckpointLocalState> {
+    let state = this.messageCheckpointState.get(conversationId);
+    if (state?.stateLoaded) return state;
+    if (!state) {
+      state = { lastCheckpointedCount: 0, prunedThroughCount: 0, stateLoaded: false, checkpointInFlight: false };
+    }
+    const raw = await this.readNodeOnce(
+      this.conversationRoot(conversationId, transport, senderId, otherUserId).get('checkpointState'),
+    );
+    if (raw && typeof raw === 'object') {
+      state.lastCheckpointedCount = typeof raw.lastCheckpointedCount === 'number' ? raw.lastCheckpointedCount : 0;
+      state.prunedThroughCount = typeof raw.prunedThroughCount === 'number' ? raw.prunedThroughCount : 0;
+    }
+    state.stateLoaded = true;
+    this.messageCheckpointState.set(conversationId, state);
+    return state;
+  }
+
+  private writeCheckpointState(
+    conversationId: string,
+    transport: string,
+    senderId: string,
+    otherUserId: string | undefined,
+    state: MessageCheckpointLocalState,
+  ): void {
+    this.conversationRoot(conversationId, transport, senderId, otherUserId)
+      .get('checkpointState')
+      .put({ lastCheckpointedCount: state.lastCheckpointedCount, prunedThroughCount: state.prunedThroughCount });
+  }
+
+  /**
+   * TODO §S Item 4: every MESSAGE_CHECKPOINT_INTERVAL messages (chronological order,
+   * same timestamp+id tiebreak as collectAndDecryptMessages), write one checkpoint
+   * committing to that window's `msgId:SHA-256(ciphertext)` leaves, then prune anything
+   * older than MESSAGE_RETENTION_WINDOW behind the most recent checkpoint. Best-effort,
+   * fire-and-forget (called from the end of putMessageRecord, never awaited by callers).
+   */
+  private async maybeCreateMessageCheckpoint(
+    conversationId: string,
+    senderId: string,
+    otherUserId: string | undefined,
+    transport: string,
+  ): Promise<void> {
+    if (this.reconcileInFlight.has(conversationId)) return;
+    const state = await this.getMessageCheckpointState(conversationId, transport, senderId, otherUserId);
+    if (state.checkpointInFlight) return;
+
+    // Full chronological read — bounded in practice by the retention policy itself (older
+    // messages get pruned, so this array never grows past ~MESSAGE_RETENTION_WINDOW plus
+    // one checkpoint interval's worth of headroom once the steady state is reached).
+    const wires = await this.listLocalWires(conversationId, senderId, otherUserId, 0);
+    const plan = await planMessageCheckpoint(wires, state.lastCheckpointedCount, MESSAGE_CHECKPOINT_INTERVAL);
+    if (!plan) return;
+    if (this.reconcileInFlight.has(conversationId)) return; // re-check: the read above was awaited
+
+    state.checkpointInFlight = true;
+    try {
+      this.conversationRoot(conversationId, transport, senderId, otherUserId)
+        .get('checkpoints')
+        .get(`count_${plan.newLastCheckpointedCount}`)
+        .put({ contentJson: JSON.stringify(plan.content) });
+
+      state.lastCheckpointedCount = plan.newLastCheckpointedCount;
+      this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
+
+      await this.pruneMessages(conversationId, transport, senderId, otherUserId, wires, state);
+    } finally {
+      state.checkpointInFlight = false;
+    }
+  }
+
+  /**
+   * TODO §S Item 4: delete every message more than MESSAGE_RETENTION_WINDOW behind the
+   * most recently written checkpoint — mirrors the ledger's Item 2 "checkpoint before
+   * delete" ordering (only ever called after this pass's own writeCheckpointState above
+   * has resolved). Each wire is deleted from *its own* recorded transport's path, not
+   * necessarily the current call's transport — a conversation's transport is fixed in
+   * practice, but this stays correct even if that ever changes.
+   */
+  private async pruneMessages(
+    conversationId: string,
+    transport: string,
+    senderId: string,
+    otherUserId: string | undefined,
+    wires: ReconcileMessage[],
+    state: MessageCheckpointLocalState,
+  ): Promise<void> {
+    if (this.reconcileInFlight.has(conversationId)) return;
+    const plan = planMessagePruning(
+      wires.length,
+      state.lastCheckpointedCount,
+      state.prunedThroughCount,
+      MESSAGE_RETENTION_WINDOW,
+    );
+    if (!plan) return;
+
+    for (let i = state.prunedThroughCount; i < plan.deletableThrough; i += 1) {
+      const wire = wires[i];
+      this.deleteMessageRecord(conversationId, wire.id, wire.transport || transport, senderId, otherUserId);
+    }
+    state.prunedThroughCount = plan.deletableThrough;
+    this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
+  }
+
+  /** TODO §S Item 4: same `.get(id).put(null)` deletion pattern putMessageRecord writes through. */
+  private deleteMessageRecord(
+    conversationId: string,
+    wireId: string,
+    transport: string,
+    senderId: string,
+    otherUserId?: string,
+  ): void {
+    const gun = this.gunService.getGun();
+    if (transport === 'direct-p2p' && otherUserId) {
+      gun
+        .get('pairConversations')
+        .get(this.pairIdForUsers(senderId, otherUserId))
+        .get(conversationId)
+        .get('messages')
+        .get(wireId)
+        .put(null);
       return;
     }
-    gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
+    gun.get(`conversations/${conversationId}`).get('messages').get(wireId).put(null);
   }
 
   /**

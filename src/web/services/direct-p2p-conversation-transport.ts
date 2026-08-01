@@ -238,17 +238,34 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       ...this.ledgerHooks,
       // Phase 5: peer↔peer reconciliation — advertise our local digest on connect and
       // backfill whatever the peer is missing, straight over the DataChannel (no hub).
-      getLocalMessageDigest: async () =>
-        buildConversationDigest(
-          conversationId,
-          await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
-        ).messageIds,
-      getMessagesForBackfill: async (remoteMessageIds: string[]) =>
-        computeMissingForPeer(
-          conversationId,
-          await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
-          { conversationId, messageIds: remoteMessageIds },
-        ),
+      //
+      // TODO §S Item 4: setReconcileInFlight brackets each listLocalWires read here so the
+      // store's own checkpoint/prune pass (gun-message-store.ts) never deletes a message
+      // mid-read — the design note's own risk callout ("do not prune while a reconcile is
+      // mid-backfill").
+      getLocalMessageDigest: async () => {
+        this.gunStore.setReconcileInFlight(conversationId, true);
+        try {
+          return buildConversationDigest(
+            conversationId,
+            await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+          ).messageIds;
+        } finally {
+          this.gunStore.setReconcileInFlight(conversationId, false);
+        }
+      },
+      getMessagesForBackfill: async (remoteMessageIds: string[]) => {
+        this.gunStore.setReconcileInFlight(conversationId, true);
+        try {
+          return computeMissingForPeer(
+            conversationId,
+            await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+            { conversationId, messageIds: remoteMessageIds },
+          );
+        } finally {
+          this.gunStore.setReconcileInFlight(conversationId, false);
+        }
+      },
     });
     session.setLedgerHooks(this.ledgerHooks);
     session.setAttachmentHooks(this.attachmentHooks);

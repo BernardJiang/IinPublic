@@ -24,7 +24,12 @@
  * browsers, no additional dependencies (same as cid.ts).
  */
 
-async function sha256Hex(input: string): Promise<string> {
+/**
+ * Exported for Item 4 (src/web/services/gun-message-store.ts) — message checkpoint
+ * leaves are `msgId:SHA-256(ciphertext)` pairs, hashed with the same primitive used for
+ * leaf/pair hashing in this module so both checkpoint kinds share one hash implementation.
+ */
+export async function sha256Hex(input: string): Promise<string> {
   const encoded = new TextEncoder().encode(input);
   const digestBuffer = await globalThis.crypto.subtle.digest('SHA-256', encoded);
   return bytesToHex(new Uint8Array(digestBuffer));

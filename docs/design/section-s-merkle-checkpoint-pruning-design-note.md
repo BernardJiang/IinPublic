@@ -457,6 +457,71 @@ result rather than inventing a second read path is the natural fit.
   currently in flight for that conversation (a per-conversation lock/flag), not on every message
   send.
 
+> **Done 2026-07-31.** Implemented in `src/web/services/gun-message-store.ts`. Since messages
+> have no `seq` field (unlike the ledger's `InteractionEvent`), "position" is the index within
+> the full chronological read `listLocalWires(conversationId, senderId, otherUserId, 0)` already
+> returns (sorted by timestamp, id tiebreak — the same order `collectAndDecryptMessages` uses) —
+> checkpoint/pruning both operate on that index rather than an explicit counter field.
+>
+> `putMessageRecord` fires a new private `maybeCreateMessageCheckpoint` at the end of every write
+> (fire-and-forget, matching the method's own existing style — no caller awaits `putMessageRecord`
+> today either). Per conversation, in-memory state (`lastCheckpointedCount`, `prunedThroughCount`)
+> is lazily rebuilt once from a new `checkpointState` Gun node (mirrors the ledger's `head` node),
+> then kept current in memory for the rest of the session. Every `MESSAGE_CHECKPOINT_INTERVAL`
+> (50) new messages, a checkpoint is written to `checkpoints/count_<N>` under the same
+> pair-vs-legacy root `putMessageRecord` itself already splits on; leaves are
+> `msgId:SHA-256(wire.text)` (`wire.text` is already ciphertext for encrypted channels, so no
+> plaintext is ever committed). Pruning then deletes anything more than
+> `MESSAGE_RETENTION_WINDOW` (200) messages behind the most recent checkpoint, via the same
+> `.get(id).put(null)` idiom Item 2 used for the ledger.
+>
+> **Reused Item 0/6, not reinvented**: `computeMerkleRoot` and `sha256Hex` (newly exported from
+> `merkle-checkpoint.ts` for this reuse) are the same functions the ledger checkpoint uses — one
+> hash implementation for both checkpoint kinds, exactly as this item's own "What changes" text
+> intended.
+>
+> **Design refinement — extracted the decision logic as pure functions, not tested against Gun
+> directly:** `planMessageCheckpoint`/`planMessagePruning` (also in `gun-message-store.ts`) carry
+> all the window-slicing/merkle-root/retention-boundary math with zero Gun dependency — the same
+> "no DOM, no Gun, no WebRTC" split this file's sibling `conversation-reconcile.ts` already uses
+> ("this module is the pure, single source of truth for 'what to send / what to keep'... so the
+> convergence logic is fully unit-tested"). `maybeCreateMessageCheckpoint`/`pruneMessages` call
+> these and handle only the Gun reads/writes/deletes around them. This wasn't the original plan —
+> it came from a concrete testing failure: a real in-memory `Gun()` instance (`radisk: false`, no
+> peers, no AXE/multicast — the standard e2e-isolated config) turned out not to reliably resolve a
+> `.map()` read over freshly-written *nested* children under Jest's node test environment, even
+> after independently pre-warming every intermediate node in the chain; a flat single-level
+> `.get(key).put()`/`.once()` round-trip worked fine, but multi-level chains
+> (`pairConversations/<pairId>/<convId>/messages/<id>`, four levels deep) did not resolve within
+> any wait tried. This is a limitation of that bare test configuration, not of the production
+> code, which runs against a real browser Gun instance with actual storage and peer connections —
+> confirmed by the messaging E2E specs below passing unmodified. Extracting the pure logic sidesteps
+> needing real Gun for the bulk of the coverage; the remaining Gun-wiring tests (does
+> `putMessageRecord` write the checkpoint to the right path in the right shape, does pruning
+> delete the right message nodes) run against a small hand-written synchronous fake Gun-chain
+> double (real nested `.get()`/`.put()`/`.once()`/`.map()` semantics, no timing quirks) rather than
+> a real or partially-mocked Gun instance.
+>
+> **Reconcile-guard wiring**: `GunMessageStore.setReconcileInFlight(conversationId, boolean)` is
+> new public API; `DirectP2PConversationTransport`'s `getLocalMessageDigest`/
+> `getMessagesForBackfill` hooks (passed into the P2P session config) now bracket each call with
+> it in a try/finally. This closes the concrete race within each individual read (a prune
+> interleaving with `listLocalWires`'s own multi-hundred-ms collection window) but does not
+> lock the narrower gap *between* the two independently-triggered calls (digest sent, then
+> backfill requested later) — flagged here as a known, minor residual gap (worst case: the peer's
+> digest-time view included an item that's since been pruned by the time backfill runs, so that
+> one item silently isn't backfilled, recoverable the same way any pruned-but-still-needed item
+> would be — not a crash or corruption).
+>
+> Tests: `src/test/unit/gun-message-store.test.ts` — 8 pure-logic tests against
+> `planMessageCheckpoint`/`planMessagePruning` (interval boundary, window slicing across multiple
+> checkpoints, merkle-root self-consistency, retention-boundary math including "never prunes past
+> what's actually checkpointed") + 3 Gun-wiring tests against the fake chain (checkpoint written
+> at the interval, reconcile-in-flight suppresses the pass, pruning deletes the correct message
+> range and leaves the retained tail intact). Full suite: 91 suites, 1094 passed (was 1083 before
+> this item), 0 regressions. Targeted E2E sanity: `00i-p0-direct-talk-delivery.spec.ts` (1/1),
+> `09-messaging.spec.ts` + `00j-messaging-edge-cases.spec.ts` (3/3) — all passed unmodified.
+
 ---
 
 ## Item 5 — Numeric retention windows (policy decision, not code)
