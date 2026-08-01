@@ -31,7 +31,16 @@ test.describe('@smoke platform smoke set', () => {
     context = await browser.newContext();
     page = await context.newPage();
     await injectIdbClear(page);
-    await gotoWebApp(page, webBaseURL());
+    // test:all runs this (webkit + firefox, PW_WORKERS=1) inside wave 2 alongside several
+    // other concurrent phases (mesh-batch/mesh-isolated/find-similar/isolated/heavy-staged)
+    // sharing the same machine — the default 10s app-ready budget is tuned for an
+    // uncontended run and has been observed to time out under that shared load even though
+    // this spec itself is lightweight (see the identical "oversubscribed" rationale on
+    // waitForAppReady in helpers/timing.ts). 30s matches the precedent already used by
+    // other concurrency-sensitive specs (00k-capacity-regional-spread.spec.ts,
+    // lan-browser-participant.spec.ts) — an upper bound, not a fixed wait, so it doesn't
+    // slow down the fast/uncontended path (chromium in the light wave, device profiles).
+    await gotoWebApp(page, webBaseURL(), 30_000);
     await afterLoad();
   });
 
