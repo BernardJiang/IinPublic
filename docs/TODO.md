@@ -82,12 +82,13 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
     `[Opus]` design note first (custom-label-as-group vs. multi-tag data model; whether the
     mailbox's fixed 48h/72h TTL is acceptable as-is), then the group-picker UI and
     `recipientUserIds` wiring go to Sonnet. See §U.
-  - V (FR-TK-7, spec'd 2026-01-19, never built — corrected 2026-08-01) — Auto Linear Capture from
-    DM shorthand. Grammar decided (no `**`/`*` markers; first answer matches and advances, the rest
-    ignore/terminate); same-session chaining is fully specified by the original SRS; the append case
-    is decided too (new talk id, old one auto-disabled via `expiresAt`, edit-or-delete later,
-    same shape as the ledger's existing response-versioning). Only remaining `[Opus]` call: the
-    compose-time-diversion confirmation-step UX. See §V.
+  - V (FR-TK-7, spec'd 2026-01-19, never built — corrected + fully decided 2026-08-01) — Auto
+    Linear Capture from DM shorthand. Grammar, same-session chaining, the compose-time confirmation
+    step (mandatory, never silent), and the edit/append id policy (editing a talk mints a new id;
+    old one deleted by default, Settings-tab override to keep — same shape as the ledger's existing
+    response-versioning) are all decided. `[Opus]`-tagged now only because generalizing "edit mints
+    a new id" to the existing Talk Editor path (not just chat-append) is a real behavior change with
+    a wide reference-integrity blast radius to check, not because any design is still open. See §V.
 
 ---
 
@@ -1121,9 +1122,10 @@ in the original SRS, written on the project's first day (`projectplan.md`, commi
 2026-01-19) and still present verbatim in the current
 `docs/specs/iinpublic-technical-specifications.md` (lines 364-369, 534, 1825-1850, 2219-2233, and a
 traceability-table row pointing at a never-realized `AutoCapturePattern`/`src-shared/talks/TalkEngine.ts`)
-— but never implemented against the current `src/shared`/`src/server`/`src/web` architecture. There's even an abandoned prototype attempt: `src/examples/gun-react/{EnhancedEntity,
-ChatAI,Entity}.js` (added 2026-02-15, "merged from 3 folders" — an earlier React+Gun experiment,
-not part of the current build, no tsconfig/webpack reference) has its own hand-rolled regex,
+— but never implemented against the current `src/shared`/`src/server`/`src/web` architecture.
+There's even an abandoned prototype attempt: `src/examples/gun-react/{EnhancedEntity,ChatAI,Entity}.js`
+(added 2026-02-15, "merged from 3 folders" — an earlier React+Gun experiment, not part of the
+current build, no tsconfig/webpack reference) has its own hand-rolled regex,
 `PatternQuestionWithOptions = /((.*?)(\x3F)+)((.*)(\x3B)+)*((.*?)(\x2E)+$)/`, and
 `EnhancedEntity.autoCaptureTalk(message)` — but it's a single-question stub with no isMatch/isIgnore
 tagging and no multi-line chaining, so it doesn't actually implement FR-TK-7/UI-1d's fuller behavior
@@ -1161,34 +1163,48 @@ encodes intent. This is now the v1 grammar — no longer an open question.
 
 **Two different scenarios — both now decided, neither has an open identity problem:**
 
+*(The "appending" scenario below grew, across two 2026-08-01 decisions, from "just the chat-append
+case" into a general edit-mints-a-new-id policy — see the bullet for exactly what generalized and
+what's still chat-append-specific.)*
+
 - **Same-session chaining into a brand-new draft (FR-TK-7/TC-LIN-01, above): no identity problem.**
   Nothing is saved or hashed until the terminating plain sentence fires — the whole accumulated
   sequence becomes exactly one `Talk` with exactly one content-hash `id`, computed once, at the end.
   This is the plain-DM-thread case.
 - **Appending to an *already-saved* talk later** (Bernard's clarification: "if it starts with an
   existing talk, it can append new question after a talk"), when the conversation is already scoped
-  to that talk's thread — new territory the original SRS never addressed, but **decided 2026-08-01
-  (Bernard): append = mint a new talk id; the old talk is automatically disabled; the user can edit
-  or delete the old one later.** This resolves the identity tension cleanly — no in-place mutation
-  of an id other things already reference, and it's not a novel pattern for this codebase: it's the
-  same shape of solution the ledger's response-versioning already shipped (commit `6591fcb2`, "P0
-  step 9" — "monotonic version bump on answer change (new responseId CIDv1, version+1); changed
-  answer = new `TALK_ANSWERED` superseding prior, history kept"), just applied to talks instead of
-  responses. Three concrete pieces this decision still needs, none built yet:
-  - A new field linking the new talk to what it replaces — something like
-    `Talk.supersedesTalkId?: string` — doesn't exist on `Talk` today (`types.ts:191-234`).
-  - "Automatically disabled" should reuse `Talk.expiresAt` (`types.ts:220`, doc comment already
-    says *"Once expired, talk is not sent automatically but can be re-activated"* — exactly the
-    disable/re-enable lever this needs) rather than inventing a second disabled flag: set the old
-    talk's `expiresAt` to now the moment the new one is created.
-  - "Edit or delete the old one later": editing already works as-is —
-    `WebTalkService.updateTalk(talkId, talkData)` (`web-talk-service.ts:289-326`) already mutates an
-    existing talk's `questions` (etc.) *in place, keeping the same id* — worth noting this means the
-    id is only content-derived **at creation**, not continuously re-derived on every edit, which is
-    what makes "mint a new id specifically for the chat-append case" a deliberate choice here rather
-    than a forced one; ordinary manual edits already don't re-hash. Deletion has no existing
-    operation to call, though — no `deleteTalk` anywhere in `WebTalkService` — that's new work this
-    decision now depends on, not specific to this feature.
+  to that talk's thread — new territory the original SRS never addressed, but decided across two
+  2026-08-01 passes, most recently: **editing a talk mints a new talk id** — this generalizes past
+  just the chat-append case to talk editing broadly (my reading of "change talk id when edit"; the
+  design note should nail down precisely whether *every* edit re-hashes, e.g. a title/tag tweak, or
+  only edits that change `questions` — the content-hash-relevant field. That's the one genuine
+  ambiguity left in this instruction). **When an edit produces a new id, the old talk's fate is an
+  option that defaults to delete** — ordinary users get delete-old-by-default; **advanced users can
+  change that default to "keep" from the Settings tab.** This resolves the identity tension cleanly
+  — no in-place mutation of an id other things already reference — and it's not a novel pattern for
+  this codebase: it's the same shape of solution the ledger's response-versioning already shipped
+  (commit `6591fcb2`, "P0 step 9" — "monotonic version bump on answer change (new responseId CIDv1,
+  version+1); changed answer = new `TALK_ANSWERED` superseding prior, history kept"), just applied
+  to talks instead of responses. This is a **behavior change to an existing, already-shipped code
+  path**, not just new work for this feature — `WebTalkService.updateTalk(talkId, talkData)`
+  (`web-talk-service.ts:289-326`) currently mutates an existing talk's `questions` *in place,
+  keeping the same id* (the id is only content-derived at creation today, never re-derived on
+  edit); this decision reverses that. Widening the blast radius honestly: every existing reference
+  to a talk by its pre-edit id — past broadcasts, chatbot auto-answer CID/context-hash matching,
+  `Message.talkId`-scoped threads already pointing at it — now needs to keep working (or gracefully
+  degrade) after an ordinary Talk Editor save, not just after a chat-append. Concrete pieces none of
+  which are built yet:
+  - A new field linking the new talk to what it replaces — `Talk.supersedesTalkId?: string` —
+    doesn't exist on `Talk` today (`types.ts:191-234`).
+  - A `deleteTalk` operation — doesn't exist anywhere in `WebTalkService` — now load-bearing as the
+    *default* outcome of every re-hashing edit, not just an eventual nice-to-have.
+  - The "keep the old one" alternative (the Settings-tab override) probably still wants the old
+    talk marked inactive rather than left fully live under two ids at once — `Talk.expiresAt`
+    (`types.ts:220`, doc comment: *"Once expired, talk is not sent automatically but can be
+    re-activated"*) is the natural existing lever for that, reused rather than inventing a second
+    disabled flag, but this needs confirming, not assuming.
+  - A new Settings-tab preference (default: delete old talk on edit; advanced override: keep it) —
+    no settings surface for talk-editing behavior exists today; needs its own small UI addition.
 
 **What already exists to reuse (still accurate from the prior research pass):**
 
@@ -1218,22 +1234,25 @@ encodes intent. This is now the v1 grammar — no longer an open question.
   terminator sentence — this is more than a single-message parse, it's a short-lived capture session.
 - Compose-time interception: "instead of sending it as plain text" implies recognizing the shorthand
   *before* the ordinary send happens (inside the `sendMessage` closure, `ui-manager.ts:5409`, before
-  `sendConversationMessage` is emitted), not a parse-after-the-fact like the IPFS-share precedent —
-  and whether that diversion needs a sender-facing confirmation step or happens silently on a
-  successful parse is still open.
+  `sendConversationMessage` is emitted), not a parse-after-the-fact like the IPFS-share precedent.
+  **Decided 2026-08-01: the diversion is mandatory-confirm, never silent** — a successful parse
+  always shows the sender a confirmation step before it becomes a talk instead of an ordinary
+  message; no longer an open question.
 - Inline chip rendering + the lightweight tap-to-`completeTalk`/`checkIfMatch` wiring.
-- The three append-case pieces above: `Talk.supersedesTalkId`, auto-setting the old talk's
-  `expiresAt` on append, and a `deleteTalk` operation (doesn't exist yet, needed for "or delete the
-  old one later").
+- The append/edit-case pieces above: `Talk.supersedesTalkId`, the `deleteTalk` operation (now the
+  *default* path on a re-hashing edit, not just a someday-nicety), reusing `expiresAt` to mark a
+  kept-but-superseded old talk inactive, and the new Settings-tab default-delete/keep preference.
 - Routing the finished draft into `talk-editor-dialog.ts` for later refinement — not yet confirmed
   whether the editor's current open/edit path already handles an already-broadcast/already-answered
   talk cleanly, or only ever new-in-progress drafts.
 
-The append case's *shape* is decided (above); what's left there is implementation, not design. The
-one still-genuinely-open design call is the compose-time confirmation-step question. This is still
-`[Opus]`-tagged, but for a narrower reason than before — write a short design note covering that one
-question plus the multi-line session-state mechanics, then hand the parser, `supersedesTalkId`
-wiring, and chip UI to Sonnet.
+Every open design question in this item is now decided; what's left is implementation plus one
+scope call the design note should pin down precisely (which edits re-hash — content-only, or any
+field). Still `[Opus]`-tagged because generalizing "edit mints a new id" to the existing Talk Editor
+path is a real behavior change with a wide reference-integrity blast radius (above), not because the
+design itself is still open. Write a short design note covering that scope call, the multi-line
+session-state mechanics, and the reference-integrity checklist, then hand the parser,
+`supersedesTalkId`/`deleteTalk` wiring, the Settings toggle, and chip UI to Sonnet.
 
 ---
 
