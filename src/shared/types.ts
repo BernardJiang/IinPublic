@@ -231,6 +231,29 @@ export interface Talk {
    * load failed and permanently dropped responses (mass/02's stable 8/11).
    */
   authorEpub?: string;
+  /**
+   * docs/TODO.md §V — two-author credit model. `authorId`/`createdAt`/`authorLocation`
+   * (above) are the *current* editor's identity/timestamp/place — reassigned whenever a
+   * content edit (one that changes `questions`) mints a new talk id. These `original*`
+   * fields are the *permanent* creator's identity/timestamp/place: set once, on a talk's
+   * first edit, seeded from the predecessor's own `original*` fields if it has them,
+   * or from its plain `authorId`/`createdAt`/`authorLocation` otherwise (so a talk that
+   * predates this field degrades cleanly) — then copied forward unchanged down the
+   * `supersedesTalkId` chain. Title-only edits touch none of this (Bernard, 2026-08-01:
+   * "changing the title doesn't count as creator or editor").
+   */
+  originalAuthorId?: string;
+  originalCreatedAt?: Date;
+  /** Same blurred-by-default shape as `authorLocation` — see docs/TODO.md §X. */
+  originalAuthorLocation?: { latitude: number; longitude: number };
+  /**
+   * Set when a content edit supersedes an earlier talk — the predecessor's id, a
+   * provenance pointer only ("new talk can hold a reference to old talk in case that
+   * further work is needed", Bernard 2026-08-01), not a functional coupling. The new
+   * talk otherwise stands alone as an ordinary independent `Talk`, same shape as the
+   * ledger's own `TALK_ANSWERED`-supersedes-prior pattern.
+   */
+  supersedesTalkId?: string;
 }
 
 export interface Question {

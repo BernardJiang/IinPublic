@@ -911,3 +911,51 @@ export class FlowCapture {
     return TalkAutofix.fix(draft).talk;
   }
 }
+
+/**
+ * docs/TODO.md §V — shapes the draft for a content edit that mints a new talk (as decided:
+ * editing a talk's questions mints a new id and the edited version is treated as a fully
+ * independent new `Talk`, linked back to its predecessor only for provenance).
+ *
+ * Pure — no id computation (the caller's `createTalk()` computes the real content-hash id)
+ * and no `createdAt`/`authorLocation` (the caller stamps those fresh at submission time, the
+ * same way any ordinary new talk does — this function only derives the *original*-side
+ * fields and the supersession link). `questions` is supplied by the caller — this function
+ * doesn't parse or transform them, so it works equally for the DM-shorthand append case and
+ * an ordinary Talk Editor content edit.
+ */
+export function buildRevisedTalkDraft(
+  oldTalk: Talk,
+  questions: Question[],
+  editorId: string,
+  overrides: Partial<
+    Pick<Talk, 'title' | 'type' | 'language' | 'tags' | 'isAdult' | 'expiresAt' | 'locationRadiusMiles'>
+  > = {},
+): Partial<Talk> {
+  const draft: Partial<Talk> = {
+    id: '',
+    title: overrides.title ?? oldTalk.title,
+    authorId: editorId,
+    type: overrides.type ?? oldTalk.type,
+    isAdult: overrides.isAdult ?? oldTalk.isAdult,
+    language: overrides.language ?? oldTalk.language,
+    tags: overrides.tags ?? oldTalk.tags,
+    questions,
+    isTemplate: oldTalk.isTemplate,
+    originalAuthorId: oldTalk.originalAuthorId ?? oldTalk.authorId,
+    originalCreatedAt: oldTalk.originalCreatedAt ?? oldTalk.createdAt,
+    supersedesTalkId: oldTalk.id,
+  };
+
+  const originalLocation = oldTalk.originalAuthorLocation ?? oldTalk.authorLocation;
+  if (originalLocation) draft.originalAuthorLocation = originalLocation;
+
+  const expiresAt = overrides.expiresAt !== undefined ? overrides.expiresAt : oldTalk.expiresAt;
+  if (expiresAt != null) draft.expiresAt = expiresAt;
+
+  const locationRadiusMiles =
+    overrides.locationRadiusMiles !== undefined ? overrides.locationRadiusMiles : oldTalk.locationRadiusMiles;
+  if (locationRadiusMiles != null) draft.locationRadiusMiles = locationRadiusMiles;
+
+  return draft;
+}

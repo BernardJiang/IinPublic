@@ -1,5 +1,5 @@
-import { FlowCapture } from '../../shared/talk-engine';
-import { checkIfMatch, checkIfIgnore } from '../../shared/talk-engine';
+import { FlowCapture, buildRevisedTalkDraft, checkIfMatch, checkIfIgnore } from '../../shared/talk-engine';
+import type { Talk } from '../../shared/types';
 
 /**
  * docs/TODO.md §V — Auto Linear Capture (FR-TK-7, spec'd 2026-01-19, implemented 2026-08-01).
@@ -150,5 +150,118 @@ describe('FlowCapture.assembleCapturedTalk', () => {
     ];
     expect(checkIfMatch(talk, fullPath)).toBe(true);
     expect(checkIfIgnore(talk, fullPath)).toBe(false);
+  });
+});
+
+/**
+ * docs/TODO.md §V — two-author credit model. Bernard, 2026-08-01: "after editing a talk, it
+ * gets a new id, then treat it as a new talk ... new talk can hold a reference to old talk
+ * in case that further work is needed."
+ */
+describe('buildRevisedTalkDraft', () => {
+  function pristineTalk(overrides: Partial<Talk> = {}): Talk {
+    return {
+      id: 'old_talk_id',
+      title: 'Do you like tennis?',
+      authorId: 'adam',
+      type: 'flow',
+      isAdult: false,
+      language: 'en',
+      tags: [],
+      questions: [{ id: 'q1', text: 'Do you like tennis?', answers: [{ id: 'q1_a0', text: 'Yes.', isMatch: true, isTerminal: true }, { id: 'q1_a1', text: 'No.', isIgnore: true, isTerminal: true }] }],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      isTemplate: false,
+      usageCount: 3,
+      authorLocation: { latitude: 37.77, longitude: -122.41 },
+      ...overrides,
+    };
+  }
+
+  it('on a talk\'s first edit, seeds original* fields from its plain authorId/createdAt/authorLocation', () => {
+    const draft = buildRevisedTalkDraft(pristineTalk(), [], 'eve');
+    expect(draft.originalAuthorId).toBe('adam');
+    expect(draft.originalCreatedAt).toEqual(new Date('2026-01-01T00:00:00.000Z'));
+    expect(draft.originalAuthorLocation).toEqual({ latitude: 37.77, longitude: -122.41 });
+  });
+
+  it('on a later edit, copies original* fields forward unchanged rather than re-seeding', () => {
+    const alreadyRevised = pristineTalk({
+      id: 'revised_once',
+      authorId: 'eve', // eve edited it once already
+      createdAt: new Date('2026-02-01T00:00:00.000Z'),
+      authorLocation: { latitude: 40.71, longitude: -74.01 },
+      originalAuthorId: 'adam', // but the ORIGINAL creator is still adam
+      originalCreatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      originalAuthorLocation: { latitude: 37.77, longitude: -122.41 },
+    });
+    const draft = buildRevisedTalkDraft(alreadyRevised, [], 'bob');
+    // Original stays adam's, from the very first creation — not eve's intermediate edit.
+    expect(draft.originalAuthorId).toBe('adam');
+    expect(draft.originalCreatedAt).toEqual(new Date('2026-01-01T00:00:00.000Z'));
+    expect(draft.originalAuthorLocation).toEqual({ latitude: 37.77, longitude: -122.41 });
+    // Current author becomes the new editor, bob.
+    expect(draft.authorId).toBe('bob');
+  });
+
+  it('authorId becomes the editor, not the previous author', () => {
+    const draft = buildRevisedTalkDraft(pristineTalk(), [], 'eve');
+    expect(draft.authorId).toBe('eve');
+  });
+
+  it('supersedesTalkId points at the predecessor', () => {
+    const draft = buildRevisedTalkDraft(pristineTalk(), [], 'eve');
+    expect(draft.supersedesTalkId).toBe('old_talk_id');
+  });
+
+  it('leaves id empty for the caller\'s real content-hash computation', () => {
+    const draft = buildRevisedTalkDraft(pristineTalk(), [], 'eve');
+    expect(draft.id).toBe('');
+  });
+
+  it('does not set createdAt/authorLocation — the caller stamps those fresh at submission time', () => {
+    const draft = buildRevisedTalkDraft(pristineTalk(), [], 'eve');
+    expect(draft.createdAt).toBeUndefined();
+    expect(draft.authorLocation).toBeUndefined();
+  });
+
+  it('carries forward type/language/tags/isAdult/isTemplate from the predecessor by default', () => {
+    const old = pristineTalk({ language: 'zh', isAdult: true, isTemplate: true, tags: [{ id: 't1', name: 'sport', category: 'other', popularity: 5 }] });
+    const draft = buildRevisedTalkDraft(old, [], 'eve');
+    expect(draft.type).toBe('flow');
+    expect(draft.language).toBe('zh');
+    expect(draft.isAdult).toBe(true);
+    expect(draft.isTemplate).toBe(true);
+    expect(draft.tags).toEqual([{ id: 't1', name: 'sport', category: 'other', popularity: 5 }]);
+  });
+
+  it('lets the caller override metadata fields explicitly', () => {
+    const draft = buildRevisedTalkDraft(pristineTalk(), [], 'eve', { title: 'New title', language: 'zh' });
+    expect(draft.title).toBe('New title');
+    expect(draft.language).toBe('zh');
+  });
+
+  it('uses the supplied questions verbatim, not the predecessor\'s', () => {
+    const newQuestions = [{ id: 'q9', text: 'New question?', answers: [] }];
+    const draft = buildRevisedTalkDraft(pristineTalk(), newQuestions, 'eve');
+    expect(draft.questions).toBe(newQuestions);
+  });
+
+  it('omits originalAuthorLocation entirely when the predecessor never had a location', () => {
+    const noLocation = pristineTalk();
+    delete (noLocation as Partial<Talk>).authorLocation;
+    const draft = buildRevisedTalkDraft(noLocation, [], 'eve');
+    expect(draft.originalAuthorLocation).toBeUndefined();
+  });
+
+  it('carries expiresAt/locationRadiusMiles forward only when the predecessor has them', () => {
+    const withExpiry = pristineTalk({ expiresAt: 12345, locationRadiusMiles: 50 });
+    const draft = buildRevisedTalkDraft(withExpiry, [], 'eve');
+    expect(draft.expiresAt).toBe(12345);
+    expect(draft.locationRadiusMiles).toBe(50);
+
+    const without = pristineTalk();
+    const draft2 = buildRevisedTalkDraft(without, [], 'eve');
+    expect(draft2.expiresAt).toBeUndefined();
+    expect(draft2.locationRadiusMiles).toBeUndefined();
   });
 });
