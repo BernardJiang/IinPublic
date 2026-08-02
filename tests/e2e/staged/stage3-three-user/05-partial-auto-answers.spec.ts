@@ -7,7 +7,7 @@
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
@@ -83,7 +83,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
   let pageBob: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -94,6 +94,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = pageBob = undefined;
     contextTom = contextJerry = contextBob = undefined;
@@ -105,7 +106,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Jerry finishes talk with Sunday; new talk Sat skips Q1–Q2 then Jerry answers Q3', async () => {

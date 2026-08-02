@@ -8,7 +8,7 @@
  */
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterNav } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
@@ -43,14 +43,14 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
   const sessions: Session[] = [];
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchBrowserGrid(3);
   });
 
   test.afterAll(async () => {
     await disposeE2eSessionList(sessions);
     await shutdownBrowserGrid(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Tom broadcasts 4 talks, Jerry auto-answers all, Sam re-asks, chatbot replies', async () => {

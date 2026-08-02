@@ -10,7 +10,8 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { afterLoad, afterSync, afterNav } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -29,7 +30,7 @@ test.describe('Matched-talk threads', () => {
   let pageJerry: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTom = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
     browserJerry = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
@@ -42,7 +43,7 @@ test.describe('Matched-talk threads', () => {
     await contextJerry?.close().catch(() => {});
     await browserTom?.close().catch(() => {});
     await browserJerry?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   async function bootstrap(browser: Browser, stageName: string): Promise<{ context: BrowserContext; page: Page }> {

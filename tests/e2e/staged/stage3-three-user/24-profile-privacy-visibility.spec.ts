@@ -8,7 +8,8 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
@@ -27,7 +28,7 @@ test.describe('Profile privacy visibility', () => {
   let pageJerryNonContact: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browser = await chromium.launch({
       headless,
       args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
@@ -46,7 +47,7 @@ test.describe('Profile privacy visibility', () => {
 
   test.afterAll(async () => {
     await browser?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   async function bootstrapUser(targetBrowser: Browser, stageName: string): Promise<{ context: BrowserContext; page: Page }> {

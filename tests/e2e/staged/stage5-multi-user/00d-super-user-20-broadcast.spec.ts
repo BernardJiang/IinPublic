@@ -1,7 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
 import { delay, headless, afterAction, afterNav, afterLoad } from '../../helpers/timing';
 import { gunBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import {
@@ -44,7 +44,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
   const screenshotDir = e2eTestScreenshotsDir('08-super-user');
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage5Spec();
 
     if (!fs.existsSync(screenshotDir)) {
       fs.mkdirSync(screenshotDir, { recursive: true });
@@ -93,7 +93,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     await browserTechSupport?.close().catch(() => {});
     await browserTom?.close().catch(() => {});
     await new Promise((r) => setTimeout(r, 1000));
-    await maybeClearGunDatabases();
+    await clearGunForStage5Spec();
     console.log('✅ Cleanup complete');
   });
 

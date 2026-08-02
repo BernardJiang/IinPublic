@@ -1,6 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
@@ -36,7 +37,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
   const COFFEE_IGNORE_ID = 'a_coffee_no';
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
@@ -73,7 +74,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await browserTom?.close();
     await browserJerry?.close();
     await browserBob?.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   async function bootstrapUser(

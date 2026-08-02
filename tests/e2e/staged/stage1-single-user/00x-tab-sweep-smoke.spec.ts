@@ -1,6 +1,7 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
@@ -13,14 +14,14 @@ test.describe('Tab sweep smoke (D6)', () => {
   let page: Page;
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     browser = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
 
   test.afterAll(async () => {
     await page?.close();
     await browser?.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('exposes reply triage, OUT sort, and settings filter diagnostics on main tabs', async () => {

@@ -1,6 +1,6 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import {
@@ -65,7 +65,7 @@ test.describe('Me tab filters and credit visibility', () => {
   let pageBob: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -76,6 +76,7 @@ test.describe('Me tab filters and credit visibility', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = pageBob = undefined;
     contextTom = contextJerry = contextBob = undefined;
@@ -87,7 +88,7 @@ test.describe('Me tab filters and credit visibility', () => {
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Me filters hide disallowed talk types and preserve the credit visibility toggle', async () => {

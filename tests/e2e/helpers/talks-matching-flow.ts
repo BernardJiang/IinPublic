@@ -734,10 +734,17 @@ export async function ensureMeshNeighbors(
   }
 }
 
-/** Close pages/contexts, manualCleanup, clear Gun — use in beforeEach for multi-user talks suites. */
+/**
+ * Close pages/contexts, manualCleanup, clear Gun — use in beforeEach for multi-user talks suites.
+ * docs/TODO.md §K4: callers should pass their own stage's `clearGunForStageNSpec` (this helper
+ * is shared across stage2/stage3/isolated specs with different user counts, so there's no single
+ * correct stage to default to here) — `maybeClearGunDatabases` stays as the fallback only for a
+ * caller that genuinely doesn't care about loading a stage snapshot.
+ */
 export async function resetTalksMatchingSession(
   pages: { tom?: Page; jerry?: Page; bob?: Page },
   contexts: { tom?: BrowserContext; jerry?: BrowserContext; bob?: BrowserContext },
+  clearFn: () => Promise<void> = maybeClearGunDatabases,
 ): Promise<void> {
   const closePage = async (p?: Page) => {
     if (!p) return;
@@ -752,7 +759,7 @@ export async function resetTalksMatchingSession(
   await contexts.tom?.close().catch(() => {});
   await contexts.jerry?.close().catch(() => {});
   await contexts.bob?.close().catch(() => {});
-  await maybeClearGunDatabases();
+  await clearFn();
 }
 
 export async function finalCleanupPages(

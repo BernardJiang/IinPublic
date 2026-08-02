@@ -6,7 +6,8 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { afterLoad, afterSync, afterNav, afterAction } from '../../helpers/timing';
 import { sendConversationMessage } from '../../helpers/fast-dm-setup';
@@ -20,7 +21,7 @@ test.describe('Cross-tab DM inbox affordance, multiple senders (N2 stage3)', () 
   const pages: Page[] = [];
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test.afterAll(async () => {
@@ -29,7 +30,7 @@ test.describe('Cross-tab DM inbox affordance, multiple senders (N2 stage3)', () 
     }
     await Promise.all(contexts.map((c) => c.close().catch(() => {})));
     await Promise.all(browsers.map((b) => b.close().catch(() => {})));
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   async function bootstrap(stageName: string): Promise<Page> {

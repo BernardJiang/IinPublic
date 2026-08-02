@@ -269,20 +269,17 @@ and a signed identity/pointer record. No support database on the server.
   `e2e-stage-pipeline.ts:95-103` asserts on has to be reworked, since there is no longer a stored
   greeting message per user.
 
-### Current state (K1–K3, K5, K6, L1, L2 complete; K4 scoped-but-deferred; K7 new)
+### Current state (K1–K6, L1, L2 complete; K7 new)
 
 K1, K2, and K3 (below) landed 2026-07-25/26 — see `docs/completed.md` and the three design notes
-(`docs/design/techsupport-k1-design-note.md`, `-k2-`, `-k3-`) for the implementation record. K4's
-fixture, K5 (fully, including its `answeredBy` question — resolved 2026-08-01), K6 (fully,
-including its two stage1 tests), L1 (CRDT counter, including retiring the legacy-scalar fallback),
-and L2 (device-side size-triggered prune + fold-aggregate retention, plus the extended
-time/location/user size-report breakdown) have since landed too — see their `docs/completed.md`
-entries and §L2's own 2026-08-01 decision note. What's left for the K/L series:
+(`docs/design/techsupport-k1-design-note.md`, `-k2-`, `-k3-`) for the implementation record. K4
+(fixture 2026-07-26, partial conversion 2026-07-30, full conversion 2026-08-01), K5 (fully,
+including its `answeredBy` question — resolved 2026-08-01), K6 (fully, including its two stage1
+tests), L1 (CRDT counter, including retiring the legacy-scalar fallback), and L2 (device-side
+size-triggered prune + fold-aggregate retention, plus the extended time/location/user size-report
+breakdown) have since landed too — see their `docs/completed.md` entries and §L2's own 2026-08-01
+decision note. What's left for the K/L series:
 
-- K4: the `clearGunForStage3/4/5Spec` helpers exist and `talks-matching`/`isolated-01` are wired to
-  them; ~174 call sites remain (stage2/3/4/5/mass/isolated-02). Scope reconfirmed 2026-08-01 as a
-  **full** conversion (not a partial subset) — deferred to its own dedicated session, not a
-  correctness gap (every site already gets a valid built-in TechSupport today).
 - K7 (new 2026-08-01): TechSupport answer delegation — redirect a pending question to a trusted
   co-operator, relay their answer back through TechSupport. Needs an `[Opus]` design note before
   implementation; see §K7 for the scope already decided vs. what the design note still has to work
@@ -313,6 +310,10 @@ entries and §L2's own 2026-08-01 decision note. What's left for the K/L series:
 > guard); both stage1 tests (every block/filter route; maximally restrictive intake filters) done.
 
 ### K4. Every stage but stage0 loads a TechSupport-bearing snapshot `[Sonnet]`
+
+> **Complete 2026-08-01** — fixture + helpers landed 2026-07-26/30; the full remaining-call-site
+> conversion (58 files, 119 sites, plus the shared `resetTalksMatchingSession` gap) closed out
+> 2026-08-01. See the work-item note below for verification detail.
 
 **Requirement 2026-07-25: stage0 is the only place a database is built from scratch. Every other
 E2E spec — staged or not — must start by loading a stage snapshot that already contains
@@ -381,6 +382,44 @@ constructed in code, not a loaded stage. `maybeClearGunDatabases()`
       **Reconfirmed 2026-08-01:** convert **all** ~174 remaining sites, not a partial subset — do
       not cherry-pick just stage3's 128. Schedule as its own dedicated session rather than starting
       mid-session on other work (see the top-of-file session list).
+
+**Done (2026-08-01) — full conversion, dedicated session.** Re-audited counts on the actual
+codebase (not the earlier estimate) before converting: stage2 (5 files / 10 sites), stage3 (43
+files / 88 sites), stage4 (1 file / 2 sites), stage5 (4 files / 9 sites), `mass` (4 files / 8
+sites), `isolated-02` (1 file / 2 sites) — 58 files / 119 raw `maybeClearGunDatabases()` call
+sites, plus one straggler each in `stage1-single-user/00x-tab-sweep-smoke.spec.ts` and
+`helpers/talks-matching-flow.ts` the original audit's directory-level table didn't surface
+(`~174` was a rough estimate from an earlier pass; not what was actually left).
+
+- `mass/` and `isolated-02` convert to **`clearGunForStage1Spec`**, not a numbered multi-user
+  stage — this reconciles with the 2026-07-27 non-staged-dirs decision ("`mass`'s ephemeral
+  N-browser-loop specs get no benefit from any fixed-population stage and stay on the bare stage0
+  fixture"): `clearGunForStage1Spec` is exactly "load the committed stage0 fixture instead of
+  hand-building it," it just isn't one of the progressive 2–5 baselines.
+- Every other directory converts to its own matching helper (stage2→`clearGunForStage2Spec`, etc).
+- **Found and fixed a gap the 2026-07-30 partial conversion left behind:** `resetTalksMatchingSession()`
+  (`helpers/talks-matching-flow.ts`) — the shared `beforeEach` reset used by ~35 call sites across
+  stage2/stage3/isolated — still called the bare `maybeClearGunDatabases()` internally, so files
+  that had already "converted" their own `beforeAll`/`afterAll` (including `isolated-01`, done
+  2026-07-30) were still silently falling through to the unconverted path on every `beforeEach`.
+  Gave it an optional `clearFn` parameter (default `maybeClearGunDatabases`, so any caller not
+  updated keeps today's behavior) and threaded the correct stage function through all ~35 call
+  sites.
+- Purely mechanical, scripted transform (regex-based import rewrite + call-site replacement,
+  verified file-by-file against the exact diff shape of the original talks-matching conversion) —
+  zero `maybeClearGunDatabases()` references remain anywhere in `tests/e2e/` outside its own
+  definition and the `clearGunForStageNSpec` helpers that wrap it.
+- Verified: `tsc --noEmit` clean, `npm run lint` clean (the tests/e2e-only warnings/errors present
+  are pre-existing and out of `npm run lint`'s scope — confirmed identical before/after via
+  `git stash`), full Jest suite green (94/94 suites). Ran a representative sample covering every
+  converted directory and both call-site shapes (direct `beforeAll` calls and the shared
+  `resetTalksMatchingSession` helper) — 10/10 passed under the non-pipeline `clearGunDatabases()`
+  fallback branch, the one `run-test-all.sh` actually reaches today. Matching the 2026-07-30
+  conversion's own honestly-flagged limit: the pipeline-snapshot-loading branch itself (only
+  reached under `E2E_STAGE_PIPELINE=1`, e.g. `npm run test:e2e:staged`) is exercised via the same
+  proven `clearGunForStage1–5Spec` code shape, not a fresh full pipeline run this session — running
+  `test:e2e:staged` end to end (serial, whole suite) was judged out of proportion for a call-site
+  swap with no logic change.
 - [x] Non-staged dirs decided: `talks-matching/` and `isolated/`'s three-real-user specs should
       target **stage3** (audited actual `bootstrapUser()` patterns — corrects the earlier "stage2"
       hunch, which undercounted); `mass/`'s (and `isolated-02`'s) ephemeral N-browser-loop specs get

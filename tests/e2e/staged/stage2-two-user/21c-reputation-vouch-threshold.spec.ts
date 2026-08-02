@@ -42,6 +42,7 @@ test.describe('Reputation system — vouch threshold', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry },
       { tom: contextTom, jerry: contextJerry },
+      clearGunForStage2Spec,
     );
     pageTom = pageJerry = undefined;
     contextTom = contextJerry = undefined;

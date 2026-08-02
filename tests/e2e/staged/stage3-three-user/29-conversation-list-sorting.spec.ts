@@ -21,7 +21,7 @@
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync, reloadAppReady } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { getConversationIdBetween, waitForServerConversationBetween } from '../../helpers/conversation-e2e';
@@ -175,7 +175,7 @@ test.describe('Contacts tab recency sort with two independent matches sharing a 
   let pageC: Page | undefined;
 
   test.beforeAll(async ({ browser: fixtureBrowser, e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browser = fixtureBrowser;
   });
 
@@ -194,7 +194,7 @@ test.describe('Contacts tab recency sort with two independent matches sharing a 
     await contextA?.close().catch(() => {});
     await contextB?.close().catch(() => {});
     await contextC?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('A message then B message reorders C contacts by recency; order survives reload', async () => {

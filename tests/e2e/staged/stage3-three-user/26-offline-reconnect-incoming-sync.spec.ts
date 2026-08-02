@@ -3,7 +3,7 @@
  */
 import { Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { bootstrapUser, waitForIncomingTalkClusterOnServer } from '../../helpers/talks-matching-flow';
 import {
@@ -18,13 +18,13 @@ test.describe('Reconnect recovery', () => {
   let browserJerry: Browser;
 
   test.beforeAll(async ({ browser }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browserTom = browser;
     browserJerry = browser;
   });
 
   test.afterAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('incoming talk sync recovers after offline/online transition', async () => {

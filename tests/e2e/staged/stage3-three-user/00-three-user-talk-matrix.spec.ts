@@ -9,7 +9,7 @@
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import {
   clickBroadcastUntilBulkAck,
   completeTalksInAppByAnswerIds,
@@ -57,7 +57,7 @@ test.describe('Three-user complete talk matrix', () => {
   const users: UserRun[] = [];
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     users.push(
       { name: 'Tom', stageName: 'Tom Matrix 36', browser: browsers.tom },
@@ -72,12 +72,12 @@ test.describe('Three-user complete talk matrix', () => {
       { tom: users[0]?.context, jerry: users[1]?.context, bob: users[2]?.context },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('exchanges 36 distinct talks per user and flattens all answered questions', async () => {
     test.setTimeout(720_000);
-    await resetTalksMatchingSession({}, {});
+    await resetTalksMatchingSession({}, {}, clearGunForStage3Spec);
     const runId = `matrix-${Date.now()}`;
 
     for (const user of users) {

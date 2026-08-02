@@ -1,6 +1,6 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync } from '../../helpers/timing';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { gunBaseURL } from '../../helpers/ports';
@@ -70,7 +70,7 @@ test.describe('Talk expiration broadcast behavior', () => {
   let pageJerry: Page | undefined;
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -80,6 +80,7 @@ test.describe('Talk expiration broadcast behavior', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry },
       { tom: contextTom, jerry: contextJerry },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = undefined;
     contextTom = contextJerry = undefined;
@@ -91,7 +92,7 @@ test.describe('Talk expiration broadcast behavior', () => {
       { tom: contextTom, jerry: contextJerry },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('delivers an active one-day talk and excludes the same setting after it expires', async () => {

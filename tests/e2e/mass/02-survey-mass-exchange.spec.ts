@@ -5,7 +5,7 @@
  * running alone on a 14-core machine; 7 responders fit the budget with margin. */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage, completeTalksInAppByAnswerIds } from '../helpers/talk-demo-ui';
@@ -14,7 +14,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 const vector = (user: number) => Array.from({ length: 5 }, (_, q) => `surveya${q + 1}${((user * 7 + q) % 4) + 1}`);
 test.describe('M2 real survey mass exchange', () => {
   test('eight browsers submit seven golden numbered vectors', async () => {
-    test.setTimeout(900_000); await maybeClearGunDatabases();
+    test.setTimeout(900_000); await clearGunForStage1Spec();
     const browsers: Browser[] = []; const contexts: BrowserContext[] = []; const pages: Page[] = [];
     try {
       for (let i = 0; i < 8; i += 1) { const b = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--disable-dev-shm-usage'] }); browsers.push(b); const x = await bootstrapUser(b, `M2-${i}`, `M2 User ${i}`, 60_000); contexts.push(x.context); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); await x.page.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true)); }
@@ -95,6 +95,6 @@ test.describe('M2 real survey mass exchange', () => {
         }).length;
       }, created.talkId);
       expect(within7d).toBe(7);
-    } finally { await Promise.all(pages.map((p)=>p.evaluate(()=> (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(()=>{}))); await Promise.all(contexts.map((c)=>c.close().catch(()=>{}))); await Promise.all(browsers.map((b)=>b.close().catch(()=>{}))); await maybeClearGunDatabases(); }
+    } finally { await Promise.all(pages.map((p)=>p.evaluate(()=> (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(()=>{}))); await Promise.all(contexts.map((c)=>c.close().catch(()=>{}))); await Promise.all(browsers.map((b)=>b.close().catch(()=>{}))); await clearGunForStage1Spec(); }
   });
 });

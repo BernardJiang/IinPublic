@@ -1,6 +1,7 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
@@ -32,14 +33,14 @@ test.describe.skip('Creator reply triage at scale', () => {
   let page: Page;
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browser = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
 
   test.afterAll(async () => {
     await page?.close();
     await browser?.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('filters and sorts a 100-reply seeded multi-user delivery matrix', async () => {

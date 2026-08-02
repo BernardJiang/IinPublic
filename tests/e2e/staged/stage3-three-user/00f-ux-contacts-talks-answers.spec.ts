@@ -1,6 +1,6 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction } from '../../helpers/timing';
 import {
   bootstrapUser,
@@ -45,7 +45,7 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
   let pageBob: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -56,6 +56,7 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = pageBob = undefined;
     contextTom = contextJerry = contextBob = undefined;
@@ -67,7 +68,7 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('contacts include mismatched peers, contacts/chatroom open the same peer detail, talks nav splits IN and OUT, and answers show question plus answer', async () => {

@@ -6,7 +6,7 @@
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import {
   launchThreeBrowsers,
@@ -236,7 +236,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
   let pageBob: Page | undefined;
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -247,6 +247,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = pageBob = undefined;
     contextTom = contextJerry = contextBob = undefined;
@@ -258,7 +259,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('asks Tom when no exact option matches, then auto-reuses older exact history when Apple returns', async () => {

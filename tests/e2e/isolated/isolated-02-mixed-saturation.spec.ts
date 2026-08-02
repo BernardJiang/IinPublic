@@ -6,14 +6,14 @@
  * (per-type golden deliveries, full-mesh health, memory bound) keeps its meaning. */
 import { chromium } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless } from '../helpers/timing';
 import { bootstrapUser } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage } from '../helpers/talk-demo-ui';
 
 test.describe('M4 real mixed saturation', () => {
   test('six isolated browser profiles establish numbered identities for flow/tag/survey/route', async () => {
-    test.setTimeout(1_200_000); await maybeClearGunDatabases(); const browser = await chromium.launch({headless,args:['--disable-dev-shm-usage']});
+    test.setTimeout(1_200_000); await clearGunForStage1Spec(); const browser = await chromium.launch({headless,args:['--disable-dev-shm-usage']});
     try {
       const pages: any[] = [];
       for (let i=0;i<6;i+=1) { const x=await bootstrapUser(browser,`M4-${i}`,`M4 User ${i}`,60_000); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); }
@@ -127,6 +127,6 @@ test.describe('M4 real mixed saturation', () => {
       }));
       if (gunTalksKeyCount !== -1) { expect(gunTalksKeyCount).toBeLessThanOrEqual(created.length * 2); }
       expect(created).toHaveLength(4);
-    } finally { await browser.close().catch(()=>{}); await maybeClearGunDatabases(); }
+    } finally { await browser.close().catch(()=>{}); await clearGunForStage1Spec(); }
   });
 });

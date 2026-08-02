@@ -2,7 +2,8 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
-import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage4Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestStorageDir } from '../../helpers/ports';
@@ -81,7 +82,7 @@ test.describe('Capacity and eviction', () => {
   }
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage4Spec();
     const launch = (x: number, y: number) =>
       chromium.launch({
         headless,
@@ -99,7 +100,7 @@ test.describe('Capacity and eviction', () => {
     if (browser2) await browser2.close();
     if (browser3) await browser3.close();
     if (browser4) await browser4.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage4Spec();
   });
 
   test('Four users: Global fills to 3, fourth bumps first to North America; persistence after re-enter', async () => {

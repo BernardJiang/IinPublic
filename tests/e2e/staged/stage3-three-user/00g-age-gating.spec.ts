@@ -5,7 +5,7 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
@@ -63,7 +63,7 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
   let pageBob: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browserTom = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
     browserJerry = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
     browserBob = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=1280,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
@@ -73,6 +73,7 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = pageBob = undefined;
     contextTom = contextJerry = contextBob = undefined;
@@ -88,7 +89,7 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
     await browserTom?.close().catch(() => {});
     await browserJerry?.close().catch(() => {});
     await browserBob?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('age-verified Jerry receives adult talk; unverified Bob does not', async () => {

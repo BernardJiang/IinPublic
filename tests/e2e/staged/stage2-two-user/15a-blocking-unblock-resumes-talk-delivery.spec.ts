@@ -74,6 +74,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry },
       { tom: contextTom, jerry: contextJerry },
+      clearGunForStage2Spec,
     );
     pageTom = undefined;
     pageJerry = undefined;

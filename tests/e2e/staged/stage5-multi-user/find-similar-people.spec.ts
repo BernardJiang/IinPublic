@@ -29,7 +29,7 @@
 
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, afterNav, delay, headless } from '../../helpers/timing';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
 import {
@@ -146,11 +146,11 @@ test.describe('Find similar people', () => {
     pages.length = 0;
     contexts.length = 0;
     browsers.length = 0;
-    await maybeClearGunDatabases();
+    await clearGunForStage5Spec();
   });
 
   test('chatbot auto-matches created tags, user rejects the rest, contacts sort by match %', async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage5Spec();
     console.log(`[find-similar config] users=${NUM_USERS} tagsPerUser=${TAGS_PER_USER}`);
 
     // ── Phase 1: each user runs in its OWN browser instance ──────────────────

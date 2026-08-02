@@ -2,7 +2,8 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
 import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from '../../helpers/ports';
@@ -67,7 +68,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
         cleanStreak += 1;
       } else {
         cleanStreak = 0;
-        if (strays > 0) await maybeClearGunDatabases();
+        if (strays > 0) await clearGunForStage3Spec();
       }
       await wait(1500, 1500);
     }
@@ -77,9 +78,9 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     // A preceding spec's closed Gun peers can still flush a final write for a few
     // seconds. Drain those writes, then reseed immediately before this spec opens
     // its three fresh browser contexts; otherwise stale members inflate Global.
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     await wait(3500, 3500);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     // Absorb any late membership flush from the previous spec's closed peers before launching.
     await drainGlobalGhosts();
     browser1 = await chromium.launch({
@@ -103,7 +104,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     if (browser1) await browser1.close();
     if (browser2) await browser2.close();
     if (browser3) await browser3.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Three users enter sequentially, exit FIFO, re-enter random order', async () => {

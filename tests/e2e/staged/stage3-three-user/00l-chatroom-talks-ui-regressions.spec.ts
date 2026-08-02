@@ -1,6 +1,6 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterNav, afterSync } from '../../helpers/timing';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
@@ -52,7 +52,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
   let pageBob: Page | undefined;
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -63,6 +63,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = pageBob = undefined;
     contextTom = contextJerry = contextBob = undefined;
@@ -74,7 +75,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('chatroom headcounts keep updating across room switches and Return Home refreshes the open detail view', async () => {

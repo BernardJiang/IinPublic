@@ -1,6 +1,6 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync } from '../../helpers/timing';
 import {
   clickBroadcastUntilBulkAck,
@@ -80,7 +80,7 @@ test.describe('Incoming talk language intake filtering', () => {
   let pageJerry: Page | undefined;
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -90,6 +90,7 @@ test.describe('Incoming talk language intake filtering', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry },
       { tom: contextTom, jerry: contextJerry },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = undefined;
     contextTom = contextJerry = undefined;
@@ -101,7 +102,7 @@ test.describe('Incoming talk language intake filtering', () => {
       { tom: contextTom, jerry: contextJerry },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('allows English and Chinese, hides Spanish, then accepts Spanish after opt-in', async () => {

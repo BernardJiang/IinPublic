@@ -4,7 +4,7 @@
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
@@ -34,7 +34,7 @@ test.describe('Talks matching — tag answer retained in IN history', () => {
   let pageBob: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserAlice = browsers.tom;   // reuse the three-browser pool
     browserTom = browsers.jerry;
@@ -45,6 +45,7 @@ test.describe('Talks matching — tag answer retained in IN history', () => {
     await resetTalksMatchingSession(
       { tom: pageAlice, jerry: pageTom, bob: pageBob },
       { tom: contextAlice, jerry: contextTom, bob: contextBob },
+      clearGunForStage3Spec,
     );
     pageAlice = pageTom = pageBob = undefined;
     contextAlice = contextTom = contextBob = undefined;
@@ -56,7 +57,7 @@ test.describe('Talks matching — tag answer retained in IN history', () => {
       { tom: contextAlice, jerry: contextTom, bob: contextBob },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('Tom ignores tag (unchecked), reopens it, checks box → match', async () => {

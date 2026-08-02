@@ -102,6 +102,7 @@ test.describe('Chatroom peer detail views', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry },
       { tom: ctxTom, jerry: ctxJerry },
+      clearGunForStage2Spec,
     );
   }
 

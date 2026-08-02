@@ -38,6 +38,7 @@ test.describe('Reputation system — peer star rating', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry },
       { tom: contextTom, jerry: contextJerry },
+      clearGunForStage2Spec,
     );
     pageTom = pageJerry = undefined;
     contextTom = contextJerry = undefined;

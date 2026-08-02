@@ -58,6 +58,7 @@ test.describe('Reputation system — block count propagation', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry },
       { tom: contextTom, jerry: contextJerry },
+      clearGunForStage2Spec,
     );
     pageTom = pageJerry = undefined;
     contextTom = contextJerry = undefined;

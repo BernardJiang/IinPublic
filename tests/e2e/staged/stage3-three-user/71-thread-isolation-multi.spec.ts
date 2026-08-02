@@ -6,7 +6,8 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { afterLoad, afterSync, afterNav } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -22,7 +23,7 @@ test.describe('Thread isolation across three users', () => {
   const pages: Page[] = [];
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test.afterAll(async () => {
@@ -31,7 +32,7 @@ test.describe('Thread isolation across three users', () => {
     }
     await Promise.all(contexts.map((c) => c.close().catch(() => {})));
     await Promise.all(browsers.map((b) => b.close().catch(() => {})));
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   async function bootstrap(stageName: string): Promise<Page> {

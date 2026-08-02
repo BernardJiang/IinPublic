@@ -23,7 +23,7 @@
 
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction } from '../../helpers/timing';
 import {
   shutdownThreeBrowsers,
@@ -79,7 +79,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(240_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     const mk = (x: number) => ({
       headless: !!process.env.CI,
       args: [
@@ -103,7 +103,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
       { tom: contextAdam, jerry: contextBob, bob: contextCarol },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   /** Deterministic pair conversation id for a peer, read from myConversations. */

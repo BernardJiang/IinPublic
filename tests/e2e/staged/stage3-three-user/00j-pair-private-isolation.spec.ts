@@ -5,7 +5,7 @@
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import {
@@ -193,7 +193,7 @@ test.describe('Pair-private graph isolation', () => {
   let pageTom: Page | undefined;
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserBob = browsers.tom;
     browserAlice = browsers.jerry;
@@ -204,6 +204,7 @@ test.describe('Pair-private graph isolation', () => {
     await resetTalksMatchingSession(
       { bob: pageBob, alice: pageAlice, tom: pageTom },
       { bob: contextBob, alice: contextAlice, tom: contextTom },
+      clearGunForStage3Spec,
     );
     pageBob = pageAlice = pageTom = undefined;
     contextBob = contextAlice = contextTom = undefined;
@@ -215,7 +216,7 @@ test.describe('Pair-private graph isolation', () => {
       { bob: contextBob, alice: contextAlice, tom: contextTom },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('same talk to Alice and Tom keeps Alice/Bob answer and DM ciphertext pair-private', async () => {

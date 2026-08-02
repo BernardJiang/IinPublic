@@ -16,7 +16,8 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
@@ -37,7 +38,7 @@ test.describe('Contacts: stranger default label → save relationship → sort (
   let pageJerry: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTom = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
     browserJerry = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
@@ -52,7 +53,7 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     await contextJerry?.close();
     await browserTom?.close();
     await browserJerry?.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   async function bootstrapUser(

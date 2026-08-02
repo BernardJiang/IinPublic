@@ -1,6 +1,6 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync } from '../../helpers/timing';
 import {
   clickBroadcastUntilBulkAck,
@@ -34,7 +34,7 @@ test.describe('Talk lifecycle: stranger before match, then contact', () => {
   const MATCH_TALK = 'Lifecycle Stranger Match';
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;
     browserJerry = browsers.jerry;
@@ -44,6 +44,7 @@ test.describe('Talk lifecycle: stranger before match, then contact', () => {
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry },
       { tom: contextTom, jerry: contextJerry },
+      clearGunForStage3Spec,
     );
     pageTom = pageJerry = undefined;
     contextTom = contextJerry = undefined;
@@ -55,7 +56,7 @@ test.describe('Talk lifecycle: stranger before match, then contact', () => {
       { tom: contextTom, jerry: contextJerry },
     );
     await shutdownThreeBrowsers(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   test('shows stranger in contacts after match without a saved relationship label', async () => {

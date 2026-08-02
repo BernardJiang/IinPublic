@@ -1,6 +1,6 @@
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless, afterSync, E2E_ASSERT_TIMEOUT_MS } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
@@ -201,7 +201,7 @@ async function seedContactsAsUsers(page: Page, userId: string): Promise<void> {
 test.describe('M4 heavy-user GUI stress', () => {
   test('keeps every tab responsive with an already data-heavy user', async () => {
     test.setTimeout(600_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
 
     const browser = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--disable-dev-shm-usage'] });
     let context: BrowserContext | undefined;
@@ -382,7 +382,7 @@ test.describe('M4 heavy-user GUI stress', () => {
       await page?.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
       await context?.close().catch(() => {});
       await browser.close().catch(() => {});
-      await maybeClearGunDatabases();
+      await clearGunForStage1Spec();
     }
   });
 });

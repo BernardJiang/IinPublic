@@ -1,7 +1,7 @@
 /** M1 — real ten-browser flow exchange using numbered golden vectors. */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage, completeTalksInAppByAnswerIds } from '../helpers/talk-demo-ui';
@@ -30,7 +30,7 @@ function numberedFlow(authorId: string) {
 test.describe('M1 real flow mass exchange', () => {
   test('ten browsers produce the nine numbered golden response vectors', async () => {
     test.setTimeout(720_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     const browsers: Browser[] = []; const contexts: BrowserContext[] = []; const pages: Page[] = [];
     try {
       for (let i = 0; i < 10; i += 1) {
@@ -83,7 +83,7 @@ test.describe('M1 real flow mass exchange', () => {
       await Promise.all(pages.map((page) => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {})));
       await Promise.all(contexts.map((context) => context.close().catch(() => {})));
       await Promise.all(browsers.map((browser) => browser.close().catch(() => {})));
-      await maybeClearGunDatabases();
+      await clearGunForStage1Spec();
     }
   });
 });

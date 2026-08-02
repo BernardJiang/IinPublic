@@ -1,6 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
+import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
+import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, afterAction, afterSync, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
@@ -81,11 +82,11 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
   const pages: Page[] = [];
 
   test.beforeEach(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage5Spec();
   });
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage5Spec();
     browser = await chromium.launch({
       headless,
       args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,900', '--force-device-scale-factor=1'],
@@ -96,7 +97,7 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
     for (const page of pages) await page.close().catch(() => {});
     for (const context of contexts) await context.close().catch(() => {});
     await browser?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage5Spec();
   });
 
   test('chatroom detail keeps one broadcast action and the member list can scroll', async () => {

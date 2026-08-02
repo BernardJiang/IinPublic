@@ -12,7 +12,7 @@
 
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterAction } from '../../helpers/timing';
 import { bootstrapUser, ensureMeshNeighbors } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -29,7 +29,7 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(240_000);
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
     const mk = (x: number) => ({
       headless: !!process.env.CI,
       args: [`--window-position=${x},40`, '--window-size=640,1200', '--force-device-scale-factor=1', ...WEBRTC_CHROMIUM_ARGS],
@@ -41,7 +41,7 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
   test.afterAll(async () => {
     await Promise.all([contextAdam, contextBob].map((c) => c?.close().catch(() => {})));
     await Promise.all(browsers.map((b) => b.close().catch(() => {})));
-    await maybeClearGunDatabases();
+    await clearGunForStage3Spec();
   });
 
   async function openConversation(page: Page, conversationId: string): Promise<void> {
