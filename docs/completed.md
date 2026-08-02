@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-07-29
+Last updated: 2026-08-02
 
 ## 2026-07-14 — S3 embedded-node mobile shells: Android/iOS native builds verified
 
@@ -4616,3 +4616,370 @@ interaction with a test-only helper's Global-default assumption.
 
 `tsc`/`lint`/Jest (1048/1048) all clean. No production code changed for root cause #2 — only
 `tests/e2e/staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts`.
+
+## 2026-08-01 — K4: full conversion of remaining call sites to stage-snapshot loading
+
+Moved from `docs/TODO.md` K4 (second landing, after the 2026-07-26 fixture landing above and the
+2026-07-30 partial `talks-matching`/`isolated-01` conversion).
+
+Re-audited the actual codebase (not the earlier ~174 estimate) before converting: 58 files / 119
+`maybeClearGunDatabases()` call sites remained — stage2 (5 files/10 sites), stage3 (43/88), stage4
+(1/2), stage5 (4/9), `mass` (4/8), `isolated-02` (1/2), plus stragglers in
+`stage1-single-user/00x-tab-sweep-smoke.spec.ts` and `helpers/talks-matching-flow.ts` the earlier
+directory-level table hadn't surfaced.
+
+- Every directory converted to its matching `clearGunForStageNSpec()` helper (stage2→2, stage3→3,
+  etc). `mass/` and `isolated-02` convert to `clearGunForStage1Spec` (loads the committed stage0
+  fixture) rather than a numbered multi-user stage — their ephemeral N-browser-loop specs get no
+  benefit from a fixed-population baseline (2026-07-27 decision); `clearGunForStage1Spec` is
+  exactly "load the fixture instead of hand-building it," just not one of the progressive stages.
+- **Found and fixed a gap the 2026-07-30 partial conversion left behind:** `resetTalksMatchingSession()`
+  (the shared `beforeEach` reset used by ~35 call sites across stage2/stage3/isolated) still called
+  the bare `maybeClearGunDatabases()` internally, so files that had already "converted" their own
+  `beforeAll`/`afterAll` — including `isolated-01`, done 2026-07-30 — were still silently falling
+  through on every `beforeEach`. Gave it an optional `clearFn` parameter (default
+  `maybeClearGunDatabases`, so any caller not updated keeps prior behavior) and threaded the correct
+  stage function through all ~35 call sites.
+- Purely mechanical: scripted regex-based import rewrite + call-site replacement, verified
+  file-by-file against the exact diff shape of the original talks-matching conversion. Zero
+  `maybeClearGunDatabases()` references remain anywhere in `tests/e2e/` outside its own definition
+  and the `clearGunForStageNSpec` wrappers.
+
+**Verified:** `tsc --noEmit` clean, `npm run lint` clean (pre-existing tests/e2e-only
+warnings/errors confirmed identical before/after via `git stash`, and out of `npm run lint`'s
+scope anyway), full Jest suite green (94/94 suites). Ran a representative sample across every
+converted directory and both call-site shapes (direct `beforeAll` calls and the shared
+`resetTalksMatchingSession` helper) — 10/10 passed under the non-pipeline `clearGunDatabases()`
+fallback branch, the one `run-test-all.sh` actually reaches today. The pipeline-snapshot-loading
+branch itself (only reached under `E2E_STAGE_PIPELINE=1`) is exercised via the same proven
+`clearGunForStage1–5Spec` code shape, not a fresh full `test:e2e:staged` run — judged out of
+proportion for a call-site swap with no logic change, matching the 2026-07-30 conversion's own
+honestly-flagged limit.
+
+## 2026-07-27/28 — K5 Item 6 + full test list; `answeredBy` question resolved into K7
+
+Moved from `docs/TODO.md` K5 (Items 1-5 archived 2026-07-25/26 above; this is Item 6 + the test
+list + the design-question resolution).
+
+- Item 6 tests: `stage1/09-support-faq-reask-no-duplicate.spec.ts` (a known question is still
+  auto-answered after TechSupport's browser context closes for good, and re-asking it does not
+  create a second FAQ bundle row or regress the inbox entry off `answered`) and
+  `stage2/00l-techsupport-faq-cross-user.spec.ts` (a second, unrelated ordinary user is
+  auto-answered the same question with zero TechSupport involvement, proving the FAQ bundle is
+  genuinely global).
+- Full test list, all passing: `10-techsupport-ignores-broadcast-talks.spec.ts` (TechSupport's IN
+  index stays empty, headcount stays 2 for tag+flow talks — surfaced a stronger guarantee than
+  documented, that the *sender's own* receiver-resolution excludes TechSupport, not just the
+  receiver-side check); `06-support-new-question-ack.spec.ts` + `07-support-inbox-answer-flow.spec.ts`
+  (new-question ack, TechSupport-stopped mailbox delivery, dev-login answer flow, cross-device
+  answered-flip); `09-support-faq-reask-no-duplicate.spec.ts` (known-question auto-answer with
+  TechSupport stopped, no duplicate FAQ row on reask). All assert via DOM/Gun state, never toasts.
+- **`answeredBy` open question resolved 2026-08-01:** with exactly one operator today, a plain
+  `answeredBy` field has nothing to disambiguate — not implemented. Multi-operator answering became
+  its own item, K7 (deferred — see `docs/TODO.md`), since "redirect to someone else, relay their
+  answer back through TechSupport" is a materially different flow than "record who's logged in."
+
+## 2026-08-01 — L1/L2: legacy-scalar retirement + device-side visit-counter pruning
+
+Moved from `docs/TODO.md` L (CRDT G-Counter migration, size instrumentation, and the 2026-07-25
+design decision archived earlier above; this is the 2026-08-01 follow-through).
+
+- **L1: retired the `max(new, legacy)` fallback** in `ChatroomManager.getChatroom` — responses now
+  come straight from the G-Counter's `visitTotals()`. Confirmed via research that no client, E2E
+  spec, or the committed `stage0.fixture.json` reads the legacy `visitCount`/`uniqueVisitorCount`
+  scalars or writes `visits/<eventId>` any more; `migrateLegacyVisitScalar` (the one-time
+  slot-seeding migration) is unaffected and stays, since it's what makes the fallback's retirement
+  safe. Verified: full unit suite (91 suites, 1094 passed) plus real staged E2E runs
+  (`stage2/35-concurrent-visit-counter.spec.ts` 2/2, `stage1/00-ui-navigation-settings.spec.ts` +
+  `stage2/01-login-two-users-headcount.spec.ts` 9/9). `techsupport-graph.ts`'s dev-only baseline
+  graph still hardcodes the legacy fields but is unreachable from any E2E path — left as is.
+- **L2 decision (Bernard, 2026-08-01): lighter than SRS §28.9's merkle-checkpoint pattern, and
+  deliberately so** — room-visit data (Tier 3, other users' bounded-TTL cache) doesn't need
+  provable pruning the way the ledger/messages do (nobody needs an O(log N) proof a departed
+  visitor once visited). Instead: **prune by time by default** (oldest `lastVisitedAt` first past
+  `DEFAULT_VISIT_COUNTER_MAX_SLOTS = 500`, adjustable — no production numbers exist yet to tune
+  against, so this ships as a sensible default rather than waiting), and **tombstone by folding**
+  (each pruned slot's count sums into a per-room `visitCounterPruned` aggregate *before* deletion,
+  so `visitTotalsWithPruned()` keeps the lifetime badges numerically identical across a prune).
+  Trimming is **device-side and symmetric** — server (`ChatroomManager.pruneVisitCounterIfNeeded`)
+  and every browser (`WebChatroomService.pruneVisitCounterIfNeeded`) each run the identical check
+  against their own local Gun graph, sharing one pure module
+  (`src/shared/visit-counter.ts`: `planVisitCounterPrune`/`foldSlotsIntoPrunedAggregate`).
+  Unit-tested (prune selection, fold correctness, badge-invariance across a prune, an end-to-end
+  trigger test) and confirmed against real staged E2E runs.
+- **`graph-size-report.ts` extended** per the same decision's item #1 ("build a size report tool
+  ... so we know which take space and what to trim"): every category with genuine per-room/per-user
+  concentration reports `topLocations`/`topUsers` (capped at 10) and, where a timestamp field
+  exists, an `ageBuckets` histogram, off `GET /api/test/graph-size`.
+- This closes the "are the lifetime badges worth their cost" question too: Bernard chose to keep
+  the badges and prune the storage behind them, not delete the feature.
+
+## 2026-07-31 — R1/R2/R3: fast-first-render for Contacts, Talks, and Me/Answers
+
+Moved from `docs/TODO.md` R (audit 2026-07-29, requirement: 500 contacts too slow to load, first
+few should show ASAP with the rest filled quietly in the background — as a general list-rendering
+principle, not a one-off Contacts fix). R4 (chatroom members, already does the non-blocking-enrich
+half correctly, low real-scale ceiling) and R5 (conversations/support-inbox, currently low-volume)
+stay explicitly low-priority/no-immediate-work, not part of this landing.
+
+**Shared helper, built once and reused three times:** `src/web/ui/render-list-progressively.ts`
+(`renderListProgressively(container, items, { firstChunkSize, renderRow, onFirstChunkRendered?,
+prefixHtml?, isStale?, scheduleRemainder? })`) — slice first N, write immediately, process the rest
+off the blocking path and append/patch in place. Unit-tested in isolation
+(`render-list-progressively.test.ts`, 6 tests).
+
+- **R1 (Contacts, the worst case — audit found a genuine ~3.2s blocking pre-render chain
+  *and* no pagination):** `renderContactsListCore` now runs synchronously with no blocking await
+  inside it, called immediately then again after the background enrichment
+  (`contactPreRenderSync`/`prefetchPeerLocations`) resolves. `CONTACTS_FIRST_CHUNK_SIZE = 25`
+  (matching the pre-existing Replies-panel `PAGE_SIZE` precedent). Automatic quiet background fill,
+  no manual load-more button, per the requirement's own wording. Added a hard
+  `FIRST_ROW_BOUND_MS = 500` timing assertion (`expect.poll`, hard-failing) to
+  `04-heavy-user-gui-stress.spec.ts` — previously only `console.warn`-advisory; verified via the
+  stash pattern (fails at ~1950ms without the fix, passes at ~400ms with it). Plus 3 new unit tests
+  in `contacts-view.test.ts`. **Real bug found and fixed:** the delegated click listener originally
+  closed over `deps` at bind time, so a fresh render with a new `deps` object silently kept calling
+  the stale callback — fixed by stashing current `deps` on the element and reading it at click time.
+- **R2 (Talks tab):** audit found no blocking chain here (fully synchronous already) — same
+  no-pagination problem though. `renderOutRow`/`renderInRow` extracted and passed to
+  `renderListProgressively`, one delegated listener replacing per-row listeners.
+  `TALKS_FIRST_CHUNK_SIZE = 25`. Honest scope note: since there was never a blocking chain, a
+  first-row timing bound doesn't cleanly separate fixed-vs-broken here (both versions render 500
+  rows in ~150-200ms) — kept as a forward-looking perf budget, not proof of this fix. **Real bug
+  found:** the `'out'`-only view-mode branch was missing the `isStale` guard present on the other
+  three call sites — caught via `80-talks-list-progressive-render.spec.ts` (100 rows instead of 40
+  under rapid re-renders before the fix), fixed, 4/4 stable after.
+- **R3 (Me tab Answers):** same treatment; both row builders converted from DOM-construction
+  (`appendChild`) to string templates first, `ANSWERS_FIRST_CHUNK_SIZE = 25`. New `onRowsRendered`
+  hook so `applyMeAnswerFilter` re-scans after both the first chunk and the deferred remainder land.
+  **Real bug found:** the new string-template row wrote `style="display:flex"` (no space) verbatim,
+  whereas the old `.style.cssText` assignment round-tripped through CSSOM and normalized to
+  `display: flex;` (with space) — broke `29-me-answers-search.spec.ts`'s `[style*="display: flex"]`
+  selector; fixed by normalizing the string template's spacing to match.
+
+**Verified across all three:** `81-answers-list-progressive-render.spec.ts` (4/4), 5 new unit
+tests in `answers-view.test.ts` (including one proving the delegated listener reads current, not
+stale, `deps` across two rapid renders), plus full E2E regression sweeps on both the Talks tab
+(11 specs) and Me tab (6 specs) — all green.
+
+## 2026-08-01 — S: merkle-checkpoint pruning implementation (Items 0-3, ledger + messages)
+
+Moved from `docs/TODO.md` S (design note archived 2026-07-31; this is the 2026-08-01
+implementation landing). **Two items from this section stay open in `docs/TODO.md`** — the
+storage-budget-driven retention formula (decided, not yet implemented) and an unreliable
+message-pruning bug found during E2E verification — this entry covers only what's actually done.
+
+- Implemented `CHECKPOINT_CREATED` as a new ledger event kind (SRS §28.9.2) — merkle root over the
+  sorted CIDv1 array of the pruned range, SEA-signed, chained via `prev`; keeps the last M=500
+  events in full detail.
+- Implemented the delta-sync protocol change (SRS §28.9.6): a peer requesting a pruned event gets
+  the merkle proof instead of the raw node.
+- Implemented the analogous message-checkpoint structure for `pairConversations/*/messages/*`
+  (commits to both message ids and ciphertext hashes; keeps the last K_retain=200 messages per
+  conversation in full detail).
+- Unit-tested: a pruned range's checkpoint correctly verifies an O(log N) proof for an arbitrary
+  event/message in range, and rejects a forged proof.
+
+**Real E2E testing** (`tests/e2e/staged/stage2-two-user/30-ledger-message-pruning-e2e.spec.ts`)
+found and fixed **four real, previously-invisible bugs** the unit-level fakes couldn't catch: the
+ledger was completely inert in every E2E run since Phase E (a `DISABLE_HMR` gate); ledger event
+deletion never actually deleted anything (two separate causes — a flat-key `.put(null)` Gun
+rejects, then a `serializeDates` field-stripping bug); `getEventBySeq` silently broke every
+CID/signature verification it ever did (a date-coercion quirk); and the ledger's delta-sync inbox
+was permanently undiscoverable by any receiving peer (a flat-key-vs-nested-chain graph mismatch).
+Ledger checkpoint/prune/delta-sync is now solidly proven end to end across many real-browser runs.
+
+## 2026-08-01 — U: broadcast to a contact group, online or not, with deferred delivery
+
+Moved from `docs/TODO.md` U.
+
+Adds a second broadcast entry point (beyond "whoever's in this chatroom right now"): pick a named
+group of known contacts from the Contacts tab — *All*, a built-in `RelationshipLabel`, or any
+distinct `customLabel` in use (e.g. "Tennis Buddy," which falls out of the existing free-text field
+for free — no schema change, no group-membership editor) — and send to the whole group regardless
+of whether each member is online. Research found the delivery half needed nothing new:
+`PeerMeshService.broadcastTalk()` already accepts an explicit `recipientUserIds` list (room
+broadcast is just one caller of a more general primitive), already floods the mesh to whoever's
+online, and already falls through to the existing offline mailbox (SEA-encrypted,
+`MAILBOX_DEFAULT_TTL_MS=48h`/`MAILBOX_MAX_TTL_MS=72h`) for anyone who doesn't ACK in time — "defer
+until online, drop after timeout" was already exactly what that store does.
+
+Built: `listContactGroups`/`resolveContactGroupUserIds` (`src/shared/contact-groups.ts`, v1
+simplest — bucket by `RelationshipLabel`/`customLabel`, no new data model, group membership
+resolved entirely on the sender's own device, server/other users never see it), a "Broadcast to
+group…" picker on the Contacts tab, and delivery reusing `deliverTalkToReceiversOverMesh` verbatim
+— the same mesh-flood-plus-mailbox-fallback path every other broadcast already uses. Per-broadcast
+custom timeout control was decided against for v1 — the existing fixed 48h/72h mailbox window is
+good enough to start.
+
+**Verified:** unit-tested (13 tests) and real-browser-verified
+(`32-broadcast-to-contact-group.spec.ts`) — that run caught and fixed a real test-design flaw
+(creating a talk while still in a chatroom auto-broadcasts it to the room by default, which would
+have let the test pass even with a broken handler; fixed by unchecking "send to chatroom" so the
+assertion cleanly proves only the group-broadcast path delivered it). Full unit suite green
+throughout (93/93 suites).
+
+## 2026-08-01 — V: Auto Linear Capture (FR-TK-7), two-author credit model, edit-mints-new-id policy
+
+Moved from `docs/TODO.md` V. This was spec'd on the project's first day (`FR-TK-7`/`FR-TK-8`/
+`UI-1d`/§13.6/`TC-LIN-01`, `projectplan.md` commit `b24cdda8`, 2026-01-19) and never implemented
+against the current architecture — research initially missed that `src/shared/talk-engine.ts`
+already contained a same-day `FlowCapture` attempt at this (`parseChatLine`/`createLinearTalk`),
+one hyphen away from the SRS's own traceability-table prediction; corrected mid-investigation.
+
+**Decided grammar (simplified 2026-08-01, Bernard — "keep it simple enough"):** dropped the
+original spec's `**`/`*` prefix markers. Plain `Question? Answer1; Answer2; …; AnswerN.` — the
+**first** answer continues the flow (`isMatch: true`); every other answer ends it (`isIgnore:
+true`, the same as tapping Ignore anywhere else in a flow talk) — ordinal position alone encodes
+intent, no punctuation burden. Produces `flow`-type talks only (`FR-TK-8` — route/survey stay
+Talk-Editor-only). The diversion from plain-text send to talk-capture is **mandatory-confirm,
+never silent**.
+
+**Two-author credit model, built to support the append/edit case:** `Talk.originalAuthorId`/
+`originalCreatedAt`/`originalAuthorLocation` (permanent, seeded once from the predecessor, copied
+forward unchanged) vs. `authorId`/`createdAt`/`authorLocation` (current author/edit metadata,
+reassigned only when a content edit mints a new talk id). **Title edits don't count as authorship
+at all** (Bernard: "keep the title as is") — consistent with `title` never being part of the
+content-hash payload for `flow` talks to begin with. **Edit-mints-a-new-id policy:** a content edit
+(changes to `questions`/`type`/`language` — the fields actually inside the identity hash) mints a
+new talk id via `buildRevisedTalkDraft()`, links back via `supersedesTalkId`, and retires the
+predecessor per a new Settings toggle (`getKeepOldTalkOnEdit()`, default `false` = delete via the
+already-existing `UIManager.deleteMyTalk()`; advanced override keeps it disabled via the
+already-existing `setTalkDisabled()`, which also floods a real retraction tombstone) — routed
+through one new `UIManager.applyTalkRevisionPolicy(predecessorTalkId)`.
+
+**Built:** `FlowCapture.parseChatLine()` reused as-is (matched the decided grammar exactly, now
+unit-tested for the first time); `createLinearTalk()`'s original synthetic-button design (no
+match/ignore split, unused, untested) rewritten in place as `assembleCapturedTalk()`, reusing the
+already-well-tested `TalkAutofix.fix()` for chaining instead of re-implementing it. 17 new unit
+tests including `TC-LIN-01`'s exact worked example and an end-to-end `checkIfMatch`/`checkIfIgnore`
+proof.
+
+**Verified in real browsers**, not just unit tests, since this is genuinely interactive UI
+(confirmation dialog, tappable chips): `31-auto-linear-capture.spec.ts`, two real browsers, full
+pipeline (shorthand → mandatory confirmation → chips on both sides → chip-tap quick-reply →
+terminator → saved flow Talk in the sender's own OUT list). **Real bug found:** the confirmation
+dialog's default z-index (1000) sat below the already-open conversation overlay (1001), so its own
+message list intercepted the Accept click — fixed by matching the codebase's existing "float above
+an open conversation" tier (2000, same as the media lightbox). Full unit suite green throughout
+(92/92 suites).
+
+**Left genuinely open, not silently closed:** whether a metadata-only edit (tags, expiry,
+location-radius — not title, which is separately settled) on the existing in-place `updateTalk`
+path should reassign `authorId`/`createdAt`/`authorLocation` to the editor, or keep preserving them
+as it already does today. In practice `updateTalk`'s existing preserve-on-metadata-edit behavior is
+unchanged by this item, so nothing regresses either way — but the question itself was never
+explicitly decided.
+
+## 2026-08-01/02 — W: incremental re-broadcast, unified ledger-based suppression, ignore semantics
+
+Moved from `docs/TODO.md` W. Verification requested: "when Adam has exchanged 100 talks with Eve
+and broadcasts 120 again, Eve should only receive 20 new" — **confirmed already correct** for the
+literal (answered) case via `deliverTalkToReceiversOverMesh`'s pre-send
+`shouldSuppressForPeer` check. Research surfaced two adjacent gaps, both since closed:
+
+- **Gap 1 (received-but-unanswered talks weren't suppressed):** fixed by adding
+  `UIManager.getUnsentBroadcastTalkReceiverIds(chatroomId, talkIds, receiverIds)` — computes which
+  receivers actually still need each individual talk, intersected with the existing room-wide
+  "which talks to even attempt" union rather than replacing it. Verified via
+  `09-exchange-suppression.spec.ts`, `06-sender-suppression.spec.ts`,
+  `00-broadcast-abort-clear-all.spec.ts`, `00-broadcast-boundary-match.spec.ts`, and a 36-talk/user
+  mixed-membership room test.
+- **Gap 2 (three uncoordinated "don't resend" mechanisms — room-broadcast-history localStorage,
+  the ledger's answer-triggered `exchanged` suppression, and peer-detail's separate
+  `localTalkExchanges` check) unified onto one ledger-based mechanic (Bernard, 2026-08-01):** new
+  `TALK_SENT` ledger event (`talk-ledger.ts`) fires **locally, by the sender, at send time** — no
+  round-trip to the recipient — and a new `sent` map (keyed like the existing `exchanged` map)
+  closes the "received but not yet answered" hole at the source. `shouldSuppress()` now ORs
+  `exchanged` and `sent`. Room-broadcast history (`broadcastConversationHistory`,
+  `recordBroadcastConversation`) deleted outright as redundant; `sendDirectTalkToPeer` ("Send My
+  Talks") rewired to route through the same `deliverTalkToReceiversOverMesh` chokepoint instead of
+  calling `mesh.broadcastTalk` directly; `classifyPeerSendTalks`'s "already sent" check reads the
+  ledger instead of `localTalkExchanges`. Behavior change, intentional: suppression is now
+  content-hash based, not metadata-timestamp based (a cosmetic touch no longer un-suppresses; only
+  a genuine content change does) — the one existing test asserting the old behavior was rewritten.
+  Verified: new `talk-ledger.test.ts`/`web-talk-ledger-store` tests, full Jest suite green (95/95,
+  +13), and a full real-E2E pass across every suppression-sensitive spec plus the newly-rewired
+  peer-send/peer-detail specs — all green, several printing the ledger's own suppression debug
+  lines, confirming the unified path is actually exercised.
+- **Completeness refinement (Bernard, "if receiver answers 2 of 3 questions, sender should treat it
+  as not yet answered"):** root cause was a survey's per-question "Ignore" answer being treated as
+  "abandon the whole survey" in three independent code paths (`applyChoice`, the auto-answer path,
+  and the `tryCollectAllAutoAnswers` pre-scan) — only one of the three did it correctly. Extracted
+  one shared `nextSurveyQuestion()` helper; every non-last survey answer now advances regardless of
+  its own isIgnore/isMatch/isTerminal flags. Added a defensive backstop at
+  `submitTalkResponsePairDirect` (sender) and `handleMeshTalkResponse` (receiving/author side): both
+  independently verify completeness before any mesh send or ledger write.
+- **Ignore-semantics clarification (Bernard, 2026-08-02):** the fix above initially conflated two
+  distinct things — an asker-provided answer that happens to carry `isIgnore: true` (a real,
+  complete answer, e.g. a flow's "No" branch) vs. the dedicated, always-present "Ignore" radio row
+  (sentinel `answerId === 'ignore'`) representing the receiver's own opt-out of the *whole talk*.
+  Fixed `applyChoice`/the auto-answer path to branch on the sentinel first — the dedicated choice
+  now always ends the response immediately regardless of talk type or question position. Also
+  closed a gap that predated this whole fix: picking the dedicated Ignore choice still submitted a
+  real mismatch response to the sender before this — added `completeTalk(..., { withholdFromSender
+  })`, threaded through to `handleTalkCompleted`, which now skips the mesh submission (but still
+  runs local bookkeeping) when set.
+
+**Left open in `docs/TODO.md`:** whether `sendBulkTalk`/`BulkSendJob` (found to be dead code —
+no consumer/worker anywhere — while investigating this section) should be removed or finished.
+
+## 2026-08-01 — X: Talk.authorLocation blurred by default (SRS FR-CR-8/NFR-S-1 compliance)
+
+Moved from `docs/TODO.md` X. Found while working V's two-author model: `Talk.authorLocation`
+stored the raw, precise GPS coordinate at creation (`app.ts`, `this.currentLocation` passed
+straight in) and carried it forward unchanged through updates — a direct, confirmed violation of
+the SRS's own day-one requirement that only a blurred region ever leaves the device
+(`FR-CR-8`/`NFR-S-1`), not a judgment call.
+
+Fixed by switching the one real write site to a blurred value — as a **numeric pair, not the
+`region` string** originally sketched, since three real consumers (`haversineMilesBetween`'s
+delivery-radius filter, `formatTalkDistanceFromAuthor`, `cid.ts`'s optional location hash) all
+expect `{latitude, longitude}` numbers and a string would have forced all three to re-parse. New
+`LocationPrivacy.blurCoordinatePair()` reuses the same ~2km grid-snap math `blurLocation` already
+uses (extracted into a shared private `gridSnap` helper) but returns a coarse numeric pair — zero
+consumers needed to change, `locationRadiusMiles` filtering degrades to approximate exactly as the
+SRS's own "approximate is acceptable" precedent for distance sorting already calls for.
+Unit-tested, full suite green (91/91 suites).
+
+Scope confirmed with Bernard: "share my precise location with someone" is a separate future
+feature, out of scope here; `Chatroom.location`/`BusinessInfo.coordinates` (a business owner
+publishing their storefront address) is a different, already-legitimate "specifically requested"
+disclosure case, not the same violation — no fix needed there.
+
+## 2026-08-01 — Y1/Y2: copy ≠ authorship; incoming-talk-cluster retention
+
+Moved from `docs/TODO.md` Y. Verification of copy/disable/delete/dedup/trim behavior for incoming
+talks against a description of how it should work — five of seven claims confirmed already true
+(no action needed); the tombstone half of the sixth was proposed then withdrawn once the actual
+gap was understood (Bernard, 2026-08-01: "not necessary since question/answer set is hold in me
+tab"). The remaining two were real, scoped work:
+
+- **Y1 — copying a talk stamped the copier as author immediately** (`toOwnedOutgoingTalk()`, at
+  copy time, across 4 call sites), when it should only transfer on a real edit. Fixed by deleting
+  `toOwnedOutgoingTalk()` outright — all 4 call sites now pass the talk through unmodified, so a
+  copy keeps the original sender as `authorId` through copy, broadcast, and re-opening the editor.
+  Editing a copy is what actually transfers authorship: `talk-editor-dialog.ts` gates its "update
+  in place" mode on `existingTalk.authorId === currentUserId`; a foreign-authored (copied) talk
+  falls through to create-a-new-talk on submit instead, stashing the source talk for
+  `buildRevisedTalkDraft()` (the same §V machinery) to pick up, then retires the old copied entry
+  via `applyTalkRevisionPolicy()`. **Bug found along the way:** `WebTalkService.createTalk()` built
+  its returned `Talk` from a field whitelist that silently dropped
+  `originalAuthorId`/`originalCreatedAt`/`originalAuthorLocation`/`supersedesTalkId` — meaning §V's
+  DM-shorthand append case had the same gap, never caught because the only prior coverage tested
+  `buildRevisedTalkDraft()` in isolation, never through actual persistence. Verified via
+  `82-copy-then-edit-transfers-authorship.spec.ts`.
+- **Y2 — incoming-talk clusters (`ownerIncomingTalkIndex/<userId>/<identityKey>`) had zero
+  retention**, and the size-report tool couldn't even see the category (its matcher tested the
+  stale `incomingTalksByUser` path name from CLAUDE.md's outdated docs, so every real node fell
+  into `unclassifiedCount`). Fixed the matcher; added `planIncomingTalkClusterPrune()` — a direct
+  generalization of L2's `planVisitCounterPrune` (oldest-`updatedAt`-first, no fold-into-aggregate
+  needed since a pruned cluster's Q&A record survives independently in the Me tab),
+  `DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS = 500` as the starting threshold, wired as a
+  fire-and-forget check inside `upsertLocalIncomingTalkCluster()`. Unit-tested; no E2E, matching
+  the L2 precedent (unit-only coverage for this class of background pruning).
+- Also fixed, doc hygiene: CLAUDE.md's stale incoming-talk-cluster description (claimed a
+  server-side authoritative map; the real implementation is entirely client-side). Left alone as
+  out of scope: CLAUDE.md's "Route modules"/"Talk delivery flow" sections are considerably more
+  stale than just this one path name (name files/functions removed since the P2P migration) —
+  flagged in `docs/TODO.md` for a separate pass, not folded into Y2.
