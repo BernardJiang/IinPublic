@@ -1561,8 +1561,55 @@ path described above. Candidate for removal, or at minimum: don't build on it, i
       one recipient already has some of it" scenario), `06-sender-suppression.spec.ts`,
       `00-broadcast-abort-clear-all.spec.ts`, `00-broadcast-boundary-match.spec.ts`, and
       `stage3/00-three-user-talk-matrix.spec.ts` (36 talks/user across a real mixed-membership room).
-- [ ] Decide on Gap 2: unify the three exchange-tracking mechanisms, or document why three separate
-      ones is the right shape given their different entry points.
+- [x] Decide on Gap 2. **Decided 2026-08-01 (Bernard): unify to one ledger-based mechanic** —
+      all three entry points (room broadcast, contact-group broadcast, individual peer send) share
+      one filtering algorithm over `talk-ledger.ts`'s local `TalkLedgerDoc`; no synchronous
+      round-trip required, a small propagation delay is acceptable; the ledger needs a
+      finer-grained per-action event (fires on the sender's own send action, not on the
+      recipient's answer coming back) rather than only the existing answer-triggered one.
+      **Not yet implemented** — design below, tracked as a follow-up.
+
+**Unified ledger-based design (2026-08-01).** `talk-ledger.ts` is already a pure, local,
+event-sourced reducer (`LedgerEvent` → `applyEvent` → `TalkLedgerDoc`, `localStorage["talkLedger"]`,
+no Gun round-trip involved at all today) — extending it is additive, not a rewrite:
+
+1. **New event kind, `TALK_SENT`** (`{kind, peerId, identityKey, talkId, sentAt}`), alongside the
+   existing `TALK_ANSWERED`/`TALK_RETRACTED`. Fired **locally, by the sender, at the moment a send
+   is attempted** — inside the single existing chokepoint, `deliverTalkToReceiversOverMesh`
+   (`app.ts:3314`), right where it already loops per (talk, recipient) pair. This is the "fine
+   tuned to each one's own action, not a round trip" part: it's *my own* action (I sent it), not
+   something that needs the peer's ack or answer to exist.
+2. **New `sent: Record<string, SentEntry>` map** on `TalkLedgerDoc`, keyed identically to the
+   existing `exchanged` map (`${peerId}::${identityKey}` — content-hash based, so a genuinely
+   revised talk gets a new identityKey and is correctly treated as new, for free). New `applyEvent`
+   branch writes it, same shape as the existing `TALK_ANSWERED` branch.
+3. **`shouldSuppress()` becomes the single unified predicate**: suppress if `exchanged` (answered)
+   **OR** `sent` (already delivered, answered or not) has an entry for `(peerId, identityKey)`.
+   Already wired into `deliverTalkToReceiversOverMesh`, which room broadcast *and* group broadcast
+   already route through — so this one change closes Gap 1 properly (a received-but-unanswered
+   talk is now suppressed too) without the room-broadcast-history workaround that Gap 1's 2026-08-01
+   fix used as a stopgap.
+4. **Retire room-broadcast history** (`broadcastConversationHistory`, the `revisionKey` localStorage
+   scheme, `getUnsentBroadcastTalkIds*`/`isBroadcastUnsentForReceiver` family in `ui-manager.ts`) —
+   superseded by (3); it existed only to patch the same hole `sent` now closes at the source.
+5. **Rewire "Send My Talks"** (peer-detail view, `user-detail-view.ts:891` → `local-peer-derivation.ts`'s
+   `classifyPeerSendTalks`/`readLocalTalkExchanges` → `app.sendDirectTalkToPeer`, `app.ts:1452`) —
+   today this path calls `mesh.broadcastTalk` **directly**, bypassing `deliverTalkToReceiversOverMesh`
+   and the ledger entirely, relying solely on its own separate `localTalkExchanges` localStorage
+   key. Route it through the same chokepoint (single recipient) instead, so there is structurally
+   **one** send path all three UI entry points funnel through — suppression enforced in exactly one
+   place, not re-implemented a third time.
+6. `localTalkExchanges`/`readLocalTalkExchanges` — retire as a *gate*; if the peer-detail UI still
+   wants an "already sent" badge, derive it by reading the ledger's `sent`/`exchanged` maps instead
+   of a separate store, so there is one source of truth, not one authoritative plus one cosmetic.
+7. Eviction is free: `sent` gets the same LRU-by-date cap `exchanged` already has
+   (`EXCHANGED_CAP`/`evictSection`) — losing an entry costs one redundant resend, never a
+   correctness bug, exactly the existing documented failure mode.
+
+Net effect: three data stores (ledger `exchanged`, room-broadcast revision history,
+`localTalkExchanges`) become one (ledger `exchanged` + `sent`), and three independently-implemented
+filtering checks become one function reused by all three send UIs.
+
 - [ ] Decide whether `sendBulkTalk`/`BulkSendJob` should be removed as dead code or finished as a
       real feature — currently neither, which is its own small hazard for whoever finds it next.
 
