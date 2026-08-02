@@ -1575,13 +1575,41 @@ from the incoming talk's own author fields (falling back to its plain `authorId`
 a real content edit (which, per §V's already-decided edit-mints-a-new-id policy, would mint a new
 talk id at that point too).
 
-- [ ] Stop stamping `authorId` at copy time; seed `original*` fields from the source talk instead.
-- [ ] Confirm broadcasting a copied-but-unedited talk works correctly with the *original* sender as
+- [x] Stop stamping `authorId` at copy time; seed `original*` fields from the source talk instead.
+- [x] Confirm broadcasting a copied-but-unedited talk works correctly with the *original* sender as
       `authorId` — check whether any delivery/dedup logic assumed the copier's own id was already
       the author (e.g. sender-suppression, `authorEpub` attachment for pair-encryption).
-- [ ] Wire an actual content edit on a copied talk through the same revise-mints-new-id +
+- [x] Wire an actual content edit on a copied talk through the same revise-mints-new-id +
       `originalAuthorId`-transfer path §V already built for the DM-shorthand case, so "edit" is what
       finally makes the copier the credited author, not "copy."
+
+**Done (2026-08-01).** `toOwnedOutgoingTalk()` — the function that stamped `authorId` at copy
+time — was deleted outright rather than fixed; its 4 call sites (manual copy `ui-manager.ts:5000`,
+auto-copy-on-answer `ui-manager.ts:6741`, broadcast-payload re-stamp `ui-manager.ts:7258`, and the
+copied-row click-to-edit handler `ui-manager.ts:3117`) now pass the talk through unmodified, so a
+copy keeps the original sender as `authorId` through copy, broadcast, and re-opening the editor.
+Editing a copy is what actually transfers authorship: `talk-editor-dialog.ts` gates its
+"update in place" `editingTalkId` marker on `existingTalk.authorId === currentUserId` (an
+`isOwnedEdit` check, new `currentUserId` option) — a foreign-authored (copied) talk pre-fills the
+form but falls through to the create-a-new-talk path on submit, stashing the source talk in a new
+`data-revise-source-talk` form attribute. `ui-manager.ts`'s `processTalkForm` reads that stash and
+includes it as `reviseSourceTalk` on the `createTalk` event; `app.ts`'s `createTalk` handler
+detects it and routes through `buildRevisedTalkDraft()` (the same §V machinery) instead of the
+ordinary from-scratch path, then calls `applyTalkRevisionPolicy()` to retire the old copied entry.
+Verified in a real browser: `tests/e2e/staged/stage2-two-user/82-copy-then-edit-transfers-authorship.spec.ts`
+confirms the copy preserves original `authorId`, and editing mints a new talk with the editor as
+`authorId`, `originalAuthorId` pointing back at the original sender, and `supersedesTalkId` linking
+to the retired copy.
+
+**Bug found and fixed along the way:** `WebTalkService.createTalk()` built its returned `Talk`
+object from an explicit field whitelist that never included `originalAuthorId`/
+`originalCreatedAt`/`originalAuthorLocation`/`supersedesTalkId` — so *any* caller passing a
+`buildRevisedTalkDraft()` result (this fix, and also §V's DM-shorthand append case, which used the
+exact same call shape) had those fields silently dropped before the talk was ever saved. No
+existing test caught it because the only coverage was of `buildRevisedTalkDraft()` in isolation
+(`flow-capture.test.ts`), never through the actual persistence path — this Y1 E2E spec is the
+first test that exercises `createTalk()` end-to-end with a revised draft. Fixed by copying the four
+fields through when present (`web-talk-service.ts`).
 
 ### Y2. Incoming-talk clusters have no retention — fold into the same system §L2 already built `[Sonnet]`
 

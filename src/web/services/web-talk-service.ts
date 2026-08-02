@@ -171,6 +171,13 @@ export class WebTalkService {
     if (talkData.expiresAt != null) talk.expiresAt = talkData.expiresAt;
     if (talkData.locationRadiusMiles != null) talk.locationRadiusMiles = talkData.locationRadiusMiles;
     if (talkData.authorLocation != null) talk.authorLocation = talkData.authorLocation;
+    // docs/TODO.md §V/§Y1 — a revise-mints-new-id draft (buildRevisedTalkDraft) carries the
+    // original-author lineage and the predecessor link; without this they were silently
+    // dropped since this constructor only copied known base fields.
+    if (talkData.originalAuthorId != null) talk.originalAuthorId = talkData.originalAuthorId;
+    if (talkData.originalCreatedAt != null) talk.originalCreatedAt = talkData.originalCreatedAt;
+    if (talkData.originalAuthorLocation != null) talk.originalAuthorLocation = talkData.originalAuthorLocation;
+    if (talkData.supersedesTalkId != null) talk.supersedesTalkId = talkData.supersedesTalkId;
 
     // Stamp each question with a CIDv1 content hash (excludes routing fields)
     talk.questions = await this.stampQuestionCids(talk.questions);

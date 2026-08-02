@@ -3114,7 +3114,11 @@ export class UIManager extends EventEmitter {
           if (role === 'copied') {
             const copied = this.getMyTalks()[talkId];
             if (copied?.fullTalk) {
-              this.showTalkEditorDialog(this.toOwnedOutgoingTalk(copied.fullTalk));
+              // docs/TODO.md §Y1: pass the talk as-is (original authorship intact) — the
+              // editor dialog itself decides create-vs-update-in-place by comparing
+              // existingTalk.authorId to currentUserId. Pre-stamping here would make every
+              // copied talk look self-authored before the user has actually edited anything.
+              this.showTalkEditorDialog(copied.fullTalk);
             } else {
               this.showNotification(this.t('talksCouldNotLoad'), 'error');
             }
@@ -4999,7 +5003,9 @@ export class UIManager extends EventEmitter {
       type: talk.type,
       timestamp: talk.lastInteraction || new Date().toISOString(),
       role: 'copied',
-      fullTalk: this.toOwnedOutgoingTalk(talk.fullTalk),
+      // docs/TODO.md §Y1: a copy is not authorship — keep the original sender as authorId
+      // until the user actually edits the content through the revise-mints-new-id path.
+      fullTalk: talk.fullTalk,
       completedAnswers: talk.completedAnswers,
       outcome: talk.outcome,
       senders: talk.senders,
@@ -6671,15 +6677,6 @@ export class UIManager extends EventEmitter {
     return JSON.stringify({ q, loc, title, type: talk.type });
   }
 
-  private toOwnedOutgoingTalk(talk: any): any {
-    if (!talk || typeof talk !== 'object' || !this.currentUserId) return talk;
-    return {
-      ...talk,
-      authorId: this.currentUserId,
-      ...(this.currentUser?.stageName ? { authorName: this.currentUser.stageName } : {}),
-    };
-  }
-
   private completeTalk(talk: any, answers: any[], outcome?: 'match' | 'mismatch'): void {
     console.log('✅ Talk completed:', talk.id, answers, outcome);
 
@@ -6732,9 +6729,9 @@ export class UIManager extends EventEmitter {
       type: talk.type,
       timestamp: talk.createdAt || new Date().toISOString(),
       role,
-      fullTalk: role === 'copied'
-        ? this.toOwnedOutgoingTalk(existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk)
-        : existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
+      // docs/TODO.md §Y1: auto-copy on completion is still just a copy — original authorship
+      // is preserved either way until a real edit happens.
+      fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
       completedAnswers,
       outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
       senders,
@@ -7249,7 +7246,9 @@ export class UIManager extends EventEmitter {
   getBroadcastTalkPayload(talkId: string): any | null {
     const myTalks = getMyTalks();
     const row = myTalks[talkId];
-    const full = row?.role === 'copied' ? this.toOwnedOutgoingTalk(row?.fullTalk) : row?.fullTalk;
+    // docs/TODO.md §Y1: broadcasting a copied-but-unedited talk keeps the original sender as
+    // authorId — copying isn't authorship.
+    const full = row?.fullTalk;
     if (!full) return null;
     // Tag talks have no questions; non-tag talks require at least one question
     if (full.type !== 'tag' && (!Array.isArray(full.questions) || full.questions.length === 0)) return null;
@@ -7628,6 +7627,7 @@ export class UIManager extends EventEmitter {
     const defaultLanguage = String(existingTalk?.language || getDefaultTalkLanguagePreference(this.getUiLanguage())).toLowerCase();
     openTalkEditorDialog({
       existingTalk,
+      currentUserId: this.currentUserId,
       defaultLanguage,
       languageOptions: LANGUAGE_OPTIONS.map((language) => ({
         ...language,
@@ -7848,6 +7848,19 @@ export class UIManager extends EventEmitter {
     } else {
       const attachmentInput = document.getElementById('talk-attachment-input') as HTMLInputElement | null;
       const mediaFile = attachmentInput?.files?.[0];
+      // docs/TODO.md §Y1: editing a copied-but-not-yet-owned talk stashes the source talk on
+      // the form (see talk-editor-dialog.ts's isOwnedEdit gate) instead of setting
+      // editingTalkId — this is what finally makes the editor the credited author, via the
+      // same revise-mints-new-id + originalAuthorId-transfer path §V built for DM shorthand.
+      let reviseSourceTalk: any;
+      const rawReviseSource = form.dataset.reviseSourceTalk;
+      if (rawReviseSource) {
+        try {
+          reviseSourceTalk = JSON.parse(rawReviseSource);
+        } catch {
+          /* malformed stash — fall through as an ordinary new talk */
+        }
+      }
       this.emit('createTalk', {
         title,
         type,
@@ -7860,6 +7873,7 @@ export class UIManager extends EventEmitter {
         locationRadiusMiles,
         selfAnswers,
         ...(mediaFile ? { mediaFile } : {}),
+        ...(reviseSourceTalk ? { reviseSourceTalk } : {}),
       });
     }
     return true;

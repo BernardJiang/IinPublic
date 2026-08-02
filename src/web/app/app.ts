@@ -4749,6 +4749,11 @@ export class IinPublicApp {
         talkData: Partial<Talk> & {
           selfAnswers?: Array<{ questionId: string; answerId: string }>;
           mediaFile?: File;
+          // docs/TODO.md §Y1 — set only when the Talk Editor was opened on a copied-but-not-
+          // yet-owned talk and the user made a real content edit. Routes through the same
+          // revise-mints-new-id + originalAuthorId-transfer path §V built for DM shorthand,
+          // instead of an ordinary from-scratch talk.
+          reviseSourceTalk?: Talk;
         },
       ) => {
       try {
@@ -4756,7 +4761,7 @@ export class IinPublicApp {
 
         // Optional media: upload the file to IPFS and attach it so the link is auto-shared
         // to each matcher. Bytes never ride the talk broadcast — only the link does.
-        const { mediaFile, ...talkFields } = talkData;
+        const { mediaFile, reviseSourceTalk, ...talkFields } = talkData;
         let ipfsAttachments = talkFields.ipfsAttachments;
         if (mediaFile) {
           this.uiManager.showNotification(this.uiManager.formatMediaShareUploading(mediaFile.name), 'info');
@@ -4765,16 +4770,36 @@ export class IinPublicApp {
           ipfsAttachments = [...(ipfsAttachments ?? []), attachment];
         }
 
+        // TODO §X: blurred by default (docs/TODO.md) — never the precise coordinate.
+        const authorLocation = this.currentLocation
+          ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
+          : undefined;
+
         // Create the talk
-        const talk = await this.talkService.createTalk({
-          ...talkFields,
-          ...(ipfsAttachments ? { ipfsAttachments } : {}),
-          authorId: this.currentUser!.id,
-          // TODO §X: blurred by default (docs/TODO.md) — never the precise coordinate.
-          ...(this.currentLocation
-            ? { authorLocation: LocationPrivacy.blurCoordinatePair(this.currentLocation) }
-            : {}),
-        });
+        const talk = reviseSourceTalk
+          ? await this.talkService.createTalk({
+              ...buildRevisedTalkDraft(reviseSourceTalk, talkFields.questions ?? [], this.currentUser!.id, {
+                ...(talkFields.title !== undefined ? { title: talkFields.title } : {}),
+                ...(talkFields.type !== undefined ? { type: talkFields.type } : {}),
+                ...(talkFields.language !== undefined ? { language: talkFields.language } : {}),
+                ...(talkFields.tags !== undefined ? { tags: talkFields.tags } : {}),
+                ...(talkFields.isAdult !== undefined ? { isAdult: talkFields.isAdult } : {}),
+                ...(talkFields.expiresAt !== undefined ? { expiresAt: talkFields.expiresAt } : {}),
+                ...(talkFields.locationRadiusMiles !== undefined ? { locationRadiusMiles: talkFields.locationRadiusMiles } : {}),
+              }),
+              ...(ipfsAttachments ? { ipfsAttachments } : {}),
+              ...(authorLocation ? { authorLocation } : {}),
+            })
+          : await this.talkService.createTalk({
+              ...talkFields,
+              ...(ipfsAttachments ? { ipfsAttachments } : {}),
+              authorId: this.currentUser!.id,
+              ...(authorLocation ? { authorLocation } : {}),
+            });
+
+        if (reviseSourceTalk) {
+          this.uiManager.applyTalkRevisionPolicy(reviseSourceTalk.id);
+        }
 
         if (Array.isArray(talk.ipfsAttachments) && talk.ipfsAttachments.length > 0) {
           await this.ensureContentNodeInitialized();

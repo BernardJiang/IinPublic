@@ -2,6 +2,16 @@ import type { UiTranslationKey } from './ui-translations';
 
 type TalkEditorDialogOptions = {
   existingTalk?: any;
+  /**
+   * docs/TODO.md §Y1 — whether `existingTalk` (if any) is already authored by the person
+   * opening the editor. When it isn't (a copied-but-unedited incoming talk), the form must
+   * NOT submit through the "update in place" path — that would either silently fail (this
+   * user never locally created the source talk) or, worse, save an edited version while still
+   * leaving `authorId` as the original sender's (`WebTalkService.updateTalk` deliberately never
+   * reassigns authorship, correct for a real self-owned edit, wrong here). Editing a copy must
+   * go through the same mint-a-new-talk-and-transfer-credit path §V already built.
+   */
+  currentUserId?: string;
   escapeHtml: (text: string) => string;
   getAnswerPreferences: () => Record<string, any>;
   addQuestionToForm: (index: number, container: HTMLElement) => void;
@@ -27,7 +37,11 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'talk-editor-modal';
-  if (existingTalk?.id) {
+  // docs/TODO.md §Y1: only a talk this user already authored counts as "editing in place" —
+  // a copied-but-not-yet-edited talk (existingTalk.authorId belongs to someone else) still
+  // pre-fills the form, but must fall through to the create-a-new-talk path on submit.
+  const isOwnedEdit = !!(existingTalk?.id && (!existingTalk.authorId || existingTalk.authorId === options.currentUserId));
+  if (isOwnedEdit) {
     (modal as HTMLElement).dataset.editingTalkId = existingTalk.id;
   }
 
@@ -49,7 +63,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           <h2 class="modal-title">${isEdit ? text('editorEditTitle', 'Edit Talk') : text('editorCreateTitle', 'Create a Talk')}</h2>
           <p class="talk-editor-description">${text('editorDescription', 'Build a branching conversation flow - each answer can lead to a different question')}</p>
         </div>
-        <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${existingTalk?.id || ''}">
+        <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${isOwnedEdit ? existingTalk.id : ''}" data-revise-source-talk="${!isOwnedEdit && existingTalk?.id ? options.escapeHtml(JSON.stringify(existingTalk)) : ''}">
           <div class="form-group">
             <label class="form-label">${text('editorTalkTitle', 'Talk Title')}</label>
             <input type="text" class="form-input" id="talk-title" placeholder="${text('editorTitlePlaceholder', 'e.g., Coffee Meetup, Quick Survey')}" required value="${existingTalk ? options.escapeHtml(existingTalk.title) : ''}">
