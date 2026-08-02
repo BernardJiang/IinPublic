@@ -1653,14 +1653,28 @@ unimproved — it's invisible.**
 Tagged `[Sonnet]`, not `[Opus]` — this generalizes an already-decided pattern (§L2) to a second Gun
 path with a matching shape; no open design questions remain now that the tombstone half is dropped.
 
-- [ ] Fix `graph-size-report.ts`'s matcher: `incomingTalksByUser/<userId>/<identityKey>` →
+- [x] Fix `graph-size-report.ts`'s matcher: `incomingTalksByUser/<userId>/<identityKey>` →
       `ownerIncomingTalkIndex/<userId>/<identityKey>`, so this category is actually measurable
       before/while deciding a threshold.
-- [ ] Add device-side, size-triggered, oldest-`updatedAt`-first pruning for
+- [x] Add device-side, size-triggered, oldest-`updatedAt`-first pruning for
       `ownerIncomingTalkIndex/<userId>/<identityKey>`, mirroring `planVisitCounterPrune`/
       `pruneVisitCounterIfNeeded` — delete outright, no aggregate fold needed.
-- [ ] Pick a starting threshold (mirroring `DEFAULT_VISIT_COUNTER_MAX_SLOTS`'s "ship an adjustable
+- [x] Pick a starting threshold (mirroring `DEFAULT_VISIT_COUNTER_MAX_SLOTS`'s "ship an adjustable
       default, tune once real deployment numbers exist via the size-report tool" precedent).
+
+**Done (2026-08-01).** `graph-size-report.ts`'s `incoming-talks` matcher now tests the real
+`ownerIncomingTalkIndex/<userId>/<identityKey>` path (was silently falling into
+`unclassifiedCount`) and reads `updatedAt` for the age-bucket breakdown. New
+`planIncomingTalkClusterPrune()` (`src/shared/peer-talk-delivery.ts`) is a direct generalization
+of `planVisitCounterPrune` — same oldest-first-over-a-cap shape, deliberately no fold-into-
+aggregate step since a pruned cluster's Q&A record survives independently in the Me tab.
+`DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS = 500` ships as the starting threshold, same number and
+same "tune later against real size-report numbers" status as `DEFAULT_VISIT_COUNTER_MAX_SLOTS`.
+Wired as a fire-and-forget check inside `upsertLocalIncomingTalkCluster()` (every write path
+already funnels through it) — mirrors the visit-counter's "every device prunes its own local Gun
+graph independently" precedent, no server-authoritative pruner. Unit-tested
+(`peer-talk-delivery.test.ts`, `graph-size-report.test.ts`); no E2E added, matching precedent —
+`planVisitCounterPrune`/`pruneVisitCounterIfNeeded` also ship with unit-only coverage.
 
 **Also found, doc hygiene, unrelated to the fix but worth flagging while here:** CLAUDE.md's own
 description of this system (*"`incomingTalksByUser/<userId>/<identityKey>` ... server-side `Map`
@@ -1669,8 +1683,20 @@ real implementation is entirely client-side (`ownerIncomingTalkIndex/<userId>/<i
 gated by `p2pClientTalkMirror`/`p2pDirectTalkDelivery`, star-delivery removed per
 `src/shared/p2p-runtime.ts:12`). Worth correcting CLAUDE.md separately from this backlog item.
 
-- [ ] Update CLAUDE.md's incoming-talk-cluster description to match the current client-side-only
+- [x] Update CLAUDE.md's incoming-talk-cluster description to match the current client-side-only
       implementation and the real Gun path name.
+
+**Done (2026-08-01).** Both stale spots fixed: the Gun-paths list (now `ownerIncomingTalkIndex`,
+client-side-only, with a one-line pointer to `IncomingTalkClusterWire`) and the "Key invariants"
+bullet (now states there's no server-side map, and names the prune threshold). **Also found while
+here, deliberately left alone as out of scope for §Y2:** CLAUDE.md's "Route modules" list and
+"Talk delivery flow" section (main system-prompt copy) still name `talk-delivery-routes.ts` and
+`peer-routes.ts` — neither file exists in `src/server/routes/` anymore — and describe a
+`upsertIncomingTalkForUser` step that no longer exists anywhere in the codebase (confirmed via
+grep). `GET /api/incoming-talks` is gone too — `star-endpoints-removed.test.ts` asserts it now
+404s. That's a materially bigger staleness than this item's scope (the whole server-side talk-
+delivery narrative predates the P2P migration, not just this one path name) — worth its own pass,
+not folded in here.
 
 ---
 

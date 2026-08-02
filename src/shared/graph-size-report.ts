@@ -156,11 +156,17 @@ const MATCHERS: Matcher[] = [
     timestampOf: (v) => fieldOf(v, 'createdAt'),
   },
   {
+    // docs/TODO.md §Y2 — this used to test the stale `incomingTalksByUser/<userId>/
+    // <identityKey>` path name from CLAUDE.md's outdated description. The real,
+    // client-side-only path is `ownerIncomingTalkIndex/<userId>/<identityKey>`
+    // (`OWNER_INCOMING_TALK_INDEX_ROOT`, `src/shared/peer-talk-delivery.ts`); every
+    // incoming-talk-cluster node was silently falling into `unclassifiedCount`.
     key: 'incoming-talks',
-    pattern: 'incomingTalksByUser/<userId>/<identityKey>',
+    pattern: 'ownerIncomingTalkIndex/<userId>/<identityKey>',
     growth: 'per-event',
-    test: (s) => /^incomingTalksByUser\/[^/]+\/[^/]+$/.test(s),
+    test: (s) => /^ownerIncomingTalkIndex\/[^/]+\/[^/]+$/.test(s),
     userOf: (s) => soulSegment(s, 1),
+    timestampOf: (v) => fieldOf(v, 'updatedAt'),
   },
   {
     key: 'users',

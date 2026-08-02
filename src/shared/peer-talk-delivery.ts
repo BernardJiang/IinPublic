@@ -21,6 +21,32 @@ export type IncomingTalkClusterWire = {
   authorLocation?: { latitude: number; longitude: number };
 };
 
+/**
+ * docs/TODO.md §Y2 — `ownerIncomingTalkIndex/<userId>/<identityKey>` has the same unbounded
+ * one-node-per-X-per-Y growth shape §L2 already solved for room visit counters: no cap, no
+ * delete path. Mirrors `planVisitCounterPrune` (`src/shared/visit-counter.ts`) exactly — oldest
+ * `updatedAt` first, pruned back to `maxSlots` — except there's no lifetime aggregate to fold
+ * into first: a cluster's own Q&A record already lives independently in the Me tab's answer
+ * history (Bernard, 2026-08-01, closing the tombstone half of this item), so a pruned cluster
+ * has nothing that needs preserving. Delete outright.
+ */
+export const DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS = 500;
+
+export type IncomingTalkClusterPrunePlan = {
+  /** Clusters to delete, oldest `updatedAt` first — empty when nothing needs pruning yet. */
+  clustersToPrune: IncomingTalkClusterWire[];
+};
+
+export function planIncomingTalkClusterPrune(
+  clusters: IncomingTalkClusterWire[],
+  maxSlots: number = DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS,
+): IncomingTalkClusterPrunePlan {
+  if (clusters.length <= maxSlots) return { clustersToPrune: [] };
+  const sorted = [...clusters].sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : a.updatedAt > b.updatedAt ? 1 : 0));
+  const excess = clusters.length - maxSlots;
+  return { clustersToPrune: sorted.slice(0, excess) };
+}
+
 /** Gun cannot store nested arrays; serialize questions/tags before .put on mesh paths. */
 export function gunSafeTalkDataRecord(talkData: Record<string, unknown>): Record<string, unknown> {
   // Serialize through JSON to normalize Date instances into ISO strings.

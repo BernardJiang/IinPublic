@@ -1,6 +1,7 @@
 import {
   OWNER_INCOMING_TALK_INDEX_ROOT,
   mergeIncomingTalkCluster,
+  planIncomingTalkClusterPrune,
   type IncomingTalkClusterWire,
 } from '../../shared/peer-talk-delivery';
 import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
@@ -76,7 +77,35 @@ export function upsertLocalIncomingTalkCluster(
   const cluster = mergeIncomingTalkCluster(existingCluster, params);
   if (!flags.p2pClientTalkMirror) return cluster;
   mirrorIncomingTalkClustersToLocalGun(gunService, receiverUserId, [cluster], flags);
+  // docs/TODO.md §Y2: fire-and-forget, mirroring the visit-counter prune trigger
+  // (WebChatroomService.recordRoomVisit) — every device prunes its own local Gun graph
+  // independently, there is no single authoritative pruner under the P2P model.
+  void pruneIncomingTalkClustersIfNeeded(gunService, receiverUserId, flags).catch((err) => {
+    console.warn('[client-incoming-talk-mirror] incoming-talk-cluster prune failed (non-fatal):', receiverUserId, err);
+  });
   return cluster;
+}
+
+/**
+ * docs/TODO.md §Y2 — once a user's live incoming-talk-cluster count exceeds
+ * `DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS`, delete the oldest (by `updatedAt`) outright.
+ * No aggregate fold needed here (see `planIncomingTalkClusterPrune`'s doc comment) — a
+ * pruned cluster's own Q&A record already survives independently in the Me tab.
+ */
+export async function pruneIncomingTalkClustersIfNeeded(
+  gunService: WebGunService,
+  receiverUserId: string,
+  flags: P2PRuntimeFlags,
+): Promise<void> {
+  if (!flags.p2pClientTalkMirror || !receiverUserId) return;
+  const clusters = await collectLocalIncomingTalkClusters(gunService, receiverUserId, flags);
+  const plan = planIncomingTalkClusterPrune(clusters);
+  if (plan.clustersToPrune.length === 0) return;
+  const gun = gunService.getGun();
+  const ownerRef = gun.get(OWNER_INCOMING_TALK_INDEX_ROOT).get(receiverUserId);
+  for (const cluster of plan.clustersToPrune) {
+    if (cluster.identityKey) ownerRef.get(cluster.identityKey).put(null);
+  }
 }
 
 export async function collectLocalIncomingTalkClusters(

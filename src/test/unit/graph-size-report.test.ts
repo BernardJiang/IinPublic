@@ -20,6 +20,16 @@ describe('classifySoul', () => {
     expect(classifySoul('talks/t1')?.key).toBe('talks');
     expect(classifySoul('users/u1')?.key).toBe('users');
     expect(classifySoul('public/room-member-counts/global')?.key).toBe('public-aggregates');
+    // docs/TODO.md §Y2 — the real path (ownerIncomingTalkIndex), not the stale
+    // incomingTalksByUser name from CLAUDE.md's outdated description.
+    expect(classifySoul('ownerIncomingTalkIndex/u1/ik_abc')?.key).toBe('incoming-talks');
+  });
+
+  it('no longer recognizes the stale incomingTalksByUser path name (§Y2)', () => {
+    // Regression guard: this soul shape isn't written anywhere in the current
+    // implementation. If this ever starts classifying again, something reintroduced
+    // the old path name and the matcher needs re-checking against reality.
+    expect(classifySoul('incomingTalksByUser/u1/ik_abc')).toBeNull();
   });
 
   it('prefers the more specific pattern when two could match', () => {
@@ -228,6 +238,23 @@ describe('buildGraphSizeReport — location/user/age breakdowns', () => {
     for (let i = 1; i < locations.length; i++) {
       expect(locations[i - 1].nodeCount).toBeGreaterThanOrEqual(locations[i].nodeCount);
     }
+  });
+
+  it('groups incoming-talk clusters by owner and buckets age off updatedAt', () => {
+    const graph: Record<string, unknown> = {
+      'ownerIncomingTalkIndex/u1/ik_1': { updatedAt: '2026-08-01T11:30:00.000Z' }, // 30 min ago
+      'ownerIncomingTalkIndex/u1/ik_2': { updatedAt: '2026-01-01T12:00:00.000Z' }, // >90 days ago
+      'ownerIncomingTalkIndex/u2/ik_3': { updatedAt: '2026-08-01T11:00:00.000Z' },
+    };
+    const report = buildGraphSizeReport(graph, NOW);
+    const incoming = category(report, 'incoming-talks');
+    expect(incoming.nodeCount).toBe(3);
+    expect(incoming.topUsers).toEqual([
+      { id: 'u1', nodeCount: 2 },
+      { id: 'u2', nodeCount: 1 },
+    ]);
+    expect(incoming.ageBuckets).toMatchObject({ under1d: 2, over90d: 1 });
+    expect(incoming.topLocations).toBeUndefined();
   });
 
   it('does not add a location breakdown for user-subgraph but does add a user breakdown', () => {

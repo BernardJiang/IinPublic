@@ -67,13 +67,20 @@ All persistence goes through [Gun.js](https://gun.eco/). The server has a `GunSe
 - `user-talk-filters/<id>` — serialized `TalkIntakeFilters`
 - `user-blocks/<blockerId>/<targetId>` / `user-blocked-by/<targetId>/<blockerId>` — block graph
 - `talks/<id>` — talk definition + responses + stats
-- `incomingTalksByUser/<userId>/<identityKey>` — incoming talk clusters (server-side `Map` is authoritative; Gun path is a mirror)
+- `ownerIncomingTalkIndex/<userId>/<identityKey>` — incoming talk clusters, one shared body + a
+  `senders` map per cluster (`IncomingTalkClusterWire`, `src/shared/peer-talk-delivery.ts`);
+  client-side only, gated by `p2pClientTalkMirror`/`p2pDirectTalkDelivery`
 - `conversations/<id>` / `users/<id>/conversations/<convId>` — conversation records
 - `talkAnswerTemplateByUser/<userId>/<identityKey>` — cached answer templates for chatbot auto-reply
 
 **Gun.js quirks to know:**
 - Gun cannot store nested arrays; use `questionsJson` (serialized) alongside `questions` arrays.
-- `incomingTalksMap` on the server is an in-memory `Map<userId, Map<leaf, cluster>>` that bypasses Gun writes for bulk broadcast performance. The browser reads incoming talks via `GET /api/incoming-talks`, not by watching Gun directly.
+- Incoming-talk clusters are P2P/mesh-delivered and mirrored straight into the receiver's own
+  local Gun graph (`client-incoming-talk-mirror.ts`) — there is no server-side authoritative map
+  and no `GET /api/incoming-talks` endpoint (removed with star-delivery, `src/shared/p2p-runtime.ts:12`).
+  Device-side, size-triggered pruning (oldest `updatedAt` first, mirroring the room-visit-counter
+  prune below) keeps this path bounded — see `planIncomingTalkClusterPrune` in
+  `src/shared/peer-talk-delivery.ts`.
 - Cross-worker disk races in `clearGunDatabases()` are a known flakiness source — servers run `E2E_GUN_MEMORY_ONLY=1` so disk clears are not required.
 
 ### Server: `src/server/`
@@ -190,6 +197,9 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 
 - **Match logic is in `src/shared/talk-engine.ts`** — never duplicate it in routes or UI.
 - **TechSupport is the built-in first user and counts as exactly 1 in every headcount** (status bar, room badges) — see spec `docs/specs/iinpublic-technical-specifications.md` §19.7.1 (merged from the former `docs/design/techsupport-bootstrap-contract.md`, now in `docs/archive/consolidated-2026-07-29/`).
-- **Server `incomingTalksMap` is authoritative** — Gun writes for `incomingTalksByUser` are skipped in the delivery path; the browser fetches via HTTP.
+- **Incoming-talk clusters are client-side only, no server map** — mesh-delivered straight into
+  the receiver's own local Gun graph at `ownerIncomingTalkIndex/<userId>/<identityKey>`
+  (`client-incoming-talk-mirror.ts`); pruned device-side, oldest `updatedAt` first, once past
+  `DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS` (`src/shared/peer-talk-delivery.ts`).
 - **Private user data is SEA-encrypted** — `WebUserService.putPrivateUserData` writes `blockedUserIds`, `knownPeople`, `talkFilters` under the Gun user keypair. The server cannot read these; server-side user ops use Gun public paths only.
 - **`ContactsViewDeps`** must include every function deps object passed to contacts-view rendering; there are three call sites in `ui-manager.ts` (~lines 873, 890, 908).
