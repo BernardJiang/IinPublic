@@ -526,6 +526,10 @@ TechSupport account right now."
 
 ### K7. TechSupport answer delegation: redirect a question, relay the answer back `[Opus]`
 
+**Deferred 2026-08-01 (Bernard).** Explicitly shelved, not forgotten — no design note started,
+no implementation work. Revisit when it becomes a priority; the scope below is preserved as-is
+so a future session doesn't have to re-derive it.
+
 Decision 2026-08-01, arising from K5's `answeredBy` open question. Not yet designed at the code
 level — needs a design note (per the model-routing legend) before implementation.
 
@@ -1045,10 +1049,57 @@ mechanism at all** today, and a complete design for one already exists in the sp
 - [x] Implement the analogous message-checkpoint structure for `pairConversations/*/messages/*`
       (SRS §28.9.4 — commits to both message ids and ciphertext hashes; keep the last
       K_retain=200 messages per conversation in full detail).
-- [ ] Decide the real numeric retention windows for production (SRS §28.9 proposes N=100/M=500 for
-      the ledger and K=50/K_retain=200 for messages as starting points, not settled production
-      values) — this is the one piece of the design that's a policy choice, not an implementation
-      detail. **Still open — a decision for Bernard, not a coding task.**
+- [x] Decide the real numeric retention windows for production. **Decided 2026-08-01 (Bernard):
+      derive the per-category slot counts from one shared total-storage budget, not three
+      independently guessed numbers** — see "Storage-budget-driven retention formula" below.
+      **Not yet implemented** — `graph-size-report.ts` needs an avg-bytes-per-node extension and
+      the checkpoint-window/`DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS` constants need to switch from
+      flat literals to values derived from the formula; tracked as a follow-up.
+
+**Storage-budget-driven retention formula (2026-08-01).** Replaces the "three separately guessed
+numbers" framing above with one shared input: a single total local-retention budget `B` (bytes),
+split evenly across the prunable categories, converted to a slot count per category using each
+category's *measured* average node size — not another guess. This also folds in §Y2's incoming-talk
+clusters, which were left on a flat, unrelated `DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS = 500` guess
+with no connection to the ledger/message numbers.
+
+```
+B = TOTAL_LOCAL_RETENTION_BUDGET_BYTES        # one tunable constant, e.g. 8 MB to start
+categories = { ledger, messages, incoming_talks }   # extend the list if a 4th ever qualifies
+
+for each category c in categories:
+  share_c    = B / len(categories)            # equal thirds — "balanced" means no category
+                                               # is a priori favored, not equal item counts
+  avg_bytes_c = measured average serialized size of one node in c
+                (graph-size-report.ts, extended to sum byte length per category —
+                 same "measure before reaping" discipline §L2/§Y2 already established)
+  cap_c      = floor(share_c / avg_bytes_c)   # slots, not bytes
+
+when live_count_c > cap_c: prune oldest-first down to cap_c
+  (unchanged — planVisitCounterPrune / the checkpoint window / planIncomingTalkClusterPrune
+   already do exactly this; only where cap_c comes from changes)
+```
+
+**Worked example**, using the per-node byte sizes the spec already publishes (SRS §28.7/§9.5) —
+not invented for this: ledger event ≈350B, encrypted message ≈800B. Incoming-talk clusters have
+no published average yet (size varies with a talk's own question count — up to ~5KB for a complex
+route DAG per SRS §28.7's own `talks/<talkId>` estimate, since the cluster wire format embeds that
+same `questionsJson` plus a small senders map) — this is exactly the number the size-report
+extension needs to measure for real before the cap is set, not guess: the worked example below
+uses a placeholder ~1.5KB average to illustrate the mechanism only.
+
+| Category | share (B=8MB÷3) | avg bytes/node | cap (slots) |
+|---|---|---|---|
+| ledger | 2.67 MB | 350B | ≈7,900 events |
+| messages | 2.67 MB | 800B | ≈3,500 messages |
+| incoming-talk clusters | 2.67 MB | ~1.5KB (placeholder, needs measuring) | ≈1,870 clusters |
+
+This is why a flat "500 for everything" (today's `DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS`) isn't
+storage-fair: a cluster node is ~2–4× bigger than a message and ~4× bigger than a ledger event, so
+equal *slot counts* across categories means wildly unequal *actual bytes* — a budget-driven split
+gives the bigger-per-node category fewer slots for the same storage footprint, which is the
+actually-balanced outcome. `B=8MB` itself is a starting default in the same spirit as
+`DEFAULT_VISIT_COUNTER_MAX_SLOTS` — ship adjustable, tune once real deployment numbers exist.
 - [x] Test: unit — a pruned range's checkpoint correctly verifies an O(log N) proof for an
       arbitrary event/message in that range, and rejects a forged proof.
 - [x] Test: `stage2`/`stage3` — after enough messages/events to trigger pruning, older
