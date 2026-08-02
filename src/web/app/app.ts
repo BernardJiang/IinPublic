@@ -91,6 +91,7 @@ import {
   getResponderTargetsForIdentity,
   getResponderLastResponseId,
   writeAuthorExchangedEntries,
+  markTalkSentToPeer,
 } from '../services/web-talk-ledger-store';
 import { buildTalkIdentityKey } from '../../shared/cid';
 import {
@@ -1448,7 +1449,17 @@ export class IinPublicApp {
     return false;
   }
 
-  /** Directed peer send (Send My Talks) over the mesh-talk transport. */
+  /**
+   * Directed peer send (Send My Talks) over the mesh-talk transport.
+   *
+   * docs/TODO.md §W Gap 2 — this used to call `mesh.broadcastTalk` directly, bypassing
+   * `deliverTalkToReceiversOverMesh` (and therefore the ledger) entirely: the only thing
+   * stopping a resend was the peer-detail view's own separate `localTalkExchanges` check,
+   * inconsistent with every other send path. Now routes through the same chokepoint room
+   * broadcast and contact-group broadcast already use, so a talk already sent to this peer via
+   * *any* path (room, group, or a prior direct send) is suppressed here too, and this send
+   * writes the same `sent` ledger entry theirs do.
+   */
   public async sendDirectTalkToPeer(
     talkId: string,
     talkData: Talk | Record<string, unknown>,
@@ -1461,17 +1472,14 @@ export class IinPublicApp {
     if (this.isTalkExpiredForDelivery(talk)) {
       throw new Error('Talk expired');
     }
-    const mesh = this.ensurePeerMeshService();
-    if (!mesh) throw new Error('Mesh talk delivery is not available');
-    // R-f step 7: author-side Gun talks/* mirror removed; body cached in PeerMeshService directly.
+    // R-f step 7: author-side Gun talks/* mirror removed; body cached in PeerMeshService directly
+    // (deliverTalkToReceiversOverMesh does this itself via mesh.cacheTalkBody).
     const ready = await this.warmMeshConnectionToPeer(peerId, peerName);
     if (!ready) {
       console.warn('Directed mesh send proceeding before peer link reported ready');
     }
-    mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
-    await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
-      recipientUserIds: [peerId],
-    });
+    const ok = await this.deliverTalkToReceiversOverMesh(talkId, talk, [{ userId: peerId, stageName: peerName }]);
+    if (!ok) throw new Error('Mesh talk delivery is not available');
   }
 
   /** Subscribe to the receiver-owned local incoming-talk index used by mesh delivery. */
@@ -3359,7 +3367,11 @@ export class IinPublicApp {
     //   null    → skip entirely (all identities suppressed or edge gated)
     //   talk    → deliver unmodified talk (no suppression)
     //   filtered → deliver tag-filtered version (partial suppression)
-    type DeliveryPlan = { recipientId: string; talkPayload: typeof talk };
+    // docs/TODO.md §W Gap 2 — `sentIdentityKeys` is the set actually delivered to this
+    // recipient (identityKeys minus whatever was suppressed), recorded to the ledger's
+    // `sent` set once the send actually happens below, so a future send suppresses on our
+    // own outbound record, not just on the recipient's answer coming back.
+    type DeliveryPlan = { recipientId: string; talkPayload: typeof talk; sentIdentityKeys: string[] };
     const plans: DeliveryPlan[] = [];
 
     for (const recipientId of receiverIds) {
@@ -3384,6 +3396,8 @@ export class IinPublicApp {
         continue;
       }
 
+      const sentIdentityKeys = identityKeys.filter((ik) => !suppressedSet.has(ik));
+
       if (isTagTalk && suppressedSet.size > 0) {
         // Partial suppression for tag talk: deliver filtered body.
         const filterResult = filterTalkForRecipient(talk, suppressedSet);
@@ -3393,11 +3407,11 @@ export class IinPublicApp {
           continue;
         }
         const filteredTalk = { ...filterResult.filtered, id: talkId, authorId: me.id } as typeof talk;
-        plans.push({ recipientId, talkPayload: filteredTalk });
+        plans.push({ recipientId, talkPayload: filteredTalk, sentIdentityKeys });
         console.debug(`[Ledger] Partial tag suppression for ${recipientId}: delivering ${(filteredTalk.questions ?? []).length > 0 ? ((filteredTalk.questions as any[])[0]?.answers?.length ?? '?') : '?'} of ${identityKeys.length} tags`);
       } else {
         // No suppression (or non-tag talk with no suppression): deliver unmodified.
-        plans.push({ recipientId, talkPayload: { ...talk, id: talkId, authorId: me.id } });
+        plans.push({ recipientId, talkPayload: { ...talk, id: talkId, authorId: me.id }, sentIdentityKeys });
       }
     }
 
@@ -3445,6 +3459,16 @@ export class IinPublicApp {
         roomBroadcast: false,
       });
       announceCount += 1;
+    }
+
+    // docs/TODO.md §W Gap 2 — record our own send action locally, no round-trip to the
+    // recipient required. This is what lets a future send to the same (peer, identity) get
+    // suppressed even before an answer ever comes back — closes Gap 1 at the source.
+    const sentAtIso = new Date(nowMs).toISOString();
+    for (const plan of plans) {
+      for (const ik of plan.sentIdentityKeys) {
+        markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
+      }
     }
 
     const suppressedCount = receiverIds.length - plans.length;
@@ -4132,20 +4156,12 @@ export class IinPublicApp {
         .filter(({ tid }) => this.uiManager.getBroadcastableTalkIds().includes(tid))
         .length;
       this.uiManager.setBroadcastBulkAck(attempted, 0);
-      this.uiManager.recordBroadcastConversation(
-        chatroomId,
-        talkPayloads
-          .filter(({ tid }) => this.uiManager.getBroadcastableTalkIds().includes(tid))
-          .map(({ tid }) => tid),
-        [],
-      );
       return { talksSent: attempted, receivers: 0 };
     }
     // Mesh delivery fans out to resolved receivers directly; no server preview needed.
     const previews: BroadcastAudiencePreview[] = [];
     const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
     const REGISTER_BATCH = 5;
-    const registeredTalkIds: string[] = [];
     for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
       const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
       const batchResults = await Promise.all(
@@ -4155,21 +4171,18 @@ export class IinPublicApp {
             usesMeshTalkDelivery(this.p2pRuntimeFlags) || preview?.previewUnavailable || !Array.isArray(preview?.eligibleReceiverIds)
               ? undefined
               : preview.eligibleReceiverIds;
-          const ok = await this.deliverTalkToReceiversOverMesh(
+          return this.deliverTalkToReceiversOverMesh(
             tid,
             talk,
             receivers,
             eligibleIds,
             { skipAcknowledgements: opts.skipDeliveryAcks === true },
           );
-          if (ok) registeredTalkIds.push(tid);
-          return ok;
         }),
       );
       sent += batchResults.filter(Boolean).length;
     }
     this.uiManager.setBroadcastBulkAck(sent, targetCount);
-    this.uiManager.recordBroadcastConversation(chatroomId, registeredTalkIds, receivers);
     return { talksSent: sent, receivers: targetCount };
   }
 
@@ -4211,6 +4224,21 @@ export class IinPublicApp {
    */
   public getTalkLedgerDocForE2e(): unknown {
     return getTalkLedgerDoc();
+  }
+
+  /**
+   * docs/TODO.md §W Gap 2 E2E hook: write a `sent` ledger entry directly, for tests that need
+   * to simulate "a send already happened" without driving a full mesh delivery. Computes the
+   * identityKey the same way `deliverTalkToReceiversOverMesh` does (`buildTalkIdentityKey`) so
+   * a test-written entry suppresses exactly what a real send would.
+   */
+  public markTalkSentToPeerForE2e(params: { peerId: string; talkId: string; talkData: unknown; sentAt?: string }): void {
+    markTalkSentToPeer({
+      peerId: params.peerId,
+      talkId: params.talkId,
+      identityKey: buildTalkIdentityKey(params.talkData),
+      ...(params.sentAt ? { sentAt: params.sentAt } : {}),
+    });
   }
 
   /**
@@ -5050,7 +5078,6 @@ export class IinPublicApp {
           }
 
           this.uiManager.setBroadcastBulkAck(sent, targetCount);
-          this.uiManager.recordBroadcastConversation(chatroomId, registeredTalkIds, receivers);
           this.uiManager.showNotification(this.uiManager.formatBroadcastSent(sent, targetCount), 'success');
         } catch (error) {
           console.error('Broadcast talks failed:', error);

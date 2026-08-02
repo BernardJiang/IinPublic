@@ -943,12 +943,12 @@ test.describe('UI navigation and settings shell', () => {
       const app = (window as any).__iinpublic_app.getApp();
       const ui = app.uiManager as any;
       const userId = app.getCurrentUser().id;
-      localStorage.removeItem('broadcastConversationHistory');
+      const fullTalk = { id: 'autoOut', title: 'Automatic room entry talk', type: 'flow', questions: [{ id: 'q', text: 'Ready?', answers: [] }] };
       localStorage.setItem('myTalks', JSON.stringify({
         autoOut: {
           talkId: 'autoOut', title: 'Automatic room entry talk', type: 'flow', role: 'created',
           lastInteraction: '2026-06-20T00:00:00.000Z',
-          fullTalk: { id: 'autoOut', title: 'Automatic room entry talk', type: 'flow', questions: [{ id: 'q', text: 'Ready?', answers: [] }] },
+          fullTalk,
         },
       }));
       ui.setCurrentChatroomId('global');
@@ -957,14 +957,31 @@ test.describe('UI navigation and settings shell', () => {
       ui.on('broadcastTalk', (event: any) => emitted.push(event));
       ui.broadcastPendingTalksOnRoomEntry();
       const first = emitted.map((event) => ({ automatic: event.automatic, talkIds: event.talkIds, memberIds: event.members.map((m: any) => m.userId) }));
-      ui.recordBroadcastConversation('global', ['autoOut'], [{ userId: 'peer-auto' }]);
+      // docs/TODO.md §W Gap 2: simulate "already sent" via the unified ledger mechanism —
+      // the same write deliverTalkToReceiversOverMesh itself does on a real send.
+      app.markTalkSentToPeerForE2e({ peerId: 'peer-auto', talkId: 'autoOut', talkData: fullTalk });
       ui.broadcastPendingTalksOnRoomEntry();
       const emittedCountAfterNoReplay = emitted.length;
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-      talks.autoOut.lastInteraction = '2026-06-21T00:00:00.000Z';
-      localStorage.setItem('myTalks', JSON.stringify(talks));
+      // A metadata-only touch (no content change) must NOT un-suppress — ledger suppression
+      // is content-hash keyed, unlike the old revision-key scheme it replaced.
+      const talksMetaTouch = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      talksMetaTouch.autoOut.lastInteraction = '2026-06-21T00:00:00.000Z';
+      localStorage.setItem('myTalks', JSON.stringify(talksMetaTouch));
       ui.broadcastPendingTalksOnRoomEntry();
-      return { first, emittedCountAfterNoReplay, emittedCountAfterRevision: emitted.length, revised: emitted[1]?.talkIds || [] };
+      const emittedCountAfterMetaTouch = emitted.length;
+      // A genuine content change (different question text → different identityKey) must
+      // un-suppress.
+      const talksContentChange = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      talksContentChange.autoOut.fullTalk.questions[0].text = 'Ready now?';
+      localStorage.setItem('myTalks', JSON.stringify(talksContentChange));
+      ui.broadcastPendingTalksOnRoomEntry();
+      return {
+        first,
+        emittedCountAfterNoReplay,
+        emittedCountAfterMetaTouch,
+        emittedCountAfterContentChange: emitted.length,
+        revised: emitted[1]?.talkIds || [],
+      };
     });
 
     expect(result.first).toEqual([{
@@ -973,7 +990,8 @@ test.describe('UI navigation and settings shell', () => {
       memberIds: ['peer-auto'],
     }]);
     expect(result.emittedCountAfterNoReplay).toBe(1);
-    expect(result.emittedCountAfterRevision).toBe(2);
+    expect(result.emittedCountAfterMetaTouch).toBe(1);
+    expect(result.emittedCountAfterContentChange).toBe(2);
     expect(result.revised).toEqual(['autoOut']);
   });
 
@@ -1033,38 +1051,47 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-custom-blocked')).toHaveValue('spam, scam');
   });
 
-  test('broadcast history suppresses unchanged repeat room sends', async () => {
+  test('broadcast history (ledger-based, §W Gap 2) suppresses unchanged repeat room sends', async () => {
     const p = page!;
     const result = await p.evaluate(() => {
       const app = (window as any).__iinpublic_app.getApp();
       const ui = app.uiManager as any;
+      const fullTalk = {
+        id: 'repeat_talk_1',
+        title: 'Repeat Guard',
+        type: 'flow',
+        questions: [{ id: 'q1', text: 'Repeat?', answers: [{ id: 'a1', text: 'Yes', isMatch: true }] }],
+      };
       const talk = {
         id: 'repeat_talk_1',
         title: 'Repeat Guard',
         type: 'flow',
         role: 'created',
         lastInteraction: '2026-05-14T00:00:00.000Z',
-        fullTalk: {
-          id: 'repeat_talk_1',
-          title: 'Repeat Guard',
-          type: 'flow',
-          questions: [{ id: 'q1', text: 'Repeat?', answers: [{ id: 'a1', text: 'Yes', isMatch: true }] }],
-        },
+        fullTalk,
       };
       localStorage.setItem('myTalks', JSON.stringify({ repeat_talk_1: talk }));
       const before = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
-      ui.recordBroadcastConversation('global', ['repeat_talk_1'], [{ userId: 'peer-1' }]);
+      app.markTalkSentToPeerForE2e({ peerId: 'peer-1', talkId: 'repeat_talk_1', talkData: fullTalk });
       const afterSame = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
+      // Metadata-only touch (lastInteraction) — same content, must stay suppressed.
       localStorage.setItem('myTalks', JSON.stringify({
         repeat_talk_1: { ...talk, lastInteraction: '2026-05-14T00:01:00.000Z' },
       }));
-      const afterUpdate = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
-      return { before, afterSame, afterUpdate };
+      const afterMetaTouch = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
+      // Genuine content change — different identityKey, must un-suppress.
+      const revisedFullTalk = { ...fullTalk, questions: [{ id: 'q1', text: 'Repeat again?', answers: [{ id: 'a1', text: 'Yes', isMatch: true }] }] };
+      localStorage.setItem('myTalks', JSON.stringify({
+        repeat_talk_1: { ...talk, fullTalk: revisedFullTalk },
+      }));
+      const afterContentChange = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
+      return { before, afterSame, afterMetaTouch, afterContentChange };
     });
 
     expect(result.before).toEqual(['repeat_talk_1']);
     expect(result.afterSame).toEqual([]);
-    expect(result.afterUpdate).toEqual(['repeat_talk_1']);
+    expect(result.afterMetaTouch).toEqual([]);
+    expect(result.afterContentChange).toEqual(['repeat_talk_1']);
   });
 
   test('route responses preview the selected branch and resume saved progress', async () => {

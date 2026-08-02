@@ -39,6 +39,7 @@ export function setTalkLedgerQuotaUnlimited(v: boolean): void {
 const OUTCOMES_CAP = 5_000;
 const EXCHANGED_CAP = 5_000;
 const RETRACTED_CAP = 20_000;
+const SENT_CAP = 5_000;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,21 @@ export type RetractedEntry = {
   retractedAt: number;
 };
 
+/**
+ * (E) Sent set — docs/TODO.md §W Gap 2. Records that WE sent a talk to a peer, independent of
+ * whether they've answered yet — the fix for "suppression today only fires on the recipient's
+ * answer coming back, not on my own act of sending." Same key shape as (B) exchanged
+ * (`${peerId}::${identityKey}`), content-hash based so a genuinely revised talk (new
+ * identityKey) is correctly treated as new. Written locally, by the sender, at send time — no
+ * round-trip to the recipient required.
+ */
+export type SentEntry = {
+  peerId: string;
+  identityKey: string;
+  talkId: string;
+  sentAt: string;
+};
+
 /** The single localStorage doc. */
 export type TalkLedgerDoc = {
   version: 1;
@@ -111,6 +127,8 @@ export type TalkLedgerDoc = {
   edges: Record<string, EdgeCounter>;
   /** (D) Retraction tombstones. Key: `${talkId}::${authorId}` */
   retracted: Record<string, RetractedEntry>;
+  /** (E) Sent set. Key: `${peerId}::${identityKey}` */
+  sent: Record<string, SentEntry>;
 };
 
 /** Event shape passed to applyEvent. */
@@ -135,7 +153,16 @@ export type TalkRetractedEvent = {
   retractedAt: number;
 };
 
-export type LedgerEvent = TalkAnsweredEvent | TalkRetractedEvent;
+/** docs/TODO.md §W Gap 2 — fired locally by the sender at send time, no peer round-trip. */
+export type TalkSentEvent = {
+  kind: 'TALK_SENT';
+  peerId: string;
+  identityKey: string;
+  talkId: string;
+  sentAt: string;
+};
+
+export type LedgerEvent = TalkAnsweredEvent | TalkRetractedEvent | TalkSentEvent;
 
 // ─── Key builders ──────────────────────────────────────────────────────────────
 
@@ -154,7 +181,7 @@ export function retractedKey(talkId: string, authorId: string): string {
 // ─── Empty doc factory ────────────────────────────────────────────────────────
 
 export function emptyTalkLedgerDoc(): TalkLedgerDoc {
-  return { version: 1, outcomes: {}, exchanged: {}, edges: {}, retracted: {} };
+  return { version: 1, outcomes: {}, exchanged: {}, edges: {}, retracted: {}, sent: {} };
 }
 
 // ─── UTC bucket helpers (ported verbatim from server) ─────────────────────────
@@ -227,12 +254,15 @@ export function isStaleAgainstRetraction(
  * the given `identityKey` (REQ-LEDGER-16 / step 8.2).
  *
  * Suppresses if:
- *   (a) An exchanged entry exists for (peerId, identityKey), OR
- *   (b) An outcome row exists for any (responderId=peerId, *, identityKey).
+ *   (a) An exchanged entry exists for (peerId, identityKey) — they answered, OR
+ *   (b) A sent entry exists for (peerId, identityKey) — we already sent it, answered or not
+ *       (docs/TODO.md §W Gap 2 — closes the "received but not yet answered" hole at the
+ *       source instead of a room-scoped workaround), OR
+ *   (c) An outcome row exists for any (responderId=peerId, *, identityKey).
  *
- * Per-identity, not per-talkId-blob — this is the step-11-aligned predicate.
- * Step 11 will add only the per-tag fan-out caller; the predicate itself is
- * shipped here.
+ * Per-identity, not per-talkId-blob — this is the step-11-aligned predicate. This is now the
+ * single suppression check shared by every send path (room broadcast, contact-group broadcast,
+ * individual peer send) — see docs/TODO.md §W Gap 2.
  */
 export function shouldSuppress(
   doc: TalkLedgerDoc,
@@ -243,7 +273,10 @@ export function shouldSuppress(
   const eKey = exchangedKey(peerId, identityKey);
   if (doc.exchanged[eKey]) return true;
 
-  // (b) Check outcome rows where responderId === peerId AND identityKey matches
+  // (b) Check sent set — we already sent this exact identity to this peer
+  if (doc.sent[eKey]) return true;
+
+  // (c) Check outcome rows where responderId === peerId AND identityKey matches
   for (const entry of Object.values(doc.outcomes)) {
     if (entry.responderId === peerId && entry.identityKey === identityKey) return true;
   }
@@ -374,6 +407,29 @@ export function applyEvent(doc: TalkLedgerDoc, event: LedgerEvent): TalkLedgerDo
         delete doc.exchanged[eKey];
       }
     }
+    // Also clear our own sent record for this exact talkId — a retracted talk should be
+    // re-sendable, not permanently suppressed by an outbound record for content we pulled back.
+    for (const [k, entry] of Object.entries(doc.sent)) {
+      if (entry.talkId === event.talkId) {
+        delete doc.sent[k];
+      }
+    }
+    evictLedger(doc);
+    return doc;
+  }
+
+  if (event.kind === 'TALK_SENT') {
+    const key = exchangedKey(event.peerId, event.identityKey);
+    const existing = doc.sent[key];
+    // Idempotent — keep the latest sentAt, never regress on a replay/re-send of the same pair.
+    if (!existing || event.sentAt >= existing.sentAt) {
+      doc.sent[key] = {
+        peerId: event.peerId,
+        identityKey: event.identityKey,
+        talkId: event.talkId,
+        sentAt: event.sentAt,
+      };
+    }
     evictLedger(doc);
     return doc;
   }
@@ -435,6 +491,7 @@ export function evictLedger(doc: TalkLedgerDoc): void {
   evictSection(doc.outcomes, OUTCOMES_CAP, (e) => e.updatedAt);
   evictSection(doc.exchanged, EXCHANGED_CAP, (e) => e.lastExchangedAt);
   evictSection(doc.retracted, RETRACTED_CAP, (e) => String(e.retractedAt));
+  evictSection(doc.sent, SENT_CAP, (e) => e.sentAt);
 }
 
 function evictSection<T>(

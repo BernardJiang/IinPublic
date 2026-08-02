@@ -40,6 +40,7 @@ export function loadTalkLedger(): TalkLedgerDoc {
       exchanged: parsed.exchanged && typeof parsed.exchanged === 'object' ? parsed.exchanged : {},
       edges: parsed.edges && typeof parsed.edges === 'object' ? parsed.edges : {},
       retracted: parsed.retracted && typeof parsed.retracted === 'object' ? parsed.retracted : {},
+      sent: parsed.sent && typeof parsed.sent === 'object' ? parsed.sent : {},
     };
   } catch {
     return emptyTalkLedgerDoc();
@@ -227,4 +228,27 @@ export function getResponderLastResponseId(
   const entry = doc.exchanged[key];
   if (!entry || entry.role !== 'responder') return null;
   return (entry as any).responseId ?? null;
+}
+
+// ─── docs/TODO.md §W Gap 2: unified send-suppression ──────────────────────────
+
+/**
+ * Record that WE sent a talk to `peerId` — locally, no round-trip. This is the single write
+ * every send path (room broadcast, contact-group broadcast, individual peer send) should call
+ * right after a send is attempted, so `shouldSuppressForPeer` can suppress a resend even before
+ * the recipient has answered.
+ */
+export function markTalkSentToPeer(params: {
+  peerId: string;
+  identityKey: string;
+  talkId: string;
+  sentAt?: string;
+}): void {
+  applyTalkLedgerEvent({
+    kind: 'TALK_SENT',
+    peerId: params.peerId,
+    identityKey: params.identityKey,
+    talkId: params.talkId,
+    sentAt: params.sentAt ?? new Date().toISOString(),
+  });
 }

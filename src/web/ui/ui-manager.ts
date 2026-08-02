@@ -148,7 +148,7 @@ import { showLinkedDevicesDialog, type LinkedDeviceRow } from './linked-devices-
 import { decodePairingCode, isPairingExpired } from '../../shared/identity-linking';
 import { showEraseDeviceDialog } from './erase-device-dialog';
 import { eraseDevice } from '../services/device-wipe';
-import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
+import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 
 function resolveExpiresAtMs(value: unknown): number {
   if (typeof value === 'number') return value;
@@ -821,26 +821,24 @@ export class UIManager extends EventEmitter {
     return getMyTalks();
   }
 
-  private getBroadcastHistory(): Record<string, { sentAt: string; chatroomId: string; receiverIds: string[]; location?: string }> {
-    try {
-      const raw = localStorage.getItem('broadcastConversationHistory');
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  }
-
-  private getBroadcastRevisionKey(talkId: string, talk: any): string {
-    const fullTalk = talk?.fullTalk || talk || {};
-    const contentKey = UIManager.getTalkContentKey(fullTalk);
-    const updated = String(talk?.updatedAt || talk?.lastInteraction || fullTalk?.updatedAt || fullTalk?.timestamp || '');
-    return `${talkId}:${contentKey}:${updated}`;
-  }
-
-  /** True when `receiverId` has not yet been sent `talkId` at its current content revision. */
-  private isBroadcastUnsentForReceiver(chatroomId: string, receiverId: string, talkId: string): boolean {
+  /**
+   * True when `receiverId` has not yet been sent `talkId` at its current content identity.
+   * docs/TODO.md §W Gap 2 — this used to be a room-scoped localStorage revision-key check
+   * (`broadcastConversationHistory`); now delegates to the same ledger `sent`/`exchanged`
+   * suppression `deliverTalkToReceiversOverMesh` itself enforces, so there is one source of
+   * truth instead of two. `chatroomId` is accepted for call-site compatibility but unused —
+   * suppression is peer+identity scoped, not room-scoped: if this exact talk content was
+   * already sent to `receiverId` in a different room, it should stay suppressed here too.
+   * Content-hash keyed (`computeTalkIdFromTalkData`), so a genuinely revised talk (different
+   * title/questions) always reads as unsent; a metadata-only touch (e.g. `lastInteraction`)
+   * does not.
+   */
+  private isBroadcastUnsentForReceiver(_chatroomId: string, receiverId: string, talkId: string): boolean {
     const talk = this.getMyTalks()[talkId];
-    return !this.getBroadcastHistory()[`${chatroomId}|${receiverId}|${this.getBroadcastRevisionKey(talkId, talk)}`];
+    const fullTalk = talk?.fullTalk || talk;
+    if (!fullTalk) return true;
+    const identityKey = computeTalkIdFromTalkData(fullTalk);
+    return !shouldSuppressForPeer(receiverId, identityKey);
   }
 
   private getUnsentBroadcastTalkIds(chatroomId: string, receiverIds: string[]): string[] {
@@ -872,24 +870,6 @@ export class UIManager extends EventEmitter {
         this.isBroadcastUnsentForReceiver(chatroomId, receiverId, talkId));
     }
     return result;
-  }
-
-  recordBroadcastConversation(chatroomId: string, talkIds: string[], receivers: Array<{ userId: string }>): void {
-    const receiverIds = receivers.map((r) => String(r.userId || '').trim()).filter(Boolean).sort();
-    const location = this.currentLocation
-      ? `${this.currentLocation.latitude.toFixed(3)},${this.currentLocation.longitude.toFixed(3)}`
-      : undefined;
-    const history = this.getBroadcastHistory();
-    const sentAt = new Date().toISOString();
-    for (const talkId of talkIds) {
-      const talk = this.getMyTalks()[talkId];
-      if (!talk) continue;
-      for (const receiverId of receiverIds) {
-        const key = `${chatroomId}|${receiverId}|${this.getBroadcastRevisionKey(talkId, talk)}`;
-        history[key] = { sentAt, chatroomId, receiverIds: [receiverId], ...(location ? { location } : {}) };
-      }
-    }
-    localStorage.setItem('broadcastConversationHistory', JSON.stringify(history));
   }
 
   initialize(): void {

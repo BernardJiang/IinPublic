@@ -25,6 +25,7 @@ import {
   TALK_SEND_WEEKLY,
   TALK_EDGE_COOLDOWN_MS,
   type TalkAnsweredEvent,
+  type TalkSentEvent,
 } from '../../shared/talk-ledger';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -45,6 +46,17 @@ function makeAnsweredEvent(overrides: Partial<TalkAnsweredEvent> = {}): TalkAnsw
   };
 }
 
+function makeSentEvent(overrides: Partial<TalkSentEvent> = {}): TalkSentEvent {
+  return {
+    kind: 'TALK_SENT',
+    peerId: 'jerry',
+    identityKey: 'qa_abc123',
+    talkId: 'talk1',
+    sentAt: '2024-01-01T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 // ─── emptyTalkLedgerDoc ────────────────────────────────────────────────────────
 
 describe('emptyTalkLedgerDoc', () => {
@@ -55,6 +67,7 @@ describe('emptyTalkLedgerDoc', () => {
     expect(doc.exchanged).toEqual({});
     expect(doc.edges).toEqual({});
     expect(doc.retracted).toEqual({});
+    expect(doc.sent).toEqual({});
   });
 });
 
@@ -251,6 +264,76 @@ describe('applyEvent — TALK_RETRACTED', () => {
     const k = outcomeKey('jerry', 'talk1', 'alice');
     expect(doc.outcomes[k]).toBeDefined();
   });
+
+  // docs/TODO.md §W Gap 2 — a retracted talk should be re-sendable, not permanently suppressed
+  // by our own outbound record for content we pulled back.
+  it('clears sent entries for the retracted talkId', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent({ talkId: 'talk1', peerId: 'jerry', identityKey: 'qa_tennis' }));
+    expect(Object.keys(doc.sent)).toHaveLength(1);
+
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: Date.now() });
+    expect(Object.keys(doc.sent)).toHaveLength(0);
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(false);
+  });
+
+  it('does not clear sent entries for a different talkId', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent({ talkId: 'talk2', peerId: 'jerry', identityKey: 'qa_chess' }));
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: Date.now() });
+    expect(Object.keys(doc.sent)).toHaveLength(1);
+  });
+});
+
+// ─── applyEvent — TALK_SENT ───────────────────────────────────────────────────
+
+describe('applyEvent — TALK_SENT', () => {
+  it('writes a sent entry keyed by (peerId, identityKey)', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent());
+    const entry = doc.sent[exchangedKey('jerry', 'qa_abc123')];
+    expect(entry).toEqual({
+      peerId: 'jerry',
+      identityKey: 'qa_abc123',
+      talkId: 'talk1',
+      sentAt: '2024-01-01T10:00:00.000Z',
+    });
+  });
+
+  it('is idempotent — replaying the same send does not regress sentAt', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent({ sentAt: '2024-01-01T12:00:00.000Z' }));
+    applyEvent(doc, makeSentEvent({ sentAt: '2024-01-01T10:00:00.000Z' })); // older replay
+    expect(doc.sent[exchangedKey('jerry', 'qa_abc123')]!.sentAt).toBe('2024-01-01T12:00:00.000Z');
+  });
+
+  it('updates sentAt forward on a genuine re-send of the same identity', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent({ sentAt: '2024-01-01T10:00:00.000Z' }));
+    applyEvent(doc, makeSentEvent({ sentAt: '2024-01-02T10:00:00.000Z' }));
+    expect(doc.sent[exchangedKey('jerry', 'qa_abc123')]!.sentAt).toBe('2024-01-02T10:00:00.000Z');
+  });
+
+  it('a revised talk (new identityKey) is tracked independently, not suppressed by the old send', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent({ identityKey: 'qa_v1' }));
+    expect(shouldSuppress(doc, 'jerry', 'qa_v2')).toBe(false);
+  });
+
+  it('sent entries for different peers of the same identity are independent', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent({ peerId: 'jerry' }));
+    expect(shouldSuppress(doc, 'jerry', 'qa_abc123')).toBe(true);
+    expect(shouldSuppress(doc, 'bob', 'qa_abc123')).toBe(false);
+  });
+
+  it('an existing exchanged (answered) entry still suppresses even with no sent entry', () => {
+    // Order independence: exchanged and sent are two independent OR'd signals.
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_abc123' }));
+    expect(doc.sent).toEqual({});
+    expect(shouldSuppress(doc, 'jerry', 'qa_abc123')).toBe(true);
+  });
 });
 
 // ─── shouldSuppress ───────────────────────────────────────────────────────────
@@ -300,6 +383,23 @@ describe('shouldSuppress', () => {
     delete doc.outcomes[outcomeKey('jerry', 'talk1', 'tom')];
     delete doc.exchanged[exchangedKey('jerry', 'qa_tennis')];
     expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(false);
+  });
+
+  // docs/TODO.md §W Gap 2 — suppression must also fire on OUR OWN send action, before any
+  // answer comes back, so a received-but-not-yet-answered talk isn't resent.
+  it('returns true when a sent entry exists for (peerId, identityKey), with no answer at all', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent({ peerId: 'jerry', identityKey: 'qa_tennis' }));
+    expect(doc.outcomes).toEqual({});
+    expect(doc.exchanged).toEqual({});
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(true);
+  });
+
+  it('sent-only suppression is per peer and per identity, same as exchanged', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeSentEvent({ peerId: 'jerry', identityKey: 'qa_tennis' }));
+    expect(shouldSuppress(doc, 'bob', 'qa_tennis')).toBe(false);
+    expect(shouldSuppress(doc, 'jerry', 'qa_chess')).toBe(false);
   });
 });
 
@@ -452,6 +552,23 @@ describe('evictLedger', () => {
     evictLedger(doc);
     expect(Object.keys(doc.outcomes)).toHaveLength(100);
   });
+
+  // docs/TODO.md §W Gap 2 — sent gets the same LRU-by-date cap exchanged already has.
+  it('evicts oldest sent entries when over cap', () => {
+    const doc = emptyTalkLedgerDoc();
+    for (let i = 0; i < 5001; i++) {
+      doc.sent[`p${i}::qa_x`] = {
+        peerId: `p${i}`,
+        identityKey: 'qa_x',
+        talkId: 'talk',
+        sentAt: new Date(i * 1000).toISOString(),
+      };
+    }
+    expect(Object.keys(doc.sent)).toHaveLength(5001);
+    evictLedger(doc);
+    expect(Object.keys(doc.sent)).toHaveLength(5000);
+    expect(doc.sent['p0::qa_x']).toBeUndefined();
+  });
 });
 
 // ─── buildTagIdentityKeys ─────────────────────────────────────────────────────
@@ -578,6 +695,31 @@ describe('store round-trip (localStorage mock)', () => {
     expect(r.ok).toBe(true);
     const doc = loadTalkLedger();
     expect(doc.edges['jerry']!.sentToday).toBe(1);
+  });
+
+  // docs/TODO.md §W Gap 2
+  it('markTalkSentToPeer persists a sent entry and suppresses via shouldSuppressForPeer', async () => {
+    const { markTalkSentToPeer, shouldSuppressForPeer, loadTalkLedger } = await import('../../web/services/web-talk-ledger-store');
+    markTalkSentToPeer({ peerId: 'jerry', identityKey: 'qa_tennis', talkId: 'talk1', sentAt: '2024-01-01T10:00:00.000Z' });
+    const doc = loadTalkLedger();
+    expect(doc.sent[exchangedKey('jerry', 'qa_tennis')]).toEqual({
+      peerId: 'jerry',
+      identityKey: 'qa_tennis',
+      talkId: 'talk1',
+      sentAt: '2024-01-01T10:00:00.000Z',
+    });
+    expect(shouldSuppressForPeer('jerry', 'qa_tennis')).toBe(true);
+    expect(shouldSuppressForPeer('bob', 'qa_tennis')).toBe(false);
+  });
+
+  it('a doc persisted before §W Gap 2 (no sent field) loads with sent defaulting to {}', async () => {
+    const { loadTalkLedger } = await import('../../web/services/web-talk-ledger-store');
+    globalThis.localStorage.setItem(
+      'talkLedger',
+      JSON.stringify({ version: 1, outcomes: {}, exchanged: {}, edges: {}, retracted: {} }),
+    );
+    const doc = loadTalkLedger();
+    expect(doc.sent).toEqual({});
   });
 });
 

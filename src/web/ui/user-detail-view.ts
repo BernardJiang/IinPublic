@@ -8,6 +8,8 @@ import {
   readLocalTalkExchanges,
 } from '../services/local-peer-derivation';
 import { matchScore } from '../../shared/talk-engine';
+import { shouldSuppressForPeer } from '../services/web-talk-ledger-store';
+import { buildTalkIdentityKey } from '../../shared/cid';
 
 type PublicProfileFoundation = {
   headshot?: string | null;
@@ -78,22 +80,31 @@ function omitReasonLabel(deps: UserDetailViewDeps, reason: PeerSendOmitReason): 
   return deps.text(key);
 }
 
+/**
+ * docs/TODO.md §W Gap 2 — the "already sent" check is now the same ledger `shouldSuppressForPeer`
+ * every other send path (room broadcast, contact-group broadcast) uses, not a separate
+ * `localTalkExchanges`-derived set scoped only to this peer-detail view. This is what actually
+ * closes the gap: a talk this peer already got via a room broadcast is now correctly hidden
+ * here too, not just talks previously sent through this exact button.
+ */
 function classifyPeerSendTalks(
   myTalks: Record<string, any>,
-  alreadySentIds: Set<string>,
+  peerId: string,
 ): { eligible: ClassifiedPeerTalk[]; omitted: ClassifiedPeerTalk[] } {
   const eligible: ClassifiedPeerTalk[] = [];
   const omitted: ClassifiedPeerTalk[] = [];
   const now = Date.now();
   for (const [talkId, talk] of Object.entries(myTalks)) {
     if (talk?.role !== 'created') continue;
-    const contentId = talk?.fullTalk?.id || talkId;
     const omitReasons: PeerSendOmitReason[] = [];
     if (talk?.disabled) omitReasons.push('broadcast_disabled');
     const expiresAt = talk?.expiresAt ?? talk?.fullTalk?.expiresAt;
     const expiresAtMs = resolveExpiresAtMs(expiresAt);
     if (Number.isFinite(expiresAtMs) && now > expiresAtMs) omitReasons.push('talk_expired');
-    if (alreadySentIds.has(talkId) || alreadySentIds.has(contentId)) omitReasons.push('peer_already_sent');
+    const fullTalk = talk?.fullTalk || talk;
+    if (fullTalk && shouldSuppressForPeer(peerId, buildTalkIdentityKey(fullTalk))) {
+      omitReasons.push('peer_already_sent');
+    }
     const entry: ClassifiedPeerTalk = { talkId, talk, eligible: omitReasons.length === 0, omitReasons };
     if (entry.eligible) eligible.push(entry);
     else omitted.push(entry);
@@ -898,20 +909,9 @@ async function handleSendMyTalks(): Promise<void> {
   }
 
   try {
-    // P0 step 5: use local exchange records to skip already-sent talks — no server call.
-    const localHistory = localTalkHistoryForPeer(
-      peerId,
-      deps.getMyConversations(),
-      deps.getMyTalks(),
-      deps.text('peerTalkFallback'),
-    );
-    const alreadySentIds = new Set<string>(
-      localHistory
-        .filter((h) => h.direction === 'sent')
-        .flatMap((h) => [h.talkId, h.identityKey || ''].filter(Boolean)),
-    );
-
-    const { eligible, omitted } = classifyPeerSendTalks(deps.getMyTalks(), alreadySentIds);
+    // docs/TODO.md §W Gap 2: "already sent" now reads the unified ledger — no server call,
+    // same as before, but no longer scoped to only what this exact button has sent.
+    const { eligible, omitted } = classifyPeerSendTalks(deps.getMyTalks(), peerId);
     const candidates = eligible.map((entry) => [entry.talkId, entry.talk] as [string, any]);
 
     if (candidates.length === 0) {

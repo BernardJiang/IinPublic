@@ -1567,48 +1567,73 @@ path described above. Candidate for removal, or at minimum: don't build on it, i
       round-trip required, a small propagation delay is acceptable; the ledger needs a
       finer-grained per-action event (fires on the sender's own send action, not on the
       recipient's answer coming back) rather than only the existing answer-triggered one.
-      **Not yet implemented** — design below, tracked as a follow-up.
+      **Implemented 2026-08-01** — see the numbered design below, now marked done point by
+      point, and the verification note at the end.
 
 **Unified ledger-based design (2026-08-01).** `talk-ledger.ts` is already a pure, local,
 event-sourced reducer (`LedgerEvent` → `applyEvent` → `TalkLedgerDoc`, `localStorage["talkLedger"]`,
 no Gun round-trip involved at all today) — extending it is additive, not a rewrite:
 
-1. **New event kind, `TALK_SENT`** (`{kind, peerId, identityKey, talkId, sentAt}`), alongside the
-   existing `TALK_ANSWERED`/`TALK_RETRACTED`. Fired **locally, by the sender, at the moment a send
-   is attempted** — inside the single existing chokepoint, `deliverTalkToReceiversOverMesh`
-   (`app.ts:3314`), right where it already loops per (talk, recipient) pair. This is the "fine
-   tuned to each one's own action, not a round trip" part: it's *my own* action (I sent it), not
+1. [x] **New event kind, `TALK_SENT`** (`{kind, peerId, identityKey, talkId, sentAt}`), alongside
+   the existing `TALK_ANSWERED`/`TALK_RETRACTED`. Fires **locally, by the sender, at the moment a
+   send is attempted** — inside the single existing chokepoint, `deliverTalkToReceiversOverMesh`
+   (`app.ts`), right where it already loops per (talk, recipient) pair, once per plan's
+   `sentIdentityKeys` after the actual `mesh.broadcastTalk` call succeeds. This is the "fine tuned
+   to each one's own action, not a round trip" part: it's *my own* action (I sent it), not
    something that needs the peer's ack or answer to exist.
-2. **New `sent: Record<string, SentEntry>` map** on `TalkLedgerDoc`, keyed identically to the
+2. [x] **New `sent: Record<string, SentEntry>` map** on `TalkLedgerDoc`, keyed identically to the
    existing `exchanged` map (`${peerId}::${identityKey}` — content-hash based, so a genuinely
    revised talk gets a new identityKey and is correctly treated as new, for free). New `applyEvent`
-   branch writes it, same shape as the existing `TALK_ANSWERED` branch.
-3. **`shouldSuppress()` becomes the single unified predicate**: suppress if `exchanged` (answered)
-   **OR** `sent` (already delivered, answered or not) has an entry for `(peerId, identityKey)`.
-   Already wired into `deliverTalkToReceiversOverMesh`, which room broadcast *and* group broadcast
-   already route through — so this one change closes Gap 1 properly (a received-but-unanswered
-   talk is now suppressed too) without the room-broadcast-history workaround that Gap 1's 2026-08-01
-   fix used as a stopgap.
-4. **Retire room-broadcast history** (`broadcastConversationHistory`, the `revisionKey` localStorage
-   scheme, `getUnsentBroadcastTalkIds*`/`isBroadcastUnsentForReceiver` family in `ui-manager.ts`) —
-   superseded by (3); it existed only to patch the same hole `sent` now closes at the source.
-5. **Rewire "Send My Talks"** (peer-detail view, `user-detail-view.ts:891` → `local-peer-derivation.ts`'s
-   `classifyPeerSendTalks`/`readLocalTalkExchanges` → `app.sendDirectTalkToPeer`, `app.ts:1452`) —
-   today this path calls `mesh.broadcastTalk` **directly**, bypassing `deliverTalkToReceiversOverMesh`
-   and the ledger entirely, relying solely on its own separate `localTalkExchanges` localStorage
-   key. Route it through the same chokepoint (single recipient) instead, so there is structurally
-   **one** send path all three UI entry points funnel through — suppression enforced in exactly one
-   place, not re-implemented a third time.
-6. `localTalkExchanges`/`readLocalTalkExchanges` — retire as a *gate*; if the peer-detail UI still
-   wants an "already sent" badge, derive it by reading the ledger's `sent`/`exchanged` maps instead
-   of a separate store, so there is one source of truth, not one authoritative plus one cosmetic.
-7. Eviction is free: `sent` gets the same LRU-by-date cap `exchanged` already has
+   branch writes it, same shape as the existing `TALK_ANSWERED` branch; `TALK_RETRACTED` also
+   clears matching `sent` entries by `talkId` (a retracted talk should be re-sendable).
+3. [x] **`shouldSuppress()` is now the single unified predicate**: suppresses if `exchanged`
+   (answered) **OR** `sent` (already delivered, answered or not) has an entry for
+   `(peerId, identityKey)`. Wired into `deliverTalkToReceiversOverMesh`, which room broadcast *and*
+   group broadcast already route through — so this one change closes Gap 1 properly (a
+   received-but-unanswered talk is now suppressed too) without the room-broadcast-history
+   workaround Gap 1's fix used as a stopgap.
+4. [x] **Room-broadcast history retired.** `broadcastConversationHistory`/`getBroadcastRevisionKey`/
+   `recordBroadcastConversation` deleted outright (all 3 app.ts call sites were redundant once
+   `deliverTalkToReceiversOverMesh` writes `sent` itself). `isBroadcastUnsentForReceiver` (and
+   therefore `getUnsentBroadcastTalkIds`/`getUnsentBroadcastTalkIdsForReceiver`/
+   `getUnsentBroadcastTalkReceiverIds`, unchanged public signatures) now delegates to
+   `shouldSuppressForPeer` + content-hash identity instead of the old revision-key scheme.
+   Behavior change, intentional: a metadata-only touch (e.g. `lastInteraction`) no longer
+   un-suppresses — only a genuine content change (new identityKey) does. The one existing test
+   that asserted the old metadata-triggers-resend behavior
+   (`00-ui-navigation-settings.spec.ts`) was rewritten to assert the new, more correct behavior
+   and to add the missing "genuine content change still un-suppresses" case.
+5. [x] **"Send My Talks" rewired.** `app.sendDirectTalkToPeer` no longer calls `mesh.broadcastTalk`
+   directly — it now calls `deliverTalkToReceiversOverMesh` (single-recipient), so it shares the
+   exact suppression check and `sent` write every other send path uses. `user-detail-view.ts`'s
+   `classifyPeerSendTalks` "already sent" check is the same `shouldSuppressForPeer` +
+   `buildTalkIdentityKey`, not a separate `localTalkExchanges`-derived set — closes the actual gap
+   (a talk already sent via room/group broadcast is now correctly hidden from this button too, not
+   just talks previously sent through this exact button).
+6. [x] `localTalkExchanges`/`readLocalTalkExchanges` retired **as a gate** — `classifyPeerSendTalks`
+   no longer reads it. The store and its other consumers (talk-history display, peer stats) are
+   untouched; only its role as the send-button's authoritative filter was replaced.
+7. [x] Eviction: `sent` gets the same LRU-by-date cap `exchanged` already has
    (`EXCHANGED_CAP`/`evictSection`) — losing an entry costs one redundant resend, never a
    correctness bug, exactly the existing documented failure mode.
 
 Net effect: three data stores (ledger `exchanged`, room-broadcast revision history,
-`localTalkExchanges`) become one (ledger `exchanged` + `sent`), and three independently-implemented
-filtering checks become one function reused by all three send UIs.
+`localTalkExchanges`) became one (ledger `exchanged` + `sent`), and three independently-implemented
+filtering checks became one function reused by all three send UIs.
+
+**Verified:** new unit tests in `talk-ledger.test.ts` (`TALK_SENT` write/idempotency/eviction,
+retraction clearing `sent`, `shouldSuppress` OR-ing `exchanged`/`sent`) and
+`web-talk-ledger-store.ts`'s round-trip suite (`markTalkSentToPeer`, old-doc-without-`sent`
+migration). Full Jest suite green (95/95, +13 tests). E2E: rewrote the two isolated UI tests that
+exercised the retired mechanism directly; ran the full suppression-sensitive set for real —
+`09-exchange-suppression.spec.ts`, `06-sender-suppression.spec.ts`,
+`00-broadcast-boundary-match.spec.ts`, `00-broadcast-abort-clear-all.spec.ts`,
+`32-broadcast-to-contact-group.spec.ts`, `63-send-talks-picker.spec.ts`,
+`00e-chatroom-peer-detail.spec.ts`, `61-peer-actions-in-appbar.spec.ts`,
+`60-peer-contact-layout-parity.spec.ts`, `15b-blocking-stops-delivery-and-peer-visibility.spec.ts`
+— all green, including the ones that print `[Ledger] Suppressing talk deliver...`/`[Ledger]
+Partial tag suppression...` in their own logs, confirming the unified path is actually exercised,
+not just present.
 
 **Completeness refinement (2026-08-01, Bernard), implemented separately from the TALK_SENT design
 above:** *"if receiver answers 2 out of 3 questions talk, it is considered not yet done on his
