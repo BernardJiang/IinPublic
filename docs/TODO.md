@@ -1670,6 +1670,49 @@ side. the sender should not receive incomplete answer and should consider not ye
       `09-four-types-chatbot.spec.ts` (survey/chatbot-adjacent existing coverage) to confirm no
       regression.
 
+**Ignore semantics clarification (2026-08-02, Bernard), correcting a gap in the completeness
+refinement above:** *"outside of all answers to a question provided by asker, the receiver always
+has an option to ignore the question. for any multiple question talk, if receiver chooses to
+ignore any question, then he ignore the whole talk, the sender will never get answer. if receiver
+chooses any valid answer of early questions that leads to be ignored by sender, the sender should
+still receive the answer to the talk. in case of flow talk, it's designed by sender to terminate
+early and no need to answer the rest of questions. in case of survey, valid answer won't stop
+proceeding to the next question. only talks ignored by receiver terminate early."*
+
+- [x] **Verified two distinct "ignore" concepts exist in the response dialog, and the prior fix
+      conflated them.** Every question renders a dedicated "Ignore" radio row (`ignore-radio`,
+      literal sentinel `data-answer-id="ignore"`) — the receiver's own opt-out, separate from
+      `currentQuestion.answers`. An asker-provided answer can *independently* carry
+      `answer.isIgnore: true` (e.g. a flow's designed "No" branch, or a survey answer the author
+      marked "Ignore (filter out)" in the editor) — both render with `data-is-ignore="true"`, so a
+      check on that flag alone (what the completeness-refinement fix above did for survey) cannot
+      tell them apart. Confirmed the two require different outcomes: the dedicated choice must end
+      the *whole talk* with the sender receiving nothing, at any question, in any talk type; an
+      asker-provided answer — even one flagged `isIgnore` — is a real, complete answer the sender
+      must still receive.
+- [x] **Fixed `applyChoice` and the auto-answer path** (`talk-response-dialog.ts`) to branch on
+      `answerId === 'ignore'` (the sentinel) first, before any type-specific logic. This also fixed
+      a real bug the completeness-refinement pass introduced: it had made the *dedicated* Ignore
+      choice advance to the next survey question (via the newly-added `nextSurveyQuestion` call)
+      instead of ending the response — the sentinel case now always ends the talk immediately
+      regardless of type or position, matching "only talks ignored by receiver terminate early."
+- [x] **Added the actual withholding mechanism** — previously, even the dedicated Ignore choice
+      still submitted a real `outcome: 'mismatch'` response to the sender (no code path suppressed
+      it). New `completeTalk(talk, answers, outcome, meta?: { withholdFromSender? })` on the
+      response-dialog options threads a flag through `'talkCompleted'` →
+      `handleTalkCompleted` (`app.ts`), which returns before Step 3 (the mesh submission) when set
+      — local bookkeeping (Steps 1-2, `saveMyTalk`/answer history so the receiver isn't
+      re-prompted) still runs as normal; only the peer-facing submission is skipped.
+- [x] Test: `tests/e2e/staged/stage2-two-user/84-receiver-ignore-withholds-from-sender.spec.ts` —
+      both flow and survey, dedicated Ignore on an early/only question, confirms the sender's
+      `localTalkExchanges` and ledger (`outcomes`/`exchanged`) stay empty for that talk while the
+      receiver's own local record and incoming-row state update normally. Re-ran
+      `11-mismatch-no-match.spec.ts` (clicks a real author-provided "No thanks." answer — confirms
+      the sender still receives it, i.e. the contrast case), `04-ignore-then-change-answer.spec.ts`,
+      `13-tag-reopen-mismatch-then-match.spec.ts`, and the full §W Gap 2 suppression-sensitive set
+      (`09-exchange-suppression.spec.ts`, `06-sender-suppression.spec.ts`) — all green. Full Jest
+      suite green (95/95).
+
 - [ ] Decide whether `sendBulkTalk`/`BulkSendJob` should be removed as dead code or finished as a
       real feature — currently neither, which is its own small hazard for whoever finds it next.
 

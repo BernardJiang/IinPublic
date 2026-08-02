@@ -6657,7 +6657,12 @@ export class UIManager extends EventEmitter {
     return JSON.stringify({ q, loc, title, type: talk.type });
   }
 
-  private completeTalk(talk: any, answers: any[], outcome?: 'match' | 'mismatch'): void {
+  private completeTalk(
+    talk: any,
+    answers: any[],
+    outcome?: 'match' | 'mismatch',
+    meta?: { withholdFromSender?: boolean },
+  ): void {
     console.log('✅ Talk completed:', talk.id, answers, outcome);
 
     const contentKey = UIManager.getTalkContentKey(talk);
@@ -6722,6 +6727,7 @@ export class UIManager extends EventEmitter {
       talkId: talk.id,
       answers,
       talkData: talk,
+      ...(meta?.withholdFromSender ? { withholdFromSender: true } : {}),
     });
 
     this.showNotification(

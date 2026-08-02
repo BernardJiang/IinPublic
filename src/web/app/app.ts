@@ -3611,6 +3611,10 @@ export class IinPublicApp {
     answers: any[];
     talkData?: any;
     isChatbotResponse?: boolean;
+    /** docs/TODO.md — the receiver picked the dedicated "Ignore" choice (a talk-level
+     *  opt-out, distinct from any of the asker's own provided answers): the sender must
+     *  receive nothing at all. Local bookkeeping above still runs as normal. */
+    withholdFromSender?: boolean;
   }): Promise<void> {
     console.log('📝 User completed talk:', data);
     const isChatbot = !!data.isChatbotResponse;
@@ -3676,6 +3680,14 @@ export class IinPublicApp {
       const pairKey = `${data.talkId}::${String(data.talkData.authorId)}`;
       this.chatbotAutoReplySentForPair.add(pairKey);
       this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
+    }
+
+    // The receiver picked the dedicated Ignore choice — a talk-level opt-out, not one of
+    // the asker's own answers. Local bookkeeping (Steps 1-2 above) already ran; the sender
+    // must receive nothing at all, so Step 3 never runs.
+    if (data.withholdFromSender) {
+      console.log('🙅 Talk withheld from sender (receiver ignored):', data.talkId);
+      return;
     }
 
     // Step 3 — submit via direct mesh P2P path (P0 step 7: server delivery removed).

@@ -89,7 +89,14 @@ type TalkResponseDialogOptions = {
   senderName?: string;
   escapeHtml: (text: string) => string;
   showNotification: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
-  completeTalk: (talk: any, answers: any[], outcome?: 'match' | 'mismatch') => void;
+  /**
+   * `meta.withholdFromSender` — set when the receiver picked the dedicated "Ignore" choice
+   * (the always-present opt-out row, distinct from any of the asker's own provided answers —
+   * see the `answerId === 'ignore'` sentinel below): the sender must receive nothing at all,
+   * not even a mismatch record. Local bookkeeping (this device's own answer history) still
+   * happens as normal; only the peer submission is skipped.
+   */
+  completeTalk: (talk: any, answers: any[], outcome?: 'match' | 'mismatch', meta?: { withholdFromSender?: boolean }) => void;
   resolveAnswerPreferenceForTalkQuestion: (
     talk: any,
     questionIndex: number,
@@ -513,27 +520,18 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
     if (savedPreference && savedPreference.mode === 'auto') {
       if (savedPreference.answerId === 'ignore') {
+        // The receiver's own opt-out (see applyChoice) — ends the whole talk immediately
+        // regardless of talk type or question position; the sender receives nothing.
         answers.push({
           questionId: currentQuestion.id,
           answerId: 'ignore',
           answerText: 'ignore',
           mode: 'auto',
         });
-        // §W Gap 2 completeness note: same survey-never-ends-early rule as the manual path —
-        // duplicated here because the auto-answer path had this exact bug too (worse, even
-        // isTerminal non-ignore answers ended the response early since survey answers never
-        // carry nextQuestionId, per TalkAutofix stripping branching fields for survey).
-        if (talk.type === 'survey') {
-          const next = nextSurveyQuestion(talk, currentQuestion);
-          if (next) {
-            currentQuestion = next;
-            saveResponseDraft(talk, currentQuestion.id, answers);
-            renderQuestion();
-            return;
-          }
-        }
         options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
-        completeAndClose();
+        clearResponseDraft(talk);
+        options.completeTalk(talk, answers, 'mismatch', { withholdFromSender: true });
+        closeModal();
         return;
       }
       const answer = currentQuestion.answers.find((a: any) => a.id === savedPreference.answerId);
@@ -546,6 +544,8 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         });
 
         if (talk.type === 'survey') {
+          // A valid (asker-provided) answer always advances; only the last question ends
+          // the response (see applyChoice's identical rule for the manual path).
           const next = nextSurveyQuestion(talk, currentQuestion);
           if (next) {
             currentQuestion = next;
@@ -553,13 +553,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             renderQuestion();
             return;
           }
-          if (answer.isIgnore) {
-            options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
-          }
           completeAndClose();
           return;
         }
         if (answer.isIgnore) {
+          // Flow/route: an asker-designed terminal/mismatch branch — a real, complete
+          // answer; the sender still receives it (unlike the dedicated-ignore case above).
           options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
           completeAndClose();
           return;
@@ -691,6 +690,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
     const applyChoice = (radio: HTMLInputElement): void => {
       const answerId = radio.dataset.answerId!;
+      // The receiver's own opt-out — a dedicated radio row rendered separately from
+      // `currentQuestion.answers` (literal sentinel id "ignore"), distinct from any answer
+      // the asker themselves provided. An asker-provided answer can ALSO carry
+      // `data-is-ignore="true"` (e.g. a flow's designed "No" branch) — that's a real,
+      // complete answer, not this.
+      const isDedicatedIgnore = answerId === 'ignore';
       const isIgnore = radio.dataset.isIgnore === 'true';
       const answerText = radio.dataset.answerText || '';
       const answerMode = (radio.dataset.mode || 'manual') as AnswerSelectionMode;
@@ -718,9 +723,21 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         isIgnore ? 'suppressed' : answerMode,
       );
 
+      if (isDedicatedIgnore) {
+        // Ignoring a question means ignoring the whole talk, at any question, in any talk
+        // type — the sender must receive nothing at all, not even a mismatch record. Local
+        // bookkeeping (this device's own history) still happens via completeTalk.
+        options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
+        clearResponseDraft(talk);
+        options.completeTalk(talk, answers, 'mismatch', { withholdFromSender: true });
+        closeModal();
+        return;
+      }
+
       if (talk.type === 'survey') {
-        // §W Gap 2 completeness note: a survey answer never ends the response early,
-        // regardless of isIgnore/isMatch/isTerminal — only the last question does.
+        // Any valid (asker-provided) answer — regardless of its own isIgnore/isMatch/
+        // isTerminal flags — advances to the next question; only the actual last question
+        // ends the response. Only the dedicated Ignore choice above ends it early.
         const next = nextSurveyQuestion(talk, currentQuestion);
         if (next) {
           currentQuestion = next;
@@ -728,17 +745,16 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           renderQuestion();
           return;
         }
-        if (isIgnore) options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
-        completeAndClose();
-      } else if (isIgnore) {
-        options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
         completeAndClose();
       } else if (isMatch) {
         clearResponseDraft(talk);
         options.completeTalk(talk, answers, 'match');
         options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
         closeModal();
-      } else if (isTerminal) {
+      } else if (isIgnore || isTerminal) {
+        // Flow/route: the asker designed this branch to terminate here (e.g. a "No"
+        // answer) — a real, complete answer; the sender still receives it.
+        if (isIgnore) options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
         completeAndClose();
       } else if (nextQuestionId) {
         const nextQ = talk.questions.find((q: any) => q.id === nextQuestionId);
