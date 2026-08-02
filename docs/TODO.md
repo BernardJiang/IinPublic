@@ -42,8 +42,11 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   reader); W's Gap 1 (**complete 2026-08-01**) and X (**complete 2026-08-01**) — both already
   shipped, see §W/§X; Y1 (new 2026-08-01 — stop stamping `authorId` to the copier at copy time,
   seed `original*` fields from the source talk instead, same shape as §V's already-built
-  `buildRevisedTalkDraft` seeding, just applied to the copy path). None of these need new
-  architecture beyond the Session-1 dispatcher itself.
+  `buildRevisedTalkDraft` seeding, just applied to the copy path); Y2 (revised 2026-08-01, no
+  longer needs a design note now that the tombstone half was dropped — fix
+  `graph-size-report.ts`'s stale matcher, then generalize §L2's `planVisitCounterPrune` pattern to
+  `ownerIncomingTalkIndex/<userId>/<identityKey>`). None of these need new architecture beyond the
+  Session-1 dispatcher itself.
 - **Session 2 — DM/talk traceback depth (~5 medium items).** N3 multi-partner picker (reuses
   `#peer-send-picker-modal`); P's actual dead-end fix (real retry on `demandFullTalk` failure); O
   (peer-detail history list clickable + on-demand thread creation); Q's Talk→Me-tab-Q&A reverse
@@ -87,10 +90,6 @@ item's actual dependencies (e.g., N1's destination decision must land before N3/
   - V (FR-TK-7, spec'd 2026-01-19, never built — **complete 2026-08-01**) — Auto Linear Capture
     from DM shorthand, including the two-author credit model and the append/edit-mints-new-id
     policy. Real-browser-verified, not just unit-tested. See §V.
-  - Y2 (new 2026-08-01) — incoming-talk-cluster trim + post-trim tombstone needs an `[Opus]` design
-    note first (trigger policy, exact tombstone semantics, whether "ignore forever" is ever
-    resettable) — likely reuses §L2's size-triggered/device-side pruning shape, applied to a
-    different Gun path, not a from-scratch mechanism. See §Y.
 
 ---
 
@@ -1541,11 +1540,13 @@ the precise coordinate as `trueLocation`, doc-commented *"only stored locally, n
 
 ---
 
-## Y. Incoming-talk lifecycle: copy authorship bug + missing trim/tombstone
+## Y. Incoming-talk lifecycle: copy authorship bug + missing retention `[Sonnet]`
 
 Verification requested 2026-08-01, checking a description of how copy/disable/delete/dedup/trim
 should work for incoming talks against what's actually built. Five of seven claims verified
-**true** as described — no action needed on those. Two are real gaps, below.
+**true** as described — no action needed on those. One (the post-trim tombstone) was proposed by
+the same message but withdrawn once the actual gap was understood — see Y2. The remaining two
+items below are real, scoped work.
 
 ### Y1. Copying an incoming talk stamps you as author immediately, not only on edit `[Sonnet]`
 
@@ -1582,30 +1583,56 @@ talk id at that point too).
       `originalAuthorId`-transfer path §V already built for the DM-shorthand case, so "edit" is what
       finally makes the copier the credited author, not "copy."
 
-### Y2. No trim/tombstone mechanism exists for incoming talk clusters `[Opus]`
+### Y2. Incoming-talk clusters have no retention — fold into the same system §L2 already built `[Sonnet]`
 
-**Verified false, on both halves.** Bernard described two paired mechanisms:
+**Revised 2026-08-01 (Bernard): the tombstone half is unnecessary** — *"7 is not necessary since
+question/answer set is hold in me tab."* Once a talk is answered, the Q&A record already lives in
+the Me tab's own answer history (independent of whether the *incoming cluster* that delivered it
+still exists) — so there's nothing a resend could trick the user into losing or re-answering by
+mistake, and a separate content-identity tombstone would be solving a problem that doesn't exist.
+**Dropped from scope entirely**, not deferred.
+
 *"in his gun database, he should be able to just keep one copy of the talk and use references to
-link many people as senders"* — **already true** (`IncomingTalkClusterWire`,
-`src/shared/peer-talk-delivery.ts:6-22`, one shared body + a `senders: Record<senderId, {...}>` map,
-merged by `mergeIncomingTalkCluster()`, lines 42-107 — confirmed already exactly this shape, no
-work needed) — but the two mechanisms built *on top of* that clustering are both missing:
+link many people as senders"* — **confirmed already true**, no work needed
+(`IncomingTalkClusterWire`, `src/shared/peer-talk-delivery.ts:6-22`, one shared body + a
+`senders: Record<senderId, {...}>` map, merged by `mergeIncomingTalkCluster()`, lines 42-107).
 
-- **No trim.** *"When he trims the database, an old talk is finally physically removed."* No
-  trim/prune/TTL/expiry code exists anywhere for incoming talk clusters (`ownerIncomingTalkIndex/
-  <userId>/<identityKey>`, `client-incoming-talk-mirror.ts`) — that module only has put/read/
-  subscribe (lines 58, 91, 118), no delete path at all. This is the same *shape* of problem §L2
-  already solved for room-visit data (size-triggered, oldest-first, device-side pruning) — likely
-  reusable design, not a from-scratch mechanism, but applied to a different Gun path.
-- **No post-trim tombstone.** *"After that, if someone sent the same talk again, a tombstone of
-  talk id will make user ignore it forever."* The only tombstone in the codebase is the
-  sender-initiated hard retraction (`talk-ledger.ts:98-112,357-384` — keyed
-  `${talkId}::${authorId}`, the *author* revoking their own talk, consumed in `app.ts:2275-
-  2279,2459-2465,2517-2527`) — a completely different mechanism from what's being asked for here: a
-  **receiver-side**, content-identity-keyed (`identityKey`, not `talkId::authorId`) "I already saw
-  and discarded this once, don't show it to me again" tombstone. Doesn't exist. Has nothing to
-  attach to until trim (above) exists, since there's currently nothing that ever *removes* a cluster
-  in the first place.
+**Trim — Bernard: "should be part of removing old data. check if it is needed to be
+improved."** Checked, not assumed: **yes, it's needed, and today it's worse than just
+unimproved — it's invisible.**
+
+- `ownerIncomingTalkIndex/<userId>/<identityKey>` (`client-incoming-talk-mirror.ts:58,91,118`) has
+  **zero retention** — one node per distinct talk identity ever received, forever; the module only
+  has put/read/subscribe, no delete path at all. Structurally identical growth shape to the
+  room-visit-counter problem §L2 already solved (one node per X per Y, unbounded) — this is "part
+  of removing old data" in the most literal sense: the exact same class of problem, a different Gun
+  path.
+- **The existing size-report tool can't even see this category to measure it.**
+  `graph-size-report.ts`'s matcher (`graph-size-report.ts:160-162`) still tests for
+  `incomingTalksByUser/<userId>/<identityKey>` — the *stale* path name from CLAUDE.md's outdated
+  description, not the real `ownerIncomingTalkIndex` path actually in use. Every incoming-talk-
+  cluster node in a real deployment has been silently falling into `unclassifiedCount` this whole
+  time, not its own category. Fix this matcher first — otherwise "improve retention" is being
+  decided without ever having measured the thing.
+- The wire type already carries a usable per-cluster timestamp (`updatedAt: string`,
+  `peer-talk-delivery.ts:19`, and per-sender `lastReceivedAt`), the same shape `visitCounterPath`'s
+  `lastVisitedAt` already used — `planVisitCounterPrune`'s size-triggered/oldest-first logic
+  generalizes directly; this isn't new design, it's the same pattern from a different Gun path. No
+  fold-into-an-aggregate step is needed here the way room-visit pruning needed one (there's no
+  lifetime "clusters received" badge whose count has to stay correct across a prune) — a trimmed
+  cluster can simply be deleted outright.
+
+Tagged `[Sonnet]`, not `[Opus]` — this generalizes an already-decided pattern (§L2) to a second Gun
+path with a matching shape; no open design questions remain now that the tombstone half is dropped.
+
+- [ ] Fix `graph-size-report.ts`'s matcher: `incomingTalksByUser/<userId>/<identityKey>` →
+      `ownerIncomingTalkIndex/<userId>/<identityKey>`, so this category is actually measurable
+      before/while deciding a threshold.
+- [ ] Add device-side, size-triggered, oldest-`updatedAt`-first pruning for
+      `ownerIncomingTalkIndex/<userId>/<identityKey>`, mirroring `planVisitCounterPrune`/
+      `pruneVisitCounterIfNeeded` — delete outright, no aggregate fold needed.
+- [ ] Pick a starting threshold (mirroring `DEFAULT_VISIT_COUNTER_MAX_SLOTS`'s "ship an adjustable
+      default, tune once real deployment numbers exist via the size-report tool" precedent).
 
 **Also found, doc hygiene, unrelated to the fix but worth flagging while here:** CLAUDE.md's own
 description of this system (*"`incomingTalksByUser/<userId>/<identityKey>` ... server-side `Map`
@@ -1614,19 +1641,8 @@ real implementation is entirely client-side (`ownerIncomingTalkIndex/<userId>/<i
 gated by `p2pClientTalkMirror`/`p2pDirectTalkDelivery`, star-delivery removed per
 `src/shared/p2p-runtime.ts:12`). Worth correcting CLAUDE.md separately from this backlog item.
 
-- [ ] Design the trim trigger and policy (size-triggered? age-triggered? reuse §L2's
-      `DEFAULT_VISIT_COUNTER_MAX_SLOTS`-style threshold pattern for incoming-talk clusters
-      specifically) and where it runs (device-side, per the same P2P-no-relay-authority principle
-      §L2 already established).
-- [ ] Design the tombstone: what gets recorded when a cluster is trimmed (just `identityKey`? a
-      timestamp too, for an eventual "actually I do want to see new ones again" reset?), and where
-      the "already tombstoned, discard silently" check happens in the incoming-delivery path.
 - [ ] Update CLAUDE.md's incoming-talk-cluster description to match the current client-side-only
-      implementation.
-
-This is `[Opus]`-tagged because the trim/tombstone design (unlike Y1's straightforward fix) has
-real open questions — trigger policy, exact tombstone semantics, and whether "ignore forever" should
-ever be resettable. Write a short design note first, then hand implementation to Sonnet.
+      implementation and the real Gun path name.
 
 ---
 
