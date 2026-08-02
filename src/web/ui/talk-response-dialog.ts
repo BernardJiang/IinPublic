@@ -59,6 +59,23 @@ function clearResponseDraft(talk: any): void {
   }
 }
 
+/**
+ * Survey questions are independent (no match/ignore at the talk level) — every question is
+ * required to have an "Ignore" option by TalkValidator, but for a survey that means "not
+ * interested in THIS question," not "abandon the whole survey." Only the actual last question
+ * should end the response; every other answer (ignore, terminal, whatever) just advances.
+ * Used by both the manual click handler and the saved-preference auto-answer path — duplicating
+ * this rule in two places is exactly what let a survey "Ignore" pick on question 1 of 3
+ * short-circuit the whole response before (docs/TODO.md §W Gap 2 completeness note).
+ */
+export function nextSurveyQuestion(talk: any, currentQuestion: any): any | null {
+  const qIdx = talk.questions.findIndex((q: { id: string }) => q.id === currentQuestion.id);
+  if (qIdx >= 0 && qIdx < talk.questions.length - 1) {
+    return talk.questions[qIdx + 1];
+  }
+  return null;
+}
+
 type TalkResponseDialogOptions = {
   talk: any;
   skipAutoAnswer?: boolean;
@@ -136,8 +153,12 @@ function tryCollectAllAutoAnswers(
       mode: 'auto',
     });
 
-    // Stop at terminal / match / ignore answers
-    if (!answer || answer.isTerminal || answer.isMatch || answer.isIgnore) break;
+    // Stop at terminal / match / ignore answers — except for survey, where every answer
+    // is isTerminal by construction (§W Gap 2 completeness note: "terminal" doesn't mean
+    // "stop" there, only running out of questions does; the linear-advance fallback below
+    // already handles survey correctly once this doesn't break early).
+    if (!answer) break;
+    if (talk.type !== 'survey' && (answer.isTerminal || answer.isMatch || answer.isIgnore)) break;
 
     // Advance to next question
     const nextId = answer.nextQuestionId || currentQ.nextQuestionId;
@@ -498,6 +519,19 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           answerText: 'ignore',
           mode: 'auto',
         });
+        // §W Gap 2 completeness note: same survey-never-ends-early rule as the manual path —
+        // duplicated here because the auto-answer path had this exact bug too (worse, even
+        // isTerminal non-ignore answers ended the response early since survey answers never
+        // carry nextQuestionId, per TalkAutofix stripping branching fields for survey).
+        if (talk.type === 'survey') {
+          const next = nextSurveyQuestion(talk, currentQuestion);
+          if (next) {
+            currentQuestion = next;
+            saveResponseDraft(talk, currentQuestion.id, answers);
+            renderQuestion();
+            return;
+          }
+        }
         options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
         completeAndClose();
         return;
@@ -511,6 +545,20 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           mode: (savedPreference.mode as 'auto' | 'manual') || 'auto',
         });
 
+        if (talk.type === 'survey') {
+          const next = nextSurveyQuestion(talk, currentQuestion);
+          if (next) {
+            currentQuestion = next;
+            saveResponseDraft(talk, currentQuestion.id, answers);
+            renderQuestion();
+            return;
+          }
+          if (answer.isIgnore) {
+            options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
+          }
+          completeAndClose();
+          return;
+        }
         if (answer.isIgnore) {
           options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
           completeAndClose();
@@ -670,7 +718,19 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         isIgnore ? 'suppressed' : answerMode,
       );
 
-      if (isIgnore) {
+      if (talk.type === 'survey') {
+        // §W Gap 2 completeness note: a survey answer never ends the response early,
+        // regardless of isIgnore/isMatch/isTerminal — only the last question does.
+        const next = nextSurveyQuestion(talk, currentQuestion);
+        if (next) {
+          currentQuestion = next;
+          saveResponseDraft(talk, currentQuestion.id, answers);
+          renderQuestion();
+          return;
+        }
+        if (isIgnore) options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
+        completeAndClose();
+      } else if (isIgnore) {
         options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
         completeAndClose();
       } else if (isMatch) {
@@ -679,15 +739,6 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
         closeModal();
       } else if (isTerminal) {
-        if (talk.type === 'survey') {
-          const qIdx = talk.questions.findIndex((q: { id: string }) => q.id === currentQuestion.id);
-          if (qIdx >= 0 && qIdx < talk.questions.length - 1) {
-            currentQuestion = talk.questions[qIdx + 1];
-            saveResponseDraft(talk, currentQuestion.id, answers);
-            renderQuestion();
-            return;
-          }
-        }
         completeAndClose();
       } else if (nextQuestionId) {
         const nextQ = talk.questions.find((q: any) => q.id === nextQuestionId);

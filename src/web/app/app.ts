@@ -2269,6 +2269,20 @@ export class IinPublicApp {
     if (!talkData) return;
     const decrypted = await this.decryptPairTalkResponsePayload(payload);
 
+    // docs/TODO.md §W Gap 2 completeness note: don't trust an incoming mesh response to be
+    // complete just because a peer sent it — a survey response answering fewer questions than
+    // the talk has must not be recorded as exchanged/answered on the author's side either. This
+    // is the receiving-side half of the same guard `submitTalkResponsePairDirect` applies on the
+    // sending side (defense in depth: an older/different client, or a corrupted payload, could
+    // still produce a short answers array even though this client's own UI no longer can).
+    const totalQuestions = Array.isArray(talkData?.questions) ? talkData.questions.length : 0;
+    if (talkData?.type === 'survey' && decrypted.answers.length < totalQuestions) {
+      console.debug(
+        `[Step9] Discarding incomplete survey response from ${payload.responderId} — ${decrypted.answers.length}/${totalQuestions} answered`,
+      );
+      return;
+    }
+
     // Step 10: check dead-inbox tombstone before any processing.
     // If the author has retracted this talk (talkId::authorId in retracted), discard all answers.
     const ledgerDoc = getTalkLedgerDoc();
@@ -3674,6 +3688,23 @@ export class IinPublicApp {
     isAutoResponse: boolean;
   }): Promise<void> {
     if (!this.currentUser?.id) return;
+    // docs/TODO.md §W Gap 2 completeness note: a survey response that hasn't answered every
+    // question is not yet "done" on the responder's side — the sender must not receive it and
+    // must go on treating it as not-yet-answered (no ledger write, no mesh send). This is the
+    // structural backstop at the single submission chokepoint (both the real completion path
+    // via handleTalkCompleted and the chatbot-replay path via tryChatbotReply funnel through
+    // here) — talk-response-dialog.ts's per-type flows are the primary fix and should never
+    // actually reach this with a short answer set for survey anymore.
+    const totalQuestions = Array.isArray(params.talkData?.questions) ? params.talkData.questions.length : 0;
+    const isComplete = params.talkData?.type !== 'survey' || params.answers.length >= totalQuestions;
+    if (!isComplete) {
+      console.log('⏸️ Talk response incomplete (survey, not all questions answered) — not submitting:', {
+        talkId: params.talkId,
+        answered: params.answers.length,
+        totalQuestions,
+      });
+      return;
+    }
     const isMatch = this.checkIfMatch(params.talkData, params.answers);
     const isIgnore = params.answers.some((answer: any) => {
       const answerId = String(answer?.answerId || '').toLowerCase();

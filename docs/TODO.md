@@ -1610,6 +1610,41 @@ Net effect: three data stores (ledger `exchanged`, room-broadcast revision histo
 `localTalkExchanges`) become one (ledger `exchanged` + `sent`), and three independently-implemented
 filtering checks become one function reused by all three send UIs.
 
+**Completeness refinement (2026-08-01, Bernard), implemented separately from the TALK_SENT design
+above:** *"if receiver answers 2 out of 3 questions talk, it is considered not yet done on his
+side. the sender should not receive incomplete answer and should consider not yet answered."*
+
+- [x] **Root cause, fixed:** a survey question's "Ignore" answer (every question is
+      validator-required to have one) was being treated as "abandon the whole survey," not "not
+      interested in this one question" — `completeAndClose()` fired on the very first Ignore pick
+      regardless of question position, in **three** independent places that all had to special-case
+      survey the same way and only one of them did it correctly:
+      `talk-response-dialog.ts`'s manual click handler (`applyChoice`), the saved-preference
+      auto-answer path in `renderQuestion` (worse — even non-ignore `isTerminal` answers ended the
+      response early there, since survey answers never carry `nextQuestionId`), and the
+      `tryCollectAllAutoAnswers` pre-scan feeding the differential-review screen. Extracted one
+      shared `nextSurveyQuestion(talk, currentQuestion)` helper (exported, unit-tested) — every
+      answer for a non-last survey question now advances instead of completing, regardless of
+      isIgnore/isMatch/isTerminal; only the actual last question ends the response.
+- [x] **Defensive backstop, added:** `submitTalkResponsePairDirect` (`app.ts`) computes
+      completeness (`talkData.type !== 'survey' || answers.length >= talkData.questions.length`)
+      at the single submission chokepoint and returns without any mesh send or ledger write when
+      false — covers both the real completion path and the `tryChatbotReply` replay path with one
+      check. `handleMeshTalkResponse` (the receiving/author side) applies the same check on
+      **incoming** mesh responses too, so an older/different client — or a corrupted payload —
+      can't get a short survey answer recorded as exchanged either. Belt-and-suspenders: the root
+      -cause fix above should make this structurally unreachable through the shipped UI now, but
+      the invariant is enforced at the data boundary, not just trusted to the UI never having a
+      bug again.
+- [x] Tests: `src/test/unit/survey-completeness.test.ts` (5 cases on `nextSurveyQuestion`) +
+      `tests/e2e/staged/stage2-two-user/83-survey-ignore-mid-question-not-complete.spec.ts` (full
+      3-question survey, Ignore picked on Q1, verifies the dialog advances through Q2/Q3 rather
+      than completing, and that both the responder's own record and the author's received record
+      end up with all 3 answers). Full Jest suite green (95/95); re-ran
+      `13-me-filters-credit.spec.ts`, `mass/02-survey-mass-exchange.spec.ts`, and
+      `09-four-types-chatbot.spec.ts` (survey/chatbot-adjacent existing coverage) to confirm no
+      regression.
+
 - [ ] Decide whether `sendBulkTalk`/`BulkSendJob` should be removed as dead code or finished as a
       real feature — currently neither, which is its own small hazard for whoever finds it next.
 
