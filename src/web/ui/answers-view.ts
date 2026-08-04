@@ -20,13 +20,13 @@ type AnswersViewDeps = {
   getExactChatbotMemory?: () => ExactChatbotMemoryState;
   escapeHtml: (text: string) => string;
   copyAnsweredTalkToTalks: (talkId: string) => void;
-  /** questionId (TODO §P) scrolls/highlights that specific question when the talk opens as a
+  /** questionId scrolls/highlights that specific question when the talk opens as a
    *  multi-question review, instead of only landing on the talk as a whole. */
   showTalkDetail: (talkId: string, questionId?: string) => void;
   showPreferencesDialog: () => void;
-  /** TODO §M3: reuses M2's shared reparent-into-popup mechanism (ui-manager.ts's
-   *  showDetailsPopupFor) so the moved-out metadata/badge/per-question detail keeps working
-   *  without a second popup convention. */
+  /** Reuses ui-manager.ts's shared reparent-into-popup mechanism (showDetailsPopupFor) so
+   *  the moved-out metadata/context/variant list keeps working without a second popup
+   *  convention — the same mechanism the Talks tab's long-press details popup uses. */
   showItemDetailsPopup: (detailsEl: HTMLElement, originalParent: HTMLElement) => void;
   getTalkContentKey: (talk: any) => string;
   text: (key: UiTranslationKey) => string;
@@ -44,30 +44,58 @@ type AnswersViewDeps = {
 
 type AnswerEntry = { questionId: string; answerId: string; answerText?: string; mode?: string };
 
-type AnswerItemModel = {
+/** One instance of an answered question — one talk-completion event contributing to a
+ *  merged group. Several variants (from different talks, possibly different talk types)
+ *  can share a `contextKey`, in which case they represent the exact same context and are
+ *  the same underlying fact restated; several variants with *different* `contextKey`s
+ *  under the same question represent genuinely different context-dependent answers. */
+type AnswerVariant = {
   questionId: string;
-  kind: 'tag' | 'question';
-  prompt: string;
-  choice: string;
-  contextHash?: string;
+  /** Spec §20.3/REQ-LEDGER-14 content-addressed question identity (`Question.cidId`) —
+   *  the actual grouping key (see AnswerQuestionGroup's doc comment). Absent for talks
+   *  answered before this field existed. */
+  questionContentId?: string;
+  contextKey: string; // '' = universal/context-free; else contextHash || contextLabel
   contextLabel: string;
-  contextPath: string[];
-  answeredCount: number;
-  answerCounter?: number;
+  talkId: string;
+  talkTitle: string;
+  talkType: string;
+  choice: string;
+  answerId: string;
   mode?: string;
+  answeredAt: number;
+  outcome: 'match' | 'mismatch';
+  senderIds: string[];
+  language: string;
+  locationRadiusMiles?: number;
+  answerCounter?: number;
   chatbotGenerated: boolean;
   autoUseCount: number;
   latestAutoUseAt?: number;
 };
 
-type AnswerTalkRenderModel = {
-  talkId: string;
-  title: string;
-  type?: string;
-  metadata: string;
-  outcome: 'match' | 'mismatch';
-  items: AnswerItemModel[];
-  searchText: string;
+/** One merged row: every answer ever given to this question, across every talk type and
+ *  every talk that ever asked it, folded into one entry — FR-QA-14/§20.3's per-question
+ *  canonical model (`questionId = CIDv1({ text, type, options })`, content-addressed,
+ *  independent of which talk asks it), applied at render time over today's
+ *  per-completion-event history log (see docs/TODO.md's Me-tab-redesign entry for the
+ *  storage-model follow-up this defers).
+ *
+ *  Grouped by `AnswerVariant.questionContentId` — `Question.cidId`, stamped by
+ *  `WebTalkService.stampQuestionCids` at talk create/update time, i.e. the actual spec-
+ *  defined content id, not a heuristic. The talk-scoped `questionId` field (e.g. `q_0`,
+ *  positional) is carried forward from the most recent contributing variant purely for
+ *  deep-linking (data-question-id → that specific talk's response dialog) — it is never
+ *  the grouping key, since two unrelated talks' first questions are both `q_0` by the
+ *  editor's own positional-id convention (that collision is what caused a real bug: two
+ *  different questions merging into one row — see the pushVariant fallback below for how
+ *  answers that predate `cidId` avoid repeating it). */
+type AnswerQuestionGroup = {
+  questionId: string;
+  kind: 'tag' | 'question';
+  prompt: string;
+  /** Newest first. */
+  variants: AnswerVariant[];
 };
 
 function getQuestionMemory(
@@ -139,43 +167,6 @@ function deriveContextLabelFromFlatRecord(
   return '';
 }
 
-function buildAnswerItemModelsFromFlatRecord(
-  record: FlatAnswerHistoryRecord,
-  answeredCount: number,
-  myTalks: Record<string, any>,
-  exactMemory?: ExactChatbotMemoryState,
-): AnswerItemModel[] {
-  return (record.items || []).map((item, index) => {
-    const questionMemory = getQuestionMemory(exactMemory, item.prompt, record.language);
-    const matchingHistory = readHistory(questionMemory || null).filter(
-      (event) => event.answerId === makeAnswerId(item.choice),
-    );
-    const autoUseCount = matchingHistory.reduce((total, event) => total + (event.autoUseCount || 0), 0);
-    const latestAutoUseAt = matchingHistory.reduce<number | undefined>((latest, event) => {
-      if (event.lastAutoUsedAt == null) return latest;
-      return latest == null ? event.lastAutoUsedAt : Math.max(latest, event.lastAutoUsedAt);
-    }, undefined);
-    const contextLabel = deriveContextLabelFromFlatRecord(record, item, index, myTalks);
-    const fallbackContextPath = contextLabel ? contextLabel.split(' · ') : [];
-    return {
-      questionId: item.questionId,
-      kind: item.kind,
-      prompt: item.prompt,
-      choice: item.choice,
-      ...(item.contextHash ? { contextHash: item.contextHash } : {}),
-      contextLabel,
-      contextPath: Array.isArray(item.contextPath) && item.contextPath.length > 0
-        ? item.contextPath
-        : fallbackContextPath,
-      answeredCount,
-      ...(item.mode ? { mode: item.mode } : {}),
-      chatbotGenerated: item.mode === 'auto' || item.mode === 'permanent',
-      autoUseCount,
-      ...(latestAutoUseAt != null ? { latestAutoUseAt } : {}),
-    };
-  });
-}
-
 export function getAnswerDisplayText(
   talk: any,
   entry: { questionId: string; answerId: string; answerText?: string },
@@ -196,28 +187,37 @@ function formatQuestionContext(talk: any, question: any): string[] {
   return formatContextPathFromTalk({ questions }, contextPath);
 }
 
+/** Builds variants for the legacy myTalks-derived fallback path (used only when no flat
+ *  answer-history records exist at all — see `buildQuestionGroups`). */
 export function buildAnswerItemModels(
   talk: any,
   completedAnswers: AnswerEntry[],
-  answeredCount: number,
+  talkId: string,
+  talkTitle: string,
+  outcome: 'match' | 'mismatch',
+  answeredAt: number,
+  senderIds: string[],
+  locationRadiusMiles: number | undefined,
   exactMemory?: ExactChatbotMemoryState,
-): AnswerItemModel[] {
+): AnswerVariant[] {
   if (!Array.isArray(completedAnswers) || completedAnswers.length === 0) return [];
   const questions = Array.isArray(talk?.questions) ? talk.questions : [];
+  const talkType = String(talk?.type || 'flow').toLowerCase();
+  const language = String(talk?.language || 'en').toLowerCase();
   return completedAnswers.map((entry, index) => {
     const question = questions.find((item: any) => String(item?.id || '') === entry.questionId) || {};
     const answer = Array.isArray(question?.answers)
       ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
       : null;
-    const isTag = talk?.type === 'tag';
-    const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
+    const isTag = talkType === 'tag';
     const choice = isTag
       ? answer?.isMatch
         ? 'Checked'
         : 'Unchecked'
       : getAnswerDisplayText(talk, entry);
     const answerId = makeAnswerId(choice);
-    const questionMemory = getQuestionMemory(exactMemory, prompt, talk?.language);
+    const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
+    const questionMemory = getQuestionMemory(exactMemory, prompt, language);
     const matchingHistory = readHistory(questionMemory || null).filter((event) => event.answerId === answerId);
     const autoUseCount = matchingHistory.reduce((total, event) => total + (event.autoUseCount || 0), 0);
     const latestAutoUseAt = matchingHistory.reduce<number | undefined>((latest, event) => {
@@ -226,19 +226,26 @@ export function buildAnswerItemModels(
     }, undefined);
     const contextPath = formatQuestionContext(talk, question);
     const contextLabel = contextPath.join(' · ');
+    const contextHash = String(question?.contextHashId || '').trim();
+    const contextKey = talkType === 'tag' || talkType === 'survey' ? '' : (contextHash || contextLabel);
+    const questionContentId = String(question?.cidId || '').trim();
     return {
       questionId: entry.questionId,
-      kind: isTag ? 'tag' : 'question',
-      prompt,
+      ...(questionContentId ? { questionContentId } : {}),
+      contextKey,
+      contextLabel: talkType === 'tag' || talkType === 'survey' ? '' : contextLabel,
+      talkId,
+      talkTitle,
+      talkType,
       choice,
-      ...(String(question?.contextHashId || '').trim()
-        ? { contextHash: String(question?.contextHashId || '').trim() }
-        : {}),
-      contextLabel,
-      contextPath,
-      answeredCount,
-      ...(typeof answer?.counter === 'number' ? { answerCounter: answer.counter } : {}),
+      answerId: entry.answerId,
       ...(entry.mode ? { mode: entry.mode } : {}),
+      answeredAt,
+      outcome,
+      senderIds,
+      language,
+      ...(locationRadiusMiles != null ? { locationRadiusMiles } : {}),
+      ...(typeof answer?.counter === 'number' ? { answerCounter: answer.counter } : {}),
       chatbotGenerated: entry.mode === 'auto' || entry.mode === 'permanent',
       autoUseCount,
       ...(latestAutoUseAt != null ? { latestAutoUseAt } : {}),
@@ -246,111 +253,199 @@ export function buildAnswerItemModels(
   });
 }
 
-function renderAnswerItemsHtml(
-  items: AnswerItemModel[],
-  deps: Pick<AnswersViewDeps, 'escapeHtml' | 'text' | 'formatDate'>,
+export function answerTalkMatchesQuery(model: { searchText: string }, rawQuery: string): boolean {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return true;
+  return model.searchText.includes(query);
+}
+
+/** Builds one merged group per distinct question — keyed by the spec-defined content id
+ *  (see AnswerQuestionGroup's doc comment) — folding every talk-completion event that
+ *  ever answered it (any talk type, any sender) into that group's `variants`. */
+function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
+  const myTalks = deps.getMyTalks();
+  const flatHistory = deps.getFlatAnswerHistory?.() || {};
+  const exactMemory = deps.getExactChatbotMemory?.();
+  const groups = new Map<string, AnswerQuestionGroup>();
+
+  const pushVariant = (kind: 'tag' | 'question', prompt: string, variant: AnswerVariant): void => {
+    // Merge strictly on the spec-defined content id. An answer recorded before
+    // `questionContentId` existed (or whose source talk was never re-stamped) has
+    // nothing safe to merge on — falling back to a heuristic like text-matching would
+    // silently reintroduce the exact bug this is fixing (two different questions
+    // merging because they look similar). Such answers each get their own row instead,
+    // keyed uniquely per talk+question so they never collide with one another either.
+    const key = variant.questionContentId
+      ? `${kind}::cid:${variant.questionContentId}`
+      : `${kind}::nocid:${variant.talkId}:${variant.questionId}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { questionId: variant.questionId, kind, prompt, variants: [] };
+      groups.set(key, group);
+    }
+    group.variants.push(variant);
+  };
+
+  const flatRecords = Object.entries(flatHistory)
+    .filter(([, record]) => record.supportMessage !== true && record.supportChannel !== true)
+    .map(([, record]) => record);
+
+  if (flatRecords.length > 0) {
+    for (const record of flatRecords) {
+      const language = String(record.language || 'en').toLowerCase();
+      const answeredAt = new Date(record.answeredAt || Date.now()).getTime();
+      (record.items || []).forEach((item, itemIndex) => {
+        const questionMemory = getQuestionMemory(exactMemory, item.prompt, language);
+        const matchingHistory = readHistory(questionMemory || null).filter(
+          (event) => event.answerId === makeAnswerId(item.choice),
+        );
+        const autoUseCount = matchingHistory.reduce((total, event) => total + (event.autoUseCount || 0), 0);
+        const latestAutoUseAt = matchingHistory.reduce<number | undefined>((latest, event) => {
+          if (event.lastAutoUsedAt == null) return latest;
+          return latest == null ? event.lastAutoUsedAt : Math.max(latest, event.lastAutoUsedAt);
+        }, undefined);
+        const contextLabel = deriveContextLabelFromFlatRecord(record, item, itemIndex, myTalks);
+        const contextKey = item.contextHash || contextLabel || '';
+        pushVariant(item.kind, item.prompt, {
+          questionId: item.questionId,
+          ...(item.questionContentId ? { questionContentId: item.questionContentId } : {}),
+          contextKey,
+          contextLabel,
+          talkId: record.talkId,
+          talkTitle: record.title,
+          talkType: String(record.type || 'flow').toLowerCase(),
+          choice: item.choice,
+          answerId: item.answerId,
+          ...(item.mode ? { mode: item.mode } : {}),
+          answeredAt,
+          outcome: record.outcome === 'match' ? 'match' : 'mismatch',
+          senderIds: record.senderIds || [],
+          language,
+          ...(record.locationRadiusMiles != null ? { locationRadiusMiles: record.locationRadiusMiles } : {}),
+          chatbotGenerated: item.mode === 'auto' || item.mode === 'permanent',
+          autoUseCount,
+          ...(latestAutoUseAt != null ? { latestAutoUseAt } : {}),
+        });
+      });
+    }
+  } else {
+    // Legacy fallback: no flat history at all yet — derive groups from myTalks entries.
+    Object.entries(myTalks)
+      .filter(([, talk]) => talk?.role === 'answered' || talk?.role === 'copied')
+      .forEach(([talkId, talk]) => {
+        const completedAnswers = Array.isArray(talk.completedAnswers) ? talk.completedAnswers : [];
+        const answeredAt = new Date(talk.lastInteraction || talk.timestamp || Date.now()).getTime();
+        const variants = buildAnswerItemModels(
+          talk.fullTalk,
+          completedAnswers,
+          talkId,
+          talk.title,
+          talk.outcome === 'match' ? 'match' : 'mismatch',
+          answeredAt,
+          talk.senders || [],
+          talk.locationRadiusMiles,
+          exactMemory,
+        );
+        variants.forEach((variant, index) => {
+          const question = (talk.fullTalk?.questions || [])[index];
+          const kind = String(talk.fullTalk?.type || talk.type || 'flow').toLowerCase() === 'tag' ? 'tag' : 'question';
+          pushVariant(kind, String(question?.text || talk.title), variant);
+        });
+      });
+  }
+
+  const result = Array.from(groups.values());
+  result.forEach((group) => {
+    group.variants.sort((a, b) => b.answeredAt - a.answeredAt);
+    // The group's questionId/prompt should reflect its most recently answered variant, not
+    // whichever variant happened to create the group first during insertion.
+    group.questionId = group.variants[0].questionId;
+  });
+  result.sort((a, b) => b.variants[0].answeredAt - a.variants[0].answeredAt);
+  return result;
+}
+
+function distinctContextKeys(group: AnswerQuestionGroup): string[] {
+  const keys = new Set<string>();
+  group.variants.forEach((variant) => {
+    if (variant.contextKey) keys.add(variant.contextKey);
+  });
+  return Array.from(keys);
+}
+
+/** One variant per distinct context key (most recent instance of each), for the detail
+ *  popup's per-context breakdown. */
+function contextVariantsFor(group: AnswerQuestionGroup): AnswerVariant[] {
+  const seen = new Map<string, AnswerVariant>();
+  group.variants.forEach((variant) => {
+    if (!variant.contextKey) return;
+    if (!seen.has(variant.contextKey)) seen.set(variant.contextKey, variant);
+  });
+  return Array.from(seen.values());
+}
+
+function buildSearchText(group: AnswerQuestionGroup, deps: Pick<AnswersViewDeps, 'formatLanguage'>): string {
+  return [
+    group.prompt,
+    ...group.variants.flatMap((variant) => [
+      variant.talkTitle,
+      variant.talkType,
+      variant.choice,
+      variant.contextLabel,
+      deps.formatLanguage(variant.language),
+      variant.outcome,
+    ]),
+  ].join(' ').toLowerCase();
+}
+
+function renderVariantDetail(
+  variant: AnswerVariant,
+  questionId: string,
+  deps: Pick<AnswersViewDeps, 'escapeHtml' | 'text' | 'formatDate' | 'formatType' | 'formatLanguage'>,
+  showContextLabel: boolean,
+  isTag: boolean,
 ): string {
   const format = (key: UiTranslationKey, values: Record<string, string | number>): string =>
     Object.entries(values).reduce(
       (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
       deps.text(key),
     );
-  const renderSingleItem = (item: AnswerItemModel, index: number, showPrompt = true): string => {
-    const hasContext = !!item.contextHash || item.contextLabel.length > 0 || item.contextPath.length > 0;
-    const isConditional = hasContext || item.kind !== 'tag';
-    const modeGroup = item.chatbotGenerated ? 'auto' : isConditional ? 'conditional' : 'manual';
-    const answeredLabel = format(item.answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: item.answeredCount });
-    const choice = item.kind === 'tag'
-      ? deps.text(item.choice === 'Checked' ? 'meChecked' : 'meUnchecked')
-      : item.choice === 'Ignored' ? deps.text('responseIgnore') : item.choice;
-    const tone =
-      modeGroup === 'auto'
-        ? 'background:var(--success-soft);border-color:var(--success-border);'
-        : modeGroup === 'conditional'
-          ? 'background:var(--warning-soft);border-color:var(--warning-border);'
-          : 'background:var(--danger-soft);border-color:var(--danger-border);';
-    const contextLabel = (item.contextLabel || item.contextPath.join(' · ')).replace(/→/g, ' -> ');
-    return `
-      <div class="answer-outcome-item answer-mode-${modeGroup}" data-answer-mode="${modeGroup}" data-question-id="${deps.escapeHtml(item.questionId)}" style="padding: 12px; border-radius: 10px; ${tone} border-width: 1px; border-style: solid; cursor: pointer;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-          <div style="font-size:0.8em; color:var(--text-tertiary);">${item.kind === 'tag' ? deps.text('meTag') : format('meQuestion', { count: index + 1 })}</div>
-          <div style="font-size:0.78em; color:var(--text-tertiary);">
-            ${answeredLabel}${typeof item.answerCounter === 'number' ? ` · ${format('meChoiceCount', { count: item.answerCounter })}` : ''}
-          </div>
-        </div>
-        ${showPrompt ? `<div style="font-weight: 600; color: var(--text-primary); margin-top: 4px;">${deps.escapeHtml(item.prompt)}</div>` : ''}
-        <div style="margin-top: 6px; color: ${item.kind === 'tag' ? '#7c3aed' : 'var(--accent)'}; font-weight: 600;">${deps.escapeHtml(choice)}</div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; font-size:0.78em; color:var(--text-secondary);">
-          ${item.mode ? `<span style="padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent-text);">${deps.escapeHtml(deps.text(item.mode === 'auto' ? 'meChatbotGenerated' : item.mode === 'permanent' ? 'mePermanent' : 'meManual'))}</span>` : ''}
-          ${item.autoUseCount > 0 ? `<span style="padding:2px 8px; border-radius:999px; background:var(--success-soft); color:var(--success-hover);">${format(item.autoUseCount === 1 ? 'meAutoUsedCount' : 'meAutoUsedCounts', { count: item.autoUseCount })}</span>` : ''}
-          ${item.latestAutoUseAt ? `<span>${format('meLatestAutoUse', { date: deps.escapeHtml(deps.formatDate(new Date(item.latestAutoUseAt))) })}</span>` : ''}
-        </div>
-        ${
-          hasContext
-            ? `<div style="margin-top:8px; font-size:0.82em; color:var(--text-secondary);">
-                 ${item.contextHash ? `<div>${deps.text('meContextHash')} <code>${deps.escapeHtml(item.contextHash)}</code></div>` : ''}
-                 ${contextLabel ? `<div>${deps.text('meContextPath')} ${deps.escapeHtml(contextLabel)}</div>` : ''}
-               </div>`
-            : ''
-        }
+  const displayChoice = isTag
+    ? deps.text(variant.choice === 'Checked' ? 'meChecked' : 'meUnchecked')
+    : variant.choice;
+  return `
+    <div class="answer-variant" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-outcome="${deps.escapeHtml(variant.outcome)}" style="padding:10px 12px;border-radius:10px;background:var(--bg-subtle);border:1px solid var(--border);margin-bottom:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:0.78em;color:var(--text-tertiary);">${deps.escapeHtml(format('meAnsweredVia', { type: deps.formatType(variant.talkType) }))} · ${deps.escapeHtml(variant.talkTitle)}</span>
+        <span style="font-size:0.78em;color:var(--text-tertiary);">${deps.escapeHtml(deps.formatDate(new Date(variant.answeredAt)))}</span>
       </div>
-    `;
-  };
-
-  const groupedRows = new Map<string, AnswerItemModel[]>();
-  items.forEach((item, index) => {
-    const key = item.questionId || `${item.prompt}:${index}`;
-    const current = groupedRows.get(key);
-    if (current) {
-      current.push(item);
-      return;
-    }
-    groupedRows.set(key, [item]);
-  });
-
-  let displayIndex = 0;
-  return Array.from(groupedRows.values())
-    .map((group) => {
-      const hasContextVariants = group.length > 1 && group.some((item) => !!item.contextHash || item.contextLabel.length > 0);
-      if (!hasContextVariants) {
-        const row = renderSingleItem(group[0], displayIndex, true);
-        displayIndex += 1;
-        return row;
-      }
-
-      const prompt = group[0]?.prompt || '';
-      const nestedRows = group
-        .map((item) => {
-          const row = renderSingleItem(item, displayIndex, false);
-          displayIndex += 1;
-          return row;
-        })
-        .join('');
-
-      return `
-        <details class="answer-context-group" style="border:1px solid var(--border-strong); border-radius:10px; background:var(--bg-subtle);" open>
-          <summary style="cursor:pointer; padding:10px 12px; font-weight:600; color:var(--text-primary);">${deps.escapeHtml(prompt)} (${group.length} contexts)</summary>
-          <div style="display:grid; gap:8px; padding: 0 10px 10px 10px;">
-            ${nestedRows}
-          </div>
-        </details>
-      `;
-    })
-    .join('');
-}
-
-export function answerTalkMatchesQuery(model: AnswerTalkRenderModel, rawQuery: string): boolean {
-  const query = rawQuery.trim().toLowerCase();
-  if (!query) return true;
-  return model.searchText.includes(query);
-}
-
-function tagStateForItems(items: AnswerItemModel[]): 'checked' | 'unchecked' | 'indeterminate' {
-  const tagItem = items.find((item) => item.kind === 'tag');
-  if (!tagItem) return 'indeterminate';
-  if (tagItem.choice === 'Checked') return 'checked';
-  if (tagItem.choice === 'Unchecked') return 'unchecked';
-  return 'indeterminate';
+      <div style="margin-top:4px;font-size:0.82em;font-weight:600;color:${variant.outcome === 'match' ? 'var(--success-hover)' : 'var(--warning-text)'};">
+        ${variant.outcome === 'match' ? `✓ ${deps.escapeHtml(deps.text('match'))}` : `✗ ${deps.escapeHtml(deps.text('mismatch'))}`}
+      </div>
+      ${showContextLabel && variant.contextLabel
+        ? `<div style="margin-top:6px;font-size:0.82em;color:#92400e;">${deps.text('meContextPath')} ${deps.escapeHtml(variant.contextLabel.replace(/→/g, ' -> '))}</div>`
+        : ''}
+      <div style="margin-top:6px;font-weight:600;color:var(--accent-text);">→ ${deps.escapeHtml(displayChoice)}</div>
+      <div style="margin-top:6px;font-size:0.82em;color:var(--text-secondary);">
+        ${variant.senderIds.length > 0
+          ? deps.escapeHtml(format(variant.senderIds.length === 1 ? 'meFromSender' : 'meFromSenders', { count: variant.senderIds.length }))
+          : ''}
+        ${variant.senderIds.length > 0 ? ' · ' : ''}${variant.locationRadiusMiles != null
+          ? deps.escapeHtml(format(variant.locationRadiusMiles === 1 ? 'meWithinMile' : 'meWithinMiles', { count: variant.locationRadiusMiles }))
+          : deps.escapeHtml(deps.text('meAnywhere'))}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:0.78em;color:var(--text-secondary);">
+        <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(variant.language)}">${deps.escapeHtml(deps.formatLanguage(variant.language))}</span>
+        ${variant.mode ? `<span style="padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);">${deps.escapeHtml(deps.text(variant.mode === 'auto' ? 'meChatbotGenerated' : variant.mode === 'permanent' ? 'mePermanent' : 'meManual'))}</span>` : ''}
+        ${variant.autoUseCount > 0 ? `<span style="padding:2px 8px;border-radius:999px;background:var(--success-soft);color:var(--success-hover);">${deps.escapeHtml(format(variant.autoUseCount === 1 ? 'meAutoUsedCount' : 'meAutoUsedCounts', { count: variant.autoUseCount }))}</span>` : ''}
+        ${typeof variant.answerCounter === 'number' ? `<span>${deps.escapeHtml(format('meChoiceCount', { count: variant.answerCounter }))}</span>` : ''}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" class="btn answer-view-talk-btn" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-question-id="${deps.escapeHtml(questionId)}">${deps.escapeHtml(deps.text('meViewTalk'))}</button>
+        <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(variant.talkId)}" title="${deps.escapeHtml(deps.text('copy'))}">📋 ${deps.escapeHtml(deps.text('copy'))}</button>
+      </div>
+    </div>
+  `;
 }
 
 export function displayAnswersList(deps: AnswersViewDeps): void {
@@ -358,28 +453,39 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   if (!container) return;
   const renderSeq = ++answersRenderSeq;
 
-  // TODO §R3: delegated (bound once on the stable #answers-content container, which
-  // persists across renders even though its children are recreated every call) —
-  // replaces four per-render listener-binding calls (row click, copy button, details
-  // button, preferences button — the last of which exists in both the empty-state and
-  // normal render branches) so nothing needs re-attaching for rows in a deferred
-  // remainder, and so the empty-state button isn't handled by one mechanism while the
-  // normal-state button is handled by another. `deps` is stashed on the element and read
-  // at click time rather than closed over at bind time, since a later render passes a
-  // freshly-built `deps` object (same reasoning as the Contacts fix in contacts-view.ts).
+  // TODO §R3/M-merge: delegated (bound once on document.body rather than the
+  // #answers-content container itself, since a row's .answer-item-details gets *relocated*
+  // — not cloned — into #item-details-popup once opened, which lives outside #answers-content
+  // as a direct child of document.body; a container-scoped listener would never see clicks on
+  // the popup's "View talk"/"Copy" buttons once that reparenting happens. `deps` is stashed on
+  // the container (not body) and read at click time rather than closed over at bind time,
+  // since a later render passes a freshly-built `deps` object.
   (container as unknown as { __answersDeps?: AnswersViewDeps }).__answersDeps = deps;
-  if (container.dataset.answersClickBound !== '1') {
-    container.dataset.answersClickBound = '1';
-    container.addEventListener('click', (e) => {
-      const currentDeps = (container as unknown as { __answersDeps?: AnswersViewDeps }).__answersDeps;
-      if (!currentDeps) return;
+  if (document.body.dataset.answersClickBound !== '1') {
+    document.body.dataset.answersClickBound = '1';
+    document.body.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
+      if (!target.closest('#answers-content') && !target.closest('#item-details-popup')) return;
+      const liveContainer = document.getElementById('answers-content');
+      const currentDeps = (liveContainer as unknown as { __answersDeps?: AnswersViewDeps } | null)?.__answersDeps;
+      if (!currentDeps) return;
 
       if (target.closest('#view-preferences-btn')) {
         currentDeps.showPreferencesDialog();
         return;
       }
 
+      // Inside an already-open details popup: "View talk" jumps to the source talk; "Copy"
+      // re-saves that specific contributing talk into Talks. Neither re-triggers the row's
+      // own tap-to-open-details behavior.
+      const viewTalkBtn = target.closest('.answer-view-talk-btn') as HTMLElement | null;
+      if (viewTalkBtn) {
+        e.stopPropagation();
+        const talkId = viewTalkBtn.dataset.talkId;
+        const questionId = viewTalkBtn.dataset.questionId || undefined;
+        if (talkId) currentDeps.showTalkDetail(talkId, questionId);
+        return;
+      }
       const copyBtn = target.closest('.answer-copy-talk-btn') as HTMLElement | null;
       if (copyBtn) {
         e.stopPropagation();
@@ -387,66 +493,33 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         if (talkId) currentDeps.copyAnsweredTalkToTalks(talkId);
         return;
       }
-
-      // TODO §M3: "ℹ️" opens the entry's hidden .answer-item-details in the shared M2 popup.
-      const detailsBtn = target.closest('.answer-details-btn') as HTMLElement | null;
-      if (detailsBtn) {
-        e.stopPropagation();
-        const item = detailsBtn.closest('.answer-talk-item') as HTMLElement | null;
-        const details = item?.querySelector('.answer-item-details') as HTMLElement | null;
-        if (item && details) currentDeps.showItemDetailsPopup(details, item);
-        return;
-      }
-
-      // TODO §P: per-question deep link. If the click landed inside a specific
-      // .answer-outcome-item (one question of a possibly multi-question entry), thread its
-      // questionId through so the talk opens scrolled/highlighted to that question instead
-      // of just the talk as a whole.
       if (target.closest('.answer-item-details')) return;
+
+      // Tapping the row itself opens the details popup — there's no separate answer/edit
+      // action on an already-answered question, so tap-to-open-details is the sole
+      // affordance (same "one primary action" simplification the Talks tab redesign used).
       const item = target.closest('.answer-talk-item') as HTMLElement | null;
       if (!item) return;
-      const talkId = item.dataset.sourceTalkId || item.dataset.talkId;
-      if (!talkId) return;
-      const outcomeItem = target.closest('.answer-outcome-item') as HTMLElement | null;
-      currentDeps.showTalkDetail(talkId, outcomeItem?.dataset.questionId || undefined);
+      const details = item.querySelector('.answer-item-details') as HTMLElement | null;
+      if (details) currentDeps.showItemDetailsPopup(details, item);
     });
   }
 
-  const myTalks = deps.getMyTalks();
-  const flatHistory = deps.getFlatAnswerHistory?.() || {};
-  const exactMemory = deps.getExactChatbotMemory?.();
   const format = (key: UiTranslationKey, values: Record<string, string | number>): string =>
     Object.entries(values).reduce(
       (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
       deps.text(key),
     );
-  const answeredEntriesFromFlatHistory = Object.entries(flatHistory)
-    .filter(([, record]) => record.supportMessage !== true && record.supportChannel !== true)
-    .sort(([, a], [, b]) => new Date(b.answeredAt || 0).getTime() - new Date(a.answeredAt || 0).getTime());
-  const answeredEntries = answeredEntriesFromFlatHistory.length > 0 ? [] : Object.entries(myTalks)
-    .filter(([, talk]) => talk?.role === 'answered' || talk?.role === 'copied')
-    .sort(([, a], [, b]) => new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime());
 
-  const flattenedHistory = answeredEntriesFromFlatHistory.flatMap(([id, record]) =>
-    (record.items || []).map((answer, itemIndex) => ({
-      id: `${id}:${answer.questionId || itemIndex}:${answer.contextHash || ''}`,
-      record,
-      itemIndex,
-    })),
-  );
-  // Older sessions may not yet have the flattened history record; keep that
-  // compatibility path while new completions render as one row per question.
-  const deduped = answeredEntries.map(([talkId, talk]) => ({ talkId, talk, answeredCount: 1 }));
+  const groups = buildQuestionGroups(deps);
 
-  if (answeredEntries.length === 0 && flattenedHistory.length === 0) {
+  if (groups.length === 0) {
     container.innerHTML = `
       <div style="padding: 20px; text-align: center; color: #999;">
         <p>${deps.text('meNoAnswers')}</p>
         <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
       </div>
     `;
-    // #view-preferences-btn's click is handled by the delegated container listener bound
-    // above — no separate direct listener needed here.
     deps.onRowsRendered?.();
     return;
   }
@@ -455,151 +528,80 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     <div class="answers-view-inner" style="padding: 16px; max-width: min(980px, 96%); margin: 0 auto;">
       <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')} Each answered question is listed separately.</p>
       <input id="answers-search-input" class="form-input" type="search" placeholder="${deps.text('meSearchAnswers')}" style="width:100%; margin-bottom:12px;">
-      <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
+      <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
       <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
     </div>
   `;
 
   const listEl = document.getElementById('answers-list');
   if (listEl) {
-    // TODO §R3: unified render-row type over both sources — `deduped` is always empty
-    // whenever `answeredEntriesFromFlatHistory` is non-empty (see the ternary above), so
-    // in practice exactly one of the two ever has entries; treating them as one combined
-    // list lets a single renderListProgressively call handle both instead of two.
-    type FlatRow = { kind: 'flat'; id: string; record: FlatAnswerHistoryRecord; itemIndex: number };
-    type LegacyRow = { kind: 'legacy'; talkId: string; talk: any; answeredCount: number };
-    const rows: Array<FlatRow | LegacyRow> = [
-      ...flattenedHistory.map(({ id, record, itemIndex }) => ({ kind: 'flat' as const, id, record, itemIndex })),
-      ...deduped.map(({ talkId, talk, answeredCount }) => ({ kind: 'legacy' as const, talkId, talk, answeredCount })),
-    ];
-
-    const renderFlatRow = ({ id, record, itemIndex }: FlatRow): string => {
-      const answeredCount = 1;
-      const outcome = record.outcome === 'match' ? 'match' : 'mismatch';
-      const answeredAt = new Date(record.answeredAt || Date.now());
-      const locationText = record.locationRadiusMiles != null
-        ? format(record.locationRadiusMiles === 1 ? 'meWithinMile' : 'meWithinMiles', { count: record.locationRadiusMiles })
-        : deps.text('meAnywhere');
-      const senders = record.senderIds.length === 1
-        ? format('meFromSender', { count: 1 })
-        : record.senderIds.length > 1
-          ? format('meFromSenders', { count: record.senderIds.length })
-          : '';
-      // Build from the complete record first: a flow/route row needs earlier
-      // choices to derive its context, even though it renders as one flat row.
-      const answerItems = [
-        buildAnswerItemModelsFromFlatRecord(record, answeredCount, myTalks, exactMemory)[itemIndex],
-      ].filter((item): item is AnswerItemModel => !!item);
-      const language = String(record.language || 'en').toLowerCase();
-      const languageLabel = deps.formatLanguage(language);
-      const metadata = [
-        senders,
-        format(answerItems.length === 1 ? 'meItem' : 'meItems', { count: answerItems.length }),
-        deps.formatDate(answeredAt),
-        locationText,
-        format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }),
-      ].filter(Boolean).join(' · ');
-      const searchText = [
-        record.title,
-        record.type,
-        languageLabel,
-        metadata,
-        outcome,
-        ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '', answerItem.contextLabel]),
-      ].join(' ').toLowerCase();
-      const talkType = String(record.type || 'flow').toLowerCase();
-      const chatbotUseCount = answerItems.reduce((total, answer) => total + answer.autoUseCount, 0);
-      const chatbotLastUsedAt = Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0));
-      const answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
-      const rowStyle = `display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; cursor: pointer; background: ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border: 1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
-      // TODO §M3: 2 visible lines (title, status) with the copy action as an inline icon; the
-      // metadata line, type/language badges, and full per-question breakdown move into
-      // .answer-item-details — still a normal DOM child, just display:none until the "ℹ️" icon
-      // reparents it into the shared M2 popup (showItemDetailsPopup).
+    const renderTagRow = (group: AnswerQuestionGroup): string => {
+      const primary = group.variants[0];
+      const checked = primary.choice === 'Checked';
+      const talkTypes = Array.from(new Set(group.variants.map((v) => v.talkType)));
+      const talkIds = Array.from(new Set(group.variants.map((v) => v.talkId)));
+      const answeredCount = group.variants.length;
+      const searchText = buildSearchText(group, deps);
+      const metaLine = answeredCount > 1
+        ? `${format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount })} · ${format('meMostRecently', { date: deps.formatDate(new Date(primary.answeredAt)) })}`
+        : deps.formatDate(new Date(primary.answeredAt));
+      const detailVariants = group.variants.map((v) => renderVariantDetail(v, group.questionId, deps, false, true)).join('');
       return `
-        <div class="answer-question-item answer-talk-item talk-type-${deps.escapeHtml(talkType)}" data-talk-id="${deps.escapeHtml(id)}" data-source-talk-id="${deps.escapeHtml(record.talkId)}" data-talk-type="${deps.escapeHtml(talkType)}" data-tag-state="${deps.escapeHtml(talkType === 'tag' ? tagStateForItems(answerItems) : '')}" data-outcome="${deps.escapeHtml(outcome)}" data-answered-at="${answeredAt.getTime()}" data-chatbot-use-count="${chatbotUseCount}" data-chatbot-last-used-at="${chatbotLastUsedAt}" data-answer-text="${deps.escapeHtml(answerText)}" data-search-text="${deps.escapeHtml(searchText)}" style="${rowStyle}">
-          <div class="answer-item-title" style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
-          <div class="answer-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-            <span style="font-size:0.85em;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</span>
-            <span style="display:flex;gap:4px;flex-shrink:0;">
-              <button type="button" class="btn answer-copy-talk-btn answer-icon-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" title="${deps.text('copy')}">📋</button>
-              <button type="button" class="btn answer-details-btn answer-icon-btn" title="${deps.text('talksDetails')}">ℹ️</button>
-            </span>
-          </div>
+        <div class="answer-question-item answer-talk-item answer-tag-item ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${checked ? 'checked' : 'unchecked'}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="0" style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;cursor:pointer;background:${checked ? '#f5f3ff' : '#fff'};border:1px solid ${checked ? '#ddd6fe' : '#e9d5ff'};">
+          <input type="checkbox" class="answer-tag-checkbox" ${checked ? 'checked' : ''} disabled style="width:18px;height:18px;accent-color:#7c3aed;flex-shrink:0;">
+          <div class="answer-item-title" style="font-weight:600;flex:1 1 auto;">${deps.escapeHtml(group.prompt)}</div>
+          <div style="font-size:0.78em;color:var(--text-tertiary);flex-shrink:0;">${deps.escapeHtml(metaLine)}</div>
           <div class="answer-item-details" style="display:none;">
-            <div style="font-size: 0.85em; color: #666;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;">${deps.escapeHtml(deps.formatType(record.type))} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
-            <div class="answer-question-list" style="display: grid; gap: 8px; margin-top: 8px;">
-              ${renderAnswerItemsHtml(answerItems, deps)}
-            </div>
+            <h4 style="margin:0 0 4px;">${deps.escapeHtml(deps.text('meTag'))}</h4>
+            <div style="font-size:0.82em;color:var(--text-tertiary);margin-bottom:8px;">${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</div>
+            ${detailVariants}
           </div>
         </div>
       `;
     };
 
-    const renderLegacyRow = ({ talkId, talk, answeredCount }: LegacyRow): string => {
-      const outcome = talk.outcome === 'match' ? 'match' : 'mismatch';
-      const senders = talk.senders && talk.senders.length > 0
-        ? talk.senders.length === 1
-          ? format('meFromSender', { count: 1 })
-          : format('meFromSenders', { count: talk.senders.length })
+    const renderQaRow = (group: AnswerQuestionGroup): string => {
+      const primary = group.variants[0];
+      const contextKeys = distinctContextKeys(group);
+      const isContextual = contextKeys.length > 0;
+      const talkTypes = Array.from(new Set(group.variants.map((v) => v.talkType)));
+      const talkIds = Array.from(new Set(group.variants.map((v) => v.talkId)));
+      const answeredCount = group.variants.length;
+      const searchText = buildSearchText(group, deps);
+      const contextBadge = isContextual
+        ? `<span class="context-indicator" title="${deps.escapeHtml(format('meContextIndicatorTitle', { count: contextKeys.length }))}">🔗 <span class="count">${contextKeys.length}</span></span>`
         : '';
-      const completedAnswers = Array.isArray(talk.completedAnswers) ? talk.completedAnswers : [];
-      const questionCount = completedAnswers.length || (Array.isArray(talk.fullTalk?.questions) ? talk.fullTalk.questions.length : 0);
-      const answeredAt = new Date(talk.lastInteraction || talk.timestamp || Date.now());
-      const locationText = talk.locationRadiusMiles != null
-        ? format(talk.locationRadiusMiles === 1 ? 'meWithinMile' : 'meWithinMiles', { count: talk.locationRadiusMiles })
-        : deps.text('meAnywhere');
-      const metadata = [
-        senders,
-        format(questionCount === 1 ? 'meItem' : 'meItems', { count: questionCount }),
-        deps.formatDate(answeredAt),
-        locationText,
-        format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }),
-      ].filter(Boolean).join(' · ');
-      const answerItems = buildAnswerItemModels(talk.fullTalk, completedAnswers, answeredCount, exactMemory);
-      const language = String(talk.fullTalk?.language || 'en').toLowerCase();
-      const languageLabel = deps.formatLanguage(language);
-      const searchText = [
-        talk.title,
-        languageLabel,
-        metadata,
-        outcome,
-        ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '', answerItem.contextLabel]),
-      ].join(' ').toLowerCase();
-      const talkType = String(talk.fullTalk?.type || talk.type || 'flow').toLowerCase();
-      const chatbotUseCount = answerItems.reduce((total, answer) => total + answer.autoUseCount, 0);
-      const chatbotLastUsedAt = Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0));
-      const answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
-      const rowStyle = `display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; cursor: pointer; background: ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border: 1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
+      const statsLine = isContextual
+        ? (contextKeys.length > 1 ? format(contextKeys.length === 1 ? 'meContextCount' : 'meContextCounts', { count: contextKeys.length }) : '')
+        : (answeredCount > 1
+          ? `${format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount })} · ${format('meMostRecently', { date: deps.formatDate(new Date(primary.answeredAt)) })}`
+          : deps.formatDate(new Date(primary.answeredAt)));
+      const detailVariants = isContextual
+        ? contextVariantsFor(group).map((v) => renderVariantDetail(v, group.questionId, deps, true, false)).join('')
+        : group.variants.map((v) => renderVariantDetail(v, group.questionId, deps, false, false)).join('');
       return `
-        <div class="answer-question-item answer-talk-item talk-type-${deps.escapeHtml(talkType)}" data-talk-id="${deps.escapeHtml(talkId)}" data-talk-type="${deps.escapeHtml(talkType)}" data-tag-state="${deps.escapeHtml(talkType === 'tag' ? tagStateForItems(answerItems) : '')}" data-outcome="${deps.escapeHtml(outcome)}" data-answered-at="${answeredAt.getTime()}" data-chatbot-use-count="${chatbotUseCount}" data-chatbot-last-used-at="${chatbotLastUsedAt}" data-answer-text="${deps.escapeHtml(answerText)}" data-search-text="${deps.escapeHtml(searchText)}" style="${rowStyle}">
-          <div class="answer-item-title" style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
-          <div class="answer-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-            <span style="font-size:0.85em;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</span>
-            <span style="display:flex;gap:4px;flex-shrink:0;">
-              <button type="button" class="btn answer-copy-talk-btn answer-icon-btn" data-talk-id="${deps.escapeHtml(talkId)}" title="${deps.text('copy')}">📋</button>
-              <button type="button" class="btn answer-details-btn answer-icon-btn" title="${deps.text('talksDetails')}">ℹ️</button>
-            </span>
+        <div class="answer-question-item answer-talk-item answer-qa-item ${isContextual ? 'answer-qa-contextual' : 'answer-qa-universal'} ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${contextKeys.length}">
+          <div class="qa-line">
+            <span class="qa-question">${deps.escapeHtml(group.prompt)}</span>
+            <span class="qa-arrow">→</span>
+            <span class="qa-answer">${deps.escapeHtml(primary.choice)}</span>
+            ${contextBadge}
+            <span class="qa-chevron" aria-hidden="true">›</span>
           </div>
+          ${statsLine ? `<div class="qa-stats">${deps.escapeHtml(statsLine)}</div>` : ''}
           <div class="answer-item-details" style="display:none;">
-            <div style="font-size: 0.85em; color: #666;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;"><span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
-            <div class="answer-question-list" style="display: grid; gap: 8px; margin-top: 8px;">
-              ${renderAnswerItemsHtml(answerItems, deps)}
-            </div>
+            <h4 style="margin:0 0 4px;">${deps.escapeHtml(group.prompt)}</h4>
+            <div style="font-size:0.82em;color:var(--text-tertiary);margin-bottom:8px;">${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</div>
+            ${detailVariants}
           </div>
         </div>
       `;
     };
 
-    // TODO §R3: first-chunk-immediate + quiet-background-fill, same shared helper as R1/R2.
-    // onRowsRendered fires after both the first chunk and the deferred remainder — see the
-    // AnswersViewDeps doc comment for why the remainder needs it too.
     const onRowsRendered = deps.onRowsRendered;
-    renderListProgressively(listEl, rows, {
+    renderListProgressively(listEl, groups, {
       firstChunkSize: ANSWERS_FIRST_CHUNK_SIZE,
-      renderRow: (row) => (row.kind === 'flat' ? renderFlatRow(row) : renderLegacyRow(row)),
+      renderRow: (group) => (group.kind === 'tag' ? renderTagRow(group) : renderQaRow(group)),
       isStale: () => renderSeq !== answersRenderSeq,
       ...(onRowsRendered
         ? { onFirstChunkRendered: onRowsRendered, onRemainderRendered: onRowsRendered }
@@ -616,5 +618,4 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     });
     window.dispatchEvent(new CustomEvent('iinpublic:answers-filter-change'));
   });
-
 }

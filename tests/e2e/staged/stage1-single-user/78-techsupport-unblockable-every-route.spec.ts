@@ -64,14 +64,14 @@ test.describe('TechSupport is unblockable by every available route (docs/TODO.md
     const supportRow = page.locator(`.contact-item[data-support-contact="true"][data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await expect(supportRow).toBeVisible({ timeout: 15_000 });
 
-    // Route 1: the support row opens the DM conversation directly (K2). Backing out
-    // lands on the shared ⟨User⟩ layout, whose relationship-controls button is
-    // TechSupport-aware: `openRelationshipDialog` redirects TechSupport's id straight to
-    // `openSupportControlsDialog`, a mute-only dialog with no block button rendered at
-    // all — not a disabled one. Confirm that redirection actually holds live.
+    // Route 1: tapping the row (not the name) lands directly on the shared ⟨User⟩ layout
+    // — no DM conversation step to back out of (contacts-view.ts tap-target split) — whose
+    // relationship-controls button is TechSupport-aware: `openRelationshipDialog` redirects
+    // TechSupport's id straight to `openSupportControlsDialog`, a mute-only dialog with no
+    // block button rendered at all — not a disabled one. Confirm that redirection actually
+    // holds live.
     await supportRow.click();
     await afterAction();
-    await page.click('#back-from-conversation');
     const relationshipBtn = page.locator('#contact-edit-relationship-btn, [data-testid="contact-edit-relationship-btn"]');
     if (await relationshipBtn.count() > 0) {
       await relationshipBtn.click();
@@ -126,7 +126,7 @@ test.describe('TechSupport is unblockable by every available route (docs/TODO.md
     await page.click('.nav-btn[data-view="contacts"]');
     await waitForTabActive(page, 'contacts');
     await expect(supportRow).toBeVisible({ timeout: 15_000 });
-    await supportRow.click();
+    await supportRow.locator('.contact-item-name').click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
     await afterAction();
     await expect(page.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });
 

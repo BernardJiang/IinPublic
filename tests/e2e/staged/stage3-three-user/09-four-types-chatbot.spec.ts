@@ -110,12 +110,19 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     );
 
     // --- Jerry's Answers tab lists all four Q/A ---
+    // Rows are merged by question (spec-defined questionId); the talk title text lives in
+    // each row's collapsed details, revealed only via the tap-to-open-details popup — see
+    // TODO §M-merge in answers-view.ts.
     await jerry.page.click('.nav-btn[data-view="me"]');
     await afterSync();
-    for (const { title } of createdByKind) {
-      await expect(jerry.page.locator('#answers-content').getByText(title).first()).toBeVisible({
+    for (const { title, talkId } of createdByKind) {
+      const row = jerry.page.locator(`.answer-talk-item[data-talk-ids~="${talkId}"]`).first();
+      await expect(row).toBeVisible({ timeout: 10_000 });
+      await row.click();
+      await expect(jerry.page.locator('#item-details-popup').getByText(title).first()).toBeVisible({
         timeout: 10_000,
       });
+      await jerry.page.click('#close-item-details-popup');
     }
 
     // --- Sam joins and re-announces each talk; Jerry's chatbot auto-replies ---

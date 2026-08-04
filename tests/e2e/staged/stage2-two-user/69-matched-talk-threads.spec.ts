@@ -149,6 +149,10 @@ test.describe('Matched-talk threads', () => {
     const tomRow = jerry.locator('#contacts-list .contact-item').filter({ hasText: 'TomThread' }).first();
     await expect(tomRow).toBeVisible({ timeout: 20_000 });
     await tomRow.click();
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — reach the DM thread from there via its thread row.
+    await expect(jerry.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await jerry.locator('[data-testid="dm-thread-entry"]').click();
     await expect(jerry.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
     // DM view shows the DM text only — never the thread reply.
     await expect(jerry.locator('#conversation-messages')).toContainText(dmText, { timeout: 30_000 });

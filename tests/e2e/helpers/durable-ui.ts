@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Locator } from '@playwright/test';
 import { E2E_ASSERT_TIMEOUT_MS } from './timing';
 
 /** Parse "· 3 matches" from `#status-bar-text`; 0 if no match segment. */
@@ -97,13 +97,12 @@ export async function waitForPeerHistoryTitle(
 
 /** Wait until contact detail finished loading (not Loading/Could not load). */
 /**
- * After a contact/member row click (rule N2a): the DM conversation opens on top of
- * the shared ⟨User⟩ layout. Dismiss the conversation and wait for the User layout
- * (the old contact-detail page is retired — redesign §5).
+ * After a contact/member ROW click (not the name — see contacts-view.ts's tap-target
+ * split): the shared ⟨User⟩ layout opens directly, with no DM conversation step to
+ * dismiss first (that's what a NAME click does instead — see `waitForContactDmReady`
+ * below). The old contact-detail page is retired — redesign §5.
  */
 export async function waitForContactDetailReady(page: Page, timeout = E2E_ASSERT_TIMEOUT_MS): Promise<void> {
-  await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout });
-  await page.click('#back-from-conversation');
   await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout });
   await expect
     .poll(
@@ -118,4 +117,19 @@ export async function waitForContactDetailReady(page: Page, timeout = E2E_ASSERT
       { timeout, intervals: [200, 400, 800] },
     )
     .toBe('ready');
+}
+
+/**
+ * Click a contact/member row's NAME specifically (not the row generally) — the tap
+ * target that lands on the DM conversation directly, with the shared ⟨User⟩ layout
+ * underneath (contacts-view.ts's tap-target split; rule N2a still applies to name taps).
+ * `row` is the `.contact-item`/member-row locator; this drills into its `.contact-item-name`.
+ */
+export async function clickContactNameForDm(row: Locator, timeout = E2E_ASSERT_TIMEOUT_MS): Promise<void> {
+  await row.locator('.contact-item-name').click({ timeout });
+}
+
+/** After a contact NAME click: waits for the DM conversation overlay to be visible. */
+export async function waitForContactDmReady(page: Page, timeout = E2E_ASSERT_TIMEOUT_MS): Promise<void> {
+  await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout });
 }

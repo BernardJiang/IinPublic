@@ -1,9 +1,19 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless, afterSync, E2E_ASSERT_TIMEOUT_MS } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
+
+const SCREENSHOT_DIR = process.env.E2E_SCREENSHOT_DIR;
+if (SCREENSHOT_DIR) fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+
+async function captureScreenshot(page: Page, name: string): Promise<void> {
+  if (!SCREENSHOT_DIR) return;
+  await page.screenshot({ path: path.join(SCREENSHOT_DIR, `${name}.png`), fullPage: true });
+}
 
 // Quick iteration: 5 / 10 / 20. Real stress: 125 / 500 / 500.
 export const NUM_TALKS_PER_TYPE = 125;
@@ -275,6 +285,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         warnIfSlow('talks shell', shellMs, 500);
         warnIfSlow('talks render', contentMs, 5000);
         console.log(`[talks] shell=${shellMs.toFixed(0)}ms firstRow=${firstRowMs.toFixed(0)}ms render=${contentMs.toFixed(0)}ms items=${talkCount}`);
+        await captureScreenshot(page, '01-talks');
 
         // Scroll test
         const scrollEl = page.locator('#main-view-container');
@@ -309,6 +320,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         warnIfSlow('me shell', shellMs, 500);
         warnIfSlow('me render', contentMs, 5000);
         console.log(`[me]    shell=${shellMs.toFixed(0)}ms firstRow=${firstRowMs.toFixed(0)}ms render=${contentMs.toFixed(0)}ms items=${answerCount}`);
+        await captureScreenshot(page, '02-me');
 
         await page.waitForTimeout(3000);
       }
@@ -358,6 +370,7 @@ test.describe('M4 heavy-user GUI stress', () => {
           }
         }
         console.log(`[labels]  visible=${labelsFound.filter(Boolean).length}/${RELATIONSHIP_LABELS.length}`);
+        await captureScreenshot(page, '03-contacts');
       }
 
       // --- Chatrooms tab (sanity) ---
@@ -367,6 +380,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         await expect(page.locator('.chatroom-item').filter({ hasText: 'Global' }).first()).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
         await pauseAfterTabSwitch(page, 'chatrooms');
         console.log(`[chatrooms] ok, render=${((await browserNow(page)) - t0).toFixed(0)}ms`);
+        await captureScreenshot(page, '04-chatrooms');
       }
 
       // --- Settings tab (sanity) ---
@@ -376,6 +390,7 @@ test.describe('M4 heavy-user GUI stress', () => {
         await expect(page.locator('#settings-content')).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
         await pauseAfterTabSwitch(page, 'settings');
         console.log(`[settings]  ok, render=${((await browserNow(page)) - t0).toFixed(0)}ms`);
+        await captureScreenshot(page, '05-settings');
       }
 
     } finally {

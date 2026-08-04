@@ -28,7 +28,14 @@ export type ContactsViewDeps = {
   /** Optional async lookup of the peer's CURRENT stage name (rename-fresh); used to patch
    *  rendered rows/detail whose recorded names were captured before a rename. */
   resolvePeerStageName?: (userId: string) => Promise<string | null>;
+  /** Tapping the contact's name specifically — opens a DM with them directly. */
   openPeerDetail: (userId: string, stageName: string) => void;
+  /** Tapping the row anywhere else — opens the person's details popup without also
+   *  jumping straight into a DM. */
+  openPeerDetailOnly: (userId: string, stageName: string) => void;
+  /** Merges the row-count header line into the same "Stats: ..." strip (one line
+   *  instead of two) — mirrors the Talks tab's displayContextualStatistics(prefix). */
+  updateStatsStrip: (prefix: string) => void;
   getMyConversations: () => Record<string, any>;
   getMyTalks: () => Record<string, any>;
   saveKnownPerson: (
@@ -116,12 +123,16 @@ function formatRelationshipLabel(
   return keyByLabel[label] ? deps.text(keyByLabel[label]) : label;
 }
 
+/**
+ * A nickname is the user's own, private label for this contact — it defaults to
+ * mirroring the contact's live stage name (empty `known.nickname` falls through to
+ * `stageName` below) until the user deliberately sets one, at which point it's sticky:
+ * shown alone, and no longer follows the contact's future stage-name changes.
+ */
 function buildDisplayName(stageName: string, known?: KnownPerson): string {
   const nickname = String(known?.nickname || '').trim();
   const baseStageName = String(stageName || 'Unknown').trim() || 'Unknown';
-  if (!nickname) return baseStageName;
-  if (nickname.toLowerCase() === baseStageName.toLowerCase()) return nickname;
-  return `${nickname} (${baseStageName})`;
+  return nickname || baseStageName;
 }
 
 function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps): string {
@@ -741,8 +752,9 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       return;
     }
 
-    const status = document.getElementById('contacts-status-text');
-    if (status) status.textContent = formatCountText(deps, visiblePeers.length, 'contactsCountOne', 'contactsCount');
+    // One combined summary line instead of two (header count + a separate "Stats: ..."
+    // row below) — same "merge the redundant top lines" move the Talks tab redesign made.
+    deps.updateStatsStrip(formatCountText(deps, visiblePeers.length, 'contactsCountOne', 'contactsCount') + ' · ');
 
     const supportOnline = deps.isTechSupportOnline();
     // TODO §M5: compact to a single line — the "Built-in" badge already conveys what the old
@@ -764,7 +776,6 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       const known = knownMap.get(peer.peerId);
       const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
       const displayName = buildDisplayName(resolvedStageName, known);
-      const relationship = known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger');
       const metrics = rankingMetrics(peer, known, deps);
       const matchPercent = Math.round(metrics.matchRate * 100);
       const blockedBadge = deps.isBlockedByMe(peer.peerId)
@@ -772,14 +783,16 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         : '';
       const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:var(--accent);font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
       const headshotHtml = avatarInnerHtml(deps.getCachedHeadshot?.(peer.peerId) ?? undefined, '?', deps.escapeHtml);
+      // Relationship is stated once — buildMetaLine's own trailing segment — not repeated
+      // on the second meta line, which now only carries the sent/received counts.
       return `
           <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
             <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
               <span class="contact-item-avatar" style="width:40px;height:40px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-size:1.2em;flex-shrink:0;overflow:hidden;">${headshotHtml}</span>
               <div style="min-width: 0;">
-                <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}${blockedBadge}</div>
+                <div class="contact-item-name" style="font-weight: 700; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; display: inline-block; cursor: pointer;" title="${deps.escapeHtml(deps.text('contactsOpenDm'))}">${deps.escapeHtml(displayName)}</div>${blockedBadge}
                 <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
-                <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks} · ${deps.text('relationship')}: ${deps.escapeHtml(relationship)}</div>
+                <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks}</div>
                 ${sortOrder === 'match-rate' ? matchRateChip : ''}
                 ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
               </div>
@@ -814,13 +827,20 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       listEl.addEventListener('click', (event) => {
         const currentDeps = (listEl as unknown as { __contactsDeps?: ContactsViewDeps }).__contactsDeps;
         if (!currentDeps) return;
-        const row = (event.target as HTMLElement).closest('.contact-item') as HTMLElement | null;
+        const target = event.target as HTMLElement;
+        const row = target.closest('.contact-item') as HTMLElement | null;
         const userId = row?.dataset.contactUserId;
         const stageName = row?.dataset.contactName;
-        if (userId && stageName) {
-          // Rule N2a: contact click lands on the DM Conversation with the shared
-          // User layout underneath (same destination as a chatroom member click).
+        if (!userId || !stageName) return;
+        // Tapping the name specifically (Rule N2a) jumps straight to the DM Conversation
+        // with the shared User layout underneath — same destination as a chatroom member
+        // click. Tapping the row anywhere else opens that same User-layout detail view
+        // without also opening the conversation, so browsing contacts doesn't force a DM
+        // open on every tap.
+        if (target.closest('.contact-item-name')) {
           currentDeps.openPeerDetail(userId, stageName);
+        } else {
+          currentDeps.openPeerDetailOnly(userId, stageName);
         }
       });
     }

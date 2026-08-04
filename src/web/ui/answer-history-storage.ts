@@ -1,4 +1,6 @@
 export type FlatAnswerHistoryItem = {
+  /** Talk-scoped id (e.g. `q_0`) — positional, used only to deep-link back into
+   *  *this* talk's response dialog (`.review-question-block[data-question-id]`). */
   questionId: string;
   answerId: string;
   prompt: string;
@@ -8,6 +10,13 @@ export type FlatAnswerHistoryItem = {
   contextLabel?: string;
   mode?: string;
   contextHash?: string;
+  /** Spec §20.3/REQ-LEDGER-14 content-addressed question identity —
+   *  `Question.cidId` (CIDv1 of normalized text + sorted answer texts), stamped by
+   *  `WebTalkService.stampQuestionCids` at talk create/update time. Same value for
+   *  the same question regardless of which talk or talk type asked it — this is
+   *  the correct key for merging "the same question" across talks in the Me tab.
+   *  Absent for talks answered before this field existed. */
+  questionContentId?: string;
 };
 
 export type FlatAnswerHistoryRecord = {

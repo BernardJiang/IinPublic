@@ -96,11 +96,11 @@ test.describe('Talks tab: progressive render for long lists (R2)', () => {
 
     await page.click('.nav-btn[data-view="talks"]');
     await afterNav();
-    // OUT-only view mode renders progressively straight into #talks-list itself (no
-    // per-call wrapper sub-container to replace) — the same shape as Contacts' listEl,
-    // and the only Talks-tab mode where a stale deferred remainder could visibly
+    // Every direction/type combination renders progressively straight into #talks-list
+    // itself (one merged, chronologically-sorted list, no per-mode sub-container) — the
+    // same shape as Contacts' listEl, where a stale deferred remainder could visibly
     // duplicate rows in the live container rather than an already-detached one.
-    await page.click('#talks-nav-out');
+    await page.locator('#talks-filter-incoming').uncheck();
     await afterAction();
 
     // Fire several re-renders synchronously back-to-back, in one JS tick — a Playwright

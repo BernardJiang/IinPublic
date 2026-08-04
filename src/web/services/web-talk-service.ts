@@ -2,7 +2,7 @@ import { Talk, BulkSendJob, TargetScope, type IpfsAttachment, type Question } fr
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
-import { computeTalkCIDv1, computeCIDv1 } from '../../shared/cid';
+import { computeTalkCIDv1, computeCIDv1, normalizeIdentityText } from '../../shared/cid';
 
 // ── Local authored-talks store (R-f debt: replaces Gun talks/* author writes) ──
 const AUTHORED_TALKS_KEY = 'myAuthoredTalks';
@@ -69,10 +69,18 @@ export class WebTalkService {
   ) {}
 
   /**
-   * Compute a stable CIDv1 content hash for each question in the talk.
-   * Only stable content (text + answer ids/texts) is hashed; routing fields
-   * (next, isMatch, isIgnore, isTerminal, branchingLogic) are excluded so that
-   * routing-only edits don't break the per-question chatbot answer cache.
+   * Compute a stable CIDv1 content hash for each question in the talk, per spec
+   * §20.3 (REQ-LEDGER-14): `questionId = CIDv1({ text, type, options })` — derived
+   * from what the question *asks*, not from which talk it belongs to or where in
+   * that talk it sits. Only stable content (question text + answer *texts*, sorted)
+   * is hashed; routing fields (next, isMatch, isIgnore, isTerminal, branchingLogic)
+   * AND answer `.id`s are excluded — the latter matters because `answer.id` is
+   * itself position-derived (`a_${questionIndex}_${answerIndex}`) elsewhere in this
+   * codebase, so including it would silently reintroduce a positional dependency
+   * into what's supposed to be a content-only hash. Two questions with identical
+   * text and identical answer options always get the same `cidId`, regardless of
+   * which talk asks them or in what position — that's what lets the Me tab (and
+   * the per-question chatbot cache) treat them as "the same question."
    *
    * Updates each question in-place and returns the array.
    */
@@ -80,8 +88,8 @@ export class WebTalkService {
     return Promise.all(
       questions.map(async (q) => {
         const stable = {
-          text: q.text,
-          answers: (q.answers || []).map((a) => ({ id: a.id, text: a.text })),
+          text: normalizeIdentityText(q.text),
+          answers: (q.answers || []).map((a) => normalizeIdentityText(a.text)).sort(),
         };
         const cidId = await computeCIDv1(stable);
         return { ...q, cidId };

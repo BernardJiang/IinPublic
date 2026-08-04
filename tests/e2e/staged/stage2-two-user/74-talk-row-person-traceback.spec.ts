@@ -8,7 +8,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterAction, afterNav, afterSync } from '../../helpers/timing';
 import { setupFastMatchedDm, teardownFastDmPair, FastDmPair } from '../../helpers/fast-dm-setup';
-import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive, longPressTalkRow } from '../../helpers/talks-matching-flow';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -118,7 +118,9 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
       // cache, so cluster.senders[id].senderName resolves to a generated placeholder here) —
       // the point under test is that the real senderId is threaded through and navigated to
       // correctly, not the display name.
-      const senderLine = pageJerry.locator('.talk-sender-people').first();
+      // Sender info now lives in the row's details popup (long-press to open), not the row itself.
+      await longPressTalkRow(pageJerry, pageJerry.locator('.talk-list-item[data-role="incoming"]').first());
+      const senderLine = pageJerry.locator('#item-details-popup .talk-sender-people').first();
       await expect(senderLine).toBeVisible({ timeout: 15_000 });
       await expect
         .poll(() => senderLine.getAttribute('data-sender-people'), { timeout: 15_000 })

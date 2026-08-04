@@ -92,7 +92,7 @@ test.describe('Me tab: progressive render for long answer lists (R3)', () => {
       requestAnimationFrame(() => {
         setTimeout(() => {
           const rows = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item'));
-          resolve(rows.map((row) => row.dataset.sourceTalkId));
+          resolve(rows.map((row) => row.dataset.questionId));
         }, 0);
       });
     }));
@@ -102,17 +102,17 @@ test.describe('Me tab: progressive render for long answer lists (R3)', () => {
     await afterAction();
     await page.waitForTimeout(300);
 
-    const ids = await page.locator('.answer-talk-item[data-source-talk-id]').evaluateAll(
-      (rows) => rows.map((row) => (row as HTMLElement).dataset.sourceTalkId),
+    const ids = await page.locator('.answer-talk-item[data-question-id]').evaluateAll(
+      (rows) => rows.map((row) => (row as HTMLElement).dataset.questionId),
     );
     expect(ids).toHaveLength(ANSWER_COUNT);
     expect(new Set(ids).size).toBe(ANSWER_COUNT);
 
     // A row well past ANSWERS_FIRST_CHUNK_SIZE (25) — from the deferred remainder — has
-    // its copy button and details popup fully wired via the delegated listener.
-    const remainderRow = page.locator('.answer-talk-item[data-source-talk-id="talk-progressive-answer-039"]');
+    // its row-tap-to-open-popup fully wired via the delegated listener.
+    const remainderRow = page.locator('.answer-talk-item[data-question-id="q-progressive-answer-039"]');
     await expect(remainderRow).toBeVisible();
-    await remainderRow.locator('.answer-details-btn').click();
+    await remainderRow.click();
     await expect(page.locator('#item-details-popup')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#item-details-popup')).toContainText('Answer 39');
   });

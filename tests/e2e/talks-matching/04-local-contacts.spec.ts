@@ -396,9 +396,9 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
 
     // ── 11. Tom opens Jerry's peer detail ────────────────────────────────────
     await jerryContact.click();
-    // Rule N2a: dismiss the auto-opened DM conversation to inspect the User layout.
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await pageTom.click('#back-from-conversation');
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+    await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await afterAction();
     await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry Local', { timeout: 10_000 });
 

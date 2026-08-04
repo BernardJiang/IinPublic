@@ -114,9 +114,9 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
       })
       .toMatch(/(?:1 talk|2 talks)[\s\S]*Sent 1 · Received [01]/);
     await contactItem.click();
-    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await pageTom.click('#back-from-conversation');
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+    await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await afterSync();
     await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await expect(pageTom.locator('.peer-history-item').filter({ hasText: 'Tom Out Talk' }).first()).toBeVisible({ timeout: 30000 });
@@ -138,22 +138,22 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await expect(pageTom.locator('#talks-nav-in')).toBeVisible();
-    await expect(pageTom.locator('#talks-nav-out')).toBeVisible();
+    await expect(pageTom.locator('#talks-filter-incoming')).toBeVisible();
     await expect(pageTom.locator('#talks-list')).toContainText('Tom Out Talk');
     await expect(pageTom.locator('#talks-list')).toContainText('Jerry Out Talk');
 
-    await pageTom.click('#talks-nav-in');
+    await pageTom.locator('#talks-filter-outgoing').uncheck();
     await afterSync();
     await expect(pageTom.locator('#talks-list')).toContainText('Jerry Out Talk');
     await expect(pageTom.locator('#talks-list')).not.toContainText('Tom Out Talk');
 
-    await pageTom.click('#talks-nav-out');
+    await pageTom.locator('#talks-filter-outgoing').check();
+    await pageTom.locator('#talks-filter-incoming').uncheck();
     await afterSync();
     await expect(pageTom.locator('#talks-list')).toContainText('Tom Out Talk');
     await expect(pageTom.locator('#talks-list')).not.toContainText('Jerry Out Talk');
 
-    await pageTom.click('#talks-nav-back');
+    await pageTom.locator('#talks-filter-incoming').check();
     await afterSync();
     await expect(pageTom.locator('#talks-list')).toContainText('Tom Out Talk');
     await expect(pageTom.locator('#talks-list')).toContainText('Jerry Out Talk');
@@ -161,18 +161,19 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
     const answersContent = pageJerry.locator('#answers-content');
-    await expect(answersContent.getByText('Tom Out Talk').first()).toBeVisible({ timeout: 15000 });
-    // Outcome is still visible on the entry's own status line (§M3).
-    await expect(answersContent.getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
-    // TODO §M3: the metadata line and the per-question prompt/answer detail moved into the
-    // entry's hidden .answer-item-details, opened via its "ℹ️" icon into the shared M2 popup.
+    // TODO §M3/Me-tab-merge: the row's own visible content is the question, not the source
+    // talk's title — the title text (and outcome, and per-variant prompt/answer detail) now
+    // live in the entry's hidden .answer-item-details, opened by tapping the row into the
+    // shared M2 popup. `.filter({ hasText })` matches hidden descendant text too, so it can
+    // still locate the row by title; the row *container* itself is what must be visible.
     const answerRow = answersContent.locator('.answer-talk-item').filter({ hasText: 'Tom Out Talk' }).first();
-    await answerRow.locator('.answer-details-btn').click();
+    await expect(answerRow).toBeVisible({ timeout: 15000 });
+    await expect(answerRow.filter({ hasText: /Mismatch/i })).toHaveCount(1);
+    await answerRow.click();
     const popup = pageJerry.locator('#item-details-popup');
     await expect(popup).toBeVisible({ timeout: 10_000 });
     await expect(popup.getByText('Do you want to join Tom?').first()).toBeVisible({ timeout: 10000 });
     await expect(popup.getByText('No thanks.').first()).toBeVisible({ timeout: 10000 });
-    await expect(popup.getByText(/1 item/i).first()).toBeVisible({ timeout: 10000 });
     await expect(popup.getByText(/answered 1 time/i).first()).toBeVisible({ timeout: 10000 });
   });
 });

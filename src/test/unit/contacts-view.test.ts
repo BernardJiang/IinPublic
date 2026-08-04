@@ -127,6 +127,8 @@ describe('Contacts ranking and relationship filters', () => {
       isBlockedByMe: () => false,
       getPeerName: (_userId: string, fallback?: string) => fallback || 'Unknown',
       openPeerDetail: jest.fn(),
+      openPeerDetailOnly: jest.fn(),
+      updateStatsStrip: jest.fn(),
       getMyConversations: () => ({}),
       getMyTalks: () => ({}),
       saveKnownPerson: jest.fn().mockResolvedValue(undefined),
@@ -234,15 +236,15 @@ describe('Contacts ranking and relationship filters', () => {
   });
 
   it('pins an established TechSupport channel above ranked ordinary contacts without counting it', async () => {
-    await displayContactsList({
-      ...deps(),
-      hasSupportContact: () => true,
-    });
+    const contactDeps = { ...deps(), hasSupportContact: () => true };
+    await displayContactsList(contactDeps);
 
     const rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
     expect(rows[0]).toContain('TechSupport');
     expect(document.querySelector('.contact-support-item')?.getAttribute('data-support-contact')).toBe('true');
-    expect(document.getElementById('contacts-status-text')?.textContent).toBe('2 contacts from exchanged talks');
+    // The row-count header line now merges into the stats strip via updateStatsStrip's
+    // prefix (§AA) instead of a separate #contacts-status-text element.
+    expect(contactDeps.updateStatsStrip).toHaveBeenCalledWith('2 contacts from exchanged talks · ');
   });
 
   it('preserves English singular counts after moving contact summaries into translations', async () => {
@@ -252,9 +254,10 @@ describe('Contacts ranking and relationship filters', () => {
       'strong::talk-s1': { peerId: 'strong', peerName: 'Strong', talkId: 'talk-s1', title: 'T', outcome: 'match', direction: 'sent', date: '2026-05-21T00:00:00.000Z' },
     }));
 
-    await displayContactsList(deps());
+    const contactDeps = deps();
+    await displayContactsList(contactDeps);
 
-    expect(document.getElementById('contacts-status-text')?.textContent).toBe('1 contact from exchanged talks');
+    expect(contactDeps.updateStatsStrip).toHaveBeenCalledWith('1 contact from exchanged talks · ');
     // 1 talk, 1 match; mutualTagCount comes from exchanges (0 stored)
     expect(document.getElementById('contacts-list')?.textContent).toContain('1 talk');
     expect(document.getElementById('contacts-list')?.textContent).toContain('1 match');
@@ -396,15 +399,24 @@ describe('Contacts ranking and relationship filters', () => {
       expect(new Set(ids).size).toBe(60); // no duplicates from the two renderContactsListCore passes
 
       const openPeerDetail = jest.fn();
-      const clickableDeps = { ...deps(known), openPeerDetail };
+      const openPeerDetailOnly = jest.fn();
+      const clickableDeps = { ...deps(known), openPeerDetail, openPeerDetailOnly };
       await displayContactsList(clickableDeps);
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       // A row from the deferred remainder (well past the first-chunk size) is clickable
       // with no per-row listener re-attachment needed — delegated on the container.
+      // Tapping the name specifically opens the DM directly; tapping the row anywhere
+      // else opens the details-only view without also opening a conversation.
       const remainderRow = document.querySelector('.contact-item[data-contact-user-id="peer-059"]') as HTMLElement;
       expect(remainderRow).toBeTruthy();
-      remainderRow.click();
+      const remainderAvatar = remainderRow.querySelector('.contact-item-avatar') as HTMLElement;
+      remainderAvatar.click();
+      expect(openPeerDetailOnly).toHaveBeenCalledWith('peer-059', 'peer-059');
+      expect(openPeerDetail).not.toHaveBeenCalled();
+
+      const remainderName = remainderRow.querySelector('.contact-item-name') as HTMLElement;
+      remainderName.click();
       expect(openPeerDetail).toHaveBeenCalledWith('peer-059', 'peer-059');
     });
 

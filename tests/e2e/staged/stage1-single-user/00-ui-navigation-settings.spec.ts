@@ -102,16 +102,18 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
-    await expect(p.locator('#contacts-status-text')).toBeVisible();
-    await expect(p.locator('#contacts-status-text')).toHaveText('0 contacts from exchanged talks');
+    // The row-count header line now merges into the stats strip (§AA) instead of a
+    // separate #contacts-status-text element.
+    await expect(p.locator('#contacts-stats-strip')).toBeVisible();
+    await expect(p.locator('#contacts-stats-strip')).toContainText('0 contacts from exchanged talks');
     await expect(p.locator('#contacts-view .status-bar')).toHaveCount(0);
     await expect(p.locator('.contacts-action-bar')).toBeVisible();
 
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
-    await expect(p.locator('#talks-status-text')).toBeVisible();
-    await expect(p.locator('#talks-status-text')).toContainText(/incoming|Incoming/);
+    await expect(p.locator('#talks-stats-strip')).toBeVisible();
+    await expect(p.locator('#talks-stats-strip')).toContainText(/incoming|Incoming/);
     await expect(p.locator('#talks-view .status-bar')).toHaveCount(0);
     await expect(p.locator('.talks-action-bar')).toBeVisible();
     await expect(p.locator('#create-talk-btn-talks')).toHaveCount(0);
@@ -425,13 +427,13 @@ test.describe('UI navigation and settings shell', () => {
     const localizedRow = p.locator('.talk-list-item[data-talk-id="localized_created"]');
     await expect(localizedRow).toContainText('已创建');
     await expect(localizedRow.locator('.talk-badge-language')).toHaveText('英语');
-    await expect(localizedRow.locator('.talk-badge-type')).toHaveText('流程');
+    await expect(localizedRow.locator('.talk-badge-type')).toContainText('流程');
     await expect(localizedRow).toContainText('有效期：永久');
     await expect(localizedRow).toContainText('位置：不限位置');
-    // TODO §M2: the broadcast toggle is now an icon-only inline button — its localized label
-    // lives in the title attribute, not visible text.
-    await expect(localizedRow.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('title', '广播开启');
-    await expect(p.locator('#talks-status-text')).toContainText('1 个发出');
+    // The broadcast toggle is a real checkbox now — its localized label lives in the
+    // wrapping badge's title attribute, not visible text.
+    await expect(localizedRow.locator('.talk-icon-badge')).toHaveAttribute('title', '广播开启');
+    await expect(p.locator('#talks-stats-strip')).toContainText('1 个发出');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkEditorDialog());
     await expect(p.locator('#talk-editor-modal')).toContainText('创建话题');
     await expect(p.locator('#talk-editor-modal')).toContainText('话题标题');

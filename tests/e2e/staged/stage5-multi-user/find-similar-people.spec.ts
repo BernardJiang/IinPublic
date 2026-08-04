@@ -223,7 +223,7 @@ test.describe('Find similar people', () => {
     await Promise.all(
       setups.map(async ({ page }) => {
         await waitForTabActive(page, 'talks');
-        await page.click('#talks-nav-out');
+        await page.locator('#talks-filter-incoming').uncheck();
         await afterAction();
         await expect
           .poll(
@@ -339,7 +339,8 @@ test.describe('Find similar people', () => {
         await waitForTabActive(page, 'talks');
         console.log(`[u${idx} reject] ${toReject.size} seeded non-interest tags`);
         // Show the IN (incoming) filter so received tags render; Phase 2 left it on OUT.
-        await page.click('#talks-nav-in');
+        await page.locator('#talks-filter-incoming').check();
+        await page.locator('#talks-filter-outgoing').uncheck();
         await afterAction();
         await afterSync();
         for (const keyword of toReject) {
@@ -435,10 +436,9 @@ test.describe('Find similar people', () => {
 
         // Tag the most-similar stranger (top of the list) as "similar interest people".
         await realContacts.first().click();
-        // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
-        await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-        await page.click('#back-from-conversation');
-        await afterNav();
+        // contacts-view.ts tap-target split: the row click lands directly on the shared
+        // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+        await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
         await page.locator('#contact-edit-relationship-btn').click();
         await expect(page.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10_000 });
         await page.selectOption('#contact-relationship-label', 'custom');

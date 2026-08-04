@@ -114,25 +114,22 @@ test.describe('Talk lifecycle — tag multi-responder matrix (D4)', () => {
 
     await waitForStatusBarMatchCountAtLeast(pageTom, 1, 120_000);
 
+    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk
+    // title, and the Match/Mismatch outcome lives in the row's hidden details popup —
+    // `.filter({ hasText })` matches hidden descendant text too, so it still locates rows.
     await pageJerry.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageJerry, 'me');
     await afterSync();
-    await expect(pageJerry.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(pageJerry.locator('#answers-content').getByText(/Match/i).first()).toBeVisible({
-      timeout: 15_000,
-    });
+    const jerryTagRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: TAG_TITLE }).first();
+    await expect(jerryTagRow).toBeVisible({ timeout: 30_000 });
+    await expect(jerryTagRow.filter({ hasText: /Match/i })).toHaveCount(1, { timeout: 15_000 });
 
     await pageBob.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageBob, 'me');
     await afterSync();
-    await expect(pageBob.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(pageBob.locator('#answers-content').getByText(/Mismatch/i).first()).toBeVisible({
-      timeout: 15_000,
-    });
+    const bobTagRow = pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: TAG_TITLE }).first();
+    await expect(bobTagRow).toBeVisible({ timeout: 30_000 });
+    await expect(bobTagRow.filter({ hasText: /Mismatch/i })).toHaveCount(1, { timeout: 15_000 });
     await afterAction();
   });
 });

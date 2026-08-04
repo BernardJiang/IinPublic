@@ -27,16 +27,20 @@ describe('answers view models', () => {
       ],
     };
 
-    const items = buildAnswerItemModels(
+    const variants = buildAnswerItemModels(
       talk,
       [{ questionId: 'q_0', answerId: 'a_match', answerText: 'Match.' }],
-      2,
+      'talk-1',
+      'Tennis',
+      'match',
+      1000,
+      ['sender-1'],
+      undefined,
     );
 
-    expect(items).toHaveLength(1);
-    expect(items[0].kind).toBe('tag');
-    expect(items[0].choice).toBe('Checked');
-    expect(items[0].answeredCount).toBe(2);
+    expect(variants).toHaveLength(1);
+    expect(variants[0].choice).toBe('Checked');
+    expect(variants[0].contextKey).toBe('');
   });
 
   it('preserves question answer text and context metadata', () => {
@@ -59,20 +63,23 @@ describe('answers view models', () => {
       ],
     };
 
-    const items = buildAnswerItemModels(
+    const variants = buildAnswerItemModels(
       talk,
       [{ questionId: 'q_1', answerId: 'a_1_0', answerText: 'Blue Bottle' }],
-      1,
+      'talk-1',
+      'Route talk',
+      'match',
+      1000,
+      [],
+      undefined,
     );
 
-    expect(items[0].kind).toBe('question');
-    expect(items[0].choice).toBe('Blue Bottle');
-    expect(items[0].contextHash).toBe('cafefeed');
-    expect(items[0].contextPath[0]).toBe('Need coffee?→Yes, please');
-    expect(items[0].contextLabel).toBe('Need coffee?→Yes, please');
+    expect(variants[0].choice).toBe('Blue Bottle');
+    expect(variants[0].contextKey).toBe('cafefeed');
+    expect(variants[0].contextLabel).toBe('Need coffee?→Yes, please');
   });
 
-  it('keeps route branches with same prompt as separate context rows', () => {
+  it('merges route branches with the same prompt into one row, keeping each context distinct in the detail popup', () => {
     document.body.innerHTML = '<div id="answers-content"></div>';
     const baseRecord = {
       id: 'route-history',
@@ -122,7 +129,12 @@ describe('answers view models', () => {
       formatLanguage: () => 'English',
     });
 
-    expect(document.querySelectorAll('.answer-question-item').length).toBe(2);
+    // One merged row for the shared questionId, not two separate top-level rows.
+    expect(document.querySelectorAll('.answer-question-item').length).toBe(1);
+    const row = document.querySelector<HTMLElement>('.answer-question-item')!;
+    expect(row.dataset.contextCount).toBe('2');
+    expect(row.querySelector('.context-indicator .count')?.textContent).toBe('2');
+
     const content = document.getElementById('answers-content')?.textContent || '';
     expect(content).toContain('Tennis? -> Yes');
     expect(content).toContain('Badminton? -> Yes');
@@ -229,8 +241,11 @@ describe('answers view models', () => {
       formatLanguage: () => 'English',
     });
 
+    // q1 is universal (no context) — plain "Q1? -> A1" on the row itself.
+    // q3's context breadcrumb (Q1->A1 · Q2->A2) lives in its detail popup content.
     const content = document.getElementById('answers-content')?.textContent || '';
-    expect(content).toContain('Q1? -> A1');
+    expect(content).toContain('Q1?');
+    expect(content).toContain('A1');
     expect(content).toContain('Q1? -> A1 · Q2? -> A2');
   });
 
@@ -266,16 +281,21 @@ describe('answers view models', () => {
     const saved = saveTemporaryAnswer(state, 'local', 'Favorite fruit?', 'Apple', 1000);
     appendAutoUse(state, 'local', saved.questionId, saved.eventId, 2000);
 
-    const items = buildAnswerItemModels(
+    const variants = buildAnswerItemModels(
       talk,
       [{ questionId: 'q_0', answerId: 'a_apple', answerText: 'Apple', mode: 'auto' }],
-      1,
+      'talk-1',
+      'Fruit talk',
+      'match',
+      1000,
+      [],
+      undefined,
       state,
     );
 
-    expect(items[0].chatbotGenerated).toBe(true);
-    expect(items[0].autoUseCount).toBe(1);
-    expect(items[0].latestAutoUseAt).toBe(2000);
+    expect(variants[0].chatbotGenerated).toBe(true);
+    expect(variants[0].autoUseCount).toBe(1);
+    expect(variants[0].latestAutoUseAt).toBe(2000);
   });
 
   it('does not display auto-use metrics from another language', () => {
@@ -288,18 +308,26 @@ describe('answers view models', () => {
     const saved = saveTemporaryAnswer(state, 'local', 'Tea?', 'Yes', 1000, { language: 'en' });
     appendAutoUse(state, 'local', saved.questionId, saved.eventId, 2000);
 
-    const items = buildAnswerItemModels(
+    const variants = buildAnswerItemModels(
       talk,
       [{ questionId: 'q_0', answerId: 'a_yes', answerText: 'Yes', mode: 'auto' }],
-      1,
+      'talk-1',
+      'Tea talk',
+      'match',
+      1000,
+      [],
+      undefined,
       state,
     );
 
-    expect(items[0].autoUseCount).toBe(0);
+    expect(variants[0].autoUseCount).toBe(0);
   });
 
-  it('keeps otherwise identical answer-history rows separate by displayed language', () => {
+  it('folds the same question (by spec content id) asked via different talks/languages into one row, keeping each variant distinguishable in detail', () => {
     document.body.innerHTML = '<div id="answers-content"></div>';
+    // Both records' item carries the SAME questionContentId (Question.cidId) — the spec-
+    // defined content hash — even though their talk-local questionId ('q_0') is also
+    // coincidentally identical here; the merge must key off questionContentId, not questionId.
     const baseRecord = {
       title: 'Tea',
       type: 'flow',
@@ -308,6 +336,7 @@ describe('answers view models', () => {
       senderIds: [],
       items: [{
         questionId: 'q_0',
+        questionContentId: 'cid_tea_yesno',
         answerId: 'a_yes',
         prompt: 'Tea?',
         choice: 'Yes',
@@ -333,9 +362,56 @@ describe('answers view models', () => {
       formatLanguage: (code) => (code === 'zh' ? 'Chinese' : 'English'),
     });
 
+    // Same questionContentId from two different talks merges into one row...
+    expect(document.querySelectorAll('.answer-question-item').length).toBe(1);
+    // ...but both contributing instances still show up, each with its own language, once
+    // the row's detail is expanded.
     const badges = Array.from(document.querySelectorAll<HTMLElement>('.answer-language-badge'));
     expect(badges.map((badge) => badge.dataset.language).sort()).toEqual(['en', 'zh']);
     expect(badges.map((badge) => badge.textContent).sort()).toEqual(['Chinese', 'English']);
+  });
+
+  it('does NOT merge two different questions that coincidentally share the same talk-local questionId but have no matching content id', () => {
+    document.body.innerHTML = '<div id="answers-content"></div>';
+    // Regression test for the real bug this fix addresses: two unrelated talks' first
+    // questions both get the positional id 'q_0' from the editor's own convention. Without
+    // a real questionContentId to merge on, they must NOT be folded together.
+    displayAnswersList({
+      getMyTalks: () => ({}),
+      getFlatAnswerHistory: () => ({
+        tom: {
+          id: 'tom', talkId: 'talk_tom', title: 'Tom Out Talk', type: 'flow', language: 'en',
+          outcome: 'mismatch' as const, answeredAt: '2026-05-25T00:00:00.000Z', senderIds: [],
+          items: [{
+            questionId: 'q_0', answerId: 'a_no', prompt: 'Do you want to join Tom?',
+            choice: 'No thanks.', kind: 'question' as const, contextPath: [],
+          }],
+        },
+        jerry: {
+          id: 'jerry', talkId: 'talk_jerry', title: 'Jerry Out Talk', type: 'flow', language: 'en',
+          outcome: 'match' as const, answeredAt: '2026-05-25T00:01:00.000Z', senderIds: [],
+          items: [{
+            questionId: 'q_0', answerId: 'a_yes', prompt: 'Do you want to join Jerry?',
+            choice: "Yes, let's do it.", kind: 'question' as const, contextPath: [],
+          }],
+        },
+      }),
+      escapeHtml: (value) => value,
+      copyAnsweredTalkToTalks: jest.fn(),
+      showTalkDetail: jest.fn(),
+      showPreferencesDialog: jest.fn(),
+      showItemDetailsPopup: jest.fn(),
+      getTalkContentKey: jest.fn(),
+      text: (key) => uiText('en', key),
+      formatDate: () => 'date',
+      formatType: () => 'Flow',
+      formatLanguage: () => 'English',
+    });
+
+    expect(document.querySelectorAll('.answer-question-item').length).toBe(2);
+    const content = document.getElementById('answers-content')?.textContent || '';
+    expect(content).toContain('Do you want to join Tom?');
+    expect(content).toContain('Do you want to join Jerry?');
   });
 
   it('hides support-channel messages while retaining answered TechSupport talks', () => {
@@ -385,19 +461,14 @@ describe('answers view models', () => {
       formatLanguage: () => 'English',
     });
 
-    expect(document.getElementById('answers-content')?.textContent).not.toContain('Welcome to IinPublic');
-    expect(document.getElementById('answers-content')?.textContent).toContain('TechSupport check-in');
+    const content = document.getElementById('answers-content')?.textContent || '';
+    expect(content).not.toContain('Welcome to IinPublic');
+    expect(content).toContain('Need assistance?');
+    expect(content).toContain('TechSupport check-in');
   });
 
   it('matches answer history search queries against normalized rendered text', () => {
-    const model = {
-      talkId: 'talk_1',
-      title: 'Coffee survey',
-      metadata: '1 item',
-      outcome: 'match' as const,
-      items: [],
-      searchText: 'coffee survey choose a cafe blue bottle auto',
-    };
+    const model = { searchText: 'coffee survey choose a cafe blue bottle auto' };
 
     expect(answerTalkMatchesQuery(model, 'blue bottle')).toBe(true);
     expect(answerTalkMatchesQuery(model, '  CAFE ')).toBe(true);
@@ -464,7 +535,7 @@ describe('answers view models', () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       const ids = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item'))
-        .map((row) => row.dataset.talkId);
+        .map((row) => row.dataset.questionId);
       expect(ids).toHaveLength(40);
       expect(new Set(ids).size).toBe(40);
     });
@@ -475,7 +546,7 @@ describe('answers view models', () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       const ids = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item'))
-        .map((row) => row.dataset.talkId);
+        .map((row) => row.dataset.questionId);
       expect(ids).toHaveLength(40);
       expect(new Set(ids).size).toBe(40);
     });
@@ -491,7 +562,7 @@ describe('answers view models', () => {
       expect(onRowsRendered).toHaveBeenCalledTimes(2);
     });
 
-    it('a deferred-remainder row is fully interactive: copy button, details button, and row click all reach the current deps', async () => {
+    it('a deferred-remainder row is fully interactive: copy button, view-talk button, and row click all reach the current deps', async () => {
       const copyAnsweredTalkToTalks = jest.fn();
       const showItemDetailsPopup = jest.fn();
       const showTalkDetail = jest.fn();
@@ -501,11 +572,11 @@ describe('answers view models', () => {
       // A second render (fresh deps object, matching how ui-manager.ts rebuilds deps
       // every call) — the delegated listener must read this new one, not the first.
       const copyAnsweredTalkToTalks2 = jest.fn();
-      const showTalkDetail2 = jest.fn();
-      displayAnswersList(baseDeps(40, { copyAnsweredTalkToTalks: copyAnsweredTalkToTalks2, showTalkDetail: showTalkDetail2 }) as any);
+      const showItemDetailsPopup2 = jest.fn();
+      displayAnswersList(baseDeps(40, { copyAnsweredTalkToTalks: copyAnsweredTalkToTalks2, showItemDetailsPopup: showItemDetailsPopup2 }) as any);
       await new Promise((resolve) => setTimeout(resolve, 300));
 
-      const remainderRow = document.querySelector<HTMLElement>('.answer-talk-item[data-source-talk-id="talk-answer-039"]');
+      const remainderRow = document.querySelector<HTMLElement>('.answer-talk-item[data-question-id="q-answer-039"]');
       expect(remainderRow).toBeTruthy();
 
       const copyBtn = remainderRow!.querySelector<HTMLElement>('.answer-copy-talk-btn');
@@ -513,9 +584,10 @@ describe('answers view models', () => {
       expect(copyAnsweredTalkToTalks2).toHaveBeenCalledWith('talk-answer-039');
       expect(copyAnsweredTalkToTalks).not.toHaveBeenCalled();
 
+      // Row click (not on a button) opens the details popup via the current deps.
       remainderRow!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      expect(showTalkDetail2).toHaveBeenCalled();
-      expect(showTalkDetail).not.toHaveBeenCalled();
+      expect(showItemDetailsPopup2).toHaveBeenCalled();
+      expect(showItemDetailsPopup).not.toHaveBeenCalled();
     });
 
     it('preferences button works from the empty state too, exactly once', () => {

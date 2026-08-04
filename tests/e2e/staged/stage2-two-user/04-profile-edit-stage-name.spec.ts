@@ -257,8 +257,9 @@ test.describe('Profile foundation', () => {
     const ownerContact = peerPage.locator(`.contact-item[data-contact-user-id="${ownerId}"]`).first();
     await expect(ownerContact).toBeVisible({ timeout: 15000 });
     await ownerContact.click();
-    await expect(peerPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await peerPage.click('#back-from-conversation');
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+    await expect(peerPage.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(peerPage.locator('#peer-detail-subtitle')).toContainText('talk', { timeout: 45000 });
     await expect(peerPage.locator('#peer-stats-section .profile-avatar-image').first()).toBeVisible({ timeout: 45000 });
 

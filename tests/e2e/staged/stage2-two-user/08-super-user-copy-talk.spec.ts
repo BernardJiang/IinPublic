@@ -3,6 +3,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, afterNav, afterLoad, delay, headless } from '../../helpers/timing';
 import { clickBroadcastUntilBulkAck, deliverBroadcastViaAppPath } from '../../helpers/talk-demo-ui';
+import { dragTalkRow } from '../../helpers/talks-matching-flow';
 import {
   MATCH_ANSWER,
   IGNORE_ANSWER,
@@ -121,12 +122,18 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterNav();
     await expect(pageTom.locator('#answers-content').getByText(copyTalkTitle).first()).toBeVisible({ timeout: 15000 });
+    // Copy-to-talks is now a per-variant action inside the row's details popup — tap the
+    // row to open it first.
     await pageTom
       .locator('.answer-talk-item')
       .filter({ hasText: copyTalkTitle })
       .first()
-      .locator('.answer-copy-talk-btn')
       .click();
+    const copyPopup = pageTom.locator('#item-details-popup');
+    await expect(copyPopup).toBeVisible({ timeout: 10_000 });
+    await copyPopup.locator('.answer-copy-talk-btn').click();
+    await copyPopup.locator('#close-item-details-popup').click();
+    await expect(copyPopup).toHaveCount(0);
     await afterNav();
 
     await pageTom.click('.nav-btn[data-view="talks"]');
@@ -136,10 +143,8 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .filter({ hasText: copyTalkTitle })
       .first();
     await expect(copyTalkRow).toBeVisible({ timeout: 15000 });
-    await copyTalkRow.locator('.talk-broadcast-toggle-btn').click();
-    await expect(copyTalkRow.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'false', {
-      timeout: 10000,
-    });
+    await copyTalkRow.locator('.talk-broadcast-toggle-checkbox').uncheck();
+    await expect(copyTalkRow.locator('.talk-broadcast-toggle-checkbox')).not.toBeChecked({ timeout: 10000 });
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterAction();
@@ -161,10 +166,8 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .locator('.talk-list-item[data-role="copied"]')
       .filter({ hasText: copyTalkTitle })
       .first();
-    await copyRowAgain.locator('.talk-broadcast-toggle-btn').click();
-    await expect(copyRowAgain.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'true', {
-      timeout: 10000,
-    });
+    await copyRowAgain.locator('.talk-broadcast-toggle-checkbox').check();
+    await expect(copyRowAgain.locator('.talk-broadcast-toggle-checkbox')).toBeChecked({ timeout: 10000 });
     await afterNav();
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
@@ -177,7 +180,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterNav();
-    await pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().locator('.remove-talk-btn').click();
+    await dragTalkRow(pageTom, pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first(), 'left');
     await afterNav();
     await expect
       .poll(

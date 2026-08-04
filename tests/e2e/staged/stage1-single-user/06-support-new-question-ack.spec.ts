@@ -62,7 +62,7 @@ test.describe('TechSupport — a brand-new question renders a signed ack (docs/T
     await waitForTabActive(page, 'contacts');
     const supportContactRow = page.locator(`.contact-item[data-support-contact="true"][data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await supportContactRow.waitFor({ state: 'visible', timeout: 15_000 });
-    await supportContactRow.click();
+    await supportContactRow.locator(".contact-item-name").click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
     await afterNav();
     // Greeting first, as established by spec 03.
     await expect(page.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });

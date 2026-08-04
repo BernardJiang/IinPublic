@@ -121,7 +121,7 @@ test.describe('TechSupport-mode boot authenticates with the canonical DM key (do
     await waitForTabActive(userPage, 'contacts');
     const supportContactRow = userPage.locator(`.contact-item[data-support-contact="true"][data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await supportContactRow.waitFor({ state: 'visible', timeout: 15_000 });
-    await supportContactRow.click();
+    await supportContactRow.locator(".contact-item-name").click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
     await afterNav();
     await expect(userPage.locator('#conversation-messages')).toContainText(DM_TEXT, { timeout: 20_000 });
 

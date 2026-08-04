@@ -121,15 +121,17 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     const jerryContactItem = pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' }).first();
     await expect(jerryContactItem).toBeVisible({ timeout: 20_000 });
 
-    // Contact meta line should show "Stranger" as the relationship (case-insensitive)
-    const metaText = await jerryContactItem.locator('.contact-item-meta').last().innerText().catch(() => '');
+    // Contact meta line should show "Stranger" as the relationship (case-insensitive).
+    // Relationship is stated once, in the first .contact-item-meta line (buildMetaLine's
+    // trailing segment); the second line now carries only the sent/received counts.
+    const metaText = await jerryContactItem.locator('.contact-item-meta').first().innerText().catch(() => '');
     expect(metaText.toLowerCase()).toContain('stranger');
 
     // ─── Step 2: Open Jerry's detail → verify "Stranger" in detail view ───────
     await jerryContactItem.click();
-    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await pageTom.click('#back-from-conversation');
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+    await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await afterNav();
     await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10_000 });
 
@@ -151,7 +153,7 @@ test.describe('Contacts: stranger default label → save relationship → sort (
 
     const jerryAfterSave = pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' }).first();
     await expect(jerryAfterSave).toBeVisible({ timeout: 10_000 });
-    const metaAfter = await jerryAfterSave.locator('.contact-item-meta').last().innerText().catch(() => '');
+    const metaAfter = await jerryAfterSave.locator('.contact-item-meta').first().innerText().catch(() => '');
     // Should now show "Friend" (or "friend"), not "Stranger"
     expect(metaAfter.toLowerCase()).toContain('friend');
     expect(metaAfter.toLowerCase()).not.toContain('stranger');
@@ -176,7 +178,7 @@ test.describe('Contacts: stranger default label → save relationship → sort (
 
     const jerryAfterReload = pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' }).first();
     await expect(jerryAfterReload).toBeVisible({ timeout: 15_000 });
-    const metaReloaded = await jerryAfterReload.locator('.contact-item-meta').last().innerText().catch(() => '');
+    const metaReloaded = await jerryAfterReload.locator('.contact-item-meta').first().innerText().catch(() => '');
     expect(metaReloaded.toLowerCase()).toContain('friend');
   });
 });

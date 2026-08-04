@@ -100,7 +100,7 @@ test.describe('TechSupport DM survives maximally restrictive intake filters (doc
     await waitForTabActive(userPage, 'contacts');
     const supportContactRow = userPage.locator(`.contact-item[data-support-contact="true"][data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await supportContactRow.waitFor({ state: 'visible', timeout: 15_000 });
-    await supportContactRow.click();
+    await supportContactRow.locator(".contact-item-name").click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
     await afterNav();
     // The signed greeting template (K2) renders locally with zero TechSupport-device
     // involvement — first proof the support channel ignores intake filters entirely.

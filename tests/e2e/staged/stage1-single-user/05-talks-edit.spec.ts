@@ -8,6 +8,7 @@ import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
+import { longPressTalkRow } from '../../helpers/talks-matching-flow';
 
 test.describe('Talks: create and edit', () => {
   let browser: Browser;
@@ -72,8 +73,14 @@ test.describe('Talks: create and edit', () => {
     await afterSync();
     const talkItem = page.locator('.talk-list-item').filter({ hasText: TALK_TITLE }).first();
     await talkItem.waitFor({ state: 'visible', timeout: 15000 });
-    await expect(talkItem.locator('.talk-badge-created')).toBeVisible();
-    await expect(talkItem.locator('.talk-badge-language')).toHaveAttribute('data-language', 'zh');
+    // The role/language badges live inside the row's details popup, opened via long-press.
+    await longPressTalkRow(page, talkItem);
+    const detailsPopup = page.locator('#item-details-popup');
+    await expect(detailsPopup).toBeVisible({ timeout: 10_000 });
+    await expect(detailsPopup.locator('.talk-badge-created')).toBeVisible();
+    await expect(detailsPopup.locator('.talk-badge-language')).toHaveAttribute('data-language', 'zh');
+    await detailsPopup.locator('#close-item-details-popup').click();
+    await expect(detailsPopup).toHaveCount(0);
 
     await talkItem.click();
     await page.waitForSelector('#talk-editor-modal');
@@ -131,9 +138,15 @@ test.describe('Talks: create and edit', () => {
 
     await page.click('.nav-btn[data-view="me"]');
     await afterSync();
+    // TODO §M3/Me-tab-merge: tapping a Me-tab row now opens its details popup first (there's
+    // no dedicated details button anymore); "View talk" inside that popup is what reaches
+    // the talk/response dialog.
     const answerItem = page.locator('.answer-talk-item').filter({ hasText: 'Self Answer Test' }).first();
     await expect(answerItem).toBeVisible({ timeout: 15000 });
     await answerItem.click();
+    const popup = page.locator('#item-details-popup');
+    await expect(popup).toBeVisible({ timeout: 10_000 });
+    await popup.locator('.answer-view-talk-btn').click();
     await expect(page.locator('#talk-response-modal')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('#talk-editor-modal')).toHaveCount(0);
   });

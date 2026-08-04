@@ -1,15 +1,16 @@
 /**
- * TODO §M2 (OUT row): flow/survey/route rows collapse to 2 visible lines (title+badges,
- * status+inline icon actions) with everything else (language badge, expiration, location,
- * rank/weighted-score) moved into a hidden .talk-item-details, opened on demand via the "ℹ️"
- * icon into a shared popup. Inline icon actions (broadcast toggle, survey-stats, remove) fire
- * on a single click with no prior row-selection step — verifying Bernard's 2026-07-29 actions
- * requirement isn't broken by the layout change. Tag rows are intentionally excluded: they're
- * already a simpler single-line chip branch, not touched by this item.
+ * Outgoing flow/survey/route rows collapse to 2 visible lines: header (broadcast checkbox +
+ * type icon badge, title, chevron) and a status-line summary (stats + relative time). No
+ * dedicated action-icon row — 🗑️ delete is now a swipe-left gesture, ℹ️ details is a long-press
+ * (no drag), and 📊 survey results moved from its own button into the details popup, reached the
+ * same way. The broadcast toggle is the one persistent explicit control, now a real checkbox
+ * (same widget the tag pill's own checkbox uses) instead of a button, firing on 'change' with no
+ * prior selection step. Tag rows are intentionally excluded: they're already a simpler
+ * single-line chip branch, not touched by this item.
  */
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
-import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive, longPressTalkRow, dragTalkRow } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
 import { createTalkFromCompanyPage } from '../../helpers/talk-demo-ui';
 import { makeFlowTalk, makeSurveyTalk, makeRouteTalk } from '../../talks-matching/lib/four-types-talks';
@@ -34,7 +35,7 @@ test.describe('Compact talk rows (M2) — OUT row 2-line collapse + popup detail
     await clearGunForStage1Spec();
   });
 
-  test('flow/survey/route OUT rows: 2 visible lines, no dedicated actions row, popup shows moved fields, icons act on first click', async () => {
+  test('flow/survey/route OUT rows: 2 visible lines, no dedicated actions row, popup shows moved fields, checkbox toggles on change', async () => {
     const runId = Date.now();
     const tom = await bootstrapUser(browsers[0]!, 'Tom', 'Tom');
     sessions.push({ label: 'Tom', context: tom.context, page: tom.page });
@@ -66,8 +67,8 @@ test.describe('Compact talk rows (M2) — OUT row 2-line collapse + popup detail
       // No dedicated actions row remains.
       await expect(row.locator('.talk-item-actions')).toHaveCount(0);
 
-      // Details popup: opens on first click of the "ℹ️" icon, shows the moved-out fields.
-      await row.locator('.talk-details-btn').click();
+      // Details popup: opens on long-press (no drag), shows the moved-out fields.
+      await longPressTalkRow(page, row);
       const popup = page.locator('#item-details-popup');
       await expect(popup).toBeVisible({ timeout: 10_000 });
       await expect(popup.locator('.talk-item-meta').first()).toBeVisible();
@@ -79,23 +80,29 @@ test.describe('Compact talk rows (M2) — OUT row 2-line collapse + popup detail
       await expect(row.locator('.talk-item-details')).toBeHidden();
       await expect(row.locator('.talk-item-details')).toHaveCount(1);
 
-      // Broadcast-toggle icon fires immediately on a single click — no prior selection step.
-      const toggle = row.locator('.talk-broadcast-toggle-btn');
-      await expect(toggle).toHaveAttribute('data-broadcast-enabled', 'true');
-      await toggle.click();
-      await expect(toggle).toHaveAttribute('data-broadcast-enabled', 'false');
+      // Broadcast-toggle checkbox fires immediately on 'change' — no prior selection step.
+      const checkbox = row.locator('.talk-broadcast-toggle-checkbox');
+      await expect(checkbox).toBeChecked();
+      await checkbox.uncheck();
       await expect(row).toHaveClass(/talk-broadcast-disabled/);
+      await checkbox.check();
+      await expect(row).toHaveClass(/talk-broadcast-enabled/);
     }
 
-    // Survey-stats icon: single click opens the stats dialog directly, no prior selection.
+    // Survey-stats: only reachable now from inside the long-press details popup.
     const surveyRow = page.locator('.talk-list-item[data-role="created"]').filter({ hasText: surveyTalk.title });
-    await surveyRow.locator('.survey-stats-btn').click();
+    await longPressTalkRow(page, surveyRow);
+    const surveyPopup = page.locator('#item-details-popup');
+    await expect(surveyPopup).toBeVisible({ timeout: 10_000 });
+    await surveyPopup.locator('.survey-stats-btn').click();
     await expect(page.locator('#survey-stats-body')).toBeVisible({ timeout: 10_000 });
     await page.locator('#survey-stats-close-btn').click();
+    await expect(surveyPopup.locator('#close-item-details-popup')).toBeVisible();
+    await surveyPopup.locator('#close-item-details-popup').click();
 
-    // Remove icon: single click removes the row immediately, no confirmation step.
+    // Remove: swipe-left gesture past the commit threshold, replacing the old 🗑️ button.
     const routeRow = page.locator('.talk-list-item[data-role="created"]').filter({ hasText: routeTalk.title });
-    await routeRow.locator('.remove-talk-btn').click();
+    await dragTalkRow(page, routeRow, 'left');
     await expect(routeRow).toHaveCount(0, { timeout: 10_000 });
   });
 });

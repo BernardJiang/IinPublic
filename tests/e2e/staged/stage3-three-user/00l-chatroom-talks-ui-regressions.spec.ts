@@ -160,31 +160,30 @@ test.describe('Chatrooms and Talks UI regressions', () => {
 
     const copiedId = await getMyTalkIdByTitle(pageJerry, copiedTitle);
     expect(copiedId).toBeTruthy();
-    await pageJerry.click('#talks-nav-out');
+    await pageJerry.locator('#talks-filter-incoming').uncheck();
     await afterSync();
-    const copiedBroadcastToggle = () =>
-      pageJerry.locator(`.talk-broadcast-toggle-btn[data-talk-id="${copiedId}"]`).first();
+    const copiedCheckbox = () =>
+      pageJerry.locator(`.talk-broadcast-toggle-checkbox[data-talk-id="${copiedId}"]`).first();
+    const copiedBadge = () => copiedCheckbox().locator('xpath=ancestor::label[contains(@class,"talk-icon-badge")]');
     const copiedOut = pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: copiedTitle }).first();
     await expect(copiedOut).toBeVisible({ timeout: 30_000 });
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
     await expect(copiedOut.locator('.talk-badge-broadcast-enabled, .talk-badge-broadcast-disabled')).toHaveCount(0);
-    // TODO §M2: the broadcast toggle is now an icon-only inline button — its label lives in the
-    // title attribute, not visible text.
-    await expect(copiedBroadcastToggle()).toHaveAttribute('title', 'Broadcast On');
-    await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'true');
+    // The broadcast toggle is a real checkbox now (unified with the tag pill's own checkbox) —
+    // its label lives in the wrapping badge's title attribute, not visible text.
+    await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast On');
+    await expect(copiedCheckbox()).toBeChecked();
     await expect(copiedOut.locator('.edit-talk-btn')).toHaveCount(0);
 
-    await copiedBroadcastToggle().dispatchEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
+    await copiedCheckbox().uncheck();
     await expect(copiedOut).toHaveClass(/talk-broadcast-disabled/);
-    // TODO §M2: the broadcast toggle is now an icon-only inline button — its label lives in the
-    // title attribute, not visible text.
-    await expect(copiedBroadcastToggle()).toHaveAttribute('title', 'Broadcast Off');
-    await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'false');
+    await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast Off');
+    await expect(copiedCheckbox()).not.toBeChecked();
 
-    await copiedBroadcastToggle().dispatchEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
+    await copiedCheckbox().check();
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
-    await expect(copiedBroadcastToggle()).toHaveAttribute('title', 'Broadcast On');
-    await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'true');
+    await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast On');
+    await expect(copiedCheckbox()).toBeChecked();
 
     await copiedOut.evaluate((row: HTMLElement) => row.click());
     await expect(pageJerry.locator('#talk-editor-modal')).toBeVisible({ timeout: 15_000 });
@@ -235,7 +234,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
-    await pageJerry.click('#talks-nav-out');
+    await pageJerry.locator('#talks-filter-incoming').uncheck();
     await afterSync();
     await expect(pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: disabledTitle })).toHaveCount(0);
     await expect(pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: enabledTitle })).toBeVisible({
@@ -274,7 +273,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await waitForTabActive(pageJerry, 'talks');
     await afterSync();
 
-    await pageJerry.click('#talks-nav-out');
+    await pageJerry.locator('#talks-filter-incoming').uncheck();
     await afterSync();
     await expect(pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: ignoredTitle })).toHaveCount(0);
     await pageJerry.click('.nav-btn[data-view="me"]');

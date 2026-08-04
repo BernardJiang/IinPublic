@@ -782,3 +782,41 @@ export async function finalCleanupPages(
   await contexts.jerry?.close();
   await contexts.bob?.close();
 }
+
+/**
+ * Talks-tab row gestures (ui-manager.ts `bindTalksRowGestures`): press-hold-release without
+ * moving opens the same details popup the old ℹ️ button opened (500ms threshold in product
+ * code; held here for 650ms for margin). Dispatches real mouse events so the product's
+ * `pointerdown`/`pointerup` listeners fire exactly as they would for a user.
+ */
+export async function longPressTalkRow(page: Page, row: import('@playwright/test').Locator): Promise<void> {
+  const box = await row.boundingBox();
+  if (!box) throw new Error('longPressTalkRow: row has no bounding box (not visible?)');
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await page.mouse.up();
+}
+
+/**
+ * Talks-tab row gestures: drag up/down (incoming: ignore/copy) or left (outgoing: delete).
+ * 100px comfortably clears the product's 64px commit threshold.
+ */
+export async function dragTalkRow(
+  page: Page,
+  row: import('@playwright/test').Locator,
+  direction: 'up' | 'down' | 'left',
+): Promise<void> {
+  const box = await row.boundingBox();
+  if (!box) throw new Error('dragTalkRow: row has no bounding box (not visible?)');
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  const [dx, dy] = direction === 'up' ? [0, -100] : direction === 'down' ? [0, 100] : [-100, 0];
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + dx * 0.3, startY + dy * 0.3, { steps: 3 });
+  await page.mouse.move(startX + dx, startY + dy, { steps: 5 });
+  await page.mouse.up();
+}

@@ -37,23 +37,34 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
 
   test('nav modes, all 8 sorts, 5 types, completion, outcome, dates, query', async () => {
     const SORTS = ['recent', 'oldest', 'latest-reply', 'matches', 'responses', 'match-rate', 'weighted', 'title'];
-    const TYPES = ['all', 'tag', 'flow', 'survey', 'route'];
+    const TYPES = ['tag', 'flow', 'survey', 'route'];
     const COMPLETION = ['all', 'unanswered', 'answered'];
     const OUTCOME = ['all', 'match', 'mismatch'];
     await page!.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
-    await page!.locator('#talks-nav-out').click();
+    await page!.locator('#talks-filter-incoming').uncheck();
     await afterNav();
     await openCollapsedFilters(page!, 'talks-filter-toggle');
     const p = page!;
 
-    // Nav modes.
-    for (const mode of ['talks-nav-all', 'talks-nav-in', 'talks-nav-out']) {
-      await p.locator(`#${mode}`).click();
-      await afterNav();
-      await expect(p.locator(`#${mode}`)).toHaveClass(/active/);
-    }
-    await p.locator('#talks-nav-out').click();
+    // Direction checkboxes: both on (all), incoming-only, outgoing-only.
+    await p.locator('#talks-filter-incoming').check();
+    await afterNav();
+    await expect(p.locator('#talks-filter-incoming')).toBeChecked();
+    await expect(p.locator('#talks-filter-outgoing')).toBeChecked();
+
+    await p.locator('#talks-filter-outgoing').uncheck();
+    await afterNav();
+    await expect(p.locator('#talks-filter-incoming')).toBeChecked();
+    await expect(p.locator('#talks-filter-outgoing')).not.toBeChecked();
+
+    await p.locator('#talks-filter-outgoing').check();
+    await p.locator('#talks-filter-incoming').uncheck();
+    await afterNav();
+    await expect(p.locator('#talks-filter-incoming')).not.toBeChecked();
+    await expect(p.locator('#talks-filter-outgoing')).toBeChecked();
+
+    await p.locator('#talks-filter-incoming').check();
     await afterNav();
     await openCollapsedFilters(p, 'talks-filter-toggle');
 
@@ -64,11 +75,15 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
       await expect(p.locator('#talks-out-sort-order')).toHaveValue(value);
     }
 
-    // 5 type filters.
+    // 4 type checkboxes, toggled independently.
     for (const value of TYPES) {
-      await p.selectOption('#talks-filter-type', value);
+      const checkbox = p.locator(`.talks-type-checkbox[value="${value}"]`);
+      await checkbox.uncheck();
       await afterSync();
-      await expect(p.locator('#talks-filter-type')).toHaveValue(value);
+      await expect(checkbox).not.toBeChecked();
+      await checkbox.check();
+      await afterSync();
+      await expect(checkbox).toBeChecked();
     }
 
     // 3 completion states.

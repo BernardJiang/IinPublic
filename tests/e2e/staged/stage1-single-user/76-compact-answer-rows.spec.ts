@@ -1,9 +1,11 @@
 /**
- * TODO §M3: Me-tab answer entries collapse to 2 visible lines (title, outcome+answered-count
- * status) with the copy-to-talks action as an inline icon rather than its own row — the metadata
- * line, type/language badges, and the per-question breakdown (prompt/answer/mode badges/context)
- * move into a hidden .answer-item-details, opened on demand via the "ℹ️" icon into the shared M2
- * popup. The copy icon still fires on a single click with no prior selection step.
+ * TODO §M3/Me-tab-merge: Me-tab answer entries render as one line (question -> answer,
+ * with a context badge only when the question has one or more distinct context variants)
+ * with no dedicated actions row — the metadata line, type/language badges, and the
+ * per-variant breakdown (talk/context/answer) move into a hidden .answer-item-details,
+ * opened on demand by tapping the row into the shared M2 popup. Copy-to-talks is now a
+ * per-variant action inside that popup (a merged row can span more than one contributing
+ * talk, so "copy" must target one specific variant, not the row as a whole).
  */
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
@@ -15,7 +17,7 @@ import type { Browser, BrowserContext, Page } from '@playwright/test';
 
 type Session = { label: string; context: BrowserContext; page: Page };
 
-test.describe('Compact answer rows (M3) — 2-line collapse + popup details', () => {
+test.describe('Compact answer rows (M3) — 1-line collapse + popup details', () => {
   test.setTimeout(120_000);
 
   let browsers: Browser[] = [];
@@ -32,16 +34,16 @@ test.describe('Compact answer rows (M3) — 2-line collapse + popup details', ()
     await clearGunForStage1Spec();
   });
 
-  test('answer entry: 2 visible lines, no dedicated actions row, popup shows the per-question breakdown, copy icon acts on first click', async () => {
+  test('answer entry: one line, no dedicated actions row, popup shows the per-variant breakdown, copy icon acts on first click', async () => {
     const runId = Date.now();
     const tom = await bootstrapUser(browsers[0]!, 'Tom', 'Tom');
     sessions.push({ label: 'Tom', context: tom.context, page: tom.page });
     const page = tom.page;
 
     // A route talk self-answers two questions, so the flattened history renders one
-    // .answer-talk-item per question (sharing the source talk's title) — the richest nested
-    // per-question detail (prompt/answer/context) of all four types, and a good stress case
-    // for the details-popup move.
+    // .answer-talk-item per question (each keyed by its own questionId) — the richest
+    // nested per-question detail (prompt/answer/context) of all four types, and a good
+    // stress case for the details-popup move.
     const routeTalk = makeRouteTalk(runId);
     const talkId = await createTalkFromCompanyPage(page, routeTalk);
     await page.click('.nav-btn[data-view="chatrooms"]');
@@ -63,21 +65,25 @@ test.describe('Compact answer rows (M3) — 2-line collapse + popup details', ()
     const row = page.locator('.answer-talk-item').filter({ hasText: 'Engineer?' }).first();
     await expect(row).toBeVisible({ timeout: 15_000 });
 
-    // Exactly 2 visible lines: title + status-line. Details stays hidden until opened.
-    await expect(row.locator('.answer-item-title')).toBeVisible();
-    await expect(row.locator('.answer-item-status-line')).toBeVisible();
+    // One visible line: question -> answer (+ context badge). Details stays hidden until opened.
+    await expect(row.locator('.qa-line')).toBeVisible();
+    await expect(row.locator('.qa-question')).toContainText('Engineer?');
+    await expect(row.locator('.context-indicator')).toBeVisible();
     await expect(row.locator('.answer-item-details')).toBeHidden();
-    await expect(row.locator('.answer-outcome-item')).toHaveCount(1);
-    await expect(row.locator('.answer-outcome-item')).not.toBeVisible();
+    await expect(row.locator('.answer-variant')).toHaveCount(1);
+    await expect(row.locator('.answer-variant')).not.toBeVisible();
 
-    // Details popup shows the per-question breakdown that used to render inline.
-    await row.locator('.answer-details-btn').click();
+    // Tapping the row opens the details popup — no separate "details" button anymore.
+    await row.click();
     const popup = page.locator('#item-details-popup');
     await expect(popup).toBeVisible({ timeout: 10_000 });
-    await expect(popup.locator('.answer-outcome-item')).toBeVisible();
+    await expect(popup.locator('.answer-variant')).toBeVisible();
     await expect(popup).toContainText('Engineer?');
     await expect(popup).toContainText('Context path:');
     await expect(popup).toContainText('Looking for a job? -> Yes.');
+
+    // Copy-to-talks icon inside the popup: single click, no prior selection step.
+    await popup.locator('.answer-copy-talk-btn').click();
 
     // Closing the popup restores the details node to the row, hidden again.
     await popup.locator('#close-item-details-popup').click();
@@ -85,9 +91,6 @@ test.describe('Compact answer rows (M3) — 2-line collapse + popup details', ()
     await expect(row.locator('.answer-item-details')).toBeHidden();
     await expect(row.locator('.answer-item-details')).toHaveCount(1);
 
-    // Copy-to-talks icon: single click, no prior selection step, and the copied talk shows up
-    // as a fresh OUT row.
-    await row.locator('.answer-copy-talk-btn').click();
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
     await expect(

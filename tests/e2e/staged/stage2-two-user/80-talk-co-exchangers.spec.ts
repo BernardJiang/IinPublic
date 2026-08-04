@@ -31,7 +31,7 @@ import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterSync } from '../../helpers/timing';
-import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive, longPressTalkRow } from '../../helpers/talks-matching-flow';
 import { createTalkFromCompanyPage, completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import type { Talk } from '../../../../src/shared/types';
@@ -173,7 +173,7 @@ test.describe('Talk row -> co-exchangers (item 17, privacy-scoped)', () => {
       const matchedDataX = JSON.parse(await matchedLineX.getAttribute('data-matched-people') || '[]');
       expect(matchedDataX.map((p: { id: string }) => p.id)).not.toContain(samId);
 
-      await rowX.locator('.talk-details-btn').click();
+      await longPressTalkRow(pageTom, rowX);
       const popup = pageTom.locator('#item-details-popup');
       await expect(popup).toBeVisible({ timeout: 10_000 });
       const coExchanged = popup.locator('.talk-item-co-exchanged');

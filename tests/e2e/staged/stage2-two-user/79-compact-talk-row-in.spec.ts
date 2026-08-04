@@ -1,17 +1,16 @@
 /**
- * TODO §M2 (IN row): an incoming talk row collapses to 2 visible lines (title+badges, a status
- * line with the clickable sender-name and inline View/Details icons) with the chip row (progress/
- * language/expiry/location/distance/response) and relative-time meta moved into a hidden
- * .talk-item-details, opened on demand via the "ℹ️" icon. The sender-name itself stays visible
- * on the row (not moved into the popup) since it's the interactive N3 click-to-DM traceback
- * affordance (item 6/8), not decorative detail. The View icon still opens the response flow on a
- * single click, with no prior row-selection step.
+ * An incoming talk row collapses to 2 visible lines: header (direction+type icon badge, title,
+ * chevron) and a status-line summary (time · sender count · location · question progress). No
+ * View/Details icon buttons — the title itself is the tap target that opens the response flow
+ * (it's a `button.view-talk-btn` under the hood, just styled to look like plain text), and a
+ * long-press (no drag) opens the same details popup the old ℹ️ button did — full sender identity,
+ * chip row, and co-exchanged people, moved off the row but not dropped.
  */
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterSync } from '../../helpers/timing';
-import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive, longPressTalkRow } from '../../helpers/talks-matching-flow';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
@@ -73,17 +72,19 @@ test.describe('Compact talk rows (M2) — IN row 2-line collapse + popup details
       const row = pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: 'M2 IN row compaction talk' });
       await expect(row).toBeVisible({ timeout: 15_000 });
 
-      // Exactly 2 visible lines: header + status-line (sender + inline icons). Details hidden.
+      // Exactly 2 visible lines: header + status-line (relative time + inline icons).
+      // Sender info and details are both hidden until the details popup is opened.
       await expect(row.locator('.talk-item-header')).toBeVisible();
       await expect(row.locator('.talk-item-status-line')).toBeVisible();
-      await expect(row.locator('.talk-sender-people')).toBeVisible();
+      await expect(row.locator('.talk-sender-people')).toBeHidden();
       await expect(row.locator('.talk-item-details')).toBeHidden();
       await expect(row.locator('.talk-item-actions')).toHaveCount(0);
 
-      // Details popup shows the chip row and meta that used to render inline on the row.
-      await row.locator('.talk-details-btn').click();
+      // Details popup shows the sender, chip row, and meta that used to render inline on the row.
+      await longPressTalkRow(pageJerry, row);
       const popup = pageJerry.locator('#item-details-popup');
       await expect(popup).toBeVisible({ timeout: 10_000 });
+      await expect(popup.locator('.talk-sender-people')).toBeVisible();
       await expect(popup.locator('.talk-info-chips')).toBeVisible();
       await popup.locator('#close-item-details-popup').click();
       await expect(popup).toHaveCount(0);

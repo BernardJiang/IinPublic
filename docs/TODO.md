@@ -612,6 +612,72 @@ actually-balanced outcome. `B=8MB` itself is a starting default in the same spir
 
 ---
 
+## Z. Talks tab GUI redesign (2026-08-02 session) — row layout + gestures shipped, detail popups still need review `[Sonnet]`
+
+Shipped this session, iterated screenshot-by-screenshot with Bernard before implementing: direction
+(In/Out) and type (Tag/Flow/Survey/Route) checkboxes replacing the old dropdowns; IN/OUT merged
+into one chronologically-sorted list (no more separate section headers); incoming vs. outgoing now
+visually distinct by background tint + which side the type-color border sits on, not just tiny
+icons; the app-bar status line and the "Stats:" strip merged into one line; sender identity moved
+off the row into the details popup; row layout collapsed to two lines with the direction+type icon
+badge in the top-left corner; 🔍/ℹ️/🗑️ buttons replaced by tap-to-open, long-press-for-details, and
+a swipe-left-to-delete gesture; 📣 broadcast-toggle unified into the same checkbox widget the tag
+pill already used; 📊 survey results folded into the stats line, full breakdown one tap away inside
+the long-press popup. Drag up/down on an incoming row now also does quick-ignore / quick-copy
+without opening the response dialog. All of this is real, implemented, and covered by the existing
+E2E suite (`74-talk-row-person-traceback.spec.ts`, `79-compact-talk-row-in.spec.ts`,
+`37-compact-talk-rows-out.spec.ts`, `80-talk-co-exchangers.spec.ts`, and others) — not a mockup.
+
+- [ ] **The long-press details popups themselves were never individually reviewed** — up to
+      4 types × 2 directions = 8 distinct popup variants (tag has no popup at all today; the other
+      6 — flow/survey/route × in/out — share one generic layout). They preserve every field that
+      used to be on the row (sender, expiry, location, language, co-exchanged people, role badge,
+      survey full-results link) but were carried over as-is, not redesigned. Same
+      screenshot-then-iterate process as the row layout: capture each variant, review with Bernard,
+      then implement.
+
+---
+
+## AA. Contacts tab: nickname display + row/interaction redesign `[Sonnet]`
+
+> **Complete 2026-08-03.** Nickname semantics locked in and implemented; row layout and
+> interaction redesign shipped (screenshot-reviewed as a mockup first, then implemented for
+> real).
+
+**Nickname semantics** — user-owned display name per contact, distinct from `stageName` (which the
+contact themselves controls):
+- A nickname defaults to the contact's current `stageName` — until the user deliberately edits it,
+  the displayed name always mirrors whatever the contact is currently calling themselves.
+- The moment the user edits the nickname and saves, it becomes sticky: a private, local decision
+  that does **not** follow the contact's future `stageName` changes.
+- This was already partially implemented (`KnownPerson.nickname`, `contact-relationship-nickname`
+  modal field, and `buildDisplayName`'s empty-nickname-falls-back-to-live-stageName logic already
+  gave the right *behavior*) — what changed is `buildDisplayName` (`contacts-view.ts:119-125`) now
+  returns the nickname **alone** when set, instead of the old combined
+  `"{nickname} ({stageName})"` form.
+
+**Layout/interaction redesign** (screenshot-reviewed with Bernard 2026-08-03, then implemented):
+- [x] Row shows the nickname only when one is set, falling back to `stageName` otherwise.
+- [x] "Broadcast to group…" is now an icon-only button (📣, `.contacts-broadcast-icon-btn`),
+      label moved to a `title`/`aria-label` tooltip — matches the Talks tab's icon-badge
+      convention (§Z).
+- [x] Header count + the separate "Stats: ..." line merged into one, via
+      `ContactsViewDeps.updateStatsStrip(prefix)` → `displayContextualStatistics('contacts-stats-strip', prefix)`
+      — same move §Z made for the Talks tab. The old dedicated `#contacts-status-text` app-bar
+      span is gone.
+- [x] Per-row relationship label is stated once (`buildMetaLine`'s trailing segment) — the second
+      meta line dropped its duplicate `"Relationship: X"` wording, now just `"Sent N · Received N"`.
+- [x] Tap targets split: tapping the **name** (`.contact-item-name`, underlined) opens a DM
+      directly (`openPeerDetail` → `openUserConversationFirst`, unchanged); tapping the row
+      anywhere else opens the same User-layout detail view without also opening a conversation
+      (`openPeerDetailOnly` → `openPeerDetailForUser`, new). Delegated click handler in
+      `contacts-view.ts` branches on `target.closest('.contact-item-name')`.
+
+Covered by `src/test/unit/contacts-view.test.ts` (updated fixtures + a new click-target-split
+assertion) and `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`.
+
+---
+
 ## Future / low priority (explicitly deferred)
 
 - Multiple identities on one device (profile switching). Decided low priority 2026-07-13; v1 stays one identity per device install.

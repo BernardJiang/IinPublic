@@ -121,13 +121,16 @@ test.describe('Talks matching — answered incoming remains in IN history', () =
 
     await waitForResponseModalClosed(pageJerry);
     await waitForTabActive(pageJerry, 'talks');
-    await pageJerry.click('#talks-nav-in');
+    await pageJerry.locator('#talks-filter-outgoing').uncheck();
     await afterSync();
     await expect(pageJerry.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: 'E2E Ignore Then Match Tennis' })).toHaveCount(1);
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
-    await expect(pageJerry.locator('#answers-content').getByText('E2E Ignore Then Match Tennis').first()).toBeVisible({ timeout: 15000 });
-    await expect(pageJerry.locator('#answers-content').getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
+    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk title —
+    // `.filter({ hasText })` still locates the row by title since it matches hidden text too.
+    const answerRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: 'E2E Ignore Then Match Tennis' }).first();
+    await expect(answerRow).toBeVisible({ timeout: 15000 });
+    await expect(answerRow.filter({ hasText: /Mismatch/i })).toHaveCount(1);
     await waitForTabActive(pageTom, 'chatrooms');
   });
 });

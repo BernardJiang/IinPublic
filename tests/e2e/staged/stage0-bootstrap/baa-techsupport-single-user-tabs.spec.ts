@@ -39,9 +39,9 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
     await page.click('.nav-btn[data-view="talks"]');
     await afterNav();
     await expect(page.locator('#talks-list')).toBeVisible();
-    await expect(page.locator('#talks-nav-all')).toBeVisible();
-    await expect(page.locator('#talks-nav-in')).toBeVisible();
-    await expect(page.locator('#talks-nav-out')).toBeVisible();
+    await expect(page.locator('#talks-filter-incoming')).toBeVisible();
+    await expect(page.locator('#talks-filter-outgoing')).toBeVisible();
+    await expect(page.locator('.talks-type-checkbox')).toHaveCount(4);
     await expect(page.locator('#talks-out-sort-order option[value="matches"]')).toHaveText('Most matches');
     await expect(page.locator('#talks-out-sort-order option[value="latest-reply"]')).toHaveText('Latest reply');
     await expect(page.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('Weighted performance');

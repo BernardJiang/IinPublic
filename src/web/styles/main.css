@@ -1100,6 +1100,15 @@ button:focus:not(:focus-visible) {
   animation: flashMember 2s ease-out;
 }
 
+/* Settings tab — one-layer jump menu (§M-settings-menu) */
+.settings-jump-menu-item:hover {
+  background: var(--bg-subtle);
+}
+
+.settings-jump-menu-flash {
+  animation: flashMember 0.9s ease-out;
+}
+
 .status-bar-actions #broadcast-talk-btn {
   margin: 0;
   padding: 12px 14px;
@@ -1232,6 +1241,144 @@ button:focus:not(:focus-visible) {
   transform: translateX(4px) scale(0.98);
 }
 
+/* Row gestures (drag up/down on incoming = ignore/copy, drag left on outgoing = delete):
+ * `.talk-gesture-live` suspends the row's own hover/active transition while a drag is in
+ * progress so the row tracks the pointer 1:1, then removing it lets the base transition
+ * animate the snap-back on release. The hint classes preview the color of the ignore/
+ * copy/delete outcome before the commit threshold is reached. */
+.talk-list-item.talk-gesture-live {
+  transition: none;
+}
+
+.talk-list-item.talk-gesture-hint-ignore {
+  background: #fee2e2 !important;
+}
+
+.talk-list-item.talk-gesture-hint-copy {
+  background: #dcfce7 !important;
+}
+
+.talk-list-item.talk-gesture-hint-delete {
+  background: #fee2e2 !important;
+}
+
+.talk-item-chevron {
+  color: var(--text-muted);
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.talk-icon-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+
+.talk-icon-badge input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+/* Me tab — merged-by-question answer rows */
+.answer-tag-item {
+  transition: background 0.15s ease;
+}
+
+.answer-tag-item .answer-tag-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: #7c3aed;
+  flex-shrink: 0;
+}
+
+.answer-qa-item {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.qa-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.qa-question {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.qa-arrow {
+  color: var(--text-tertiary);
+}
+
+.qa-answer {
+  font-weight: 600;
+  color: var(--accent-text);
+}
+
+.qa-chevron {
+  color: var(--text-tertiary);
+  font-size: 1.05em;
+  line-height: 1;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.qa-stats {
+  margin-top: 6px;
+  font-size: 0.76em;
+  color: var(--text-tertiary);
+}
+
+.context-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
+  color: var(--warning-text);
+  border-radius: var(--radius-full);
+  padding: 2px 7px;
+  font-size: 0.78em;
+  flex-shrink: 0;
+}
+
+.context-indicator .count {
+  font-weight: 700;
+}
+
+/* Contacts tab — icon-only broadcast-to-group button (was an oversized text button) */
+button.contacts-broadcast-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-size: 1em;
+  flex-shrink: 0;
+}
+
 .talk-list-item.talk-incoming-new {
   background: var(--accent-soft);
   border-color: var(--accent-border);
@@ -1362,6 +1509,8 @@ button:focus:not(:focus-visible) {
   max-width: 100%;
 }
 
+/* Filled pill = incoming, outlined pill = outgoing — the same filled-vs-outline
+ * shape language as the card rows' tinted-vs-white background below. */
 .talk-list-item.talk-tag-in {
   border-color: var(--accent-border);
   background: var(--accent-soft);
@@ -1369,8 +1518,8 @@ button:focus:not(:focus-visible) {
 }
 
 .talk-list-item.talk-tag-out {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
+  border-color: var(--accent);
+  background: #fff;
   color: var(--accent-text);
 }
 
@@ -1462,21 +1611,21 @@ button:focus:not(:focus-visible) {
 }
 
 .talk-item-header {
-  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .talk-item-title {
+  flex: 1 1 auto;
   font-size: 1.1em;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.talk-item-badges {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 
 .talk-badge {
   display: inline-block;
@@ -1511,16 +1660,31 @@ button:focus:not(:focus-visible) {
   color: var(--text-tertiary);
 }
 
-.talk-broadcast-toggle-btn.talk-broadcast-toggle-on {
-  background: var(--success);
-  color: #fff;
-  border: 1px solid var(--success-hover);
+/* Icon-only row actions (view/details/broadcast-toggle/remove/survey-stats) — one
+ * compact, ghost-style control instead of a full-size solid-colored `.btn` each.
+ * State (on/off, destructive) is carried by the icon glyph itself, not a filled
+ * background, so it doesn't add its own redundant color on top of the icon. */
+button.talk-icon-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  padding: 4px 6px;
+  font-size: 0.95em;
+  min-width: 0;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+
+button.talk-icon-btn:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  transform: none;
+  box-shadow: none;
 }
 
 .talk-broadcast-toggle-btn.talk-broadcast-toggle-off {
-  background: var(--border);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-strong);
+  opacity: 0.6;
 }
 
 .talk-item-meta {

@@ -46,7 +46,7 @@ so adjacent users share the most tags and rank highest by match rate.
 | OUT list items | `.talk-list-item[data-role="created"]` |
 | Enable chatbot | `#settings-chatbot-enabled` |
 | Broadcast | `app.deliverPendingBroadcastTalksForE2e(n, { skipAudiencePreview: true })` (offers + announcement, no preview HTTP) |
-| Incoming filter | `#talks-nav-in` |
+| Incoming filter | `#talks-filter-incoming` / `#talks-filter-outgoing` (checkboxes) |
 | Incoming tag (unanswered) | `.talk-list-item[data-role="incoming"]:not(.talk-incoming-answered)` |
 | Tag match checkbox | `#tag-match-checkbox` |
 | Submit tag answer | `#tag-submit-response` |

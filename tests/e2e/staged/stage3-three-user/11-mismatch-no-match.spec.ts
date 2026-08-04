@@ -111,8 +111,10 @@ test.describe('Talks matching — mismatch path yields no match', () => {
     // Jerry's Answers tab: talk listed with Mismatch label
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
-    const answersContent = pageJerry.locator('#answers-content');
-    await expect(answersContent.getByText(TALK_TITLE).first()).toBeVisible({ timeout: 15000 });
-    await expect(answersContent.getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
+    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk title —
+    // `.filter({ hasText })` still locates the row by title since it matches hidden text too.
+    const answerRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: TALK_TITLE }).first();
+    await expect(answerRow).toBeVisible({ timeout: 15000 });
+    await expect(answerRow.filter({ hasText: /Mismatch/i })).toHaveCount(1);
   });
 });

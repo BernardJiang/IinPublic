@@ -136,26 +136,23 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
       .toBeGreaterThanOrEqual(2);
 
     // --- Jerry's Me tab: shows route as answered with Match outcome ---
+    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk
+    // title, and the Match/Mismatch outcome lives in the row's hidden details popup —
+    // `.filter({ hasText })` matches hidden descendant text too, so it still locates rows.
     await pageJerry.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageJerry, 'me');
     await afterSync();
-    await expect(
-      pageJerry.locator('#answers-content').getByText(ROUTE_TITLE).first(),
-    ).toBeVisible({ timeout: 30_000 });
-    await expect(
-      pageJerry.locator('#answers-content').getByText(/Match/i).first(),
-    ).toBeVisible({ timeout: 15_000 });
+    const jerryRouteRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: ROUTE_TITLE }).first();
+    await expect(jerryRouteRow).toBeVisible({ timeout: 30_000 });
+    await expect(jerryRouteRow.filter({ hasText: /Match/i })).toHaveCount(1, { timeout: 15_000 });
 
     // --- Bob's Me tab: shows route as answered with Mismatch outcome ---
     await pageBob.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageBob, 'me');
     await afterSync();
-    await expect(
-      pageBob.locator('#answers-content').getByText(ROUTE_TITLE).first(),
-    ).toBeVisible({ timeout: 30_000 });
-    await expect(
-      pageBob.locator('#answers-content').getByText(/Mismatch/i).first(),
-    ).toBeVisible({ timeout: 15_000 });
+    const bobRouteRow = pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: ROUTE_TITLE }).first();
+    await expect(bobRouteRow).toBeVisible({ timeout: 30_000 });
+    await expect(bobRouteRow.filter({ hasText: /Mismatch/i })).toHaveCount(1, { timeout: 15_000 });
 
     await afterAction();
   });

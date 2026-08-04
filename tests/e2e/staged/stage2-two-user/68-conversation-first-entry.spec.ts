@@ -1,9 +1,13 @@
 /**
- * Conversation-first entry (redesign §5/§7 rule N2a, T8):
- * clicking a user anywhere (chatroom member row, contact row) opens the default
- * DM Conversation directly with the shared User layout underneath; the back chain
- * is Conversation → User layout → opener; both entry points land on the SAME
- * pair thread (same conv_pair conversation id).
+ * Conversation-first entry (redesign §5/§7 rule N2a, T8) — chatroom member row only.
+ * Clicking a member row opens the default DM Conversation directly with the shared
+ * User layout underneath; the back chain is Conversation → User layout → opener.
+ *
+ * The Contacts-tab row no longer follows N2a (contacts-view.ts tap-target split,
+ * docs/TODO.md): a contact row click lands on the User layout directly, and the DM
+ * thread is reached from there via its thread row. Both entry points still resolve
+ * to the SAME pair thread (same conv_pair conversation id) once the conversation is
+ * actually opened.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -58,7 +62,7 @@ test.describe('Conversation-first entry (N2a)', () => {
     return { context, page };
   }
 
-  test('member click lands on ⟨Conv⟩; back chain pops ⟨User⟩ then opener; contact entry joins the same thread', async () => {
+  test('member click lands on ⟨Conv⟩; back chain pops ⟨User⟩ then opener; contact entry reaches the same thread via ⟨User⟩', async () => {
     ({ context: contextTom, page: pageTom } = await bootstrap(browserTom, 'TomEntry'));
     ({ context: contextJerry, page: pageJerry } = await bootstrap(browserJerry, 'JerryEntry'));
     const tom = pageTom!;
@@ -110,9 +114,11 @@ test.describe('Conversation-first entry (N2a)', () => {
     await expect(tomContact).toBeVisible({ timeout: 30_000 });
     await tomContact.click();
 
-    // Direct to ⟨Conv⟩ with ⟨User⟩ underneath — identical destination to C3.
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail), not the DM conversation — reach it via the thread row.
+    await expect(jerry.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await jerry.locator('[data-testid="dm-thread-entry"]').click();
     await expect(jerry.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await expect(jerry.locator('#peer-detail-overlay')).toBeVisible();
     // Same thread object: Tom's message is in Jerry's DM conversation.
     await expect(jerry.locator('#conversation-messages')).toContainText(dmText, { timeout: 30_000 });
     const jerryConvId = await jerry.evaluate(() => {

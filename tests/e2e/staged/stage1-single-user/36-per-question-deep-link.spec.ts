@@ -110,9 +110,9 @@ test.describe('Me-tab per-question deep link (P)', () => {
     await expect(firstQuestionRow).toBeVisible({ timeout: 15_000 });
     await expect(secondQuestionRow).toBeVisible({ timeout: 15_000 });
 
-    // 1. Each row's .answer-outcome-item carries the questionId that produced it.
-    await expect(firstQuestionRow.locator('.answer-outcome-item')).toHaveAttribute('data-question-id', q0Id);
-    await expect(secondQuestionRow.locator('.answer-outcome-item')).toHaveAttribute('data-question-id', q1Id);
+    // 1. Each merged row carries the questionId that produced it directly.
+    await expect(firstQuestionRow).toHaveAttribute('data-question-id', q0Id);
+    await expect(secondQuestionRow).toHaveAttribute('data-question-id', q1Id);
 
     // 2. showTalkResponseDialog's targetQuestionId scrolls/highlights the matching review block
     // (forcing isTalkSuperseded reaches the review screen deterministically, independent of the

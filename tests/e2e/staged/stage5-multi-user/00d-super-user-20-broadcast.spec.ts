@@ -192,7 +192,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     await afterLoad();
     await pageTechSupport.click('.nav-btn[data-view="talks"]');
     await afterLoad();
-    await expect(pageTechSupport.locator('#talks-status-text')).toContainText(/20 outgoing/i, { timeout: 15_000 });
+    await expect(pageTechSupport.locator('#talks-stats-strip')).toContainText(/20 outgoing/i, { timeout: 15_000 });
     await expect
       .poll(
         async () => {
@@ -233,7 +233,10 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     await expect
       .poll(async () => answersContent.locator('.answer-talk-item').count(), { timeout: 15_000 })
       .toBeGreaterThanOrEqual(20);
-    await expect(answersContent.getByText(/Match/).first()).toBeVisible({ timeout: 3000 });
+    // The outcome badge ("✓ Match") lives inside the row's hidden details popup content —
+    // `.filter({ hasText })` matches hidden descendant text too, so it can locate a matched
+    // row; the row *container* itself is what must be visible.
+    await expect(answersContent.locator('.answer-talk-item').filter({ hasText: /Match/ }).first()).toBeVisible({ timeout: 3000 });
 
     console.log('✅ Super user test complete: TechSupport created 20, Tom completed 20, both verified 20 at end.');
   });

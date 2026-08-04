@@ -193,6 +193,7 @@ type CreatorReplyFilterState = {
   group: string;
 };
 
+const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
 const CREATOR_REPLY_PAGE_SIZE = 25;
 /** TODO §R2: first-chunk size for the Talks tab's OUT/IN lists, same precedent as above. */
@@ -276,10 +277,11 @@ export class UIManager extends EventEmitter {
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   /** docs/TODO.md K5 — the TechSupport-root session's own pending-question inbox, fed by app.ts's live `techsupport-inbox/*` subscription (never read directly from Gun here). */
   private currentSupportInboxEntries: SupportInboxEntry[] = [];
-  private talksViewMode: 'all' | 'in' | 'out' = 'all';
+  private talksShowIncoming = true;
+  private talksShowOutgoing = true;
+  private talksEnabledTypes = new Set<string>(['tag', 'flow', 'survey', 'route']);
   private talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title' = 'recent';
   private talksQuery = '';
-  private talksTypeFilter = 'all';
   private talksCompletionFilter: 'all' | 'unanswered' | 'answered' = 'all';
   private talksOutcomeFilter: 'all' | 'match' | 'mismatch' = 'all';
   private talksDateFrom = '';
@@ -348,6 +350,23 @@ export class UIManager extends EventEmitter {
    * interactive immediately, with nothing to (re-)attach.
    */
   private talksListClickDelegationBound = false;
+  /** Broadcast on/off checkbox — bound once, separate from the mousedown-capture block above. */
+  private talksBroadcastCheckboxBound = false;
+  /** Row-drag gesture recognizer (ignore/copy/delete) — bound once. */
+  private talksRowGestureBound = false;
+  private talksRowGestureState: {
+    row: HTMLElement;
+    talkId: string;
+    identityKey: string;
+    role: string;
+    cluster: any;
+    startX: number;
+    startY: number;
+    dragging: boolean;
+    committedAt: number;
+  } | null = null;
+  /** A committed or cancelled drag swallows the click that would otherwise follow release. */
+  private talksGestureSuppressClickUntil = 0;
   /** TODO §R2: lets a newer `displayTalksList()` call's deferred remainder win over a stale one. */
   private talksRenderSeq = 0;
   private chatroomActionDelegationBound = false;
@@ -371,10 +390,6 @@ export class UIManager extends EventEmitter {
       (label, [placeholder, value]) => label.replace(`{${placeholder}}`, String(value)),
       this.t(key),
     );
-  }
-
-  private formatTalkCount(count: number): string {
-    return this.tf(count === 1 ? 'talksCountOne' : 'talksCount', { count });
   }
 
   private formatProfileVisibility(visibility: ProfileAttributeVisibility): string {
@@ -543,8 +558,6 @@ export class UIManager extends EventEmitter {
       ['.nav-btn[data-view="talks"] .nav-label', 'navTalks'],
       ['.nav-btn[data-view="me"] .nav-label', 'navMe'],
       ['.nav-btn[data-view="settings"] .nav-label', 'navSettings'],
-      ['#contacts-status-text', 'statusContacts'],
-      ['#talks-status-text', 'statusTalks'],
       ['#me-status-text', 'statusMe'],
       ['#settings-status-text', 'statusSettings'],
       ['#create-custom-chatroom-btn .app-bar-btn-label', 'newRoom'],
@@ -553,7 +566,6 @@ export class UIManager extends EventEmitter {
       ['#creator-replies-panel strong', 'repliesTitle'],
       ['#reply-clear-filters', 'clear'],
       ['#settings-refresh-location-btn .app-bar-btn-label', 'refreshLocation'],
-      ['#talks-nav-all', 'talksAll'],
       ['#me-talk-type-filter-label', 'meTalkTypeFilters'],
       ['.me-talk-type-filter[data-me-talk-type="tag"]', 'talkTypeTag'],
       ['.me-talk-type-filter[data-me-talk-type="flow"]', 'talkTypeFlow'],
@@ -574,7 +586,7 @@ export class UIManager extends EventEmitter {
       const label = btn?.querySelector<HTMLElement>('.app-bar-btn-label');
       if (btn && label && id !== 'return-home-btn') btn.title = label.textContent || '';
     }
-    for (const id of ['back-to-chatrooms', 'back-to-contacts-list', 'talks-nav-back']) {
+    for (const id of ['back-to-chatrooms', 'back-to-contacts-list']) {
       const btn = document.getElementById(id);
       if (btn) btn.title = this.t('back');
     }
@@ -907,15 +919,12 @@ export class UIManager extends EventEmitter {
           <div class="app-bar-left" id="app-bar-left">
             <button class="app-bar-back-btn" id="back-to-chatrooms" data-testid="back-to-chatrooms" data-appbar-view="chatrooms" title="Back" style="display:none;">‹</button>
             <button class="app-bar-back-btn" id="back-to-contacts-list" data-testid="back-to-contacts-list" data-appbar-view="contacts" title="Back" style="display:none;">‹</button>
-            <button class="app-bar-back-btn talks-nav-back" id="talks-nav-back" data-testid="talks-nav-back" data-appbar-view="talks" type="button" title="Back" style="display: none;">‹</button>
           </div>
           <div class="app-bar-center" id="app-bar-center">
             <div class="header-title" id="header-title"></div>
             <div class="header-status" id="header-status" style="display: none;">
               <div class="header-user-info" id="header-user-info"></div>
               <span class="header-status-text" id="status-bar-text" data-header-status-view="chatrooms">Connecting...</span>
-              <span class="header-status-text" id="contacts-status-text" data-header-status-view="contacts" hidden>Contacts from exchanged talks</span>
-              <span class="header-status-text" id="talks-status-text" data-header-status-view="talks" hidden>Incoming talks are consolidated by content.</span>
               <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>Answered question history</span>
               <span class="header-status-text" id="settings-status-text" data-header-status-view="settings" hidden>Feature and filter controls</span>
               <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
@@ -975,7 +984,7 @@ export class UIManager extends EventEmitter {
             <div class="view-content">
               <div class="filter-bar contacts-action-bar">
                 <button type="button" class="filter-bar-toggle" data-testid="contacts-filter-toggle" aria-expanded="false">Filters ▾</button>
-                <button type="button" class="btn" id="contacts-broadcast-group-btn" data-testid="contacts-broadcast-group-btn">${this.t('contactsBroadcastGroupBtn')}</button>
+                <button type="button" class="btn contacts-broadcast-icon-btn" id="contacts-broadcast-group-btn" data-testid="contacts-broadcast-group-btn" title="${this.t('contactsBroadcastGroupBtn')}" aria-label="${this.t('contactsBroadcastGroupBtn')}">📣</button>
                 <div class="filter-bar-content">
                 <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" style="flex:1 1 160px; min-width:0;">
                 <select class="form-input" id="contacts-filter-relation" style="flex:0 0 150px;">
@@ -1011,18 +1020,28 @@ export class UIManager extends EventEmitter {
 
           <!-- Talks View -->
           <div class="view-panel" id="talks-view">
-            <div class="view-content">
+            <div class="view-content" id="talks-view-content">
               <div class="filter-bar talks-action-bar">
-                <div class="talks-nav-tabs">
-                  <button class="btn talks-nav-btn active" id="talks-nav-all" data-talks-mode="all" type="button">
-                    All
-                  </button>
-                  <button class="btn talks-nav-btn" id="talks-nav-in" data-talks-mode="in" type="button">
-                    IN
-                  </button>
-                  <button class="btn talks-nav-btn" id="talks-nav-out" data-talks-mode="out" type="button">
-                    OUT
-                  </button>
+                <div class="talks-primary-filters" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; flex:1 1 auto; font-size:0.88em;">
+                  <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
+                    <input type="checkbox" id="talks-filter-incoming" checked> In
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
+                    <input type="checkbox" id="talks-filter-outgoing" checked> Out
+                  </label>
+                  <span style="width:1px;align-self:stretch;background:var(--border);"></span>
+                  <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
+                    <input type="checkbox" class="talks-type-checkbox" value="tag" checked> Tag
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
+                    <input type="checkbox" class="talks-type-checkbox" value="flow" checked> Flow
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
+                    <input type="checkbox" class="talks-type-checkbox" value="survey" checked> Survey
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
+                    <input type="checkbox" class="talks-type-checkbox" value="route" checked> Route
+                  </label>
                 </div>
                 <button type="button" class="filter-bar-toggle" data-testid="talks-filter-toggle" aria-expanded="false">Filters ▾</button>
                 <div class="filter-bar-content">
@@ -1037,13 +1056,6 @@ export class UIManager extends EventEmitter {
                   <option value="title">Title</option>
                 </select>
                 <input class="form-input" id="talks-filter-query" aria-label="Search talks" type="search" placeholder="Search talks" style="flex:1 1 150px; min-width:0;">
-                <select class="form-input" id="talks-filter-type" aria-label="Filter talks by type" style="flex:0 0 125px;">
-                  <option value="all">All types</option>
-                  <option value="tag">Tag</option>
-                  <option value="flow">Flow</option>
-                  <option value="survey">Survey</option>
-                  <option value="route">Route</option>
-                </select>
                 <select class="form-input" id="talks-filter-completion" aria-label="Filter talks by completion" style="flex:0 0 135px;">
                   <option value="all">Any status</option>
                   <option value="unanswered">Unanswered</option>
@@ -1555,38 +1567,51 @@ export class UIManager extends EventEmitter {
       broadcastTalkBtn.addEventListener('click', () => this.handleBroadcastTalkFromCurrentRoom());
     }
 
-    document.querySelectorAll('.talks-nav-btn').forEach((button) => {
-      button.addEventListener('click', () => {
-        const nextMode = (button as HTMLElement).dataset.talksMode as 'all' | 'in' | 'out' | undefined;
-        if (!nextMode) return;
-        this.talksViewMode = nextMode;
+    this.restoreTalksTabState();
+    document.getElementById('talks-filter-incoming')?.addEventListener('change', (event) => {
+      this.talksShowIncoming = (event.currentTarget as HTMLInputElement).checked;
+      this.persistTalksTabState();
+      this.displayTalksList();
+    });
+    document.getElementById('talks-filter-outgoing')?.addEventListener('change', (event) => {
+      this.talksShowOutgoing = (event.currentTarget as HTMLInputElement).checked;
+      this.persistTalksTabState();
+      this.displayTalksList();
+    });
+    document.querySelectorAll<HTMLInputElement>('.talks-type-checkbox').forEach((checkbox) => {
+      checkbox.addEventListener('change', () => {
+        const type = checkbox.value;
+        if (checkbox.checked) this.talksEnabledTypes.add(type);
+        else this.talksEnabledTypes.delete(type);
+        this.persistTalksTabState();
         this.displayTalksList();
       });
     });
     document.getElementById('talks-out-sort-order')?.addEventListener('change', (event) => {
       this.talksOutSortMode = (event.currentTarget as HTMLSelectElement).value as typeof this.talksOutSortMode;
+      this.persistTalksTabState();
       this.displayTalksList();
     });
     document.getElementById('talks-filter-query')?.addEventListener('input', (event) => {
       this.talksQuery = (event.currentTarget as HTMLInputElement).value;
-      this.displayTalksList();
-    });
-    document.getElementById('talks-filter-type')?.addEventListener('change', (event) => {
-      this.talksTypeFilter = (event.currentTarget as HTMLSelectElement).value;
+      this.persistTalksTabState();
       this.displayTalksList();
     });
     document.getElementById('talks-filter-completion')?.addEventListener('change', (event) => {
       this.talksCompletionFilter = (event.currentTarget as HTMLSelectElement).value as typeof this.talksCompletionFilter;
+      this.persistTalksTabState();
       this.displayTalksList();
     });
     document.getElementById('talks-filter-outcome')?.addEventListener('change', (event) => {
       this.talksOutcomeFilter = (event.currentTarget as HTMLSelectElement).value as typeof this.talksOutcomeFilter;
+      this.persistTalksTabState();
       this.displayTalksList();
     });
     ['talks-filter-date-from', 'talks-filter-date-to'].forEach((id) => {
       document.getElementById(id)?.addEventListener('change', (event) => {
         if (id.endsWith('from')) this.talksDateFrom = (event.currentTarget as HTMLInputElement).value;
         else this.talksDateTo = (event.currentTarget as HTMLInputElement).value;
+        this.persistTalksTabState();
         this.displayTalksList();
       });
     });
@@ -1612,13 +1637,6 @@ export class UIManager extends EventEmitter {
       this.persistCreatorReplyFilterState();
     });
 
-    const talksNavBack = document.getElementById('talks-nav-back');
-    if (talksNavBack) {
-      talksNavBack.addEventListener('click', () => {
-        this.talksViewMode = 'all';
-        this.displayTalksList();
-      });
-    }
   }
 
   /**
@@ -1776,8 +1794,10 @@ export class UIManager extends EventEmitter {
         // Special handling for contacts view
         if (targetView === 'contacts') {
           this.dismissMatchNotifications();
+          // showContactsList()'s render flow now calls updateStatsStrip itself (with the
+          // row-count prefix merged in) once the count is known — calling
+          // displayContextualStatistics separately here would flash an un-prefixed version first.
           this.showContactsList();
-          this.displayContextualStatistics('contacts-stats-strip');
         }
 
         // Special handling for talks view
@@ -1785,7 +1805,6 @@ export class UIManager extends EventEmitter {
           this.emit('needIncomingTalkClusters');
           this.displayTalksList();
           void this.refreshCreatorReplies();
-          this.displayContextualStatistics('talks-stats-strip');
         }
 
         // Special handling for me view: refresh conversations list and request a source sync.
@@ -1944,9 +1963,12 @@ export class UIManager extends EventEmitter {
       isBlockedByMe: this.isBlockedByMe.bind(this),
       getPeerName: this.getPeerName.bind(this),
       resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
-      // Rule N2a (redesign §5): a contact click lands on the DM Conversation directly,
-      // with the shared User layout underneath — identical to a chatroom member click.
+      // Rule N2a (redesign §5): tapping the contact's NAME lands on the DM Conversation
+      // directly, with the shared User layout underneath — identical to a chatroom member
+      // click. Tapping the row anywhere else opens the User layout alone (openPeerDetailOnly).
       openPeerDetail: this.openUserConversationFirst.bind(this),
+      openPeerDetailOnly: this.openPeerDetailForUser.bind(this),
+      updateStatsStrip: (prefix: string) => this.displayContextualStatistics('contacts-stats-strip', prefix),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       saveKnownPerson: this.saveKnownPerson.bind(this),
@@ -2149,13 +2171,6 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  private showTalkItemDetailsPopup(talkId: string): void {
-    const escape = (window.CSS?.escape ?? ((v: string) => v)) as (v: string) => string;
-    const row = document.querySelector(`.talk-list-item[data-talk-id="${escape(talkId)}"]`) as HTMLElement | null;
-    const details = row?.querySelector('.talk-item-details') as HTMLElement | null;
-    if (!row || !details) return;
-    this.showDetailsPopupFor(details, row);
-  }
 
   /**
    * TODO §Q "Talk -> people I've separately exchanged this with" edge (build-order item 17).
@@ -2480,7 +2495,10 @@ export class UIManager extends EventEmitter {
         (e) => {
           if (e.button !== 0) return; // only left button
           const target = e.target as HTMLElement;
-          if (!target.closest('#talks-list')) return;
+          // #item-details-popup: the long-press details popup relocates a row's
+          // .talk-item-details out of #talks-list (showDetailsPopupFor) — its surviving
+          // interactive content (survey-stats-btn) needs to still be reachable there.
+          if (!target.closest('#talks-list') && !target.closest('#item-details-popup')) return;
           const outgoingTagCheckbox = target.closest('.talk-tag-out-checkbox') as HTMLInputElement | null;
           if (outgoingTagCheckbox) {
             e.preventDefault();
@@ -2499,26 +2517,8 @@ export class UIManager extends EventEmitter {
             setTimeout(() => this.quickAnswerIncomingTag(talkId, identityKey || undefined, checked), 0);
             return;
           }
-          const removeBtn = target.closest('.remove-talk-btn');
-          if (removeBtn) {
-            e.preventDefault();
-            e.stopPropagation();
-            const talkId = (removeBtn as HTMLElement).dataset.talkId;
-            if (talkId) {
-              setTimeout(() => this.deleteMyTalk(talkId), 0);
-            }
-            return;
-          }
-          const surveyStatsBtn = target.closest('.survey-stats-btn');
-          if (surveyStatsBtn) {
-            e.preventDefault();
-            e.stopPropagation();
-            const talkId = (surveyStatsBtn as HTMLElement).dataset.talkId;
-            if (talkId) {
-              setTimeout(() => void this.showSurveyStatsDialog(talkId), 0);
-            }
-            return;
-          }
+          // view-talk-btn only remains on tag pills (the title is itself the button);
+          // card rows dropped it — the whole row opens the talk now (click delegation below).
           const viewBtn = target.closest('.view-talk-btn');
           if (viewBtn) {
             e.preventDefault();
@@ -2531,33 +2531,38 @@ export class UIManager extends EventEmitter {
             }
             return;
           }
-          const broadcastToggle = target.closest('.talk-broadcast-toggle-btn') as HTMLButtonElement | null;
-          if (broadcastToggle && broadcastToggle.dataset) {
+          // Only reachable now from inside the long-press details popup (survey OUT rows).
+          const surveyStatsBtn = target.closest('.survey-stats-btn');
+          if (surveyStatsBtn) {
             e.preventDefault();
             e.stopPropagation();
-            const talkId = broadcastToggle.dataset.talkId;
+            const talkId = (surveyStatsBtn as HTMLElement).dataset.talkId;
             if (talkId) {
-              const disabled = broadcastToggle.dataset.broadcastEnabled === 'true';
-              setTimeout(() => {
-                this.setTalkDisabled(talkId, disabled);
-                this.showNotification(this.t(disabled ? 'talksBroadcastDisabled' : 'talksBroadcastEnabled'), 'success');
-              }, 0);
+              setTimeout(() => void this.showSurveyStatsDialog(talkId), 0);
             }
-            return;
-          }
-          // TODO §M2: "ℹ️" opens the row's hidden .talk-item-details in a shared popup.
-          const detailsBtn = target.closest('.talk-details-btn') as HTMLElement | null;
-          if (detailsBtn) {
-            e.preventDefault();
-            e.stopPropagation();
-            const talkId = detailsBtn.dataset.talkId;
-            if (talkId) setTimeout(() => this.showTalkItemDetailsPopup(talkId), 0);
             return;
           }
         },
         { capture: true },
       );
     }
+    // Broadcast on/off is now a real checkbox (same widget as the tag pill's own checkbox),
+    // so it uses 'change' — not the mousedown-capture pattern above, which exists to hijack
+    // custom-behavior elements before a native default (checked state, focus) applies. A
+    // native checkbox's own toggle is exactly the behavior wanted here.
+    if (!this.talksBroadcastCheckboxBound) {
+      this.talksBroadcastCheckboxBound = true;
+      document.body.addEventListener('change', (e) => {
+        const checkbox = (e.target as HTMLElement).closest('.talk-broadcast-toggle-checkbox') as HTMLInputElement | null;
+        if (!checkbox) return;
+        const talkId = checkbox.dataset.talkId;
+        if (!talkId) return;
+        const disabled = !checkbox.checked;
+        this.setTalkDisabled(talkId, disabled);
+        this.showNotification(this.t(disabled ? 'talksBroadcastDisabled' : 'talksBroadcastEnabled'), 'success');
+      });
+    }
+    this.bindTalksRowGestures();
 
     // Sort all talks by last interaction
     const allEntries = Object.entries(myTalks)
@@ -2662,48 +2667,43 @@ export class UIManager extends EventEmitter {
       const from = this.talksDateFrom ? new Date(`${this.talksDateFrom}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
       const to = this.talksDateTo ? new Date(`${this.talksDateTo}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
       return (!query || title.includes(query))
-        && (this.talksTypeFilter === 'all' || type === this.talksTypeFilter)
+        && this.talksEnabledTypes.has(type)
         && (this.talksOutcomeFilter === 'all' || outcome === this.talksOutcomeFilter)
         && timestamp >= from && timestamp <= to
         && (this.talksCompletionFilter === 'all'
           || (this.talksCompletionFilter === 'answered' && answered)
           || (this.talksCompletionFilter === 'unanswered' && !answered));
     };
-    const filteredOutEntries = outEntries.filter((entry) => matchesTalkFilter(entry, false));
-    const inEntries = allIncomingEntries
-      .filter((entry) => matchesTalkFilter(entry, true))
-      .sort((a: any, b: any) => {
-        if (a.isAnswered !== b.isAnswered) return a.isAnswered ? 1 : -1;
-        if (this.talksOutSortMode === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
-        if (this.talksOutSortMode === 'oldest') return new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
-        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
-      });
-    const talksNavBack = document.getElementById('talks-nav-back');
-    const activeMode = this.talksViewMode;
-    const talksStatus = document.getElementById('talks-status-text');
-    if (talksStatus) {
-      const sortLabel = this.t(({
-        recent: 'talksLatestActivity',
-        oldest: 'talksOldestCreation',
-        'latest-reply': 'talksLatestReply',
-        matches: 'talksMostMatches',
-        responses: 'talksMostReplies',
-        'match-rate': 'talksBestMatchRate',
-        weighted: 'talksWeightedPerformance',
-        title: 'talksTitle',
-      } as const)[this.talksOutSortMode]);
-      talksStatus.textContent = this.tf('talksStatusSummary', {
-        incoming: inEntries.length,
-        outgoing: filteredOutEntries.length,
-        sort: sortLabel,
-      });
-    }
+    const filteredOutEntries = this.talksShowOutgoing
+      ? outEntries.filter((entry) => matchesTalkFilter(entry, false))
+      : [];
+    const inEntries = this.talksShowIncoming
+      ? allIncomingEntries
+          .filter((entry) => matchesTalkFilter(entry, true))
+          .sort((a: any, b: any) => {
+            if (a.isAnswered !== b.isAnswered) return a.isAnswered ? 1 : -1;
+            if (this.talksOutSortMode === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
+            if (this.talksOutSortMode === 'oldest') return new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
+            return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+          })
+      : [];
+    // One combined summary line instead of two (app-bar direction counts + a separate
+    // "Stats: ..." row below) — direction counts prefix the same response/match line.
+    this.displayContextualStatistics(
+      'talks-stats-strip',
+      this.tf('talksStatusSummary', { incoming: inEntries.length, outgoing: filteredOutEntries.length }) + ' · ',
+    );
+    const talksIncomingCheckbox = document.getElementById('talks-filter-incoming') as HTMLInputElement | null;
+    if (talksIncomingCheckbox) talksIncomingCheckbox.checked = this.talksShowIncoming;
+    const talksOutgoingCheckbox = document.getElementById('talks-filter-outgoing') as HTMLInputElement | null;
+    if (talksOutgoingCheckbox) talksOutgoingCheckbox.checked = this.talksShowOutgoing;
+    document.querySelectorAll<HTMLInputElement>('.talks-type-checkbox').forEach((checkbox) => {
+      checkbox.checked = this.talksEnabledTypes.has(checkbox.value);
+    });
     const talksSort = document.getElementById('talks-out-sort-order') as HTMLSelectElement | null;
     if (talksSort) talksSort.value = this.talksOutSortMode;
     const talksQuery = document.getElementById('talks-filter-query') as HTMLInputElement | null;
     if (talksQuery && talksQuery.value !== this.talksQuery) talksQuery.value = this.talksQuery;
-    const talksTypeFilter = document.getElementById('talks-filter-type') as HTMLSelectElement | null;
-    if (talksTypeFilter) talksTypeFilter.value = this.talksTypeFilter;
     const talksCompletionFilter = document.getElementById('talks-filter-completion') as HTMLSelectElement | null;
     if (talksCompletionFilter) talksCompletionFilter.value = this.talksCompletionFilter;
     const talksOutcomeFilter = document.getElementById('talks-filter-outcome') as HTMLSelectElement | null;
@@ -2713,19 +2713,13 @@ export class UIManager extends EventEmitter {
     if (talksDateFrom) talksDateFrom.value = this.talksDateFrom;
     if (talksDateTo) talksDateTo.value = this.talksDateTo;
 
-    document.querySelectorAll('.talks-nav-btn').forEach((button) => {
-      button.classList.toggle('active', (button as HTMLElement).dataset.talksMode === activeMode);
-    });
-    if (talksNavBack) {
-      talksNavBack.style.display = activeMode === 'all' ? 'none' : 'inline-flex';
-    }
-
     if (filteredOutEntries.length === 0 && inEntries.length === 0) {
       talksList.innerHTML = `
         <div class="empty-state" style="padding: 60px 20px; text-align: center;">
           <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
           <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">${this.t('talksNoTalks')}</p>
           <p style="font-size: 0.9em; color: #999;">${this.t('talksNoTalksHelp')}</p>
+          ${hiddenReasonsText ? `<p style="font-size: 0.85em; color: #999; margin-top: 8px;">${escapeHtml(hiddenReasonsText)}</p>` : ''}
         </div>
       `;
     } else {
@@ -2776,9 +2770,13 @@ export class UIManager extends EventEmitter {
                   const disabled = !!talk.disabled;
                   const expText = this.formatTalkExpiration(talk.expiresAt);
                   const locText = this.formatTalkLocation(talk.locationRadiusMiles);
+                  // Icon-only badges, not text: direction/copy-state and type are already
+                  // conveyed by shape (this icon) and color (typeAccent border) — a text
+                  // label alongside both would just repeat the same fact in words. The
+                  // translated label still exists for a11y/tooltip/screen-reader purposes.
                   const roleBadge = talk.role === 'copied'
-                    ? `<span class="talk-badge talk-badge-copied" style="background:var(--accent-soft);color:var(--accent-text);">📋 ${this.t('talksCopied')}</span>`
-                    : `<span class="talk-badge talk-badge-created" style="background:var(--accent-soft);color:var(--accent-text);">📝 ${this.t('talksCreated')}</span>`;
+                    ? `<span class="talk-badge talk-badge-copied" title="${escapeHtml(this.t('talksCopied'))}" style="background:var(--accent-soft);color:var(--accent-text);">📋<span class="visually-hidden"> ${this.t('talksCopied')}</span></span>`
+                    : `<span class="talk-badge talk-badge-created" title="${escapeHtml(this.t('talksCreated'))}" style="background:var(--accent-soft);color:var(--accent-text);">📝<span class="visually-hidden"> ${this.t('talksCreated')}</span></span>`;
                   const talkTypeLower = String(talk.type || talk.fullTalk?.type || '').toLowerCase();
                   const talkLanguage = String(talk.language || talk.fullTalk?.language || 'en').toLowerCase();
                   const typeAccent =
@@ -2786,6 +2784,11 @@ export class UIManager extends EventEmitter {
                     : talkTypeLower === 'survey' ? 'var(--success)'
                     : talkTypeLower === 'route' ? '#d97706'
                     : 'var(--accent)';
+                  const typeIcon =
+                    talkTypeLower === 'tag' ? '🏷️'
+                    : talkTypeLower === 'survey' ? '📊'
+                    : talkTypeLower === 'route' ? '🔀'
+                    : '➡️';
                   if (talkTypeLower === 'tag') {
                     return `
         <div class="talk-list-item talk-tag-chip talk-tag-out ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="tag">
@@ -2796,37 +2799,34 @@ export class UIManager extends EventEmitter {
         </div>
       `;
                   }
-                  // TODO §M2: 2 visible lines (title, status) with actions as inline icons; fields
-                  // that were purely informational (language badge, meta, rank/weighted-score)
-                  // move into .talk-item-details — still a normal DOM child (not removed, not a
-                  // <template>), just display:none until the "ℹ️" icon opens the shared details
-                  // popup. matchedLine stays visible on the row itself: it's the interactive N3
-                  // click-to-DM affordance (§N3), not decorative detail, and existing tests assert
-                  // its visibility inline.
-                  const surveyStatsIconBtn =
-                    talkTypeLower === 'survey'
-                      ? `<button type="button" class="btn survey-stats-btn talk-icon-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" title="${this.t('talksResults')}">📊</button>`
-                      : '';
+                  // Row is a single tap target (opens the editor) plus a gesture, not a row of
+                  // buttons: the checkbox in the top-left badge is the one persistent explicit
+                  // control (broadcast on/off — same widget as the tag pill's own checkbox, so
+                  // both "is this actively going out" toggles look and feel the same); everything
+                  // else that used to be a button moved to a different mechanism — 🗑️ delete ->
+                  // swipe-left gesture, ℹ️ details -> long-press (still the exact same
+                  // .talk-item-details/showDetailsPopupFor content, nothing dropped), 📊 survey
+                  // results -> the at-a-glance number now lives in the stats line, with the full
+                  // breakdown dashboard one tap away inside that same long-press popup instead of
+                  // its own row button. matchedLine stays visible on the row: it's the interactive
+                  // N3 click-to-DM affordance, not decorative detail.
                   return `
-        <div class="talk-list-item talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-left:5px solid ${typeAccent};">
+        <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-right:5px solid ${typeAccent};background:#fff;">
           <div class="talk-item-header">
+            <label class="talk-icon-badge" title="${disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn')}">
+              <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
+              <span aria-hidden="true">${typeIcon}</span>
+            </label>
             <div class="talk-item-title">${escapeHtml(talk.title)}</div>
-            <div class="talk-item-badges">
-              ${roleBadge}
-              <span class="talk-badge talk-badge-type">${escapeHtml(this.formatTalkType(String(talk.type || 'flow')))}</span>
-            </div>
+            <span class="talk-item-chevron" aria-hidden="true">›</span>
           </div>
           <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
             <span class="talk-item-status-summary" style="font-size:0.85em;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(statsLine)} · ${escapeHtml(this.formatTalkRelativeTime(new Date(talk.lastInteraction || 0)))}</span>
-            <span class="talk-item-inline-actions" style="display:flex;gap:4px;flex-shrink:0;">
-              ${surveyStatsIconBtn}
-              <button type="button" class="btn talk-broadcast-toggle-btn talk-icon-btn ${disabled ? 'talk-broadcast-toggle-off' : 'talk-broadcast-toggle-on'}" data-talk-id="${talkId}" data-broadcast-enabled="${disabled ? 'false' : 'true'}" title="${disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn')}">${disabled ? '🔇' : '📣'}</button>
-              <button type="button" class="btn remove-talk-btn talk-icon-btn" data-talk-id="${talkId}" title="${this.t('talksRemove')}" style="background: var(--danger); color: white;">🗑️</button>
-              <button type="button" class="btn talk-details-btn talk-icon-btn" data-talk-id="${talkId}" title="${this.t('talksDetails')}">ℹ️</button>
-            </span>
           </div>
           ${matchedLine}
           <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
+            ${roleBadge}
+            <span class="talk-badge talk-badge-type" title="${escapeHtml(this.formatTalkType(String(talk.type || 'flow')))}">${typeIcon}<span class="visually-hidden"> ${this.formatTalkType(String(talk.type || 'flow'))}</span></span>
             <span class="talk-badge talk-badge-language" data-language="${escapeHtml(talkLanguage)}">${escapeHtml(this.formatTalkLanguage(talkLanguage))}</span>
             <div class="talk-item-meta">
               <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(talk.lastInteraction || 0))}</span>
@@ -2838,6 +2838,7 @@ export class UIManager extends EventEmitter {
               ${statsLine}
             </div>
             ${rankLine}
+            ${talkTypeLower === 'survey' ? `<button type="button" class="btn survey-stats-btn talk-icon-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="margin-top:6px;color:var(--accent-text);">📊 ${this.t('talksResults')}</button>` : ''}
             ${coExchangedLine}
           </div>
         </div>
@@ -2914,6 +2915,11 @@ export class UIManager extends EventEmitter {
                   : incomingType === 'survey' ? 'var(--success)'
                   : incomingType === 'route' ? '#d97706'
                   : 'var(--accent)';
+                const typeIcon =
+                  incomingType === 'tag' ? '🏷️'
+                  : incomingType === 'survey' ? '📊'
+                  : incomingType === 'route' ? '🔀'
+                  : '➡️';
                 if (incomingType === 'tag') {
                   return `
         <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag">
@@ -2924,32 +2930,45 @@ export class UIManager extends EventEmitter {
         </div>
       `;
                 }
-                // TODO §M2: same 2-visible-line collapse as the OUT row. The sender row stays
-                // visible (not moved into the popup) for the same reason matchedLine does on the
-                // OUT row: it's the interactive N3 click-to-DM traceback affordance, not decorative
-                // detail. Chips/meta/"from"-line (redundant with the visible sender row) move into
-                // .talk-item-details.
+                // Row is a single tap target (opens the talk to answer, with the details below
+                // already visible rather than a separate popup) plus two gestures — drag up to
+                // ignore the whole talk, drag down to copy it into my own outgoing list without
+                // answering — replacing the 🔍/ℹ️ buttons. Long-press still reaches the exact
+                // same .talk-item-details/showDetailsPopupFor content the ℹ️ button used to
+                // (full sender identity + co-exchanged people), nothing dropped, just a different
+                // trigger. Row 2 now carries what fit in the freed-up space: time, sender count,
+                // location, question progress — the "quick glance" subset of the popup's fuller
+                // detail set.
+                const questionProgressText = (incomingType === 'flow' || incomingType === 'route') && questionCount > 0
+                  ? `Q1/${questionCount}`
+                  : questionCount > 0 ? `${questionCount} Q` : '';
+                const senderCountText = senderNames.length > 1
+                  ? `👥 ${this.tf('talksSenders', { count: senderNames.length })}`
+                  : `👤 ${this.tf('talksSenderOne', { count: 1 })}`;
+                const row2Parts = [
+                  this.formatTalkRelativeTime(new Date(cluster?.updatedAt || Date.now())),
+                  senderCountText,
+                  `📍 ${locText}`,
+                  questionProgressText,
+                ].filter(Boolean);
                 return `
-        <div class="talk-list-item talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};">
+        <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};background:var(--accent-soft);">
           <div class="talk-item-header">
-            <div class="talk-item-title" style="${titleStyle}">${escapeHtml(cluster?.title || this.t('talksIncomingFallback'))}</div>
-            <div class="talk-item-badges">
-              ${statusBadge}
-              <span class="talk-badge talk-badge-type">${escapeHtml(this.formatTalkType(String(cluster?.type || 'flow')))}</span>
-            </div>
+            <span class="talk-icon-badge" title="${escapeHtml(this.formatTalkType(String(cluster?.type || 'flow')))}" aria-hidden="true">📥 ${typeIcon}</span>
+            <button type="button" class="talk-item-title view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="${titleStyle}background:none;border:none;padding:0;text-align:left;cursor:pointer;font:inherit;">${escapeHtml(cluster?.title || this.t('talksIncomingFallback'))}</button>
+            <span class="talk-item-chevron" aria-hidden="true">›</span>
           </div>
-          <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
-            <div class="talk-incoming-sender talk-sender-people" data-sender-people="${senderPeopleJson}" style="cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          <div class="talk-item-status-line" style="margin-top:4px;">
+            <span class="talk-item-status-summary" style="${metaStyle}font-size:0.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(row2Parts.join(' · '))}</span>
+          </div>
+          <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
+            ${statusBadge}
+            <span class="talk-badge talk-badge-type" title="${escapeHtml(this.formatTalkType(String(cluster?.type || 'flow')))}">${typeIcon}<span class="visually-hidden"> ${this.formatTalkType(String(cluster?.type || 'flow'))}</span></span>
+            <div class="talk-incoming-sender talk-sender-people" data-sender-people="${senderPeopleJson}" style="cursor:pointer;display:flex;align-items:center;gap:6px;margin-bottom:8px;margin-top:8px;">
               <span class="talk-incoming-avatar">${avatarInnerHtml(primarySender.headshot, senderInitial, escapeHtml)}</span>
               <span class="talk-incoming-sender-name">${escapeHtml(primarySenderName)}</span>
               ${senderNames.length > 1 ? `<span class="talk-info-chip">${this.tf('talksSenders', { count: senderNames.length })}</span>` : ''}
             </div>
-            <span class="talk-item-inline-actions" style="display:flex;gap:4px;flex-shrink:0;">
-              <button type="button" class="btn view-talk-btn talk-icon-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" title="${this.t('talksView')}" ${talkId || identityKey ? '' : 'disabled'}>🔍</button>
-              <button type="button" class="btn talk-details-btn talk-icon-btn" data-talk-id="${talkId}" title="${this.t('talksDetails')}">ℹ️</button>
-            </span>
-          </div>
-          <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
             <div class="talk-info-chips">
               ${progressChip}
               ${languageChip}
@@ -2967,18 +2986,6 @@ export class UIManager extends EventEmitter {
       `;
       };
 
-      // TODO §R2: header-only prefix (no row HTML — renderListProgressively renders the
-      // rows). Same visible markup as before, just split from the row content.
-      const sectionOutHeader = filteredOutEntries.length > 0
-        ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: var(--text-secondary); background: var(--bg-muted); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: var(--text-tertiary);">(${this.tf('talksOutSection', { count: this.formatTalkCount(filteredOutEntries.length) })})</span>
-             </div>`
-        : '';
-      const sectionInHeader = inEntries.length > 0
-        ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: var(--text-secondary); background: var(--bg-muted); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: var(--text-tertiary);">(${this.tf('talksInSection', { count: this.formatTalkCount(inEntries.length), filtered: incomingFilterResult.hiddenCount > 0 ? this.tf('talksFilteredCount', { count: incomingFilterResult.hiddenCount }) : '' })})</span>
-             </div>`
-        : '';
       const isStale = () => renderSeq !== this.talksRenderSeq;
 
       // TODO §R2: re-applies the indeterminate-checkbox JS property (not representable as
@@ -2989,62 +2996,46 @@ export class UIManager extends EventEmitter {
         });
       };
 
-      if (activeMode === 'in') {
-        if (inEntries.length === 0) {
-          talksList.innerHTML = `
-          <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
-            ${incomingFilterResult.hiddenCount > 0 ? this.tf('talksAllIncomingFiltered', { count: incomingFilterResult.hiddenCount }) : this.t('talksNoIncoming')}
-            ${hiddenReasonsText ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;">${escapeHtml(hiddenReasonsText)}</div>` : ''}
-            ${!this.currentLocation && rawIncomingEntries.some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;color:var(--warning-text);font-style:italic;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
-          </div>
-        `;
-        } else {
-          renderListProgressively(talksList, inEntries, {
-            firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
-            prefixHtml: sectionInHeader,
-            renderRow: renderInRow,
-            isStale,
-            onFirstChunkRendered: markIndeterminateTagCheckboxes,
-            onRemainderRendered: markIndeterminateTagCheckboxes,
-          });
-        }
-      } else if (activeMode === 'out') {
-        if (filteredOutEntries.length === 0) {
-          talksList.innerHTML = `
-          <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
-            ${this.t('talksNoOutgoing')}
-          </div>
-        `;
-        } else {
-          renderListProgressively(talksList, filteredOutEntries, {
-            firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
-            prefixHtml: sectionOutHeader,
-            renderRow: renderOutRow,
-            isStale,
-          });
-        }
-      } else {
-        // 'all': two independent sections, IN above OUT (matching the prior concatenation
-        // order), each progressively rendered into its own sub-container so one section's
-        // deferred remainder never clobbers the other's already-rendered rows.
-        talksList.innerHTML = '<div id="talks-in-section"></div><div id="talks-out-section"></div>';
-        const inContainer = document.getElementById('talks-in-section') as HTMLElement;
-        const outContainer = document.getElementById('talks-out-section') as HTMLElement;
-        renderListProgressively(inContainer, inEntries, {
-          firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
-          prefixHtml: sectionInHeader,
-          renderRow: renderInRow,
-          isStale,
-          onFirstChunkRendered: markIndeterminateTagCheckboxes,
-          onRemainderRendered: markIndeterminateTagCheckboxes,
-        });
-        renderListProgressively(outContainer, filteredOutEntries, {
-          firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
-          prefixHtml: sectionOutHeader,
-          renderRow: renderOutRow,
-          isStale,
-        });
-      }
+      // One merged, chronologically-sorted list — like an email inbox, not two
+      // direction-labeled sections. Direction/type are already conveyed per-row via
+      // color (type accent) and icon (direction), so a section header would be
+      // redundant wording on top of that. When only one direction is checked, the
+      // richer OUT-specific sort modes (matches/responses/weighted/...) still apply;
+      // mixing both directions together only makes sense sorted by recency.
+      type MergedTalkRow = { direction: 'in' | 'out'; sortTime: number; needsAnswer: boolean; payload: any };
+      const outRows: MergedTalkRow[] = filteredOutEntries.map(([id, talk]: [string, any]) => ({
+        direction: 'out' as const,
+        sortTime: new Date(talk.lastInteraction || 0).getTime(),
+        needsAnswer: false,
+        payload: [id, talk] as [string, any],
+      }));
+      const inRows: MergedTalkRow[] = inEntries.map((cluster: any) => ({
+        direction: 'in' as const,
+        sortTime: new Date(cluster?.updatedAt || 0).getTime(),
+        needsAnswer: !cluster?.isAnswered,
+        payload: cluster,
+      }));
+      const mergedRows: MergedTalkRow[] = (this.talksShowIncoming && this.talksShowOutgoing)
+        // Unanswered incoming talks are actionable, so they keep floating to the top
+        // (an existing invariant, unrelated to this merge) — recency only breaks ties
+        // within that same tier, both for the "needs answer" group and everything else.
+        ? [...outRows, ...inRows].sort((a, b) => {
+            if (a.needsAnswer !== b.needsAnswer) return a.needsAnswer ? -1 : 1;
+            return b.sortTime - a.sortTime;
+          })
+        : [...inRows, ...outRows];
+      const renderMergedRow = (row: MergedTalkRow): string =>
+        row.direction === 'out' ? renderOutRow(row.payload) : renderInRow(row.payload);
+
+      // mergedRows is guaranteed non-empty here — the outer `filteredOutEntries.length
+      // === 0 && inEntries.length === 0` check above already handled the true-empty case.
+      renderListProgressively(talksList, mergedRows, {
+        firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
+        renderRow: renderMergedRow,
+        isStale,
+        onFirstChunkRendered: markIndeterminateTagCheckboxes,
+        onRemainderRendered: markIndeterminateTagCheckboxes,
+      });
 
       // Request stats for out talks (created/copied) only
       if (filteredOutEntries.length > 0) {
@@ -3058,7 +3049,17 @@ export class UIManager extends EventEmitter {
       // (not closed over), so a stale snapshot from an earlier render can't be used either.
       if (!this.talksListClickDelegationBound) {
         this.talksListClickDelegationBound = true;
-        talksList.addEventListener('click', (e) => {
+        // Delegated on body, not #talks-list: the sender/matched-people click-to-DM
+        // affordance (§N3) now also lives inside `.talk-item-details`, which the details
+        // popup relocates to document.body when opened (showDetailsPopupFor) — a listener
+        // scoped to #talks-list would stop catching it once moved. The row-click-to-edit
+        // branch below is unaffected: it requires a `.talk-list-item` ancestor, which
+        // popup content never has once relocated, so it naturally no-ops there.
+        document.body.addEventListener('click', (e) => {
+          // A row-drag gesture (ignore/copy/delete) or a long-press-for-details just
+          // committed or cancelled — the click that naturally follows pointerup should
+          // not also open the talk.
+          if (Date.now() < this.talksGestureSuppressClickUntil) return;
           const target = e.target as HTMLElement;
 
           // TODO §N3: trace back from a talk row to whom it was exchanged with, then DM
@@ -3083,7 +3084,7 @@ export class UIManager extends EventEmitter {
 
           // Row click opens edit/detail only when not clicking an action button (handled
           // in the mousedown-capture delegation above).
-          if (target.closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
+          if (target.closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
           const item = target.closest('.talk-list-item') as HTMLElement | null;
           if (!item) return;
           const talkId = item.dataset.talkId || '';
@@ -3108,6 +3109,30 @@ export class UIManager extends EventEmitter {
             this.showTalkDetail(talkId, identityKey || undefined);
           }
         });
+      }
+    }
+
+    // Restore the remembered scroll "spot" for this tab — deferred a tick so it applies
+    // after the just-rendered content lands. `.talks-list`'s own `overflow-y:auto` never
+    // actually engages (its flex parent, `.view-content`, isn't itself a flex container),
+    // so `#talks-view-content` — not `#talks-list` — is the element that really scrolls.
+    const talksScrollContainer = document.getElementById('talks-view-content');
+    if (talksScrollContainer) {
+      if (talksScrollContainer.dataset.talksScrollRestored !== '1') {
+        talksScrollContainer.dataset.talksScrollRestored = '1';
+        try {
+          const raw = localStorage.getItem(TALKS_TAB_STATE_KEY);
+          const savedScrollTop = raw ? (JSON.parse(raw) as { scrollTop?: number }).scrollTop : undefined;
+          if (typeof savedScrollTop === 'number') {
+            window.setTimeout(() => { talksScrollContainer.scrollTop = savedScrollTop; }, 0);
+          }
+        } catch {
+          /* local-only preference persistence is optional */
+        }
+      }
+      if (talksScrollContainer.dataset.talksScrollBound !== '1') {
+        talksScrollContainer.dataset.talksScrollBound = '1';
+        talksScrollContainer.addEventListener('scroll', () => this.persistTalksTabState(), { passive: true });
       }
     }
 
@@ -3165,6 +3190,59 @@ export class UIManager extends EventEmitter {
       sort: (document.getElementById('reply-sort-order') as HTMLSelectElement | null)?.value || 'recent',
       group: (document.getElementById('reply-group-order') as HTMLSelectElement | null)?.value || 'none',
     };
+  }
+
+  /** Remembers the Talks tab's direction/type/sort/search/date filters and scroll position
+   * across reloads — mirrors the Contacts tab's `iinpublic_contacts_tab_state` pattern. */
+  private persistTalksTabState(): void {
+    try {
+      const talksScrollContainer = document.getElementById('talks-view-content');
+      localStorage.setItem(TALKS_TAB_STATE_KEY, JSON.stringify({
+        showIncoming: this.talksShowIncoming,
+        showOutgoing: this.talksShowOutgoing,
+        enabledTypes: Array.from(this.talksEnabledTypes),
+        sort: this.talksOutSortMode,
+        query: this.talksQuery,
+        completion: this.talksCompletionFilter,
+        outcome: this.talksOutcomeFilter,
+        dateFrom: this.talksDateFrom,
+        dateTo: this.talksDateTo,
+        scrollTop: talksScrollContainer?.scrollTop || 0,
+      }));
+    } catch {
+      /* local-only preference persistence is optional */
+    }
+  }
+
+  private restoreTalksTabState(): void {
+    try {
+      const raw = localStorage.getItem(TALKS_TAB_STATE_KEY);
+      if (!raw) return;
+      const state = JSON.parse(raw) as {
+        showIncoming?: boolean;
+        showOutgoing?: boolean;
+        enabledTypes?: string[];
+        sort?: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title';
+        query?: string;
+        completion?: 'all' | 'unanswered' | 'answered';
+        outcome?: 'all' | 'match' | 'mismatch';
+        dateFrom?: string;
+        dateTo?: string;
+      };
+      if (typeof state.showIncoming === 'boolean') this.talksShowIncoming = state.showIncoming;
+      if (typeof state.showOutgoing === 'boolean') this.talksShowOutgoing = state.showOutgoing;
+      if (Array.isArray(state.enabledTypes) && state.enabledTypes.length > 0) {
+        this.talksEnabledTypes = new Set(state.enabledTypes);
+      }
+      if (state.sort) this.talksOutSortMode = state.sort;
+      if (state.query) this.talksQuery = state.query;
+      if (state.completion) this.talksCompletionFilter = state.completion;
+      if (state.outcome) this.talksOutcomeFilter = state.outcome;
+      if (state.dateFrom) this.talksDateFrom = state.dateFrom;
+      if (state.dateTo) this.talksDateTo = state.dateTo;
+    } catch {
+      /* local-only preference persistence is optional */
+    }
   }
 
   private persistCreatorReplyFilterState(): void {
@@ -3394,10 +3472,17 @@ export class UIManager extends EventEmitter {
     let visibleCount = 0;
 
     document.querySelectorAll<HTMLElement>('#answers-content .answer-talk-item').forEach((item) => {
-      const talkType = String(item.dataset.talkType || 'flow').toLowerCase();
-      const tagState = String(item.dataset.tagState || 'indeterminate');
-      const matchesType = activeTypes.length === 0 ? false : activeTypes.includes(talkType);
-      const matchesTagState = talkType !== 'tag' || allowedTagStates.includes(tagState);
+      // A merged row can carry more than one contributing talk type (data-talk-type is a
+      // space-separated set) since the same question may have been asked via several talk
+      // types — matches if ANY contributing type is active, rather than requiring one exact type.
+      const talkTypes = String(item.dataset.talkType || 'flow').toLowerCase().split(' ').filter(Boolean);
+      const tagState = String(item.dataset.tagState || '');
+      // Whether the row *itself* renders as a checkbox tag row — not merely whether one of
+      // its contributing talks happens to be talk-type "tag" (a "tag" talk can still answer
+      // a plain question, e.g. its item.kind is "question" — that row is data-tag-state="").
+      const isTagRow = item.classList.contains('answer-tag-item');
+      const matchesType = activeTypes.length === 0 ? false : talkTypes.some((type) => activeTypes.includes(type));
+      const matchesTagState = !isTagRow || allowedTagStates.includes(tagState);
       const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
       const answeredAt = Number(item.dataset.answeredAt || 0);
       const matchesAnswer = !answerQuery || String(item.dataset.answerText || '').includes(answerQuery);
@@ -3557,9 +3642,38 @@ export class UIManager extends EventEmitter {
       label: languageOptionLabel(uiLanguage, language.code, language.label),
     }));
     const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
+    // TODO §M-settings-menu: one-layer jump menu — a flat list of section names at the top;
+    // tapping one scrolls to (and briefly highlights) that section. Every section stays
+    // rendered and open exactly as before (no visibility change), so this is purely additive:
+    // it doesn't touch the 60+ e2e specs that reach a settings control directly with no
+    // navigation step. A true drill-down (menu-first, one section visible at a time) is a
+    // separate, much bigger follow-up — see docs/TODO.md.
+    const jumpMenuItems: Array<{ icon: string; label: string; target: string }> = [
+      { icon: '👤', label: this.t('profile'), target: 'settings-section-profile' },
+      { icon: '⭐', label: this.t('credit'), target: 'settings-section-credit' },
+      { icon: '🌐', label: this.t('settingsLanguages'), target: 'settings-section-languages' },
+      { icon: '🗣️', label: this.t('settingsTalkBehavior'), target: 'settings-section-talk-behavior' },
+      { icon: '📍', label: this.t('settingsDistanceHome'), target: 'settings-section-distance-home' },
+      { icon: '🚫', label: this.t('settingsContentFilters'), target: 'settings-section-content-filters' },
+      { icon: '🔗', label: this.t('settingsLinkedDevices'), target: 'settings-section-linked-devices' },
+      { icon: '🗑️', label: this.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
+      { icon: '💾', label: this.t('settingsStorage'), target: 'settings-storage-inspector' },
+    ];
+    const jumpMenuHtml = `
+      <div class="settings-jump-menu" id="settings-jump-menu" style="display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+        ${jumpMenuItems.map((item, index) => `
+          <button type="button" class="settings-jump-menu-item" data-target="${item.target}" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border:none;${index < jumpMenuItems.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}background:none;text-align:left;cursor:pointer;font:inherit;color:var(--text-primary);">
+            <span aria-hidden="true" style="font-size:1.05em;flex-shrink:0;">${item.icon}</span>
+            <span style="flex:1 1 auto;">${item.label}</span>
+            <span aria-hidden="true" style="color:var(--text-tertiary);">›</span>
+          </button>
+        `).join('')}
+      </div>
+    `;
     container.innerHTML = `
       <div style="display:grid;gap:14px;">
-        ${this.renderSettingsSection({ title: this.t('profile') }, `
+        ${jumpMenuHtml}
+        ${this.renderSettingsSection({ id: 'settings-section-profile', title: this.t('profile') }, `
           <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;">
             <div style="display:grid;gap:8px;min-width:0;">
               <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
@@ -3607,6 +3721,7 @@ export class UIManager extends EventEmitter {
         `)}
         ${this.renderSettingsSection(
           {
+            id: 'settings-section-credit',
             title: this.t('credit'),
             subtitle: this.t('meCreditHelp'),
             action: `
@@ -3628,7 +3743,7 @@ export class UIManager extends EventEmitter {
           </div>
         `,
         )}
-        ${this.renderSettingsSection({ title: this.t('settingsLanguages') }, `
+        ${this.renderSettingsSection({ id: 'settings-section-languages', title: this.t('settingsLanguages') }, `
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
             <span>${this.t('settingsUiLanguage')}</span>
             <select class="form-input" id="settings-ui-language" data-testid="settings-ui-language-select">
@@ -3669,7 +3784,7 @@ export class UIManager extends EventEmitter {
             <div id="settings-filter-languages-count" style="font-size:0.82em;color:var(--text-tertiary);">${talkFilters.allowedLanguages.length} ${this.t('settingsActive')}</div>
           </div>
         `)}
-        ${this.renderSettingsSection({ title: this.t('settingsTalkBehavior') }, `
+        ${this.renderSettingsSection({ id: 'settings-section-talk-behavior', title: this.t('settingsTalkBehavior') }, `
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;">
             <input type="checkbox" id="settings-copy-talk-autosave" ${getCopyTalkAutoSave() ? 'checked' : ''}>
             <span>${this.t('settingsCopyTalk')}</span>
@@ -3683,7 +3798,7 @@ export class UIManager extends EventEmitter {
             <span>${this.t('settingsKeepOldTalkOnEdit')}</span>
           </label>
         `)}
-        ${this.renderSettingsSection({ title: this.t('settingsDistanceHome') }, `
+        ${this.renderSettingsSection({ id: 'settings-section-distance-home', title: this.t('settingsDistanceHome') }, `
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
             <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
               <span>${this.t('settingsMinDistance')}</span>
@@ -3710,7 +3825,7 @@ export class UIManager extends EventEmitter {
             <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
           </label>
         `)}
-        ${this.renderSettingsSection({ title: this.t('settingsContentFilters') }, `
+        ${this.renderSettingsSection({ id: 'settings-section-content-filters', title: this.t('settingsContentFilters') }, `
           <div style="font-size:0.85em;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">${this.t('settingsMessageFiltersHeading')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${this.t('settingsGrammar')}</label>
@@ -3768,6 +3883,7 @@ export class UIManager extends EventEmitter {
         `)}
         ${this.renderSettingsSection(
           {
+            id: 'settings-section-linked-devices',
             title: this.t('settingsLinkedDevices'),
             subtitle: this.t('settingsLinkedDevicesHelp'),
             action: `<button type="button" class="btn" id="settings-linked-devices-btn" data-testid="settings-linked-devices-btn">${this.t('settingsManage')}</button>`,
@@ -3776,6 +3892,7 @@ export class UIManager extends EventEmitter {
         )}
         ${this.renderSettingsSection(
           {
+            id: 'settings-section-erase-device',
             title: this.t('settingsEraseDevice'),
             subtitle: this.t('settingsEraseDeviceHelp'),
             action: `<button type="button" class="btn" id="settings-erase-device-btn" data-testid="settings-erase-device-btn" style="background:var(--danger);color:#fff;">${this.t('settingsEraseDevice')}</button>`,
@@ -4028,6 +4145,19 @@ export class UIManager extends EventEmitter {
   }
 
   private bindSettingsControls(): void {
+    document.getElementById('settings-jump-menu')?.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement).closest('.settings-jump-menu-item') as HTMLElement | null;
+      const sectionId = target?.dataset.target;
+      const section = sectionId ? document.getElementById(sectionId) : null;
+      if (!section) return;
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // details elements aren't styled directly, so the flash targets the summary — the
+      // part of the section actually visible at the top of the scrolled-to viewport.
+      const flashEl = (section.querySelector('summary') as HTMLElement | null) ?? section;
+      flashEl.classList.add('settings-jump-menu-flash');
+      window.setTimeout(() => flashEl.classList.remove('settings-jump-menu-flash'), 900);
+    });
+
     const selectedValues = (id: string): string[] => {
       const el = document.getElementById(id) as HTMLSelectElement | HTMLInputElement | null;
       if (!el) return [];
@@ -4718,7 +4848,7 @@ export class UIManager extends EventEmitter {
     `;
   }
 
-  private displayContextualStatistics(elementId: string): void {
+  private displayContextualStatistics(elementId: string, prefix = ''): void {
     const element = document.getElementById(elementId);
     if (!element) return;
     try {
@@ -4733,14 +4863,14 @@ export class UIManager extends EventEmitter {
       const roomText = room
         ? this.tf('contextualStatsRoom', { room: room.masked ? this.t('contextualStatsHidden') : room.region })
         : '';
-      element.textContent = this.tf('contextualStatsSummary', {
+      element.textContent = prefix + this.tf('contextualStatsSummary', {
         responses: totals.responses,
         matches: totals.matches,
         rate: totals.matchRate,
         room: roomText,
       });
     } catch {
-      element.textContent = this.t('contextualStatsEmpty');
+      element.textContent = prefix + this.t('contextualStatsEmpty');
     }
   }
 
@@ -5051,6 +5181,206 @@ export class UIManager extends EventEmitter {
     if (checked) this.showNotification(this.t('responseMatch'), 'success');
     else this.showNotification(this.t('responseTagIgnored'), 'info');
     this.completeTalk(talk, completed, checked ? 'match' : 'mismatch');
+  }
+
+  /**
+   * Row gesture (drag up): reaches the exact same end state as picking the response
+   * dialog's dedicated "Ignore" radio (talk-response-dialog.ts's `isDedicatedIgnore`
+   * branch) — withheld from the sender, local bookkeeping still runs — without opening
+   * the dialog first. Any question works as the nominal `questionId`; the talk ends
+   * immediately either way, so which one is recorded is not semantically meaningful.
+   */
+  private quickIgnoreIncomingTalk(talkId: string, identityKeyFallback?: string): void {
+    const finish = (fullTalk: any): void => {
+      if (!fullTalk) {
+        this.showNotification(this.t('talksCouldNotLoad'), 'error');
+        return;
+      }
+      const question = Array.isArray(fullTalk.questions) ? fullTalk.questions[0] : null;
+      const answers = question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
+      if (question) {
+        this.saveAnswerPreference(
+          fullTalk, fullTalk.id, question, 'ignore', 'ignore',
+          answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
+          'suppressed',
+        );
+      }
+      this.showNotification(this.t('responseTalkIgnored'), 'info');
+      this.completeTalk(fullTalk, answers, 'mismatch', { withholdFromSender: true });
+    };
+    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
+    if (!tid && identityKeyFallback) {
+      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
+      return;
+    }
+    if (!tid) {
+      this.showNotification(this.t('talksCouldNotOpen'), 'error');
+      return;
+    }
+    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+  }
+
+  /**
+   * Row gesture (drag down): copies an incoming talk into the user's own outgoing list
+   * *without* answering it — distinct from `copyAnsweredTalkToTalks`, which only works on
+   * an already-answered `myTalks` entry. A live incoming cluster has no `myTalks[talkId]`
+   * row yet and no `.latestTalk` full-Talk object (only `.latestTalkId`/`.questionsJson`
+   * on the wire type), so the full talk has to be resolved the same asynchronous way
+   * `quickAnswerIncomingTag` does it, then saved directly with role 'copied' — bypassing
+   * `completeTalk` entirely so the sender is never notified and the incoming cluster
+   * stays in the inbox exactly as it was.
+   */
+  private quickCopyIncomingTalk(talkId: string, identityKeyFallback: string | undefined, cluster?: any): void {
+    const existing = talkId ? this.getMyTalks()[talkId] : undefined;
+    if (existing?.role === 'copied') {
+      this.showNotification(this.t('talksAlreadyCopied'), 'info');
+      return;
+    }
+    const finish = (fullTalk: any): void => {
+      if (!fullTalk) {
+        this.showNotification(this.t('talksCouldNotLoad'), 'error');
+        return;
+      }
+      const senders = cluster?.senders && typeof cluster.senders === 'object'
+        ? Array.from(new Set(Object.values(cluster.senders).map((s: any) => String(s?.senderId || '')).filter(Boolean)))
+        : undefined;
+      this.saveMyTalk({
+        talkId: fullTalk.id || talkId,
+        title: fullTalk.title,
+        type: fullTalk.type,
+        timestamp: new Date().toISOString(),
+        role: 'copied',
+        fullTalk,
+        ...(senders && senders.length > 0 ? { senders } : {}),
+      });
+      this.showNotification(this.t('talksCopiedToList'), 'success');
+      this.displayTalksList();
+    };
+    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
+    if (!tid && identityKeyFallback) {
+      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
+      return;
+    }
+    if (!tid) {
+      this.showNotification(this.t('talksCouldNotOpen'), 'error');
+      return;
+    }
+    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+  }
+
+  /**
+   * Talks-tab row gestures, bound once on `document.body` (survives row re-renders, same
+   * idiom as the other talks-list delegations). Card rows only (`.talk-list-item` that
+   * isn't `.talk-tag-chip` — tag pills keep their existing single-tap checkbox):
+   *   - drag up (incoming): quick-ignore the whole talk, no dialog.
+   *   - drag down (incoming): copy into my own outgoing list, unanswered.
+   *   - drag left (outgoing): delete — the swipe replacement for the old 🗑️ button.
+   *   - press-and-hold without dragging: open the same details popup the old ℹ️ button
+   *     opened (full sender identity, co-exchanged people, expiry/location) — nothing
+   *     dropped, just a different trigger, since a plain tap now opens the talk itself.
+   * A drag past the move threshold suppresses the click that would otherwise follow
+   * (`talksGestureSuppressClickUntil`), so letting go after a cancelled/undershot drag
+   * never accidentally opens the talk either.
+   */
+  private bindTalksRowGestures(): void {
+    if (this.talksRowGestureBound) return;
+    this.talksRowGestureBound = true;
+
+    const MOVE_THRESHOLD = 12;
+    const COMMIT_THRESHOLD = 64;
+    const LONG_PRESS_MS = 500;
+    const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details';
+
+    const clearHints = (row: HTMLElement): void => {
+      row.classList.remove('talk-gesture-live');
+      row.style.transform = '';
+      row.classList.remove('talk-gesture-hint-ignore', 'talk-gesture-hint-copy', 'talk-gesture-hint-delete');
+    };
+
+    document.body.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement;
+      if (!target.closest('#talks-list')) return;
+      if (target.closest(excluded)) return;
+      const row = target.closest('.talk-list-item') as HTMLElement | null;
+      if (!row || row.classList.contains('talk-tag-chip')) return;
+      const state = {
+        row,
+        talkId: row.dataset.talkId || '',
+        identityKey: row.dataset.identityKey || '',
+        role: row.dataset.role || '',
+        cluster: undefined,
+        startX: e.clientX,
+        startY: e.clientY,
+        dragging: false,
+        committedAt: 0,
+      };
+      this.talksRowGestureState = state;
+      const longPressTimer = window.setTimeout(() => {
+        if (this.talksRowGestureState !== state || state.dragging) return;
+        this.talksRowGestureState = null;
+        // Short window, just long enough to swallow the synthetic click the pointerup
+        // that follows the long-press would otherwise fire — NOT long enough to also
+        // swallow a real, separate click on something inside the popup that just opened
+        // (e.g. a test or a fast double-tap landing on the sender-name a moment later).
+        this.talksGestureSuppressClickUntil = Date.now() + 60;
+        const details = row.querySelector('.talk-item-details') as HTMLElement | null;
+        if (details) this.showDetailsPopupFor(details, row);
+      }, LONG_PRESS_MS);
+      const clearTimer = () => window.clearTimeout(longPressTimer);
+      row.addEventListener('pointerup', clearTimer, { once: true });
+      row.addEventListener('pointercancel', clearTimer, { once: true });
+    }, { passive: true });
+
+    document.body.addEventListener('pointermove', (e: PointerEvent) => {
+      const state = this.talksRowGestureState;
+      if (!state) return;
+      const dx = e.clientX - state.startX;
+      const dy = e.clientY - state.startY;
+      if (!state.dragging && Math.max(Math.abs(dx), Math.abs(dy)) < MOVE_THRESHOLD) return;
+      if (!state.dragging) state.row.classList.add('talk-gesture-live');
+      state.dragging = true;
+      if (Math.abs(dy) >= Math.abs(dx)) {
+        if (state.role === 'incoming') {
+          const clamped = Math.max(-100, Math.min(100, dy));
+          state.row.style.transform = `translateY(${clamped}px)`;
+          state.row.classList.toggle('talk-gesture-hint-ignore', dy < -MOVE_THRESHOLD);
+          state.row.classList.toggle('talk-gesture-hint-copy', dy > MOVE_THRESHOLD);
+        }
+      } else if (state.role !== 'incoming') {
+        const clamped = Math.max(-100, Math.min(0, dx));
+        state.row.style.transform = `translateX(${clamped}px)`;
+        state.row.classList.toggle('talk-gesture-hint-delete', dx < -MOVE_THRESHOLD);
+      }
+    }, { passive: true });
+
+    document.body.addEventListener('pointerup', (e: PointerEvent) => {
+      const state = this.talksRowGestureState;
+      this.talksRowGestureState = null;
+      if (!state) return;
+      if (!state.dragging) return; // plain tap or a long-press already handled by its own timer
+      clearHints(state.row);
+      // Same reasoning as the long-press timer: just long enough to swallow the click
+      // that naturally follows this same release, not a blanket window that could also
+      // eat an unrelated later click.
+      this.talksGestureSuppressClickUntil = Date.now() + 60;
+      const dx = e.clientX - state.startX;
+      const dy = e.clientY - state.startY;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      if (absDy >= absDx && absDy >= COMMIT_THRESHOLD && state.role === 'incoming') {
+        if (dy < 0) this.quickIgnoreIncomingTalk(state.talkId, state.identityKey || undefined);
+        else this.quickCopyIncomingTalk(state.talkId, state.identityKey || undefined);
+      } else if (absDx > absDy && absDx >= COMMIT_THRESHOLD && state.role !== 'incoming' && dx < 0 && state.talkId) {
+        this.deleteMyTalk(state.talkId);
+      }
+    });
+
+    document.body.addEventListener('pointercancel', () => {
+      const state = this.talksRowGestureState;
+      this.talksRowGestureState = null;
+      if (state) clearHints(state.row);
+    });
   }
 
   /**
@@ -6634,9 +6964,10 @@ export class UIManager extends EventEmitter {
     document.getElementById('talk-response-modal')?.remove();
     (document.querySelector('.nav-btn[data-view="me"]') as HTMLElement | null)?.click();
     window.setTimeout(() => {
-      const rows = document.querySelectorAll<HTMLElement>(
-        `.answer-talk-item[data-source-talk-id="${talkId}"], .answer-talk-item[data-talk-id="${talkId}"]`,
-      );
+      // Merged rows can represent more than one contributing talk (data-talk-ids is a
+      // space-separated set), so this matches any row that lists talkId among its variants,
+      // not just a row whose sole identity equals talkId.
+      const rows = document.querySelectorAll<HTMLElement>(`.answer-talk-item[data-talk-ids~="${talkId}"]`);
       const first = rows[0];
       if (!first) return;
       first.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -6801,6 +7132,7 @@ export class UIManager extends EventEmitter {
       const contextHash = talkType === 'tag' || talkType === 'survey'
         ? ''
         : String(question?.contextHashId || '').trim();
+      const questionContentId = String(question?.cidId || '').trim();
       return {
         questionId: entry.questionId,
         answerId: entry.answerId,
@@ -6811,6 +7143,7 @@ export class UIManager extends EventEmitter {
         contextLabel,
         ...(entry.mode ? { mode: entry.mode } : {}),
         ...(contextHash ? { contextHash } : {}),
+        ...(questionContentId ? { questionContentId } : {}),
       };
     });
     upsertFlatAnswerHistory({
@@ -7345,13 +7678,10 @@ export class UIManager extends EventEmitter {
         const item = row as HTMLElement;
         item.classList.toggle('talk-broadcast-disabled', !!disabled);
         item.classList.toggle('talk-broadcast-enabled', !disabled);
-        const btn = row.querySelector('.talk-broadcast-toggle-btn') as HTMLButtonElement | null;
-        if (btn) {
-          btn.dataset.broadcastEnabled = disabled ? 'false' : 'true';
-          btn.classList.toggle('talk-broadcast-toggle-off', !!disabled);
-          btn.classList.toggle('talk-broadcast-toggle-on', !disabled);
-          btn.textContent = disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn');
-        }
+        const checkbox = row.querySelector('.talk-broadcast-toggle-checkbox') as HTMLInputElement | null;
+        if (checkbox) checkbox.checked = !disabled;
+        const badge = checkbox?.closest('.talk-icon-badge') as HTMLElement | null;
+        if (badge) badge.title = disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn');
       });
     } else {
       this.displayTalksList();

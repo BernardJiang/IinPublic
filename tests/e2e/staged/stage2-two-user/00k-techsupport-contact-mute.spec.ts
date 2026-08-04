@@ -75,9 +75,9 @@ test.describe('TechSupport built-in contact controls', () => {
     await expect(supportRow.locator('.contact-item-meta')).toHaveCount(0);
 
     await supportRow.click();
-    // Rule N2a: the row click opens the support conversation on top of the User layout.
-    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await page.click('#back-from-conversation');
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+    await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('#contact-edit-relationship-btn')).toContainText('Support Notifications');
     await page.click('#contact-edit-relationship-btn');
     await expect(page.locator('#contact-relationship-modal')).toContainText('Support Notifications');

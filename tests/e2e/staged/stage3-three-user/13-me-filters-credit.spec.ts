@@ -159,9 +159,9 @@ test.describe('Me tab filters and credit visibility', () => {
     await pageTom.click('.nav-btn[data-view="contacts"]');
     await afterSync();
     await pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first().click();
-    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await pageTom.click('#back-from-conversation');
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+    await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });

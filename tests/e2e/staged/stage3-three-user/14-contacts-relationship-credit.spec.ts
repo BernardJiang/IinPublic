@@ -102,9 +102,9 @@ test.describe('Contacts relationship dialog', () => {
     const jerryContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await jerryContact.click();
-    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await pageTom.click('#back-from-conversation');
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+    await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await expect(pageTom.locator('.contact-profile-languages')).toContainText('English (shared)');
 
@@ -120,7 +120,13 @@ test.describe('Contacts relationship dialog', () => {
 
     await pageTom.click('#back-from-peer-detail');
     await afterAction();
-    const updatedContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'J (Jerry)' }).first();
+    // Nickname display is nickname-alone once set (contacts-view.ts buildDisplayName),
+    // not "nickname (stage name)" — it no longer follows the contact's stage name. Match
+    // the name element exactly so a stray "J" substring elsewhere in the row (e.g. a date)
+    // can't false-match.
+    const updatedContact = pageTom.locator('#contacts-list .contact-item').filter({
+      has: pageTom.locator('.contact-item-name', { hasText: /^J$/ }),
+    }).first();
     await expect(updatedContact).toBeVisible({ timeout: 10000 });
     await expect(updatedContact).toContainText('Coffee Circle');
     await expect(pageTom.locator('#contacts-sort-order option[value="relationship"]')).toHaveText('Relationship');
@@ -132,12 +138,14 @@ test.describe('Contacts relationship dialog', () => {
     await afterSync();
 
     // Wait for filter-triggered list refreshes before clicking the newly bound row.
-    const finalContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'J (Jerry)' }).first();
+    const finalContact = pageTom.locator('#contacts-list .contact-item').filter({
+      has: pageTom.locator('.contact-item-name', { hasText: /^J$/ }),
+    }).first();
     await expect(finalContact).toBeVisible({ timeout: 10000 });
     await finalContact.evaluate((row) => (row as HTMLElement).click());
     await afterSync();
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await pageTom.click('#back-from-conversation');
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
     await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry');
     await expect(pageTom.locator('.contact-context-relationship')).toContainText('Coffee Circle');

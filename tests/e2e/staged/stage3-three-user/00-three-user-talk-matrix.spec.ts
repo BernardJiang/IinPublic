@@ -115,15 +115,19 @@ test.describe('Three-user complete talk matrix', () => {
       await page.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(page, 'talks');
       await expect.poll(() => page.locator('#talks-list .talk-list-item').count(), { timeout: 90_000 }).toBe(36);
-      await page.locator('#talks-nav-in').click();
+      await page.locator('#talks-filter-outgoing').uncheck();
       await expect.poll(() => page.locator('#talks-list .talk-list-item').count(), { timeout: 30_000 }).toBe(24);
-      await page.locator('#talks-nav-out').click();
+      await page.locator('#talks-filter-outgoing').check();
+      await page.locator('#talks-filter-incoming').uncheck();
       await expect.poll(() => page.locator('#talks-list .talk-list-item').count(), { timeout: 30_000 }).toBe(12);
-      await page.locator('#talks-nav-all').click();
-      await openCollapsedFilters(page, 'talks-filter-toggle');
-      await page.locator('#talks-filter-type').selectOption('route');
+      await page.locator('#talks-filter-incoming').check();
+      for (const type of ['tag', 'flow', 'survey']) {
+        await page.locator(`.talks-type-checkbox[value="${type}"]`).uncheck();
+      }
       await expect.poll(() => page.locator('#talks-list .talk-list-item').count(), { timeout: 30_000 }).toBe(9);
-      await page.locator('#talks-filter-type').selectOption('all');
+      for (const type of ['tag', 'flow', 'survey']) {
+        await page.locator(`.talks-type-checkbox[value="${type}"]`).check();
+      }
 
       await page.click('.nav-btn[data-view="me"]');
       await waitForTabActive(page, 'me');

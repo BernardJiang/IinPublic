@@ -76,16 +76,17 @@ test.describe('Thread isolation across three users', () => {
     }, { otherId, otherName, talkId: TALK_ID, talkTitle: TALK_TITLE });
   }
 
-  /** Contact-row entry (N2a), then pop the auto-opened DM to sit on the User layout. */
+  /**
+   * Contact-row entry lands directly on the User layout (contacts-view.ts tap-target
+   * split) — no DM conversation step to back out of first.
+   */
   async function openUserLayoutFor(page: Page, name: string): Promise<void> {
     await page.click('.nav-btn[data-view="contacts"]');
     await afterSync();
     const row = page.locator('#contacts-list .contact-item').filter({ hasText: name }).first();
     await expect(row).toBeVisible({ timeout: 20_000 });
     await row.click();
-    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await page.click('#back-from-conversation');
-    await expect(page.locator('#peer-detail-overlay')).toBeVisible();
+    await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
   }
 
   test('same talk, three users: threads stay pair-private with per-thread badges', async () => {
@@ -106,7 +107,7 @@ test.describe('Thread isolation across three users', () => {
     await seedPairThread(bob, tomId, 'TomMulti');
     expect(tomJerryConv).not.toBe(tomBobConv);
 
-    // Jerry parks on Tom's User layout (the DM open also started the message subscription).
+    // Jerry parks on Tom's User layout.
     await openUserLayoutFor(jerry, 'TomMulti');
 
     // Tom writes into the Tom↔Jerry thread for the shared talk.

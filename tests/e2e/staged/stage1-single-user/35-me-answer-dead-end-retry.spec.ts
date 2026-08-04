@@ -80,9 +80,14 @@ test.describe('Me-tab answer dead-end retry (P)', () => {
     await afterNav();
     await afterSync();
 
+    // TODO §M3/Me-tab-merge: tapping the row opens its details popup first; "View talk"
+    // inside that popup is what calls showTalkDetail and hits the dead-end lookup.
     const answerItem = page.locator('.answer-talk-item').filter({ hasText: 'Purged Talk' }).first();
     await expect(answerItem).toBeVisible({ timeout: 15_000 });
     await answerItem.click();
+    const popup = page.locator('#item-details-popup');
+    await expect(popup).toBeVisible({ timeout: 10_000 });
+    await popup.locator('.answer-view-talk-btn').click();
 
     // First attempt fails (nothing anywhere resolves DEAD_TALK_ID) — real retry affordance,
     // not just a dead toast: the notification is marked retryable and no talk dialog opened.

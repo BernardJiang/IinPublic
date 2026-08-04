@@ -98,9 +98,9 @@ test.describe('Peer/contact layout parity', () => {
     const contactRow = tom.locator('#contacts-list .contact-item').filter({ hasText: 'JerryParity' }).first();
     await expect(contactRow).toBeVisible({ timeout: 20_000 });
     await contactRow.click();
-    await expect(tom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await tom.click('#back-from-conversation');
-    await expect(tom.locator('#peer-detail-overlay')).toBeVisible();
+    // contacts-view.ts tap-target split: the row click lands directly on the shared
+    // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.
+    await expect(tom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     const fromContact = await layoutFingerprint(tom);
 
     // Identical screen from both entry points (T5).

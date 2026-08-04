@@ -96,16 +96,18 @@ test.describe('Talks matching — tag answer retained in IN history', () => {
     await waitForStatusBarMatchCountAtMost(pageTom, 0);
     await waitForStatusBarMatchCountAtMost(pageAlice, 0);
 
-    // Tom's Answers tab: tag listed with Mismatch
+    // Tom's Answers tab: tag listed with Mismatch (unchecked)
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterSync();
-    await expect(pageTom.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({ timeout: 15000 });
-    await expect(pageTom.locator('#answers-content').getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
+    const tagRow = pageTom.locator('#answers-content .answer-talk-item').filter({ hasText: TAG_TITLE }).first();
+    await expect(tagRow).toBeVisible({ timeout: 15000 });
+    await expect(tagRow).toHaveAttribute('data-tag-state', 'unchecked');
+    await expect(tagRow.filter({ hasText: /Mismatch/i })).toHaveCount(1);
 
     // Answered incoming tags are retained in IN as read-only history.
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await pageTom.click('#talks-nav-in');
+    await pageTom.locator('#talks-filter-outgoing').uncheck();
     await afterSync();
     await expect(pageTom.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: TAG_TITLE })).toHaveCount(1);
   });
