@@ -227,9 +227,8 @@ export async function localIncomingClustersIncludeTitle(page: Page, titleSubstri
         __iinpublic_app?: { getApp: () => { getLocalIncomingClustersForE2e?: () => Promise<unknown[]> } };
       }
     ).__iinpublic_app?.getApp?.();
-    const clusters = (await app?.getLocalIncomingClustersForE2e?.()) ?? [];
-    const hay = JSON.stringify(clusters).toLowerCase();
-    return hay.includes(n);
+    const clusters = ((await app?.getLocalIncomingClustersForE2e?.()) ?? []) as Array<{ title?: string }>;
+    return clusters.some((cluster) => String(cluster?.title || '').toLowerCase().includes(n));
   }, needle);
 }
 

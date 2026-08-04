@@ -135,6 +135,14 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
   }
 
   test('ledger and message pruning fire for real, and a lagging peer still catches up via delta-sync', async () => {
+    test.skip(
+      LEDGER_CHECKPOINT_INTERVAL !== 5 ||
+        LEDGER_RETENTION_WINDOW !== 25 ||
+        MESSAGE_CHECKPOINT_INTERVAL !== 5 ||
+        MESSAGE_RETENTION_WINDOW !== 10,
+      'Requires tuned E2E checkpoint env: IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL=5, IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW=25, IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL=5, IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW=10, IINPUBLIC_E2E_ENABLE_LEDGER=1',
+    );
+
     const talkTitle = `Pruning E2E ${Date.now()}`;
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
