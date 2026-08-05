@@ -11,6 +11,15 @@ import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
+// Two real browsers, two sequential broadcast+mesh-delivery round trips, plus a P2P
+// match conversation — the global default (120s at higher worker counts,
+// playwright.config.ts E2E_TEST_TIMEOUT_MS) has been observed too tight for this under
+// real load, timing out mid-flow (the browser then closes during its own teardown,
+// surfacing as a misleading "Target page ... has been closed" on the next evaluate()
+// rather than the real timeout). Match the headroom other multi-step 2-user specs give
+// themselves.
+test.describe.configure({ timeout: 180_000 });
+
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
   let browserAlice: Browser;
   let browserTom: Browser;

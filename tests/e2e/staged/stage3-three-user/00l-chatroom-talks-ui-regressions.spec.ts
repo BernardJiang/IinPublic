@@ -30,6 +30,31 @@ async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
   }, title);
 }
 
+/**
+ * The talks list can re-render mid-interaction under real 3-user Gun traffic, replacing
+ * the checkbox DOM node right as Playwright is clicking it ("element is not stable" /
+ * "detached from the DOM, retrying" — the same class of race documented in
+ * openIncomingTalkModal, talks-matching-flow.ts). Retry with a freshly-queried locator
+ * instead of relying on a single long actionability wait.
+ */
+async function toggleCheckboxWithRetry(
+  getCheckbox: () => ReturnType<Page['locator']>,
+  action: 'check' | 'uncheck',
+  attempts = 5,
+): Promise<void> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await getCheckbox()[action]({ timeout: 5_000 });
+      return;
+    } catch (error) {
+      lastError = error;
+      await getCheckbox().page().waitForTimeout(500).catch(() => {});
+    }
+  }
+  throw lastError;
+}
+
 async function broadcastFromChatroom(page: Page, talksSent: number): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
@@ -175,12 +200,12 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await expect(copiedCheckbox()).toBeChecked();
     await expect(copiedOut.locator('.edit-talk-btn')).toHaveCount(0);
 
-    await copiedCheckbox().uncheck();
+    await toggleCheckboxWithRetry(copiedCheckbox, 'uncheck');
     await expect(copiedOut).toHaveClass(/talk-broadcast-disabled/);
     await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast Off');
     await expect(copiedCheckbox()).not.toBeChecked();
 
-    await copiedCheckbox().check();
+    await toggleCheckboxWithRetry(copiedCheckbox, 'check');
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
     await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast On');
     await expect(copiedCheckbox()).toBeChecked();

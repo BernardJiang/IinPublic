@@ -100,7 +100,10 @@ test.describe('TechSupport built-in contact controls', () => {
     await afterSync();
     const supportMember = page.locator(`.chatroom-member-item[data-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await expect(supportMember).toHaveAttribute('data-support-contact', 'true');
-    await expect(supportMember).toContainText('Built-in support contact');
+    // TechSupport's chatroom row is now a fixed, compact pinned row (chatrooms-view.ts) —
+    // same "Built-in" badge treatment the Contacts tab's own pinned row already uses,
+    // not the old full-sentence "Built-in support contact" status line.
+    await expect(supportMember).toContainText('Built-in');
     await supportMember.click();
     await expect(page.locator('#peer-block-user-btn')).toContainText('Unmute Support');
     await expect(page.locator('#peer-detail-overlay')).not.toContainText('Block User');
