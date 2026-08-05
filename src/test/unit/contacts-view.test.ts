@@ -139,6 +139,7 @@ describe('Contacts ranking and relationship filters', () => {
       isSupportNotificationsMuted: () => false,
       setSupportNotificationsMuted: jest.fn().mockResolvedValue(undefined),
       isTechSupportOnline: () => false,
+      isUserOnline: () => false,
       text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
       formatLanguage: (code: string) => languageOptionLabel('en', code, englishLanguageLabel(code)),
       getProfileLanguages: () => ['en'],

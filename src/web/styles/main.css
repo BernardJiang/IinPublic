@@ -2624,6 +2624,26 @@ button.talk-icon-btn:hover {
   background: var(--text-tertiary);
 }
 
+/* General presence dot — same online/away treatment as TechSupport's own indicator above,
+   shared by every ordinary contact row (contacts-view.ts) and chatroom member row
+   (chatrooms-view.ts) so both lists render presence identically. */
+.presence-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.presence-indicator.online {
+  background: var(--success);
+}
+
+.presence-indicator.away {
+  background: var(--text-tertiary);
+}
+
 /* K3 (docs/TODO.md): permanent app-bar badge whenever the current identity IS the TechSupport
    root — an operator must always be able to tell they are signed in as TechSupport. */
 .techsupport-root-badge {

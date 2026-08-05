@@ -36,6 +36,8 @@ type ChatroomsViewDeps = {
   formatDate: (date: Date) => string;
   /** Liveness, never headcount (K1-2, docs/TODO.md) — see ui-manager.ts `setTechSupportOnlineStatus`. */
   isTechSupportOnline: () => boolean;
+  /** Same real-presence signal as isTechSupportOnline, generalized to any member. */
+  isUserOnline: (userId: string) => boolean;
 };
 
 export function syncStatusBroadcastButtonVisibility(currentChatroom: string): void {
@@ -327,10 +329,15 @@ function renderMemberList(
         : '';
       // K1 item 3: liveness, never headcount — the member row itself is unconditional (item 1),
       // this dot is purely presence and defaults to away until a real signal says otherwise.
+      // Same real-presence signal as TechSupport's own dot, generalized to every member —
+      // same .presence-indicator treatment the Contacts tab uses (contacts-view.ts).
       const supportOnline = isSupport ? deps.isTechSupportOnline() : false;
       const onlineIndicator = isSupport
         ? `<span class="techsupport-presence-indicator ${supportOnline ? 'online' : 'away'}" data-techsupport-online="${supportOnline}" aria-label="${deps.text(supportOnline ? 'contactsSupportOnline' : 'contactsSupportAway')}"></span>`
-        : '';
+        : (() => {
+            const online = deps.isUserOnline(member.userId);
+            return `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(member.userId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
+          })();
       return `
         <div class="chatroom-member-item ${isSupport ? 'member-support' : ''} ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}"${isSupport ? ' data-support-contact="true"' : ''}${isMatched ? ' data-matched="true"' : ''}>
           <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>

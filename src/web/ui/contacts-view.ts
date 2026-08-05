@@ -50,6 +50,8 @@ export type ContactsViewDeps = {
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
   /** Liveness, never headcount (K1-2, docs/TODO.md) — see ui-manager.ts `setTechSupportOnlineStatus`. */
   isTechSupportOnline: () => boolean;
+  /** Same real-presence signal as isTechSupportOnline, generalized to any contact. */
+  isUserOnline: (userId: string) => boolean;
   text: (key: UiTranslationKey) => string;
   formatLanguage: (code: string) => string;
   getProfileLanguages: () => string[];
@@ -783,6 +785,8 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         : '';
       const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:var(--accent);font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
       const headshotHtml = avatarInnerHtml(deps.getCachedHeadshot?.(peer.peerId) ?? undefined, '?', deps.escapeHtml);
+      const online = deps.isUserOnline(peer.peerId);
+      const presenceIndicator = `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(peer.peerId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
       // Relationship is stated once — buildMetaLine's own trailing segment — not repeated
       // on the second meta line, which now only carries the sent/received counts.
       return `
@@ -790,7 +794,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
             <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
               <span class="contact-item-avatar" style="width:40px;height:40px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-size:1.2em;flex-shrink:0;overflow:hidden;">${headshotHtml}</span>
               <div style="min-width: 0;">
-                <div class="contact-item-name" style="font-weight: 700; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; display: inline-block; cursor: pointer;" title="${deps.escapeHtml(deps.text('contactsOpenDm'))}">${deps.escapeHtml(displayName)}</div>${blockedBadge}
+                <div class="contact-item-name" style="font-weight: 700; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; display: inline-block; cursor: pointer;" title="${deps.escapeHtml(deps.text('contactsOpenDm'))}">${deps.escapeHtml(displayName)}</div>${presenceIndicator}${blockedBadge}
                 <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
                 <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks}</div>
                 ${sortOrder === 'match-rate' ? matchRateChip : ''}

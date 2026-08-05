@@ -1979,6 +1979,7 @@ export class UIManager extends EventEmitter {
       isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
       setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
       isTechSupportOnline: this.isTechSupportOnline.bind(this),
+      isUserOnline: this.isUserOnline.bind(this),
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
@@ -2225,6 +2226,7 @@ export class UIManager extends EventEmitter {
       text: this.t.bind(this),
       formatDate: this.formatUiDate.bind(this),
       isTechSupportOnline: this.isTechSupportOnline.bind(this),
+      isUserOnline: this.isUserOnline.bind(this),
     };
   }
 
@@ -9977,9 +9979,38 @@ export class UIManager extends EventEmitter {
         changed = true;
       }
     }
-    if (!changed) return;
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) this.displayConversationsList();
+    if (changed) {
+      localStorage.setItem('myConversations', JSON.stringify(conversations));
+      const meTab = document.querySelector('.nav-btn[data-view="me"]');
+      if (meTab?.classList.contains('active')) this.displayConversationsList();
+    }
+
+    // Same real-presence signal, generalized beyond conversations/TechSupport to every
+    // ordinary contact row (contacts-view.ts) and chatroom member row (chatrooms-view.ts) —
+    // both lists now show the same online/away dot.
+    this.onlineUserIds = otherUserIds;
+    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
+    // getMyConversations()/deriveLocalPeers() read live localStorage, never a stale snapshot,
+    // so a full re-render here is safe (same reasoning as setTechSupportOnlineStatus above).
+    if (contactsTab?.classList.contains('active')) this.displayContactsList();
+    // The chatroom roster is NOT re-rendered from `currentChatroomMembers` here — see
+    // patchTechSupportPresenceIndicators's own comment for why. Patch presence dots in place.
+    this.patchPresenceIndicators();
+  }
+
+  private onlineUserIds = new Set<string>();
+
+  private isUserOnline(userId: string): boolean {
+    return this.onlineUserIds.has(userId);
+  }
+
+  private patchPresenceIndicators(): void {
+    const indicators = document.querySelectorAll<HTMLElement>('.presence-indicator[data-user-id]');
+    for (const el of Array.from(indicators)) {
+      const online = this.onlineUserIds.has(el.dataset.userId || '');
+      el.classList.toggle('online', online);
+      el.classList.toggle('away', !online);
+      el.setAttribute('aria-label', this.t(online ? 'presenceOnline' : 'presenceAway'));
+    }
   }
 }
