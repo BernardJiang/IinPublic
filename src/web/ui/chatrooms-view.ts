@@ -306,50 +306,63 @@ export function updateChatroomMembers(
   syncStatusBroadcastButtonVisibility(deps.currentChatroom);
 }
 
+/**
+ * TechSupport gets a fixed, compact pinned row above the sorted roster — same treatment
+ * Contacts tab already gives it (contacts-view.ts's supportRow): a single line, not the
+ * two-line avatar+status block ordinary members get, and never reordered by relationship/
+ * recency sort as the room's membership changes.
+ */
+function renderSupportMemberRow(member: ChatroomMember, deps: ChatroomsViewDeps): string {
+  const supportOnline = deps.isTechSupportOnline();
+  const presenceIndicator = `<span class="techsupport-presence-indicator ${supportOnline ? 'online' : 'away'}" data-techsupport-online="${supportOnline}" aria-label="${deps.text(supportOnline ? 'contactsSupportOnline' : 'contactsSupportAway')}"></span>`;
+  return `
+    <div class="chatroom-member-item member-support chatroom-member-support-pinned" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}" data-support-contact="true">
+      <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}<span class="chatroom-member-support-badge">${deps.text('contactsSupportPinned')}</span>${presenceIndicator}</div>
+      <div class="chatroom-member-arrow">›</div>
+    </div>
+  `;
+}
+
+function renderOrdinaryMemberRow(member: ChatroomMember, deps: ChatroomsViewDeps, statsMap?: Map<string, PeerRelationshipStats>): string {
+  const isMatched = deps.matchedUserIds.has(member.userId);
+  const stats = statsMap?.get(member.userId);
+  const statusText = buildMemberStatusText(isMatched, stats, deps);
+  const relationClass = stats
+    ? (stats.sent.talks + stats.received.talks === 0 ? 'member-stranger' : 'member-known')
+    : '';
+  // K1 item 3: liveness, never headcount — the member row itself is unconditional (item 1),
+  // this dot is purely presence and defaults to away until a real signal says otherwise.
+  // Same real-presence signal as TechSupport's own dot, generalized to every member — same
+  // .presence-indicator treatment the Contacts tab uses (contacts-view.ts).
+  const online = deps.isUserOnline(member.userId);
+  const onlineIndicator = `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(member.userId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
+  return `
+    <div class="chatroom-member-item ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}"${isMatched ? ' data-matched="true"' : ''}>
+      <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
+      <div class="chatroom-member-info">
+        <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}${onlineIndicator}</div>
+        <div class="chatroom-member-status">${statusText}</div>
+      </div>
+      <div class="chatroom-member-arrow">›</div>
+    </div>
+  `;
+}
+
 function renderMemberList(
   container: HTMLElement,
   members: ChatroomMember[],
   deps: ChatroomsViewDeps,
   statsMap?: Map<string, PeerRelationshipStats>,
 ): void {
+  const supportMember = members.find((member) => member.userId === TECHSUPPORT_ROOT_USER_ID);
+  const otherMembers = members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID);
   const sorted = statsMap
-    ? sortMembersByRelationship(members, statsMap)
-    : sortMembersByRecency(members);
+    ? sortMembersByRelationship(otherMembers, statsMap)
+    : sortMembersByRecency(otherMembers);
 
-  container.innerHTML = sorted
-    .map((member) => {
-      const isSupport = member.userId === TECHSUPPORT_ROOT_USER_ID;
-      const isMatched = deps.matchedUserIds.has(member.userId);
-      const stats = statsMap?.get(member.userId);
-      const statusText = isSupport
-        ? deps.text('contactsSupportBuiltIn')
-        : buildMemberStatusText(isMatched, stats, deps);
-      const relationClass = stats
-        ? (stats.sent.talks + stats.received.talks === 0 ? 'member-stranger' : 'member-known')
-        : '';
-      // K1 item 3: liveness, never headcount — the member row itself is unconditional (item 1),
-      // this dot is purely presence and defaults to away until a real signal says otherwise.
-      // Same real-presence signal as TechSupport's own dot, generalized to every member —
-      // same .presence-indicator treatment the Contacts tab uses (contacts-view.ts).
-      const supportOnline = isSupport ? deps.isTechSupportOnline() : false;
-      const onlineIndicator = isSupport
-        ? `<span class="techsupport-presence-indicator ${supportOnline ? 'online' : 'away'}" data-techsupport-online="${supportOnline}" aria-label="${deps.text(supportOnline ? 'contactsSupportOnline' : 'contactsSupportAway')}"></span>`
-        : (() => {
-            const online = deps.isUserOnline(member.userId);
-            return `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(member.userId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
-          })();
-      return `
-        <div class="chatroom-member-item ${isSupport ? 'member-support' : ''} ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}"${isSupport ? ' data-support-contact="true"' : ''}${isMatched ? ' data-matched="true"' : ''}>
-          <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
-          <div class="chatroom-member-info">
-            <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}${onlineIndicator}</div>
-            <div class="chatroom-member-status">${statusText}</div>
-          </div>
-          <div class="chatroom-member-arrow">›</div>
-        </div>
-      `;
-    })
-    .join('');
+  container.innerHTML =
+    (supportMember ? renderSupportMemberRow(supportMember, deps) : '')
+    + sorted.map((member) => renderOrdinaryMemberRow(member, deps, statsMap)).join('');
 
   container.querySelectorAll('.chatroom-member-item').forEach((item) => {
     item.addEventListener('click', () => {

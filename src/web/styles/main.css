@@ -1088,6 +1088,33 @@ button:focus:not(:focus-visible) {
   animation: flashMember 1s ease-out;
 }
 
+/* TechSupport's fixed, compact pinned row above the sorted roster — a single line, not the
+   two-line avatar+status block ordinary members get (same reasoning as the Contacts tab's
+   own pinned support row, contacts-view.ts). */
+.chatroom-member-support-pinned {
+  padding: 8px 12px;
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.chatroom-member-support-pinned .chatroom-member-name {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.chatroom-member-support-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 0.72em;
+  font-weight: 700;
+  margin-left: 8px;
+}
+
 @keyframes flashMember {
   0%, 100% { background: transparent; }
   25% { background: rgba(5, 150, 105, 0.4); }
