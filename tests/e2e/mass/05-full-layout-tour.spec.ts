@@ -190,7 +190,7 @@ test.describe('M5 full-layout screenshot tour', () => {
 
       // IN talk response dialog — one per type, delivered for real by the sender above.
       const incomingTitles: Record<string, string> = {
-        tag: `E2E FourTypes Tag ${runId}`,
+        tag: `Tennis ${runId}`, // makeTagTalk: title === the tag keyword, no separate question text
         flow: `E2E FourTypes Flow ${runId}`,
         survey: `E2E FourTypes Survey ${runId}`,
         route: `E2E FourTypes Route ${runId}`,

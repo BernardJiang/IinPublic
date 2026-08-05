@@ -1660,6 +1660,14 @@ button.contacts-broadcast-icon-btn {
   border-radius: var(--radius-lg);
   font-size: 0.75em;
   font-weight: 600;
+  margin-bottom: 6px;
+}
+
+/* Consecutive badges (role/status + type + language, at the top of a talk's details
+   popup — ui-manager.ts) render with no gap between them otherwise, since .talk-badge
+   itself carries no margin — they end up touching, looking like one run-on block. */
+.talk-badge + .talk-badge {
+  margin-left: 6px;
 }
 
 .talk-badge-created {
@@ -2067,8 +2075,41 @@ button.talk-icon-btn:hover {
   margin-bottom: 20px;
 }
 
+/* Headers that carry a close button (many don't — some just have a title + subtitle
+   paragraph, which must stay stacked, not pushed to the right) get title-left/×-right
+   layout by default instead of the close button silently falling to its own line below
+   the title as an unlabeled block element. */
+.modal-header:has(.close-button) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-header:has(.close-button) .modal-title {
+  margin-bottom: 0;
+}
+
 .modal-title {
   margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+/* Some call sites already inline this same styling per-instance; this shared default
+   covers the rest so an unstyled native <button>&times;</button> never renders as a
+   raw bordered box that reads as a stray/broken element instead of a close icon. */
+.close-button {
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-tertiary, #666);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.close-button:hover {
   color: var(--text-primary);
 }
 
