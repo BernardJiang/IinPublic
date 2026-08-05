@@ -614,6 +614,57 @@ describe('buildTagIdentityKeys', () => {
     const survey = { type: 'survey', questions: [] };
     expect(buildTagIdentityKeys(survey, 'qa_survey')).toEqual(['qa_survey']);
   });
+
+  // Real repro (07-tags-checkbox.spec.ts): a simple single-keyword tag talk — the editor's
+  // only tag shape (processTalkForm, ui-manager.ts) — always pairs one generic "Match."
+  // answer with one generic "Ignore." answer; the keyword lives in the question text, not
+  // the answers. Hashing the answers made every simple tag talk collide onto the same two
+  // identities, so a second tag talk (e.g. "Cat") sent to a peer who'd already answered a
+  // first one (e.g. "Coffee") was silently dropped as "already exchanged".
+  it('simple single-keyword tag talk (has an isIgnore answer): identity comes from the question text, one key', () => {
+    const coffee = {
+      type: 'tag' as const,
+      questions: [{
+        text: 'Coffee',
+        answers: [
+          { text: 'Match.', isMatch: true },
+          { text: 'Ignore.', isIgnore: true },
+        ],
+      }],
+    };
+    const cat = {
+      type: 'tag' as const,
+      questions: [{
+        text: 'Cat',
+        answers: [
+          { text: 'Match.', isMatch: true },
+          { text: 'Ignore.', isIgnore: true },
+        ],
+      }],
+    };
+    const coffeeKeys = buildTagIdentityKeys(coffee, 'qa_whole');
+    const catKeys = buildTagIdentityKeys(cat, 'qa_whole');
+    expect(coffeeKeys).toHaveLength(1);
+    expect(catKeys).toHaveLength(1);
+    expect(coffeeKeys[0]).toMatch(/^qa_tag_/);
+    expect(coffeeKeys[0]).not.toBe(catKeys[0]);
+  });
+
+  it('multi-option tag talk (no isIgnore answer) keeps per-answer identity unchanged', () => {
+    const sport = {
+      type: 'tag' as const,
+      questions: [{
+        text: 'Pick your sport',
+        answers: [
+          { text: 'Tennis', isMatch: true },
+          { text: 'Chess', isMatch: true },
+        ],
+      }],
+    };
+    const keys = buildTagIdentityKeys(sport, 'qa_whole');
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
 });
 
 // ─── UTC bucket helpers ───────────────────────────────────────────────────────

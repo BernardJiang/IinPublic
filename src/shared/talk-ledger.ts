@@ -518,8 +518,26 @@ function evictSection<T>(
 /**
  * Step 11.1 — per-identity keys for a talk.
  *
- * For a **tag** talk: returns one identityKey per tag (hash of the single tag's
- * normalized text — each tag is an independent atom per REQ-LEDGER-16).
+ * For a **tag** talk, two real shapes exist and need different identity derivation:
+ *
+ * - Simple single-keyword tag talk — the editor's only tag shape (talk-editor-dialog.ts /
+ *   processTalkForm, ui-manager.ts): one question, one `isMatch` answer paired with one
+ *   generic `isIgnore` answer (always literally "Match."/"Ignore." — the keyword lives in
+ *   the *question* text, not the answers). The talk's identity is that keyword — REQ-
+ *   LEDGER-16's own example is "tennis" itself. Hashing the answers here would make every
+ *   simple tag talk collide onto the same two generic identities ("match."/"ignore."),
+ *   silently suppressing delivery of any second tag talk to a peer who already answered a
+ *   first one (found via a real repro: creating "Coffee" then "Cat" and sending both to the
+ *   same peer — "Cat" was silently dropped as "already exchanged" once "Coffee" was
+ *   answered, because both hashed to the same two answer-text identities).
+ * - Multi-option tag talk — multiple independently-answerable tags bundled under one
+ *   question (e.g. question "Pick your sport", answers "Tennis"/"Chess", each `isMatch`
+ *   with no `isIgnore` counterpart — see 09-exchange-suppression.spec.ts). Here each answer
+ *   IS its own distinct tag atom, so per-answer identity (the original behavior) is correct.
+ *
+ * The two shapes are told apart structurally, not by literal answer text (language-
+ * independent): a simple tag talk always has an `isIgnore` answer; a multi-option one never
+ * does.
  *
  * For flow/route/survey: returns the single whole-talk identityKey passed in
  * (these have no independent atoms; the caller computes it from buildTalkIdentityKey).
@@ -530,17 +548,23 @@ function evictSection<T>(
  * Exposed here so step 11 adds only the per-tag fan-out caller with no rework.
  */
 export function buildTagIdentityKeys(
-  talkData: { type?: string; questions?: Array<{ answers?: Array<{ text?: string }> }> },
+  talkData: { type?: string; questions?: Array<{ text?: string; answers?: Array<{ text?: string; isIgnore?: boolean }> }> },
   wholeTalkIdentityKey: string,
 ): string[] {
   if (!talkData || talkData.type !== 'tag') {
     return [wholeTalkIdentityKey];
   }
 
-  // For tag talks: each answer option is a tag
-  const answers = talkData.questions?.[0]?.answers;
+  const question = talkData.questions?.[0];
+  const answers = question?.answers;
   if (!Array.isArray(answers) || answers.length === 0) {
     return [wholeTalkIdentityKey];
+  }
+
+  const hasIgnoreAnswer = answers.some((a) => a?.isIgnore);
+  if (hasIgnoreAnswer) {
+    const keyword = String(question?.text ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+    return keyword ? [`qa_tag_${fnv1a32(keyword)}`] : [wholeTalkIdentityKey];
   }
 
   return answers.map((a) => {
