@@ -567,10 +567,10 @@ export class UIManager extends EventEmitter {
       ['#reply-clear-filters', 'clear'],
       ['#settings-refresh-location-btn .app-bar-btn-label', 'refreshLocation'],
       ['#me-talk-type-filter-label', 'meTalkTypeFilters'],
-      ['.me-talk-type-filter[data-me-talk-type="tag"]', 'talkTypeTag'],
-      ['.me-talk-type-filter[data-me-talk-type="flow"]', 'talkTypeFlow'],
-      ['.me-talk-type-filter[data-me-talk-type="survey"]', 'talkTypeSurvey'],
-      ['.me-talk-type-filter[data-me-talk-type="route"]', 'talkTypeRoute'],
+      ['.me-talk-type-filter[data-me-talk-type="tag"] .me-talk-type-label', 'talkTypeTag'],
+      ['.me-talk-type-filter[data-me-talk-type="flow"] .me-talk-type-label', 'talkTypeFlow'],
+      ['.me-talk-type-filter[data-me-talk-type="survey"] .me-talk-type-label', 'talkTypeSurvey'],
+      ['.me-talk-type-filter[data-me-talk-type="route"] .me-talk-type-label', 'talkTypeRoute'],
       ['#me-tag-state-filter-label', 'meTagStateFilters'],
       ['.me-tag-state-filter[data-me-tag-state="checked"] .me-tag-state-label', 'meChecked'],
       ['.me-tag-state-filter[data-me-tag-state="unchecked"] .me-tag-state-label', 'meUnchecked'],
@@ -1256,10 +1256,22 @@ export class UIManager extends EventEmitter {
                 <button type="button" class="filter-bar-toggle" data-testid="me-filter-toggle" aria-expanded="false">Filters ▾</button>
                 <div class="filter-bar-content" style="gap:12px;">
                 <span id="me-talk-type-filter-label" style="font-size:0.82em;color:var(--text-tertiary);font-weight:700;">Talk types</span>
-                <button class="btn me-talk-type-filter active" data-me-talk-type="tag" type="button">Tag</button>
-                <button class="btn me-talk-type-filter active" data-me-talk-type="flow" type="button">Flow</button>
-                <button class="btn me-talk-type-filter active" data-me-talk-type="survey" type="button">Survey</button>
-                <button class="btn me-talk-type-filter active" data-me-talk-type="route" type="button">Route</button>
+                <label class="me-talk-type-filter" data-me-talk-type="tag" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
+                  <input type="checkbox" class="me-talk-type-checkbox" value="tag" checked>
+                  <span class="me-talk-type-label">Tag</span>
+                </label>
+                <label class="me-talk-type-filter" data-me-talk-type="flow" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
+                  <input type="checkbox" class="me-talk-type-checkbox" value="flow" checked>
+                  <span class="me-talk-type-label">Flow</span>
+                </label>
+                <label class="me-talk-type-filter" data-me-talk-type="survey" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
+                  <input type="checkbox" class="me-talk-type-checkbox" value="survey" checked>
+                  <span class="me-talk-type-label">Survey</span>
+                </label>
+                <label class="me-talk-type-filter" data-me-talk-type="route" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
+                  <input type="checkbox" class="me-talk-type-checkbox" value="route" checked>
+                  <span class="me-talk-type-label">Route</span>
+                </label>
                 <span id="me-tag-state-filter-label" style="font-size:0.82em;color:var(--text-tertiary);font-weight:700;margin-left:6px;">Tag states</span>
                 <label class="me-tag-state-filter" data-me-tag-state="checked" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
                   <input type="checkbox" class="me-tag-state-checkbox" value="checked" checked>
@@ -1523,11 +1535,8 @@ export class UIManager extends EventEmitter {
         this.emit('requestLocationUpdate', {});
       });
     }
-    document.querySelectorAll('.me-talk-type-filter').forEach((button) => {
-      button.addEventListener('click', () => {
-        button.classList.toggle('active');
-        this.applyMeAnswerFilter();
-      });
+    document.querySelectorAll('.me-talk-type-checkbox').forEach((checkbox) => {
+      checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
     });
     document.querySelectorAll('.me-tag-state-checkbox').forEach((checkbox) => {
       checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
@@ -1537,7 +1546,7 @@ export class UIManager extends EventEmitter {
     });
     document.getElementById('me-answer-filter')?.addEventListener('input', () => this.applyMeAnswerFilter());
     document.getElementById('me-clear-filters')?.addEventListener('click', () => {
-      document.querySelectorAll('.me-talk-type-filter').forEach((button) => button.classList.add('active'));
+      document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox').forEach((checkbox) => { checkbox.checked = true; });
       document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox').forEach((checkbox) => { checkbox.checked = true; });
       const outcome = document.getElementById('me-outcome-filter') as HTMLSelectElement | null;
       const sort = document.getElementById('me-answer-sort') as HTMLSelectElement | null;
@@ -3456,8 +3465,8 @@ export class UIManager extends EventEmitter {
   }
 
   private applyMeAnswerFilter(): void {
-    const activeTypes = Array.from(document.querySelectorAll<HTMLElement>('.me-talk-type-filter.active'))
-      .map((button) => String(button.dataset.meTalkType || '').toLowerCase())
+    const activeTypes = Array.from(document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox:checked'))
+      .map((checkbox) => checkbox.value.toLowerCase())
       .filter(Boolean);
     const allowedTagStates = Array.from(document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox:checked'))
       .map((checkbox) => checkbox.value);

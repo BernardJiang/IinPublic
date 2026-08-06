@@ -125,16 +125,16 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
     await openCollapsedFilters(page!, 'me-filter-toggle');
     const p = page!;
 
-    // 4 talk-type toggles: each starts active; clicking toggles the active class.
+    // 4 talk-type checkboxes: each starts checked; clicking toggles it off/on.
     for (const type of TYPES) {
-      const btn = p.locator(`.me-talk-type-filter[data-me-talk-type="${type}"]`);
-      await expect(btn).toHaveClass(/active/);
-      await btn.click();
+      const cb = p.locator(`.me-talk-type-filter[data-me-talk-type="${type}"] input`);
+      await expect(cb).toBeChecked();
+      await cb.uncheck();
       await afterSync();
-      await expect(btn).not.toHaveClass(/active/);
-      await btn.click(); // restore
+      await expect(cb).not.toBeChecked();
+      await cb.check(); // restore
       await afterSync();
-      await expect(btn).toHaveClass(/active/);
+      await expect(cb).toBeChecked();
     }
 
     // 3 tag-state checkboxes toggle.
@@ -170,11 +170,11 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
     await expect(p.locator('#me-answer-filter')).toHaveValue('yes');
 
     // Deactivate a type, then Clear resets everything to defaults.
-    await p.locator('.me-talk-type-filter[data-me-talk-type="tag"]').click();
+    await p.locator('.me-talk-type-filter[data-me-talk-type="tag"] input').click();
     await afterSync();
     await p.locator('#me-clear-filters').click();
     await afterSync();
-    await expect(p.locator('.me-talk-type-filter[data-me-talk-type="tag"]')).toHaveClass(/active/);
+    await expect(p.locator('.me-talk-type-filter[data-me-talk-type="tag"] input')).toBeChecked();
     await expect(p.locator('#me-outcome-filter')).toHaveValue('all');
     await expect(p.locator('#me-answer-filter')).toHaveValue('');
   });
