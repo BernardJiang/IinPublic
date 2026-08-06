@@ -11,6 +11,7 @@ import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { afterLoad, afterSync, afterNav } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe.configure({ timeout: 150_000 });
 
@@ -47,6 +48,7 @@ test.describe('Thread isolation across three users', () => {
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();
     await afterNav();

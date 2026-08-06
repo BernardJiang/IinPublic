@@ -15,6 +15,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Option matrices — talks/me filters, announcement, talk editor, settings (merged)', () => {
   let context: BrowserContext | undefined;
@@ -268,8 +269,10 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
   test('stage-name, distance, language, and type guards', async () => {
     await page!.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
-    await page!.waitForSelector('#settings-stage-name-input');
     const p = page!;
+
+    await openSettingsSection(p, SETTINGS_SECTION.profile);
+    await p.waitForSelector('#settings-stage-name-input');
 
     // Set a valid stage name first.
     await p.fill('#settings-stage-name-input', 'ValidName');
@@ -282,8 +285,10 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
     await afterSync();
     await expect(p.locator('#settings-stage-name-error')).toBeVisible();
     await expect(p.locator('#settings-stage-name-input')).toHaveValue('ValidName');
+    await backToSettingsMenu(p);
 
     // Guard: min distance > max distance → rejected (revert).
+    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
     await p.fill('#settings-min-distance', '10');
     await p.locator('#settings-min-distance').dispatchEvent('change');
     await afterSync();
@@ -295,8 +300,10 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
     await afterSync();
     // Min should not have persisted above max (reverted to prior valid 10).
     await expect(p.locator('#settings-min-distance')).not.toHaveValue('999');
+    await backToSettingsMenu(p);
 
     // Fallback: uncheck every allowed language → persisted as ['en'].
+    await openSettingsSection(p, SETTINGS_SECTION.languages);
     const langOptions = p.locator('.settings-filter-language-option');
     const n = await langOptions.count();
     for (let i = 0; i < n; i++) {
@@ -311,8 +318,10 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
       JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').allowedLanguages,
     );
     expect(langs).toEqual(['en']);
+    await backToSettingsMenu(p);
 
     // Fallback: uncheck every allowed talk type → persisted as all four.
+    await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
     const typeOptions = p.locator('.settings-talk-filter-type');
     const tn = await typeOptions.count();
     for (let i = 0; i < tn; i++) {

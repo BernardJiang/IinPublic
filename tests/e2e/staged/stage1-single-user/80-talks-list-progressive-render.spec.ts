@@ -17,6 +17,7 @@ import { afterLoad, afterNav, afterAction } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const TALK_COUNT = 40;
 
@@ -86,6 +87,7 @@ test.describe('Talks tab: progressive render for long lists (R2)', () => {
     attachE2eBrowserTabLabel(page, 'ProgressiveTalks');
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', 'ProgressiveTalks');
     await page.locator('#settings-stage-name-input').blur();
     await afterNav();

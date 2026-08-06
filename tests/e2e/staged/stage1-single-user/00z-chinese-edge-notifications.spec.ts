@@ -14,10 +14,12 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, afterCreateTalkBeforeBroadcast } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function switchUiLanguage(page: Page, code: 'zh' | 'en'): Promise<void> {
   await page.locator('.nav-btn[data-view="settings"]').click();
   await afterNav();
+  await openSettingsSection(page, SETTINGS_SECTION.languages);
   await page.locator('#settings-ui-language').selectOption(code);
   await afterSync();
 }

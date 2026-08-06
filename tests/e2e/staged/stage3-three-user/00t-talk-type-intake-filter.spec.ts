@@ -17,6 +17,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function broadcastFromCurrentRoom(page: Page, minSent = 1): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
@@ -86,6 +87,7 @@ test.describe('Incoming talk type intake filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.contentFilters);
     for (const type of ['survey', 'tag', 'route'] as const) {
       await pageJerry.locator(`.settings-talk-filter-type[value="${type}"]`).uncheck();
     }

@@ -20,6 +20,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function createLanguageTalk(page: Page, title: string, language: string): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
@@ -120,6 +121,7 @@ test.describe('Incoming talk language intake filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.languages);
     await pageJerry.locator('.settings-filter-language-option[value="zh"]').check();
     await expect(pageJerry.locator('.settings-filter-language-option[value="en"]')).toBeChecked();
     await expect(pageJerry.locator('.settings-filter-language-option[value="zh"]')).toBeChecked();
@@ -129,6 +131,7 @@ test.describe('Incoming talk language intake filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.languages);
     await pageJerry.locator('.settings-filter-language-option[value="es"]').check();
     await expect(pageJerry.locator('#settings-filter-languages-count')).toContainText('3 active');
     await expect

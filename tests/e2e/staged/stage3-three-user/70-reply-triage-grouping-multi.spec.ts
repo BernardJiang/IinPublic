@@ -17,6 +17,7 @@ import { afterAction, afterLoad, afterSync } from '../../helpers/timing';
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import { buildMatrixTalks, type MatrixResponder } from '../../helpers/creator-reply-matrix';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const SIZE = 3;
 const RESPONDERS: MatrixResponder[] = Array.from({ length: SIZE }, (_, i) => ({
@@ -54,6 +55,8 @@ test.describe.skip('Reply triage grouping across 3 responders', () => {
     attachE2eBrowserTabLabel(page, 'GroupMulti');
 
     await page.click('.nav-btn[data-view="settings"]');
+    await afterAction();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', 'GM Creator');
     await page.locator('#settings-stage-name-input').blur();
     await afterSync();

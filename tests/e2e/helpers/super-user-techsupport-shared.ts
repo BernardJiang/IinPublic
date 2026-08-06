@@ -13,6 +13,7 @@ import {
   expectCurrentUserIsOrdinaryUser,
   expectCurrentUserIsTechSupportRoot,
 } from './techsupport-contract';
+import { openSettingsSection } from './settings-nav';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
 export const TOM_NAME = 'Tom';
@@ -77,6 +78,7 @@ export async function bootstrapSuperUser(
   if (stageName !== TECHSUPPORT_STAGE_NAME) {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, 'settings-section-profile');
     await page.waitForSelector(
       '#settings-stage-name-input',
       appReadyTimeoutMs ? { timeout: appReadyTimeoutMs } : undefined,

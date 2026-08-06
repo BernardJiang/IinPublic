@@ -39,6 +39,7 @@ import {
   openIncomingTalkModal,
 } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 // ─── Test data (not app logic) ──────────────────────────────────────────────────
 
@@ -241,6 +242,7 @@ test.describe('Find similar people', () => {
       setups.map(async ({ page }) => {
         await page.click('.nav-btn[data-view="settings"]');
         await afterNav();
+        await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
         const chatbotToggle = page.locator('#settings-chatbot-enabled');
         await chatbotToggle.uncheck();
         await afterAction();

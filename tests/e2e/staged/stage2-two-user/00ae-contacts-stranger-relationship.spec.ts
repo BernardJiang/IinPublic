@@ -26,6 +26,7 @@ import { afterLoad, afterSync, afterNav, afterAction } from '../../helpers/timin
 import { completeTalkInAppByAnswerIds, createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -70,6 +71,7 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();
     await afterNav();

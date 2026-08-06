@@ -19,6 +19,7 @@ import { injectIdbClear, gotoWebApp } from '../helpers/clear-database';
 import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, afterLoad } from '../helpers/timing';
 import { webBaseURL } from '../helpers/ports';
+import { openSettingsSection, SETTINGS_SECTION } from '../helpers/settings-nav';
 
 const VIEWS = ['chatrooms', 'contacts', 'talks', 'me', 'settings'];
 
@@ -88,6 +89,7 @@ test.describe('@smoke platform smoke set', () => {
     // Settings persistence across reload: toggle the grammar filter, reload, verify.
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
     await p.waitForSelector('#settings-grammar-filter');
     const grammar = p.locator('#settings-grammar-filter');
     const was = await grammar.isChecked();
@@ -98,6 +100,7 @@ test.describe('@smoke platform smoke set', () => {
     await afterLoad();
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
     await p.waitForSelector('#settings-grammar-filter');
     await expect(p.locator('#settings-grammar-filter')).toBeChecked({ checked: !was });
   });

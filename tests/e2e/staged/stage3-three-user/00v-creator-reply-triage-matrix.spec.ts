@@ -14,6 +14,7 @@ import {
   type MatrixResponder,
 } from '../../helpers/creator-reply-matrix';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 /** D5 high-volume browser proof: 10 talks × 10 responders = 100 replies. */
 const MATRIX_SIZE = 10;
@@ -54,6 +55,8 @@ test.describe.skip('Creator reply triage at scale', () => {
     attachE2eBrowserTabLabel(page, 'Matrix');
 
     await page.click('.nav-btn[data-view="settings"]');
+    await afterAction();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', 'Tom Matrix Creator');
     await page.locator('#settings-stage-name-input').blur();
     await afterSync();

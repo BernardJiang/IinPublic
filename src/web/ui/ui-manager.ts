@@ -370,6 +370,8 @@ export class UIManager extends EventEmitter {
   /** TODO §R2: lets a newer `displayTalksList()` call's deferred remainder win over a stale one. */
   private talksRenderSeq = 0;
   private chatroomActionDelegationBound = false;
+  /** Settings drill-down: id of the section currently shown in detail view, or null for the menu list. */
+  private settingsActiveSectionId: string | null = null;
   private incomingTalkClusters: any[] = [];
   private customChatrooms: CustomChatroomRow[] = [];
   private travelModeActive: boolean = false;
@@ -586,7 +588,7 @@ export class UIManager extends EventEmitter {
       const label = btn?.querySelector<HTMLElement>('.app-bar-btn-label');
       if (btn && label && id !== 'return-home-btn') btn.title = label.textContent || '';
     }
-    for (const id of ['back-to-chatrooms', 'back-to-contacts-list']) {
+    for (const id of ['back-to-chatrooms', 'back-to-contacts-list', 'back-to-settings-menu']) {
       const btn = document.getElementById(id);
       if (btn) btn.title = this.t('back');
     }
@@ -919,6 +921,7 @@ export class UIManager extends EventEmitter {
           <div class="app-bar-left" id="app-bar-left">
             <button class="app-bar-back-btn" id="back-to-chatrooms" data-testid="back-to-chatrooms" data-appbar-view="chatrooms" title="Back" style="display:none;">‹</button>
             <button class="app-bar-back-btn" id="back-to-contacts-list" data-testid="back-to-contacts-list" data-appbar-view="contacts" title="Back" style="display:none;">‹</button>
+            <button class="app-bar-back-btn" id="back-to-settings-menu" data-testid="back-to-settings-menu" data-appbar-view="settings" title="Back" style="display:none;">‹</button>
           </div>
           <div class="app-bar-center" id="app-bar-center">
             <div class="header-title" id="header-title"></div>
@@ -1571,6 +1574,15 @@ export class UIManager extends EventEmitter {
       });
     }
 
+    // Back to settings menu button
+    const backToSettingsMenuBtn = document.getElementById('back-to-settings-menu');
+    if (backToSettingsMenuBtn) {
+      backToSettingsMenuBtn.addEventListener('click', () => {
+        this.settingsActiveSectionId = null;
+        this.applySettingsSectionView(null);
+      });
+    }
+
     const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
     if (broadcastTalkBtn) {
       broadcastTalkBtn.addEventListener('click', () => this.handleBroadcastTalkFromCurrentRoom());
@@ -1824,6 +1836,7 @@ export class UIManager extends EventEmitter {
         }
 
         if (targetView === 'settings') {
+          this.settingsActiveSectionId = null;
           if (this.currentUser) this.renderSettingsView(this.currentUser);
         }
       });
@@ -3539,17 +3552,21 @@ export class UIManager extends EventEmitter {
     opts: { id?: string; title: string; subtitle?: string; action?: string; danger?: boolean },
     bodyHtml: string,
   ): string {
+    // A plain header, not a collapsible <details>/<summary>: now that the drill-down (see
+    // applySettingsSectionView) shows exactly one section at a time, a second, independent
+    // collapse control on top of that would be redundant and just a way to accidentally hide
+    // the only content on the page.
     return `
-      <details class="settings-section" ${opts.id ? `id="${opts.id}"` : ''} style="background:#fff;border:1px solid ${opts.danger ? 'var(--danger-border)' : 'var(--border)'};border-radius:8px;" open>
-        <summary class="settings-section-summary" style="cursor:pointer;padding:16px;">
+      <div class="settings-section" ${opts.id ? `id="${opts.id}"` : ''} style="background:#fff;border:1px solid ${opts.danger ? 'var(--danger-border)' : 'var(--border)'};border-radius:8px;">
+        <div class="settings-section-summary" style="padding:16px;">
           <div style="font-weight:700;color:${opts.danger ? 'var(--danger-hover)' : 'var(--text-primary)'};display:inline;">${opts.title}</div>
           ${opts.subtitle ? `<div style="font-size:0.82em;color:var(--text-tertiary);margin-top:2px;">${opts.subtitle}</div>` : ''}
-        </summary>
+        </div>
         <div class="settings-section-body" style="padding:0 16px 16px 16px;">
           ${opts.action ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">${opts.action}</div>` : ''}
           ${bodyHtml}
         </div>
-      </details>
+      </div>
     `;
   }
 
@@ -3651,12 +3668,12 @@ export class UIManager extends EventEmitter {
       label: languageOptionLabel(uiLanguage, language.code, language.label),
     }));
     const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
-    // TODO §M-settings-menu: one-layer jump menu — a flat list of section names at the top;
-    // tapping one scrolls to (and briefly highlights) that section. Every section stays
-    // rendered and open exactly as before (no visibility change), so this is purely additive:
-    // it doesn't touch the 60+ e2e specs that reach a settings control directly with no
-    // navigation step. A true drill-down (menu-first, one section visible at a time) is a
-    // separate, much bigger follow-up — see docs/TODO.md.
+    // Drill-down menu: a flat list of section names is the default view; tapping one hides the
+    // menu and every OTHER section, leaving just the tapped section + a back button (app-bar
+    // #back-to-settings-menu) — same list-then-detail pattern as Chatrooms/Contacts. Sections
+    // themselves are still rendered up front (renderSettingsSection's <details open> markup is
+    // unchanged) — applySettingsSectionView() below only toggles which one is display:none, it
+    // never removes/re-adds DOM, so ids stay stable across a section switch.
     const jumpMenuItems: Array<{ icon: string; label: string; target: string }> = [
       { icon: '👤', label: this.t('profile'), target: 'settings-section-profile' },
       { icon: '⭐', label: this.t('credit'), target: 'settings-section-credit' },
@@ -3680,8 +3697,11 @@ export class UIManager extends EventEmitter {
       </div>
     `;
     container.innerHTML = `
-      <div style="display:grid;gap:14px;">
+      <div id="settings-menu-container" data-testid="settings-menu-container" style="display:grid;gap:14px;">
         ${jumpMenuHtml}
+      </div>
+      <div id="settings-detail-container" data-testid="settings-detail-container" style="display:none;">
+        <div style="display:grid;gap:14px;">
         ${this.renderSettingsSection({ id: 'settings-section-profile', title: this.t('profile') }, `
           <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;">
             <div style="display:grid;gap:8px;min-width:0;">
@@ -3917,12 +3937,50 @@ export class UIManager extends EventEmitter {
           },
           `<div id="settings-storage-inspector-body" style="font-size:0.9em;color:var(--text-tertiary);">${this.t('settingsStorageLoading')}</div>`,
         )}
-        ${user.id === TECHSUPPORT_ROOT_USER_ID ? '<div id="support-inbox-section"></div>' : ''}
+        </div>
       </div>
     `;
+    // TechSupport's support-inbox is an operator inbox, not a settings section — it stays
+    // permanently visible above the menu/detail split rather than gated behind a menu tap.
+    if (user.id === TECHSUPPORT_ROOT_USER_ID) {
+      container.insertAdjacentHTML('afterbegin', '<div id="support-inbox-section" style="margin-bottom:14px;"></div>');
+    }
     this.bindSettingsControls();
     void this.refreshStorageInspector();
     this.renderSupportInboxSectionIfPresent();
+    this.applySettingsSectionView(this.settingsActiveSectionId);
+  }
+
+  /**
+   * Settings drill-down: shows either the menu list (sectionId === null) or exactly one
+   * section's detail view (every other `.settings-section` display:none, back button visible).
+   * Never touches DOM node identity — safe to call after any renderSettingsView() re-render to
+   * restore whichever page the user was on (e.g. a language change re-renders the whole view).
+   */
+  private applySettingsSectionView(sectionId: string | null): void {
+    const menu = document.getElementById('settings-menu-container');
+    const detail = document.getElementById('settings-detail-container');
+    const backBtn = document.getElementById('back-to-settings-menu') as HTMLElement | null;
+    const sections = document.querySelectorAll<HTMLElement>('#settings-detail-container .settings-section');
+    const target = sectionId ? document.getElementById(sectionId) : null;
+    if (sectionId && !target) {
+      // The remembered section no longer exists in this render (shouldn't happen — the same 9
+      // ids are always rendered — but fall back to the menu rather than show a blank detail).
+      this.settingsActiveSectionId = null;
+      this.applySettingsSectionView(null);
+      return;
+    }
+    if (target) {
+      sections.forEach((section) => { section.style.display = section === target ? '' : 'none'; });
+      if (menu) menu.style.display = 'none';
+      if (detail) detail.style.display = 'block';
+      if (backBtn) backBtn.style.display = 'inline-flex';
+    } else {
+      sections.forEach((section) => { section.style.display = ''; });
+      if (menu) menu.style.display = '';
+      if (detail) detail.style.display = 'none';
+      if (backBtn) backBtn.style.display = 'none';
+    }
   }
 
   /**
@@ -4157,14 +4215,9 @@ export class UIManager extends EventEmitter {
     document.getElementById('settings-jump-menu')?.addEventListener('click', (event) => {
       const target = (event.target as HTMLElement).closest('.settings-jump-menu-item') as HTMLElement | null;
       const sectionId = target?.dataset.target;
-      const section = sectionId ? document.getElementById(sectionId) : null;
-      if (!section) return;
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      // details elements aren't styled directly, so the flash targets the summary — the
-      // part of the section actually visible at the top of the scrolled-to viewport.
-      const flashEl = (section.querySelector('summary') as HTMLElement | null) ?? section;
-      flashEl.classList.add('settings-jump-menu-flash');
-      window.setTimeout(() => flashEl.classList.remove('settings-jump-menu-flash'), 900);
+      if (!sectionId) return;
+      this.settingsActiveSectionId = sectionId;
+      this.applySettingsSectionView(sectionId);
     });
 
     const selectedValues = (id: string): string[] => {

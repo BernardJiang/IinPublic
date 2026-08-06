@@ -17,6 +17,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 const RECEIVER_LOCATION = { latitude: 32.7157, longitude: -117.1611 };
 
 async function setSenderLocation(page: Page, latitude: number): Promise<void> {
@@ -112,6 +113,7 @@ test.describe('Incoming talk distance intake filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
     await pageJerry.locator('#settings-min-distance').fill('1');
     await pageJerry.locator('#settings-min-distance').press('Tab');
     await pageJerry.locator('#settings-max-distance').fill('3');
@@ -135,12 +137,14 @@ test.describe('Incoming talk distance intake filtering', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
     await expect(pageJerry.locator('#settings-min-distance')).toHaveValue('1');
     await expect(pageJerry.locator('#settings-max-distance')).toHaveValue('3');
     await afterAction();
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
     await pageJerry.locator('#settings-min-distance').fill('0');
     await pageJerry.locator('#settings-min-distance').press('Tab');
     await pageJerry.locator('#settings-max-distance').fill('0');

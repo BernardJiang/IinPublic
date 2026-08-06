@@ -16,6 +16,7 @@ import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Profile privacy visibility', () => {
   let browser: Browser;
@@ -61,6 +62,7 @@ test.describe('Profile privacy visibility', () => {
 
     await nextPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(nextPage, SETTINGS_SECTION.profile);
     await nextPage.waitForSelector('#settings-stage-name-input');
     await nextPage.fill('#settings-stage-name-input', stageName);
     await nextPage.locator('#settings-stage-name-input').blur();

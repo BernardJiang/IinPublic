@@ -20,6 +20,7 @@ import { WEBRTC_CHROMIUM_ARGS } from './webrtc-chromium';
 import { headless, afterLoad, afterNav, E2E_ASSERT_TIMEOUT_MS } from './timing';
 import { pinStableE2eLocation } from './talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
+import { openSettingsSection } from './settings-nav';
 
 /**
  * Launch a regular chromium `Browser` (so `browser.process()` is a real ChildProcess we can
@@ -71,6 +72,7 @@ export async function bootstrapOnPage(page: Page, stageName: string): Promise<st
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
+  await openSettingsSection(page, 'settings-section-profile');
   await page.waitForSelector('#settings-stage-name-input', { timeout: E2E_ASSERT_TIMEOUT_MS });
   await page.fill('#settings-stage-name-input', stageName);
   await page.locator('#settings-stage-name-input').blur();

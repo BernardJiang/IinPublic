@@ -11,6 +11,7 @@ import { headless, afterAction, afterNav, reloadAppReady } from '../../helpers/t
 import { setupFastMatchedDm, teardownFastDmPair, FastDmPair } from '../../helpers/fast-dm-setup';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Contact headshots (M6)', () => {
   let browserA: Browser;
@@ -59,6 +60,7 @@ test.describe('Contact headshots (M6)', () => {
     await afterNav();
     await pageB.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(pageB, SETTINGS_SECTION.profile);
     await pageB.selectOption('#settings-headshot-select', '😎');
     await pageB.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();

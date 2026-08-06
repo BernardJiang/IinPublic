@@ -17,6 +17,7 @@ import {
   resetTalksMatchingSession,
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 /** Unique title so .talk-list-item[data-role="created"] is not confused with other rows / stale Gun data. */
 const CHATBOT_TALK_TITLE = 'E2E Chatbot Tennis';
@@ -205,6 +206,7 @@ test.describe('Talks matching — chatbot + bot badge', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.talkBehavior);
     const chatbotCheckbox = pageJerry.locator('#settings-chatbot-enabled');
     if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
     await pageJerry.click('.nav-btn[data-view="talks"]');

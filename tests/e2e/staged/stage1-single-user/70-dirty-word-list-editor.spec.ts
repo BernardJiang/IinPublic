@@ -17,6 +17,7 @@ import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const DEFAULTS = ['fuck', 'cunt', 'bitch', 'cock'];
 
@@ -50,11 +51,14 @@ test.describe('Settings: dirty-word list editor', () => {
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();
     await afterNav();
     attachE2eBrowserTabLabel(page, stageName);
+    await backToSettingsMenu(page);
+    await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
     await page.waitForSelector('#dirty-word-chips', { timeout: 10000 });
     await afterLoad();
   }
@@ -109,6 +113,7 @@ test.describe('Settings: dirty-word list editor', () => {
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
     await page.waitForSelector('#dirty-word-chips', { timeout: 10000 });
     await afterLoad();
 

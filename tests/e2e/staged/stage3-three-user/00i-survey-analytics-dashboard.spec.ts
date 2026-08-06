@@ -16,6 +16,7 @@ import {
 import { answerSurveyByAnswerIds, emitCreateTalkFromCompanyPage, waitForOutgoingTalkRow } from '../../helpers/talk-demo-ui';
 import { makeRestaurantSurvey } from '../../talks-matching/lib/survey-restaurants';
 import { gunBaseURL } from '../../helpers/ports';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Survey analytics dashboard', () => {
   let browsers: ThreeBrowsers;
@@ -147,6 +148,7 @@ test.describe('Survey analytics dashboard', () => {
     await pageTom.click('#cancel-talk-btn');
     await pageTom.click('.nav-btn[data-view="settings"]');
     await waitForTabActive(pageTom, 'settings');
+    await openSettingsSection(pageTom, SETTINGS_SECTION.languages);
     await pageTom.locator('#settings-ui-language').selectOption('zh');
     await expect(pageTom.locator('.nav-btn[data-view="talks"] .nav-label')).toHaveText('话题');
     await pageTom.click('.nav-btn[data-view="talks"]');

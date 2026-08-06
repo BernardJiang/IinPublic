@@ -21,6 +21,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
   return page.evaluate((needle) => {
@@ -229,6 +230,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.talkBehavior);
     await pageJerry.locator('#settings-copy-talk-autosave').uncheck();
     await expect.poll(() => pageJerry!.evaluate(() => localStorage.getItem('copyTalkAutoSave'))).toBe('false');
 
@@ -251,6 +253,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.talkBehavior);
     await pageJerry.locator('#settings-copy-talk-autosave').check();
     await expect.poll(() => pageJerry!.evaluate(() => localStorage.getItem('copyTalkAutoSave'))).toBe('true');
 

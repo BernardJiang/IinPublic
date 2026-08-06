@@ -54,6 +54,7 @@ import {
 } from '../helpers/broadcast-cancellation-helpers';
 import { clickBroadcastUntilBulkAck, waitForDistinctGunPeersExcludingSelf } from '../helpers/talk-demo-ui';
 import { prepareDirectP2PConversation, waitForDirectP2PChannel } from '../helpers/p2p-transport-e2e';
+import { openSettingsSection, SETTINGS_SECTION } from '../helpers/settings-nav';
 
 const MATCH_ANSWER = 'Yes match';
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -119,6 +120,7 @@ async function bootstrapUserOnOrigin(
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
+  await openSettingsSection(page, SETTINGS_SECTION.profile);
   await page.waitForSelector('#settings-stage-name-input');
   await page.fill('#settings-stage-name-input', stageName);
   await page.locator('#settings-stage-name-input').blur();

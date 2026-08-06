@@ -23,6 +23,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('TechSupport is unblockable by every available route (docs/TODO.md K6)', () => {
   let browser: Browser;
@@ -55,6 +56,7 @@ test.describe('TechSupport is unblockable by every available route (docs/TODO.md
     attachE2eBrowserTabLabel(page, 'User1');
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', 'RouteTester');
     await page.locator('#settings-stage-name-input').blur();
     await afterNav();

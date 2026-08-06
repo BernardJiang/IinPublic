@@ -10,6 +10,7 @@ import { openIncomingTalkModal, waitForResponseModalClosed, getIncomingClusterTi
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 // Two real browsers, two sequential broadcast+mesh-delivery round trips, plus a P2P
 // match conversation — the global default (120s at higher worker counts,
@@ -94,6 +95,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();

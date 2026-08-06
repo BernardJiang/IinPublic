@@ -13,6 +13,7 @@ import { afterLoad, afterNav, afterSync, afterAction } from '../../helpers/timin
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Settings: language selections persist across reload', () => {
   let browser: Browser;
@@ -44,6 +45,7 @@ test.describe('Settings: language selections persist across reload', () => {
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();
@@ -57,6 +59,7 @@ test.describe('Settings: language selections persist across reload', () => {
     // Navigate to settings
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.languages);
 
     const uiLanguageSelect = page.locator('#settings-ui-language');
     const profileLanguageSelect = page.locator('#settings-profile-languages');
@@ -86,6 +89,7 @@ test.describe('Settings: language selections persist across reload', () => {
     // Wait for settings content to render
     await page.waitForSelector('#settings-content > *', { timeout: 10000 });
     await afterLoad();
+    await openSettingsSection(page, SETTINGS_SECTION.languages);
 
     // Re-query selectors after reload
     const uiLanguageSelectAfterReload = page.locator('#settings-ui-language');
@@ -118,6 +122,7 @@ test.describe('Settings: language selections persist across reload', () => {
     // Wait for settings content to render
     await page.waitForSelector('#settings-content > *', { timeout: 10000 });
     await afterLoad();
+    await openSettingsSection(page, SETTINGS_SECTION.languages);
 
     // Re-query selectors after second reload
     const uiLanguageSelectFinal = page.locator('#settings-ui-language');

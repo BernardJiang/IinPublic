@@ -7,6 +7,7 @@ import { gotoWebApp, injectIdbClear } from '../../helpers/clear-database';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { afterLoad, afterNav, E2E_ASSERT_TIMEOUT_MS, waitForAppReady } from '../../helpers/timing';
 import { expectTechSupportGreetingReceived, pinStableE2eLocation } from '../../helpers/talks-matching-flow';
+import { openSettingsSection } from '../../helpers/settings-nav';
 
 export type NativeUser = {
   app: ElectronApplication;
@@ -110,6 +111,14 @@ export async function bootstrapNativeWindow(
     document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.click();
   });
   await afterNav();
+  // Settings is a drill-down (menu list first); the profile section's controls (including
+  // #settings-stage-name-input below) only render visible once its menu item is opened.
+  await page.evaluate(() => {
+    document
+      .querySelector<HTMLElement>('.settings-jump-menu-item[data-target="settings-section-profile"]')
+      ?.click();
+  });
+  await afterNav();
   if (!(await page.locator('#settings-stage-name-input').isVisible().catch(() => false))) {
     await page.evaluate(() => {
       const app = (window as any).__iinpublic_app?.getApp?.();
@@ -125,6 +134,9 @@ export async function bootstrapNativeWindow(
         headerActions.style.visibility = 'hidden';
       }
       app?.uiManager?.renderSettingsView?.(app.currentUser);
+      document
+        .querySelector<HTMLElement>('.settings-jump-menu-item[data-target="settings-section-profile"]')
+        ?.click();
     }).catch(() => {});
   }
   await page.waitForSelector('#settings-stage-name-input', { timeout: E2E_ASSERT_TIMEOUT_MS });
@@ -171,6 +183,7 @@ export async function bootstrapBrowserUserOnOrigin(
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
+  await openSettingsSection(page, 'settings-section-profile');
   await page.waitForSelector('#settings-stage-name-input', { timeout: E2E_ASSERT_TIMEOUT_MS });
   await page.fill('#settings-stage-name-input', stageName);
   await page.locator('#settings-stage-name-input').blur();

@@ -24,6 +24,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { computeTalkIdFromTalkData } from '../../../../src/shared/talk-content-id';
 import { getConversationIdBetween } from '../../helpers/conversation-e2e';
 import { warmDirectP2PSession, waitForDirectP2PChannel } from '../../helpers/p2p-transport-e2e';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
@@ -100,6 +101,7 @@ test.describe('Messaging edge cases', () => {
     // Stage name setup (matches other e2e specs).
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();

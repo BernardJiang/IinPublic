@@ -26,6 +26,7 @@ import {
 } from '../../helpers/talks-matching-flow';
 import { createTalkFromCompanyPage } from '../../helpers/talk-demo-ui';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from '../../helpers/ports';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const QUESTION = 'Favorite fruit?';
 const TITLE_APPLE = 'E2E Exact Memory Context A';
@@ -325,6 +326,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     // With the receiver's Talk Behavior toggle off, a compatible saved answer must remain manual.
     await pageTom.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(pageTom, SETTINGS_SECTION.talkBehavior);
     await pageTom.locator('#settings-chatbot-enabled').uncheck();
     await expect
       .poll(() => pageTom!.evaluate(() => localStorage.getItem('chatbotEnabled')))

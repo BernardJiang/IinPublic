@@ -15,6 +15,7 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { prepareDirectP2PConversation } from '../../helpers/p2p-transport-e2e';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import {
   LEDGER_CHECKPOINT_INTERVAL,
   LEDGER_RETENTION_WINDOW,
@@ -102,6 +103,7 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();

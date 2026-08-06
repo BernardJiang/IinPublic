@@ -17,6 +17,7 @@ import { afterLoad, afterNav, afterAction } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const ANSWER_COUNT = 40;
 
@@ -71,6 +72,7 @@ test.describe('Me tab: progressive render for long answer lists (R3)', () => {
     attachE2eBrowserTabLabel(page, 'ProgressiveAnswers');
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', 'ProgressiveAnswers');
     await page.locator('#settings-stage-name-input').blur();
     await afterNav();

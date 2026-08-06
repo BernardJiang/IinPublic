@@ -15,6 +15,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed, getIncomingClusterTitlesForUser } from '../../helpers/talks-matching-flow';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import {
   clickBroadcastUntilBulkAck,
   waitForBroadcastableTalkIds,
@@ -98,6 +99,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();

@@ -1127,13 +1127,9 @@ button:focus:not(:focus-visible) {
   animation: flashMember 2s ease-out;
 }
 
-/* Settings tab — one-layer jump menu (§M-settings-menu) */
+/* Settings tab — drill-down menu */
 .settings-jump-menu-item:hover {
   background: var(--bg-subtle);
-}
-
-.settings-jump-menu-flash {
-  animation: flashMember 0.9s ease-out;
 }
 
 .status-bar-actions #broadcast-talk-btn {

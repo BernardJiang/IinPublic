@@ -6,6 +6,7 @@ import { assertStatusChecks } from '../../helpers/e2e-status-checks';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Stage 0 — TechSupport single-user traversal', () => {
   test.skip(!isStagePipeline(), 'only for E2E_STAGE_PIPELINE=1');
@@ -56,12 +57,23 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await expect(page.locator('#settings-stage-name-input')).toHaveValue('TechSupport');
     await expect(page.locator('#settings-edit-profile-btn')).toBeVisible();
+    await backToSettingsMenu(page);
+
+    await openSettingsSection(page, SETTINGS_SECTION.credit);
     await expect(page.locator('#settings-credit-visible')).toBeVisible();
+    await backToSettingsMenu(page);
+
+    await openSettingsSection(page, SETTINGS_SECTION.languages);
     await expect(page.locator('#settings-profile-languages')).toBeVisible();
     await expect(page.locator('#settings-filter-languages')).toBeVisible();
     await expect(page.locator('.settings-filter-language-option[value="en"]')).toBeChecked();
+    await backToSettingsMenu(page);
+
+    await openSettingsSection(page, SETTINGS_SECTION.storageInspector);
     await expect(page.locator('#settings-storage-inspector')).toBeVisible();
 
     await afterSync();

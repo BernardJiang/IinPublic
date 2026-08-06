@@ -21,6 +21,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function createFlowTalk(page: Page, title: string, question: string): Promise<void> {
   await page.click('#create-talk-btn');
@@ -106,13 +107,17 @@ test.describe('Me tab filters and credit visibility', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.contentFilters);
     await pageJerry.locator('.settings-talk-filter-type[value="survey"]').uncheck();
+    await backToSettingsMenu(pageJerry);
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.credit);
     await pageJerry.locator('#settings-credit-visible').uncheck();
     await afterAction();
     await pageJerry.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.credit);
     await expect(pageJerry.locator('#settings-credit-visible')).not.toBeChecked();
 
     await createFlowTalk(pageTom, 'Filtered Flow Talk', 'Want to play tennis?');

@@ -22,6 +22,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { makeTagTalk, makeFlowTalk, makeSurveyTalk, makeRouteTalk } from '../talks-matching/lib/four-types-talks';
 import { NUM_CONTACTS, RELATIONSHIP_LABELS, seedLocalData, seedContactsAsUsers } from '../helpers/heavy-user-seed';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../helpers/settings-nav';
 
 const SCREENSHOT_DIR = process.env.E2E_SCREENSHOT_DIR
   || '/private/tmp/claude-501/-Users-hongyujiang-IinPublic/a5595cad-1624-446a-8073-3572797821c4/scratchpad/tour-shots-full';
@@ -330,11 +331,14 @@ test.describe('M5 full-layout screenshot tour', () => {
 
       const filtersJump = page.locator('.settings-jump-menu-item[data-target="settings-section-content-filters"]');
       if (await filtersJump.count().then((c) => c > 0)) {
-        await filtersJump.click();
+        await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
         await afterAction();
         await shot(page, 'Settings', 'settings-jumped-content-filters', 'Jump menu scrolls to and flashes a section — Content Filters here.');
+        await backToSettingsMenu(page);
+        await afterAction();
       }
 
+      await openSettingsSection(page, SETTINGS_SECTION.linkedDevices);
       const linkedDevicesBtn = page.locator('#settings-linked-devices-btn');
       if (await linkedDevicesBtn.count().then((c) => c > 0)) {
         await linkedDevicesBtn.click();
@@ -345,7 +349,10 @@ test.describe('M5 full-layout screenshot tour', () => {
           await afterAction();
         }
       }
+      await backToSettingsMenu(page);
+      await afterAction();
 
+      await openSettingsSection(page, SETTINGS_SECTION.eraseDevice);
       const eraseBtn = page.locator('#settings-erase-device-btn');
       if (await eraseBtn.count().then((c) => c > 0)) {
         await eraseBtn.click();

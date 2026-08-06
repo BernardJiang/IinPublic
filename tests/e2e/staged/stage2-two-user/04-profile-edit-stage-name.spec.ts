@@ -9,6 +9,7 @@ import { webAppURLStableChatroom, gunBaseURL, e2eTestScreenshotsDir } from '../.
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { establishContactsTomJerry, getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Profile foundation', () => {
   test.setTimeout(180_000);
@@ -55,6 +56,7 @@ test.describe('Profile foundation', () => {
     await afterLoad();
     await nextPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(nextPage, SETTINGS_SECTION.profile);
     await nextPage.waitForSelector('#settings-stage-name-input');
     await nextPage.fill('#settings-stage-name-input', stageName);
     await nextPage.locator('#settings-stage-name-input').blur();
@@ -79,6 +81,7 @@ test.describe('Profile foundation', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await expect(page.locator('#settings-content')).not.toContainText('Interests: None listed');
     const reservedStageNames = [
       'TechSupport',
@@ -110,6 +113,10 @@ test.describe('Profile foundation', () => {
     }
     await expect(page.locator('[data-testid="user-stage-name"]')).toContainText('Tom');
     await page.selectOption('#settings-headshot-select', '😎');
+    // #settings-profile-languages lives in the Languages section's markup, not Profile's
+    // (ui-manager.ts renderSettingsView) — switch sections before touching it.
+    await backToSettingsMenu(page);
+    await openSettingsSection(page, SETTINGS_SECTION.languages);
     await page.selectOption('#settings-profile-languages', 'en');
     await page.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
@@ -141,7 +148,10 @@ test.describe('Profile foundation', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.languages);
     await expect(page.locator('#settings-profile-languages')).toHaveValue('en');
+    await backToSettingsMenu(page);
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     const tomUserId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
     const publicHeadshot = async () => {
       const res = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}`);
@@ -185,6 +195,7 @@ test.describe('Profile foundation', () => {
       .toContain('data:image/png;base64,');
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
     await page.setInputFiles('#settings-photo-input', {
       name: 'not-a-photo.txt',
@@ -265,6 +276,7 @@ test.describe('Profile foundation', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.click('#settings-remove-photo-btn');
     await expect(page.locator('#settings-content .profile-avatar-image')).toHaveCount(0, { timeout: 10000 });
     await expect.poll(publicHeadshot, { timeout: 30000 }).toBe('');

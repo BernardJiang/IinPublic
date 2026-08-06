@@ -12,6 +12,7 @@ import { webAppURLStableChatroom } from '../../helpers/ports';
 import { afterLoad, afterSync, afterNav, afterAction } from '../../helpers/timing';
 import { sendConversationMessage } from '../../helpers/fast-dm-setup';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe.configure({ timeout: 150_000 });
 
@@ -45,6 +46,7 @@ test.describe('Cross-tab DM inbox affordance, multiple senders (N2 stage3)', () 
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();
     await afterNav();

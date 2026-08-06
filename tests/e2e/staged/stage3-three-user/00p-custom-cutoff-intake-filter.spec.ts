@@ -17,6 +17,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function createFlowTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
@@ -97,6 +98,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.contentFilters);
     await pageJerry.locator('#settings-custom-blocked').fill('eclipse invitation');
     await expect
       .poll(() =>
@@ -119,6 +121,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.contentFilters);
     await pageJerry.locator('#settings-custom-blocked').fill('');
     await expect
       .poll(() =>
@@ -139,6 +142,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
     await pageJerry.locator('#settings-sent-after').fill('2099-01-01T00:00');
     await pageJerry.locator('#settings-sent-after').press('Tab');
     await expect
@@ -157,6 +161,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
     await expect(pageJerry.locator('#settings-sent-after')).toHaveValue('2099-01-01T00:00');
     await afterAction();
 
@@ -168,6 +173,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
     await pageJerry.locator('#settings-sent-after').fill('');
     await pageJerry.locator('#settings-sent-after').press('Tab');
     await expect

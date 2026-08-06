@@ -7,6 +7,7 @@ import { webBaseURL } from '../../helpers/ports';
 import { createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import type { Talk } from '../../../../src/shared/types';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 function talkSet(owner: string, runId: number): Talk[] {
   return [
@@ -122,21 +123,38 @@ async function openFreshPage(context: BrowserContext): Promise<Page> {
 async function configureFirstUser(page: Page, name: string, homeRoom: string): Promise<void> {
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
+
+  await openSettingsSection(page, SETTINGS_SECTION.profile);
   await page.fill('#settings-stage-name-input', name);
   await page.locator('#settings-stage-name-input').blur();
   await page.selectOption('#settings-headshot-select', '🎾');
-  await page.selectOption('#settings-profile-languages', 'en');
   await afterSync();
+  await backToSettingsMenu(page);
+
+  // #settings-profile-languages lives in the Languages section's markup, not Profile's
+  // (ui-manager.ts renderSettingsView).
+  await openSettingsSection(page, SETTINGS_SECTION.languages);
+  await page.selectOption('#settings-profile-languages', 'en');
   await page.locator('.settings-filter-language-option[value="en"]').setChecked(true);
   await page.locator('.settings-filter-language-option[value="zh"]').setChecked(true);
+  await page.locator('.settings-filter-language-option[value="zh"]').dispatchEvent('change');
+  await backToSettingsMenu(page);
+
+  await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
   await page.fill('#settings-min-distance', '0');
   await page.fill('#settings-max-distance', '50');
+  await page.selectOption('#settings-home-room', homeRoom);
+  await backToSettingsMenu(page);
+
+  await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
   await page.locator('#settings-grammar-filter').check();
   await page.locator('#settings-dirty-words-filter').check();
+  await backToSettingsMenu(page);
+
+  await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
   await page.locator('#settings-copy-talk-autosave').check();
   await page.locator('#settings-chatbot-enabled').check();
-  await page.selectOption('#settings-home-room', homeRoom);
-  await page.locator('.settings-filter-language-option[value="zh"]').dispatchEvent('change');
+  await backToSettingsMenu(page);
   await afterSync();
 }
 
@@ -156,7 +174,11 @@ test.describe('Stage zero N2N smoke', () => {
 
     await configureFirstUser(page, 'Adam', 'san-diego');
 
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await expect(page.locator('#settings-stage-name-input')).toHaveValue('Adam');
+    await backToSettingsMenu(page);
+
+    await openSettingsSection(page, SETTINGS_SECTION.languages);
     await expect(page.locator('#settings-profile-languages')).toHaveValue('en');
     await expect
       .poll(
@@ -170,12 +192,22 @@ test.describe('Stage zero N2N smoke', () => {
         { timeout: 45_000 },
       )
       .toBe('en,zh');
+    await backToSettingsMenu(page);
+
+    await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
     await expect(page.locator('#settings-min-distance')).toHaveValue('0');
     await expect(page.locator('#settings-max-distance')).toHaveValue('50');
+    await backToSettingsMenu(page);
+
+    await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
     await expect(page.locator('#settings-grammar-filter')).toBeChecked();
     await expect(page.locator('#settings-dirty-words-filter')).toBeChecked();
+    await backToSettingsMenu(page);
+
+    await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
     await expect(page.locator('#settings-copy-talk-autosave')).toBeChecked();
     await expect(page.locator('#settings-chatbot-enabled')).toBeChecked();
+    await backToSettingsMenu(page);
 
     await page.click('.nav-btn[data-view="me"]');
     await afterNav();

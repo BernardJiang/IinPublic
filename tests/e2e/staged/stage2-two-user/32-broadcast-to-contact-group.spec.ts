@@ -11,6 +11,7 @@ import { establishContactsTomJerry, getCurrentUserId } from '../../helpers/reput
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { getIncomingClusterTitlesForUser } from '../../helpers/talks-matching-flow';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 /**
  * docs/TODO.md §U — Broadcast to a contact group. Verifies the group-picker dialog on the
@@ -70,6 +71,7 @@ test.describe('Broadcast to a contact group', () => {
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();

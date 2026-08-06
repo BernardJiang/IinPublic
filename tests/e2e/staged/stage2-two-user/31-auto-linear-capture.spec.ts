@@ -15,6 +15,7 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { prepareDirectP2PConversation } from '../../helpers/p2p-transport-e2e';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 /**
  * docs/TODO.md §V — Auto Linear Capture (FR-TK-7). Verifies the whole DM-shorthand-to-Talk
@@ -79,6 +80,7 @@ test.describe('Auto Linear Capture from DM shorthand', () => {
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();

@@ -11,6 +11,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterNav } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
 import { completeTalksInAppByAnswerIds, createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
 import {
@@ -77,6 +78,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     // Enable Jerry's chatbot BEFORE answering so auto-mode answers are saved as bot templates.
     await jerry.page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(jerry.page, SETTINGS_SECTION.talkBehavior);
     const chatbotCheckbox = jerry.page.locator('#settings-chatbot-enabled');
     if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
     await jerry.page.click('.nav-btn[data-view="chatrooms"]');

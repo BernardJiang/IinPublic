@@ -8,6 +8,7 @@ import { webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Tab sweep smoke (D6)', () => {
   let browser: Browser;
@@ -36,6 +37,7 @@ test.describe('Tab sweep smoke (D6)', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', 'Tab Sweep User');
     await page.locator('#settings-stage-name-input').blur();
     await page.click('.nav-btn[data-view="chatrooms"]');
@@ -62,8 +64,12 @@ test.describe('Tab sweep smoke (D6)', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
     await expect(page.locator('#settings-filtered-incoming-summary')).toBeVisible();
     await expect(page.locator('#settings-grammar-filter')).toBeVisible();
+    await backToSettingsMenu(page);
+
+    await openSettingsSection(page, SETTINGS_SECTION.languages);
     await expect(page.locator('#settings-ui-language')).toBeVisible();
   });
 });

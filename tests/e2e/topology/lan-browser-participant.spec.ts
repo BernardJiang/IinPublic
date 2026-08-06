@@ -13,6 +13,7 @@ import {
   TECHSUPPORT_STAGE_NAME,
 } from '../../../src/shared/techsupport';
 import { waitForDirectP2PChannel, warmDirectP2PSession } from '../helpers/p2p-transport-e2e';
+import { openSettingsSection, SETTINGS_SECTION } from '../helpers/settings-nav';
 
 const CHROMIUM_TOPOLOGY_FLAGS = [
   '--disable-features=WebRtcHideLocalIpsWithMdns,HttpsUpgrades,OmniboxHttpsUpgrades,HttpsFirstModeV2,HttpsFirstModeV2ForEngagedSites,HttpsFirstBalancedModeAutoEnable',
@@ -83,6 +84,7 @@ async function bootstrapUserOnUrl(
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
+  await openSettingsSection(page, SETTINGS_SECTION.profile);
   await page.waitForSelector('#settings-stage-name-input', { timeout: 45_000 });
   await page.fill('#settings-stage-name-input', stageName);
   await page.locator('#settings-stage-name-input').blur();

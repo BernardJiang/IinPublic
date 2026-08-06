@@ -21,6 +21,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { afterAction, afterLoad, afterSync } from '../../helpers/timing';
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import {
   buildMatrixTalks,
   importChampionReplyMatrixSnapshot,
@@ -66,6 +67,7 @@ test.describe.skip('Reply triage group-by and date-range filter (D6)', () => {
 
     // Set up creator identity
     await page.click('.nav-btn[data-view="settings"]');
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.fill('#settings-stage-name-input', 'GD Creator');
     await page.locator('#settings-stage-name-input').blur();
     await afterSync();

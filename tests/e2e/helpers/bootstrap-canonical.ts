@@ -15,6 +15,7 @@ import {
   expectCurrentUserIsOrdinaryUser,
   expectCurrentUserIsTechSupportRoot,
 } from './techsupport-contract';
+import { openSettingsSection } from './settings-nav';
 
 export type BootstrapOptions = {
   /** Skip IndexedDB clear (restoring storage state). */
@@ -82,6 +83,7 @@ export async function bootstrapCanonicalUser(
   if (!hasStorageState && stageName !== TECHSUPPORT_STAGE_NAME) {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, 'settings-section-profile');
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();

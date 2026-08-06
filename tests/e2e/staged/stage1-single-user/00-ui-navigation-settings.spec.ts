@@ -7,6 +7,7 @@ import { gotoWebApp, injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('UI navigation and settings shell', () => {
   test.describe.configure({ retries: 0 });
@@ -152,21 +153,38 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#top-header #settings-refresh-location-btn')).toBeVisible();
     await expect(p.locator('#settings-view')).toBeVisible();
     await expect(p.locator('#settings-content')).toContainText('Languages');
+
+    await openSettingsSection(p, SETTINGS_SECTION.profile);
     await expect(p.locator('#settings-stage-name-input')).toBeVisible();
     await expect(p.locator('#settings-headshot-select')).toBeVisible();
     await expect(p.locator('#settings-edit-stagename-btn')).toHaveCount(0);
     await expect(p.locator('#settings-edit-profile-btn')).toBeVisible();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.credit);
     await expect(p.locator('#settings-content')).toContainText('Credit');
+    await expect(p.locator('#settings-credit-visible')).toBeVisible();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await expect(p.locator('#settings-copy-talk-autosave')).toBeVisible();
     await expect(p.locator('#settings-chatbot-enabled')).toBeVisible();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
     await expect(p.locator('#settings-home-room')).toBeVisible();
+    await expect(p.locator('#settings-sent-after')).toBeVisible();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
     await expect(p.locator('#settings-grammar-filter')).toBeVisible();
     await expect(p.locator('#settings-dirty-words-filter')).toBeVisible();
-    await expect(p.locator('#settings-sent-after')).toBeVisible();
     await expect(p.locator('#settings-content')).toContainText('readable sentence length');
     await expect(p.locator('#settings-content')).toContainText('English and Chinese moderation list');
-    await expect(p.locator('#settings-credit-visible')).toBeVisible();
     await expect(p.locator('.settings-talk-filter-type')).toHaveCount(4);
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.languages);
     await expect(p.locator('#settings-ui-language')).toHaveValue('en');
     await expect(p.locator('#settings-default-talk-language')).toHaveValue('en');
     await p.locator('#settings-ui-language').selectOption('zh');
@@ -174,14 +192,17 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.nav-btn[data-view="talks"] .nav-label')).toHaveText('话题');
     await expect(p.locator('#settings-content')).toContainText('界面语言');
     await expect(p.locator('#settings-content')).toContainText('个人资料语言');
-    await expect(p.locator('#settings-content')).toContainText('内容过滤');
     await expect
       .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_ui_language')))
       .toBe('zh');
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
+    await backToSettingsMenu(p);
+    await expect(p.locator('#settings-content')).toContainText('内容过滤');
+
     await reloadAppReady(p);
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.languages);
     await expect(p.locator('#settings-ui-language')).toHaveValue('zh');
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
     await expect(p.locator('#settings-default-talk-language')).toHaveValue('zh');
@@ -189,6 +210,9 @@ test.describe('UI navigation and settings shell', () => {
     await expect
       .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_default_talk_language')))
       .toBe('en');
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.storageInspector);
     await expect(p.locator('#storage-inspector-flags')).toContainText('模式');
     await expect(p.locator('#storage-inspector-flags')).toContainText('本地节点');
     await expect(p.locator('#storage-inspector-flags')).toContainText('已禁用');
@@ -209,12 +233,18 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-storage-inspector')).toContainText('浏览器本地存储');
     await expect(p.locator('#settings-storage-inspector')).toContainText('服务器持久化路径');
     await expect(p.locator('#storage-inspector-server')).toContainText('当前成员映射');
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
     await p.locator('#settings-max-distance').fill('5');
     await p.locator('#settings-max-distance').press('Tab');
     await p.locator('#settings-min-distance').fill('10');
     await p.locator('#settings-min-distance').press('Tab');
     await expect(p.locator('.notification').filter({ hasText: '最小距离不能大于最大距离。' })).toBeVisible();
     await p.locator('.notification').filter({ hasText: '最小距离不能大于最大距离。' }).click();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.profile);
     await p.locator('#settings-stage-name-input').fill('a');
     await p.locator('#settings-stage-name-input').press('Tab');
     await expect(p.locator('#settings-stage-name-error')).toHaveText('昵称至少需要 3 个字符。');
@@ -499,16 +529,23 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.profile);
     await expect(p.locator('#settings-content')).toContainText('昵称');
     await expect(p.locator('#settings-stage-name-input')).toBeVisible();
     await expect(p.locator('#settings-content')).toContainText('每项问答的可见范围');
     await expect(p.locator('#settings-content')).toContainText('语言: 英语');
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.credit);
     await expect(p.locator('#settings-content')).toContainText('信用');
     await expect(p.locator('#settings-content')).toContainText('来自其他用户互动的只读信誉摘要');
     await expect(p.locator('#settings-content')).toContainText('评价');
     await expect(p.locator('#settings-content')).toContainText('星级');
     await expect(p.locator('#settings-content')).toContainText('匹配数');
     await expect(p.locator('#settings-content')).toContainText('年龄已验证');
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.profile);
     await p.locator('#settings-edit-profile-btn').click();
     await expect(p.locator('#edit-profile-form')).toContainText('头像');
     await expect(p.locator('#edit-profile-form')).toContainText('输入兴趣的默认分类');
@@ -636,18 +673,27 @@ test.describe('UI navigation and settings shell', () => {
     });
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.languages);
     await p.locator('#settings-ui-language').selectOption('en');
     await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('Settings');
     await p.locator('#settings-profile-languages').selectOption('zh');
     await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('Settings');
     await expect(p.locator('#settings-ui-language')).toHaveValue('en');
     await p.locator('#settings-profile-languages').selectOption('en');
+    await p.locator('.settings-filter-language-option[value="zh"]').check();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-copy-talk-autosave').uncheck();
     await p.locator('#settings-chatbot-enabled').uncheck();
-    await p.locator('.settings-filter-language-option[value="zh"]').check();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
     await p.locator('#settings-grammar-filter').uncheck();
     await p.locator('#settings-dirty-words-filter').uncheck();
     await p.locator('#settings-custom-blocked').fill('alpha, beta');
+    await backToSettingsMenu(p);
+
     await expect
       .poll(async () => p.evaluate(() => {
         const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
@@ -676,13 +722,24 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-custom-blocked')).toBeHidden();
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+
+    await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await expect(p.locator('#settings-copy-talk-autosave')).not.toBeChecked();
     await expect(p.locator('#settings-chatbot-enabled')).not.toBeChecked();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.languages);
     await expect(p.locator('.settings-filter-language-option[value="en"]')).toBeChecked();
     await expect(p.locator('.settings-filter-language-option[value="zh"]')).toBeChecked();
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
     await expect(p.locator('#settings-grammar-filter')).not.toBeChecked();
     await expect(p.locator('#settings-dirty-words-filter')).not.toBeChecked();
     await expect(p.locator('#settings-custom-blocked')).toHaveValue('alpha, beta');
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
     await p.locator('#settings-sent-after').fill('2026-05-01T09:30');
     await expect
       .poll(async () => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter))
@@ -770,6 +827,7 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-copy-talk-autosave').check();
 
     const result = await p.evaluate(() => {
@@ -832,6 +890,7 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-copy-talk-autosave').uncheck();
     const disabledCopyResult = await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
@@ -1039,6 +1098,8 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
     await expect(p.locator('body')).not.toContainText('Oops! Something went wrong');
+
+    await openSettingsSection(p, SETTINGS_SECTION.languages);
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
     await expect
       .poll(() =>
@@ -1050,6 +1111,9 @@ test.describe('UI navigation and settings shell', () => {
         ),
       )
       .toBe('en,zh');
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
     await expect(p.locator('#settings-custom-blocked')).toHaveValue('spam, scam');
   });
 

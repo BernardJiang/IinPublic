@@ -33,6 +33,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const FLOW_TITLE = 'Lifecycle Matrix Flow Intake Filtered';
 
@@ -100,6 +101,7 @@ test.describe('Talk lifecycle — intake-filtered responder matrix (D4)', () => 
     // --- Bob disables flow talks in intake filter settings ---
     await pageBob.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageBob, SETTINGS_SECTION.contentFilters);
     await pageBob.locator('.settings-talk-filter-type[value="flow"]').uncheck();
     await expect(pageBob.locator('.settings-talk-filter-type[value="flow"]')).not.toBeChecked();
     await pageBob.evaluate(async () => {

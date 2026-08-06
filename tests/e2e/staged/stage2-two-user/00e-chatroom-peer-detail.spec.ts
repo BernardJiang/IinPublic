@@ -30,6 +30,7 @@ import {
 import { getConversationIdBetween, openConversationViaServer } from '../../helpers/conversation-e2e';
 import { waitForMessageVisible } from '../../helpers/fast-dm-setup';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Chatroom peer detail views', () => {
   let browserTom: Browser;
@@ -109,6 +110,7 @@ test.describe('Chatroom peer detail views', () => {
   async function setStageNameAndGoToChatrooms(page: Page, name: string): Promise<void> {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
     await page.waitForSelector('#settings-stage-name-input');
     await page.fill('#settings-stage-name-input', name);
     await page.locator('#settings-stage-name-input').blur();

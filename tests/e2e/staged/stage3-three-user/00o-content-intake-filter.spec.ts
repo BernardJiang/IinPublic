@@ -16,6 +16,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function createFlowTalk(
   page: Page,
@@ -110,6 +111,7 @@ test.describe('Incoming talk content intake filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.contentFilters);
     await expect(pageJerry.locator('#settings-grammar-filter')).toBeChecked();
     await expect(pageJerry.locator('#settings-dirty-words-filter')).toBeChecked();
     await expect(pageJerry.locator('text=Checks titles and question prompts for readable sentence length')).toBeVisible();
@@ -117,6 +119,7 @@ test.describe('Incoming talk content intake filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.contentFilters);
     await pageJerry.locator('#settings-grammar-filter').uncheck();
     await pageJerry.locator('#settings-dirty-words-filter').uncheck();
     await expect
@@ -131,6 +134,7 @@ test.describe('Incoming talk content intake filtering', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.contentFilters);
     await expect(pageJerry.locator('#settings-grammar-filter')).not.toBeChecked();
     await expect(pageJerry.locator('#settings-dirty-words-filter')).not.toBeChecked();
     await pageJerry.evaluate(async () => {

@@ -8,6 +8,7 @@ import { webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function bootstrapCompactUser(
   browser: Browser,
@@ -26,6 +27,7 @@ async function bootstrapCompactUser(
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
+  await openSettingsSection(page, SETTINGS_SECTION.profile);
   await page.waitForSelector(
     '#settings-stage-name-input',
     appReadyTimeoutMs ? { timeout: appReadyTimeoutMs } : undefined,

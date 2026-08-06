@@ -7,6 +7,7 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const ZH_NAV = ['聊天室', '联系人', '话题', '我的', '设置'] as const;
 const EN_NAV = ['Chatrooms', 'Contacts', 'Talks', 'Me', 'Settings'] as const;
@@ -14,6 +15,7 @@ const EN_NAV = ['Chatrooms', 'Contacts', 'Talks', 'Me', 'Settings'] as const;
 async function switchUiLanguage(page: Page, code: 'zh' | 'en'): Promise<void> {
   await page.locator('.nav-btn[data-view="settings"]').click();
   await afterNav();
+  await openSettingsSection(page, SETTINGS_SECTION.languages);
   await page.locator('#settings-ui-language').selectOption(code);
   await afterSync();
 }
@@ -75,9 +77,13 @@ test.describe('Chinese UI localization traversal (D2)', () => {
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.languages);
     await expect(p.locator('#settings-content')).toContainText('界面语言');
     await expect(p.locator('#settings-content')).toContainText('个人资料语言');
     await expect(p.locator('#settings-ui-language')).toHaveValue('zh');
+    await backToSettingsMenu(p);
+
+    await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
     await expect(p.locator('#settings-grammar-filter')).toBeVisible();
 
     await reloadAppReady(p);
