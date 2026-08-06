@@ -17,6 +17,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const P2P_DIRECT_ENABLED = true; // Direct P2P is always active — star transport removed.
 
@@ -86,6 +87,7 @@ test.describe('P2P roadmap P2–P7 — infrastructure (merged)', () => {
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.storageInspector);
     await expect(p.locator('#storage-inspector-sea-identity')).toBeVisible();
     await expect(p.locator('#storage-inspector-sea-identity')).toContainText('SEA Identity Custody');
     await expect(p.locator('#storage-inspector-sea-identity')).toContainText('Relay scan');
@@ -113,6 +115,7 @@ test.describe('P2P roadmap P2–P7 — infrastructure (merged)', () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.storageInspector);
     await expect(p.locator('#storage-inspector-conversation-transport')).toBeVisible();
     await expect(p.locator('#storage-inspector-conversation-transport')).toContainText('Conversation Transport');
     await expect(p.locator('#storage-inspector-conversation-transport-modes')).toContainText('direct-p2p');
@@ -154,6 +157,7 @@ test.describe('P2P roadmap P2–P7 — infrastructure (merged)', () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.storageInspector);
     await expect(p.locator('#storage-inspector-p2p-protocol')).toBeVisible();
     await expect(p.locator('#storage-inspector-p2p-protocol')).toContainText('gun-mesh-websocket-webrtc');
     await expect(p.locator('#storage-inspector-p2p-platforms')).toContainText('windows');
@@ -231,6 +235,7 @@ test.describe('P2P roadmap P2–P7 — infrastructure (merged)', () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.storageInspector);
     await expect(p.locator('#storage-inspector-data-ownership')).toBeVisible();
     await expect(p.locator('#storage-inspector-data-ownership')).toContainText("Delete this device's local data");
     await expect(p.locator('#storage-inspector-data-ownership-server')).toContainText('delete-server-held-data');
@@ -314,6 +319,7 @@ test.describe('P2P roadmap P2–P7 — infrastructure (merged)', () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.storageInspector);
     await expect(p.locator('#storage-inspector-p2p-neighbor-memory')).toBeVisible();
     await expect(p.locator('#storage-inspector-p2p-neighbor-memory')).toContainText('local-only');
     await expect(p.locator('#storage-inspector-p2p-neighbor-controls')).toContainText('Export encrypted');
@@ -359,6 +365,7 @@ test.describe('P2P roadmap P2–P7 — infrastructure (merged)', () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.storageInspector);
     await expect(p.locator('#storage-inspector-local-node')).toBeVisible();
     await expect(p.locator('#storage-inspector-local-node')).toContainText('Local Node Supervisor');
     await expect(p.locator('#storage-inspector-local-node')).toContainText('signed-session-pairing');

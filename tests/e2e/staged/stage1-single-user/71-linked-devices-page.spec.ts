@@ -13,6 +13,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, afterLoad } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { encodePairingCode, PAIRING_TTL_MS } from '../../../../src/shared/identity-linking';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Linked devices page', () => {
   let context: BrowserContext | undefined;
@@ -27,6 +28,7 @@ test.describe('Linked devices page', () => {
     await afterLoad();
     await page.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(page, SETTINGS_SECTION.linkedDevices);
     await page.waitForSelector('[data-testid="settings-linked-devices-btn"]');
   });
 

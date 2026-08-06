@@ -11,6 +11,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, afterLoad } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Erase this device', () => {
   let context: BrowserContext | undefined;
@@ -40,6 +41,7 @@ test.describe('Erase this device', () => {
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.eraseDevice);
     await p.waitForSelector('[data-testid="settings-erase-device-btn"]');
 
     // Open the dialog; the erase button is disabled until the confirm word matches.

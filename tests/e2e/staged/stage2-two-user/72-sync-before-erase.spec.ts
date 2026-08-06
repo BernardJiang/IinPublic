@@ -14,6 +14,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, afterLoad } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Sync before erase', () => {
   let context: BrowserContext | undefined;
@@ -49,6 +50,7 @@ test.describe('Sync before erase', () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.eraseDevice);
     await p.waitForSelector('[data-testid="settings-erase-device-btn"]');
     await p.locator('[data-testid="settings-erase-device-btn"]').click();
     await afterNav();
