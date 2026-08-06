@@ -8,6 +8,18 @@ import { WebGunService } from './web-gun-service';
 import { computeMerkleRoot, sha256Hex } from '../../shared/merkle-checkpoint';
 
 /**
+ * Safe env read for browser bundles: `IINPUBLIC_E2E_MESSAGE_*` are only ever defined by
+ * webpack's DISABLE_HMR=true DefinePlugin branch (webpack.config.js), so a normal
+ * `npm run dev` bundle (EnvironmentPlugin branch, no `process` global at all) hit
+ * "process is not defined" at module load — before this file even finished importing —
+ * the moment this was a bare `process.env.X` read. Every other browser-side env read in
+ * this codebase guards with `typeof process !== 'undefined'` for exactly this reason
+ * (src/shared/config.ts's own getEnv, web-chatroom-service.ts, p2p-webrtc-session.ts, …).
+ */
+const readE2eEnvInt = (key: string): string | undefined =>
+  typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
+
+/**
  * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 4): every
  * N messages, checkpoint a conversation's message window and prune anything older than
  * the retention window — the message-side analogue of the ledger's Items 1/2, reusing
@@ -20,9 +32,9 @@ import { computeMerkleRoot, sha256Hex } from '../../shared/merkle-checkpoint';
  * exactly the production defaults.
  */
 export const MESSAGE_CHECKPOINT_INTERVAL =
-  parseInt(process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || '', 10) || 50;
+  parseInt(readE2eEnvInt('IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL') || '', 10) || 50;
 export const MESSAGE_RETENTION_WINDOW =
-  parseInt(process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || '', 10) || 200;
+  parseInt(readE2eEnvInt('IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW') || '', 10) || 200;
 
 /**
  * SRS §28.9.4: leaves commit to both ordering and ciphertext integrity without

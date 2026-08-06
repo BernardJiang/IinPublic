@@ -42,6 +42,18 @@ import { getSEA } from '../sea-gun';
 // (no extra interface needed — LedgerState = Record<string, number>)
 
 /**
+ * Safe env read for browser bundles: `IINPUBLIC_E2E_LEDGER_*` are only ever defined by
+ * webpack's DISABLE_HMR=true DefinePlugin branch (webpack.config.js), so a normal
+ * `npm run dev` bundle (EnvironmentPlugin branch, no `process` global at all) hit
+ * "process is not defined" at module load — before this file even finished importing —
+ * the moment this was a bare `process.env.X` read. Every other browser-side env read in
+ * this codebase guards with `typeof process !== 'undefined'` for exactly this reason
+ * (src/shared/config.ts's own getEnv, web-chatroom-service.ts, p2p-webrtc-session.ts, …).
+ */
+const readE2eEnvInt = (key: string): string | undefined =>
+  typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
+
+/**
  * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 1/5): every
  * N events, write one signed Merkle checkpoint (SRS §28.9.2). Named constants so the real
  * production values (once decided — Item 5 is a policy decision, not a coding change) are a
@@ -56,9 +68,9 @@ import { getSEA } from '../sea-gun';
  * production defaults.
  */
 export const LEDGER_CHECKPOINT_INTERVAL =
-  parseInt(process.env.IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL || '', 10) || 100;
+  parseInt(readE2eEnvInt('IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL') || '', 10) || 100;
 export const LEDGER_RETENTION_WINDOW =
-  parseInt(process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW || '', 10) || 500;
+  parseInt(readE2eEnvInt('IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW') || '', 10) || 500;
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
