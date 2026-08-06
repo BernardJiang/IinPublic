@@ -224,11 +224,11 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
       ? `${room.icon} ${room.name}`
       : chatroomId;
 
-  const headerTitle = document.getElementById('header-title');
+  // Room name already appears in #status-bar-text (persistent) and #current-chatroom-title
+  // (this view's own heading) — leave #header-title blank here too, same as showChatroomList().
   const chatroomTitle = document.getElementById('current-chatroom-title');
   const chatroomStatus = document.getElementById('current-chatroom-status');
 
-  if (headerTitle) headerTitle.textContent = roomName;
   if (chatroomTitle) chatroomTitle.textContent = roomName;
   if (chatroomStatus) chatroomStatus.textContent = deps.text('chatroomLoadingMembers');
   renderCustomRoomMetadata(deps, custom);

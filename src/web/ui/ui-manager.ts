@@ -2466,10 +2466,8 @@ export class UIManager extends EventEmitter {
     const detailContainer = document.getElementById('chatroom-detail-container');
     if (detailContainer && detailContainer.style.display !== 'none') {
       const roomName = this.resolveChatroomTitle(chatroomId);
-      const headerTitle = document.getElementById('header-title');
       const chatroomTitle = document.getElementById('current-chatroom-title');
       const chatroomStatus = document.getElementById('current-chatroom-status');
-      if (headerTitle) headerTitle.textContent = roomName;
       if (chatroomTitle) chatroomTitle.textContent = roomName;
       if (chatroomStatus) chatroomStatus.textContent = this.t('chatroomLoadingMembers');
       const membersList = document.getElementById('chatroom-members-list');
