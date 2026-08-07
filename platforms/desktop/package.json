@@ -30,6 +30,7 @@
       "preload.js",
       "resources/**/*"
     ],
+    "afterPack": "afterPack.js",
     "extraResources": [
       {
         "from": "../../dist/server",
@@ -44,7 +45,7 @@
         "to": "app/public"
       },
       {
-        "from": "../../node_modules",
+        "from": ".prod-deps-staging/node_modules",
         "to": "app/node_modules",
         "filter": ["**/*"]
       }

@@ -25,6 +25,7 @@ android/app/libnode/
 
 # Electron desktop build output
 platforms/desktop/dist/
+platforms/desktop/.prod-deps-staging/
 
 # Native mobile vendor payloads and generated bundles
 third_party/
