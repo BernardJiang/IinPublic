@@ -767,6 +767,7 @@ export class IinPublicApp {
     // Initialize UI
     this.uiManager.initialize();
     this.uiManager.setApiBase(this.getBackendApiBase());
+    void this.uiManager.renderAppDownloadBanner();
     this.uiManager.setCurrentLocation(location);
     this.uiManager.setPublicProfileFoundationReader(async (userId: string) => {
       const [data, reputation] = await Promise.all([

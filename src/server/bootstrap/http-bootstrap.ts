@@ -54,22 +54,43 @@ export function configureHttpMiddleware(app: express.Application): void {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(requestLogger);
-  app.use(express.static('public'));
-  app.use(express.static('.'));
-  app.use((Gun as any).serve);
 
   // S3 embedded-node: serve the prebuilt web SPA so the WebView/renderer can
   // reuse 100% of the browser UI from this local node (loopback origin).
   const embedded = resolveEmbeddedNodeConfig(process.env);
+
+  // §19.2: www.iinpublic.com is a relay-only hub that also serves the static SPA
+  // bundle — a plain browser tab is a first-class client, not just an app-download
+  // landing page. Embedded shells (Electron/mobile) use their own configured
+  // webRoot; the plain (non-embedded) relay/hub falls back to the standard
+  // production build output, dist/web, when present (a bare `npm run dev` server
+  // with no `build:web` run yet has no dist/web — falls through to public/ below,
+  // same as before this route existed).
+  const webRoot = embedded.enabled
+    ? path.resolve(embedded.webRoot)
+    : path.resolve(process.cwd(), 'dist', 'web');
+  const servingSpa = fs.existsSync(path.join(webRoot, 'index.html'));
+  if (servingSpa) {
+    app.use(express.static(webRoot));
+    app.get('/', (_req, res) => res.sendFile(path.join(webRoot, 'index.html')));
+    logger.info(
+      { webRoot, embedded: embedded.enabled },
+      embedded.enabled ? 'S3 embedded-node: serving web SPA from local node' : 'Relay hub: serving web SPA at /',
+    );
+    warnIfBuildIdsDrifted(webRoot);
+  }
+
+  app.use(express.static('public'));
+  app.use(express.static('.'));
+  app.use((Gun as any).serve);
+
   if (embedded.enabled) {
-    const webRoot = path.resolve(embedded.webRoot);
     const publicRoot = process.env.IINPUBLIC_PUBLIC_ROOT
       ? path.resolve(process.env.IINPUBLIC_PUBLIC_ROOT)
       : path.resolve(webRoot, '..', '..', 'public');
     const gunRoot = process.env.IINPUBLIC_NODE_MODULES_ROOT
       ? path.resolve(process.env.IINPUBLIC_NODE_MODULES_ROOT, 'gun')
       : path.resolve(webRoot, '..', '..', 'node_modules', 'gun');
-    app.use(express.static(webRoot));
     if (fs.existsSync(publicRoot)) {
       app.use(express.static(publicRoot));
       logger.info({ publicRoot }, 'S3 embedded-node: serving public assets from local node');
@@ -82,9 +103,6 @@ export function configureHttpMiddleware(app: express.Application): void {
     } else {
       logger.warn({ gunRoot }, 'S3 embedded-node: Gun worker dependency root missing');
     }
-    app.get('/', (_req, res) => res.sendFile(path.join(webRoot, 'index.html')));
-    logger.info({ webRoot }, 'S3 embedded-node: serving web SPA from local node');
-    warnIfBuildIdsDrifted(webRoot);
   }
 }
 

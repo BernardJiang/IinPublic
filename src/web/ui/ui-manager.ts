@@ -7986,6 +7986,60 @@ export class UIManager extends EventEmitter {
     list.append(banner);
   }
 
+  /** Best-effort OS sniff for the app-download banner; unmatched UAs fall through to null (no dead link). */
+  private detectDownloadPlatform(): 'mac' | 'windows' | 'android' | null {
+    const ua = navigator.userAgent || '';
+    if (/Android/i.test(ua)) return 'android';
+    if (/Win(dows)?(NT)?/i.test(ua)) return 'windows';
+    // iPadOS 13+ reports as Mac Safari; iPhone/iPad have no desktop app to offer, so exclude both.
+    if (/iPhone|iPad|iPod/i.test(ua)) return null;
+    if (/Mac/i.test(ua) && !(navigator.maxTouchPoints > 1)) return 'mac';
+    return null;
+  }
+
+  /**
+   * §19.2: a plain browser tab pointed at the relay hub is a first-class client, not just an
+   * app-download landing page — but we still want to point desktop-capable visitors at the
+   * native app when one exists. Skipped entirely inside the packaged Electron shell, which
+   * reports 'Electron' in its UA.
+   */
+  async renderAppDownloadBanner(): Promise<void> {
+    if (/Electron/i.test(navigator.userAgent || '')) return;
+    if (sessionStorage.getItem('iinpublic_dismissed_app_download_banner')) return;
+    const shell = document.querySelector('.app-container');
+    if (!shell || document.getElementById('app-download-banner')) return;
+
+    const platform = this.detectDownloadPlatform();
+    let downloadUrl: string | null = null;
+    if (platform && this.apiBase) {
+      try {
+        const res = await fetch(`${this.apiBase}/api/downloads`, { cache: 'no-store' });
+        if (res.ok) {
+          const manifest = (await res.json()) as Record<string, string | null>;
+          downloadUrl = manifest[platform] || null;
+        }
+      } catch {
+        // Offline/unreachable API — banner still renders with the "unavailable" state below.
+      }
+    }
+
+    const platformLabel = platform === 'mac' ? 'Mac' : platform === 'windows' ? 'Windows' : platform === 'android' ? 'Android' : '';
+    const banner = document.createElement('div');
+    banner.id = 'app-download-banner';
+    banner.className = 'app-download-banner';
+    banner.innerHTML = `
+      <span class="app-download-banner-text">${escapeHtml(this.t('appDownloadBannerText'))}</span>
+      ${downloadUrl
+        ? `<a class="app-download-banner-link" href="${escapeHtml(downloadUrl)}" download>${escapeHtml(this.tf('appDownloadBannerGetApp', { platform: platformLabel }))}</a>`
+        : `<span class="app-download-banner-muted">${escapeHtml(this.t('appDownloadBannerUnavailable'))}</span>`}
+      <button type="button" class="app-download-banner-dismiss" aria-label="${escapeHtml(this.t('appDownloadBannerDismiss'))}">×</button>`;
+    banner.querySelector('.app-download-banner-dismiss')?.addEventListener('click', () => {
+      sessionStorage.setItem('iinpublic_dismissed_app_download_banner', '1');
+      banner.remove();
+    });
+    shell.prepend(banner);
+  }
+
   private dismissMatchNotifications(): void {
     document.querySelectorAll('.notification[data-match-notification="true"]').forEach((el) => {
       if (document.body.contains(el)) document.body.removeChild(el);

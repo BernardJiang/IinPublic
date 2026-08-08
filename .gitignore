@@ -27,6 +27,10 @@ android/app/libnode/
 platforms/desktop/dist/
 platforms/desktop/.prod-deps-staging/
 
+# Downloadable app installers served by the relay (public/downloads-routes.ts) —
+# large per-machine build artifacts, never commit.
+public/downloads/
+
 # Native mobile vendor payloads and generated bundles
 third_party/
 platforms/ios/Frameworks/

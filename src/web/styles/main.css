@@ -848,6 +848,44 @@ button:focus:not(:focus-visible) {
   cursor: pointer;
 }
 
+/* App-download banner: shown to plain browser tabs (never inside the packaged Electron shell) */
+.app-download-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--gradient-accent);
+  color: #fff;
+  font-size: 0.85em;
+}
+
+.app-download-banner-text {
+  font-weight: 600;
+}
+
+.app-download-banner-link {
+  color: #fff;
+  font-weight: 700;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.app-download-banner-muted {
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.app-download-banner-dismiss {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
 /* Status Bar - Permanent chatroom status display */
 .status-bar {
   background: var(--gradient-accent);
