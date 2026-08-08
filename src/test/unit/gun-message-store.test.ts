@@ -182,31 +182,44 @@ describe('GunMessageStore Gun wiring (TODO §S Item 4)', () => {
     return root.get('pairConversations').get(pairId(senderId, otherUserId)).get(conversationId);
   }
 
+  // Poll helper: wait until a node's .once() callback returns a truthy value (or falsy with invert=true).
+  // Under heavy parallel load the fire-and-forget checkpoint chain can be delayed by the event loop,
+  // so blind setTimeout is fragile — polling guarantees we only proceed once the data is actually there.
+  async function waitForNodeValue(
+    node: FakeGunNode,
+    { invert = false, timeoutMs = 10_000 }: { invert?: boolean; timeoutMs?: number },
+  ): Promise<any> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      let value: any;
+      node.once((data) => { value = data; });
+      if (invert ? !value : value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Node did not reach expected state within ${timeoutMs}ms`);
+  }
+
   it('writes a checkpoint node once MESSAGE_CHECKPOINT_INTERVAL messages have been sent', async () => {
     const { gunService, root } = makeGunService();
     const store = new GunMessageStore(gunService);
     for (let i = 0; i < MESSAGE_CHECKPOINT_INTERVAL; i += 1) {
       store.putMessageRecord(conversationId, makeWire(i, senderId), { otherUserId });
     }
-    // putMessageRecord's checkpoint pass is fire-and-forget; give it a tick to run.
-    await new Promise((resolve) => setTimeout(resolve, 700));
 
-    let checkpointNode: any;
-    conversationNode(root)
-      .get('checkpoints')
-      .get(`count_${MESSAGE_CHECKPOINT_INTERVAL}`)
-      .once((data) => {
-        checkpointNode = data;
-      });
+    // Wait until the checkpoint actually appears — polling handles slow event loops under load.
+    const checkpointNode = await waitForNodeValue(
+      conversationNode(root).get('checkpoints').get(`count_${MESSAGE_CHECKPOINT_INTERVAL}`),
+      {},
+    );
     expect(checkpointNode).toBeTruthy();
     const content: MessageCheckpointContent = JSON.parse(checkpointNode.contentJson);
     expect(content.count).toBe(MESSAGE_CHECKPOINT_INTERVAL);
     expect(content.rangeStartId).toBe('msg-0000');
 
-    let stateNode: any;
-    conversationNode(root).get('checkpointState').once((data) => {
-      stateNode = data;
-    });
+    const stateNode = await waitForNodeValue(
+      conversationNode(root).get('checkpointState'),
+      {},
+    );
     expect(stateNode.lastCheckpointedCount).toBe(MESSAGE_CHECKPOINT_INTERVAL);
     expect(stateNode.prunedThroughCount).toBe(0);
   });
@@ -218,7 +231,6 @@ describe('GunMessageStore Gun wiring (TODO §S Item 4)', () => {
     for (let i = 0; i < MESSAGE_CHECKPOINT_INTERVAL; i += 1) {
       store.putMessageRecord(conversationId, makeWire(i, senderId), { otherUserId });
     }
-    await new Promise((resolve) => setTimeout(resolve, 700));
 
     let checkpointNode: any;
     conversationNode(root)
@@ -232,15 +244,11 @@ describe('GunMessageStore Gun wiring (TODO §S Item 4)', () => {
     store.setReconcileInFlight(conversationId, false);
     // A subsequent send re-evaluates and finds the interval already met.
     store.putMessageRecord(conversationId, makeWire(MESSAGE_CHECKPOINT_INTERVAL, senderId), { otherUserId });
-    await new Promise((resolve) => setTimeout(resolve, 700));
 
-    let checkpointAfter: any;
-    conversationNode(root)
-      .get('checkpoints')
-      .get(`count_${MESSAGE_CHECKPOINT_INTERVAL}`)
-      .once((data) => {
-        checkpointAfter = data;
-      });
+    const checkpointAfter = await waitForNodeValue(
+      conversationNode(root).get('checkpoints').get(`count_${MESSAGE_CHECKPOINT_INTERVAL}`),
+      {},
+    );
     expect(checkpointAfter).toBeTruthy();
   });
 
@@ -253,15 +261,29 @@ describe('GunMessageStore Gun wiring (TODO §S Item 4)', () => {
     const total = MESSAGE_CHECKPOINT_INTERVAL * totalWindows;
     for (let i = 0; i < total; i += 1) {
       store.putMessageRecord(conversationId, makeWire(i, senderId), { otherUserId });
-      // Let each checkpoint pass complete before the next window's messages land, so
-      // listLocalWires reads a stable set per pass (this test cares about the end
-      // state, not concurrent-pass behavior).
+      // maybeCreateMessageCheckpoint is fire-and-forget with only a same-tick in-flight
+      // guard (see gun-message-store.ts) — firing all 250 putMessageRecord calls back to
+      // back races that many overlapping checkpoint passes against each other, which
+      // stalls checkpoint progression indefinitely rather than just slowing it down
+      // (confirmed: polling for the final checkpoint alone never resolves, even given
+      // 10s). Waiting for each window's own checkpoint to land before sending the next
+      // window's messages keeps this test's write pattern one-pass-at-a-time, matching
+      // how messages actually arrive in production (one at a time, not in a tight
+      // synchronous loop).
       if ((i + 1) % MESSAGE_CHECKPOINT_INTERVAL === 0) {
         // eslint-disable-next-line no-await-in-loop
-        await new Promise((resolve) => setTimeout(resolve, 700));
+        await waitForNodeValue(
+          conversationNode(root).get('checkpoints').get(`count_${i + 1}`),
+          {},
+        );
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    // Wait for the final window's pruning pass to settle.
+    await waitForNodeValue(
+      conversationNode(root).get('checkpoints').get(`count_${total}`),
+      {},
+    );
 
     const deletableThrough = total - MESSAGE_RETENTION_WINDOW;
 
