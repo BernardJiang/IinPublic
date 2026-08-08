@@ -106,6 +106,7 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './src/web/index.html',
       title: 'IinPublic',
+      favicon: './public/favicon.ico',
       templateParameters: {
         stageSeed: process.env.IINPUBLIC_STAGE_SEED || '',
       },

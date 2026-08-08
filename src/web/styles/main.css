@@ -1,51 +1,203 @@
 /* ============================================================
    Design Tokens — single source of truth for color/shape/depth
-   Palette: slate neutrals + indigo accent; emerald reserved for
-   success/match/live semantics; red danger; amber warning.
+   Scheme system: "Golden Hour" (default) + 3 alternates, each with
+   a light and dark variant, selected via [data-color-scheme] on
+   <html> (see ui-settings-storage.ts's get/setColorSchemePreference
+   and applyStoredColorScheme, called at boot before first paint).
+   Falls through to Golden Hour when no attribute is set at all, so
+   any markup that predates the scheme system keeps working.
    ============================================================ */
-:root {
-  /* Accent (indigo) — interactive/brand */
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #eef2ff;
-  --accent-border: #c7d2fe;
-  --accent-text: #3730a3;
-  --bubble-sent: #e0e7ff;
+:root,
+[data-color-scheme="goldenHour"] {
+  /* Accent (marigold) — interactive/brand */
+  --accent: #cc6b1c;
+  --accent-hover: #b25914;
+  --accent-soft: #fbeee0;
+  --accent-border: #e8c9a4;
+  --accent-text: #8a4812;
+  --bubble-sent: #fbeee0;
 
-  /* Success (emerald) — matches, online, live status */
-  --success: #059669;
-  --success-hover: #047857;
-  --success-soft: #ecfdf5;
-  --success-border: #a7f3d0;
-  --success-text: #065f46;
+  /* Success (sage-forest) — matches, online, live status */
+  --success: #4d7a52;
+  --success-hover: #3f6543;
+  --success-soft: #e9f1e7;
+  --success-border: #bcd4bd;
+  --success-text: #2f4c32;
 
-  /* Danger */
-  --danger: #dc2626;
-  --danger-hover: #b91c1c;
-  --danger-soft: #fef2f2;
-  --danger-border: #fecaca;
+  /* Danger (brick) */
+  --danger: #b23a2e;
+  --danger-hover: #952f25;
+  --danger-soft: #f7e7e3;
+  --danger-border: #e6bcb1;
 
-  /* Warning */
-  --warning: #f59e0b;
-  --warning-soft: #fffbeb;
-  --warning-border: #fde68a;
-  --warning-text: #92400e;
+  /* Warning (dusty gold — distinct hue from accent) */
+  --warning: #a9791e;
+  --warning-soft: #f5eedd;
+  --warning-border: #e4cf9c;
+  --warning-text: #6b4d10;
 
-  /* Neutrals (slate) */
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-tertiary: #64748b;
-  --text-muted: #94a3b8;
-  --border: #e2e8f0;
-  --border-strong: #cbd5e1;
-  --bg-subtle: #f8fafc;
-  --bg-muted: #f1f5f9;
+  /* Neutrals (warm ink, not slate) */
+  --text-primary: #211f1a;
+  --text-secondary: #6b6354;
+  --text-tertiary: #857c6a;
+  --text-muted: #9c9587;
+  --border: #e6e2d7;
+  --border-strong: #d8d2c2;
+  --bg-subtle: #f5f4f0;
+  --bg-muted: #ede9e0;
   --surface: #ffffff;
 
   /* Gradients */
-  --gradient-accent: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  --gradient-success-hover: linear-gradient(135deg, #059669 0%, #047857 100%);
+  --gradient-accent: linear-gradient(135deg, #e08a3c 0%, #cc6b1c 100%);
+  --gradient-success: linear-gradient(135deg, #6b9970 0%, #4d7a52 100%);
+  --gradient-success-hover: linear-gradient(135deg, #4d7a52 0%, #3f6543 100%);
+}
+
+[data-color-scheme="tropicalForest"] {
+  --accent: #2f7a4f;
+  --accent-hover: #256440;
+  --accent-soft: #e1f0e5;
+  --accent-border: #b9d9c1;
+  --accent-text: #1c4c31;
+  --bubble-sent: #e1f0e5;
+  --success: #6b8e3d;
+  --success-hover: #587532;
+  --success-soft: #eef3e0;
+  --success-border: #cfdcae;
+  --success-text: #445a26;
+  --danger: #c1452e;
+  --danger-hover: #a13a26;
+  --danger-soft: #f8e6e0;
+  --danger-border: #e8bfae;
+  --warning: #c98a24;
+  --warning-soft: #f6ecd8;
+  --warning-border: #e6cd97;
+  --warning-text: #7c5615;
+  --text-primary: #1e2a1f;
+  --text-secondary: #54604f;
+  --text-tertiary: #6f7c68;
+  --text-muted: #8b9484;
+  --border: #dbe4d2;
+  --border-strong: #c7d3ba;
+  --bg-subtle: #eff3ea;
+  --bg-muted: #e2ead9;
+  --surface: #ffffff;
+  --gradient-accent: linear-gradient(135deg, #479166 0%, #2f7a4f 100%);
+  --gradient-success: linear-gradient(135deg, #85a95a 0%, #6b8e3d 100%);
+  --gradient-success-hover: linear-gradient(135deg, #6b8e3d 0%, #587532 100%);
+}
+
+[data-color-scheme="snowMountain"] {
+  --accent: #1f8fc4;
+  --accent-hover: #1a76a3;
+  --accent-soft: #e2f2fa;
+  --accent-border: #b7dced;
+  --accent-text: #135a7c;
+  --bubble-sent: #e2f2fa;
+  --success: #3e7a4f;
+  --success-hover: #336440;
+  --success-soft: #e6f1e8;
+  --success-border: #bcd8c2;
+  --success-text: #274d31;
+  --danger: #c23b2e;
+  --danger-hover: #a23124;
+  --danger-soft: #f8e5e2;
+  --danger-border: #e8bcb0;
+  --warning: #d69a2a;
+  --warning-soft: #f7edd9;
+  --warning-border: #ecd49b;
+  --warning-text: #815e13;
+  --text-primary: #1b2733;
+  --text-secondary: #556575;
+  --text-tertiary: #6d7c8b;
+  --text-muted: #8b98a5;
+  --border: #dbe4ea;
+  --border-strong: #c5d2db;
+  --bg-subtle: #f4f7fa;
+  --bg-muted: #e6edf2;
+  --surface: #ffffff;
+  --gradient-accent: linear-gradient(135deg, #3fabdb 0%, #1f8fc4 100%);
+  --gradient-success: linear-gradient(135deg, #619871 0%, #3e7a4f 100%);
+  --gradient-success-hover: linear-gradient(135deg, #3e7a4f 0%, #336440 100%);
+}
+
+[data-color-scheme="beachSunset"] {
+  --accent: #e8637a;
+  --accent-hover: #d14964;
+  --accent-soft: #fce7ec;
+  --accent-border: #f0bfca;
+  --accent-text: #9c3149;
+  --bubble-sent: #fce7ec;
+  --success: #2e8a83;
+  --success-hover: #25716b;
+  --success-soft: #e2f1ef;
+  --success-border: #b2d9d5;
+  --success-text: #1a534e;
+  --danger: #c4453f;
+  --danger-hover: #a53933;
+  --danger-soft: #f8e5e3;
+  --danger-border: #e9bcb8;
+  --warning: #e0a431;
+  --warning-soft: #faeed6;
+  --warning-border: #efd696;
+  --warning-text: #7f5714;
+  --text-primary: #2b1e22;
+  --text-secondary: #6b545a;
+  --text-tertiary: #856b71;
+  --text-muted: #a0888d;
+  --border: #eddac4;
+  --border-strong: #e0c6a8;
+  --bg-subtle: #fbf1e4;
+  --bg-muted: #f3e2ce;
+  --surface: #ffffff;
+  --gradient-accent: linear-gradient(135deg, #ee839a 0%, #e8637a 100%);
+  --gradient-success: linear-gradient(135deg, #4fa39c 0%, #2e8a83 100%);
+  --gradient-success-hover: linear-gradient(135deg, #2e8a83 0%, #25716b 100%);
+}
+
+/* Dark variants — same 4 schemes, applied when the OS/site theme is dark. Mirrors the
+   pattern the redesign preview artifact used: same token names, deeper/brighter values. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]),
+  [data-color-scheme="goldenHour"]:not([data-theme="light"]) {
+    --accent: #f0a93e; --accent-hover: #f5bc63; --accent-soft: #3a2a14; --accent-border: #5c451f; --accent-text: #f5bc63;
+    --success: #7fb386; --success-hover: #97c29c; --success-soft: #1c2b1e; --success-border: #35492f;
+    --danger: #e2796a; --danger-hover: #e89686; --danger-soft: #3a211c; --danger-border: #5a352c;
+    --warning: #d3a94a; --warning-soft: #362b14; --warning-border: #56461f; --warning-text: #e0bc74;
+    --text-primary: #f2eee6; --text-secondary: #c4bbaa; --text-tertiary: #a89d89; --text-muted: #877d6c;
+    --border: #332c22; --border-strong: #443b2c; --bg-subtle: #17140f; --bg-muted: #1e1a14; --surface: #1e1a14;
+  }
+}
+[data-theme="dark"][data-color-scheme="goldenHour"], :root[data-theme="dark"]:not([data-color-scheme]) {
+  --accent: #f0a93e; --accent-hover: #f5bc63; --accent-soft: #3a2a14; --accent-border: #5c451f; --accent-text: #f5bc63;
+  --success: #7fb386; --success-hover: #97c29c; --success-soft: #1c2b1e; --success-border: #35492f;
+  --danger: #e2796a; --danger-hover: #e89686; --danger-soft: #3a211c; --danger-border: #5a352c;
+  --warning: #d3a94a; --warning-soft: #362b14; --warning-border: #56461f; --warning-text: #e0bc74;
+  --text-primary: #f2eee6; --text-secondary: #c4bbaa; --text-tertiary: #a89d89; --text-muted: #877d6c;
+  --border: #332c22; --border-strong: #443b2c; --bg-subtle: #17140f; --bg-muted: #1e1a14; --surface: #1e1a14;
+}
+[data-theme="dark"][data-color-scheme="tropicalForest"] {
+  --accent: #4fcb82; --accent-hover: #6fd89a; --accent-soft: #173322; --accent-border: #2c5138;
+  --success: #a3c46a; --success-soft: #212f16; --danger: #e37b62; --danger-soft: #37201a; --warning: #e0b45c; --warning-soft: #332711;
+  --text-primary: #e7f0e4; --text-secondary: #a9bba2; --text-tertiary: #8a9c83; --text-muted: #6d8069;
+  --border: #26362b; --border-strong: #334839; --bg-subtle: #0e1912; --bg-muted: #152119; --surface: #152119;
+}
+[data-theme="dark"][data-color-scheme="snowMountain"] {
+  --accent: #4dc4ec; --accent-hover: #71d1f0; --accent-soft: #123544; --accent-border: #234f61;
+  --success: #79b98c; --success-soft: #17281c; --danger: #e08072; --danger-soft: #372019; --warning: #e0b558; --warning-soft: #332811;
+  --text-primary: #eaf2f7; --text-secondary: #aebfc9; --text-tertiary: #8ea0ac; --text-muted: #6f818e;
+  --border: #233442; --border-strong: #2f4353; --bg-subtle: #0d1720; --bg-muted: #132029; --surface: #132029;
+}
+[data-theme="dark"][data-color-scheme="beachSunset"] {
+  --accent: #f58aa0; --accent-hover: #f9a4b5; --accent-soft: #3a1f28; --accent-border: #573240;
+  --success: #5cb3ab; --success-soft: #173330; --danger: #e37b73; --danger-soft: #3a221e; --warning: #e6bc63; --warning-soft: #332811;
+  --text-primary: #f5e8e0; --text-secondary: #c9aeb5; --text-tertiary: #ab8f95; --text-muted: #8a707a;
+  --border: #3a2c40; --border-strong: #4a3a50; --bg-subtle: #1c1420; --bg-muted: #241a29; --surface: #241a29;
+}
+
+:root {
+  /* Typography */
+  --font-display: ui-rounded, "SF Pro Rounded", "Nunito", -apple-system, "Segoe UI", Roboto, sans-serif;
 
   /* Shape */
   --radius-sm: 6px;
@@ -54,10 +206,10 @@
   --radius-xl: 18px;
   --radius-full: 999px;
 
-  /* Depth */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.14);
+  /* Depth (warm-tinted, not cold slate) */
+  --shadow-sm: 0 1px 2px rgba(33, 26, 15, 0.06);
+  --shadow-md: 0 4px 12px rgba(33, 26, 15, 0.08);
+  --shadow-lg: 0 12px 32px rgba(33, 26, 15, 0.16);
 }
 
 /* Reset and Base Styles */
@@ -194,8 +346,9 @@ button:focus:not(:focus-visible) {
 }
 
 .header-title {
+  font-family: var(--font-display);
   font-size: 1.1em;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -473,9 +626,10 @@ button:focus:not(:focus-visible) {
 }
 
 .nav-label {
+  font-family: var(--font-display);
   font-size: 0.75em;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
   transition: all 0.2s;
 }
 
@@ -562,7 +716,8 @@ button:focus:not(:focus-visible) {
 }
 
 .chatroom-title {
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 700;
   font-size: 0.9em;
   margin-bottom: 3px;
   color: var(--text-primary);
@@ -1319,8 +1474,12 @@ button:focus:not(:focus-visible) {
 .answer-tag-item .answer-tag-checkbox {
   width: 18px;
   height: 18px;
-  accent-color: #7c3aed;
+  accent-color: var(--accent);
   flex-shrink: 0;
+}
+
+.settings-scheme-radio {
+  accent-color: var(--accent);
 }
 
 .answer-qa-item {
@@ -1914,6 +2073,8 @@ button.talk-icon-btn:hover {
   padding: 10px 20px;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 700;
   font-size: 1em;
   transition: all 0.2s ease;
   display: inline-flex;
@@ -3045,7 +3206,8 @@ button.talk-icon-btn:hover {
 }
 
 .conversation-detail-name {
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 700;
   font-size: 1.1em;
   color: var(--text-primary);
 }

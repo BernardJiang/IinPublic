@@ -20,6 +20,7 @@ export async function backToSettingsMenu(page: Page): Promise<void> {
 
 export const SETTINGS_SECTION = {
   profile: 'settings-section-profile',
+  appearance: 'settings-section-appearance',
   credit: 'settings-section-credit',
   languages: 'settings-section-languages',
   talkBehavior: 'settings-section-talk-behavior',

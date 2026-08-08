@@ -44,6 +44,27 @@ export function setDefaultTalkLanguagePreference(language: UiLanguage): void {
   localStorage.setItem('iinpublic_default_talk_language', language);
 }
 
+export type ColorScheme = 'goldenHour' | 'tropicalForest' | 'snowMountain' | 'beachSunset';
+export const COLOR_SCHEMES: ColorScheme[] = ['goldenHour', 'tropicalForest', 'snowMountain', 'beachSunset'];
+const DEFAULT_COLOR_SCHEME: ColorScheme = 'goldenHour';
+
+export function getColorSchemePreference(): ColorScheme {
+  const stored = localStorage.getItem('iinpublic_color_scheme');
+  return (COLOR_SCHEMES as string[]).includes(stored || '')
+    ? (stored as ColorScheme)
+    : DEFAULT_COLOR_SCHEME;
+}
+
+/**
+ * Persists the choice and applies it immediately (sets the same [data-color-scheme]
+ * attribute on <html> that index.html's inline boot script reads on the next load —
+ * this call handles the *current* session, the boot script handles the next reload).
+ */
+export function setColorSchemePreference(scheme: ColorScheme): void {
+  localStorage.setItem('iinpublic_color_scheme', scheme);
+  document.documentElement.setAttribute('data-color-scheme', scheme);
+}
+
 /**
  * docs/TODO.md §V — when a content edit mints a new talk, the predecessor is deleted by
  * default; advanced users can flip this to keep it (disabled) instead. Default false

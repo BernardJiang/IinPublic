@@ -101,18 +101,22 @@ import {
   type FlatAnswerHistoryItem,
 } from './answer-history-storage';
 import {
+  COLOR_SCHEMES,
   getChatbotEnabled,
   getChatbotTemplate as loadChatbotTemplate,
+  getColorSchemePreference,
   getCopyTalkAutoSave,
   getDefaultTalkLanguagePreference,
   getKeepOldTalkOnEdit,
   getUiLanguagePreference,
   saveChatbotTemplate as storeChatbotTemplate,
   setChatbotEnabled,
+  setColorSchemePreference,
   setCopyTalkAutoSave,
   setDefaultTalkLanguagePreference,
   setKeepOldTalkOnEdit,
   setUiLanguagePreference,
+  type ColorScheme,
 } from './ui-settings-storage';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showPreferencesDialog as openPreferencesDialog, type AnswerPreferenceUiMode } from './preferences-dialog';
@@ -157,6 +161,21 @@ function resolveExpiresAtMs(value: unknown): number {
 }
 
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
+// Settings → Appearance: decorative swatch + label per scheme, matching the
+// [data-color-scheme] token blocks in main.css's :root.
+const SETTINGS_SCHEME_SWATCHES: Record<ColorScheme, string> = {
+  goldenHour: '#cc6b1c',
+  tropicalForest: '#2f7a4f',
+  snowMountain: '#1f8fc4',
+  beachSunset: '#e8637a',
+};
+const SETTINGS_SCHEME_LABEL_KEYS: Record<ColorScheme, UiTranslationKey> = {
+  goldenHour: 'schemeGoldenHour',
+  tropicalForest: 'schemeTropicalForest',
+  snowMountain: 'schemeSnowMountain',
+  beachSunset: 'schemeBeachSunset',
+};
+
 const LANGUAGE_OPTIONS = [
   { code: 'en', label: 'English' },
   { code: 'zh', label: 'Chinese' },
@@ -1074,7 +1093,7 @@ export class UIManager extends EventEmitter {
                 </div>
               </div>
               <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:var(--text-tertiary);font-size:0.88em;"></div>
-              <section id="creator-replies-panel" style="display:none;padding:12px;border-bottom:1px solid var(--border);background:#fff;">
+              <section id="creator-replies-panel" style="display:none;padding:12px;border-bottom:1px solid var(--border);background:var(--surface);">
                 <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">
                   <strong>Replies To My Talks</strong>
                   <span id="creator-replies-summary" style="font-size:0.85em;color:var(--text-tertiary);">Loading...</span>
@@ -2833,7 +2852,7 @@ export class UIManager extends EventEmitter {
                   // its own row button. matchedLine stays visible on the row: it's the interactive
                   // N3 click-to-DM affordance, not decorative detail.
                   return `
-        <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-right:5px solid ${typeAccent};background:#fff;">
+        <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-right:5px solid ${typeAccent};background:var(--surface);">
           <div class="talk-item-header">
             <label class="talk-icon-badge" title="${disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn')}">
               <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
@@ -3557,7 +3576,7 @@ export class UIManager extends EventEmitter {
     // collapse control on top of that would be redundant and just a way to accidentally hide
     // the only content on the page.
     return `
-      <div class="settings-section" ${opts.id ? `id="${opts.id}"` : ''} style="background:#fff;border:1px solid ${opts.danger ? 'var(--danger-border)' : 'var(--border)'};border-radius:8px;">
+      <div class="settings-section" ${opts.id ? `id="${opts.id}"` : ''} style="background:var(--surface);border:1px solid ${opts.danger ? 'var(--danger-border)' : 'var(--border)'};border-radius:8px;">
         <div class="settings-section-summary" style="padding:16px;">
           <div style="font-weight:700;color:${opts.danger ? 'var(--danger-hover)' : 'var(--text-primary)'};display:inline;">${opts.title}</div>
           ${opts.subtitle ? `<div style="font-size:0.82em;color:var(--text-tertiary);margin-top:2px;">${opts.subtitle}</div>` : ''}
@@ -3573,6 +3592,7 @@ export class UIManager extends EventEmitter {
   private renderSettingsView(user: User): void {
     const container = document.getElementById('settings-content');
     if (!container) return;
+    const currentColorScheme = getColorSchemePreference();
     const profileLanguages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
     user.languages = profileLanguages;
     // Intake filters are persisted synchronously to localStorage on every settings change,
@@ -3676,6 +3696,7 @@ export class UIManager extends EventEmitter {
     // never removes/re-adds DOM, so ids stay stable across a section switch.
     const jumpMenuItems: Array<{ icon: string; label: string; target: string }> = [
       { icon: '👤', label: this.t('profile'), target: 'settings-section-profile' },
+      { icon: '🎨', label: this.t('settingsAppearance'), target: 'settings-section-appearance' },
       { icon: '⭐', label: this.t('credit'), target: 'settings-section-credit' },
       { icon: '🌐', label: this.t('settingsLanguages'), target: 'settings-section-languages' },
       { icon: '🗣️', label: this.t('settingsTalkBehavior'), target: 'settings-section-talk-behavior' },
@@ -3686,7 +3707,7 @@ export class UIManager extends EventEmitter {
       { icon: '💾', label: this.t('settingsStorage'), target: 'settings-storage-inspector' },
     ];
     const jumpMenuHtml = `
-      <div class="settings-jump-menu" id="settings-jump-menu" style="display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <div class="settings-jump-menu" id="settings-jump-menu" style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
         ${jumpMenuItems.map((item, index) => `
           <button type="button" class="settings-jump-menu-item" data-target="${item.target}" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border:none;${index < jumpMenuItems.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}background:none;text-align:left;cursor:pointer;font:inherit;color:var(--text-primary);">
             <span aria-hidden="true" style="font-size:1.05em;flex-shrink:0;">${item.icon}</span>
@@ -3749,6 +3770,24 @@ export class UIManager extends EventEmitter {
           </div>
         `)}
         ${this.renderSettingsSection(
+          { id: 'settings-section-appearance', title: this.t('settingsAppearance'), subtitle: this.t('settingsAppearanceHelp') },
+          `
+          <div id="settings-scheme-picker" style="display:grid;gap:8px;">
+            ${COLOR_SCHEMES.map((scheme) => {
+              const swatch = SETTINGS_SCHEME_SWATCHES[scheme];
+              const checked = currentColorScheme === scheme;
+              return `
+                <label class="settings-scheme-option" data-scheme="${scheme}" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1.5px solid ${checked ? 'var(--accent)' : 'var(--border)'};border-radius:10px;cursor:pointer;">
+                  <input type="radio" name="settings-color-scheme" class="settings-scheme-radio" value="${scheme}" ${checked ? 'checked' : ''}>
+                  <span style="width:26px;height:26px;border-radius:50%;flex:none;background:${swatch};border:1px solid rgba(0,0,0,0.08);"></span>
+                  <span style="font-weight:600;font-size:0.92em;">${this.t(SETTINGS_SCHEME_LABEL_KEYS[scheme])}</span>
+                </label>
+              `;
+            }).join('')}
+          </div>
+        `,
+        )}
+        ${this.renderSettingsSection(
           {
             id: 'settings-section-credit',
             title: this.t('credit'),
@@ -3803,7 +3842,7 @@ export class UIManager extends EventEmitter {
             <div id="settings-filter-languages" data-testid="settings-incoming-language-select" style="display:flex;flex-wrap:wrap;gap:8px;">
               ${languageOptions
                 .map((lang) => `
-                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:white;">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);">
                     <input type="checkbox" class="settings-filter-language-option" value="${lang.code}" ${talkFilters.allowedLanguages.includes(lang.code) ? 'checked' : ''}>
                     <span>${lang.label}</span>
                   </label>
@@ -3887,7 +3926,7 @@ export class UIManager extends EventEmitter {
             <div style="display:flex;flex-wrap:wrap;gap:8px;">
               ${(['tag', 'flow', 'route', 'survey'] as const)
                 .map((type) => `
-                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:white;">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);">
                     <input type="checkbox" class="settings-talk-filter-type" value="${type}" ${talkFilters.allowedTalkTypes.includes(type) ? 'checked' : ''}>
                     <span>${type}</span>
                   </label>
@@ -4218,6 +4257,18 @@ export class UIManager extends EventEmitter {
       if (!sectionId) return;
       this.settingsActiveSectionId = sectionId;
       this.applySettingsSectionView(sectionId);
+    });
+
+    document.getElementById('settings-scheme-picker')?.addEventListener('change', (event) => {
+      const radio = event.target as HTMLInputElement;
+      if (!radio.classList.contains('settings-scheme-radio')) return;
+      const scheme = radio.value as ColorScheme;
+      setColorSchemePreference(scheme);
+      // Applies instantly via the [data-color-scheme] attribute (main.css tokens do the
+      // rest) — no full re-render needed, just move the selected-option border highlight.
+      document.querySelectorAll<HTMLElement>('.settings-scheme-option').forEach((label) => {
+        label.style.borderColor = label.dataset.scheme === scheme ? 'var(--accent)' : 'var(--border)';
+      });
     });
 
     const selectedValues = (id: string): string[] => {
@@ -5082,7 +5133,7 @@ export class UIManager extends EventEmitter {
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
           ${this.renderStatsTable(this.t('statsByTypeHeader'), ['Type', 'Responses', 'Matches', 'Match rate'], typeRows)}
           ${this.renderStatsTable(this.t('statsTopTalksHeader'), ['Talk', 'Type', 'Responses', 'Matches'], talkRows)}
-          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:white;overflow:auto;">
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:auto;">
             <div style="font-weight:700;color:var(--text-primary);margin-bottom:4px;">${this.t('statsChatroomHeader')}</div>
             <div style="font-size:0.8em;color:var(--text-tertiary);margin-bottom:8px;">Local: ${chatroomTotals.local} · Traveller: ${chatroomTotals.traveller}</div>
             <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
@@ -5096,7 +5147,7 @@ export class UIManager extends EventEmitter {
             </table>
           </div>
           ${this.renderStatsTable(this.t('statsPeerHeader'), ['Peer', 'Responses', 'Matches', 'Ignores', 'Match rate'], peerRows)}
-          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:white;overflow:auto;">
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:auto;">
             <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">${this.t('statsBroadcastTagsHeader')}</div>
             ${tagFrequencyBars}
             <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
@@ -5105,7 +5156,7 @@ export class UIManager extends EventEmitter {
             </table>
             ${tagTrendSection}
           </div>
-          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:white;overflow:auto;">
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:auto;">
             <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">${this.t('statsTimeTrendHeader')}</div>
             ${responseSparkline}
             <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
@@ -5127,7 +5178,7 @@ export class UIManager extends EventEmitter {
 
   private renderStatsTable(title: string, headers: string[], rows: string): string {
     return `
-      <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:white;overflow:auto;">
+      <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:auto;">
         <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">${escapeHtml(title)}</div>
         <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
           <thead><tr>${headers.map((header, index) => `<th style="text-align:${index === 0 ? 'left' : 'right'};padding:6px 8px;">${escapeHtml(header)}</th>`).join('')}</tr></thead>
@@ -6014,7 +6065,7 @@ export class UIManager extends EventEmitter {
     if (currentLanguages.length === 0) currentLanguages.push('en');
     const languageOptionsHtml = LANGUAGE_OPTIONS.map(
       (language) => `
-        <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:white;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);">
           <input type="checkbox" class="profile-language-option" value="${language.code}" ${currentLanguages.includes(language.code) ? 'checked' : ''}>
           <span>${escapeHtml(languageOptionLabel(this.getUiLanguage(), language.code, language.label))}</span>
         </label>
@@ -6872,7 +6923,7 @@ export class UIManager extends EventEmitter {
       `;
     }).join('');
     modal.innerHTML = `
-      <div style="width:min(620px,96vw);max-height:90vh;overflow:auto;background:#fff;border-radius:16px;box-shadow:0 18px 55px rgba(15,23,42,0.2);">
+      <div style="width:min(620px,96vw);max-height:90vh;overflow:auto;background:var(--surface);border-radius:16px;box-shadow:0 18px 55px rgba(15,23,42,0.2);">
         <div style="padding:18px;border-bottom:1px solid var(--border);">
           <div style="font-size:1.05em;font-weight:700;">${this.t('broadcastPreviewTitle')}</div>
           <div style="font-size:0.88em;color:var(--text-tertiary);margin-top:5px;">${this.t('broadcastPreviewHelp')}</div>

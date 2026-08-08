@@ -6,6 +6,19 @@
     <title>IinPublic - Location-Based Matching</title>
     <meta name="description" content="Find people nearby through structured conversations and matches">
     <meta name="iinpublic-stage-seed" content="<%= stageSeed %>">
+    <script>
+      // Applied synchronously, before first paint, to avoid a flash of the wrong color
+      // scheme. Mirrors ui-settings-storage.ts's getColorSchemePreference — kept in sync
+      // manually since this runs before any bundled JS loads.
+      (function () {
+        try {
+          var v = localStorage.getItem('iinpublic_color_scheme');
+          if (v === 'goldenHour' || v === 'tropicalForest' || v === 'snowMountain' || v === 'beachSunset') {
+            document.documentElement.setAttribute('data-color-scheme', v);
+          }
+        } catch (e) {}
+      })();
+    </script>
 </head>
 <body>
     <div id="app">
