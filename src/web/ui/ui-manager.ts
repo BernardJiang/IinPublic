@@ -3562,6 +3562,12 @@ export class UIManager extends EventEmitter {
       getFlatAnswerHistory,
       copyAnsweredTalkToTalks: this.copyAnsweredTalkToTalks.bind(this),
       showTalkDetail: this.showTalkDetailAsAnswer.bind(this),
+      openTalkResponses: (talkId: string, talkTitle: string) => {
+        this.showCreatorRepliesForTalk(talkId, talkTitle);
+      },
+      viewContact: (userId: string) => {
+        this.navigateToGraphNode({ type: 'person', id: userId, name: this.getPeerName(userId) });
+      },
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       showItemDetailsPopup: this.showDetailsPopupFor.bind(this),
       getTalkContentKey: UIManager.getTalkContentKey,

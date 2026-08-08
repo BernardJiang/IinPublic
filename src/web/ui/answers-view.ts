@@ -23,6 +23,13 @@ type AnswersViewDeps = {
   /** questionId scrolls/highlights that specific question when the talk opens as a
    *  multi-question review, instead of only landing on the talk as a whole. */
   showTalkDetail: (talkId: string, questionId?: string) => void;
+  /** Only called for a variant with no senders (a talk I authored myself) — switches to
+   *  the Talks tab and opens that talk's scoped responses list instead of the single-talk
+   *  detail view, mirroring the ⟨User⟩ layout's peer-history-item title-link behavior. */
+  openTalkResponses?: (talkId: string, talkTitle: string) => void;
+  /** Jumps to the Contacts detail for a variant's sender — only rendered when
+   *  senderIds.length > 0 (a talk someone else sent me). */
+  viewContact?: (userId: string) => void;
   showPreferencesDialog: () => void;
   /** Reuses ui-manager.ts's shared reparent-into-popup mechanism (showDetailsPopupFor) so
    *  the moved-out metadata/context/variant list keeps working without a second popup
@@ -440,8 +447,11 @@ function renderVariantDetail(
         ${variant.autoUseCount > 0 ? `<span style="padding:2px 8px;border-radius:999px;background:var(--success-soft);color:var(--success-hover);">${deps.escapeHtml(format(variant.autoUseCount === 1 ? 'meAutoUsedCount' : 'meAutoUsedCounts', { count: variant.autoUseCount }))}</span>` : ''}
         ${typeof variant.answerCounter === 'number' ? `<span>${deps.escapeHtml(format('meChoiceCount', { count: variant.answerCounter }))}</span>` : ''}
       </div>
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <button type="button" class="btn answer-view-talk-btn" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-question-id="${deps.escapeHtml(questionId)}">${deps.escapeHtml(deps.text('meViewTalk'))}</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button type="button" class="btn answer-view-talk-btn" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-talk-title="${deps.escapeHtml(variant.talkTitle)}" data-question-id="${deps.escapeHtml(questionId)}" data-has-senders="${variant.senderIds.length > 0 ? '1' : '0'}">${deps.escapeHtml(deps.text('meViewTalk'))}</button>
+        ${variant.senderIds.length > 0
+          ? `<button type="button" class="btn answer-view-contact-btn" data-sender-id="${deps.escapeHtml(variant.senderIds[0])}">${deps.escapeHtml(deps.text('meViewContact'))}</button>`
+          : ''}
         <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(variant.talkId)}" title="${deps.escapeHtml(deps.text('copy'))}">📋 ${deps.escapeHtml(deps.text('copy'))}</button>
       </div>
     </div>
@@ -475,15 +485,30 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         return;
       }
 
-      // Inside an already-open details popup: "View talk" jumps to the source talk; "Copy"
-      // re-saves that specific contributing talk into Talks. Neither re-triggers the row's
-      // own tap-to-open-details behavior.
+      // Inside an already-open details popup: "View talk" jumps to the source talk — or,
+      // for a talk I authored myself (no senders), to that talk's Talks-tab responses list
+      // instead, mirroring the ⟨User⟩ layout's peer-history-item title-link behavior.
+      // "View contact" jumps to the sender's Contacts detail. "Copy" re-saves that specific
+      // contributing talk into Talks. None re-trigger the row's own tap-to-open-details.
       const viewTalkBtn = target.closest('.answer-view-talk-btn') as HTMLElement | null;
       if (viewTalkBtn) {
         e.stopPropagation();
         const talkId = viewTalkBtn.dataset.talkId;
         const questionId = viewTalkBtn.dataset.questionId || undefined;
-        if (talkId) currentDeps.showTalkDetail(talkId, questionId);
+        const talkTitle = viewTalkBtn.dataset.talkTitle || '';
+        const hasSenders = viewTalkBtn.dataset.hasSenders === '1';
+        if (talkId && !hasSenders && currentDeps.openTalkResponses) {
+          currentDeps.openTalkResponses(talkId, talkTitle);
+        } else if (talkId) {
+          currentDeps.showTalkDetail(talkId, questionId);
+        }
+        return;
+      }
+      const viewContactBtn = target.closest('.answer-view-contact-btn') as HTMLElement | null;
+      if (viewContactBtn) {
+        e.stopPropagation();
+        const senderId = viewContactBtn.dataset.senderId;
+        if (senderId) currentDeps.viewContact?.(senderId);
         return;
       }
       const copyBtn = target.closest('.answer-copy-talk-btn') as HTMLElement | null;
