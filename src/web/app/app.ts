@@ -4009,9 +4009,13 @@ export class IinPublicApp {
   }
 
   private checkIfMatch(talkData: any, answers: any[]): boolean {
-    // Matching-type talks and tags both use isMatch on the chosen answer
-    if (talkData.type !== 'flow' && talkData.type !== 'tag') {
-      console.log('  Not a flow talk, type:', talkData.type);
+    // Flow, tag, and route talks all use isMatch on the terminal answer chosen.
+    // Route's answers[] is the full root-to-terminal path in order, and every
+    // route node's id is unique across the talk, so the same id-based lookup
+    // below resolves the terminal answer correctly without any DAG-specific
+    // handling (see src/shared/talk-engine.ts's checkIfMatch for more detail).
+    if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
+      console.log('  Not a matchable talk type:', talkData.type);
       return false;
     }
 

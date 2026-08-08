@@ -84,11 +84,20 @@ export function matchScore(
 }
 
 /**
- * Determines if the last submitted answer is a match (flow/tag talks).
+ * Determines if the last submitted answer is a match (flow/tag/route talks).
  * Used by both frontend and backend so match logic lives in one place.
+ *
+ * Route talks resolve identically to flow: the receiver's answers[] is the full
+ * root-to-terminal path in order, and each route question's id is unique across
+ * the whole talk (TalkValidator.validateRouteTalk enforces uniqueness on the
+ * (id, contextPath) pair, but in practice every node gets its own id — the same
+ * simple `questions.find(q => q.id === X)` lookup the response UI itself uses to
+ * navigate the DAG, see talk-response-dialog.ts), so no contextPath/contextHash
+ * reconstruction is needed here — just checking the terminal answer's own
+ * isMatch flag is sufficient.
  */
 export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[]): boolean {
-  if (talkData.type !== 'flow' && talkData.type !== 'tag') {
+  if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
     return false;
   }
   const lastAnswer = answers[answers.length - 1];
@@ -101,7 +110,7 @@ export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[]): 
 }
 
 export function checkIfIgnore(talkData: Talk | any, answers: SubmittedAnswer[]): boolean {
-  if (talkData.type !== 'flow' && talkData.type !== 'tag') {
+  if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
     return false;
   }
   const lastAnswer = answers[answers.length - 1];

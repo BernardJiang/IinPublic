@@ -1,4 +1,4 @@
-import { TalkValidator, matchScore } from '../../shared/talk-engine';
+import { TalkValidator, matchScore, checkIfMatch, checkIfIgnore, type SubmittedAnswer } from '../../shared/talk-engine';
 import { Talk } from '../../shared/types';
 
 describe('matchScore', () => {
@@ -309,6 +309,91 @@ describe('TalkValidator', () => {
         /Tag must have (exactly two answers|one match and one ignore)/,
       );
     });
+  });
+});
+
+describe('checkIfMatch / checkIfIgnore on route talks', () => {
+  // HR job-search route: a jobseeker first picks a position. Accountant/Engineer
+  // continue to a one-question screen (its own isMatch/isIgnore terminal, so two
+  // structurally distinct match points at different DAG depths); Doctor/Lawyer are
+  // rejected immediately at the root. Regression coverage for the bug where
+  // checkIfMatch/checkIfIgnore unconditionally returned false for type: 'route'.
+  const hrRouteTalk: Talk = {
+    id: 'hr-route-1',
+    title: 'Which role are you applying for?',
+    authorId: 'hr-agent',
+    type: 'route',
+    isAdult: false,
+    language: 'en',
+    tags: [],
+    questions: [
+      {
+        id: 'q_position',
+        text: 'Which position are you applying for?',
+        contextPath: [],
+        answers: [
+          { id: 'a_accountant', text: 'Accountant', nextQuestionId: 'q_accountant_screen' },
+          { id: 'a_engineer', text: 'Engineer', nextQuestionId: 'q_engineer_screen' },
+          { id: 'a_doctor', text: 'Doctor', isIgnore: true, isTerminal: true },
+          { id: 'a_lawyer', text: 'Lawyer', isIgnore: true, isTerminal: true },
+        ],
+      },
+      {
+        id: 'q_accountant_screen',
+        text: 'Do you hold a CPA license?',
+        contextPath: [{ questionId: 'q_position', answerId: 'a_accountant' }],
+        answers: [
+          { id: 'a_cpa_yes', text: 'Yes', isMatch: true, isTerminal: true },
+          { id: 'a_cpa_no', text: 'No', isIgnore: true, isTerminal: true },
+        ],
+      },
+      {
+        id: 'q_engineer_screen',
+        text: 'Do you have a coding portfolio?',
+        contextPath: [{ questionId: 'q_position', answerId: 'a_engineer' }],
+        answers: [
+          { id: 'a_portfolio_yes', text: 'Yes', isMatch: true, isTerminal: true },
+          { id: 'a_portfolio_no', text: 'No', isIgnore: true, isTerminal: true },
+        ],
+      },
+    ],
+    createdAt: new Date(),
+    isTemplate: false,
+    usageCount: 0,
+  };
+
+  function path(...steps: Array<[string, string]>): SubmittedAnswer[] {
+    return steps.map(([questionId, answerId]) => ({ questionId, answerId }));
+  }
+
+  it('matches an accountant with a CPA license (one match point)', () => {
+    const answers = path(['q_position', 'a_accountant'], ['q_accountant_screen', 'a_cpa_yes']);
+    expect(checkIfMatch(hrRouteTalk, answers)).toBe(true);
+    expect(checkIfIgnore(hrRouteTalk, answers)).toBe(false);
+  });
+
+  it('matches an engineer with a portfolio (a different match point, same talk)', () => {
+    const answers = path(['q_position', 'a_engineer'], ['q_engineer_screen', 'a_portfolio_yes']);
+    expect(checkIfMatch(hrRouteTalk, answers)).toBe(true);
+    expect(checkIfIgnore(hrRouteTalk, answers)).toBe(false);
+  });
+
+  it('does not match a doctor, rejected at the root question', () => {
+    const answers = path(['q_position', 'a_doctor']);
+    expect(checkIfMatch(hrRouteTalk, answers)).toBe(false);
+    expect(checkIfIgnore(hrRouteTalk, answers)).toBe(true);
+  });
+
+  it('does not match a lawyer, rejected at the root question', () => {
+    const answers = path(['q_position', 'a_lawyer']);
+    expect(checkIfMatch(hrRouteTalk, answers)).toBe(false);
+    expect(checkIfIgnore(hrRouteTalk, answers)).toBe(true);
+  });
+
+  it('does not match an accountant candidate without a CPA license', () => {
+    const answers = path(['q_position', 'a_accountant'], ['q_accountant_screen', 'a_cpa_no']);
+    expect(checkIfMatch(hrRouteTalk, answers)).toBe(false);
+    expect(checkIfIgnore(hrRouteTalk, answers)).toBe(true);
   });
 });
 
