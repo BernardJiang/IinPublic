@@ -26,7 +26,30 @@ const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
 const desktopRoot = path.join(repoRoot, 'platforms', 'desktop');
 const webrtcLaunchArgs = ['--disable-features=WebRtcHideLocalIpsWithMdns'];
 
-function resolveElectronExecutable(): string {
+type ElectronLaunchTarget = { executablePath: string; args: string[]; cwd?: string };
+
+/**
+ * The raw dev Electron binary (platforms/desktop/node_modules/electron) is macOS's
+ * official electron@31.7.7 release zip. Apple has since revoked that build's
+ * notarization ticket — `codesign -dv` on a fresh extract reports "notarization
+ * indicates this code has been revoked", and macOS's on-device XProtect/MRT scanner
+ * deletes the app to Trash the moment it's executed (a "Malware Blocked and Moved to
+ * Trash" dialog, not just a Gatekeeper first-launch prompt — re-signing the outer
+ * bundle alone does not stop it, since the revoked ticket reference lives in the
+ * bundled Electron Framework/Helper binaries too). Prefer the already-built,
+ * already ad-hoc-signed packaged app (platforms/desktop/dist/mac-arm64/IinPublic.app,
+ * built + fully re-signed via afterPack.js's `codesign --force --deep`) when one
+ * exists — `codesign -dv` on that bundle shows a clean adhoc signature with no
+ * revoked-notarization reference. Falls back to the raw dev binary (`electron .`)
+ * otherwise, which still works on machines where XProtect hasn't flagged this build.
+ */
+function resolveElectronLaunchTarget(): ElectronLaunchTarget {
+  if (process.platform === 'darwin') {
+    const packagedApp = path.join(desktopRoot, 'dist', 'mac-arm64', 'IinPublic.app', 'Contents', 'MacOS', 'IinPublic');
+    if (fs.existsSync(packagedApp)) {
+      return { executablePath: packagedApp, args: [...webrtcLaunchArgs] };
+    }
+  }
   const electronDist = path.join(desktopRoot, 'node_modules', 'electron', 'dist');
   const platformExecutable =
     process.platform === 'darwin'
@@ -34,17 +57,23 @@ function resolveElectronExecutable(): string {
       : process.platform === 'win32'
         ? path.join(electronDist, 'electron.exe')
         : path.join(electronDist, 'electron');
-  if (fs.existsSync(platformExecutable)) return platformExecutable;
-  throw new Error(`Electron executable not found at ${platformExecutable}. Run "cd platforms/desktop && npm install".`);
+  if (fs.existsSync(platformExecutable)) {
+    return { executablePath: platformExecutable, args: [...webrtcLaunchArgs, '.'], cwd: desktopRoot };
+  }
+  throw new Error(
+    `No Electron executable found (checked ${process.platform === 'darwin' ? 'the packaged dist/mac-arm64/IinPublic.app and ' : ''}${platformExecutable}). ` +
+      'Run "npm run desktop:dist" (packaged) or "cd platforms/desktop && npm install" (dev binary).',
+  );
 }
 
 export async function launchNativeUser(options: LaunchNativeUserOptions): Promise<NativeUser> {
   fs.mkdirSync(options.userDataDir, { recursive: true });
 
+  const target = resolveElectronLaunchTarget();
   const app = await electron.launch({
-    executablePath: resolveElectronExecutable(),
-    args: [...webrtcLaunchArgs, '.'],
-    cwd: desktopRoot,
+    executablePath: target.executablePath,
+    args: target.args,
+    ...(target.cwd ? { cwd: target.cwd } : {}),
     env: {
       ...process.env,
       // The shared hub webServer is memory-only, but the embedded app node must

@@ -38,8 +38,26 @@ export function configureHttpMiddleware(app: express.Application): void {
           imgSrc: ["'self'", 'data:', 'https:'],
           connectSrc: ["'self'", 'ws:', 'wss:'],
           workerSrc: ["'self'", 'blob:'],
+          // Helmet's CSP defaults (merged in unless overridden per-key) include
+          // upgrade-insecure-requests, which silently forces every subresource fetch —
+          // bundle.js included — onto https:// even when the page itself loaded over
+          // plain http. This relay runs plain HTTP in most dev/LAN-test sessions
+          // (TLS_DISABLE), so that directive breaks the app load entirely (WebKit/Safari
+          // enforces it strictly per-resource: the page shell loads, bundle.js's upgraded
+          // https request then fails TLS against an http-only server, and the app hangs
+          // at "Connecting..." forever with no visible network error). null opts the
+          // directive out of the merged default set.
+          upgradeInsecureRequests: null,
         },
       },
+      // This relay toggles between plain HTTP and self-signed HTTPS across dev/LAN-test
+      // sessions (TLS_DISABLE). Helmet's default Strict-Transport-Security header poisons
+      // any browser that ever saw it over a genuine HTTPS response into force-upgrading
+      // every future request to this host to HTTPS for months (default max-age 180 days)
+      // — including subresource fetches — which then silently fails once the relay drops
+      // back to plain HTTP (WebKit/Safari enforces this per-resource, breaking bundle.js
+      // with no visible error beyond a stuck "Connecting..." screen). Never send it here.
+      hsts: false,
     }),
   );
 
