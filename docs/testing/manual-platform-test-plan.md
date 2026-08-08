@@ -24,6 +24,29 @@ on the LAN, filling that role.
 
 Default hub URL baked into each build: `https://www.iinpublic.com/gun`.
 
+## How to run this without clicking through every screen on every device
+
+You don't need to. Two things do most of the work:
+
+1. **Let the diagnostic script (§0.4) answer "is the mesh actually connected?"** instead
+   of eyeballing Settings → Storage Inspector on all three devices every time something
+   seems off. One command per machine, plain pass/fail output.
+2. **Phase 2 (single-user walkthrough) is the automated Playwright suite's job, not
+   yours.** Every button, tab, and form in this app is already covered in isolation by
+   `npm run test:all` — clicking through Chatrooms/Talks/Settings/Contacts identically on
+   three separate devices by hand mostly re-proves the automated suite already proved.
+   **Skim Phase 2 once, on whichever device is fastest to reach** (confirms the build
+   itself isn't broken), then spend your actual time budget on **Phase 3** — that's the
+   one thing no amount of single-machine automation can substitute for: real network
+   latency, real cross-device Gun sync, real per-OS WebRTC behavior. Phase 3's own list is
+   already short (5 subsections); that's the real test.
+3. **For repeat runs, drive one side by script instead of by hand where you can.** The
+   embedded node's local REST API (same one the UI calls) is scriptable — e.g. `curl
+   -X POST http://127.0.0.1:8088/api/talks -d '{...}'` from the Mac mini to fire a talk
+   without opening the talk editor UI at all — then use the GUI only on the *receiving*
+   device to confirm it arrived. Ask Claude to build out a small script against this API
+   for whichever specific flow you're repeating most, once you know which one that is.
+
 ## 0. One-time setup
 
 ### 0.1 Stand up the relay on the Mac mini
@@ -38,10 +61,21 @@ Leave this running for the whole test session (a plain terminal tab is fine; `no
 if you want to close the terminal). Prefer this over `npm run dev:server` (tsx watch) for
 a multi-hour session — a watch-triggered restart mid-test would drop every connected peer.
 
+**This auto-switches to HTTPS** the moment it finds `certs/dev-key.pem` +
+`certs/dev-cert.pem` in the repo (self-signed, generated once via `scripts/gen-dev-cert.sh`
+— this repo already has one with `192.168.10.50` baked into its SAN list). Watch for
+`🔒 HTTPS enabled for LAN (self-signed dev cert found)` in the startup log — if you see it,
+every hub URL below must be `https://`, not `http://`; a protocol mismatch here fails
+**silently** (see the postmortem in §8) and is the single most likely thing to go wrong.
+`TLS_DISABLE=1 PORT=8080 node dist/server/server/index.js` forces plain HTTP instead if
+you'd rather sidestep the cert-trust dance in §0.3 — see the tradeoff there.
+
 ### 0.2 Find the Mac mini's LAN IP and open the port
 
 ```bash
-ipconfig getifaddr en0        # or en1/en0 depending on interface — Wi-Fi vs Ethernet
+ipconfig getifaddr en0        # or en1 — check networksetup -listallhardwareports for
+                               # which is actually Wi-Fi vs Ethernet on this machine;
+                               # don't assume from the interface name alone
 ```
 
 macOS will prompt "Do you want the application 'node' to accept incoming network
@@ -49,33 +83,59 @@ connections?" the first time something connects — **Allow**. If it doesn't pro
 check System Settings → Network → Firewall and allow incoming connections for `node`,
 or temporarily disable the firewall for the test window.
 
-Verify from a **different** device on the same network:
+Verify from a **different** device on the same network (browser is fine, or):
 
 ```bash
-curl -i http://<macmini-ip>:8080/gun
+curl -ik https://<macmini-ip>:8080/gun    # -k: skip cert-trust check, just testing reachability
 ```
 
-Any HTTP response (even a 404/upgrade-required page) confirms reachability. No response
-= firewall or wrong IP — fix before continuing.
+Any HTTPS response (even a 404/upgrade-required page) confirms reachability. No response
+= firewall, wrong IP, or the two devices are on different subnets (check `ipconfig`/`ifconfig`
+on BOTH machines — the IP ranges must match) — fix before continuing.
 
 ### 0.3 Point each app at the Mac mini relay
+
+Every client needs **three** things set, not just the hub URL — this was the single
+biggest source of "why can't they see each other" during setup (full story in §8):
+
+| Env var | Value | Why |
+|---|---|---|
+| `IINPUBLIC_HUB_GUN_URL` | `https://<macmini-ip>:8080/gun` | Which hub to dial. Must match the relay's actual protocol (§0.1). |
+| `IINPUBLIC_EMBEDDED_HUB_MODE` | `gun-peer` | **Required for talks/matches/DMs to sync at all.** The default (`explicit-http`) only relays presence/chatroom-membership over discrete REST calls — it deliberately never opens a live Gun connection to the hub, so talk data (which only propagates via genuine Gun graph sync) has no path to travel. `gun-peer` mode opens a real, persistent Gun connection instead. |
+| `NODE_TLS_REJECT_UNAUTHORIZED` | `0` | Only needed if using `https://` (§0.1). The self-signed cert is valid and even has the LAN IP in its SAN list, but Gun's own connection layer doesn't honor `NODE_EXTRA_CA_CERTS` (tried it — connects and immediately disconnects, silently) — it needs the blunter flag. **This disables TLS certificate verification for the whole process.** Fine for this trusted LAN test; never carry this env var into a build pointed at a real public hub. |
 
 **macOS** — packaged `.app`s launched by double-click do not inherit a shell's
 environment variables. Launch the actual binary inside the bundle from Terminal instead:
 
 ```bash
-IINPUBLIC_HUB_GUN_URL="http://<macmini-ip>:8080/gun" \
+IINPUBLIC_HUB_GUN_URL="https://<macmini-ip>:8080/gun" \
+IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer \
+NODE_TLS_REJECT_UNAUTHORIZED=0 \
   "/Applications/IinPublic.app/Contents/MacOS/IinPublic"
 ```
 
-(First launch will be Gatekeeper-blocked since the DMG is unsigned — see §2.1.)
+(First launch will be Gatekeeper-blocked since the DMG is unsigned — see §1.1.)
 
-**Windows** — same idea, from PowerShell, after installing via the NSIS installer:
+**Windows** — from PowerShell, after installing via the NSIS installer. Set every env var
+and launch the exe as **one single line** — `$env:` only persists for the session it's set
+in, so setting it and launching separately across two commands can silently launch without
+it if anything resets the session in between (this bit us during setup):
 
 ```powershell
-$env:IINPUBLIC_HUB_GUN_URL = "http://<macmini-ip>:8080/gun"
-& "C:\Users\<you>\AppData\Local\Programs\IinPublic\IinPublic.exe"
+$env:IINPUBLIC_HUB_GUN_URL="https://<macmini-ip>:8080/gun"; $env:IINPUBLIC_EMBEDDED_HUB_MODE="gun-peer"; $env:NODE_TLS_REJECT_UNAUTHORIZED="0"; & "C:\Users\<you>\AppData\Local\Programs\iinpublic-desktop\IinPublic.exe"
 ```
+
+Note the install folder is `iinpublic-desktop`, not `IinPublic` — the NSIS installer uses
+the package name, not the display name. If that path is wrong, right-click your
+Desktop/Start Menu shortcut → **Open file location** to get the real one.
+
+**Prefer plain HTTP instead?** Skip `NODE_TLS_REJECT_UNAUTHORIZED` and start the relay
+with `TLS_DISABLE=1` (§0.1); use `http://` in all three commands above.
+`IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` is still required either way — that part has
+nothing to do with HTTP vs HTTPS. HTTP is simpler (no cert-trust flag to remember) and,
+since the HTTPS path already requires disabling certificate verification to work at all,
+it provides no real additional security in this LAN-test setup — pick whichever you find
+less confusing and use it consistently everywhere.
 
 **Android — hard blocker:** the hub URL is a hardcoded Kotlin constant
 (`NodeForegroundService.kt:32`), not read from an env var or app setting, so the debug
@@ -87,9 +147,27 @@ solo/offline-ish behavior; that degradation is itself worth checking, see §2.3)
 
 ### 0.4 Confirm each app actually attached
 
-Settings → Storage Inspector (§ drill-down: Settings tab → tap "Storage Inspector") shows
-the active hub peer list and connection state — confirm `<macmini-ip>:8080` appears
-there on each device before starting Phase 2.
+Run the diagnostic script **on each machine**, against its own local embedded node —
+far faster than digging through raw JSON logs by hand:
+
+```bash
+# macOS/Linux
+bash scripts/diagnose-local-node.sh 8088 <macmini-ip>:8080
+```
+
+```powershell
+# Windows
+powershell -File scripts\diagnose-local-node.ps1 -LocalPort 8088 -HubHost <macmini-ip> -HubPort 8080
+```
+
+It reports: whether the local embedded node is up, this device's own view of Global
+chatroom membership (should show every device, not just itself + TechSupport), and
+whether a live TCP connection to the hub actually exists. All three should be green
+before moving on to Phase 2 — if membership only shows yourself, re-check the three env
+vars in §0.3 (gun-peer mode and protocol match are the two most common misses).
+
+The GUI's Settings → Storage Inspector → hub peer list shows the same information if you'd
+rather check visually.
 
 ---
 
@@ -267,13 +345,69 @@ per-platform rendering.
   `android/app/build.gradle`) — fine for this test, not distributable as-is.
 - Android's hub URL is hardcoded — Phase 3 is blocked on Android until that's
   parameterized (see §0.3).
-- No HTTPS on the local relay (`http://<macmini-ip>:8080/gun`) — acceptable for a LAN
-  test; note if any WebRTC/secure-context-gated behavior misbehaves under plain HTTP so
-  it can be looked at before trying this over a real TLS hub later.
+- If running over HTTPS (§0.1), `NODE_TLS_REJECT_UNAUTHORIZED=0` is required on every
+  client and disables TLS certificate verification for that whole process. Fine for this
+  trusted LAN test; never let this env var reach a build pointed at a real public hub.
 
 ## 7. Filing a bug
 
 For anything that fails, capture: platform + build artifact name, which phase/step,
 stage name(s) of the device(s) involved, Settings → Storage Inspector screenshot from
 each involved device (transport mode + hub peer list), and — if reproducible — the exact
-step sequence that triggers it.
+step sequence that triggers it. `scripts/diagnose-local-node.sh` / `.ps1` (§0.4) is a
+faster first move than screenshots for anything connectivity-shaped.
+
+## 8. Postmortem: the four-bug chain behind "they can't see each other"
+
+First real attempt at this test hit four independent, stacked bugs — each one hiding the
+next until the previous was fixed. Kept here so the next environment reset doesn't have
+to rediscover all four from scratch.
+
+1. **Neither app pointed at the relay at all.** Both defaulted to the (nonexistent)
+   production URL. → §0.3's env vars.
+2. **The relay was silently serving HTTPS** while every hub URL configured used
+   `http://`. It auto-switches the moment it finds `certs/dev-key.pem`/`dev-cert.pem` in
+   the repo — there's no console warning that a client is about to fail against it, the
+   connection just never establishes. → match protocol everywhere (§0.1/§0.3), or force
+   `TLS_DISABLE=1`.
+3. **A PowerShell env var didn't actually apply** — set in one line, app launched in a
+   separate command; `$env:` assignments don't reliably survive across separate
+   invocations the way you'd expect from a persistent shell session. The giveaway was in
+   the app's own startup log (`hub=https://www.iinpublic.com/gun` instead of the LAN
+   address) — always check that line after launching, don't assume the env var took.
+   → combine assignment + launch into one line (§0.3).
+4. **Presence worked (chatroom headcount, member list) but talks and DMs didn't**, even
+   with the hub reachable and both apps pointed at it correctly. Two layered causes:
+   - A device's public profile (SEA pub/epub keys) only pushes to the hub **once**, at
+     identity creation, fire-and-forget with no retry. If that identity was created
+     during an earlier, broken attempt (bugs 1–3 above), the push failed silently and
+     never retried — the hub returned 404 for that user's profile indefinitely
+     afterward. Fix: re-save the stage name in Settings → Profile to re-trigger the push.
+   - Even with the profile visible, talk/match data still didn't flow, because the
+     default `IINPUBLIC_EMBEDDED_HUB_MODE=explicit-http` intentionally never opens a live
+     Gun peer connection to the hub — it only relays presence/profile/signaling via
+     discrete REST calls. Talk delivery depends on genuine Gun graph sync, which has no
+     path over REST. `IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` (§0.3) opens a real,
+     persistent Gun connection instead — confirmed in the log by `peerId` being the
+     literal hub URL (not a short random string) and a `GET`/`lsof` showing an actual
+     established TCP connection to the hub's port, not just periodic REST hits.
+
+**Identity persistence, for the record:** none of the relaunches above (env var changes,
+relay restarts, or the profile rename used to fix #4) create a new identity. Each
+device's SEA keypair + user ID is generated once and lives in that device's own local
+storage (`~/Library/Application Support/IinPublic/node-data` on macOS,
+`%APPDATA%\IinPublic\node-data` on Windows) — completely independent of hub URL, hub
+mode, TLS settings, or the relay's own process lifecycle (the standalone relay itself is
+in-memory only and persists nothing). Renaming a stage name only edits that field on the
+existing identity. Verified directly from server logs during setup: both test devices'
+user IDs were identical across every relaunch, before and after a rename.
+
+**Why only one server this time, when dev work normally needs two (3001 + 8080)?** Those
+are unrelated setups. `npm run dev` runs a webpack **dev** server on 3001 (hot-reload,
+serves the SPA to a browser tab while actively editing code) alongside the API/Gun server
+on 8080 — that split only exists for live development. The packaged desktop/Android
+builds have no dev server at all: `dist/web` (the final built SPA) is baked into the app
+and served directly by that device's own embedded Node process on its own local port
+(8088), with no separate static-file server needed. The Mac mini in this test plan is
+running *only* the shared relay (`dist/server`, port 8080) — each device, including the
+Mac itself if you also run the desktop app there, carries its own web server internally.
