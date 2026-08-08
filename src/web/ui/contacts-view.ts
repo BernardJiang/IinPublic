@@ -652,6 +652,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     const controls = {
       name: document.getElementById('contacts-filter-name') as HTMLInputElement | null,
       relation: document.getElementById('contacts-filter-relation') as HTMLSelectElement | null,
+      outcome: document.getElementById('contacts-filter-outcome') as HTMLSelectElement | null,
       sort: document.getElementById('contacts-sort-order') as HTMLSelectElement | null,
     };
     const savedState = (() => {
@@ -659,6 +660,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         return JSON.parse(localStorage.getItem('iinpublic_contacts_tab_state') || '{}') as {
           name?: string;
           relation?: string;
+          outcome?: string;
           sort?: string;
           scrollTop?: number;
         };
@@ -671,18 +673,20 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     // change used to revert the select).
     if (controls.name && controls.name.value === '' && savedState.name) controls.name.value = savedState.name;
     if (controls.relation && controls.relation.value === 'all' && savedState.relation) controls.relation.value = savedState.relation;
+    if (controls.outcome && controls.outcome.value === 'all' && savedState.outcome) controls.outcome.value = savedState.outcome;
     if (controls.sort && controls.sort.value === 'recent' && savedState.sort) controls.sort.value = savedState.sort;
     const persistControls = () => {
       localStorage.setItem('iinpublic_contacts_tab_state', JSON.stringify({
         name: controls.name?.value || '',
         relation: controls.relation?.value || 'all',
+        outcome: controls.outcome?.value || 'all',
         sort: controls.sort?.value || 'recent',
         scrollTop: listEl.scrollTop || 0,
       }));
     };
     // Bind persistent listeners exactly once per control element ({ once: true }
     // re-arming dropped change events that fired while a render was in flight).
-    for (const control of [controls.name, controls.relation, controls.sort]) {
+    for (const control of [controls.name, controls.relation, controls.outcome, controls.sort]) {
       if (!control || control.dataset.contactsControlBound === '1') continue;
       control.dataset.contactsControlBound = '1';
       for (const eventName of ['input', 'change']) {
@@ -695,6 +699,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
 
     const nameFilter = (controls.name?.value || '').trim().toLowerCase();
     const relationFilter = controls.relation?.value || 'all';
+    const outcomeFilter = controls.outcome?.value || 'all';
     const sortOrder = controls.sort?.value || 'recent';
     const supportNameMatches = !nameFilter || TECHSUPPORT_STAGE_NAME.toLowerCase().includes(nameFilter);
     const showSupportContact = deps.hasSupportContact() && relationFilter === 'all' && supportNameMatches;
@@ -710,6 +715,11 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         const relationshipLabel = known?.label ? formatRelationshipLabel(known, deps).toLowerCase() : '';
         if (nameFilter && !`${displayName} ${relationshipLabel}`.includes(nameFilter)) return false;
         if (relationFilter !== 'all' && known?.label !== relationFilter) return false;
+        if (outcomeFilter !== 'all') {
+          const matchedTalks = peer.stats.sent.matches + peer.stats.received.matches;
+          if (outcomeFilter === 'matched' && matchedTalks === 0) return false;
+          if (outcomeFilter === 'unmatched' && matchedTalks > 0) return false;
+        }
         return true;
       })
       .sort((a, b) => {

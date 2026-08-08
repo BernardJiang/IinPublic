@@ -129,7 +129,7 @@ import {
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
-import { openPeerDetailView, refreshPeerThreadList } from './user-detail-view';
+import { openPeerDetailView, refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderListProgressively } from './render-list-progressively';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
@@ -361,6 +361,9 @@ export class UIManager extends EventEmitter {
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
   private creatorReplyRows: CreatorReplyRow[] = [];
   private creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
+  /** §M1: when set (via showCreatorRepliesForTalk), scopes #creator-replies-panel to one talk. */
+  private creatorReplyScopedTalkId: string | null = null;
+  private creatorReplyScopedTalkTitle = '';
   private talksListDelegationBound = false;
   /**
    * TODO §R2: delegated (bound once) click handler for talk-row and matched/sender-people
@@ -627,6 +630,9 @@ export class UIManager extends EventEmitter {
       ['#contacts-filter-relation option[value="acquaintance"]', 'acquaintances'],
       ['#contacts-filter-relation option[value="partner"]', 'partners'],
       ['#contacts-filter-relation option[value="custom"]', 'custom'],
+      ['#contacts-filter-outcome option[value="all"]', 'contactsOutcomeAll'],
+      ['#contacts-filter-outcome option[value="matched"]', 'contactsOutcomeMatched'],
+      ['#contacts-filter-outcome option[value="unmatched"]', 'contactsOutcomeUnmatched'],
       ['#contacts-sort-order option[value="recent"]', 'recent'],
       ['#contacts-sort-order option[value="talks"]', 'talkCount'],
       ['#contacts-sort-order option[value="matches"]', 'matchedTalks'],
@@ -1018,6 +1024,11 @@ export class UIManager extends EventEmitter {
                   <option value="partner">Partners</option>
                   <option value="custom">Custom</option>
                 </select>
+                <select class="form-input" id="contacts-filter-outcome" style="flex:0 0 140px;">
+                  <option value="all">All outcomes</option>
+                  <option value="matched">Matched</option>
+                  <option value="unmatched">Not matched</option>
+                </select>
                 <select class="form-input" id="contacts-sort-order" style="flex:0 0 150px;">
                   <option value="recent">Recent</option>
                   <option value="talks">Talk count</option>
@@ -1257,6 +1268,11 @@ export class UIManager extends EventEmitter {
                       <button class="btn peer-filter-tab active" data-filter="all" style="padding:4px 10px;font-size:0.85em;">All</button>
                       <button class="btn peer-filter-tab" data-filter="sent" style="padding:4px 10px;font-size:0.85em;">Sent</button>
                       <button class="btn peer-filter-tab" data-filter="received" style="padding:4px 10px;font-size:0.85em;">Received</button>
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                      <button class="btn peer-outcome-tab active" data-outcome="all" style="padding:4px 10px;font-size:0.85em;">All</button>
+                      <button class="btn peer-outcome-tab" data-outcome="match" style="padding:4px 10px;font-size:0.85em;">Match</button>
+                      <button class="btn peer-outcome-tab" data-outcome="mismatch" style="padding:4px 10px;font-size:0.85em;">Mismatch</button>
                     </div>
                   </div>
                 </div>
@@ -1657,11 +1673,14 @@ export class UIManager extends EventEmitter {
     });
     this.restoreCreatorReplyFilterState();
     ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
-      // TODO §M1: #creator-replies-panel is hidden (display:none); skip renderCreatorReplies()
-      // here since it would only re-render DOM the user can't see.
       document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => {
         this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
         this.persistCreatorReplyFilterState();
+        // §M1: the panel is normally hidden (display:none) until showCreatorRepliesForTalk
+        // opens it — only re-render while it's actually visible.
+        if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
+          this.renderCreatorReplies();
+        }
       });
     });
     document.getElementById('reply-clear-filters')?.addEventListener('click', () => {
@@ -1674,7 +1693,12 @@ export class UIManager extends EventEmitter {
         if (select) select.value = id === 'reply-sort-order' ? 'recent' : id === 'reply-group-order' ? 'none' : 'all';
       });
       this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
+      this.creatorReplyScopedTalkId = null;
+      this.creatorReplyScopedTalkTitle = '';
       this.persistCreatorReplyFilterState();
+      if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
+        this.renderCreatorReplies();
+      }
     });
 
   }
@@ -2583,6 +2607,25 @@ export class UIManager extends EventEmitter {
             }
             return;
           }
+          // Only reachable from inside the long-press details popup (OUT rows with ≥1 response).
+          const viewResponsesBtn = target.closest('.talk-view-responses-btn');
+          if (viewResponsesBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const el = viewResponsesBtn as HTMLElement;
+            const talkId = el.dataset.talkId || '';
+            const talkTitle = el.dataset.talkTitle || '';
+            if (talkId) {
+              setTimeout(() => {
+                // Close via the popup's own close button (not a raw .remove()) so it
+                // properly returns .talk-item-details — this button's own container —
+                // to its row first, instead of deleting it along with the modal.
+                document.getElementById('close-item-details-popup')?.click();
+                this.showCreatorRepliesForTalk(talkId, talkTitle);
+              }, 0);
+            }
+            return;
+          }
         },
         { capture: true },
       );
@@ -2880,6 +2923,7 @@ export class UIManager extends EventEmitter {
             </div>
             ${rankLine}
             ${talkTypeLower === 'survey' ? `<button type="button" class="btn survey-stats-btn talk-icon-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="margin-top:6px;color:var(--accent-text);">📊 ${this.t('talksResults')}</button>` : ''}
+            ${metrics.responses > 0 ? `<button type="button" class="btn talk-view-responses-btn talk-icon-btn" data-talk-id="${escapeHtml(talkId)}" data-talk-title="${escapeHtml(talk.title)}" data-testid="talk-view-responses-button" style="margin-top:6px;color:var(--accent-text);">👥 ${escapeHtml(this.tf('talksViewResponses', { count: metrics.responses }))}</button>` : ''}
             ${coExchangedLine}
           </div>
         </div>
@@ -3323,11 +3367,34 @@ export class UIManager extends EventEmitter {
   private async refreshCreatorReplies(): Promise<void> {
     if (!this.currentUserId) return;
     // P0 step 5: replies derived from localTalkExchanges — no server call to /api/users/:id/replies.
-    // creatorReplyRows also feeds the OUT-row matched-names line in displayTalksList (line ~2313),
-    // so this derivation stays even though the panel itself (TODO §M1) is hidden and its own
-    // renderCreatorReplies() DOM update is skipped.
+    // creatorReplyRows also feeds the OUT-row matched-names line in displayTalksList (line ~2313).
     this.creatorReplyRows = deriveLocalCreatorReplies(this.currentUserId) as CreatorReplyRow[];
     if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
+  }
+
+  /**
+   * §M1: opens #creator-replies-panel scoped to one talk — "who answered this?" from a
+   * talk row's "View Responses" button, or from a peer-history item in the ⟨User⟩ layout
+   * (peer-detail-view.ts's openTalkResponses dep). Switches to the Talks tab first (via the
+   * real nav-button click, so the whole tab-switch side effect chain — header, view panel,
+   * refreshCreatorReplies — runs exactly as it would for a manual click) then shows the
+   * panel scoped to talkId; showAllTalks=false leaves scope on for repeat visits, cleared by
+   * the panel's own Clear-filters button or by picking a different talk.
+   */
+  showCreatorRepliesForTalk(talkId: string, talkTitle: string): void {
+    // The ⟨User⟩ layout (#peer-detail-overlay) is a separate full-screen overlay, not a
+    // .view-panel — switching the bottom-nav tab underneath it does not hide it, so a
+    // trigger from inside peer-detail (a peer-history item's title) would otherwise leave
+    // it stacked on top of the Talks tab, blocking the panel it just opened.
+    closePeerDetailView();
+    (document.querySelector('.nav-btn[data-view="talks"]') as HTMLElement | null)?.click();
+    this.creatorReplyScopedTalkId = talkId;
+    this.creatorReplyScopedTalkTitle = talkTitle;
+    const panel = document.getElementById('creator-replies-panel');
+    if (panel) panel.style.display = 'block';
+    this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
+    this.renderCreatorReplies();
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   private renderCreatorReplies(): void {
@@ -3357,6 +3424,7 @@ export class UIManager extends EventEmitter {
         const known = this.getKnownPerson(row.responderId);
         const label = String(known?.label || 'stranger').toLowerCase();
         const time = new Date(row.date).getTime();
+        if (this.creatorReplyScopedTalkId && row.talkId !== this.creatorReplyScopedTalkId) return false;
         if (query && !`${row.responderName} ${row.title}`.toLowerCase().includes(query)) return false;
         if (state.outcome !== 'all' && row.outcome !== state.outcome && row.answerMode !== state.outcome) return false;
         if (state.relationship !== 'all' && label !== state.relationship) return false;
@@ -3418,7 +3486,14 @@ export class UIManager extends EventEmitter {
       ].filter(Boolean);
       activeFilters.innerHTML = chips.map((chip) =>
         `<span class="reply-filter-chip" style="font-size:0.8em;background:var(--border);border-radius:999px;padding:3px 8px;">${escapeHtml(chip)}</span>`,
-      ).join('');
+      ).join('') + (this.creatorReplyScopedTalkId
+        ? `<span class="reply-filter-chip reply-scope-chip" id="reply-scope-chip" style="font-size:0.8em;background:var(--accent-soft);color:var(--accent-text);border-radius:999px;padding:3px 8px;cursor:pointer;font-weight:600;" title="${escapeHtml(this.t('repliesClearScope'))}">${escapeHtml(this.tf('repliesScopedToTalk', { title: this.creatorReplyScopedTalkTitle }))} ×</span>`
+        : '');
+      document.getElementById('reply-scope-chip')?.addEventListener('click', () => {
+        this.creatorReplyScopedTalkId = null;
+        this.creatorReplyScopedTalkTitle = '';
+        this.renderCreatorReplies();
+      });
     }
     if (filtered.length === 0) {
       list.innerHTML = `<div style="color:var(--text-muted);padding:8px;">${this.t('repliesNoMatch')}</div>`;
@@ -3452,7 +3527,7 @@ export class UIManager extends EventEmitter {
         : '';
       previousGroup = group;
       return `${groupHeader}
-        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-talk-id="${escapeHtml(row.talkId)}" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);">
+        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-responder-name="${escapeHtml(row.responderName)}" data-talk-id="${escapeHtml(row.talkId)}" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);cursor:pointer;" role="button" tabindex="0" title="${escapeHtml(this.t('repliesViewContact'))}">
           <div style="display:flex;justify-content:space-between;gap:10px;">
             <strong>${escapeHtml(row.responderName)}</strong>
             <span style="color:${row.outcome === 'match' ? 'var(--success-text)' : 'var(--text-tertiary)'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>
@@ -3462,6 +3537,13 @@ export class UIManager extends EventEmitter {
         </div>
       `;
     }).join('');
+    list.querySelectorAll<HTMLElement>('.creator-reply-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const id = row.dataset.responderId || '';
+        const name = row.dataset.responderName || '';
+        if (id) this.navigateToGraphNode({ type: 'person', id, name });
+      });
+    });
     if (filtered.length > this.creatorReplyVisibleCount) {
       const moreCount = Math.min(CREATOR_REPLY_PAGE_SIZE, filtered.length - this.creatorReplyVisibleCount);
       list.innerHTML += `<button class="btn" id="reply-load-more" type="button" style="margin-top:6px;">${this.getUiLanguage() === 'zh' ? `再显示 ${moreCount} 条回复` : `Show ${moreCount} more replies`}</button>`;
@@ -8840,6 +8922,9 @@ export class UIManager extends EventEmitter {
       },
       openDirectConversation: (peerId: string, peerName: string, talkId?: string) => {
         void this.openDirectConversationWithPeer(peerId, peerName, talkId);
+      },
+      openTalkResponses: (talkId: string, talkTitle: string) => {
+        this.showCreatorRepliesForTalk(talkId, talkTitle);
       },
       renderPeerContext: (container: HTMLElement, peerId: string, peerName: string) => {
         this.renderPeerContextSection(container, peerId, peerName);

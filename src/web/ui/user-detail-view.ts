@@ -37,6 +37,10 @@ export type UserDetailViewDeps = {
   /** Opens (creating on demand) the pair's DM conversation (C4b). Optional talkId (TODO §O)
    *  scopes the newly-created conversation's active thread to that talk from the first message. */
   openDirectConversation: (peerId: string, peerName: string, talkId?: string) => void;
+  /** Switches to the Talks tab and opens #creator-replies-panel scoped to this one talk —
+   *  only offered for 'sent' history items, since only talks I authored have a full
+   *  responder list available locally. */
+  openTalkResponses?: (talkId: string, talkTitle: string) => void;
   /** Renders the relationship/credit context block + edit button into a container (shared with Contacts). */
   renderPeerContext?: (container: HTMLElement, peerId: string, peerName: string) => void;
   getTransportStatus: () => {
@@ -56,6 +60,7 @@ export type UserDetailViewDeps = {
 
 type SortMode = 'date' | 'outcome';
 type FilterMode = 'all' | 'sent' | 'received';
+type OutcomeFilterMode = 'all' | 'match' | 'mismatch';
 type PeerSendOmitReason = 'talk_expired' | 'broadcast_disabled' | 'peer_already_sent';
 
 type ClassifiedPeerTalk = {
@@ -120,6 +125,7 @@ let currentState: {
   history: TalkHistoryItem[];
   sort: SortMode;
   filter: FilterMode;
+  outcomeFilter: OutcomeFilterMode;
 } | null = null;
 
 function format(deps: UserDetailViewDeps, key: UiTranslationKey, values: Record<string, string | number>): string {
@@ -137,6 +143,9 @@ function renderPeerShellCopy(deps: UserDetailViewDeps): void {
     ['.peer-filter-tab[data-filter="all"]', 'all'],
     ['.peer-filter-tab[data-filter="sent"]', 'sent'],
     ['.peer-filter-tab[data-filter="received"]', 'received'],
+    ['.peer-outcome-tab[data-outcome="all"]', 'all'],
+    ['.peer-outcome-tab[data-outcome="match"]', 'match'],
+    ['.peer-outcome-tab[data-outcome="mismatch"]', 'mismatch'],
     ['#peer-auto-mode-text', 'peerAutoMode'],
     ['#peer-dm-label', 'peerSendDirectMessage'],
     ['#peer-messaging-title', 'peerMessages'],
@@ -166,7 +175,7 @@ export function openPeerDetailView(
   peerName: string,
   deps: UserDetailViewDeps,
 ): void {
-  currentState = { peerId, peerName, deps, history: [], sort: 'date', filter: 'all' };
+  currentState = { peerId, peerName, deps, history: [], sort: 'date', filter: 'all', outcomeFilter: 'all' };
 
   const overlay = document.getElementById('peer-detail-overlay');
   if (!overlay) return;
@@ -249,6 +258,19 @@ export function openPeerDetailView(
       fresh.classList.add('active');
       if (currentState) {
         currentState.filter = (fresh.dataset.filter as FilterMode) || 'all';
+        renderHistory();
+      }
+    });
+  });
+
+  document.querySelectorAll('.peer-outcome-tab').forEach((tab) => {
+    const fresh = tab.cloneNode(true) as HTMLElement;
+    tab.replaceWith(fresh);
+    fresh.addEventListener('click', () => {
+      document.querySelectorAll('.peer-outcome-tab').forEach((b) => b.classList.remove('active'));
+      fresh.classList.add('active');
+      if (currentState) {
+        currentState.outcomeFilter = (fresh.dataset.outcome as OutcomeFilterMode) || 'all';
         renderHistory();
       }
     });
@@ -824,7 +846,7 @@ async function fetchAndRenderHistory(peerId: string, deps: UserDetailViewDeps): 
 
 function renderHistory(): void {
   if (!currentState) return;
-  const { peerId, peerName, history, sort, filter, deps } = currentState;
+  const { peerId, peerName, history, sort, filter, outcomeFilter, deps } = currentState;
   const historyEl = document.getElementById('peer-talk-history-list');
   if (!historyEl) return;
 
@@ -833,6 +855,9 @@ function renderHistory(): void {
   // Filter
   if (filter !== 'all') {
     items = items.filter((i) => i.direction === filter);
+  }
+  if (outcomeFilter !== 'all') {
+    items = items.filter((i) => i.outcome === outcomeFilter);
   }
 
   // Sort
@@ -860,11 +885,19 @@ function renderHistory(): void {
           : `⏳ ${deps.text('peerPending')}`;
       const typeLabel = item.type ? `<span class="peer-talk-type">${escapeHtml(deps.formatType(item.type))}</span>` : '';
       const dateLabel = deps.formatRelativeTime(new Date(item.date));
+      // Only a talk *I* authored (direction 'sent') has a full responses list to show —
+      // deriveLocalCreatorReplies only has complete responder data for talks I sent, not
+      // ones I answered. For those, the title is a separate click target (View Responses);
+      // for 'received' items it's plain text and the whole row keeps opening the DM thread.
+      const titleContent = escapeHtml(item.title) + ' ' + typeLabel;
+      const titleHtml = item.direction === 'sent'
+        ? `<button type="button" class="peer-history-title peer-history-title-link" data-talk-id="${escapeHtml(item.talkId)}" data-talk-title="${escapeHtml(item.title)}" style="background:none;border:none;padding:0;font:inherit;text-align:left;color:inherit;cursor:pointer;text-decoration:underline dotted;">${titleContent}</button>`
+        : `<div class="peer-history-title">${titleContent}</div>`;
       return `
         <div class="peer-history-item ${outcomeClass}" data-talk-id="${escapeHtml(item.talkId)}" role="button" tabindex="0" style="cursor:pointer;">
           <div class="peer-history-direction" title="${dirLabel}">${dirIcon}</div>
           <div class="peer-history-body">
-            <div class="peer-history-title">${escapeHtml(item.title)} ${typeLabel}</div>
+            ${titleHtml}
             <div class="peer-history-meta">
               <span class="peer-history-outcome">${outcomeLabel}</span>
               <span class="peer-history-date">${dateLabel}</span>
@@ -891,6 +924,14 @@ function renderHistory(): void {
       } else {
         deps.openDirectConversation(peerId, peerName, talkId);
       }
+    });
+  });
+  historyEl.querySelectorAll<HTMLElement>('.peer-history-title-link').forEach((titleBtn) => {
+    titleBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const talkId = titleBtn.dataset.talkId || '';
+      const talkTitle = titleBtn.dataset.talkTitle || '';
+      if (talkId) deps.openTalkResponses?.(talkId, talkTitle);
     });
   });
 }
