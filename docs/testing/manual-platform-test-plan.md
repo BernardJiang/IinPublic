@@ -170,6 +170,24 @@ traffic still goes over Wi-Fi/LAN, so the hub URL must be the Mac's real LAN IP,
 `127.0.0.1` (that's the Mac's own loopback, unreachable from the phone). Phone and Mac must
 be on the same network.
 
+**Verified against real hardware (2026-08-08, Honor FRD-L04 / Android 7.0 / SDK 24).** The
+app itself is confirmed stable — three real crash-on-launch bugs were found and fixed (see
+`tests/e2e/native-app/05-android-device-boots.md` for the full root-cause writeup: a missing
+`-DANDROID_STL=c++_shared` CMake arg, a missing `node_modules` in the staged embedded-Node
+assets, and a `\p{L}\p{N}` Unicode-property regex literal that nodejs-mobile's non-full-ICU
+V8 can't parse). All three were invisible in `adb logcat` alone — Node's stdout/stderr had
+nowhere to go, so `native-lib.cpp` now redirects them to a pullable `node-stdio.log` in the
+app's data dir; that's the tool that actually cracked each of these open. With the fixes in,
+the app was confirmed running and interactive via screenshot and direct CDP inspection.
+
+The Playwright spec itself still cannot pass on this specific device, though — Playwright
+1.57's `_android` driver has a reproducible incompatibility with this WebView build
+(`device.webViews()` finds it but reports an empty `pkg`, and `.page()` hangs indefinitely
+even bypassing the pkg filter). This is a Playwright/old-WebView compatibility gap, not an
+app bug; see the spec's `.md` for what was tried. A newer/different physical device is the
+next thing to try if automating this matters more than the manual-verification evidence
+already gathered.
+
 ### 0.4 Confirm each app actually attached
 
 Run the diagnostic script **on each machine**, against its own local embedded node —

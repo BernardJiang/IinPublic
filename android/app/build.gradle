@@ -25,6 +25,14 @@ android {
             cmake {
                 cFlags "-std=c11"
                 cppFlags "-std=c++20 -frtti -fexceptions"
+                // Was documented (see the nodejs-mobile setup comment in dependencies{} below,
+                // step 3) but never actually added here — native-lib.so linked against the
+                // shared C++ runtime with no ANDROID_STL argument telling AGP to bundle
+                // libc++_shared.so into the APK, so on a real device NodeBridge's
+                // System.loadLibrary("native-lib") crashed with
+                // UnsatisfiedLinkError: dlopen failed: library "libc++_shared.so" not found
+                // (confirmed on a real arm64-v8a/SDK 24 device, 2026-08-08).
+                arguments "-DANDROID_STL=c++_shared"
             }
         }
     }

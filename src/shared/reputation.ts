@@ -1,6 +1,22 @@
 import { User, Reputation, Filter } from './types';
 import { CONFIG } from './config';
 
+// \p{L}\p{N} Unicode property escapes require a full-ICU build. Built via `new RegExp`
+// (not a literal) so the SyntaxError on ICU-less runtimes — nodejs-mobile's embedded Node
+// lacks full ICU, and a literal fails to even parse, crashing module load and taking down
+// the whole embedded-Node process on Android real hardware (2026-08-08) — is catchable here
+// instead of at import time.
+const WORD_PATTERN: RegExp = (() => {
+  try {
+    return new RegExp("[\\p{L}\\p{N}']+", 'gu');
+  } catch {
+    // No full-ICU support: fall back to a script-agnostic "non-separator" tokenizer.
+    // CJK terms are matched separately via substring search (see cjkBlockedTerms below),
+    // so this fallback only affects whole-word matching for Latin/Cyrillic/etc. scripts.
+    return /[^\s.,!?;:"()[\]{}<>@#$%^&*+=|\\/~`]+/g;
+  }
+})();
+
 export class ReputationManager {
   /**
    * Calculate reputation score based on various factors
@@ -172,7 +188,7 @@ export class ContentFilter {
    */
   static findDirtyWord(content: string, customWords: readonly string[] = []): string | null {
     const normalized = content.normalize('NFKC').toLowerCase();
-    const words = normalized.match(/[\p{L}\p{N}']+/gu) || [];
+    const words = normalized.match(WORD_PATTERN) || [];
     const merged = new Set<string>(this.latinBlockedWords);
     for (const w of customWords) {
       const t = String(w ?? '').normalize('NFKC').trim().toLowerCase();

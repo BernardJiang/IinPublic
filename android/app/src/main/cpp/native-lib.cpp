@@ -103,6 +103,16 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
     /* ── chdir so Gun radisk writes inside app sandbox ──────────────── */
     chdir(data_dir);
 
+    // Node's own stdout/stderr (console.log, uncaught-exception stack traces printed
+    // right before an early process.exit()) go to whatever fds Zygote gave this process
+    // — normally /dev/null — so they never reach logcat. Redirect to a file in the
+    // sandbox so a device-side crash-loop with no AndroidRuntime/logcat trace (see
+    // 2026-08-08 real-device debugging) can actually be diagnosed via `adb pull`.
+    freopen("node-stdio.log", "w", stdout);
+    freopen("node-stdio.log", "a", stderr);
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+
     env->ReleaseStringUTFChars(script_path_j, script_path);
 
     /* ── spawn Node runtime on a detached thread ───────────────────── */

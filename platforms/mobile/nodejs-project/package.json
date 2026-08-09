@@ -4,5 +4,12 @@
   "private": true,
   "description": "Embedded node project run by nodejs-mobile on Android/iOS",
   "main": "main.js",
-  "dependencies": {}
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.0",
+    "gun": "^0.2020.1241",
+    "helmet": "^7.1.0",
+    "socket.io": "^4.8.0",
+    "uuid": "^10.0.0"
+  }
 }

@@ -82,7 +82,7 @@
     "format": "prettier --write src/**/*.ts",
     "android:wrapper": "cd android && gradle wrapper --gradle-version 8.4",
     "android:clean": "cd android && { [ -x ./gradlew ] && ./gradlew clean || gradle clean; }",
-    "android:build": "npm run mobile:stage && cd android && { [ -x ./gradlew ] && ./gradlew assembleDebug || gradle assembleDebug; }",
+    "android:build": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew assembleDebug || gradle assembleDebug; }",
     "android:install": "cd android && { [ -x ./gradlew ] && ./gradlew installDebug || gradle installDebug; }",
     "android:run": "npm run android:build && npm run android:install"
   },
