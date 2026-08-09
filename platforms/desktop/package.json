@@ -42,7 +42,8 @@
       },
       {
         "from": "../../public",
-        "to": "app/public"
+        "to": "app/public",
+        "filter": ["**/*", "!downloads/**"]
       },
       {
         "from": ".prod-deps-staging/node_modules",
