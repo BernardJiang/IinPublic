@@ -30,6 +30,8 @@ class NodeForegroundService : Service() {
         const val NOTIF_ID = 1001
         const val LOCAL_PORT = 8088
         const val HUB_GUN_URL = "https://www.iinpublic.com/gun"
+        /** Intent extra key MainActivity forwards an adb-supplied hub override under. */
+        const val HUB_GUN_URL_EXTRA = "hub_gun_url"
 
         @Volatile var nodeStarted = false
     }
@@ -40,12 +42,17 @@ class NodeForegroundService : Service() {
         startForeground(NOTIF_ID, buildNotification())
         if (!nodeStarted) {
             nodeStarted = true
-            startEmbeddedNode()
+            // nodeStarted latches for the life of this process — a later onStartCommand
+            // with a different override is a no-op (matches NodeBridge.startProject's own
+            // `started` latch below it). Fine for e2e: force-stop the app between runs
+            // that need a different hub, same as any fresh launch.
+            val hubUrl = intent?.getStringExtra(HUB_GUN_URL_EXTRA)?.takeIf { it.isNotBlank() } ?: HUB_GUN_URL
+            startEmbeddedNode(hubUrl)
         }
         return START_STICKY
     }
 
-    private fun startEmbeddedNode() {
+    private fun startEmbeddedNode(hubUrl: String) {
         val dataDir = filesDir.absolutePath + "/node-data"
         java.io.File(dataDir).mkdirs()
 
@@ -53,7 +60,7 @@ class NodeForegroundService : Service() {
             // NodeBridge.startProject unpacks assets then calls the JNI shim.
             // The native side sets IINPUBLIC_* env vars and spawns a pthread
             // that runs node::Start().
-            NodeBridge.startProject(this, "main.js", LOCAL_PORT, dataDir, HUB_GUN_URL)
+            NodeBridge.startProject(this, "main.js", LOCAL_PORT, dataDir, hubUrl)
         }.start()
     }
 

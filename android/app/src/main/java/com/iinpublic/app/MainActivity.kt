@@ -49,6 +49,15 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Debug builds only: lets Playwright's _android module (or chrome://inspect)
+        // attach to this WebView over adb via Chrome DevTools Protocol. Without this
+        // call the WebView is opaque to any external automation regardless of the
+        // build's own debuggable flag — see docs/testing/manual-platform-test-plan.md's
+        // Android e2e section.
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
+
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -83,6 +92,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun startNodeService() {
         val intent = Intent(this, NodeForegroundService::class.java)
+        // e2e/manual multi-device testing: `adb shell am start -n com.iinpublic.app/.MainActivity
+        // --es hub_gun_url "http://<host>:<port>/gun"` overrides the production default so this
+        // device dials a local/test hub instead — see docs/testing/manual-platform-test-plan.md.
+        // Absent in normal (Play Store / sideloaded) launches, so production behavior is unchanged.
+        this.intent?.getStringExtra(NodeForegroundService.HUB_GUN_URL_EXTRA)?.let { override ->
+            intent.putExtra(NodeForegroundService.HUB_GUN_URL_EXTRA, override)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {

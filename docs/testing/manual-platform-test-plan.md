@@ -137,13 +137,38 @@ since the HTTPS path already requires disabling certificate verification to work
 it provides no real additional security in this LAN-test setup — pick whichever you find
 less confusing and use it consistently everywhere.
 
-**Android — hard blocker:** the hub URL is a hardcoded Kotlin constant
-(`NodeForegroundService.kt:32`), not read from an env var or app setting, so the debug
-APK as built **cannot** be pointed at the Mac mini without a source change + rebuild.
-Ask Claude to parameterize it (e.g. a `BuildConfig` field or an in-app debug setting)
-before starting Phase 3 (multi-device) tests — Phases 1–2 on Android alone can still run
-against the unreachable production URL (the app should degrade gracefully to
-solo/offline-ish behavior; that degradation is itself worth checking, see §2.3).
+**Android — fixed (was a hard blocker).** The hub URL used to be a hardcoded Kotlin
+constant (`NodeForegroundService.kt`) with no way to override it short of a source change +
+rebuild. It's now overridable per-launch via an adb Intent extra, without touching the
+constant (still the default for a normal Play Store / sideloaded launch):
+
+```bash
+adb shell am force-stop com.iinpublic.app
+adb shell am start -n com.iinpublic.app/.MainActivity --es hub_gun_url "http://<macmini-ip>:8080/gun"
+```
+
+The `am force-stop` matters — `NodeForegroundService`/`NodeBridge` both latch "already
+started" for the life of the app process, so relaunching an already-running process with a
+*different* hub_gun_url extra is silently ignored; force-stop guarantees a clean process
+picks up the override. There is no HTTPS-vs-HTTP or `IINPUBLIC_EMBEDDED_HUB_MODE` distinction
+to set here — Android's embedded node always dials in `gun-peer` mode and simply takes
+whatever URL it's given.
+
+Also required for the debug APK to be automatable at all: `MainActivity.kt` now calls
+`WebView.setWebContentsDebuggingEnabled(true)` (debug builds only) — this is what lets
+either `chrome://inspect` or Playwright's `_android` module attach to the WebView over adb.
+Neither change affects a production build (no `hub_gun_url` extra → same hardcoded default
+as before; release builds never enable WebView debugging).
+
+**e2e over adb:** `tests/e2e/native-app/05-android-device-boots.spec.ts` drives this
+automatically via Playwright's `_android` module (`device.webView({pkg}).page()` → a normal
+`Page`) — same idea as the existing Electron desktop specs in that directory, just with a
+real phone as the "window." It skips itself when no adb device is attached. One thing a
+human running this by hand needs to know that the spec's own code comments cover in
+detail: adb-over-USB is only the *automation* control channel — the app's own network
+traffic still goes over Wi-Fi/LAN, so the hub URL must be the Mac's real LAN IP, never
+`127.0.0.1` (that's the Mac's own loopback, unreachable from the phone). Phone and Mac must
+be on the same network.
 
 ### 0.4 Confirm each app actually attached
 

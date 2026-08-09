@@ -49,6 +49,11 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
+    // AGP 8+ defaults BuildConfig generation off; MainActivity's debug-only
+    // WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG) call needs it.
+    buildFeatures {
+        buildConfig true
+    }
 }
 
 dependencies {
@@ -112,8 +117,19 @@ task stageNodeDist(type: Copy) {
     from("${repoRoot}/dist") { include 'server/**', 'web/**' }
     into("${projectDir}/src/main/assets/nodejs-project/dist")
 }
-task stageNodePublic(type: Copy) {
-    from("${repoRoot}/public")
+// Sync (not Copy): mirrors the source exactly, deleting anything already staged that the
+// source no longer has -- a plain Copy left this exact class of bug undetected (stale
+// public/downloads/* artifacts stayed embedded in assets/ after being excluded here) until
+// staged assets/ was cleaned out by hand.
+task stageNodePublic(type: Sync) {
+    from("${repoRoot}/public") {
+        // public/downloads/ holds the relay's web-download-banner installers (desktop DMG/exe,
+        // this very APK) -- large, per-machine build artifacts that must never be embedded back
+        // into a packaged app (see the matching fix in platforms/desktop/package.json's
+        // extraResources filter). Without this exclusion the embedded node's own bundled assets
+        // recursively include a copy of themselves.
+        exclude "downloads/**"
+    }
     into("${projectDir}/src/main/assets/nodejs-project/public")
 }
 preBuild.dependsOn stageNodeProject, stageNodeDist, stageNodePublic
