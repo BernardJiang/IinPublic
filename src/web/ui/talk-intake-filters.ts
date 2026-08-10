@@ -8,6 +8,7 @@ export {
 } from '../../shared/talk-intake-filters';
 
 const TALK_FILTERS_KEY = 'iinpublic_talk_intake_filters';
+const TALK_FILTERS_OWNER_KEY = 'iinpublic_talk_intake_filters_owner';
 
 export function getTalkIntakeFilters(): TalkIntakeFilters {
   try {
@@ -43,5 +44,29 @@ export function hasStoredTalkIntakeFilters(): boolean {
     return localStorage.getItem(TALK_FILTERS_KEY) != null;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Which user id the persisted filters were last saved for. Used to tell a genuine same-user
+ * reload (where localStorage is authoritative — see setTalkIntakeFiltersOwner's doc comment)
+ * apart from a stored value that belongs to a different identity than the one being rendered
+ * now (a fresh/returning user on a device that previously held someone else's session, or an
+ * identity swap mid-session) — in the latter case the stored filters must not be applied.
+ */
+export function getTalkIntakeFiltersOwner(): string | null {
+  try {
+    return localStorage.getItem(TALK_FILTERS_OWNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Tag the persisted filters with the user id they belong to; call whenever filters are saved for a known user. */
+export function setTalkIntakeFiltersOwner(userId: string): void {
+  try {
+    localStorage.setItem(TALK_FILTERS_OWNER_KEY, userId);
+  } catch {
+    /* best-effort */
   }
 }

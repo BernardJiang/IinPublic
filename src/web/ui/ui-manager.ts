@@ -142,8 +142,10 @@ import {
 import {
   filterIncomingTalkClusters,
   getTalkIntakeFilters,
+  getTalkIntakeFiltersOwner,
   hasStoredTalkIntakeFilters,
   setTalkIntakeFilters,
+  setTalkIntakeFiltersOwner,
 } from './talk-intake-filters';
 import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
@@ -1620,7 +1622,38 @@ export class UIManager extends EventEmitter {
 
     const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
     if (broadcastTalkBtn) {
-      broadcastTalkBtn.addEventListener('click', () => this.handleBroadcastTalkFromCurrentRoom());
+      // Tap: send immediately, no confirmation — the user's own priority, real delivery
+      // work (resolving receivers, fetching talk payloads) happens after, and a "Sent"
+      // toast (formatBroadcastSent) reports completion. Long-press: open the read-only
+      // eligible/excluded-recipients review modal first, for anyone who wants to check
+      // before sending — Send/Cancel inside that modal is unchanged.
+      const LONG_PRESS_MS = 500;
+      let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+      let longPressFired = false;
+      const clearLongPressTimer = () => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      };
+      broadcastTalkBtn.addEventListener('pointerdown', () => {
+        longPressFired = false;
+        clearLongPressTimer();
+        longPressTimer = setTimeout(() => {
+          longPressFired = true;
+          this.handleBroadcastTalkFromCurrentRoom(false);
+        }, LONG_PRESS_MS);
+      });
+      broadcastTalkBtn.addEventListener('pointerup', clearLongPressTimer);
+      broadcastTalkBtn.addEventListener('pointerleave', clearLongPressTimer);
+      broadcastTalkBtn.addEventListener('pointercancel', clearLongPressTimer);
+      broadcastTalkBtn.addEventListener('click', () => {
+        if (longPressFired) {
+          longPressFired = false;
+          return;
+        }
+        this.handleBroadcastTalkFromCurrentRoom(true);
+      });
     }
 
     this.restoreTalksTabState();
@@ -1706,8 +1739,8 @@ export class UIManager extends EventEmitter {
   /**
    * Send all broadcastable OUT talks to everyone in the current chatroom (Gun announce + server IN registration).
    */
-  private handleBroadcastTalkFromCurrentRoom(): void {
-    void this.runBroadcastFromCurrentRoom();
+  private handleBroadcastTalkFromCurrentRoom(automatic: boolean): void {
+    void this.runBroadcastFromCurrentRoom(automatic);
   }
 
   /** Auto-send only the OUT talk revisions not yet delivered to each individual peer. */
@@ -1721,7 +1754,7 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  private async runBroadcastFromCurrentRoom(): Promise<void> {
+  private async runBroadcastFromCurrentRoom(automatic: boolean): Promise<void> {
     let chatroomId = this.currentChatroom;
     if (!chatroomId) {
       const fromApp = (
@@ -1798,6 +1831,7 @@ export class UIManager extends EventEmitter {
       members,
       talkIds,
       talkReceiverIds,
+      automatic,
     });
 
     const list = document.getElementById('chatroom-members-list');
@@ -3683,34 +3717,30 @@ export class UIManager extends EventEmitter {
     const currentColorScheme = getColorSchemePreference();
     const profileLanguages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
     user.languages = profileLanguages;
-    // Intake filters are persisted synchronously to localStorage on every settings change,
-    // while user.talkFilters may still hold the *unloaded default shape* (the fallback
-    // WebUserService substitutes until private Gun data arrives). Rule:
-    //   - real (non-default) user filters win — they may carry legacy string-valued fields
-    //     that this render is responsible for normalizing, or fresher private data;
-    //   - the unloaded default shape must NOT clobber persisted localStorage filters on
-    //     render (that loses the user's settings across reload).
+    // Intake filters are persisted synchronously to localStorage on every settings change
+    // (setTalkIntakeFilters, called from ui-manager's sync()), while user.talkFilters comes
+    // from an async, eventually-consistent server round-trip (WebUserService.updateTalkFilters
+    // queues one getUser+put per change via withPrivateDataLock) that can be caught mid-drain —
+    // e.g. by a page reload — and return a partially-applied intermediate state that isn't the
+    // hardcoded default shape but also isn't the true latest value (see: e2e
+    // 31-intake-filters-persist regression, 2026-08-09, where this silently clobbered the
+    // correct localStorage value on reload). localStorage for THIS device is never subject to
+    // that race, so prefer it — but ONLY when it was actually saved for the user being rendered
+    // now: a stored value tagged for a *different* user id (a device previously used by someone
+    // else, or an identity swap) must not be applied to this one, so user.talkFilters wins then.
     const hasUserFilters =
       user.talkFilters && typeof user.talkFilters === 'object' && Object.keys(user.talkFilters).length > 0;
     const normalizedUserFilters = hasUserFilters
       ? normalizeTalkFilterShape(user.talkFilters, profileLanguages)
       : null;
-    const isUnloadedDefaultShape =
-      !normalizedUserFilters ||
-      ((normalizedUserFilters.minDistanceMiles ?? 0) === 0 &&
-        (normalizedUserFilters.maxDistanceMiles ?? 50) === 50 &&
-        normalizedUserFilters.requireGoodGrammar === true &&
-        normalizedUserFilters.blockDirtyWords === true &&
-        normalizedUserFilters.allowedTalkTypes.length === 4 &&
-        (normalizedUserFilters.customBlockedTerms || []).length === 0 &&
-        normalizedUserFilters.allowedLanguages.join(',') === profileLanguages.join(','));
-    const talkFilters = !isUnloadedDefaultShape
-      ? normalizedUserFilters!
-      : hasStoredTalkIntakeFilters()
-        ? getTalkIntakeFilters()
-        : normalizedUserFilters ?? normalizeTalkFilterShape(undefined, profileLanguages);
+    const localStorageOwnedByThisUser =
+      hasStoredTalkIntakeFilters() && getTalkIntakeFiltersOwner() === user.id;
+    const talkFilters = localStorageOwnedByThisUser
+      ? getTalkIntakeFilters()
+      : normalizedUserFilters ?? normalizeTalkFilterShape(undefined, profileLanguages);
     user.talkFilters = talkFilters;
     setTalkIntakeFilters(talkFilters);
+    setTalkIntakeFiltersOwner(user.id);
     const reputation = user.reputation || ({} as typeof user.reputation);
     const reviewCount = reputation.reviewCount ?? 0;
     const starRating = Number(reputation.starRating ?? 0);
@@ -4409,6 +4439,7 @@ export class UIManager extends EventEmitter {
         return;
       }
       setTalkIntakeFilters(nextFilters);
+      if (this.currentUser) setTalkIntakeFiltersOwner(this.currentUser.id);
       // Message filters changed: re-render any open conversation so toggling a
       // filter off reveals previously hidden messages (and on reveals fresh
       // toasts can fire if re-enabled later). (redesign §9.1)
@@ -5677,6 +5708,10 @@ export class UIManager extends EventEmitter {
 
   public formatBroadcastNoChatroom(): string {
     return this.t('broadcastNoChatroom');
+  }
+
+  public formatBroadcastInProgress(): string {
+    return this.t('broadcastInProgress');
   }
 
   public formatBroadcastCancelled(): string {

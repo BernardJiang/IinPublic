@@ -152,7 +152,13 @@ test.describe('Peer-detail exchanged-talk history is clickable (O)', () => {
     // #peer-conversations-section already would.
     const matchedRow = pageA.locator(`.peer-history-item[data-talk-id="${matchedTalkId}"]`);
     await expect(matchedRow).toBeVisible({ timeout: 10_000 });
-    await matchedRow.click();
+    // Click the meta line (outcome/date), not the row's geometric center: the matched talk's
+    // auto-generated title (setupFastMatchedDm's "Fast DM Setup Talk fast-dm-<id>") is long
+    // enough to wrap onto two lines, which can push a center-click onto the sent-talk title —
+    // a nested <button class="peer-history-title-link"> that calls stopPropagation() and opens
+    // "View Responses" instead of the row's own "open this thread" handler. .peer-history-meta
+    // is never covered by that button, so it reliably reaches the row's own click listener.
+    await matchedRow.locator('.peer-history-meta').click();
     await afterAction();
     await expect(pageA.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
     await expect(pageA.locator('#conversation-thread-scope')).toHaveAttribute('data-talk-id', matchedTalkId);

@@ -33,9 +33,24 @@ export class ChatroomManager {
   /** E2E reset fence — see resetForTesting()/predatesReset(). 0 in production (no filtering). */
   private membersResetAt = 0;
 
+  private staleMemberCountSweepTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private gunService: GunService
-  ) {}
+  ) {
+    // Without a periodic sweep, a room whose members simply stop heartbeating (no explicit
+    // leave) never gets its published headcount badge (public/room-member-counts) corrected
+    // until *something* happens to call getFastActiveMembers for that room again (an API
+    // request, a join). Sweep every tracked room on the same cadence the client-side
+    // heartbeat/TTL system already uses, so the badge self-heals even with zero traffic.
+    const sweepMs = Math.max(1000, Math.min(30_000, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)));
+    this.staleMemberCountSweepTimer = setInterval(() => {
+      for (const chatroomId of this.fastActiveMembers.keys()) {
+        this.getFastActiveMembers(chatroomId);
+      }
+    }, sweepMs);
+    this.staleMemberCountSweepTimer.unref?.();
+  }
 
   /**
    * E2E only (`POST /api/test/clear-database`): purge every membership trace of the previous
@@ -105,6 +120,7 @@ export class ChatroomManager {
     const room = this.fastActiveMembers.get(chatroomId);
     if (!room) return [];
     const members: Array<{ userId: string; stageName: string }> = [];
+    let pruned = false;
     for (const [userId, member] of room) {
       // TechSupport is never evicted from a room (decision K1-3, docs/TODO.md), including here —
       // this in-memory fast path has its own independent staleness check from
@@ -112,11 +128,24 @@ export class ChatroomManager {
       // or a TechSupport device that never heartbeats would silently age out after the TTL.
       if (!isTechSupportId(userId) && this.roomMembershipIsStale({ isActive: true, lastSeen: member.lastSeen }, now)) {
         room.delete(userId);
+        pruned = true;
         continue;
       }
       members.push({ userId, stageName: member.stageName });
     }
     if (room.size === 0) this.fastActiveMembers.delete(chatroomId);
+    // publishRoomMemberCount's aggregate (public/room-member-counts, what the client's room-list
+    // header badge subscribes to) previously only got refreshed on an explicit leave or specific
+    // fallback-path prunes — never here, even though this is where a member who simply stopped
+    // heartbeating (no explicit leave) actually gets dropped. That let the published badge sit at
+    // a stale, too-high count indefinitely (confirmed on real-device testing, 2026-08-09: "6
+    // members total" badge vs. 4 in the live-fetched roster). Fire-and-forget republish so callers
+    // of this synchronous method aren't blocked on it.
+    if (pruned) {
+      void this.publishRoomMemberCount(chatroomId).catch(() => {
+        /* best-effort public badge */
+      });
+    }
     return members;
   }
 
@@ -581,13 +610,30 @@ export class ChatroomManager {
       (await this.gunService.getPath(['chatrooms', chatroomId, 'users', userId]).catch(() => null)) ||
       (await this.gunService.getPath(['chatroomMembers', chatroomId, userId]).catch(() => null)) ||
       {};
+    // Out-of-order completion guard (stageName only): this method does an async Gun read
+    // before writing, so two concurrent touches (e.g. a rename's correction PATCH racing a
+    // slow, straggling heartbeat PATCH sent *before* the rename) can finish in the opposite
+    // order they were sent in. Without this, whichever happens to *complete* last wins and can
+    // silently stomp a newer, correct stageName with older data the request captured at send
+    // time (confirmed via e2e: a boot-time heartbeat PATCH took 5s+ under load and landed after
+    // the rename's own PATCH, reverting the display name back to the pre-rename placeholder).
+    // `lastSeen` is a timestamp set at send time on the client, so it — not arrival order — is
+    // the source of truth for "which update actually carries the newer name." lastSeen itself is
+    // deliberately NOT guarded the same way: prune specs intentionally PATCH a backdated lastSeen
+    // to simulate staleness, and that must still take effect (a stale-by-a-few-seconds lastSeen
+    // from a losing race is harmless — the TTL window absorbs it).
+    const incomingSeenAt = options.lastSeen ? Date.parse(options.lastSeen) : NaN;
+    const existingSeenAt = existing?.lastSeen ? Date.parse(String(existing.lastSeen)) : NaN;
+    const incomingStageNameIsStale =
+      Number.isFinite(incomingSeenAt) && Number.isFinite(existingSeenAt) && incomingSeenAt < existingSeenAt;
+    const effectiveStageName = incomingStageNameIsStale
+      ? existing?.stageName
+      : options.stageName || existing?.stageName;
     const memberData = {
       joinedAt: existing?.joinedAt || now,
       isActive: true,
       lastSeen: options.lastSeen || now,
-      ...(options.stageName || existing?.stageName
-        ? { stageName: String(options.stageName || existing.stageName) }
-        : {}),
+      ...(effectiveStageName ? { stageName: String(effectiveStageName) } : {}),
       userId,
     };
     this.upsertFastMember(

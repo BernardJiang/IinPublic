@@ -26,10 +26,28 @@ export class WebChatroomService {
   private visitCountSubscriptions: Map<string, () => void> = new Map();
   private userLocations: Map<string, GPSCoordinate> = new Map(); // Track user locations for FIFO eviction
   /** Live map for the active subscribeToMembers listener — reused when reopening the same room so we never flash empty. */
-  private activeMembersForList = new Map<string, { userId: string; stageName: string }>();
+  private activeMembersForList = new Map<
+    string,
+    { userId: string; stageName: string; lastSeen?: string; joinedAt?: string }
+  >();
   private membersListDebounce: ReturnType<typeof setTimeout> | null = null;
   private membersListCallback?: (members: Array<{ userId: string; stageName: string }>) => void;
   private membersListenerRoomId: string | undefined = undefined;
+  /**
+   * Gun's `.map().on()` only re-fires a member's callback when THAT member's own node is
+   * next written to (a new heartbeat, an explicit isActive:false on leave). A member who
+   * stops heartbeating without ever sending that explicit leave signal — e.g. an app killed
+   * mid-session, a test device that had its local storage cleared — never re-fires, so their
+   * entry just sits in activeMembersForList forever once added, even long past the TTL: the
+   * server's own in-memory roster prunes on every read (getFastActiveMembers), but this
+   * client-side live view had no equivalent, which is how a stale peer accumulates into a
+   * duplicate/ghost roster row a real, still-live peer only ever inserted once (confirmed via
+   * real-device testing, 2026-08-09: two "chatroom-member-item" rows for the same display
+   * name, only one of which the server's REST /api/chatrooms/:id/members endpoint agreed was
+   * still live). Sweep the map on a timer, independent of any new Gun write, so a ghost ages
+   * out client-side the same way it already does server-side.
+   */
+  private staleMembersSweepTimer: ReturnType<typeof setInterval> | null = null;
   private membershipHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private membershipHeartbeatKey: string | null = null;
   private membershipHeartbeatStageName: string | null = null;
@@ -352,6 +370,16 @@ export class WebChatroomService {
       const pair = this.gunService.getStoredPair?.();
       const epub = pair?.epub;
       const pub = pair?.pub;
+      if (!epub || !pub) {
+        // Diagnostic (2026-08-09 real-device investigation): a member whose heartbeat never
+        // carries epub/pub never becomes a WebRTC/mailbox candidate for anyone (peers can't
+        // encrypt for them or open a signed mesh session) — this is the exact, silent failure
+        // mode being chased, so surface it loudly instead of the usual best-effort silence.
+        console.warn(
+          `⚠️ [heartbeat-diag] beat() for ${userId} has NO ${!epub && !pub ? 'epub/pub' : !epub ? 'epub' : 'pub'} ` +
+            `— getStoredPair() returned: hasPair=${!!pair} hasPub=${!!pub} hasEpub=${!!epub}`,
+        );
+      }
       this.gunService
         .getGun()
         .get('chatrooms')
@@ -716,11 +744,24 @@ export class WebChatroomService {
       .map()
       .on((memberData: any, userId: string) => {
         if (userId.startsWith('_')) return;
+        // Gun's .off() (called by activeMembersUnsubscribe when switching rooms, below) stops
+        // *future* subscriptions but cannot cancel an event already in flight — a message for
+        // this closure's room that was queued before the switch can still be delivered after
+        // `chatroomId` has stopped being the active room. Without this guard, that stale event
+        // still mutated the single shared activeMembersForList map (only the *debounced
+        // notification* below was gated on membersListenerRoomId, not the map write itself),
+        // silently injecting a member from the room just left into the room just entered — e.g.
+        // a peer from Global surviving into a just-opened hierarchy room's roster and being
+        // counted as a receiver there (confirmed via e2e: 00h-chatroom-hierarchy-broadcast,
+        // 2026-08-10). A room switch already clears the map and re-subscribes fresh, so any event
+        // for a room that is no longer current is definitionally stale.
+        if (chatroomId !== this.membersListenerRoomId) return;
 
         if (this.isFreshActiveMember(memberData)) {
           this.activeMembersForList.set(userId, {
             userId,
             stageName: memberData.stageName || userId,
+            ...(memberData.lastSeen ? { lastSeen: memberData.lastSeen } : {}),
             ...(memberData.joinedAt ? { joinedAt: memberData.joinedAt } : {}),
             ...(typeof memberData.epub === 'string' && memberData.epub ? { epub: memberData.epub } : {}),
             ...(typeof memberData.pub === 'string' && memberData.pub ? { pub: memberData.pub } : {}),
@@ -742,6 +783,30 @@ export class WebChatroomService {
         }, 150);
       });
 
+    // See staleMembersSweepTimer's own doc comment: without this, a member who stops
+    // heartbeating without an explicit leave signal never re-triggers Gun's .map().on()
+    // callback and so is never re-evaluated for staleness, sitting in the roster forever.
+    if (this.staleMembersSweepTimer) clearInterval(this.staleMembersSweepTimer);
+    const sweepMs = Math.max(1000, Math.min(30_000, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)));
+    this.staleMembersSweepTimer = setInterval(() => {
+      if (chatroomId !== this.membersListenerRoomId) return;
+      let changed = false;
+      for (const [id, member] of this.activeMembersForList.entries()) {
+        // TechSupport is never evicted from a room (decision K1-3) — matches the server's
+        // own independent immunity check in getFastActiveMembers.
+        if (id === TECHSUPPORT_ROOT_USER_ID) continue;
+        if (this.isDefinitelyStale({ lastSeen: member.lastSeen, joinedAt: member.joinedAt })) {
+          this.activeMembersForList.delete(id);
+          changed = true;
+        }
+      }
+      if (changed && this.membersListCallback) {
+        this.membersListCallback(
+          this.rosterWithTechSupportFloor(chatroomId, Array.from(this.activeMembersForList.values())),
+        );
+      }
+    }, sweepMs);
+
     this.activeMembersUnsubscribe = () => {
       off.off();
       this.membersListenerRoomId = undefined;
@@ -749,6 +814,10 @@ export class WebChatroomService {
       if (this.membersListDebounce) {
         clearTimeout(this.membersListDebounce);
         this.membersListDebounce = null;
+      }
+      if (this.staleMembersSweepTimer) {
+        clearInterval(this.staleMembersSweepTimer);
+        this.staleMembersSweepTimer = null;
       }
     };
   }

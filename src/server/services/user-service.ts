@@ -292,9 +292,27 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     // primitive fields from the live graph on top of the cached record; nested fields keep
     // the cached shape (Gun returns soul refs for children, which must not clobber them).
     const cached = this.recentPublicUsers.get(userId) as User | undefined;
-    const fromGun = (await this.gunService.getOptional(`users/${userId}`, 1200)) as
-      | Record<string, unknown>
-      | null;
+    const cachedPublicProfile = this.recentPublicProfileFoundations.get(userId);
+    // These two Gun reads don't depend on each other's result — running them sequentially
+    // (as this used to) stacked their 1200ms timeouts additively into ~2.4s whenever either
+    // node genuinely hadn't synced yet (freshly-created users, e.g.), which was the bulk of
+    // a ~3s+ getUser call. Fire both at once; see the reputation/blockCount pair below for
+    // the other half of the same fix.
+    const [fromGun, publicProfileFromGun] = await Promise.all([
+      this.gunService.getOptional(`users/${userId}`, 1200) as Promise<Record<string, unknown> | null>,
+      cachedPublicProfile
+        ? Promise.resolve(null)
+        : (this.gunService.getOptional(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, 1200) as Promise<
+            | {
+                headshot?: string | null;
+                languagesJson?: string;
+                profileJson?: string;
+                fullProfileJson?: string;
+                interestsJson?: string;
+              }
+            | null
+          >),
+    ]);
     let user: User | null = cached ?? (fromGun as User | null);
     if (cached && fromGun && typeof fromGun === 'object') {
       const overlay: Record<string, unknown> = {};
@@ -310,18 +328,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     if (!user) {
       throw new Error(`No data found for key: users/${userId}`);
     }
-    const publicProfile = (
-      this.recentPublicProfileFoundations.get(userId) ??
-      await this.gunService.getOptional(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, 1200)
-    ) as
-      | {
-          headshot?: string | null;
-          languagesJson?: string;
-          profileJson?: string;
-          fullProfileJson?: string;
-          interestsJson?: string;
-        }
-      | null;
+    const publicProfile = cachedPublicProfile ?? publicProfileFromGun;
     let profile = publicProfile
       ? this.parseJsonArray(publicProfile.fullProfileJson ?? publicProfile.profileJson, user.profile || [])
       : user.profile || [];
@@ -335,11 +342,16 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     }
 
     if (!publicProfile) {
-      const reputation = await this.mergeAgeVerificationIntoReputation(
-        userId,
-        user.reputation ?? (await this.readReputation(userId)),
-      );
-      const blockCount = await this.getBlockCountForUser(userId);
+      // Same independent-reads-in-parallel fix as fromGun/publicProfile above: reputation
+      // resolution and blockCount don't depend on each other.
+      const [reputation, blockCount] = await Promise.all([
+        (async () =>
+          this.mergeAgeVerificationIntoReputation(
+            userId,
+            user.reputation ?? (await this.readReputation(userId)),
+          ))(),
+        this.getBlockCountForUser(userId),
+      ]);
       return {
         ...user,
         profile,
@@ -350,13 +362,16 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     // Server reputation updates are written to `users/<id>/reputation`.
     // Ensure we always resolve that sub-node into the returned object.
     const storedReputation = this.recentReputationWrites.get(userId) ?? user.reputation;
-    const reputation = await this.mergeAgeVerificationIntoReputation(
-      userId,
-      storedReputation
-        ? { ...UserService.DEFAULT_REPUTATION, ...storedReputation }
-        : await this.readReputation(userId),
-    );
-    const blockCount = await this.getBlockCountForUser(userId);
+    const [reputation, blockCount] = await Promise.all([
+      (async () =>
+        this.mergeAgeVerificationIntoReputation(
+          userId,
+          storedReputation
+            ? { ...UserService.DEFAULT_REPUTATION, ...storedReputation }
+            : await this.readReputation(userId),
+        ))(),
+      this.getBlockCountForUser(userId),
+    ]);
     const { headshot: _storedHeadshot, ...userWithoutStaleHeadshot } = user;
     return {
       ...userWithoutStaleHeadshot,

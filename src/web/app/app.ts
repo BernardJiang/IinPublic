@@ -5000,14 +5000,38 @@ export class IinPublicApp {
             ? data.talkIds
             : this.uiManager.getBroadcastableTalkIds();
           console.log(`📢 broadcastTalk: ${broadcastableIds.length} broadcastable ids, members=${data.members?.length ?? 0}`);
-          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
-          const targetCountEarly = receivers.length;
           if (broadcastableIds.length === 0) {
             // UI already shows this notification when broadcastableCount === 0; skip duplicate to avoid double toast
-            this.uiManager.setBroadcastBulkAck(0, targetCountEarly);
+            const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+            this.uiManager.setBroadcastBulkAck(0, receivers.length);
             return;
           }
 
+          // Show the audience-confirmation modal immediately: its content (sender-omitted
+          // previews) is built entirely from localStorage/in-memory state and doesn't need
+          // receivers or talk payloads resolved first — both of those can take several
+          // seconds on a slow/real device (resolveBroadcastReceivers does a network fetch
+          // with up to a 5s timeout plus Gun-observation retries; getTalkWithRetry below is
+          // a per-talk retry loop up to 1.5s each). Blocking the modal on that work made
+          // every broadcast tap feel unresponsive for no reason — confirm first, only pay
+          // the slow cost after the user has actually said yes.
+          const previews: BroadcastAudiencePreview[] = [];
+          const previewTalkIds = new Set(broadcastableIds);
+          const senderOmittedPreviews = this.uiManager
+            .getSenderOmittedBroadcastPreviews()
+            .filter((preview) => !previewTalkIds.has(preview.talkId));
+          const audiencePreviews = [...previews, ...senderOmittedPreviews];
+          if (!data.automatic && !(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
+            this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
+            return;
+          }
+
+          // Immediate feedback before the slow work below (resolving receivers, fetching
+          // talk payloads) — without this, a tap that shows nothing for a few seconds reads
+          // as "nothing happened," and the user taps Broadcast again.
+          this.uiManager.showNotification(this.uiManager.formatBroadcastInProgress(), 'info');
+
+          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (targetCount === 0) {
@@ -5033,17 +5057,6 @@ export class IinPublicApp {
               continue;
             }
             talkPayloads.push({ tid, talk: talk as Talk });
-          }
-          // Mesh delivery fans out to resolved receivers directly; no server preview needed.
-          const previews: BroadcastAudiencePreview[] = [];
-          const previewTalkIds = new Set(talkPayloads.map(({ tid }) => tid));
-          const senderOmittedPreviews = this.uiManager
-            .getSenderOmittedBroadcastPreviews()
-            .filter((preview) => !previewTalkIds.has(preview.talkId));
-          const audiencePreviews = [...previews, ...senderOmittedPreviews];
-          if (!data.automatic && !(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
-            this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
-            return;
           }
           // Phase 1: deliver in small parallel batches (direct mesh in P2P mode, legacy HTTP in star mode).
           // Fully sequential was very slow (20 round-trips); full parallel can spike the server.

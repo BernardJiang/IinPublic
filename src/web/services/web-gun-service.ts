@@ -794,7 +794,14 @@ export class WebGunService extends EventEmitter {
     }
 
     this.seaPair = pair;
-    console.log('🔐 Local SEA identity ready');
+    // Diagnostic (2026-08-09 real-device investigation): confirm what ensureKeypairAndAuth
+    // actually finalized — compare against the heartbeat's own [heartbeat-diag] log to see
+    // whether the pair genuinely lacks epub/pub at this point, or getStoredPair() is somehow
+    // returning something different/stale by the time the heartbeat later reads it.
+    console.log(
+      `🔐 [keypair-diag] Local SEA identity ready — hasPub=${!!pair?.pub} hasEpub=${!!pair?.epub} ` +
+        `isEmbeddedLocalOrigin=${this.isEmbeddedLocalOrigin()}`,
+    );
     return pair;
   }
 
