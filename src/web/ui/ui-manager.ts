@@ -3691,9 +3691,15 @@ export class UIManager extends EventEmitter {
         if (sort === 'chatbot-count') return -Number(item.dataset.chatbotUseCount || 0);
         return -Number(item.dataset.answeredAt || 0);
       };
-      Array.from(list.querySelectorAll<HTMLElement>('.answer-talk-item'))
-        .sort((a, b) => rank(a) - rank(b))
-        .forEach((row) => list.insertBefore(row, empty));
+      // Spec §13.7.1: rows live inside per-section containers (`.answer-section .answers-list`),
+      // not directly under `#answers-list` (now the outer wrapper around the section
+      // `<details>` elements) — sort each section's own rows independently, never move a row
+      // out of its section. `#answers-list` itself only still holds the empty-state placeholder.
+      document.querySelectorAll<HTMLElement>('.answer-section .answers-list').forEach((sectionList) => {
+        Array.from(sectionList.querySelectorAll<HTMLElement>('.answer-talk-item'))
+          .sort((a, b) => rank(a) - rank(b))
+          .forEach((row) => sectionList.appendChild(row));
+      });
     }
     if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
   }
