@@ -2,6 +2,12 @@
  * Dealmaker: four strangers each create a flow talk describing their side of a used-notebook
  * deal before ever meeting, then broadcast into Global — matching happens entirely via the
  * chatbot's exact-question-text auto-reply, with no manual answer clicks anywhere.
+ *
+ * Talks also declare a two-sided Talk.role ('request' = buyer, 'offer' = seller) — see
+ * talk-engine.ts's checkIfMatch and exact-chatbot-memory.ts's findAutoAnswer. Without this,
+ * matching is pure text-equality: two BUYERS with identical wording would "match" each other
+ * just as readily as a buyer and a seller. The second test below proves that specific case is
+ * now vetoed.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -57,11 +63,17 @@ const ALICE_QUESTIONS: DealQuestion[] = [
  * that answer's self-answer radio (talk-editor-form-helpers.ts), recording it as this user's
  * own preference for that exact question text.
  */
-async function createDealTalk(page: Page, title: string, questions: DealQuestion[]): Promise<void> {
+async function createDealTalk(
+  page: Page,
+  title: string,
+  questions: DealQuestion[],
+  role: 'offer' | 'request',
+): Promise<void> {
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
+  await page.selectOption('#talk-role', role);
 
   for (let i = 1; i < questions.length; i++) {
     await page.click('#add-question-btn');
@@ -189,22 +201,22 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
     const adam = await bootstrapUser(browsers.adam, 'Adam', 'Adam');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await createDealTalk(pageAdam, 'Buy Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS);
+    await createDealTalk(pageAdam, 'Buy Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'request');
 
     const eve = await bootstrapUser(browsers.eve, 'Eve', 'Eve');
     contextEve = eve.context;
     pageEve = eve.page;
-    await createDealTalk(pageEve, 'Sell Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS);
+    await createDealTalk(pageEve, 'Sell Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'offer');
 
     const bob = await bootstrapUser(browsers.bob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await createDealTalk(pageBob, 'Buy Used Notebook - MacBook Deal', BOB_QUESTIONS);
+    await createDealTalk(pageBob, 'Buy Used Notebook - MacBook Deal', BOB_QUESTIONS, 'request');
 
     const alice = await bootstrapUser(browsers.alice, 'Alice', 'Alice');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await createDealTalk(pageAlice, 'Sell Used Notebook - Dell Deal', ALICE_QUESTIONS);
+    await createDealTalk(pageAlice, 'Sell Used Notebook - Dell Deal', ALICE_QUESTIONS, 'offer');
 
     const [adamId, eveId, bobId, aliceId] = await Promise.all([
       getCurrentUserId(pageAdam),
@@ -236,5 +248,49 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
     expect(await hasConversationWith(pageEve!, aliceId)).toBe(false);
     expect(await conversationPartnerIds(pageBob!)).toEqual([]);
     expect(await conversationPartnerIds(pageAlice!)).toEqual([]);
+  });
+
+  test('two buyers with byte-identical criteria do NOT match — same role is vetoed even when text matches exactly', async () => {
+    // Regression for the bug this whole role feature exists to fix: before Talk.role existed,
+    // two talks with identical question/answer wording matched regardless of who was on which
+    // side of the deal — the chatbot's exact-text memory can't tell "buyer" from "seller" on
+    // its own. Reuses the SAME wording as the positive test above (ADAM_EVE_QUESTIONS), but
+    // both sides declare 'request' (buyer) — proving that text equality alone is no longer
+    // enough to produce a match.
+    await clearGunForStage4Spec();
+    const buyer1 = await bootstrapUser(browsers.adam, 'Buyer1', 'Buyer1');
+    const buyer2 = await bootstrapUser(browsers.bob, 'Buyer2', 'Buyer2');
+    try {
+      await createDealTalk(buyer1.page, 'Buy Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'request');
+      await createDealTalk(buyer2.page, 'Buy Used Notebook - Deal Terms Too', ADAM_EVE_QUESTIONS, 'request');
+
+      const buyer1Id = await getCurrentUserId(buyer1.page);
+      const buyer2Id = await getCurrentUserId(buyer2.page);
+      expect(buyer1Id).toBeTruthy();
+      expect(buyer2Id).toBeTruthy();
+
+      await meetAndBroadcast(buyer1.page);
+      await meetAndBroadcast(buyer2.page);
+
+      // Actively watch for the bug condition for as long as the positive test's own timeout
+      // budget, rather than a single instant check or a blind sleep — if checkIfMatch's
+      // same-role veto regressed, this would catch it turning true within the window instead
+      // of silently passing because we didn't wait long enough to see it.
+      let wronglyMatched = false;
+      try {
+        await expect.poll(() => hasConversationWith(buyer1.page, buyer2Id), { timeout: 8_000, intervals: [300] }).toBe(true);
+        wronglyMatched = true;
+      } catch {
+        wronglyMatched = false;
+      }
+      expect(wronglyMatched).toBe(false);
+      expect(await hasConversationWith(buyer2.page, buyer1Id)).toBe(false);
+    } finally {
+      await buyer1.page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+      await buyer2.page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+      await buyer1.context.close().catch(() => {});
+      await buyer2.context.close().catch(() => {});
+      await clearGunForStage4Spec();
+    }
   });
 });

@@ -1,3 +1,5 @@
+import type { TalkRole } from './types';
+
 export type AnswerMode = 'TEMPORARY' | 'PERMANENT' | 'SUPPRESSED';
 
 export type AutoAnswerAction = 'ANSWER' | 'ASK_USER' | 'SKIP';
@@ -8,7 +10,8 @@ export type AutoAnswerReason =
   | 'PERMANENT_MATCH'
   | 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS'
   | 'TEMPORARY_HISTORY_MATCH'
-  | 'NO_VALID_HISTORY_ANSWER';
+  | 'NO_VALID_HISTORY_ANSWER'
+  | 'ROLE_CONFLICT';
 
 export interface ChatbotUseEvent {
   usedAt: number;
@@ -32,6 +35,14 @@ export interface ChatbotQuestionSummary {
   latestTemporaryAnswerId: string | null;
   latestTemporaryAnswerText: string | null;
   updatedAt: number;
+  /**
+   * The two-sided deal role (see `Talk.role`) the user was holding when this answer was
+   * recorded — 'offer' if it came from their own offer-talk (or from answering someone
+   * else's request-talk), 'request' likewise. Undefined for answers with no role context.
+   * `findAutoAnswer` refuses to auto-answer when this equals the INCOMING talk's own role
+   * (e.g. two buyers), even if the question/answer text otherwise matches exactly.
+   */
+  role?: TalkRole;
 }
 
 export interface ChatbotQuestionMemory {
@@ -166,6 +177,7 @@ export function saveTemporaryAnswer(
   answerText: string,
   now = Date.now(),
   context?: { language?: string },
+  role?: TalkRole,
 ): { questionId: string; answerId: string; eventId: string } {
   const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const normalizedAnswer = normalizeText(answerText);
@@ -179,6 +191,9 @@ export function saveTemporaryAnswer(
     latestTemporaryAnswerId: answerId,
     latestTemporaryAnswerText: normalizedAnswer,
     updatedAt: now,
+    // Only overwrite when this save actually knows the role — an unrelated no-role save
+    // (e.g. a plain talk with no role at all) must not erase a role learned earlier.
+    ...(role !== undefined ? { role } : {}),
   };
   memory.history[eventId] = {
     mode: 'TEMPORARY',
@@ -200,6 +215,7 @@ export function savePermanentAnswer(
   answerText: string,
   now = Date.now(),
   context?: { language?: string },
+  role?: TalkRole,
 ): { questionId: string; answerId: string; eventId: string } {
   const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const normalizedAnswer = normalizeText(answerText);
@@ -213,6 +229,7 @@ export function savePermanentAnswer(
     permanentAnswerId: answerId,
     permanentAnswerText: normalizedAnswer,
     updatedAt: now,
+    ...(role !== undefined ? { role } : {}),
   };
   memory.history[eventId] = {
     mode: 'PERMANENT',
@@ -291,6 +308,7 @@ export function findAutoAnswer(
   currentOptions: string[],
   now = Date.now(),
   context?: { language?: string },
+  incomingTalkRole?: TalkRole,
 ): AutoAnswerResult {
   const language = normalizedLanguage(context?.language);
   let questionId = makeQuestionId(questionText, language ? { language } : undefined);
@@ -302,6 +320,15 @@ export function findAutoAnswer(
   }
   if (!memory) {
     return { action: 'ASK_USER', reason: 'NO_HISTORY' };
+  }
+
+  // Same-role veto (see Talk.role): this stored answer came from the user's own role in
+  // some other talk — if that role is the SAME as the talk currently asking (e.g. this
+  // memory came from being a buyer, and the incoming talk is also a buyer's), refuse to
+  // auto-answer no matter how exactly the question/answer text lines up. A different role,
+  // or no role on either side, is unaffected.
+  if (incomingTalkRole && memory.summary.role && memory.summary.role === incomingTalkRole) {
+    return { action: 'ASK_USER', reason: 'ROLE_CONFLICT' };
   }
 
   const currentOptionMap = new Map<string, string>();
@@ -362,4 +389,28 @@ export function findAutoAnswer(
   }
 
   return { action: 'ASK_USER', reason: 'NO_VALID_HISTORY_ANSWER' };
+}
+
+/**
+ * The role (see `Talk.role`) recorded alongside the user's own stored answer for this
+ * exact question text, if any — used by `checkIfMatch` (talk-engine.ts) callers to veto a
+ * same-role match on the manual answering path, the same way `findAutoAnswer` already does
+ * for the chatbot's automatic path. Mirrors `findAutoAnswer`'s own question-id resolution
+ * (including the legacy pre-language-scoping fallback) so both paths agree on which memory
+ * entry is "the" one for a given question.
+ */
+export function getRoleForQuestionText(
+  state: ExactChatbotMemoryState,
+  userId: string,
+  questionText: string,
+  context?: { language?: string },
+): TalkRole | undefined {
+  const language = normalizedLanguage(context?.language);
+  let questionId = makeQuestionId(questionText, language ? { language } : undefined);
+  let memory = state.users[userId]?.[questionId];
+  if (!memory && language === 'en') {
+    questionId = makeQuestionId(questionText);
+    memory = state.users[userId]?.[questionId];
+  }
+  return memory?.summary.role;
 }

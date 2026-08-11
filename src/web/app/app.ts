@@ -1,4 +1,4 @@
-import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind } from '../../shared/types';
+import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind, type TalkRole } from '../../shared/types';
 import {
   deriveBackendApiBaseFromLocation,
   KEY_CUSTODY_DEVICE_SECRET_STORAGE,
@@ -22,7 +22,7 @@ import {
   type TechSupportIdentity,
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { FlowCapture, TalkAutofix, buildRevisedTalkDraft } from '../../shared/talk-engine';
+import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
@@ -2317,7 +2317,7 @@ export class IinPublicApp {
       // Use applyEvent to determine if this update should be accepted.
       // Clone doc to avoid mutating the read copy before we know if it's accepted.
       const testDoc = JSON.parse(JSON.stringify(ledgerDoc));
-      const isMatch = this.checkIfMatch(talkData, decrypted.answers);
+      const isMatch = checkIfMatch(talkData, decrypted.answers);
       const ledgerOutcome = isMatch ? 'matched' as const : 'ignored' as const;
       const preApplyVersion = testDoc.outcomes[oKey]?.version ?? 0;
       applyLedgerEvent(testDoc, {
@@ -2413,7 +2413,7 @@ export class IinPublicApp {
 
     // No prior entry — first receipt (original flow from step 8)
     this.processedTalkResponseKeys.add(dedupeKey);
-    const isMatch = this.checkIfMatch(talkData, decrypted.answers);
+    const isMatch = checkIfMatch(talkData, decrypted.answers);
     // R-2: pass responseId/version/respondedAt for forward-compat (steps 8–11)
     this.recordLocalTalkExchange(
       payload.responderId,
@@ -3107,7 +3107,7 @@ export class IinPublicApp {
             if (String(row?.responderId || '') !== peerId) continue;
             try {
               const decrypted = await this.decryptPairTalkResponsePayload(row);
-              const isMatch = this.checkIfMatch(talkData, decrypted.answers);
+              const isMatch = checkIfMatch(talkData, decrypted.answers);
               this.recordLocalTalkExchange(peerId, decrypted.responderName || peerName, talkId, talkData, isMatch ? 'match' : 'mismatch');
             } catch (error) {
               console.warn('Failed to sync pair talk response for contacts:', error);
@@ -3619,7 +3619,9 @@ export class IinPublicApp {
   }): Promise<void> {
     console.log('📝 User completed talk:', data);
     const isChatbot = !!data.isChatbotResponse;
-    const locallyLooksLikeMatch = !!data.talkData && this.checkIfMatch(data.talkData, data.answers);
+    const locallyLooksLikeMatch =
+      !!data.talkData &&
+      checkIfMatch(data.talkData, data.answers, this.resolveResponderRoleForAnswers(data.talkData, data.answers));
     const isE2eLocalOnlyReject =
       data.talkData?.e2eLocalOnlyReject === true &&
       !locallyLooksLikeMatch &&
@@ -3742,7 +3744,15 @@ export class IinPublicApp {
       });
       return;
     }
-    const isMatch = this.checkIfMatch(params.talkData, params.answers);
+    // The canonical match decision (both the manual-click path via handleTalkCompleted and
+    // the chatbot's auto-reply path via tryChatbotReply funnel through here) — resolving my
+    // own role here is what makes the same-role veto authoritative regardless of how the
+    // answers were chosen, not just an optimization the chatbot's findAutoAnswer short-circuits.
+    const isMatch = checkIfMatch(
+      params.talkData,
+      params.answers,
+      this.resolveResponderRoleForAnswers(params.talkData, params.answers),
+    );
     const isIgnore = params.answers.some((answer: any) => {
       const answerId = String(answer?.answerId || '').toLowerCase();
       const answerText = String(answer?.answerText || '').toLowerCase();
@@ -4008,47 +4018,19 @@ export class IinPublicApp {
     });
   }
 
-  private checkIfMatch(talkData: any, answers: any[]): boolean {
-    // Flow, tag, and route talks all use isMatch on the terminal answer chosen.
-    // Route's answers[] is the full root-to-terminal path in order, and every
-    // route node's id is unique across the talk, so the same id-based lookup
-    // below resolves the terminal answer correctly without any DAG-specific
-    // handling (see src/shared/talk-engine.ts's checkIfMatch for more detail).
-    if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
-      console.log('  Not a matchable talk type:', talkData.type);
-      return false;
-    }
-
-    // Find the last answer
-    const lastAnswer = answers[answers.length - 1];
-    if (!lastAnswer) {
-      console.log('  No last answer found');
-      return false;
-    }
-
-    console.log('  Last answer:', lastAnswer);
-
-    // Find the corresponding question and answer in the talk
-    const question = talkData.questions.find((q: any) => q.id === lastAnswer.questionId);
-    if (!question) {
-      console.log('  Question not found for ID:', lastAnswer.questionId);
-      return false;
-    }
-
-    console.log('  Found question:', question.text);
-
-    const answer = question.answers.find((a: any) => a.id === lastAnswer.answerId);
-    if (!answer) {
-      console.log('  Answer not found for ID:', lastAnswer.answerId);
-      return false;
-    }
-
-    console.log('  Found answer:', answer.text, 'isMatch:', answer.isMatch);
-
-    // Check if this answer is marked as a match
-    const isMatch = answer.isMatch === true;
-    console.log('  Is match?', isMatch);
-    return isMatch;
+  /**
+   * My own role for the last question of a would-be match, if I've ever recorded one for
+   * this exact question text (see ui-manager.ts's getMyRoleForQuestionText /
+   * exact-chatbot-memory.ts) — passed into checkIfMatch's same-role veto so a manual answer
+   * gets the same protection the chatbot's auto-reply already has via findAutoAnswer.
+   * Undefined (no veto) if I have no role history for this question or the talk itself
+   * declares no role.
+   */
+  private resolveResponderRoleForAnswers(talkData: any, answers: any[]): TalkRole | undefined {
+    const lastAnswer = answers?.[answers.length - 1];
+    const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
+    if (!question?.text) return undefined;
+    return this.uiManager.getMyRoleForQuestionText(question.text, talkData?.language);
   }
 
   /** Resolve full talk using the receiver-owned local incoming-talk index. */
@@ -4862,6 +4844,7 @@ export class IinPublicApp {
                 ...(talkFields.isAdult !== undefined ? { isAdult: talkFields.isAdult } : {}),
                 ...(talkFields.expiresAt !== undefined ? { expiresAt: talkFields.expiresAt } : {}),
                 ...(talkFields.locationRadiusMiles !== undefined ? { locationRadiusMiles: talkFields.locationRadiusMiles } : {}),
+                ...(talkFields.role !== undefined ? { role: talkFields.role } : {}),
               }),
               ...(ipfsAttachments ? { ipfsAttachments } : {}),
               ...(authorLocation ? { authorLocation } : {}),

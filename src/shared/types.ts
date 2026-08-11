@@ -254,7 +254,19 @@ export interface Talk {
    * ledger's own `TALK_ANSWERED`-supersedes-prior pattern.
    */
   supersedesTalkId?: string;
+  /**
+   * Optional two-sided deal role: 'offer' = "I have/provide X", 'request' = "I want/need
+   * X". Generic (not marketplace-specific) so it covers buy/sell, seeking/offering,
+   * host/guest, etc. — the app never hardcodes what the two sides mean, only that a talk
+   * declaring a role must never be treated as a match against another talk (or a
+   * responder's own recorded preference) declaring the SAME role. See
+   * talk-engine.ts's checkIfMatch and exact-chatbot-memory.ts's findAutoAnswer.
+   */
+  role?: TalkRole;
 }
+
+/** See `Talk.role`. */
+export type TalkRole = 'offer' | 'request';
 
 export interface Question {
   id: string;

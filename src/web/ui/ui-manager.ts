@@ -7,6 +7,7 @@ import {
   type TalkIntakeFilters,
   type QuestionAnswer,
   type Tag,
+  type TalkRole,
 } from '../../shared/types';
 import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
@@ -20,7 +21,7 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
-import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, complementRole } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
@@ -81,6 +82,7 @@ import {
 } from './answer-preferences-storage';
 import {
   findAutoAnswer,
+  getRoleForQuestionText,
   LOCAL_EXACT_CHATBOT_USER_ID,
   makeQuestionId,
   savePermanentAnswer,
@@ -7425,8 +7427,15 @@ export class UIManager extends EventEmitter {
         currentOptions,
         undefined,
         languageContext,
+        talk?.role,
       );
       setExactChatbotMemory(exactMemory);
+      // A same-role conflict is an absolute veto — do not fall through to the weaker
+      // flattened/legacy preference lookups below, which aren't role-aware and could
+      // otherwise resolve an answer via stale per-talk-instance history.
+      if (exact.action === 'ASK_USER' && exact.reason === 'ROLE_CONFLICT') {
+        return null;
+      }
       if (exact.action === 'SKIP') {
         return {
           answerId: 'ignore',
@@ -7482,13 +7491,24 @@ export class UIManager extends EventEmitter {
   ): void {
     const exactMemory = getExactChatbotMemory();
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
+    // The role to persist alongside this answer is always MY OWN two-sided role for this
+    // deal — not necessarily the talk's own `role` field. When `talk` is one I authored
+    // myself, my role IS the talk's role (I set it when creating it). When `talk` is someone
+    // else's (I'm answering it), my role is the COMPLEMENT of theirs (their 'request' talk
+    // means I'm implicitly acting as the 'offer' side by answering it). This lets
+    // findAutoAnswer/getRoleForQuestionText later veto a same-role auto-match without every
+    // call site here having to know or pass that distinction explicitly.
+    const myRole =
+      talk?.authorId && this.currentUser?.id && talk.authorId === this.currentUser.id
+        ? talk.role
+        : complementRole(talk?.role);
     if (currentQuestion.text) {
       if (mode === 'suppressed') {
         saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, undefined, languageContext);
       } else if (mode === 'permanent') {
-        savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext);
+        savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, myRole);
       } else if (mode === 'auto') {
-        saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext);
+        saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, myRole);
       }
       setExactChatbotMemory(exactMemory);
     }
@@ -7867,6 +7887,19 @@ export class UIManager extends EventEmitter {
 
   getChatbotTemplate(talkId: string): { answers: any[]; talkData: any } | null {
     return loadChatbotTemplate(talkId);
+  }
+
+  /**
+   * My own two-sided deal role (see `Talk.role`) recorded for this exact question text, if
+   * any — lets app.ts resolve `responderRole` for `checkIfMatch`'s same-role veto on the
+   * manual answering path (the chatbot's own auto-reply path already vetoes internally via
+   * findAutoAnswer, see resolveAnswerPreferenceForTalkQuestion above).
+   */
+  getMyRoleForQuestionText(questionText: string, language?: string): TalkRole | undefined {
+    if (!questionText) return undefined;
+    return getRoleForQuestionText(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, questionText, {
+      language: String(language || 'en').toLowerCase(),
+    });
   }
 
   saveChatbotTemplate(talkId: string, data: { answers: any[]; talkData: any }): void {
@@ -8295,6 +8328,8 @@ export class UIManager extends EventEmitter {
     const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
     const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
     const sendToChatroomCheck = document.getElementById('talk-send-to-chatroom') as HTMLInputElement;
+    const roleSelect = document.getElementById('talk-role') as HTMLSelectElement | null;
+    const role = roleSelect?.value === 'offer' || roleSelect?.value === 'request' ? roleSelect.value : undefined;
     const expiresVal = expiresSelect?.value || '';
     const oneDay = 24 * 60 * 60 * 1000;
     let expiresAt: number | null = null;
@@ -8450,6 +8485,7 @@ export class UIManager extends EventEmitter {
         tags: [],
         expiresAt,
         locationRadiusMiles,
+        role,
       });
     } else {
       const attachmentInput = document.getElementById('talk-attachment-input') as HTMLInputElement | null;
@@ -8477,6 +8513,7 @@ export class UIManager extends EventEmitter {
         sendToChatroom,
         expiresAt,
         locationRadiusMiles,
+        role,
         selfAnswers,
         ...(mediaFile ? { mediaFile } : {}),
         ...(reviseSourceTalk ? { reviseSourceTalk } : {}),

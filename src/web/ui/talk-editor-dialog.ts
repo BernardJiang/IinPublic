@@ -113,6 +113,16 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             </select>
           </div>
 
+          <div class="form-group" id="talk-role-group">
+            <label class="form-label">${text('editorRoleLabel', 'Role in this deal (optional)')}</label>
+            <select class="form-input" id="talk-role" aria-label="${text('editorRoleLabel', 'Role in this deal (optional)')}">
+              <option value="" ${!existingTalk?.role ? 'selected' : ''}>${text('editorRoleNone', 'No role')}</option>
+              <option value="offer" ${existingTalk?.role === 'offer' ? 'selected' : ''}>${text('editorRoleOffer', 'Offering (I have or provide something)')}</option>
+              <option value="request" ${existingTalk?.role === 'request' ? 'selected' : ''}>${text('editorRoleRequest', 'Requesting (I want or need something)')}</option>
+            </select>
+            <p style="margin: 6px 0 0 0; font-size: 0.85em; color: #666;">${text('editorRoleHelp', 'Two talks with the SAME role never match (e.g. two buyers) — only opposite roles can.')}</p>
+          </div>
+
           <div class="form-group" id="questions-form-group">
             <label class="form-label" id="questions-form-label">${text('editorQuestions', 'Questions & Branching')}</label>
             <p class="talk-editor-type-hint" id="talk-editor-type-hint" style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;"></p>
@@ -262,6 +272,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     const talkOptionsGroup = document.getElementById('talk-options-group');
     const talkLocationGroup = document.getElementById('talk-location-group');
     const talkSendChatroomGroup = document.getElementById('talk-send-chatroom-group');
+    const talkRoleGroup = document.getElementById('talk-role-group');
     const tagLikeGroup = document.getElementById('tag-like-group');
     const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
     const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement | null;
@@ -280,6 +291,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       if (talkOptionsGroup) talkOptionsGroup.style.display = 'none';
       if (talkLocationGroup) talkLocationGroup.style.display = 'none';
       if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = 'none';
+      if (talkRoleGroup) talkRoleGroup.style.display = 'block';
       if (questionsFormGroup) {
         questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
           (el as HTMLInputElement).disabled = true;
@@ -319,6 +331,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         });
       }
       if (type === 'survey') {
+        // Surveys never have a match/ignore outcome (checkIfMatch always returns false for
+        // them) — a role selector would be meaningless here.
+        if (talkRoleGroup) talkRoleGroup.style.display = 'none';
         if (questionsFormLabel) questionsFormLabel.textContent = text('editorSurveyQuestions', 'Questions (independent)');
         if (questionsTypeHint) {
           questionsTypeHint.textContent = text('editorSurveyHint', 'Survey: questions are independent - no branching. Every answer has a counter used for aggregate statistics.');

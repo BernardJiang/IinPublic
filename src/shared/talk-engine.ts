@@ -1,4 +1,4 @@
-import { Talk, Question, Answer, ContextStep, AnswerWithContext } from './types';
+import { Talk, Question, Answer, ContextStep, AnswerWithContext, TalkRole } from './types';
 import { TalkStructureError, ValidationError } from './errors';
 
 /** Answer record as submitted by the user (e.g. from talk response flow) */
@@ -96,8 +96,26 @@ export function matchScore(
  * reconstruction is needed here — just checking the terminal answer's own
  * isMatch flag is sufficient.
  */
-export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[]): boolean {
+/**
+ * The complement of a two-sided deal role — 'offer' pairs with 'request' and vice versa.
+ * Undefined in, undefined out (a talk/responder with no declared role has no complement).
+ */
+export function complementRole(role?: TalkRole): TalkRole | undefined {
+  if (role === 'offer') return 'request';
+  if (role === 'request') return 'offer';
+  return undefined;
+}
+
+export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], responderRole?: TalkRole): boolean {
   if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
+    return false;
+  }
+  // Same-role veto: a talk that declares a two-sided role (e.g. 'request' to buy) must
+  // never match a responder holding the SAME role (another buyer) — only a match against
+  // an undeclared role or the complementary role ('offer', a seller) is legitimate. This
+  // runs before the isMatch check so it overrides whatever answer was picked, whether by a
+  // human or the chatbot's exact-text auto-reply (src/shared/exact-chatbot-memory.ts).
+  if (talkData.role && responderRole && talkData.role === responderRole) {
     return false;
   }
   const lastAnswer = answers[answers.length - 1];
@@ -953,7 +971,7 @@ export function buildRevisedTalkDraft(
   questions: Question[],
   editorId: string,
   overrides: Partial<
-    Pick<Talk, 'title' | 'type' | 'language' | 'tags' | 'isAdult' | 'expiresAt' | 'locationRadiusMiles'>
+    Pick<Talk, 'title' | 'type' | 'language' | 'tags' | 'isAdult' | 'expiresAt' | 'locationRadiusMiles' | 'role'>
   > = {},
 ): Partial<Talk> {
   const draft: Partial<Talk> = {
@@ -980,6 +998,9 @@ export function buildRevisedTalkDraft(
   const locationRadiusMiles =
     overrides.locationRadiusMiles !== undefined ? overrides.locationRadiusMiles : oldTalk.locationRadiusMiles;
   if (locationRadiusMiles != null) draft.locationRadiusMiles = locationRadiusMiles;
+
+  const role = overrides.role !== undefined ? overrides.role : oldTalk.role;
+  if (role != null) draft.role = role;
 
   return draft;
 }
