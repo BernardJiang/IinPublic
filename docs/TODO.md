@@ -808,72 +808,11 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
 
 ## CC. Mandatory financial-transaction safety warning + automatic card-number block `[Sonnet]`
 
-**Not a new feature — a spec/code gap found while checking §BB against the SRS (2026-08-10).**
-`docs/specs/iinpublic-technical-specifications.md` §7.4 ("Credit Card & Financial Data Filter") has
-described this since before the current filter architecture existed, targeting a standalone
-`src/filters/financialDataFilter.ts` module that was never created. The actual shipped filter,
-`src/shared/message-content-filter.ts`, only implements `'dirty_words' | 'grammar'` — both
-user-configurable/opt-in — and has no financial-data path at all. §7.4 has been rewritten
-(2026-08-10) to target the real architecture instead of the phantom module; this section is the
-implementation/test plan for closing that gap. `[Sonnet]` because the design is already fully
-specified (§7.4, FR-FIN-1 – FR-FIN-5) — this is direct implementation work, not a design task.
-
-**Requirements (already spec'd, §7.4 — revised 2026-08-11 to a two-checkpoint trigger model):**
-
-- Mandatory warning at two recurring checkpoints, every occurrence, not a one-time onboarding flag:
-  - **T1 — before a talk is sent/broadcast**, every send: *"IinPublic is for talk exchange only.
-    Never share payment card numbers or send money through this app."*
-  - **T2 — immediately after a match is found**, at conversation creation, every match: *"You've
-    matched. Never send money through this app — pay in person if you complete a deal. If you're
-    meeting for the first time, choose a public place."* This checkpoint **absorbs and replaces**
-    the separately-proposed dating-only "meet safely" notice — one mechanism now covers both
-    marketplace and dating matches. T2 fires before any auto-delivered content (e.g. §DD/§FF's
-    photo-attachment-on-match).
-  - UX weight (open call, not fixed by the spec): full tap-to-acknowledge on the first occurrence
-    of each trigger per session, lighter non-blocking banner on repeats within the same session.
-- A `'financial_data'` reason added to `MessageFilterReason`, checked **unconditionally** (unlike
-  the two existing opt-in reasons) — no user or business-chatroom setting may disable it.
-- Detection: card-number-shaped substring (`\b(?:\d[ -]?){13,19}\b`) **and** Luhn-valid, to avoid
-  false-positiving on order numbers/phone numbers/IDs. Also IBAN, US routing/account pairs, sort
-  codes, BTC/ETH address shapes (table in §7.4).
-- Reject-not-strip: submission is blocked client-side with an inline error before the text reaches
-  Gun or a peer; never silently redacted.
-- Applies to every free-text entry point: talk question text, talk answer text (including
-  custom/typed answers), talk titles, conversation messages — both `filterOutgoingMessage` (sender)
-  and `filterIncomingMessage` (receiver-render) paths.
-- TechSupport's existing filter exemption (`filterIncomingMessage`, K6) does **not** extend to this
-  check — TechSupport messages are still scanned.
-
-**Implementation plan:**
-
-1. Add Luhn-checksum + card/IBAN/routing/sort-code/wallet regex matchers as a pure function (new
-   file, e.g. `src/shared/financial-data-guard.ts`, mirroring `message-content-filter.ts`'s
-   "single implementation used by every composer" invariant — no per-call-site duplication).
-2. Extend `MessageFilterReason` to `'dirty_words' | 'grammar' | 'financial_data'` in
-   `message-content-filter.ts`; run the financial check first and unconditionally in
-   `assessMessageContent`, ahead of the two opt-in checks.
-3. Audit every free-text submission boundary and wire the check in: `talk-editor-dialog.ts`
-   (question/answer text, talk title), `talk-response-dialog.ts` (answer text), conversation
-   message compose (wherever that lives in `conversations-view.ts`).
-4. Add the T1 (pre-send) and T2 (post-match) acknowledgment-gate UI (mirrors the existing
-   vouch/age-verify acknowledgment pattern for the first-per-session full version; a lighter
-   non-blocking banner for repeats within the same session).
-5. Update `docs/specs/iinpublic-technical-specifications.md` §18 cross-reference matrix row once
-   shipped (currently marked "not yet implemented").
-
-**Test plan:**
-
-- Unit: Luhn checksum (valid/invalid card numbers), each regex category (true positives from §7.4's
-  example column), false-positive resistance (a 13–19 digit non-card sequence, a plausible phone
-  number, an order ID) — must NOT block.
-- Unit: `assessMessageContent` — financial check fires regardless of the `filters` argument (proves
-  it's non-configurable, unlike dirty-words/grammar); TechSupport sender ID does NOT exempt a
-  financial-data hit (proves K6's exemption doesn't leak into this check).
-- E2E: attempt to send a card number in a conversation message → inline error, message never
-  appears in either party's Gun graph. Same for a talk answer field.
-- E2E: T1 warning appears before every talk send this session (not just the first); T2 warning
-  appears immediately on match, before any pre-attached photo (§DD/§FF) is delivered into the new
-  conversation.
+> **Complete 2026-08-11** — see docs/completed.md. Financial-data detection (card/IBAN/routing/
+> sort-code/wallet, Luhn-checked) mandatorily blocks talk creation and conversation messages;
+> two-checkpoint safety reminder shipped as a once-per-day toast (revised from an earlier
+> tap-to-acknowledge banner design, rejected by Bernard as too disruptive/repetitive). Not yet
+> done: e2e coverage of the toast itself (unit-tested only so far).
 
 ---
 

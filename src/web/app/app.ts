@@ -2375,6 +2375,7 @@ export class IinPublicApp {
           respondedByBotForUser1: !!decrypted.isChatbotResponse,
           respondedByBotForUser2: false,
         });
+        this.uiManager.maybeShowMatchSafetyToast();
         this.uiManager.addNewConversation({
           conversationId,
           otherUserId: payload.responderId,
@@ -2438,6 +2439,7 @@ export class IinPublicApp {
       respondedByBotForUser1: !!decrypted.isChatbotResponse,
       respondedByBotForUser2: false,
     });
+    this.uiManager.maybeShowMatchSafetyToast();
     this.uiManager.addNewConversation({
       conversationId,
       otherUserId: payload.responderId,
@@ -4002,6 +4004,7 @@ export class IinPublicApp {
       respondedByBotForUser1: false,
       respondedByBotForUser2: params.isChatbotResponse,
     });
+    this.uiManager.maybeShowMatchSafetyToast();
     this.uiManager.addNewConversation({
       conversationId,
       otherUserId: params.authorId,

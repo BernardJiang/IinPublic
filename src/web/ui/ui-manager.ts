@@ -151,6 +151,7 @@ import {
 } from './talk-intake-filters';
 import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
+import { containsFinancialData } from '../../shared/financial-data-guard';
 import { CONFIG } from '../../shared/config';
 import { showLinkedDevicesDialog, type LinkedDeviceRow } from './linked-devices-dialog';
 import { decodePairingCode, isPairingExpired } from '../../shared/identity-linking';
@@ -218,6 +219,17 @@ type CreatorReplyFilterState = {
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
+/** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
+ * banner, and is throttled to once per checkpoint per day rather than every occurrence. */
+const SAFETY_TOAST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const SAFETY_TOAST_T1_KEY = 'iinpublic_safety_toast_t1_last_shown';
+const SAFETY_TOAST_T2_KEY = 'iinpublic_safety_toast_t2_last_shown';
+function shouldShowCooldownToast(storageKey: string): boolean {
+  const last = Number(localStorage.getItem(storageKey) || '0');
+  if (Date.now() - last < SAFETY_TOAST_COOLDOWN_MS) return false;
+  localStorage.setItem(storageKey, String(Date.now()));
+  return true;
+}
 const CREATOR_REPLY_PAGE_SIZE = 25;
 /** TODO §R2: first-chunk size for the Talks tab's OUT/IN lists, same precedent as above. */
 const TALKS_FIRST_CHUNK_SIZE = 25;
@@ -1828,6 +1840,7 @@ export class UIManager extends EventEmitter {
       members.map((m) => m.userId),
     );
 
+    this.maybeShowPreSendSafetyToast();
     this.emit('broadcastTalk', {
       chatroomId,
       members,
@@ -4175,19 +4188,36 @@ export class UIManager extends EventEmitter {
   }
 
   private showContentFilterToast(result: MessageFilterResult, direction: 'send' | 'receive'): void {
-    const dirty = result.reason === 'dirty_words';
     let text: string;
     let attr: string;
-    if (direction === 'send') {
-      text = dirty
-        ? `${this.t('messageBlockedDirtyWord')}${result.word ? ` ('${result.word}')` : ''}`
-        : this.t('messageBlockedGrammar');
-      attr = dirty ? 'send' : 'grammar-send';
+    if (result.reason === 'financial_data') {
+      // Mandatory, non-configurable (FR-FIN-2) — same message on both paths since a
+      // financial-data hit is never rendered for the receiver either (FR-FIN-4).
+      text = this.t('messageBlockedFinancialData');
+      attr = direction === 'send' ? 'financial-send' : 'financial-receive';
+    } else if (result.reason === 'dirty_words') {
+      text =
+        direction === 'send'
+          ? `${this.t('messageBlockedDirtyWord')}${result.word ? ` ('${result.word}')` : ''}`
+          : this.t('messageHiddenDirtyWord');
+      attr = direction === 'send' ? 'send' : 'receive';
     } else {
-      text = dirty ? this.t('messageHiddenDirtyWord') : this.t('messageHiddenGrammar');
-      attr = dirty ? 'receive' : 'grammar-receive';
+      text = direction === 'send' ? this.t('messageBlockedGrammar') : this.t('messageHiddenGrammar');
+      attr = direction === 'send' ? 'grammar-send' : 'grammar-receive';
     }
     this.showNotification(text, 'error', { contentFilter: attr });
+  }
+
+  /** T1 (spec §7.4 FR-FIN-1): before a talk is sent/broadcast, at most once per day. */
+  private maybeShowPreSendSafetyToast(): void {
+    if (!shouldShowCooldownToast(SAFETY_TOAST_T1_KEY)) return;
+    this.showNotification(this.t('safetyToastPreSend'), 'warning');
+  }
+
+  /** T2 (spec §7.4 FR-FIN-1): immediately after a match is found, at most once per day. */
+  maybeShowMatchSafetyToast(): void {
+    if (!shouldShowCooldownToast(SAFETY_TOAST_T2_KEY)) return;
+    this.showNotification(this.t('safetyToastPostMatch'), 'warning');
   }
 
   /**
@@ -8431,6 +8461,18 @@ export class UIManager extends EventEmitter {
         }
         questions.push(questionObj);
       });
+    }
+
+    // ── Mandatory financial-data check (spec §7.4, FR-FIN-2) ───────────────
+    // Runs before validation/autofix and cannot be disabled — covers the talk
+    // title and every question/answer text field.
+    const talkTextFields: string[] = [
+      title,
+      ...questions.flatMap((q: any) => [q.text, ...(q.answers || []).map((a: any) => a.text)]),
+    ];
+    if (talkTextFields.some((t) => containsFinancialData(String(t || '')))) {
+      this.showTalkValidationError([this.t('editorFinancialDataBlocked')]);
+      return false;
     }
 
     // ── Validate (with best-effort autofix) before we emit anything ────────

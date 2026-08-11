@@ -896,10 +896,17 @@ The sensitivity classifier runs locally (no server round-trip) in `src/filters/p
   conversation — it SHALL render before any auto-delivered content (e.g. a pre-attached photo,
   §30.6) so the safety framing is visible before any content exchange, automated or not.
 
-UX weight (open, not yet decided): full tap-to-acknowledge on the first occurrence of each trigger
-per session, stepping down to a brief but still-guaranteed-visible non-blocking banner on repeats
-within the same session — balances "mandatory presence" against modal fatigue for users who send or
-match often. Final weighting is an implementation-time UX call, not fixed by this spec.
+**UX weight (resolved 2026-08-11, shipped): a toast, not a banner, throttled to once per day per
+checkpoint.** A layout-shifting banner was rejected — it displaces content every time it renders,
+which is worse than the nagging it was meant to avoid. Reuses the existing transient toast/
+notification mechanism (`UIManager.showNotification`, already used for match/error/info messages
+app-wide) instead of a new persistent UI element. Each checkpoint (T1, T2) is throttled
+independently: at most one toast per checkpoint per rolling 24 hours, tracked client-side
+(`localStorage`, keys `iinpublic_safety_toast_t1_last_shown` / `..._t2_last_shown`). This replaces
+the earlier "full tap-to-acknowledge on first occurrence, banner on repeats" design — a once-per-day
+toast is guaranteed-visible without demanding acknowledgment or shifting layout on every occurrence.
+Implemented in `src/web/ui/ui-manager.ts` (`maybeShowPreSendSafetyToast`,
+`maybeShowMatchSafetyToast`).
 
 **FR-FIN-2 (Mandatory block, not just a warning).** Unlike the dirty-words/grammar filters
 (§ FR-BF-6, user-configurable, opt-in per user), the financial-data check SHALL be **mandatory and
@@ -2499,7 +2506,7 @@ The following items are known open questions or planned post-MVP work:
 | No central data collection | NFR-S-1, §7.1 | Architecture — no server writes |
 | P2P only; direct chats not persisted | NFR-S-1, §7.1, §7.2 | `server.js`, Gun relay config |
 | Privacy question prompt | NFR-S-4, §7.3 | `src-shared/filters/privacyClassifier.ts` |
-| Credit card / financial filter, mandatory two-checkpoint warning (T1 send / T2 match) | FR-FIN-1 – FR-FIN-5, §7.4 | **not yet implemented** — target: `src/shared/message-content-filter.ts` extension, docs/TODO.md §CC |
+| Credit card / financial filter, mandatory two-checkpoint toast (T1 send / T2 match) | FR-FIN-1 – FR-FIN-5, §7.4 | **shipped 2026-08-11** — `src/shared/financial-data-guard.ts`, `src/shared/message-content-filter.ts`, `src/web/ui/ui-manager.ts` (toast + once/day cooldown), docs/TODO.md §CC |
 | Talk.role complementary matching (shipped) | §30.1, §30.2 | `src/shared/talk-engine.ts` (`checkIfMatch`, `complementRole`) |
 | Opposite-attribute preference-sets + typed built-ins + dating profile (gender/sex/race opinion-neutral) | §30.1 – §30.7 | **not yet implemented** — docs/TODO.md §BB, §DD |
 | Profile scope (StageName + headshot only); "Me" tab pinned identity header | FR-UM-3, FR-UM-9, §13.7.1 | **not yet implemented** — docs/TODO.md §EE |

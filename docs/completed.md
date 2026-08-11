@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-02
+Last updated: 2026-08-11
 
 ## 2026-07-14 — S3 embedded-node mobile shells: Android/iOS native builds verified
 
@@ -4983,3 +4983,47 @@ tab"). The remaining two were real, scoped work:
   out of scope: CLAUDE.md's "Route modules"/"Talk delivery flow" sections are considerably more
   stale than just this one path name (name files/functions removed since the P2P migration) —
   flagged in `docs/TODO.md` for a separate pass, not folded into Y2.
+
+## 2026-08-11 — CC: mandatory financial-data block + two-checkpoint safety toast
+
+Moved from `docs/TODO.md` CC. Closed a real spec/code gap found while checking §BB against the SRS:
+`docs/specs/iinpublic-technical-specifications.md` §7.4 ("Credit Card & Financial Data Filter") had
+described this since before the current filter architecture existed, targeting a standalone
+`src/filters/financialDataFilter.ts` module that was never created — the actual shipped filter had
+no financial-data path at all.
+
+- **Detection** (`src/shared/financial-data-guard.ts`, new): card numbers (regex-shape + Luhn
+  checksum, so ordinary 13–19 digit sequences like phone numbers or order IDs aren't
+  false-positived), IBAN, US routing/account pairs, sort codes, BTC/ETH wallet addresses, and CVV
+  (only flagged alongside an actual card-number match in the same text). Pure functions, no
+  fuzzy/AI matching — same determinism posture as the rest of the filtering system.
+- **Wiring** (`src/shared/message-content-filter.ts`): new `'financial_data'` reason, checked
+  first and **unconditionally** — unlike dirty-words/grammar it ignores the `filters` argument
+  entirely, so no user or business-chatroom setting can disable it. Every caller of
+  `filterOutgoingMessage`/`filterIncomingMessage` (conversation messages) inherited the check for
+  free. TechSupport's existing K6 dirty-word/grammar exemption was **not** extended to this check
+  (`filterIncomingMessage` now runs the financial check unconditionally even for TechSupport,
+  passing `null` filters only to skip the dirty-word/grammar part).
+- **Talk creation** (`ui-manager.ts`'s `processTalkForm`): checks talk title + every question/answer
+  text before validation/autofix; blocks save with an inline error
+  (`editorFinancialDataBlocked`) rather than silently stripping.
+- **Safety reminder — revised mid-implementation per Bernard's direction:** the original plan
+  ("full tap-to-acknowledge on first occurrence per session, banner on repeats") was rejected —
+  "I don't want a banner... it would be annoying to repeat it for many times." Shipped instead as a
+  **toast** (reusing the existing `showNotification` mechanism, no new UI element, no layout shift)
+  throttled to **once per day per checkpoint** via `localStorage` timestamps
+  (`shouldShowCooldownToast`). Two checkpoints: T1 fires in `runBroadcastFromCurrentRoom` right
+  before the real `broadcastTalk` emit (not on a no-op/empty-broadcast attempt); T2 fires via a new
+  public `UIManager.maybeShowMatchSafetyToast()`, called from the three genuine
+  match-creates-a-conversation sites in `app.ts` (the fourth `createConversation` call site,
+  `findOrCreateDirectConversation`, is a support/direct channel, not a match, and was deliberately
+  left out).
+- Fixed a bug introduced mid-implementation: `showContentFilterToast` only branched
+  dirty-word-vs-grammar, so a `financial_data` result would have silently rendered the grammar
+  message. Added a proper third branch before it could ship.
+- Verified: 43 new/updated unit tests (Luhn validity, each detection category, false-positive
+  resistance, non-configurability, TechSupport non-exemption), full unit suite green (87 suites /
+  1137 tests), type-check and lint clean, and the dealmaker E2E spec re-run to confirm the T2 hook
+  in `app.ts`'s match-creation path didn't disturb match behavior (2/2 passed).
+- Not yet done: e2e coverage specifically asserting the toast itself (text/cooldown behavior) —
+  covered so far only by unit tests on the underlying filter and a manual read of the wiring.
