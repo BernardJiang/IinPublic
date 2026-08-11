@@ -1,0 +1,42 @@
+%%{init: {"sequence": {"actorWidth": 190, "actorMargin": 70, "messageMargin": 32}}}%%
+sequenceDiagram
+    autonumber
+    participant A as Alice UI
+    participant AG as Alice local Gun
+    participant CM as Discovery + Connection Manager
+    participant BG as Bob local Gun
+    participant IN as Bob intake policy
+    participant CB as Bob local chatbot
+    participant B as Bob UI
+
+    A->>AG: Create and persist SEA-authored Talk
+    AG->>CM: Signed Talk offer with safe metadata
+    CM->>IN: Deliver over any permitted working route
+    IN->>IN: Apply block, room, language, distance and content policy
+
+    alt Talk rejected
+        IN-->>CM: Reject or ignore
+    else Talk accepted
+        IN->>CM: Request authorized Talk graph
+        CM->>BG: Gun Wire synchronizes Talk
+        BG->>BG: Commit and verify by read-back
+        BG-->>AG: Signed persisted-acceptance receipt
+        BG->>CB: Evaluate accepted questions
+        CB->>CB: Compare with private answer memory
+
+        alt Exact reusable answer and auto policy permits
+            CB->>BG: Store chatbot-reuse response + provenance
+        else Missing or changed questions
+            CB->>B: Present differential draft / request missing answers
+            B->>BG: Approve or enter response
+        else Manual mode
+            CB->>B: Present draft only
+            B->>BG: Review and submit
+        end
+
+        BG->>BG: SEA-sign and pair-encrypt response
+        BG->>CM: Synchronize pair-private response graph
+        CM->>AG: Deliver over direct, relayed, forwarded or mailbox path
+        AG->>AG: Persist response and calculate match
+        AG-->>A: Display answer, match and conversation state
+    end

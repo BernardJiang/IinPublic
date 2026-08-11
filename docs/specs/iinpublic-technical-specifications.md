@@ -1,8 +1,8 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.6 — Part VI added: GUI navigation shell redesign & layout catalog (§26), cross-platform embedded-node native clients (§27), Gun database architecture/scalability/retention (§28); §19.7 expanded with the current TechSupport K1–K6 built-in-identity/presence/Q&A/unblockability contract
-> **Date:** 2026-07-29
+> **Version:** 4.7 — Part VII adds the authoritative open-source discovery, connection-management, Gun-authoritative synchronization, chatbot, and platform-adapter architecture (§29)
+> **Date:** 2026-08-10
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -53,6 +53,10 @@
 26. [GUI Navigation Shell Redesign & Layout Catalog](#26-gui-navigation-shell-redesign--layout-catalog)
 27. [Cross-Platform Native Clients — Embedded Node Shell (S3)](#27-cross-platform-native-clients--embedded-node-shell-s3)
 28. [Gun Database Architecture, Scalability & Retention](#28-gun-database-architecture-scalability--retention)
+
+**Part VII — Discovery, Connectivity & Gun Synchronization (merged 2026-08-10)**
+
+29. [Open-Source Discovery, Connectivity, Chatbot & Gun Synchronization](#29-open-source-discovery-connectivity-chatbot--gun-synchronization)
 
 ---
 
@@ -6153,3 +6157,216 @@ These sections cross-reference the rest of this document:
 
 ---
 
+# PART VII — DISCOVERY, CONNECTIVITY & GUN SYNCHRONIZATION
+
+## 29. Open-Source Discovery, Connectivity, Chatbot & Gun Synchronization
+
+> **Status:** Authoritative decision of record · **Date:** 2026-08-10
+> **Source:** `docs/iinpublic_discovery_design(3).md`
+> **Precedence:** Where older §§19, 23, 25, 27, or 28 describe Talk bodies as authoritative only
+> in `PeerMeshService` memory/localStorage, or imply that libp2p replaces Gun graph
+> synchronization, this section prevails. Existing mesh delivery remains supported during a
+> staged migration; it must not be removed until equivalent Gun-path delivery and rollback tests
+> are green.
+
+### 29.1 Open-source independence
+
+IinPublic SHALL be independently designed and released as open-source software. Project code,
+wire formats, schemas, tests, and documentation SHALL NOT copy proprietary source code, private
+APIs, undocumented wire formats, protected assets, or branding from other products. Public
+documentation and research MAY inform requirements and threat models, but IinPublic SHALL define
+and document its own interfaces. Vendor SDKs MAY be optional adapters; no vendor SDK SHALL be
+required for protocol interoperability.
+
+### 29.2 Layer ownership
+
+The architecture SHALL keep these responsibilities separate:
+
+| Layer | Authoritative responsibility |
+|---|---|
+| Application | Talks, questions/answers, Me graph, users, chatrooms, conversations, credit/reputation inputs, ledger |
+| Chatbot | Local answer reuse/drafting under user policy; never an independent identity |
+| SEA | Sole IinPublic identity, authorship, signatures, authorization, application encryption |
+| Gun.js | Authoritative local graph, durable device storage, subscriptions, CRDT convergence, authorized graph synchronization |
+| Discovery Manager | Candidate acquisition and normalization; never establishes identity |
+| Connection Manager | Route scoring, permissions, health, migration, and exposure of usable paths to Gun |
+| libp2p | Optional DHT/mDNS/bootstrap, NAT traversal, streams, relays, and Helia/IPFS connectivity |
+| IPFS/Helia | Large immutable attachment bytes; Gun stores CID, encryption and authorization metadata |
+| Platform adapters | Optional paths for Apple, Android/Google and desktop capabilities |
+| Mailbox | Encrypted TTL store-and-forward fallback; never authoritative application storage |
+
+### 29.3 Identity and connectivity bindings
+
+- **REQ-DISC-01:** SEA SHALL be the only application identity. Talks, messages, answers, contacts,
+  blocks, reputation and user-visible identity references SHALL use SEA identity.
+- **REQ-DISC-02:** A libp2p PeerID, nearby-radio identifier, IP address or future transport ID
+  SHALL be treated only as a connectivity identifier.
+- **REQ-DISC-03:** Every accepted mapping from SEA identity to a transport ID SHALL be expressed as
+  a versioned, expiring, monotonically sequenced SEA-signed `ConnectivityBinding`.
+- **REQ-DISC-04:** Changing transport ID SHALL NOT evade a SEA-level block, trust decision or
+  authorship check.
+- **REQ-DISC-05:** Nearby unauthenticated advertisements SHALL use rotating identifiers and SHALL
+  NOT expose stable SEA keys, profile data, exact location or Talk history.
+
+### 29.4 Gun-authoritative data and selective synchronization
+
+- **REQ-GUNSYNC-01:** Every durable Talk, question, answer, Me-tab record, reputation input,
+  chatroom record, conversation message and ledger event SHALL have an authoritative local Gun
+  representation.
+- **REQ-GUNSYNC-02:** A transport cache, `PeerMeshService` cache, localStorage compatibility
+  mirror or mailbox envelope SHALL NOT be the only authoritative copy of durable application data.
+- **REQ-GUNSYNC-03:** Gun Wire or a documented Gun-compatible delta adapter SHALL be the default
+  synchronization format across transports.
+- **REQ-GUNSYNC-04:** Synchronization SHALL be visibility-scoped: room-public, user-private and
+  pair-private graphs SHALL be requested and replicated only by authorized peers.
+- **REQ-GUNSYNC-05:** Receiver intake MAY use a small signed offer before body synchronization so a
+  rejected Talk need not be committed into the receiver's durable incoming graph.
+- **REQ-GUNSYNC-06:** A signed acceptance receipt SHALL be emitted only after the receiver commits
+  the expected record to local Gun and verifies it by read-back.
+- **REQ-GUNSYNC-07:** Reconnect synchronization SHALL exchange missing graph state/deltas without
+  requiring full-history replay when heads/checkpoints show overlap.
+- **REQ-GUNSYNC-08:** Migration SHALL preserve the current `P2PMeshFrame` path until Gun-native
+  parity, rollback, duplicate, and mixed-version tests pass.
+
+Target flow:
+
+```text
+Alice UI -> Alice local Gun (authoritative Talk)
+         -> signed Talk offer
+         -> Discovery + Connection Manager
+         -> Bob intake accepts
+         -> authorized Gun synchronization over any usable path
+         -> Bob local Gun commit + read-back
+         -> signed acceptance receipt
+         -> Bob chatbot/manual response
+         -> Bob pair-private Gun response
+         -> Alice local Gun + match/conversation
+```
+
+Rendered architecture diagrams:
+
+- `docs/diagrams/iinpublic-layered-architecture.svg` (editable source: `.mmd`)
+- `docs/diagrams/talk-chatbot-flow.svg` (editable source: `.mmd`)
+
+### 29.5 Discovery providers
+
+- **REQ-DISC-06:** A common provider interface SHALL normalize candidates from IinPublic.com,
+  known peers, libp2p DHT room rendezvous, mDNS/Bonjour, nearby radios and authenticated gossip.
+- **REQ-DISC-07:** Candidate presence SHALL NOT imply trust; SEA binding verification occurs after
+  a route is established.
+- **REQ-DISC-08:** Providers SHALL enforce candidate-count, address-count, record-size, expiry,
+  rate, parsing and retry bounds.
+- **REQ-DISC-09:** Provider failure or permission denial SHALL degrade independently and SHALL NOT
+  prevent attempts through remaining providers.
+- **REQ-DISC-10:** V1 DHT publication SHALL remain room-provider rendezvous. Geographic/topic-wide
+  indexes require a separate privacy and enumeration review.
+- **REQ-DISC-11:** Authenticated peers MAY gossip bounded signed connectivity bindings relevant to
+  an active room, requested identity or recent relationship.
+
+### 29.6 Connection Manager and route policy
+
+The Connection Manager SHALL score `monetaryCost`, `directness`, latency, bandwidth, battery cost,
+stability, privacy class and existing connection state.
+
+- **REQ-CONN-01:** Reuse a healthy adequate direct route when available.
+- **REQ-CONN-02:** Prefer a free usable route over a metered route.
+- **REQ-CONN-03:** Within comparable cost classes, prefer direct, stable and faster routes.
+- **REQ-CONN-04:** Before newly using a possibly charged route, obtain permission unless an
+  applicable saved user policy exists.
+- **REQ-CONN-05:** Route choice SHALL be operation-aware: discovery, text, background sync and
+  large IPFS transfers have different bandwidth/battery requirements.
+- **REQ-CONN-06:** A route may migrate without changing SEA identity, Talk ID, graph soul or
+  receipt/dedup identity.
+- **REQ-CONN-07:** Connection diagnostics SHALL state the active route, direct/relayed status,
+  cost class, reason, alternatives and last failure.
+
+### 29.7 Peer forwarding
+
+Basic sparse-mesh forwarding remains enabled by default.
+
+- **REQ-FWD-01:** A forwarding peer SHALL preserve the original SEA author and signed payload.
+- **REQ-FWD-02:** Users SHALL be able to disable third-party forwarding without disabling their
+  own outgoing/received Talks, ACKs, responses or permitted discovery gossip.
+- **REQ-FWD-03:** Defaults: forwarding enabled; unmetered Wi-Fi enabled; cellular forwarding
+  disabled; low-battery pause enabled; cellular forwarding budget zero until the user opts in.
+- **REQ-FWD-04:** Policy SHALL be checked before choosing an intermediate peer and immediately
+  before transmitting a third-party frame or Gun delta.
+- **REQ-FWD-05:** Forwarding SHALL enforce hop, size, rate, byte-budget, dedup and abuse limits.
+- **REQ-FWD-06:** Advanced incentives, guarantees and relay accounting are V2 scope.
+
+### 29.8 Chatbot participation
+
+- **REQ-CHATBOT-NET-01:** The chatbot SHALL be a local application agent and SHALL NOT own a SEA
+  identity, transport ID or network route.
+- **REQ-CHATBOT-NET-02:** It SHALL run only after the user's intake policy accepts a Talk.
+- **REQ-CHATBOT-NET-03:** It MAY reuse an exact approved answer, prepare a differential draft, or
+  ask for missing answers according to existing auto/manual policy.
+- **REQ-CHATBOT-NET-04:** Submitted responses SHALL be authored by the user's SEA identity and
+  carry provenance: `human`, `chatbot-reuse`, or `chatbot-draft`, plus human-approval state and
+  source question/answer version where applicable.
+- **REQ-CHATBOT-NET-05:** Private chatbot memory SHALL remain user-private Gun data and SHALL NOT be
+  disclosed merely because a related public Talk is discovered.
+- **REQ-CHATBOT-NET-06:** Transport changes SHALL NOT change chatbot provenance, answer version,
+  response ID or match semantics.
+
+### 29.9 Platform adapters
+
+All adapters SHALL implement open IinPublic discovery and/or connection interfaces.
+
+| Platform | Optional adapters | Boundary |
+|---|---|---|
+| Apple | Wi-Fi Aware, Network.framework peer-to-peer Wi-Fi, Bonjour, Core Bluetooth, Multipeer Connectivity | Prefer a usable IP path for Gun Wire; Apple-only helpers are accelerators |
+| Apple manual handoff | Share sheet / AirDrop | Explicit attachment/import/export only; not background IinPublic transport |
+| Android/Google | Android Wi-Fi Aware, Wi-Fi Direct, NSD/mDNS, BLE, optional Google Nearby Connections | Google services are optional; standard paths remain available |
+| Desktop | LAN WebSocket/TCP, mDNS/Bonjour, libp2p, optional OS Bluetooth | Native node may expose a temporary Gun peer endpoint |
+| Cross-platform | Internet IP, LAN IP, standards-based Wi-Fi Aware where supported, documented BLE framing | Required interoperability must not depend on a single vendor |
+
+- **REQ-PLATFORM-01:** When a platform facility supplies IP connectivity, expose it as a temporary
+  Gun peer route rather than creating a transport-specific Talk schema.
+- **REQ-PLATFORM-02:** BLE SHALL be discovery-first. A BLE Gun adapter requires measured need,
+  framing/flow-control specification and real iOS↔Android verification.
+- **REQ-PLATFORM-03:** Large IPFS blocks SHALL NOT use BLE by default.
+- **REQ-PLATFORM-04:** Removing or disabling a vendor adapter SHALL NOT corrupt or orphan Gun data.
+
+### 29.10 User-facing settings
+
+Normal settings SHALL express intent, not protocol names:
+
+```text
+Connectivity: Automatic
+Prefer free connections                         ON
+Prefer direct connections                       ON
+Save battery when possible                      ON
+Cellular data                                   Ask before use
+Find people through Internet / Nearby / LAN     ON
+Forward for other users                         ON
+Forward on Wi-Fi                                ON
+Forward on cellular                             OFF
+Pause forwarding when battery is low            ON
+```
+
+Advanced settings MAY expose providers, scan intervals, relay policy, byte budgets and diagnostics.
+
+### 29.11 Multi-device open issue
+
+A SEA identity remains device-based. Mutual link attestations exist, but the specification does
+not yet decide whether a person cluster has its own durable identifier, aggregates reputation or
+Q&A, changes contact/block scope, or authorizes device replacement/recovery. Discovery and
+synchronization SHALL NOT silently treat linked identities as one canonical SEA identity until a
+separate decision is approved.
+
+### 29.12 Acceptance summary
+
+The architecture is accepted when:
+
+1. Any one permitted working route can synchronize the same authorized Gun record exactly once.
+2. Tests can disable all competing routes and prove each route independently.
+3. Route failover preserves SEA identity, graph souls, Talk/response IDs and UI deduplication.
+4. Hub-down, LAN-only, relayed, peer-forwarded, metered-permission and offline-mailbox scenarios pass.
+5. The chatbot produces identical durable results regardless of transport.
+6. Vendor-specific adapters are optional and interoperability has an open baseline.
+7. Server exports contain no prohibited durable application bodies.
+8. No application history is lost when a connectivity component is removed or restarted.
+
+
+---

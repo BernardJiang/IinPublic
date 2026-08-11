@@ -1,0 +1,124 @@
+flowchart TB
+    subgraph APP["Application layer — IinPublic meaning"]
+        Talks["Talks<br/>questions, answers, responses"]
+        Me["Me graph<br/>Q&A, credit, reputation"]
+        Users["SEA users<br/>contacts, blocks, linked devices"]
+        Rooms["Chatrooms<br/>membership, announcements"]
+        Conv["Conversations<br/>messages, matches"]
+        Ledger["Interaction ledger<br/>history, supersession, retraction"]
+        Chatbot["Local chatbot<br/>reuse, differential draft, approval"]
+
+        Talks <--> Me
+        Talks <--> Users
+        Talks <--> Rooms
+        Talks <--> Conv
+        Talks <--> Ledger
+        Me <--> Chatbot
+        Talks --> Chatbot
+    end
+
+    subgraph POLICY["Application policy and identity"]
+        Repo["Repositories and services"]
+        Visibility["Visibility and ownership<br/>room / user-private / pair-private"]
+        SEA["SEA identity<br/>signatures, encryption, authorization"]
+        Control["Small control messages<br/>offers, requests, persisted receipts"]
+    end
+
+    APP --> Repo
+    Repo --> Visibility
+    Visibility --> SEA
+
+    subgraph DATA["Authoritative data layer"]
+        Gun["Gun.js local graph<br/>AUTHORITATIVE DATA"]
+        Store["IndexedDB / Radisk<br/>durable device storage"]
+        Descriptor["Attachment CID<br/>encryption and authorization metadata"]
+        IPFS["IPFS / Helia<br/>large immutable bytes"]
+
+        Gun <--> Store
+        Gun --> Descriptor
+        Descriptor --> IPFS
+    end
+
+    Repo <--> Gun
+    Control -. coordinates selective sync .-> Gun
+
+    subgraph SYNC["Synchronization layer"]
+        Scope["Authorized graph paths"]
+        GunWire["Gun Wire / Gun-compatible deltas<br/>subscriptions, dedup, CRDT convergence"]
+    end
+
+    Gun <--> Scope
+    Scope <--> GunWire
+
+    subgraph DISCOVERY["Peer Discovery Manager"]
+        Hub["IinPublic.com rendezvous"]
+        Known["Known verified peers"]
+        DHT["libp2p DHT"]
+        MDNS["mDNS / Bonjour"]
+        NearbyDiscovery["BLE / nearby discovery"]
+        Gossip["Signed peer introductions"]
+    end
+
+    subgraph CONNECTION["Connection Manager"]
+        Binding["SEA-signed connectivity bindings"]
+        Route["free-first · direct-first · fast-first<br/>battery-aware · permission-aware"]
+        Health["health, cost and route diagnostics"]
+
+        Binding --> Route
+        Health --> Route
+    end
+
+    DISCOVERY --> Route
+    GunWire <--> Route
+    Control <--> Route
+    IPFS <--> Route
+
+    subgraph APPLE["Optional Apple adapters"]
+        AppleAware["Wi-Fi Aware"]
+        AppleP2P["Network.framework peer-to-peer Wi-Fi"]
+        Bonjour["Bonjour"]
+        CoreBT["Core Bluetooth"]
+        MPC["Multipeer Connectivity"]
+        AirDrop["Share sheet / AirDrop<br/>manual handoff only"]
+    end
+
+    subgraph ANDROID["Optional Android / Google adapters"]
+        AndroidAware["Wi-Fi Aware"]
+        WifiDirect["Wi-Fi Direct"]
+        NSD["NSD / mDNS"]
+        BLE["Bluetooth LE"]
+        Nearby["Google Nearby Connections<br/>optional accelerator"]
+    end
+
+    subgraph OPENPATHS["Open cross-platform paths"]
+        WebSocket["Gun Wire over WebSocket / TCP/IP"]
+        Libp2p["Gun Wire over libp2p stream"]
+        PeerForward["Configurable peer forwarding"]
+        Relay["Infrastructure relay"]
+        Mailbox["Encrypted TTL mailbox"]
+        BLEAdapter["Documented BLE adapter<br/>constrained fallback"]
+    end
+
+    Route --> APPLE
+    Route --> ANDROID
+    Route --> OPENPATHS
+
+    AppleAware --> WebSocket
+    AppleP2P --> WebSocket
+    Bonjour --> WebSocket
+    MPC --> WebSocket
+    CoreBT --> BLEAdapter
+    AirDrop -. explicit attachment import/export .-> Gun
+
+    AndroidAware --> WebSocket
+    WifiDirect --> WebSocket
+    NSD --> WebSocket
+    Nearby --> WebSocket
+    BLE --> BLEAdapter
+
+    WebSocket --> GunWire
+    Libp2p --> GunWire
+    PeerForward --> GunWire
+    Relay --> GunWire
+    Mailbox --> GunWire
+    BLEAdapter --> GunWire
