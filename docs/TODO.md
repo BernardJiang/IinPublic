@@ -678,6 +678,428 @@ assertion) and `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.sp
 
 ---
 
+## BB. Opposite-tag deal matching: typed built-in questions (quantity/price/time frame/location) `[Opus]`
+
+**Not yet designed at the code level — needs an `[Opus]` design note before implementation**, same
+posture as K7. Scope below is the output of a design conversation with Bernard (2026-08-10);
+preserved as-is so a future session doesn't have to re-derive it. **Checked against the SRS
+2026-08-10 — now written up as `docs/specs/iinpublic-technical-specifications.md` §30**
+("Opposite-Attribute Matching: Typed Comparisons, Preference-Sets, and the Dating Use Case"),
+which generalizes this section's scope (offer/request → preference-sets) and adds a second worked
+use case (dating, §DD below). §30 also confirmed two adjacent items were **already spec'd but
+unbuilt** before this session — see §CC (financial-data filter, spec §7.4) and note that the
+adult-content gate this design assumed still needed building (§30.6, `dating_requires_...`) turned
+out to be **already fully implemented** (`Talk.isAdult` + `age_gate` intake filter + `ageVerified`,
+FR-SP-7/8) — no gap there, just a talk-editor enforcement rule to add (§DD).
+
+**Motivation.** §Role-based matching (shipped 2026-08-10, see `docs/completed.md`) added a single
+hardcoded `Talk.role: 'offer' | 'request'` pair so two same-side talks (two buyers) can never
+auto-match. Bernard wants this generalized into a real **opposite-tag registry** (buy/sell,
+hiring/jobseeking, male/female, and user-definable pairs beyond whatever's predefined), plus three
+**built-in typed question kinds** (quantity, price range, time frame, location) that compare actual
+values instead of matching exact text — today's chatbot auto-reply (`exact-chatbot-memory.ts`) only
+ever does string equality, which can't express "$400 is inside $300–500" or "5 miles apart."
+
+**Decisions made (scope, not implementation):**
+
+- **Tag, not talk-level role field.** `role` becomes tag-based: any tag can declare an opposite tag
+  (buy↔sell, hiring↔jobseeking, …), app-predefined set plus user-created pairs. Tags need a
+  *canonical* identity (resolved by normalized name, the same way question text is today) — two
+  users each typing "buy" must resolve to the same tag object, or the opposite-pairing never
+  connects across users. Governance/conflict policy for user-defined pairs (first-write-wins?
+  admin-curated only? mutable?) is explicitly unresolved, see below.
+- **Self-describing tags, decoupled question wording.** A talk is tagged for what *it* is (a buyer's
+  talk is tagged "buy," never "sell") — but the literal first question shown to a responder is
+  auto-generated from a per-tag template addressed outward ("Do you sell {item}?" for a "buy"-tagged
+  talk), not hand-typed by the author. This is what keeps the mirrored-wording requirement the
+  chatbot's exact-text matching depends on intact without asking two different people to
+  independently type identical text.
+- **Reuse flow/route, not a new talk type.** Rejected the earlier "order-independent attribute-set"
+  idea (would have needed a 5th talk type). Instead: the app's own talk-creation UI prescribes a
+  fixed section order (tags → time frame/location → quantity/price → item specifics), so two
+  talks naturally align without the *engine* needing to be order-independent. Each built-in
+  question still resolves to exactly the 2 outcomes flow/route already understand (proceed /
+  ignore) — `checkIfMatch`, `TalkAutofix`, and route's DAG/contextHash mechanics need **zero**
+  changes. The only new thing is *how* those 2 outcomes get chosen: computed from typed values
+  instead of picked from pre-written text or looked up by exact string.
+- **Question schema:** `Question.builtIn?: { kind: 'quantity'|'priceRange'|'timeFrame'|'location';
+  quantity?: number; priceRange?: {min,max}; timeFrame?: {start,end}; location?: {latitude,
+  longitude,radiusMiles} }`. `answers[]` stays structurally the same (2 entries), just
+  app-generated instead of author-typed when `builtIn` is set.
+- **Typed preference storage, scoped by tag.** A responder's own quantity/price/time/location
+  preference is *not* global (someone may want $300–500 on a notebook and $10–20 on a book at the
+  same time) — store per tag (or tag+item), parallel to but structurally separate from
+  `exact-chatbot-memory.ts` (which only stores strings).
+- **Comparison semantics, confirmed 2026-08-10:**
+  - Quantity: buyer's want `N`, seller's declared available `M` → match iff `N <= M`.
+  - Price range / time frame: same interval-overlap function for both (`a.min <= b.max && b.min <=
+    a.max`) — time frame is just dates instead of dollars.
+  - Location: **simplest version** — mutual containment, `distance <= buyerRadius && distance <=
+    sellerRadius` (not the looser "combined radii overlap" reading). Operates on the
+    already-blurred coordinate the app stores today (§X) — no new precision exposure.
+- **A computed "not compatible" is trustworthy enough to auto-resolve, unlike missing data.**
+  Distinguish "responder has no stored preference for this attribute" (abort auto-reply, deliver to
+  the human inbox — same as today's missing-history behavior) from "responder has a preference and
+  the numbers genuinely don't overlap" (confident auto-ignore, no human review needed — this is
+  exact math, not a heuristic text reuse).
+- **No-auto-match still reaches a human.** If any question — built-in or ordinary text-choice —
+  can't auto-resolve, the talk just sits as a normal unanswered incoming talk, exactly like today.
+  No new fallback mechanism needed; item-specifics questions (the part most likely to need a human,
+  per Bernard) already work this way.
+- **Route for multi-item listings.** A seller offering several different items uses one route talk:
+  tags/time-frame/location asked once at the talk level (shared across items), then a branch point
+  per item, each branch carrying its own quantity/price. Avoids needing N separate talks for N
+  items — resolves the earlier "buy A and sell B simultaneously" question via N separate *talks*
+  (one per deal), but multiple *items within one side of one deal* via route branches.
+
+**Not yet decided:**
+
+- Tag-pair governance: what happens when two users configure the same tag name with conflicting
+  opposites?
+- Does location need a per-question radius, or is reusing the existing talk-level
+  `authorLocation`/`locationRadiusMiles` fields sufficient?
+- All-or-nothing vs. threshold: does a match require every built-in + text-choice question to
+  resolve compatible, or is a partial-overlap score acceptable?
+- Auto-generated question-template wording per tag pair — who authors the predefined set, and can a
+  user override the generated text for their own custom tag pairs?
+- Whether this needs a new SRS/FR entry before implementation (see note above).
+
+**Implementation plan (draft phases — re-sequence once the design note above is written):**
+
+1. Tag opposite-pair registry: canonical tag identity (normalized-name keyed, mirroring
+   `makeQuestionId`), a predefined seed set (buy/sell, hiring/jobseeking, male/female), storage for
+   user-created pairs, a `getOppositeTag(tag)` lookup.
+2. Extend `Talk`/`Question` types (`types.ts`) with `builtIn` per the schema above; extend
+   `TalkAutofix`/`TalkValidator` to auto-generate the 2 synthetic answers for built-in questions
+   instead of requiring author-typed ones.
+3. Typed preference storage (new, tag-scoped local store) + the three comparison functions
+   (interval-overlap reused for price/time frame; quantity sufficiency; location mutual-containment
+   using the existing `haversineMilesBetween`).
+4. Wire comparison resolution into the same call points `resolveAnswerPreferenceForTalkQuestion`/
+   `findAutoAnswer` occupy today, dispatching on `question.builtIn.kind` before falling through to
+   the existing exact-text path for ordinary choice questions.
+5. Talk editor UI: tag-pair picker (leading section), typed input widgets per built-in kind (number
+   field, date-range picker, location+radius picker) replacing "+ Add Answer" for these questions;
+   auto-generated first-question preview from the tag-pair template.
+6. Route branch integration: per-branch quantity/price fields, talk-level time frame/location shared
+   across branches.
+
+**Test plan:**
+
+- Unit: `talk-engine.test.ts` or a new `built-in-questions.test.ts` — interval-overlap (exact
+  boundary cases: touching-but-not-overlapping ranges, fully-nested ranges, disjoint ranges),
+  quantity sufficiency (`N == M`, `N < M`, `N > M`), location mutual-containment (asymmetric radii,
+  exactly-at-the-boundary distance) — each as pure-function tests, no app scaffolding needed.
+- Unit: tag opposite-pair resolution (canonicalization, predefined pairs, user-created pairs, the
+  conflicting-redefinition case once the governance decision above is made).
+- Unit: `TalkAutofix`/`TalkValidator` handling of `builtIn` questions (synthetic answers generated
+  correctly, existing flow/route invariants still enforced).
+- E2E: extend `tests/e2e/staged/stage4-four-user/04-dealmaker-chatbot-match.spec.ts` (or a sibling
+  spec) with — a quantity-insufficient case (buyer wants more than seller has → no match, still
+  reaches human inbox); a price-overlap-but-not-identical case (two non-equal ranges that genuinely
+  overlap → auto-match, proving this is real interval math, not exact-text luck); a
+  location-outside-radius case (both directions: buyer outside seller's radius, and the reverse);
+  a route multi-item listing where only one branch's quantity/price is compatible.
+- E2E: confirm the "no stored preference at all" case still delivers to the human inbox unanswered,
+  distinct from the "computed incompatible" case which should resolve to ignore without ever
+  opening a modal.
+
+---
+
+## CC. Mandatory financial-transaction safety warning + automatic card-number block `[Sonnet]`
+
+**Not a new feature — a spec/code gap found while checking §BB against the SRS (2026-08-10).**
+`docs/specs/iinpublic-technical-specifications.md` §7.4 ("Credit Card & Financial Data Filter") has
+described this since before the current filter architecture existed, targeting a standalone
+`src/filters/financialDataFilter.ts` module that was never created. The actual shipped filter,
+`src/shared/message-content-filter.ts`, only implements `'dirty_words' | 'grammar'` — both
+user-configurable/opt-in — and has no financial-data path at all. §7.4 has been rewritten
+(2026-08-10) to target the real architecture instead of the phantom module; this section is the
+implementation/test plan for closing that gap. `[Sonnet]` because the design is already fully
+specified (§7.4, FR-FIN-1 – FR-FIN-5) — this is direct implementation work, not a design task.
+
+**Requirements (already spec'd, §7.4 — revised 2026-08-11 to a two-checkpoint trigger model):**
+
+- Mandatory warning at two recurring checkpoints, every occurrence, not a one-time onboarding flag:
+  - **T1 — before a talk is sent/broadcast**, every send: *"IinPublic is for talk exchange only.
+    Never share payment card numbers or send money through this app."*
+  - **T2 — immediately after a match is found**, at conversation creation, every match: *"You've
+    matched. Never send money through this app — pay in person if you complete a deal. If you're
+    meeting for the first time, choose a public place."* This checkpoint **absorbs and replaces**
+    the separately-proposed dating-only "meet safely" notice — one mechanism now covers both
+    marketplace and dating matches. T2 fires before any auto-delivered content (e.g. §DD/§FF's
+    photo-attachment-on-match).
+  - UX weight (open call, not fixed by the spec): full tap-to-acknowledge on the first occurrence
+    of each trigger per session, lighter non-blocking banner on repeats within the same session.
+- A `'financial_data'` reason added to `MessageFilterReason`, checked **unconditionally** (unlike
+  the two existing opt-in reasons) — no user or business-chatroom setting may disable it.
+- Detection: card-number-shaped substring (`\b(?:\d[ -]?){13,19}\b`) **and** Luhn-valid, to avoid
+  false-positiving on order numbers/phone numbers/IDs. Also IBAN, US routing/account pairs, sort
+  codes, BTC/ETH address shapes (table in §7.4).
+- Reject-not-strip: submission is blocked client-side with an inline error before the text reaches
+  Gun or a peer; never silently redacted.
+- Applies to every free-text entry point: talk question text, talk answer text (including
+  custom/typed answers), talk titles, conversation messages — both `filterOutgoingMessage` (sender)
+  and `filterIncomingMessage` (receiver-render) paths.
+- TechSupport's existing filter exemption (`filterIncomingMessage`, K6) does **not** extend to this
+  check — TechSupport messages are still scanned.
+
+**Implementation plan:**
+
+1. Add Luhn-checksum + card/IBAN/routing/sort-code/wallet regex matchers as a pure function (new
+   file, e.g. `src/shared/financial-data-guard.ts`, mirroring `message-content-filter.ts`'s
+   "single implementation used by every composer" invariant — no per-call-site duplication).
+2. Extend `MessageFilterReason` to `'dirty_words' | 'grammar' | 'financial_data'` in
+   `message-content-filter.ts`; run the financial check first and unconditionally in
+   `assessMessageContent`, ahead of the two opt-in checks.
+3. Audit every free-text submission boundary and wire the check in: `talk-editor-dialog.ts`
+   (question/answer text, talk title), `talk-response-dialog.ts` (answer text), conversation
+   message compose (wherever that lives in `conversations-view.ts`).
+4. Add the T1 (pre-send) and T2 (post-match) acknowledgment-gate UI (mirrors the existing
+   vouch/age-verify acknowledgment pattern for the first-per-session full version; a lighter
+   non-blocking banner for repeats within the same session).
+5. Update `docs/specs/iinpublic-technical-specifications.md` §18 cross-reference matrix row once
+   shipped (currently marked "not yet implemented").
+
+**Test plan:**
+
+- Unit: Luhn checksum (valid/invalid card numbers), each regex category (true positives from §7.4's
+  example column), false-positive resistance (a 13–19 digit non-card sequence, a plausible phone
+  number, an order ID) — must NOT block.
+- Unit: `assessMessageContent` — financial check fires regardless of the `filters` argument (proves
+  it's non-configurable, unlike dirty-words/grammar); TechSupport sender ID does NOT exempt a
+  financial-data hit (proves K6's exemption doesn't leak into this check).
+- E2E: attempt to send a card number in a conversation message → inline error, message never
+  appears in either party's Gun graph. Same for a talk answer field.
+- E2E: T1 warning appears before every talk send this session (not just the first); T2 warning
+  appears immediately on match, before any pre-attached photo (§DD/§FF) is delivered into the new
+  conversation.
+
+---
+
+## DD. Dating as a generalized opposite-attribute matching profile `[Opus]`
+
+**Design note, not yet implemented.** Extends §BB's generalized preference-set model (§30.2 of the
+spec) to a second worked use case beyond marketplace deals, per Bernard's request (2026-08-10).
+Written up in full at `docs/specs/iinpublic-technical-specifications.md` §30.6 — this section is
+the pointer + implementation/test plan; see §30 for the complete rationale.
+
+**Motivation.** The existing `TC-DATE-01` scenario (spec §15.3) hand-writes bespoke yes/no questions
+("Are you Female?", "Is your weight in [range]?") with no reusable schema and no typed comparisons.
+Bernard wants a real matchmaking-profile model: gender-seeking-gender (not just one fixed opposite —
+seeking multiple genders must be expressible), age range, race, location, gated by mandatory
+adult-only verification, with a high-res photo sent once matched.
+
+**Decisions made (scope, not implementation) — see spec §30.6 for full detail, revised 2026-08-11:**
+
+- **Gender is NOT a simple opposite pair like `role`.** It needs the fuller self-tag +
+  preference-set generalization from §BB/§30.2: each user declares their own gender tag *and* a
+  preference-set of genders they'll accept (can hold more than one value). Match requires mutual
+  set-membership, not a single fixed-complement lookup. **Storage correction (2026-08-11):** this
+  is an `AnswerRecord` in the Q&A system (§EE), not a profile field — walks back an earlier draft
+  that suggested `user-public-profile`.
+- **Gender, sex, and race/ethnicity are free-text, user-editable, opinion-neutral (2026-08-11) —
+  not a fixed enum.** No app-predefined closed vocabulary, no pre-seeded defaults, no validation
+  or remapping of entered text; suggestions rank purely by observed usage (FR-TG-4). Sex and gender
+  are separate fields with no assumed relationship. **This is exactly why the synonym-fold table
+  (§30.2) is required, not optional:** a `"male"`-seeking-`"female"` talk and a `"woman"`-seeking-
+  `"man"` talk describe a correct match, but literal string equality never connects them —
+  `"male"`/`"man"` and `"female"`/`"woman"` must fold to the same two canonical buckets for
+  auto-match to fire, while each user still sees their own original word choice unchanged. Preference-set default is always empty/"no
+  preference." See spec §30.6 for the full principle.
+- **Age uses a new, third comparison primitive:** mutual point-in-range (`myAge ∈ theirRange AND
+  theirAge ∈ myRange`) — distinct from the interval-overlap primitive used for price/time-frame,
+  because one side of the comparison is a fact (an actual age) and only the other side is a range.
+  Do not reuse the interval-overlap function for this. **Trust caveat:** self-declared, honesty-
+  based — NOT backed by `ageVerified` (which proves only a boolean 18+, no actual age).
+- **Race/ethnicity** reuses the same preference-set-membership primitive as gender — no new
+  mechanism. **Resolved 2026-08-11: mutual**, same as every other hard criterion, for consistency
+  (a one-directional variant is a second mechanism to maintain without reducing the underlying
+  concern).
+- **Location** is a direct, unmodified reuse of §BB's mutual-radius-containment built-in.
+- **Adult-only gate turned out to already be fully implemented** — `Talk.isAdult`
+  (`src/shared/types.ts:211`), the `age_gate` intake-filter reason
+  (`src/shared/talk-intake-filters.ts:177-178`), and `ageVerified`
+  (`AGE_VERIFICATION_THRESHOLD = 3`, FR-SP-7/8) already block delivery of any `isAdult: true` talk
+  to an unverified recipient. **The only new work is a talk-editor enforcement rule**: talks using
+  the gender/seekingGenders tag pair (or any future tag the app marks "dating-category") must force
+  `isAdult = true` and must not let the author uncheck it — today `isAdult` is a freely-togglable
+  🔞 checkbox with no category-based enforcement.
+- **Photo attachment is decided by the author at talk-creation time, never by the chatbot at match
+  time (corrected 2026-08-11 — replaces the earlier "live post-match prompt" idea).** The author
+  optionally attaches a photo when building the talk; because that consent is explicit and already
+  given, delivery on match is automatic mechanical follow-through — no second live prompt needed.
+  Reuses the existing conversation-attachment mechanism (`IpfsAttachment`,
+  `src/web/app/app.ts`), delivered into the new conversation **after** §CC's T2 safety notice.
+  Public headshot (FR-UM-4) stays low-res/blurred pre-match; the pre-attached photo is the thing
+  that changes hands post-match. Surfaces in the "Me" tab (§EE) as a row within that talk's own
+  context section, same as any other criterion.
+
+**Not yet decided (spec §30.7):** all-or-nothing vs. scored/threshold matching when a talk mixes
+several built-ins. (Tag-pair governance and race mutuality were resolved 2026-08-11, above; template
+authorship was resolved alongside tag-pair governance — no app-authored canon, same FR-TG rules.)
+
+**Implementation plan:**
+
+1. Depends on §BB phases 1–2 (tag opposite-pair/preference-set registry, `Question.builtIn` schema,
+   comparison-function library) — this section adds the `ageRange` mutual-point-in-range primitive
+   to that same library and the gender/sex/race preference-set tags (free-text, §EE's Q&A store) to
+   the registry.
+2. Talk-editor enforcement rule: detect a dating-category tag on the talk and force+lock
+   `isAdult = true` (extends the existing 🔞 checkbox UI in `talk-editor-dialog.ts`, §13.2).
+3. Photo-attachment field on the talk-creation form (author picks a file when building the talk, not
+   a runtime prompt); wire automatic delivery into conversation-bootstrap on match, after §CC's T2
+   notice.
+4. Update `TC-DATE-01` (spec §15.3) into a `TC-DATE-02` acceptance scenario using the generalized
+   schema once implemented, retiring the bespoke yes/no version.
+
+**Test plan:**
+
+- Unit: mutual point-in-range primitive (boundary ages exactly at range edges, asymmetric ranges,
+  point outside range on one side only).
+- Unit: preference-set mutual-membership match (single-value sets reproduce today's `role` behavior
+  exactly — regression guard; multi-value sets match against any accepted member).
+- Unit: talk-editor validation rejects saving a dating-category talk with `isAdult = false`.
+- Unit: gender/sex/race fields accept and preserve arbitrary free text unchanged (no validation
+  rejection, no remapping to a canonical value) — a value with no synonym-table match still stores
+  and displays correctly, it just doesn't auto-resolve against another user's differently-worded
+  entry (falls to human review, per §30.4).
+- Unit: synonym-fold table connects `"male"`↔`"man"` and `"female"`↔`"woman"` to the same canonical
+  bucket — a `male`-seeking-`female` self-tag/preference-set pair mutually matches a
+  `woman`-seeking-`man` pair even though no string is literally equal on either side; each user's
+  stored/displayed value is verified unchanged (the fold affects matching only, never storage).
+- E2E: two users with mutually compatible gender/preference-set/age-range/location match and reach
+  a conversation; a third user just outside the age range or radius does not match; an unverified
+  (not-yet-`ageVerified`) user never receives the dating talk at all (delivery-time block, not a
+  match-time rejection — assert the talk never appears in their incoming list, per existing
+  `age_gate` intake-filter test pattern in `talk-intake-filters.test.ts`).
+- E2E: a talk created with a pre-attached photo delivers it automatically into the new conversation
+  on match, after §CC's T2 safety notice, with no live prompt shown to either user; a talk created
+  with no attachment delivers none.
+
+---
+
+## EE. Profile scope narrowed to identity chrome; "Me" tab gets a pinned header + sections `[Sonnet]`
+
+**Design note, not yet implemented (2026-08-11).** Corrects an architecture call made earlier in
+§BB/§DD's design (storing typed criteria like gender/seeking-preference on `user-public-profile`)
+and generalizes a UX problem Bernard raised independently: the "Me" tab is heading toward a single
+long flat list as more talk categories (marketplace criteria, dating criteria, ordinary chit-chat)
+accumulate answers. Written up in full at spec §3.1 (FR-UM-3, FR-UM-9) and §13.7.1 — this section is
+the pointer + implementation/test plan.
+
+**Decisions made (scope, not implementation) — see spec §3.1/§13.7.1 for full detail:**
+
+- **Profile is narrowed to non-string/media identity attributes only: StageName + headshot.**
+  Nothing else lives there. FR-UM-3 (originally "profile is a list of Q&A pairs") is revised —
+  that description now describes the "Me" tab's answer list, not profile.
+- **Every other user-declared attribute — including the typed built-ins from §BB/§DD (gender,
+  seeking-preference, age, race, price range, quantity, location radius) — is an ordinary
+  `AnswerRecord`** in the same `(questionId, contextHash)`-keyed store that already backs the "Me"
+  tab (FR-QA-14) and chatbot memory. This directly corrects the profile-storage call made in §DD's
+  original draft. Precedent that this pattern already works: `Talk.role`'s typed value already
+  rides inside `ChatbotQuestionSummary.summary.role`, part of the existing answer-memory record —
+  this section generalizes that, it doesn't invent a new mechanism.
+- **StageName is pinned as the "Me" tab's first row (FR-UM-9)** and also shown in the profile
+  editor — the one deliberate exception to "profile content lives only in profile," since identity
+  is worth surfacing at the top of every view of "me."
+- **"Me" tab sections (§13.7.1):** pinned identity header (not part of the scrolling list) → General
+  section (context-free answers, today's flat list unchanged) → one collapsible section per
+  context-cluster, titled by the source talk's existing tag category (reuses FR-TG-2's Craigslist-
+  style catalog labels — "Personals," "For Sale," etc., no new taxonomy). A second listing of the
+  same category (e.g. two different "For Sale" items) gets its own separate section, never merged.
+  Most-recently-touched section open by default — same collapsible-itemized-list pattern Settings
+  pages already use.
+
+**Implementation plan:**
+
+1. Talk-editor / talk-creation changes for §BB/§DD's typed built-ins: write to the `AnswerRecord`
+   store (not a profile field) — supersedes any profile-write code path drafted under §DD before
+   this correction.
+2. "Me" tab: extract the pinned identity header component (StageName + headshot), reusable in both
+   the "Me" tab and the profile editor.
+3. "Me" tab: section-grouping logic — derive section title from the source talk's FR-TG-2 category
+   tag; group by context-cluster (talk instance), not by raw question text; collapsible with
+   most-recently-touched open by default.
+4. Update `docs/specs/iinpublic-technical-specifications.md` §18 cross-reference matrix rows once
+   shipped (currently marked "not yet implemented").
+
+**Test plan:**
+
+- Unit: section-title derivation from a talk's tag category; two same-category talks produce two
+  distinct sections, not one merged section.
+- Unit: `AnswerRecord` round-trip for a typed built-in value (gender/seeking-preference) — confirms
+  storage lives in the answer store, not in `user-public-profile`.
+- E2E: "Me" tab renders pinned identity row (StageName + headshot) above the sectioned list; editing
+  StageName in the profile editor updates the pinned row without a page reload.
+- E2E: a user with a "For Sale" listing and a "Personals" (dating) talk sees two separate sections,
+  each showing only that talk's own criteria — no cross-contamination between listings.
+
+---
+
+## FF. Multi-value ("pick any that apply") questions + set-intersection matching `[Sonnet]`
+
+**Design note, not yet implemented (2026-08-11).** Answers Bernard's question: today's chatbot
+matching is strict single-value exact-text match (FR-QA-7) with no way to express "accept any of
+these values" as one criterion, and no AND/OR logic within a single question. Written up in full at
+spec §3.4 (FR-QA-15, FR-QA-16) and §30.8 — this section is the pointer + implementation/test plan.
+
+**Motivation.** Concrete case: a buyer wants a used notebook and would accept either of two specific
+models — "do you have any of them?" Today's schema has no way to express this as a single question;
+it also has no general AND/OR authoring concept, which risked pushing the design toward a
+boolean-expression-builder UI that non-technical users can't be expected to use.
+
+**Decisions made (scope, not implementation) — see spec §30.8 for full detail:**
+
+- **No boolean-logic UI needed.** AND across attributes already exists as flow/route sequencing —
+  each subsequent question is an implicit AND with everything before it. The only missing primitive
+  is OR *within* one question, and a checkbox list ("select all that apply") already means exactly
+  that to anyone who has filled out a form. Sequence = AND, checklist = OR is sufficient for the
+  concrete case and most realistic matching needs — no expression tree, no boolean vocabulary in
+  any user-facing string.
+- **Schema:** `Question.answerSelectionMode: 'single' | 'multiple'`. Authoring UI uses the
+  well-known "Multiple choice vs. Checkboxes" toggle (as in common survey-builder tools).
+- **Match rule generalizes, doesn't replace, today's exact match.** Every stored answer — single-
+  or multi-select — is a set of answer IDs; a `'single'`-mode answer is a set of size one. Match
+  predicate: **set intersection is non-empty.** Two singletons intersect iff equal, so every
+  existing `'single'`-mode question is unaffected — this is a strict superset of current behavior,
+  not a breaking change.
+- **Chatbot auto-reply generalizes the same way TEMPORARY mode already works** (FR-QA-9: auto-fire
+  if a saved ID is present in the current option set), applied per-checkbox instead of once per
+  question. Still pure ID-based lookup — FR-QA-7's no-fuzzy/no-AI-matching invariant is unchanged.
+- **Large option sets** should use a searchable/filterable chip-style multi-select (reusing the tag
+  system's existing popularity-ranked-suggestion input idiom, FR-TG-4) rather than a long static
+  checklist, so this stays usable for non-technical users even with many options.
+- Orthogonal to §BB's built-in typed comparisons (quantity/priceRange/timeFrame/location/ageRange)
+  — those are continuous numeric/geographic comparisons; this is discrete/categorical OR-sets. Both
+  can appear in the same talk without conflict.
+
+**Implementation plan:**
+
+1. Extend `Question` with `answerSelectionMode`; extend the answer-submission UI (talk-response
+   dialog, chatbot auto-fill) to render/produce a set of IDs instead of one when `'multiple'`.
+2. Generalize the match predicate used by `checkIfMatch` / tag-type checkbox logic to ID-set
+   intersection; verify the existing single-select path is unchanged (regression, not rewrite).
+3. Generalize `ChatbotQuestionSummary`'s TEMPORARY-mode lookup to iterate a saved ID array against
+   the current option set, checking each independently.
+4. Talk editor: add the "Multiple choice / Checkboxes" toggle per question; for large option counts,
+   swap the flat checklist for the searchable chip-input component already used for tags.
+
+**Test plan:**
+
+- Unit: set-intersection match predicate — non-empty overlap matches, disjoint sets don't, singleton
+  vs. singleton reproduces exact-equality behavior exactly (regression guard for every existing
+  `'single'`-mode question).
+- Unit: chatbot auto-fill on a `'multiple'`-mode question pre-checks exactly the remembered IDs
+  present in the current option set, leaves others unchecked, never invents a selection.
+- E2E: extend the dealmaker-style spec with a buyer accepting two models via checkboxes and a seller
+  offering one of them → match; a seller offering neither → no match, same as an ordinary
+  single-value mismatch today.
+- E2E: existing single-select flow/route/tag specs pass unchanged (confirms non-breaking
+  generalization).
+
+---
+
 ## Future / low priority (explicitly deferred)
 
 - Multiple identities on one device (profile switching). Decided low priority 2026-07-13; v1 stays one identity per device install.
@@ -691,6 +1113,13 @@ assertion) and `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.sp
 
 ## Open questions
 
+- Multi-device person identity semantics: one person may have multiple device-based SEA identities,
+  but the project has not decided whether the linked cluster gets a durable person identifier, how
+  Q&A and Talk authorship appear across devices, whether credit/reputation aggregate, how
+  loss/replacement/revocation works, or whether contacts and blocks apply per device or per person.
+  Keep the current mutual-link-attestation model until this is discussed and specified; discovery
+  must not treat a linked cluster as one canonical SEA identity. See
+  `docs/iinpublic_discovery_design(3).md` §3. `[Opus]`
 - Identity linking v2 scope: should reputation aggregate across a linked cluster, and should contacts/conversations sync between linked devices? (v1: display-merge only.)
 - iPhone/Android native shells: browser-profile testing is the stand-in until they ship — confirm.
 
