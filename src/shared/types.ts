@@ -305,6 +305,15 @@ export interface Question {
    * field so the chatbot and UI can look it up without rebuilding the path.
    */
   contextHashId?: string;
+  /**
+   * Spec §3.4 FR-QA-15 / §30.8: 'single' (default, unchanged radio-button behavior) or
+   * 'multiple' ("pick any that apply" — respondent may select more than one option).
+   * Undefined/absent means 'single', so every talk created before this field existed is
+   * unaffected. See `checkIfMatch`'s set-intersection generalization (FR-QA-16) for how a
+   * 'multiple' question's selected set is evaluated against this question's isMatch-flagged
+   * options — no boolean/AND-OR vocabulary is ever surfaced to the author or respondent.
+   */
+  answerSelectionMode?: 'single' | 'multiple';
 }
 
 export interface Answer {

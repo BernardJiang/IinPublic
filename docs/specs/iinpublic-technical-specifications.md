@@ -2511,7 +2511,7 @@ The following items are known open questions or planned post-MVP work:
 | Opposite-attribute preference-sets + typed built-ins + dating profile (gender/sex/race opinion-neutral) | §30.1 – §30.7 | **not yet implemented** — docs/TODO.md §BB, §DD |
 | Profile scope (StageName + headshot only); "Me" tab pinned identity header | FR-UM-3, FR-UM-9, §13.7.1 | **shipped 2026-08-11** — `src/web/ui/answers-view.ts` (identity header), `ui-manager.ts` (`getCurrentIdentity`), docs/TODO.md §EE |
 | "Me" tab sectioning (General + per-context/category sections) | §13.7.1 | **shipped 2026-08-11** — `src/web/ui/answers-view.ts` (`buildAnswerSections`); category-prefixed titles wired but currently a no-op since `Talk.tags` isn't populated by any talk-creation path yet (pre-existing gap, separate from this item) |
-| Multi-value ("pick any that apply") questions + set-intersection matching | FR-QA-15, FR-QA-16, §30.8 | **not yet implemented** — docs/TODO.md §FF |
+| Multi-value ("pick any that apply") questions + set-intersection matching | FR-QA-15, FR-QA-16, §30.8 | **core match engine shipped 2026-08-11** (`src/shared/talk-engine.ts`, `types.ts`) — chatbot auto-fill generalization + talk-editor UI + e2e still open, docs/TODO.md §FF |
 | Auto/Manual conversation modes (Yellow obsolete) | §7.6 | `shouldChatbotFire()`, `ConversationMode` type |
 | Answer mutability + immutable history | §7.7 | `ITalkRepo.submitAnswer`, Gun path design |
 | SEA encryption per user | NFR-S-5, §7.8 | `GunDataAccess.ts` write pipeline |

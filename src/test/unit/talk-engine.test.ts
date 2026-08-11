@@ -397,6 +397,83 @@ describe('checkIfMatch / checkIfIgnore on route talks', () => {
   });
 });
 
+describe('checkIfMatch / checkIfIgnore — multi-value ("pick any that apply") questions, spec §30.8/FR-QA-16', () => {
+  const multiTalk: Talk = {
+    id: 'talk-notebook',
+    title: 'Buy Used Notebook',
+    type: 'flow',
+    questions: [
+      {
+        id: 'q_model',
+        text: 'Which model would you accept?',
+        answerSelectionMode: 'multiple',
+        answers: [
+          { id: 'a_modelA', text: 'Model A', isMatch: true },
+          { id: 'a_modelB', text: 'Model B', isMatch: true },
+          { id: 'a_modelC', text: 'Model C', isIgnore: true },
+        ],
+      },
+    ],
+  } as any;
+
+  it('matches when the selected set intersects the isMatch-flagged options (any overlap counts)', () => {
+    const answers: SubmittedAnswer[] = [
+      { questionId: 'q_model', answerId: 'a_modelB', answerIds: ['a_modelB'] },
+    ];
+    expect(checkIfMatch(multiTalk, answers)).toBe(true);
+    expect(checkIfIgnore(multiTalk, answers)).toBe(false);
+  });
+
+  it('matches on a multi-element selected set as long as at least one element is isMatch-flagged', () => {
+    const answers: SubmittedAnswer[] = [
+      { questionId: 'q_model', answerId: 'a_modelC', answerIds: ['a_modelC', 'a_modelB'] },
+    ];
+    expect(checkIfMatch(multiTalk, answers)).toBe(true);
+  });
+
+  it('does not match when every selected id is isIgnore-flagged (disjoint from the isMatch set)', () => {
+    const answers: SubmittedAnswer[] = [
+      { questionId: 'q_model', answerId: 'a_modelC', answerIds: ['a_modelC'] },
+    ];
+    expect(checkIfMatch(multiTalk, answers)).toBe(false);
+    expect(checkIfIgnore(multiTalk, answers)).toBe(true);
+  });
+
+  it('a singleton answerIds set reproduces exact-equality single-select behavior exactly', () => {
+    const viaSingleton: SubmittedAnswer[] = [{ questionId: 'q_model', answerId: 'a_modelA', answerIds: ['a_modelA'] }];
+    const viaLegacyShape: SubmittedAnswer[] = [{ questionId: 'q_model', answerId: 'a_modelA' }];
+    expect(checkIfMatch(multiTalk, viaSingleton)).toBe(checkIfMatch(multiTalk, viaLegacyShape));
+    expect(checkIfMatch(multiTalk, viaLegacyShape)).toBe(true);
+    expect(checkIfIgnore(multiTalk, viaLegacyShape)).toBe(false);
+  });
+
+  it('an empty answerIds array falls back to answerId (never treated as an empty selected set)', () => {
+    const answers: SubmittedAnswer[] = [{ questionId: 'q_model', answerId: 'a_modelA', answerIds: [] }];
+    expect(checkIfMatch(multiTalk, answers)).toBe(true);
+  });
+
+  it('existing single-select talks are completely unaffected — every prior unit case in this file still passes unmodified', () => {
+    // Regression guard: `answerSelectionMode` absent (undefined) behaves exactly like today.
+    const singleTalk: Talk = {
+      id: 'talk-single',
+      title: 'Single-select',
+      type: 'tag',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'Tennis',
+          answers: [
+            { id: 'a_match', text: 'Match.', isMatch: true },
+            { id: 'a_ignore', text: 'Ignore.', isIgnore: true },
+          ],
+        },
+      ],
+    } as any;
+    expect(checkIfMatch(singleTalk, [{ questionId: 'q_0', answerId: 'a_match' }])).toBe(true);
+    expect(checkIfIgnore(singleTalk, [{ questionId: 'q_0', answerId: 'a_ignore' }])).toBe(true);
+  });
+});
+
   // The following tests are commented out because the methods are private or don't exist
 
   // describe('validateAnswer', () => {

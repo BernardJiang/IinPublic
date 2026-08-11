@@ -5068,3 +5068,39 @@ StageName + headshot, everything else is an ordinary `AnswerRecord`).
   sectioning, two-listings-never-merged) plus the full existing `answers-view.test.ts` suite
   unchanged (21/21), full unit suite green (87 suites / 1141 tests), type-check and lint clean, and
   3 e2e specs re-run clean after the `#answers-list` id fix (12/12 passed).
+
+## 2026-08-11 — FF (partial): multi-value ("pick any that apply") match-engine core
+
+Moved from `docs/TODO.md` FF (implementation-plan step 2 of 4). Answers a design question raised
+mid-session: today's matching is strict single-value exact-text match with no way to express "I'd
+accept any of these values" as one criterion, and no AND/OR authoring concept. Resolution: no
+boolean-logic UI needed — flow/route sequencing already gives AND across attributes, so the only
+missing primitive is OR within one question, which a checkbox list ("select all that apply")
+already expresses without any logic vocabulary.
+
+- **Schema:** `Question.answerSelectionMode?: 'single' | 'multiple'` (`types.ts`) and
+  `SubmittedAnswer.answerIds?: string[]` (`talk-engine.ts`) — both optional/undefined-safe, so
+  every existing talk and call site is unaffected.
+- **Match predicate generalized, not replaced:** `checkIfMatch`/`checkIfIgnore` now treat every
+  submitted answer as a *set* of answer IDs (`selectedAnswerIds` — a singleton when `answerIds` is
+  absent/empty), and the predicate becomes "does the selected set intersect the question's
+  isMatch-flagged (or isIgnore-flagged) options" — `anySelectedIsMatch`/`anySelectedIsIgnore`. For
+  a singleton set this is provably identical to the original single-answer lookup (a set of size
+  one intersects the isMatch set iff its one element is isMatch-flagged), so no existing
+  `'single'`-mode question's behavior changes. Deliberately kept `checkIfMatch` and `checkIfIgnore`
+  independent of each other (no new cross-check between them) — the original two functions never
+  cross-checked either, and adding one would have been a new, unrequested assumption.
+  `checkIfIgnore`'s route-talk tests (`talk-engine.test.ts`) are the ones that would have caught it
+  if this generalization had shifted behavior — all 14 passed unmodified.
+- **Not yet done (docs/TODO.md §FF for the full remaining plan):** chatbot auto-fill
+  (`exact-chatbot-memory.ts`'s `findAutoAnswer`) still only ever resolves one answer ID — a
+  `'multiple'`-mode question's match predicate is ready, but nothing can auto-select a multi-value
+  checkbox set yet. No talk-editor UI toggle ("Multiple choice" vs "Checkboxes") exists. No
+  respondent-facing checkbox rendering exists (today's response dialog is radio-button only). No
+  e2e coverage. The schema and match engine were built as the stable foundation these depend on, so
+  none of them require touching `talk-engine.ts` again once built.
+- Verified: 6 new unit tests (any-overlap matches, all-ignore-flagged doesn't, singleton-set
+  reproduces legacy behavior exactly via a direct `answerIds`-vs-no-`answerIds` equality
+  assertion, empty-`answerIds`-array falls back to `answerId`, explicit unaffected-single-select
+  regression case) plus all 14 pre-existing `talk-engine.test.ts` cases unmodified, full unit suite
+  green (87 suites / 1147 tests), type-check and lint clean.

@@ -7,6 +7,13 @@ export interface SubmittedAnswer {
   answerId: string;
   answerText?: string;
   isChecked?: boolean;
+  /**
+   * Spec §3.4 FR-QA-15/16: the full selected set for an `answerSelectionMode: 'multiple'`
+   * question — the authoritative set when present (see `selectedAnswerIds` in this file).
+   * `answerId` alone stays required for backward compatibility (single-select and every
+   * pre-existing call site); when both are present `answerId` SHOULD be `answerIds[0]`.
+   */
+  answerIds?: string[];
 }
 
 export type WeightedTagInput =
@@ -106,6 +113,35 @@ export function complementRole(role?: TalkRole): TalkRole | undefined {
   return undefined;
 }
 
+/**
+ * Spec §3.4 FR-QA-16 / §30.8: every stored answer, single- or multi-select, is treated as a
+ * set of answer IDs — a 'single'-mode answer is the degenerate case, a set of size one.
+ * `SubmittedAnswer.answerIds` (when present) is the authoritative multi-select set;
+ * `answerId` alone (today's shape) is a singleton set. Never empty for a real submitted
+ * answer, since `answerId` is always required.
+ */
+function selectedAnswerIds(submitted: SubmittedAnswer): string[] {
+  return submitted.answerIds && submitted.answerIds.length > 0 ? submitted.answerIds : [submitted.answerId];
+}
+
+/**
+ * The set-intersection match predicate (FR-QA-16): true iff at least one of the
+ * respondent's selected answer IDs corresponds to an option this question flags
+ * `isMatch`. For a singleton set this reduces to exactly today's single-answer check —
+ * a strict generalization, not a behavior change, for every existing 'single'-mode
+ * question (proof: {x} intersects the isMatch-flagged set iff x itself is isMatch-flagged).
+ */
+function anySelectedIsMatch(question: any, selectedIds: string[]): boolean {
+  return selectedIds.some((id) => question.answers?.find((a: any) => a.id === id)?.isMatch === true);
+}
+
+/** Mirrors `anySelectedIsMatch`: at least one selected id is isIgnore-flagged. Computed
+ *  independently of `anySelectedIsMatch`, same as the original single-answer functions never
+ *  cross-checked each other — for a singleton set this reduces to exactly today's behavior. */
+function anySelectedIsIgnore(question: any, selectedIds: string[]): boolean {
+  return selectedIds.some((id) => question.answers?.find((a: any) => a.id === id)?.isIgnore === true);
+}
+
 export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], responderRole?: TalkRole): boolean {
   if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
     return false;
@@ -122,9 +158,7 @@ export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], r
   if (!lastAnswer) return false;
   const question = talkData.questions?.find((q: any) => q.id === lastAnswer.questionId);
   if (!question) return false;
-  const answer = question.answers?.find((a: any) => a.id === lastAnswer.answerId);
-  if (!answer) return false;
-  return answer.isMatch === true;
+  return anySelectedIsMatch(question, selectedAnswerIds(lastAnswer));
 }
 
 export function checkIfIgnore(talkData: Talk | any, answers: SubmittedAnswer[]): boolean {
@@ -135,9 +169,7 @@ export function checkIfIgnore(talkData: Talk | any, answers: SubmittedAnswer[]):
   if (!lastAnswer) return false;
   const question = talkData.questions?.find((q: any) => q.id === lastAnswer.questionId);
   if (!question) return false;
-  const answer = question.answers?.find((a: any) => a.id === lastAnswer.answerId);
-  if (!answer) return false;
-  return answer.isIgnore === true;
+  return anySelectedIsIgnore(question, selectedAnswerIds(lastAnswer));
 }
 
 export class TalkValidator {
