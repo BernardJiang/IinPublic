@@ -8,6 +8,9 @@ import {
 import type { FlatAnswerHistoryRecord } from './answer-history-storage';
 import type { UiTranslationKey } from './ui-translations';
 import { renderListProgressively } from './render-list-progressively';
+import { avatarInnerHtml } from './profile-avatar';
+import { INTEREST_CATEGORY_LABELS } from '../../shared/interest-catalog';
+import type { TagCategory } from '../../shared/types';
 
 /** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
 const ANSWERS_FIRST_CHUNK_SIZE = 25;
@@ -15,6 +18,9 @@ const ANSWERS_FIRST_CHUNK_SIZE = 25;
 let answersRenderSeq = 0;
 
 type AnswersViewDeps = {
+  /** Spec §3.1 FR-UM-9 / §13.7.1: profile is narrowed to StageName + headshot only — this
+   *  reads the two, pinned as the "Me" tab's fixed header, never part of the scrolling list. */
+  getCurrentIdentity?: () => { stageName: string; headshot?: string } | null | undefined;
   getMyTalks: () => Record<string, any>;
   getFlatAnswerHistory?: () => Record<string, FlatAnswerHistoryRecord>;
   getExactChatbotMemory?: () => ExactChatbotMemoryState;
@@ -372,6 +378,57 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
   return result;
 }
 
+/** Spec §13.7.1: one section per context-cluster (talk), titled by that talk's own tag
+ *  category when populated (FR-TG-2's Craigslist-style catalog — "For Sale," "Personals," etc.)
+ *  else the talk's own title. Category tags aren't wired into the talk editor yet (every talk's
+ *  `tags` is currently `[]` in practice), so the category prefix is a forward-compatible
+ *  no-op today — sectioning itself is fully populated regardless, since any flow/route talk's
+ *  non-root question already carries a non-empty `contextKey`. */
+type AnswerSection = { key: string; title: string; groups: AnswerQuestionGroup[]; mostRecentAt: number };
+
+function buildAnswerSections(groups: AnswerQuestionGroup[], myTalks: Record<string, any>): AnswerSection[] {
+  const general: AnswerQuestionGroup[] = [];
+  const byTalk = new Map<string, { title: string; groups: AnswerQuestionGroup[]; mostRecentAt: number }>();
+
+  groups.forEach((group) => {
+    const contextualVariants = group.variants.filter((v) => v.contextKey);
+    if (contextualVariants.length === 0) {
+      general.push(group);
+      return;
+    }
+    // A group can (rarely) carry contextual variants from more than one talk if the same
+    // question/context was somehow answered under two different listings — it sections under
+    // whichever talk contributed its most recent contextual variant; the row's own detail view
+    // still shows every variant's true source, so this is a display simplification only.
+    const primary = contextualVariants.reduce((a, b) => (b.answeredAt > a.answeredAt ? b : a));
+    let bucket = byTalk.get(primary.talkId);
+    if (!bucket) {
+      const sourceTalk = myTalks?.[primary.talkId]?.fullTalk;
+      const category = sourceTalk?.tags?.[0]?.category as TagCategory | undefined;
+      const categoryLabel = category ? INTEREST_CATEGORY_LABELS[category] : undefined;
+      const title = categoryLabel ? `${categoryLabel} — ${primary.talkTitle}` : primary.talkTitle || 'Untitled';
+      bucket = { title, groups: [], mostRecentAt: 0 };
+      byTalk.set(primary.talkId, bucket);
+    }
+    bucket.groups.push(group);
+    bucket.mostRecentAt = Math.max(bucket.mostRecentAt, group.variants[0].answeredAt);
+  });
+
+  const sections: AnswerSection[] = [];
+  if (general.length > 0) {
+    sections.push({ key: 'general', title: 'General', groups: general, mostRecentAt: 0 });
+  }
+  const talkSections: AnswerSection[] = Array.from(byTalk.entries()).map(([talkId, bucket]) => ({
+    key: talkId,
+    title: bucket.title,
+    groups: bucket.groups,
+    mostRecentAt: bucket.mostRecentAt,
+  }));
+  talkSections.sort((a, b) => b.mostRecentAt - a.mostRecentAt);
+  sections.push(...talkSections);
+  return sections;
+}
+
 function distinctContextKeys(group: AnswerQuestionGroup): string[] {
   const keys = new Set<string>();
   group.variants.forEach((variant) => {
@@ -536,10 +593,25 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       deps.text(key),
     );
 
+  // Spec §3.1 FR-UM-9 / §13.7.1: pinned identity header — StageName + headshot, not part of
+  // the scrolling/sectioned answer list below it, same component data the profile editor shows.
+  const identity = deps.getCurrentIdentity?.();
+  const identityHeaderHtml = identity
+    ? `
+      <div class="me-identity-header" data-testid="me-identity-header" style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);">
+        <div class="user-avatar" style="width:48px;height:48px;font-size:1.2em;flex-shrink:0;">
+          ${avatarInnerHtml(identity.headshot, identity.stageName.charAt(0).toUpperCase(), deps.escapeHtml)}
+        </div>
+        <div style="font-weight:600;font-size:1.05em;" data-testid="me-identity-stage-name">${deps.escapeHtml(identity.stageName)}</div>
+      </div>
+    `
+    : '';
+
   const groups = buildQuestionGroups(deps);
 
   if (groups.length === 0) {
     container.innerHTML = `
+      ${identityHeaderHtml}
       <div style="padding: 20px; text-align: center; color: #999;">
         <p>${deps.text('meNoAnswers')}</p>
         <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
@@ -549,17 +621,32 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     return;
   }
 
+  const sections = buildAnswerSections(groups, deps.getMyTalks());
+
   container.innerHTML = `
+    ${identityHeaderHtml}
     <div class="answers-view-inner" style="padding: 16px; max-width: min(980px, 96%); margin: 0 auto;">
       <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')} Each answered question is listed separately.</p>
       <input id="answers-search-input" class="form-input" type="search" placeholder="${deps.text('meSearchAnswers')}" style="width:100%; margin-bottom:12px;">
-      <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+      <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 14px;">
+        ${sections
+          .map((section, sectionIndex) => {
+            const isGeneral = section.key === 'general';
+            const openAttr = isGeneral || sectionIndex === (sections[0]?.key === 'general' ? 1 : 0) ? ' open' : '';
+            return `
+              <details class="answer-section" data-section-key="${deps.escapeHtml(section.key)}"${openAttr} style="border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+                <summary style="cursor:pointer;padding:10px 14px;font-weight:600;background:var(--bg-subtle);list-style:none;">${deps.escapeHtml(section.title)}</summary>
+                <div id="answers-list-${deps.escapeHtml(section.key)}" class="answers-list" style="display: flex; flex-direction: column; gap: 10px; padding: 10px 14px;"></div>
+              </details>
+            `;
+          })
+          .join('')}
+      </div>
       <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
     </div>
   `;
 
-  const listEl = document.getElementById('answers-list');
-  if (listEl) {
+  {
     const renderTagRow = (group: AnswerQuestionGroup): string => {
       const primary = group.variants[0];
       const checked = primary.choice === 'Checked';
@@ -623,21 +710,27 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       `;
     };
 
+    // One progressive render pass per section — each section owns its own container, so a
+    // section's first-chunk/remainder split never touches another section's DOM.
     const onRowsRendered = deps.onRowsRendered;
-    renderListProgressively(listEl, groups, {
-      firstChunkSize: ANSWERS_FIRST_CHUNK_SIZE,
-      renderRow: (group) => (group.kind === 'tag' ? renderTagRow(group) : renderQaRow(group)),
-      isStale: () => renderSeq !== answersRenderSeq,
-      ...(onRowsRendered
-        ? { onFirstChunkRendered: onRowsRendered, onRemainderRendered: onRowsRendered }
-        : {}),
+    sections.forEach((section) => {
+      const sectionListEl = document.getElementById(`answers-list-${deps.escapeHtml(section.key)}`);
+      if (!sectionListEl) return;
+      renderListProgressively(sectionListEl, section.groups, {
+        firstChunkSize: ANSWERS_FIRST_CHUNK_SIZE,
+        renderRow: (group) => (group.kind === 'tag' ? renderTagRow(group) : renderQaRow(group)),
+        isStale: () => renderSeq !== answersRenderSeq,
+        ...(onRowsRendered
+          ? { onFirstChunkRendered: onRowsRendered, onRemainderRendered: onRowsRendered }
+          : {}),
+      });
     });
   }
 
   const searchInput = document.getElementById('answers-search-input') as HTMLInputElement | null;
   searchInput?.addEventListener('input', () => {
     const query = searchInput.value.trim().toLowerCase();
-    listEl?.querySelectorAll<HTMLElement>('.answer-talk-item').forEach((item) => {
+    document.querySelectorAll<HTMLElement>('#answers-list .answer-talk-item').forEach((item) => {
       const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
       item.style.display = matchesQuery ? 'flex' : 'none';
     });

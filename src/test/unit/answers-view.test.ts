@@ -611,4 +611,139 @@ describe('answers view models', () => {
       expect(showPreferencesDialog).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('spec §13.7.1: pinned identity header + sectioning', () => {
+    beforeEach(() => {
+      document.body.innerHTML = '<div id="answers-content"></div>';
+    });
+
+    function baseDeps(overrides: Record<string, unknown> = {}) {
+      return {
+        getMyTalks: () => ({}),
+        getFlatAnswerHistory: () => ({}),
+        escapeHtml: (value: string) => value,
+        copyAnsweredTalkToTalks: jest.fn(),
+        showTalkDetail: jest.fn(),
+        showPreferencesDialog: jest.fn(),
+        showItemDetailsPopup: jest.fn(),
+        getTalkContentKey: jest.fn(),
+        text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+        formatDate: () => 'date',
+        formatType: () => 'Flow',
+        formatLanguage: () => 'English',
+        ...overrides,
+      };
+    }
+
+    it('renders the pinned identity header (StageName) above the answer list', () => {
+      displayAnswersList(
+        baseDeps({
+          getCurrentIdentity: () => ({ stageName: 'Bernard' }),
+          getFlatAnswerHistory: () => ({
+            a: {
+              id: 'a', talkId: 'talk-a', title: 'Hobby', type: 'tag', language: 'en', outcome: 'match',
+              answeredAt: new Date().toISOString(), senderIds: [],
+              items: [{ questionId: 'q0', answerId: 'a0', prompt: 'Tennis', choice: 'Checked', kind: 'tag', contextPath: [], contextHash: '' }],
+            },
+          }),
+        }) as any,
+      );
+
+      const header = document.querySelector('[data-testid="me-identity-header"]');
+      expect(header).toBeTruthy();
+      expect(document.querySelector('[data-testid="me-identity-stage-name"]')?.textContent).toBe('Bernard');
+    });
+
+    it('omits the identity header when no identity is supplied (deps.getCurrentIdentity absent)', () => {
+      displayAnswersList(
+        baseDeps({
+          getFlatAnswerHistory: () => ({
+            a: {
+              id: 'a', talkId: 'talk-a', title: 'Hobby', type: 'tag', language: 'en', outcome: 'match',
+              answeredAt: new Date().toISOString(), senderIds: [],
+              items: [{ questionId: 'q0', answerId: 'a0', prompt: 'Tennis', choice: 'Checked', kind: 'tag', contextPath: [], contextHash: '' }],
+            },
+          }),
+        }) as any,
+      );
+
+      expect(document.querySelector('[data-testid="me-identity-header"]')).toBeNull();
+    });
+
+    it('puts context-free answers in "General" and context-bearing answers in their own talk-titled section', () => {
+      displayAnswersList(
+        baseDeps({
+          getFlatAnswerHistory: () => ({
+            // Context-free (tag): lands in General.
+            tag1: {
+              id: 'tag1', talkId: 'talk-tag', title: 'Hobby Tag', type: 'tag', language: 'en', outcome: 'match',
+              answeredAt: new Date(2026, 0, 1).toISOString(), senderIds: [],
+              items: [{ questionId: 'q0', answerId: 'a0', prompt: 'Tennis', choice: 'Checked', kind: 'tag', contextPath: [], contextHash: '' }],
+            },
+            // Flow with 2 questions: the second question's context is derived from the first,
+            // so it's context-bearing and sections under its own talk.
+            flow1: {
+              id: 'flow1', talkId: 'talk-notebook', title: 'Sell Used Notebook', type: 'flow', language: 'en', outcome: 'match',
+              answeredAt: new Date(2026, 0, 2).toISOString(), senderIds: [],
+              items: [
+                { questionId: 'qf0', answerId: 'af0', prompt: 'Are you selling?', choice: 'Yes', kind: 'question', contextPath: [], contextHash: '' },
+                { questionId: 'qf1', answerId: 'af1', prompt: 'What model?', choice: 'ModelX', kind: 'question', contextPath: [], contextHash: '' },
+              ],
+            },
+          }),
+        }) as any,
+      );
+
+      const sections = Array.from(document.querySelectorAll<HTMLElement>('.answer-section'));
+      const titles = sections.map((s) => s.querySelector('summary')?.textContent);
+      expect(titles).toContain('General');
+      expect(titles).toContain('Sell Used Notebook');
+
+      const generalSection = sections.find((s) => s.querySelector('summary')?.textContent === 'General')!;
+      expect(generalSection.querySelector('.answer-question-item')).toBeTruthy();
+      expect(generalSection.textContent).toContain('Tennis');
+      expect(generalSection.textContent).not.toContain('What model?');
+
+      const notebookSection = sections.find((s) => s.querySelector('summary')?.textContent === 'Sell Used Notebook')!;
+      expect(notebookSection.textContent).toContain('What model?');
+      expect(notebookSection.textContent).not.toContain('Tennis');
+    });
+
+    it('two different talks in the same category get two separate sections, never merged', () => {
+      displayAnswersList(
+        baseDeps({
+          getFlatAnswerHistory: () => ({
+            flowA: {
+              id: 'flowA', talkId: 'talk-notebook', title: 'Sell Used Notebook', type: 'flow', language: 'en', outcome: 'match',
+              answeredAt: new Date(2026, 0, 2).toISOString(), senderIds: [],
+              items: [
+                { questionId: 'qa0', answerId: 'aa0', prompt: 'Are you selling?', choice: 'Yes', kind: 'question', contextPath: [], contextHash: '' },
+                { questionId: 'qa1', answerId: 'aa1', prompt: 'What model?', choice: 'ModelX', kind: 'question', contextPath: [], contextHash: '' },
+              ],
+            },
+            flowB: {
+              id: 'flowB', talkId: 'talk-bike', title: 'Sell Used Bike', type: 'flow', language: 'en', outcome: 'match',
+              answeredAt: new Date(2026, 0, 3).toISOString(), senderIds: [],
+              items: [
+                { questionId: 'qb0', answerId: 'ab0', prompt: 'Are you selling a bike?', choice: 'Yes', kind: 'question', contextPath: [], contextHash: '' },
+                { questionId: 'qb1', answerId: 'ab1', prompt: 'What brand?', choice: 'BrandY', kind: 'question', contextPath: [], contextHash: '' },
+              ],
+            },
+          }),
+        }) as any,
+      );
+
+      // Each flow's first question has no preceding context (contextKey='') and lands in
+      // General; each flow's second question IS context-bearing and gets its own section —
+      // three sections total, and critically the two sell-listings' context-bearing questions
+      // never share a section with each other.
+      const sections = Array.from(document.querySelectorAll<HTMLElement>('.answer-section'));
+      const byTitle = new Map(sections.map((s) => [s.querySelector('summary')?.textContent, s]));
+      expect(sections).toHaveLength(3);
+      expect(byTitle.get('Sell Used Notebook')?.textContent).toContain('What model?');
+      expect(byTitle.get('Sell Used Notebook')?.textContent).not.toContain('What brand?');
+      expect(byTitle.get('Sell Used Bike')?.textContent).toContain('What brand?');
+      expect(byTitle.get('Sell Used Bike')?.textContent).not.toContain('What model?');
+    });
+  });
 });

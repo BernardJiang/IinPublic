@@ -920,6 +920,16 @@ authorship was resolved alongside tag-pair governance — no app-authored canon,
 
 ## EE. Profile scope narrowed to identity chrome; "Me" tab gets a pinned header + sections `[Sonnet]`
 
+> **Partially shipped 2026-08-11.** Implementation-plan steps 2–3 (pinned identity header,
+> section-grouping by talk/context-cluster) are done — see `src/web/ui/answers-view.ts`
+> (`buildAnswerSections`, the identity-header render, per-section `renderListProgressively`) and
+> `docs/completed.md`. **Step 1 (redirect §BB/§DD's typed built-ins to the `AnswerRecord` store) is
+> not applicable yet** — §BB hasn't been implemented, so there is no typed-built-in write path to
+> redirect. Revisit step 1 when §BB ships. Category-prefixed section titles (FR-TG-2) are wired and
+> ready but currently a no-op in practice, since no talk-creation path populates `Talk.tags` yet
+> (separate pre-existing gap, not part of this section's scope) — sections fall back to the talk's
+> own title, which is what's live today.
+
 **Design note, not yet implemented (2026-08-11).** Corrects an architecture call made earlier in
 §BB/§DD's design (storing typed criteria like gender/seeking-preference on `user-public-profile`)
 and generalizes a UX problem Bernard raised independently: the "Me" tab is heading toward a single

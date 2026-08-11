@@ -2509,8 +2509,8 @@ The following items are known open questions or planned post-MVP work:
 | Credit card / financial filter, mandatory two-checkpoint toast (T1 send / T2 match) | FR-FIN-1 – FR-FIN-5, §7.4 | **shipped 2026-08-11** — `src/shared/financial-data-guard.ts`, `src/shared/message-content-filter.ts`, `src/web/ui/ui-manager.ts` (toast + once/day cooldown), docs/TODO.md §CC |
 | Talk.role complementary matching (shipped) | §30.1, §30.2 | `src/shared/talk-engine.ts` (`checkIfMatch`, `complementRole`) |
 | Opposite-attribute preference-sets + typed built-ins + dating profile (gender/sex/race opinion-neutral) | §30.1 – §30.7 | **not yet implemented** — docs/TODO.md §BB, §DD |
-| Profile scope (StageName + headshot only); "Me" tab pinned identity header | FR-UM-3, FR-UM-9, §13.7.1 | **not yet implemented** — docs/TODO.md §EE |
-| "Me" tab sectioning (General + per-context/category sections) | §13.7.1 | **not yet implemented** — docs/TODO.md §EE |
+| Profile scope (StageName + headshot only); "Me" tab pinned identity header | FR-UM-3, FR-UM-9, §13.7.1 | **shipped 2026-08-11** — `src/web/ui/answers-view.ts` (identity header), `ui-manager.ts` (`getCurrentIdentity`), docs/TODO.md §EE |
+| "Me" tab sectioning (General + per-context/category sections) | §13.7.1 | **shipped 2026-08-11** — `src/web/ui/answers-view.ts` (`buildAnswerSections`); category-prefixed titles wired but currently a no-op since `Talk.tags` isn't populated by any talk-creation path yet (pre-existing gap, separate from this item) |
 | Multi-value ("pick any that apply") questions + set-intersection matching | FR-QA-15, FR-QA-16, §30.8 | **not yet implemented** — docs/TODO.md §FF |
 | Auto/Manual conversation modes (Yellow obsolete) | §7.6 | `shouldChatbotFire()`, `ConversationMode` type |
 | Answer mutability + immutable history | §7.7 | `ITalkRepo.submitAnswer`, Gun path design |

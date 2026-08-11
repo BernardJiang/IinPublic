@@ -3605,6 +3605,10 @@ export class UIManager extends EventEmitter {
 
   displayAnswersList(): void {
     renderAnswersList({
+      getCurrentIdentity: () =>
+        this.currentUser
+          ? { stageName: this.currentUser.stageName, ...(this.currentUser.headshot ? { headshot: this.currentUser.headshot } : {}) }
+          : null,
       getMyTalks: this.getMyTalks.bind(this),
       getExactChatbotMemory,
       escapeHtml: escapeHtml,

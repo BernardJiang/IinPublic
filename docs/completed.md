@@ -5027,3 +5027,44 @@ no financial-data path at all.
   in `app.ts`'s match-creation path didn't disturb match behavior (2/2 passed).
 - Not yet done: e2e coverage specifically asserting the toast itself (text/cooldown behavior) —
   covered so far only by unit tests on the underlying filter and a manual read of the wiring.
+
+## 2026-08-11 — EE (partial): "Me" tab pinned identity header + sectioning
+
+Moved from `docs/TODO.md` EE (steps 2–3 of 4; step 1 deferred, see below). Corrected an
+architecture call made earlier in the same design conversation (§BB/§DD had drafted storing typed
+criteria like gender/seeking-preference on `user-public-profile`; Bernard's own framing — "my idea
+of profile is only for non string attributes like headshots" — reset that to: profile holds only
+StageName + headshot, everything else is an ordinary `AnswerRecord`).
+
+- **Pinned identity header** (`src/web/ui/answers-view.ts`): StageName + headshot rendered above
+  the answer list, not part of the scrolling/sectioned content — reuses the existing
+  `avatarInnerHtml` helper (`profile-avatar.ts`) rather than a new rendering path. Sourced via a
+  new optional `AnswersViewDeps.getCurrentIdentity`, wired in `ui-manager.ts`'s
+  `displayAnswersList()` from `this.currentUser`.
+- **Sectioning** (`buildAnswerSections`): groups with zero contextual variants land in a "General"
+  section (today's flat behavior, unchanged); groups with at least one contextual variant section
+  under whichever talk contributed their most-recently-answered contextual variant, titled by that
+  talk's own title (category-prefixed via `INTEREST_CATEGORY_LABELS`/`TagCategory` when the source
+  talk has tags — currently a no-op in practice since no talk-creation path populates `Talk.tags`
+  yet, a separate pre-existing gap noted but not fixed here). Two different listings in the same
+  category get two separate sections, never merged — verified directly (a flow's first question,
+  having no preceding context, lands in General; its second question sections under the talk's own
+  title; two different sell-listings' second questions land in two distinct sections).
+  Each section renders progressively via its own `renderListProgressively` call (previously one
+  call for the whole flat list) — first-chunk/remainder semantics now apply per section rather
+  than globally, which is a real (intentional, not accidental) behavior change for anyone with
+  enough answers to hit the chunking threshold across multiple sections.
+- **Regression found and fixed during verification:** three existing E2E specs
+  (`00-ui-navigation-settings.spec.ts`, `56-me-dialogs.spec.ts`, `00-three-user-talk-matrix.spec.ts`)
+  asserted directly on `#answers-list .answer-talk-item`, which no longer existed once the flat
+  list became a set of per-section containers. Fixed by keeping `#answers-list` as the *outer*
+  wrapper id (containing all sections) rather than introducing a new id — the descendant selector
+  those specs already used continued to work with zero test-file changes needed.
+- **Step 1 (redirect §BB/§DD's typed built-ins to write into the `AnswerRecord` store) is not
+  applicable yet** — §BB (the tag/preference-set registry + `Question.builtIn` schema) hasn't been
+  implemented, so there is nothing to redirect. Left as the one open implementation-plan step,
+  revisit once §BB ships.
+- Verified: 4 new unit tests (identity header present/absent, context-free-vs-contextual
+  sectioning, two-listings-never-merged) plus the full existing `answers-view.test.ts` suite
+  unchanged (21/21), full unit suite green (87 suites / 1141 tests), type-check and lint clean, and
+  3 e2e specs re-run clean after the `#answers-list` id fix (12/12 passed).
