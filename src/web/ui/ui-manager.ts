@@ -8526,7 +8526,12 @@ export class UIManager extends EventEmitter {
       const likesTag = tagLikeCheckbox ? tagLikeCheckbox.checked : true;
       selfAnswers.push({ questionId: 'q_0', answerId: likesTag ? 'a_0_match' : 'a_0_ignore' });
     } else if (type === 'route') {
-      questions = this.collectRouteEditorQuestions();
+      const routeResult = this.collectRouteEditorQuestions();
+      if (routeResult.errors.length > 0) {
+        this.showTalkValidationError(routeResult.errors);
+        return false;
+      }
+      questions = routeResult.questions;
       if (questions.length === 0) {
         this.showTalkValidationError([this.t('editorRouteRequired')]);
         return false;
@@ -8797,6 +8802,16 @@ export class UIManager extends EventEmitter {
     text: string;
     parentAnswer: { questionId: string; answerId: string } | null;
     answers: Array<{ id: string; text: string; isMatch?: boolean; isIgnore?: boolean; isTerminal?: boolean }>;
+    /**
+     * §BB / spec §30.2: a typed comparison node (e.g. a per-item quantity/price question at
+     * the leaf of one item's branch, docs/TODO.md §BB Phase 6). When set, `answers` is
+     * meaningless for this node — TalkAutofix.fix generates the synthetic pair — and the node
+     * is always a leaf: the route editor has no affordance to add a child to a builtIn node's
+     * single implicit "compatible" outcome (only to an authored answer row), so a builtIn route
+     * question can be a branch's terminal item-detail step but not a shared root that itself
+     * branches further. See the Phase 6 TODO.md note for the deferred root-branching case.
+     */
+    builtIn?: { kind: string; quantity?: number; priceRange?: { min: number; max: number }; timeFrame?: { start: number; end: number } };
   }> = [];
 
   /** Builds or re-hydrates the route-editor in-memory state and redraws it. */
@@ -8818,8 +8833,13 @@ export class UIManager extends EventEmitter {
             text: a.text,
             isMatch: !!a.isMatch,
             isIgnore: !!a.isIgnore,
-            isTerminal: a.isTerminal !== false,
+            // A linking answer (nextQuestionId set, per this session's Phase 6 fix) never
+            // carries isMatch/isIgnore/isTerminal — so the `!== false` default-to-terminal
+            // below, correct for the old match/ignore-only shape, would otherwise
+            // misclassify it as Terminal on reopen instead of Next question.
+            isTerminal: !a.nextQuestionId && a.isTerminal !== false,
           })),
+          ...(q.builtIn ? { builtIn: q.builtIn } : {}),
         }));
       } else {
         // Seed with a single root question.
@@ -8860,7 +8880,44 @@ export class UIManager extends EventEmitter {
       const q = byId.get(qid);
       if (!q) return '';
       const indent = `margin-left:${depth * 20}px;`;
-      const answersHtml = q.answers
+      // §BB / spec §30.2, docs/TODO.md §BB Phase 6: a builtIn node has no authored answers at
+      // all (TalkAutofix.fix generates the synthetic pair) — always a leaf, since the route
+      // editor has no affordance to add a child to a builtIn node's single implicit outcome.
+      const builtInKind = q.builtIn?.kind || '';
+      const builtInHtml = `
+        <div class="route-builtin-controls" style="margin: 6px 0 6px 18px; display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:0.85em; color:#555;">
+            ${this.t('editorBuiltInKindLabel')}
+            <select class="form-input route-builtin-kind" data-qid="${q.id}" style="flex:0 0 auto; width:auto; font-size:0.9em;">
+              <option value="" ${builtInKind === '' ? 'selected' : ''}>${this.t('editorBuiltInKindNone')}</option>
+              <option value="quantity" ${builtInKind === 'quantity' ? 'selected' : ''}>${this.t('editorBuiltInKindQuantity')}</option>
+              <option value="priceRange" ${builtInKind === 'priceRange' ? 'selected' : ''}>${this.t('editorBuiltInKindPriceRange')}</option>
+              <option value="timeFrame" ${builtInKind === 'timeFrame' ? 'selected' : ''}>${this.t('editorBuiltInKindTimeFrame')}</option>
+              <option value="location" ${builtInKind === 'location' ? 'selected' : ''}>${this.t('editorBuiltInKindLocation')}</option>
+            </select>
+          </label>
+          ${builtInKind === 'quantity' ? `
+            <label style="font-size:0.85em;">${this.t('editorBuiltInQuantityLabel')}
+              <input type="number" class="form-input route-builtin-quantity-input" data-qid="${q.id}" value="${q.builtIn?.quantity ?? ''}" style="width:120px; display:inline-block;">
+            </label>` : ''}
+          ${builtInKind === 'priceRange' ? `
+            <label style="font-size:0.85em;">${this.t('editorBuiltInPriceMinLabel')}
+              <input type="number" class="form-input route-builtin-pricerange-min" data-qid="${q.id}" value="${q.builtIn?.priceRange?.min ?? ''}" style="width:100px; display:inline-block;">
+            </label>
+            <label style="font-size:0.85em;">${this.t('editorBuiltInPriceMaxLabel')}
+              <input type="number" class="form-input route-builtin-pricerange-max" data-qid="${q.id}" value="${q.builtIn?.priceRange?.max ?? ''}" style="width:100px; display:inline-block;">
+            </label>` : ''}
+          ${builtInKind === 'timeFrame' ? `
+            <label style="font-size:0.85em;">${this.t('editorBuiltInTimeStartLabel')}
+              <input type="date" class="form-input route-builtin-timeframe-start" data-qid="${q.id}" value="${q.builtIn?.timeFrame ? new Date(q.builtIn.timeFrame.start).toISOString().slice(0, 10) : ''}" style="display:inline-block;">
+            </label>
+            <label style="font-size:0.85em;">${this.t('editorBuiltInTimeEndLabel')}
+              <input type="date" class="form-input route-builtin-timeframe-end" data-qid="${q.id}" value="${q.builtIn?.timeFrame ? new Date(q.builtIn.timeFrame.end).toISOString().slice(0, 10) : ''}" style="display:inline-block;">
+            </label>` : ''}
+          ${builtInKind === 'location' ? `<span style="font-size:0.8em; color:#666;">${this.t('editorBuiltInLocationNote')}</span>` : ''}
+        </div>
+      `;
+      const answersHtml = q.builtIn ? '' : q.answers
         .map((a) => {
           const childIds = childrenOf.get(`${q.id}::${a.id}`) ?? [];
           const kind = a.isMatch
@@ -8874,7 +8931,7 @@ export class UIManager extends EventEmitter {
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
               <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:#eef; color:#334;">${kind}</span>
               <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${this.t('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
-              <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${this.t('editorRouteAddChild')}</button>
+              ${childIds.length === 0 ? `<button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${this.t('editorRouteAddChild')}</button>` : ''}
               <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">×</button>
             </div>
             ${childIds.map((c) => renderNode(c, depth + 1)).join('')}
@@ -8886,9 +8943,10 @@ export class UIManager extends EventEmitter {
           <div style="display:flex; align-items:center; gap:8px;">
             <strong style="color:var(--accent);">${this.t('editorRouteQuestionPrefix')}</strong>
             <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="${this.t('editorRouteQuestionPlaceholder')}" data-qid="${q.id}" style="flex:1;">
-            <button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>
+            ${q.builtIn ? '' : `<button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>`}
             ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">${this.t('editorRouteRemoveQuestion')}</button>` : ''}
           </div>
+          ${builtInHtml}
           ${answersHtml}
         </div>
       `;
@@ -8900,6 +8958,55 @@ export class UIManager extends EventEmitter {
       inp.addEventListener('input', () => {
         const q = byId.get(inp.dataset.qid!);
         if (q) q.text = inp.value;
+      });
+    });
+    host.querySelectorAll<HTMLSelectElement>('.route-builtin-kind').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const q = byId.get(sel.dataset.qid!);
+        if (!q) return;
+        if (!sel.value) {
+          delete q.builtIn;
+        } else {
+          q.builtIn = { kind: sel.value };
+        }
+        this.renderRouteEditor();
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-builtin-quantity-input').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (!q?.builtIn) return;
+        q.builtIn.quantity = Number(inp.value);
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-builtin-pricerange-min').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (!q?.builtIn) return;
+        q.builtIn.priceRange = { min: Number(inp.value), max: q.builtIn.priceRange?.max ?? NaN };
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-builtin-pricerange-max').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (!q?.builtIn) return;
+        q.builtIn.priceRange = { min: q.builtIn.priceRange?.min ?? NaN, max: Number(inp.value) };
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-builtin-timeframe-start').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (!q?.builtIn) return;
+        const start = inp.value ? new Date(inp.value).getTime() : NaN;
+        q.builtIn.timeFrame = { start, end: q.builtIn.timeFrame?.end ?? NaN };
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-builtin-timeframe-end').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (!q?.builtIn) return;
+        const end = inp.value ? new Date(inp.value).getTime() : NaN;
+        q.builtIn.timeFrame = { start: q.builtIn.timeFrame?.start ?? NaN, end };
       });
     });
     host.querySelectorAll<HTMLInputElement>('.route-answer-text').forEach((inp) => {
@@ -9010,8 +9117,22 @@ export class UIManager extends EventEmitter {
   /**
    * Converts the route-editor model into the validator-ready Question[] shape.
    * Sets each question's contextPath by walking up its parent chain.
+   *
+   * Also derives each linking answer's `nextQuestionId` from the editor model's own
+   * `parentAnswer` linkage — a real pre-existing gap: the route editor only ever tracked
+   * `contextPath`/`parentAnswer` bookkeeping, never wrote `nextQuestionId` itself, so a route
+   * talk saved through the editor could never navigate past its first question
+   * (`talk-response-dialog.ts` reads `answer.nextQuestionId` directly to advance). One child per
+   * answer, matching §BB's "one answer = one branch" model — `renderRouteEditor`'s "add child"
+   * button is hidden once an answer already has a child, so this is never ambiguous.
+   *
+   * §BB / spec §30.2, docs/TODO.md §BB Phase 6: a builtIn node emits `answers: []` (TalkAutofix
+   * generates the synthetic pair) and its typed value is validated here — the same early-return
+   * `showTalkValidationError` pattern the flow editor's `readBuiltInSpecFromQuestion` uses,
+   * surfaced via the returned `errors` array rather than thrown, since this runs per-node inside
+   * a `.map`.
    */
-  private collectRouteEditorQuestions(): any[] {
+  private collectRouteEditorQuestions(): { questions: any[]; errors: string[] } {
     const byId = new Map(this.routeEditorQuestions.map((q) => [q.id, q]));
     const computeContextPath = (qid: string): Array<{ questionId: string; answerId: string }> => {
       const path: Array<{ questionId: string; answerId: string }> = [];
@@ -9022,21 +9143,51 @@ export class UIManager extends EventEmitter {
       }
       return path;
     };
-    return this.routeEditorQuestions.map((q) => {
+    const childQuestionIdByParentAnswerKey = new Map<string, string>();
+    for (const q of this.routeEditorQuestions) {
+      if (q.parentAnswer) {
+        childQuestionIdByParentAnswerKey.set(`${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`, q.id);
+      }
+    }
+    const errors: string[] = [];
+    const questions = this.routeEditorQuestions.map((q) => {
       const contextPath = computeContextPath(q.id);
+      if (q.builtIn) {
+        const kind = q.builtIn.kind;
+        if (kind === 'quantity' && !Number.isFinite(q.builtIn.quantity)) {
+          errors.push(this.t('editorBuiltInQuantityRequired'));
+        } else if (kind === 'priceRange') {
+          const pr = q.builtIn.priceRange;
+          if (!pr || !Number.isFinite(pr.min) || !Number.isFinite(pr.max) || pr.min > pr.max) {
+            errors.push(this.t('editorBuiltInPriceRangeRequired'));
+          }
+        } else if (kind === 'timeFrame') {
+          const tf = q.builtIn.timeFrame;
+          if (!tf || !Number.isFinite(tf.start) || !Number.isFinite(tf.end) || tf.start > tf.end) {
+            errors.push(this.t('editorBuiltInTimeFrameRequired'));
+          }
+        }
+        return { id: q.id, text: q.text.trim(), contextPath, answers: [], builtIn: q.builtIn };
+      }
       return {
         id: q.id,
         text: q.text.trim(),
         contextPath,
         answers: q.answers.map((a) => {
           const obj: any = { id: a.id, text: a.text.trim() };
-          if (a.isMatch) obj.isMatch = true;
-          if (a.isIgnore) obj.isIgnore = true;
-          if (a.isTerminal) obj.isTerminal = true;
+          const nextQuestionId = childQuestionIdByParentAnswerKey.get(`${q.id}::${a.id}`);
+          if (nextQuestionId) {
+            obj.nextQuestionId = nextQuestionId;
+          } else {
+            if (a.isMatch) obj.isMatch = true;
+            if (a.isIgnore) obj.isIgnore = true;
+            if (a.isTerminal) obj.isTerminal = true;
+          }
           return obj;
         }),
       };
     });
+    return { questions, errors };
   }
 
   private showTalkValidationError(errors: string[]): void {

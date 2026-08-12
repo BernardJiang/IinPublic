@@ -866,8 +866,64 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
      speculative UI. `location` also still has no editor input (by design — it reuses the talk's
      own existing location/radius fields, see Phase 2) and no auto-resolution wiring yet (Phase 4
      deferred it for the same geo/privacy-source reason).
-6. Route branch integration: per-branch quantity/price fields, talk-level time frame/location shared
-   across branches.
+6. **Shipped 2026-08-11 (partial — per-item builtIn leaves; talk-level shared fields deferred, see
+   below).** Route branch integration for multi-item listings.
+   - **Real pre-existing bug found and fixed first (unrelated to §BB, blocking any route-editor
+     work)**: the interactive route editor (`ensureRouteEditorRendered`/`renderRouteEditor` in
+     ui-manager.ts) tracked `contextPath`/`parentAnswer` bookkeeping for its branch tree but
+     never wrote `answer.nextQuestionId` — the field `talk-response-dialog.ts` actually reads to
+     navigate the DAG — so ANY route talk saved through the live editor could never advance past
+     its first question. Existing route e2e coverage (`08-route-job-seeking.spec.ts`) never
+     caught this because it seeds a hand-built DAG via the API (`createTalkFromCompanyPage`),
+     never drives `.route-add-child-btn` for real; the one smoke test that does click it
+     (`00-ui-navigation-settings.spec.ts`) only checks default placeholder text, never submits.
+     Fixed in `collectRouteEditorQuestions`: derives each answer's `nextQuestionId` from the
+     editor model's own `parentAnswer` linkage (one child per answer, matching §BB's "one
+     answer = one branch" model — `renderRouteEditor`'s "add child" button is now hidden once an
+     answer already has a child, so this is never ambiguous). A second, directly related bug
+     surfaced by testing the fix: reopening a saved route talk for edit defaulted a linking
+     answer's `isTerminal` to `true` (the old `a.isTerminal !== false` rule, correct when every
+     answer was match/ignore/terminal-only, wrong now that a real link has none of those flags)
+     — fixed by additionally checking `!a.nextQuestionId`.
+   - Per-item builtIn leaves: a new per-route-question "Compare using:" selector (mirroring
+     Phase 5's flow-editor control) lets any route node — including a branch's leaf — become a
+     typed comparison instead of an authored-answer question. `TalkAutofix.fix`'s route branch
+     gained the same synthetic-answer-generation step as the flow branch (Phase 2); no
+     `TalkValidator` exemption needed, same reasoning as Phase 2. A builtIn route node is always
+     a leaf (no children) by construction — the route editor has no affordance to add a child to
+     a builtIn node's single implicit "compatible" outcome (only to an authored answer row).
+   - New `tests/e2e/staged/stage1-single-user/82-route-editor-multi-item-builtin.spec.ts` — the
+     FIRST test to exercise the interactive route editor's branch-authoring flow end to end
+     (every prior route test seeds via the API). Builds a real 2-item route talk (root "Which
+     item?" branching into a Notebook leaf and a Pen leaf, each a builtIn quantity question),
+     submits through the live UI, and reopens for edit to verify the full round trip: branch
+     text, "Next question" kind (proving `nextQuestionId` survived TalkAutofix/TalkValidator),
+     and each leaf's builtIn kind + typed value. Plus 4 new unit tests
+     (`talk-engine.test.ts`) for the route branch of `TalkAutofix.fix` (synthetic-answer
+     generation, idempotency, full autofix+validate pipeline, and a regression guard proving the
+     synthetic-answer step is load-bearing — a builtIn route question with 0 answers fails
+     validation before autofix runs). Full regression run: `08-route-job-seeking`,
+     `00-ui-navigation-settings`, `05-talks-edit`, `82-route-editor-multi-item-builtin` (11/11
+     pass) plus `04-dealmaker-chatbot-match`/`85-multi-value-checkbox-match`/
+     `86-builtin-quantity-match` (7/7 pass).
+   - **NOT shipped**: talk-level shared time-frame/location "asked once, shared across
+     branches." No mechanism marks a route question as talk-level/shared today — the natural
+     fit (root-level builtIn question(s) before the branch point) would need the SAME "add child
+     to a builtIn node" editor affordance explicitly scoped out above, so it's blocked on the
+     same gap, not a separate one. Cross-browser auto-match proof for route builtIn questions
+     (buyer/seller matching through a real branch, mirroring `86-builtin-quantity-match.spec.ts`
+     but for route) is also not covered — `resolveAnswerPreferenceForTalkQuestion` is
+     confirmed talk-type-agnostic (Phase 4 research) so it should work in principle, but proving
+     it requires the responder to also pick the right item branch, which layers ordinary-
+     question exact-text resolution on top of builtIn resolution — deferred as a follow-up
+     rather than guessed at here.
+
+**§BB is now complete across all 6 planned phases** (engine: tag registry, builtIn schema,
+comparisons, typed-preference storage, auto-resolution wiring; UI: flow + route talk-editor
+support for typed comparisons). Not shipped, tracked above as explicit deferrals rather than
+oversights: the tag-pair picker/auto-generated-question-template (Phase 5), `location`
+auto-resolution (Phase 4, needs a geo/privacy source), and route's talk-level shared fields
+(Phase 6, blocked on the same root-branching gap as the tag picker).
 
 **Test plan:**
 

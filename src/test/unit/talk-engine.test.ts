@@ -312,6 +312,104 @@ describe('TalkValidator', () => {
   });
 });
 
+describe('TalkAutofix.fix — builtIn typed questions on route talks (§BB, spec §30.2)', () => {
+  it('generates the 2 synthetic answers for a builtIn route question with no author-typed answers', () => {
+    const talk = {
+      id: 't1',
+      title: 'Item Deal',
+      type: 'route',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'How many do you want?',
+          contextPath: [],
+          builtIn: { kind: 'quantity', quantity: 2 },
+          answers: [],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed, fixes } = TalkAutofix.fix(talk);
+    const [compatible, incompatible] = fixed.questions[0].answers;
+    expect(fixed.questions[0].answers).toHaveLength(2);
+    expect(compatible.isMatch).toBe(true);
+    expect(compatible.isTerminal).toBe(true);
+    expect(compatible.nextQuestionId).toBeUndefined();
+    expect(incompatible.isIgnore).toBe(true);
+    expect(incompatible.isTerminal).toBe(true);
+    expect(fixes.some((f) => f.includes('built-in question'))).toBe(true);
+  });
+
+  it('does not overwrite already-populated answers on a builtIn route question (idempotent)', () => {
+    const talk = {
+      id: 't1',
+      title: 'Item Deal',
+      type: 'route',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'How many do you want?',
+          contextPath: [],
+          builtIn: { kind: 'quantity', quantity: 2 },
+          answers: [
+            { id: 'q_0_compatible', text: 'Compatible', isMatch: true, isTerminal: true },
+            { id: 'q_0_incompatible', text: 'Not compatible', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed, fixes } = TalkAutofix.fix(talk);
+    expect(fixed.questions[0].answers).toHaveLength(2);
+    expect(fixes.some((f) => f.includes('built-in question'))).toBe(false);
+  });
+
+  it('a builtIn route question\'s synthetic answers pass TalkValidator.validateTalk unchanged', () => {
+    const talk = {
+      id: 't1',
+      title: 'Item Deal',
+      type: 'route',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'Which item?',
+          contextPath: [],
+          answers: [
+            { id: 'a_0', text: 'Notebook', nextQuestionId: 'q_1' },
+            { id: 'a_1', text: 'Book', isIgnore: true, isTerminal: true },
+          ],
+        },
+        {
+          id: 'q_1',
+          text: 'How many notebooks do you want?',
+          contextPath: [{ questionId: 'q_0', answerId: 'a_0' }],
+          builtIn: { kind: 'quantity', quantity: 2 },
+          answers: [],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed } = TalkAutofix.fix(talk);
+    expect(() => TalkValidator.validateTalk(fixed)).not.toThrow();
+    expect(fixed.questions[1].answers).toHaveLength(2);
+  });
+
+  it('a builtIn route question with 0 answers fails TalkValidator.validateTalk before autofix runs', () => {
+    // Regression guard: TalkValidator.validateRouteTalk requires answers.length > 0 (line
+    // ~531) — confirms TalkAutofix's synthetic-answer step is load-bearing, not redundant.
+    const talk = {
+      id: 't1',
+      title: 'Item Deal',
+      type: 'route',
+      questions: [
+        { id: 'q_0', text: 'How many?', contextPath: [], builtIn: { kind: 'quantity', quantity: 2 }, answers: [] },
+      ],
+    } as any;
+
+    expect(() => TalkValidator.validateTalk(talk)).toThrow(/at least one answer/);
+  });
+});
+
 describe('checkIfMatch / checkIfIgnore on route talks', () => {
   // HR job-search route: a jobseeker first picks a position. Accountant/Engineer
   // continue to a one-question screen (its own isMatch/isIgnore terminal, so two

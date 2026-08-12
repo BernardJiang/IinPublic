@@ -685,6 +685,18 @@ export class TalkAutofix {
           q.contextPath = [];
           fixes.push(`Filled in empty contextPath for route question "${q.id}".`);
         }
+        // §BB / spec §30.2, docs/TODO.md §BB Phase 6: same synthetic-answer generation as the
+        // flow branch below — a builtIn route question has no author-typed answers, and unlike
+        // flow, TalkAutofix never needs to redirect its "compatible" answer to a next question:
+        // the route editor has no way to attach a child to a builtIn node (see
+        // ui-manager.ts's routeEditorQuestions doc comment), so it is always a leaf.
+        if (q.builtIn && q.answers.length === 0) {
+          q.answers = [
+            { id: `${q.id}_compatible`, text: 'Compatible', isMatch: true, isTerminal: true },
+            { id: `${q.id}_incompatible`, text: 'Not compatible', isIgnore: true, isTerminal: true },
+          ];
+          fixes.push(`Generated synthetic answers for built-in question "${q.id}" (${q.builtIn.kind}).`);
+        }
         const expected = RouteProcessor.buildContextHash(q.contextPath);
         if (q.contextHashId !== expected) {
           q.contextHashId = expected;
