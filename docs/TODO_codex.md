@@ -59,17 +59,17 @@
 
 ## Milestone 3 — Connection Manager and path metadata
 
-- [ ] Introduce `ConnectionManager` above transport adapters and below Gun synchronization.
-- [ ] Add `PathInfo`: transport, interface, directness, metered state, latency, bandwidth estimate, battery class and stability.
-- [ ] Add deterministic scoring: reuse healthy route, free first, direct first, stable/fast, battery-aware.
-- [ ] Add operation classes: discovery, text, background sync, urgent action and IPFS bulk transfer.
-- [ ] Add permission states: ask, allow once, always allow and wait for free route.
-- [ ] Add route migration without changing SEA identity or graph/message IDs.
-- [ ] Add human-readable selection reason and alternatives.
-- [ ] Test: table-driven route-policy matrix.
-- [ ] Test: no newly metered route is used without matching permission.
-- [ ] Test: BLE is not selected for IPFS bulk transfer by default.
-- [ ] Test: route migration produces no duplicate Gun record or UI row.
+- [x] Introduce `ConnectionManager` above transport adapters and below Gun synchronization.
+- [x] Add `PathInfo`: transport, interface, directness, metered state, latency, bandwidth estimate, battery class and stability.
+- [x] Add deterministic scoring: reuse healthy route, free first, direct first, stable/fast, battery-aware.
+- [x] Add operation classes: discovery, text, background sync, urgent action and IPFS bulk transfer.
+- [x] Add permission states: ask, allow once, always allow and wait for free route.
+- [x] Add route migration without changing SEA identity or graph/message IDs.
+- [x] Add human-readable selection reason and alternatives.
+- [x] Test: table-driven route-policy matrix.
+- [x] Test: no newly metered route is used without matching permission.
+- [x] Test: BLE is not selected for IPFS bulk transfer by default.
+- [x] Test: route migration produces no duplicate Gun record or UI row.
 
 ## Milestone 4 — configurable peer forwarding
 
