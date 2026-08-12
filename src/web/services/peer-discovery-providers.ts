@@ -5,6 +5,7 @@ import {
   type PeerDiscoveryStartContext,
 } from '../../shared/peer-discovery-provider';
 import type { PresenceRecord } from '../../shared/p2p-presence';
+import type { ConnectivityBinding, ConnectivityBindingVerifier } from '../../shared/connectivity-binding';
 
 export type DiscoveryPoll = (
   context: PeerDiscoveryStartContext,
@@ -107,3 +108,31 @@ export function transportCandidate(input: {
   };
 }
 
+/** Turns only verified SEA-to-transport bindings into gossip candidates. */
+export function authenticatedGossipPoll(
+  providerId: string,
+  fetchBindings: (context: PeerDiscoveryStartContext) => Promise<readonly ConnectivityBinding[]>,
+  verifier: ConnectivityBindingVerifier,
+  now: () => Date = () => new Date(),
+): DiscoveryPoll {
+  return async (context) => {
+    const candidates: ConnectivityCandidate[] = [];
+    for (const binding of await fetchBindings(context)) {
+      if (!(await verifier.verify(binding, now())).ok) continue;
+      candidates.push({
+        version: 1,
+        candidateId: `binding:${binding.seaPub}:${binding.connectivityKind}:${binding.sequence}`,
+        source: 'discovery-gossip',
+        sourceInstanceId: providerId,
+        observedAt: binding.issuedAt,
+        expiresAt: binding.expiresAt,
+        seaPub: binding.seaPub,
+        transportId: binding.connectivityId,
+        addresses: binding.addresses,
+        capabilities: binding.capabilities,
+        roomIds: context.roomIds,
+      });
+    }
+    return candidates;
+  };
+}
