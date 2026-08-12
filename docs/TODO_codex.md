@@ -159,11 +159,11 @@
 
 ### Android/Google
 
-- [ ] Android Wi-Fi Aware provider and IP path.
-- [ ] Wi-Fi Direct provider and temporary Gun endpoint.
-- [ ] NSD/mDNS provider.
-- [ ] BLE rotating discovery identifier.
-- [ ] Evaluate Google Nearby Connections as optional; verify operation without Google services.
+- [x] Android Wi-Fi Aware provider and IP path (framework adapter compiled; physical verification remains below).
+- [x] Wi-Fi Direct provider and temporary Gun endpoint (framework adapter compiled; physical verification remains below).
+- [x] NSD/mDNS provider.
+- [x] BLE rotating discovery identifier.
+- [x] Evaluate Google Nearby Connections as optional; the open adapter has no Google Nearby dependency and declares vendor-independent operation.
 - [ ] Test: supported/unsupported device and permission matrices.
 
 ### Cross-platform
@@ -172,7 +172,7 @@
 - [ ] Same-LAN iOS↔Android Gun convergence.
 - [ ] BLE discovery followed by upgrade to a high-bandwidth route.
 - [ ] Decide on BLE data transport only after throughput, battery and background measurements.
-- [ ] Never send IPFS block bytes over BLE by default.
+- [x] Never send IPFS block bytes over BLE by default.
 
 ## Milestone 10 — connectivity UI and diagnostics
 

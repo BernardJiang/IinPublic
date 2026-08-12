@@ -29,6 +29,7 @@ import java.net.URL
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var nearbyBridge: NearbyJavascriptBridge
 
     // Android 13+ (API 33, TIRAMISU) requires POST_NOTIFICATIONS to be granted
     // at runtime — declaring it in the manifest alone is not enough. Without
@@ -44,6 +45,10 @@ class MainActivity : AppCompatActivity() {
             // doesn't block its core function on a notification preference.
             startNodeService()
             waitForNodeThenLoad()
+        }
+    private val nearbyPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            nearbyBridge.permissionResult(grants)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,9 +70,20 @@ class MainActivity : AppCompatActivity() {
             settings.mediaPlaybackRequiresUserGesture = false
             webViewClient = WebViewClient()
         }
+        nearbyBridge = NearbyJavascriptBridge(this, webView)
+        webView.addJavascriptInterface(nearbyBridge, "IinPublicNearby")
         setContentView(webView)
 
         ensureNotificationPermissionThenStart()
+    }
+
+    fun requestNearbyPermissions() {
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions += Manifest.permission.NEARBY_WIFI_DEVICES
+        else permissions += Manifest.permission.ACCESS_FINE_LOCATION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT)
+        val missing = permissions.distinct().filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) nearbyBridge.permissionResult(permissions.associateWith { true }) else nearbyPermissionLauncher.launch(missing.toTypedArray())
     }
 
     private fun ensureNotificationPermissionThenStart() {
@@ -139,6 +155,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        nearbyBridge.stop()
         webView.destroy()
         super.onDestroy()
     }
