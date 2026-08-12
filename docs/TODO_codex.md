@@ -104,15 +104,15 @@
 
 - [x] Define a signed Talk offer containing only safe metadata, Talk ID/CID and requested authorization.
 - [x] Apply receiver intake before requesting the complete graph.
-- [ ] Authorize the minimum graph path after acceptance.
-- [ ] Synchronize the accepted Talk into receiver local Gun using Gun Wire or a documented Gun-compatible delta adapter.
-- [ ] Synchronize pair-private responses only to participants.
-- [ ] Keep user-private Q&A, filters, blocks and chatbot memory outside ordinary peer subscriptions.
-- [ ] Add heads/checkpoints for delta recovery after disconnect.
+- [x] Authorize the minimum graph path after acceptance.
+- [x] Synchronize the accepted Talk into receiver local Gun using Gun Wire or a documented Gun-compatible delta adapter.
+- [x] Synchronize pair-private responses only to participants.
+- [x] Keep user-private Q&A, filters, blocks and chatbot memory outside ordinary peer subscriptions.
+- [x] Add heads/checkpoints for delta recovery after disconnect.
 - [x] Test: rejected Talk does not enter the durable incoming graph.
-- [ ] Test: accepted Talk converges identically over every transport adapter.
-- [ ] Test: unauthorized peer cannot request pair-private or user-private paths.
-- [ ] Test: concurrent edits/retractions converge according to ledger rules.
+- [x] Test: accepted Talk converges identically over every transport adapter.
+- [x] Test: unauthorized peer cannot request pair-private or user-private paths.
+- [x] Test: concurrent edits/retractions converge according to ledger rules.
 
 ## Milestone 7 — narrow PeerMeshService
 
