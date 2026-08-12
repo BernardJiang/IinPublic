@@ -116,13 +116,13 @@
 
 ## Milestone 7 — narrow PeerMeshService
 
-- [ ] Inventory current frame kinds and classify each as retain, adapt or retire.
-- [ ] Retain small offers, requests, persisted receipts, discovery gossip, ACK/control and optional forwarding where useful.
-- [ ] Replace complete `talk-body` authority with Gun-path synchronization after parity.
-- [ ] Preserve `msgId`, TTL and seen-set behavior for retained multi-hop control traffic.
-- [ ] Maintain mixed-version translation while old clients still send Talk bodies.
+- [x] Inventory current frame kinds and classify each as retain, adapt or retire.
+- [x] Retain small offers, requests, persisted receipts, discovery gossip, ACK/control and optional forwarding where useful.
+- [x] Replace complete `talk-body` authority with Gun-path synchronization after parity.
+- [x] Preserve `msgId`, TTL and seen-set behavior for retained multi-hop control traffic.
+- [x] Maintain mixed-version translation while old clients still send Talk bodies.
 - [ ] Delete duplicate body caches/retry logic only after two release cycles or explicit compatibility decision.
-- [ ] Test: old sender→new receiver and new sender→old receiver.
+- [x] Test: old sender→new receiver and new sender→old receiver.
 - [ ] Test: current full E2E suite remains green under both legacy and Gun-native flags.
 
 ## Milestone 8 — chatbot in the Gun Talk flow

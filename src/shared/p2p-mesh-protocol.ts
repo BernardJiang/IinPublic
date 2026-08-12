@@ -23,6 +23,11 @@ export type P2PMeshTalkAnnouncePayload = {
   language?: string;
   tags?: string[];
   requestedAuthorization?: 'accepted-talk-read';
+  syncCapabilities?: {
+    protocolVersion: 1;
+    gunNativeSync: boolean;
+    legacyTalkBodyFrames: boolean;
+  };
 };
 
 export type P2PMeshTalkBodyRequestPayload = {
