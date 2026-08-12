@@ -42,6 +42,35 @@ describe('detectFinancialData — card numbers', () => {
   it('does NOT flag ordinary short talk text', () => {
     expect(containsFinancialData('are you selling the used notebook?')).toBe(false);
   });
+
+  it('flags known-good test numbers for Mastercard, Amex, and Discover (not just Visa)', () => {
+    expect(detectFinancialData('5500005555555559').some((m) => m.category === 'card_number')).toBe(true);
+    expect(detectFinancialData('340000000000009').some((m) => m.category === 'card_number')).toBe(true);
+    expect(detectFinancialData('6011000000000004').some((m) => m.category === 'card_number')).toBe(true);
+  });
+
+  it('regression: a bare Date.now()-style 13-digit millisecond timestamp is never flagged, even when it happens to be Luhn-valid', () => {
+    // Real bug found via e2e failures: length+Luhn alone false-positived on this pattern
+    // (used pervasively across the test suite for uniqueness) at roughly a 1-in-10 rate,
+    // since Luhn validity is essentially uncorrelated with "is this actually a card number."
+    // A timestamp starts with "1" — no card network issues cards starting with 1 — so the
+    // network-prefix requirement rules the whole category out regardless of Luhn outcome.
+    let luhnValidTimestampFound = false;
+    for (let i = 0; i < 500 && !luhnValidTimestampFound; i++) {
+      const ts = String(1_786_000_000_000 + Math.floor(Math.random() * 1_000_000_000));
+      if (luhnCheck(ts)) {
+        luhnValidTimestampFound = true;
+        expect(containsFinancialData(`DedicatedIgnoreFlow ${ts}`)).toBe(false);
+      }
+    }
+    expect(luhnValidTimestampFound).toBe(true); // sanity: the loop actually exercised the case
+  });
+
+  it('does NOT flag an arbitrary 16-digit Luhn-valid number with no real card network prefix', () => {
+    // 1234567890123452 is Luhn-valid but starts with "1" — not Visa/MC/Amex/Discover/etc.
+    expect(luhnCheck('1234567890123452')).toBe(true);
+    expect(containsFinancialData('order 1234567890123452 shipped')).toBe(false);
+  });
 });
 
 describe('detectFinancialData — CVV (only alongside a card match)', () => {

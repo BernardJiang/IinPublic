@@ -916,12 +916,19 @@ titles, and conversation messages, on both the outgoing (sender) and incoming (r
 paths, matching the existing `filterOutgoingMessage`/`filterIncomingMessage` split.
 
 **FR-FIN-3 (Detection).** A candidate substring SHALL be flagged only when it matches a card-number
-shape **and** passes a Luhn checksum, to bound false positives (order numbers, phone numbers, IDs
-are common non-card 13–19 digit runs and must not be blocked). Patterns:
+shape, matches a **real card network's IIN prefix** (Visa/Mastercard/Amex/Discover/Diners/JCB),
+**and** passes a Luhn checksum — all three, not length+Luhn alone. **Revised 2026-08-11:** length+
+Luhn alone was shipped first and found, via real e2e failures, to false-positive on ordinary
+13-digit millisecond timestamps (`Date.now()`, used pervasively across this codebase's own test
+suite for uniqueness) at roughly a 1-in-10 rate — Luhn validity is essentially uncorrelated with
+"is this actually a card number," so length+Luhn alone is a well-known over-broad heuristic; real
+card-detection tooling always validates the network prefix too. A timestamp starts with `1`, which
+no card network issues, so the prefix requirement rules out this whole false-positive class
+regardless of Luhn outcome. Patterns:
 
 | Category | Pattern | Example match |
 |---|---|---|
-| Credit/debit card numbers | `\b(?:\d[ -]?){13,19}\b` + Luhn check | `4111 1111 1111 1111` |
+| Credit/debit card numbers | card-shape regex + network-prefix (Visa `4`/MC `5[1-5]` or `2221`-`2720`/Amex `34`,`37`/Discover `6011`,`65xx`/Diners/JCB) + Luhn | `4111 1111 1111 1111` |
 | CVV codes | `\b\d{3,4}\b` (only alongside a card-number match in the same text) | `123` |
 | IBAN | `\b[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,}[A-Z0-9]{0,16}\b` | `GB29NWBK...` |
 | US routing/account | `\b\d{9}\b` adjacent to `\b\d{5,17}\b` | `021000021` |
