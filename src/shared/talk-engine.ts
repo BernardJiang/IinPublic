@@ -322,10 +322,27 @@ export class TalkValidator {
     // First answer on every question must be a "match" or a "go to next
     // question" link; it may not be an ignore. Every remaining answer is
     // treated as ignore (and must not carry match/next semantics).
+    //
+    // Spec §3.4 FR-QA-15/16, §30.8: a `'multiple'`-mode ("pick any that apply") question is
+    // exempt from the "only the first answer decides" rule entirely — it intentionally allows
+    // more than one answer to be isMatch-flagged at once (TalkAutofix.fix applies the matching
+    // exemption before validation ever sees this). It's still checked for the invariants that
+    // DO still apply: at least one isMatch or one isIgnore answer, and no answer carries a
+    // nextQuestionId (a multi-select question is always chain-terminal).
     for (const q of talk.questions) {
       const first = q.answers[0];
       if (!first) {
         throw new ValidationError(`Flow question has no answers: ${q.id}`);
+      }
+      if (q.answerSelectionMode === 'multiple') {
+        for (const a of q.answers) {
+          if (a.nextQuestionId) {
+            throw new ValidationError(
+              `Flow question "${q.id}": a "pick any that apply" question cannot link to another question ("${a.id}").`,
+            );
+          }
+        }
+        continue;
       }
       if (first.isIgnore) {
         throw new ValidationError(
@@ -695,6 +712,29 @@ export class TalkAutofix {
     for (let i = 0; i < talk.questions.length; i++) {
       const q = talk.questions[i];
       if (q.answers.length === 0) continue;
+
+      if (q.answerSelectionMode === 'multiple') {
+        // Spec §3.4 FR-QA-15/16, §30.8: a "pick any that apply" question intentionally
+        // allows MORE THAN ONE answer to be isMatch-flagged at once — skip the single-answer
+        // collapsing below entirely (steps 2/3 assume exactly one meaningful answer, which
+        // would silently strip isMatch from every option but the first). Every answer keeps
+        // whatever isMatch/isIgnore the editor set (the answer-next dropdown), normalized to
+        // terminal — a multi-select question is always chain-terminal, enforced by the
+        // editor's own dropdown restriction (talk-editor-form-helpers.ts) to Ignore/Noticed
+        // only, no "go to next question".
+        for (const a of q.answers) {
+          delete a.nextQuestionId;
+          a.isTerminal = true;
+          if (a.isMatch === true) {
+            delete a.isIgnore;
+          } else {
+            a.isIgnore = true;
+            delete a.isMatch;
+          }
+        }
+        continue;
+      }
+
       const first = q.answers[0];
       const nextId = talk.questions[i + 1]?.id;
       const firstIsMatch = first.isMatch === true;

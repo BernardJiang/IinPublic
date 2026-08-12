@@ -81,9 +81,17 @@ export function appendIgnoreRow(container: HTMLElement, qIndex: number, options?
   container.appendChild(row);
 }
 
+/** Spec §3.4 FR-QA-15 / §30.8: 'single' (default, radio) or 'multiple' (checkbox) — read from
+ *  the question's own mode-select, defaulting to 'single' if the control isn't present yet. */
+function questionAnswerSelectionMode(questionItem: Element | null): 'single' | 'multiple' {
+  const select = questionItem?.querySelector('.answer-selection-mode') as HTMLSelectElement | null;
+  return select?.value === 'multiple' ? 'multiple' : 'single';
+}
+
 export function addAnswerToQuestion(container: HTMLElement, index: number, options: TalkEditorFormHelperOptions): void {
   const questionItem = container.closest('.question-item');
   const qIdx = questionItem ? parseInt(questionItem.getAttribute('data-question-index') ?? '0', 10) : 0;
+  const mode = questionAnswerSelectionMode(questionItem);
   const answerDiv = document.createElement('div');
   answerDiv.className = 'answer-item';
   answerDiv.dataset.answerIndex = index.toString();
@@ -95,8 +103,9 @@ export function addAnswerToQuestion(container: HTMLElement, index: number, optio
   `;
   const radioName = `self-answer-q_${qIdx}`;
   const radioValue = `a_${qIdx}_${index}`;
+  const selfAnswerInputType = mode === 'multiple' ? 'checkbox' : 'radio';
   answerDiv.innerHTML = `
-    <input type="radio" name="${radioName}" value="${radioValue}" class="self-answer-radio" title="${text(options, 'editorMyAnswer', 'My answer')}">
+    <input type="${selfAnswerInputType}" name="${radioName}" value="${radioValue}" class="self-answer-radio" title="${text(options, 'editorMyAnswer', 'My answer')}">
     <input
       type="text"
       class="form-input answer-text"
@@ -161,6 +170,13 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
       required
       style="margin-bottom: 10px;"
     >
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
+      ${text(options, 'editorAnswerSelectionModeLabel', 'Respondent may select:')}
+      <select class="form-input answer-selection-mode" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
+        <option value="single">${text(options, 'editorAnswerSelectionModeSingle', 'One (multiple choice)')}</option>
+        <option value="multiple">${text(options, 'editorAnswerSelectionModeMultiple', 'Any that apply (checkboxes)')}</option>
+      </select>
+    </label>
     <div class="answers-container" style="margin-left: 15px;"></div>
     <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">${text(options, 'editorAddAnswer', '+ Add Answer')}</button>
   `;
@@ -185,6 +201,40 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
     addAnswerToQuestion(answersContainer, answerCount, options);
     updateAllAnswerDropdowns(options);
   });
+
+  const modeSelect = questionDiv.querySelector('.answer-selection-mode') as HTMLSelectElement | null;
+  modeSelect?.addEventListener('change', () => {
+    applyAnswerSelectionModeToQuestion(questionDiv, modeSelect.value === 'multiple' ? 'multiple' : 'single');
+    updateAllAnswerDropdowns(options);
+  });
+}
+
+/**
+ * Spec §3.4 FR-QA-15 / §30.8: switches every existing answer row's self-answer input (and the
+ * ignore row, when present) between radio (single) and checkbox (multiple) in place, without
+ * losing already-typed answer text — only the input `type` and `checked` semantics change.
+ * 'multiple' mode drops the ignore row entirely: the author's own self-answer is simply
+ * "whichever boxes I check" (possibly none), not a special ignore choice — Ignore stays
+ * meaningful per-option (the answer-next dropdown, unaffected by this function) but not as a
+ * distinct self-answer state.
+ */
+export function applyAnswerSelectionModeToQuestion(questionItem: HTMLElement, mode: 'single' | 'multiple'): void {
+  const inputType = mode === 'multiple' ? 'checkbox' : 'radio';
+  questionItem.querySelectorAll<HTMLInputElement>('.self-answer-radio').forEach((input) => {
+    if (input.type !== inputType) {
+      const wasChecked = input.checked;
+      input.type = inputType;
+      input.checked = wasChecked;
+    }
+  });
+  const ignoreRow = questionItem.querySelector('.self-answer-ignore-row');
+  if (mode === 'multiple' && ignoreRow) {
+    ignoreRow.remove();
+  } else if (mode === 'single' && !ignoreRow) {
+    const answersContainer = questionItem.querySelector('.answers-container') as HTMLElement | null;
+    const qIdx = parseInt(questionItem.getAttribute('data-question-index') ?? '0', 10);
+    if (answersContainer) appendIgnoreRow(answersContainer, qIdx);
+  }
 }
 
 export function updateAllAnswerDropdowns(options: TalkEditorFormHelperOptions): void {
@@ -192,7 +242,12 @@ export function updateAllAnswerDropdowns(options: TalkEditorFormHelperOptions): 
   const totalQuestions = questions.length;
 
   questions.forEach((questionItem, qIdx) => {
-    const isLastQuestion = qIdx === totalQuestions - 1;
+    // Spec §30.8: a 'multiple'-mode ("pick any that apply") question is always treated as
+    // terminal for branching purposes — with several options potentially checked at once,
+    // "go to question X" per-option would be ambiguous about which checked option's branch
+    // wins. Restricted to Ignore/Noticed, same as the last question in the chain.
+    const isMultiSelect = questionAnswerSelectionMode(questionItem) === 'multiple';
+    const isLastQuestion = isMultiSelect || qIdx === totalQuestions - 1;
     const answersContainer = questionItem.querySelector('.answers-container');
     if (!answersContainer) return;
 

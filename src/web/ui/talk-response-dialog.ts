@@ -1,4 +1,5 @@
 import { sessionAnswersToQAPairs } from '../../shared/flattened-answer-keys';
+import { checkIfMatch } from '../../shared/talk-engine';
 import type { UiTranslationKey } from './ui-translations';
 
 type AnswerSelectionMode = 'auto' | 'manual' | 'permanent';
@@ -16,7 +17,12 @@ type SavedPreference = {
 type ResponseDraft = {
   version: 1;
   currentQuestionId: string;
-  answers: Array<{ questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode }>;
+  /** `answerIds` (spec §3.4 FR-QA-15/16): the full checked set for an
+   *  `answerSelectionMode: 'multiple'` question — `answerId` alone stays the first checked
+   *  id, for backward-compat display; resuming a draft mid-multi-select isn't specifically
+   *  exercised yet (known limitation, not a correctness issue — the full set still round-trips
+   *  through JSON). */
+  answers: Array<{ questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode; answerIds?: string[] }>;
 };
 
 function responseDraftKey(talkId: string): string {
@@ -492,7 +498,8 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
   const draft = loadResponseDraft(talk);
   let currentQuestion = talk.questions.find((question: any) => question.id === draft?.currentQuestionId) || talk.questions[0];
-  const answers: { questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode }[] = draft?.answers || [];
+  const answers: { questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode; answerIds?: string[] }[] =
+    draft?.answers || [];
 
   const completeAndClose = (outcome: 'match' | 'mismatch' = 'mismatch'): void => {
     clearResponseDraft(talk);
@@ -609,6 +616,13 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           }
         : undefined);
     const stepIndicator = renderStepIndicator(talk, currentQuestionIndex, answers, text, options.escapeHtml);
+    // Spec §3.4 FR-QA-15/16, §30.8: "pick any that apply" — a plain checklist + one Submit
+    // action, not the auto/manual/permanent grid (which assumes exactly one final answer).
+    // A multi-select question is always chain-terminal by construction (the talk editor
+    // restricts its options to Ignore/Noticed only, no "go to next question"), so submitting
+    // it always ends in a match or a mismatch/ignore, never advances to another question.
+    const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
+    const previouslyCheckedIds = new Set(previousChoiceFromSession?.answerIds || []);
 
     modal.innerHTML = `
       <div class="modal-content" style="max-width: 600px;">
@@ -627,6 +641,26 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 16px;">
             ${options.escapeHtml(currentQuestion.text)}
           </div>
+          ${isMultiSelect ? `
+          <div class="answer-checkbox-list" data-testid="answer-checkbox-list">
+            ${currentQuestion.answers
+              .map(
+                (answer: any) => `
+              <label class="answer-checkbox-row" style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+                <input type="checkbox" class="answer-checkbox" data-testid="answer-checkbox"
+                  data-answer-id="${answer.id}"
+                  data-answer-text="${options.escapeHtml(answer.text)}"
+                  data-is-ignore="${answer.isIgnore || false}"
+                  data-is-match="${answer.isMatch || false}"
+                  ${previouslyCheckedIds.has(answer.id) ? 'checked' : ''}>
+                <span>${options.escapeHtml(answer.text)}</span>
+              </label>
+            `,
+              )
+              .join('')}
+          </div>
+          <button type="button" class="btn primary-btn" id="submit-checkbox-answers-btn" data-testid="submit-checkbox-answers-btn" style="margin-top:12px;">${text('responseSubmit', 'Submit')}</button>
+          ` : `
           <div class="answer-radio-grid" role="radiogroup" aria-label="Choose answer and mode">
             <div class="answer-grid-header">
               <span>${text('responseAuto', 'Auto')}</span><span>${text('responseManual', 'Manual')}</span><span>${text('responsePermanent', 'Permanent')}</span><span></span>
@@ -682,6 +716,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
               <span class="answer-grid-label">${text('responseIgnore', 'Ignore')}</span>
             </div>
           </div>
+          `}
           ${talk.type === 'route' ? '<div class="route-branch-preview" data-testid="route-branch-preview"></div>' : ''}
         </div>
       </div>
@@ -769,6 +804,54 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         completeAndClose();
       }
     };
+
+    const applyCheckboxSubmit = (): void => {
+      const checkedBoxes = Array.from(modal.querySelectorAll<HTMLInputElement>('.answer-checkbox:checked'));
+      if (checkedBoxes.length === 0) {
+        options.showNotification(text('responseSelectAtLeastOne', 'Select at least one option.'), 'warning');
+        return;
+      }
+      const answerIds = checkedBoxes.map((cb) => cb.dataset.answerId!);
+      const answerTexts = checkedBoxes.map((cb) => cb.dataset.answerText || '');
+
+      const existingAnswer = answers.findIndex((answer) => answer.questionId === currentQuestion.id);
+      const selectedAnswer = {
+        questionId: currentQuestion.id,
+        answerId: answerIds[0],
+        answerIds,
+        answerText: answerTexts.join(', '),
+        mode: 'manual' as AnswerSelectionMode,
+      };
+      if (existingAnswer >= 0) answers.splice(existingAnswer, 1, selectedAnswer);
+      else answers.push(selectedAnswer);
+
+      // One saveAnswerPreference call per checked option — mirrors saveCreatedTalk's
+      // per-entry pattern, building the multi-event history findAutoAnswerMultiple scans.
+      answerIds.forEach((answerId, i) => {
+        options.saveAnswerPreference(
+          talk,
+          talk.id,
+          currentQuestion,
+          answerId,
+          answerTexts[i],
+          answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
+          'manual',
+        );
+      });
+
+      // A multi-select question is always chain-terminal (§30.8, see the editor's own
+      // restriction to Ignore/Noticed-only options) — determine the outcome via the
+      // canonical set-intersection checkIfMatch (talk-engine.ts), never reimplemented here.
+      if (checkIfMatch(talk, answers)) {
+        clearResponseDraft(talk);
+        options.completeTalk(talk, answers, 'match');
+        options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
+        closeModal();
+      } else {
+        completeAndClose();
+      }
+    };
+    modal.querySelector('#submit-checkbox-answers-btn')?.addEventListener('click', applyCheckboxSubmit);
 
     modal.querySelectorAll('.choice-radio').forEach((radioEl) => {
       radioEl.addEventListener('change', (event) => {

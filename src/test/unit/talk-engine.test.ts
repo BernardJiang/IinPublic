@@ -1,4 +1,4 @@
-import { TalkValidator, matchScore, checkIfMatch, checkIfIgnore, type SubmittedAnswer } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, matchScore, checkIfMatch, checkIfIgnore, type SubmittedAnswer } from '../../shared/talk-engine';
 import { Talk } from '../../shared/types';
 
 describe('matchScore', () => {
@@ -471,6 +471,163 @@ describe('checkIfMatch / checkIfIgnore — multi-value ("pick any that apply") q
     } as any;
     expect(checkIfMatch(singleTalk, [{ questionId: 'q_0', answerId: 'a_match' }])).toBe(true);
     expect(checkIfIgnore(singleTalk, [{ questionId: 'q_0', answerId: 'a_ignore' }])).toBe(true);
+  });
+});
+
+describe('TalkAutofix.fix — answerSelectionMode: "multiple" bypasses the single-answer collapse', () => {
+  // Regression found via e2e: TalkAutofix's flow-question step "every non-first answer is
+  // implicitly ignore" silently stripped isMatch from every checked-multiple option but the
+  // first, defeating the whole feature (a buyer's "Model A or Model B" became "Model A only").
+
+  it('keeps every isMatch-flagged answer for a multiple-mode question, does not collapse to the first', () => {
+    const talk = {
+      id: 't1',
+      title: 'Buy Notebook',
+      type: 'flow',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'Which models would you accept?',
+          answerSelectionMode: 'multiple',
+          answers: [
+            { id: 'a_modelA', text: 'Model A', isMatch: true },
+            { id: 'a_modelB', text: 'Model B', isMatch: true },
+            { id: 'a_modelC', text: 'Model C', isIgnore: true },
+          ],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed } = TalkAutofix.fix(talk);
+    const [a, b, c] = fixed.questions[0].answers;
+    expect(a.isMatch).toBe(true);
+    expect(b.isMatch).toBe(true);
+    expect(c.isMatch).toBeFalsy();
+    expect(c.isIgnore).toBe(true);
+    // Every answer normalized to terminal (a multiple-mode question is always chain-terminal)
+    // and never carries nextQuestionId.
+    for (const answer of fixed.questions[0].answers) {
+      expect(answer.isTerminal).toBe(true);
+      expect(answer.nextQuestionId).toBeUndefined();
+    }
+  });
+
+  it('an answer with neither isMatch nor isIgnore set defaults to isIgnore (fail-safe), still multiple-mode', () => {
+    const talk = {
+      id: 't1',
+      title: 'Buy Notebook',
+      type: 'flow',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'Which models would you accept?',
+          answerSelectionMode: 'multiple',
+          answers: [
+            { id: 'a_modelA', text: 'Model A', isMatch: true },
+            { id: 'a_modelB', text: 'Model B' }, // author forgot to flag it either way
+          ],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed } = TalkAutofix.fix(talk);
+    expect(fixed.questions[0].answers[0].isMatch).toBe(true);
+    expect(fixed.questions[0].answers[1].isIgnore).toBe(true);
+    expect(fixed.questions[0].answers[1].isMatch).toBeFalsy();
+  });
+
+  it('single-select (answerSelectionMode absent) flow questions are unaffected — still collapse to answer 0', () => {
+    const talk = {
+      id: 't1',
+      title: 'Ordinary Flow',
+      type: 'flow',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'Do you like coffee?',
+          answers: [
+            { id: 'a_yes', text: 'Yes', isMatch: true },
+            { id: 'a_no', text: 'No', isMatch: true }, // would be wrongly isMatch without the collapse
+          ],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed } = TalkAutofix.fix(talk);
+    expect(fixed.questions[0].answers[0].isMatch).toBe(true);
+    expect(fixed.questions[0].answers[1].isMatch).toBeFalsy();
+    expect(fixed.questions[0].answers[1].isIgnore).toBe(true);
+  });
+});
+
+describe('TalkValidator.validateTalk — flow talks with answerSelectionMode: "multiple"', () => {
+  // Regression found via e2e: validateFlowTalk had its OWN separate copy of the "only the
+  // first answer may be isMatch" rule (independent of TalkAutofix's copy, already fixed
+  // above) — a multi-select question with two isMatch-flagged answers passed TalkAutofix but
+  // then threw here, silently failing talk-editor submission with no visible JS error.
+
+  const baseTalk = (answers: any[]) => ({
+    id: 't1',
+    title: 'Buy Notebook',
+    type: 'flow',
+    questions: [
+      {
+        id: 'q_0',
+        text: 'Which models would you accept?',
+        answerSelectionMode: 'multiple',
+        answers,
+      },
+    ],
+  } as any);
+
+  it('accepts a multiple-mode question with more than one isMatch-flagged answer', () => {
+    const talk = baseTalk([
+      { id: 'a_modelA', text: 'Model A', isMatch: true, isTerminal: true },
+      { id: 'a_modelB', text: 'Model B', isMatch: true, isTerminal: true },
+      { id: 'a_modelC', text: 'Model C', isIgnore: true, isTerminal: true },
+    ]);
+    expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
+  });
+
+  it('still rejects a multiple-mode answer that carries a nextQuestionId (always chain-terminal)', () => {
+    const talk = baseTalk([
+      { id: 'a_modelA', text: 'Model A', isMatch: true, isTerminal: true },
+      { id: 'a_modelB', text: 'Model B', nextQuestionId: 'q_1' },
+      { id: 'a_modelC', text: 'Model C', isIgnore: true, isTerminal: true },
+    ]);
+    expect(() => TalkValidator.validateTalk(talk)).toThrow(/cannot link to another question/);
+  });
+
+  it('single-select flow talks are unaffected — still reject a non-first isMatch answer', () => {
+    const talk = {
+      id: 't1',
+      title: 'Ordinary Flow',
+      type: 'flow',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'Do you like coffee?',
+          answers: [
+            { id: 'a_yes', text: 'Yes', isMatch: true, isTerminal: true },
+            { id: 'a_no', text: 'No', isMatch: true, isTerminal: true },
+            { id: 'a_maybe', text: 'Maybe', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    } as any;
+    expect(() => TalkValidator.validateTalk(talk)).toThrow(/only the first answer may be a match/);
+  });
+
+  it('the full processTalkForm-style pipeline (autofix then validate) accepts a real-shaped multi-select talk', () => {
+    // Exactly the shape a browser session in the talk editor would produce (isMatch/isIgnore
+    // set, isTerminal not yet normalized) — proves the two fixes compose end to end.
+    const talk = baseTalk([
+      { id: 'a_modelA', text: 'Model A', isMatch: true },
+      { id: 'a_modelB', text: 'Model B', isMatch: true },
+      { id: 'a_modelC', text: 'Model C', isIgnore: true },
+    ]);
+    const { talk: fixed } = TalkAutofix.fix(talk);
+    expect(() => TalkValidator.validateTalk(fixed)).not.toThrow();
   });
 });
 

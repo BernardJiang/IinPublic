@@ -993,19 +993,13 @@ the pointer + implementation/test plan.
 
 ## FF. Multi-value ("pick any that apply") questions + set-intersection matching `[Sonnet]`
 
-> **Partially shipped 2026-08-11.** Implementation-plan step 2 (core match-predicate
-> generalization) is done — `Question.answerSelectionMode`, `SubmittedAnswer.answerIds`, and
-> `checkIfMatch`/`checkIfIgnore`'s set-intersection generalization all shipped in
-> `src/shared/talk-engine.ts` + `types.ts`, with unit tests proving exact backward compatibility
-> (every existing single-select test in `talk-engine.test.ts` passes unmodified) plus new
-> multi-select coverage (any-overlap-matches, all-ignore-flagged-doesn't, singleton-set reproduces
-> legacy behavior exactly, empty-`answerIds`-falls-back-to-`answerId`). **Steps 1, 3, 4 are not
-> done**: no UI produces a `'multiple'`-mode question yet (talk editor has no toggle), chatbot
-> auto-fill (`exact-chatbot-memory.ts`'s `findAutoAnswer`) has NOT been generalized to multi-select
-> — it still only ever resolves a single answer ID, so a `'multiple'`-mode question cannot yet be
-> auto-answered by the chatbot even though the underlying match predicate supports it — and there
-> is no e2e coverage. The schema and match engine are ready for the remaining UI/auto-fill work to
-> land on top of; nothing downstream needs to change again once they do.
+> **Complete 2026-08-11** — see docs/completed.md. Schema, set-intersection match engine, chatbot
+> multi-select auto-fill, talk-editor "pick one / pick any that apply" toggle, response-dialog
+> checkbox UI, and e2e coverage all shipped. Along the way, found and fixed two real bugs where
+> `TalkAutofix`/`TalkValidator` each had their own separate copy of the "only the first flow
+> answer may be isMatch" rule, neither aware of the new mode — both silently defeated the whole
+> feature until fixed. Not done: talk-editor UI for large option counts (searchable chip input
+> instead of a flat checklist) — deferred, low priority, most talks won't hit this.
 
 **Design note, not yet implemented (2026-08-11).** Answers Bernard's question: today's chatbot
 matching is strict single-value exact-text match (FR-QA-7) with no way to express "accept any of

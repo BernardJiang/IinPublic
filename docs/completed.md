@@ -5104,3 +5104,56 @@ already expresses without any logic vocabulary.
   assertion, empty-`answerIds`-array falls back to `answerId`, explicit unaffected-single-select
   regression case) plus all 14 pre-existing `talk-engine.test.ts` cases unmodified, full unit suite
   green (87 suites / 1147 tests), type-check and lint clean.
+
+## 2026-08-11 — FF completion: multi-select chatbot auto-fill, editor UI, response UI, e2e
+
+Moved from `docs/TODO.md` FF (steps 1, 3, 4 — completing the partial ship recorded above).
+Finished the remaining UI/auto-fill layer on top of the schema + match-engine core.
+
+- **Chatbot auto-fill** (`exact-chatbot-memory.ts`): `findAutoAnswerMultiple`, the "pick any that
+  apply" counterpart to `findAutoAnswer` — same suppression/permanent/role-veto handling, but
+  TEMPORARY-mode resolution collects every distinct remembered answer id present in the current
+  option set (not just the newest), reusing `saveTemporaryAnswer`'s existing per-event history
+  unchanged. 10 new unit tests.
+- **Talk editor** (`talk-editor-form-helpers.ts`, `ui-manager.ts`): a per-question "Respondent may
+  select: One (multiple choice) / Any that apply (checkboxes)" toggle. Switching modes converts
+  self-answer inputs between radio/checkbox in place; `'multiple'` mode drops the ignore-row
+  entirely (the author's own self-answer is just "whichever boxes I check," no separate ignore
+  concept at authoring time) and restricts the per-option answer-next dropdown to Ignore/Noticed
+  only — a multi-select question is always chain-terminal, since "go to question X" is ambiguous
+  when several options can be checked at once. `processTalkForm` collects one `selfAnswers` entry
+  per checked box, reusing `saveCreatedTalk`'s existing per-entry `saveAnswerPreference` loop
+  unchanged as the substrate `findAutoAnswerMultiple` scans.
+- **Response dialog** (`talk-response-dialog.ts`): a plain checkbox list + Submit button, not the
+  existing auto/manual/permanent radio grid (which assumes exactly one final answer). Outcome
+  determined via the canonical `checkIfMatch` (talk-engine.ts) — never reimplemented locally, per
+  the standing invariant that match logic lives only in `talk-engine.ts`.
+- **Two real bugs found and fixed along the way**, both in code that predates this feature and
+  neither caught by type-checking: `TalkAutofix.fix` and `TalkValidator.validateFlowTalk` each had
+  their own independent copy of "only the first answer may be isMatch, every other answer is
+  forced to ignore" — a rule that was correct for single-select flow questions but silently
+  defeated multi-select entirely. `TalkAutofix` stripped `isMatch` from every checked option but
+  the first before the talk was ever saved; independently, `TalkValidator` (which runs after
+  autofix) would have rejected a correctly-multi-flagged talk anyway, throwing a validation error
+  with no visible JS exception — the talk-editor modal just stayed open with no explanation. Found
+  via the e2e spec below actually failing (twice, once per bug) rather than by code inspection.
+  Both fixed with an `answerSelectionMode === 'multiple'` branch that preserves every answer's
+  author-set isMatch/isIgnore flag unchanged, normalizes to terminal, and forbids `nextQuestionId`.
+  7 new unit tests across both functions, including one exercising the full autofix-then-validate
+  pipeline end to end.
+- **E2E** (`tests/e2e/staged/stage2-two-user/85-multi-value-checkbox-match.spec.ts`, new): a
+  buyer's talk asks "Which models would you accept?" as a checkbox question (Model A/B
+  isMatch-flagged, Model C isIgnore-flagged); a seller checking Model B matches, a seller checking
+  only Model C doesn't — both through real UI (talk editor + response-dialog checkboxes), 2/2
+  passed, re-run for stability.
+- **Not done, explicitly deferred**: chatbot auto-fill is unit-tested and ready but not yet wired
+  into either of `ui-manager.ts`'s two auto-resolution consumption points
+  (`resolveAnswerPreferenceForTalkQuestion`'s per-question resolver, and
+  `tryBuildChatbotAnswersFromFlattened`'s zero-click dealmaker-style path) — so a `'multiple'`-mode
+  question always falls to manual human answering today, never a zero-click chatbot auto-match.
+  The e2e spec above tests the manual path only, for this reason. Large-option-count searchable
+  chip input (vs. a flat checklist) also deferred, low priority.
+- Verified: type-check, lint, full unit suite green (87 suites / 1167 tests), the new e2e spec
+  (2/2, re-run for stability), and a regression pass on the dealmaker spec + the earlier
+  per-question-deep-link spec (both still pass unmodified) to confirm the `TalkAutofix`/
+  `TalkValidator` changes didn't disturb existing single-select flow talks.

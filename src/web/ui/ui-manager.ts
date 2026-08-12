@@ -8418,10 +8418,20 @@ export class UIManager extends EventEmitter {
 
       questionItems.forEach((item, qIndex) => {
         const questionId = `q_${qIndex}`;
-        const selfRadio = item.querySelector(`input[name="self-answer-${questionId}"]:checked`) as HTMLInputElement;
-        if (selfRadio && selfRadio.value !== 'ignore') {
-          selfAnswers.push({ questionId, answerId: selfRadio.value });
-        }
+        const answerSelectionMode =
+          (item.querySelector('.answer-selection-mode') as HTMLSelectElement | null)?.value === 'multiple'
+            ? 'multiple'
+            : 'single';
+        // Spec §3.4 FR-QA-15/16, §30.8: a 'multiple'-mode question's self-answer is every
+        // checked box (possibly several) — pushing one selfAnswers entry per checked value
+        // reuses saveCreatedTalk's existing per-entry saveAnswerPreference loop unchanged,
+        // which is exactly the substrate findAutoAnswerMultiple scans (one history event per
+        // selected value under the same question).
+        item.querySelectorAll<HTMLInputElement>(`input[name="self-answer-${questionId}"]:checked`).forEach((selfInput) => {
+          if (selfInput.value !== 'ignore') {
+            selfAnswers.push({ questionId, answerId: selfInput.value });
+          }
+        });
         const questionText = (item.querySelector('.question-text') as HTMLInputElement).value;
         const answerItems = item.querySelectorAll('.answer-item');
 
@@ -8465,6 +8475,9 @@ export class UIManager extends EventEmitter {
           text: questionText,
           answers: answers,
         };
+        if (answerSelectionMode === 'multiple') {
+          questionObj.answerSelectionMode = 'multiple';
+        }
         if (type === 'survey') {
           questionObj.isAggregatable = true;
           questionObj.contextHashId = '';
