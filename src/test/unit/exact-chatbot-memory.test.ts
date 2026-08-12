@@ -2,6 +2,7 @@ import {
   appendAutoUse,
   createEmptyExactChatbotMemoryState,
   findAutoAnswer,
+  findAutoAnswerMultiple,
   makeAnswerId,
   makeQuestionId,
   readHistory,
@@ -119,5 +120,112 @@ describe('exact-chatbot-memory', () => {
     expect(Object.keys(event.uses || {})).toHaveLength(2);
     expect(event.autoUseCount).toBe(2);
     expect(event.lastAutoUsedAt).toBe(3000);
+  });
+});
+
+describe('findAutoAnswerMultiple — spec §3.4 FR-QA-15/16, §30.8 "pick any that apply"', () => {
+  const userId = 'u1';
+
+  it('asks user when no exact question history exists', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    expect(findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A'])).toEqual({
+      action: 'ASK_USER',
+      reason: 'NO_HISTORY',
+    });
+  });
+
+  it('pre-checks every distinct remembered option present in the current option set, not just the newest', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 1000);
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model B', 2000);
+
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A', 'Model B', 'Model C'], 3000);
+
+    expect(result.action).toBe('ANSWER');
+    expect(result.reason).toBe('TEMPORARY_HISTORY_MATCH');
+    expect(new Set(result.answerIds)).toEqual(new Set([makeAnswerId('Model A'), makeAnswerId('Model B')]));
+  });
+
+  it('only includes remembered options that are present in the current option set', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 1000);
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model B', 2000);
+
+    // Model B isn't offered this time — only Model A should come back.
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A', 'Model C'], 3000);
+
+    expect(result.answerIds).toEqual([makeAnswerId('Model A')]);
+  });
+
+  it('asks user when history exists but none of it matches the current option set (fail-safe, never invents a selection)', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 1000);
+
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model Z'], 2000);
+
+    expect(result).toEqual({ action: 'ASK_USER', reason: 'NO_VALID_HISTORY_ANSWER' });
+  });
+
+  it('never duplicates an answer id even if it was saved more than once', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 1000);
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 2000);
+
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A'], 3000);
+
+    expect(result.answerIds).toEqual([makeAnswerId('Model A')]);
+  });
+
+  it('PERMANENT mode returns a single-element array when the permanent answer is in the current options', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    savePermanentAnswer(state, userId, 'Which models?', 'Model A', 1000);
+
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A', 'Model B'], 2000);
+
+    expect(result).toMatchObject({
+      action: 'ANSWER',
+      reason: 'PERMANENT_MATCH',
+      answerIds: [makeAnswerId('Model A')],
+      answerTexts: ['Model A'],
+    });
+  });
+
+  it('PERMANENT mode skips when the permanent answer is not in the current options', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    savePermanentAnswer(state, userId, 'Which models?', 'Model A', 1000);
+
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model B'], 2000);
+
+    expect(result).toEqual({ action: 'SKIP', reason: 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS' });
+  });
+
+  it('SUPPRESSED mode skips regardless of history', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveSuppressedQuestion(state, userId, 'Which models?', 1000);
+
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A'], 2000);
+
+    expect(result).toEqual({ action: 'SKIP', reason: 'QUESTION_SUPPRESSED' });
+  });
+
+  it('same-role veto refuses to auto-answer, mirroring findAutoAnswer', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 1000, undefined, 'request');
+
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A'], 2000, undefined, 'request');
+
+    expect(result).toEqual({ action: 'ASK_USER', reason: 'ROLE_CONFLICT' });
+  });
+
+  it('records auto-use events for every matched answer', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    const savedA = saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 1000);
+    const savedB = saveTemporaryAnswer(state, userId, 'Which models?', 'Model B', 2000);
+
+    findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A', 'Model B'], 3000);
+
+    const questionId = savedA.questionId;
+    expect(state.users[userId][questionId].history[savedA.eventId].autoUseCount).toBe(1);
+    expect(state.users[userId][questionId].history[savedB.eventId].autoUseCount).toBe(1);
   });
 });

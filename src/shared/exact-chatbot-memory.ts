@@ -392,6 +392,110 @@ export function findAutoAnswer(
 }
 
 /**
+ * Multi-value counterpart to `findAutoAnswer` (spec §3.4 FR-QA-15/16, §30.8) — for a
+ * `'multiple'`-mode ("pick any that apply") question. Mirrors every non-selection-shape
+ * concern exactly (suppression, role veto, permanent-answer-not-in-current-options): only
+ * the TEMPORARY-mode resolution differs, since "pick any that apply" has no single
+ * "newest answer wins" concept.
+ *
+ * TEMPORARY resolution: every distinct answerId that has EVER appeared in this question's
+ * history AND is present in the current option set is included in the pre-checked set — not
+ * just the newest. This reuses `saveTemporaryAnswer`'s existing per-event history storage
+ * unchanged: the caller saves one event per selected checkbox on submit (§DD/§FF's UI layer),
+ * and this function reads back every distinct answerId that accumulated. Known simplification
+ * (documented, not a bug): an answer id checked in an earlier submission and explicitly
+ * unchecked in a later one is still remembered and re-offered, since history is append-only
+ * and this function does not track a per-id "most recent checked state" — acceptable for a
+ * first cut; a future pass could add that if it proves surprising in practice.
+ */
+export function findAutoAnswerMultiple(
+  state: ExactChatbotMemoryState,
+  userId: string,
+  questionText: string,
+  currentOptions: string[],
+  now = Date.now(),
+  context?: { language?: string },
+  incomingTalkRole?: TalkRole,
+): AutoAnswerResult & { answerIds?: string[]; answerTexts?: string[] } {
+  const language = normalizedLanguage(context?.language);
+  let questionId = makeQuestionId(questionText, language ? { language } : undefined);
+  let memory = state.users[userId]?.[questionId];
+  if (!memory && language === 'en') {
+    questionId = makeQuestionId(questionText);
+    memory = state.users[userId]?.[questionId];
+  }
+  if (!memory) {
+    return { action: 'ASK_USER', reason: 'NO_HISTORY' };
+  }
+
+  if (incomingTalkRole && memory.summary.role && memory.summary.role === incomingTalkRole) {
+    return { action: 'ASK_USER', reason: 'ROLE_CONFLICT' };
+  }
+
+  const currentOptionMap = new Map<string, string>();
+  for (const optionText of currentOptions) {
+    const normalized = normalizeText(optionText);
+    currentOptionMap.set(makeAnswerId(normalized), normalized);
+  }
+
+  if (memory.summary.mode === 'SUPPRESSED' || memory.summary.suppressed) {
+    return { action: 'SKIP', reason: 'QUESTION_SUPPRESSED' };
+  }
+
+  if (memory.summary.mode === 'PERMANENT') {
+    const permanentAnswerId = memory.summary.permanentAnswerId;
+    if (permanentAnswerId && currentOptionMap.has(permanentAnswerId)) {
+      const answerText = currentOptionMap.get(permanentAnswerId);
+      if (!answerText) {
+        return { action: 'SKIP', reason: 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS' };
+      }
+      const matchingEvent = readHistory(memory).find(
+        (event) => event.mode === 'PERMANENT' && event.answerId === permanentAnswerId,
+      );
+      if (matchingEvent) {
+        appendAutoUse(state, userId, questionId, matchingEvent.eventId, now);
+      }
+      return {
+        action: 'ANSWER',
+        reason: 'PERMANENT_MATCH',
+        answerIds: [permanentAnswerId],
+        answerTexts: [answerText],
+        ...(matchingEvent ? { matchedEventId: matchingEvent.eventId } : {}),
+      };
+    }
+    return { action: 'SKIP', reason: 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS' };
+  }
+
+  const matchedIds: string[] = [];
+  const matchedTexts: string[] = [];
+  const matchedEventIds: string[] = [];
+  const seen = new Set<string>();
+  for (const event of readHistory(memory)) {
+    if (event.mode !== 'TEMPORARY' || !event.answerId) continue;
+    if (seen.has(event.answerId)) continue;
+    if (!currentOptionMap.has(event.answerId)) continue;
+    const answerText = currentOptionMap.get(event.answerId);
+    if (!answerText) continue;
+    seen.add(event.answerId);
+    matchedIds.push(event.answerId);
+    matchedTexts.push(answerText);
+    matchedEventIds.push(event.eventId);
+  }
+
+  if (matchedIds.length === 0) {
+    return { action: 'ASK_USER', reason: 'NO_VALID_HISTORY_ANSWER' };
+  }
+
+  for (const eventId of matchedEventIds) appendAutoUse(state, userId, questionId, eventId, now);
+  return {
+    action: 'ANSWER',
+    reason: 'TEMPORARY_HISTORY_MATCH',
+    answerIds: matchedIds,
+    answerTexts: matchedTexts,
+  };
+}
+
+/**
  * The role (see `Talk.role`) recorded alongside the user's own stored answer for this
  * exact question text, if any — used by `checkIfMatch` (talk-engine.ts) callers to veto a
  * same-role match on the manual answering path, the same way `findAutoAnswer` already does
