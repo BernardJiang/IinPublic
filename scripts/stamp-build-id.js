@@ -42,6 +42,22 @@ function resolveBuildId() {
   return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function resolveBuiltAt() {
+  const sourceDateEpoch = Number(process.env.SOURCE_DATE_EPOCH);
+  if (Number.isFinite(sourceDateEpoch) && sourceDateEpoch >= 0) {
+    return new Date(sourceDateEpoch * 1000).toISOString();
+  }
+  try {
+    const epoch = execSync('git log -1 --format=%ct', { cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+    if (/^\d+$/.test(epoch)) return new Date(Number(epoch) * 1000).toISOString();
+  } catch {
+    // Source archive without Git metadata: retain a valid, explicit build time.
+  }
+  return new Date().toISOString();
+}
+
 function writeStamp(targetDir, label) {
   if (!fs.existsSync(targetDir)) {
     console.warn(`[stamp-build-id] skipping ${label}: ${targetDir} does not exist (build it first)`);
@@ -55,7 +71,7 @@ function writeStamp(targetDir, label) {
 
 const stamp = {
   buildId: resolveBuildId(),
-  builtAt: new Date().toISOString(),
+  builtAt: resolveBuiltAt(),
 };
 
 const webOk = writeStamp(path.join(repoRoot, 'dist', 'web'), 'dist/web');

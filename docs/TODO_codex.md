@@ -213,7 +213,7 @@
 - [x] Threat-model discovery poisoning, binding replay, malicious relays, Sybil flooding, metadata leakage and graph over-subscription.
 - [x] Fuzz pre-auth candidate, binding, control-frame and Gun-delta parsers.
 - [x] Audit dependency licenses and generate an attribution/SBOM artifact.
-- [ ] Verify reproducible documented builds for web, desktop, Android and iOS where supported.
+- [x] Verify reproducible documented builds for web, desktop, Android and iOS where supported (unsigned/payload boundary documented in `docs/verification/reproducible-builds.md`; signer output is intentionally outside the reproducibility claim).
 - [x] Publish protocol/schema documentation and test vectors produced specifically for IinPublic.
 - [x] Document cryptographic limits of SEA pair encryption and separately evaluate a reviewed ratcheting protocol for private conversations.
 - [ ] External security review before enabling cellular peer forwarding or BLE data transport by default.
