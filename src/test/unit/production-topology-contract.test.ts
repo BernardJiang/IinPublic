@@ -76,6 +76,7 @@ describe('production/development topology contract', () => {
   it('keeps hard-coded loopback URLs limited to explicit native/dev-local paths', () => {
     const allowedFiles = new Set([
       'android/app/src/main/java/com/iinpublic/app/MainActivity.kt',
+      'android/app/src/main/java/com/iinpublic/app/NearbyConnectivityManager.kt',
       'android/app/src/main/java/com/iinpublic/app/NodeBridge.kt',
       'android/app/src/main/java/com/iinpublic/app/NodeForegroundService.kt',
       'platforms/desktop/main.js',

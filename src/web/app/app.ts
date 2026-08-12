@@ -205,6 +205,13 @@ export class IinPublicApp {
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
   private techSupportFaqBundleUnsubscribe: (() => void) | null = null;
   private mailboxDrainPromise: Promise<void> | null = null;
+  /**
+   * GUN/SEA signs writes in the authenticated user namespace. Overlapping talk completions
+   * from the same device can race that signer and produce `Unverified data` acknowledgements,
+   * aborting delivery before local exchange bookkeeping. Keep the per-device completion
+   * pipeline ordered while allowing failures to be reported without poisoning later work.
+   */
+  private talkCompletionQueue: Promise<void> = Promise.resolve();
   private attachmentShareSentIds = new Set<string>();
   private fetchedAttachmentBytesByCid = new Map<string, Uint8Array>();
   /** Cached object URLs for decrypted shared attachments, keyed by cid (L5 image preview). */
@@ -5335,9 +5342,10 @@ export class IinPublicApp {
     this.uiManager.on(
       'talkCompleted',
       async (data: { talkId: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
-        const completion = (async () => {
-          await this.handleTalkCompleted(data);
-        })();
+        const completion = this.talkCompletionQueue
+          .catch(() => undefined)
+          .then(() => this.handleTalkCompleted(data));
+        this.talkCompletionQueue = completion;
         (globalThis as any).__iinpublic_lastTalkCompletion = completion;
         try {
           await completion;

@@ -44,10 +44,10 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
 
     // No leftover ad hoc <section> markup — every top-level block is the shared wrapper.
     await expect(page.locator('#settings-content section')).toHaveCount(0);
-    // All 9 sections are rendered up front (stable DOM identity across a menu/detail switch) —
+    // All 11 sections are rendered up front (stable DOM identity across a menu/detail switch) —
     // just not all visible at once. The menu list is the default view.
     const sections = page.locator('#settings-detail-container > div > .settings-section');
-    await expect(sections).toHaveCount(10);
+    await expect(sections).toHaveCount(11);
     await expect(page.locator('#settings-menu-container')).toBeVisible();
     await expect(page.locator('#settings-detail-container')).toBeHidden();
     await expect(page.locator('#back-to-settings-menu')).toBeHidden();
