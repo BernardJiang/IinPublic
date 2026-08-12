@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "schema": "iinpublic-connectivity-verification",
+  "generatedBy": "npm run verify:connectivity",
+  "testOracle": [
+    "receiver Gun soul exists once",
+    "receiver reread matches",
+    "receiver UI renders once",
+    "sender persisted receipt exists"
+  ],
+  "discoveries": [
+    {
+      "id": "hub",
+      "contractVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "known-peer",
+      "contractVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "dht",
+      "contractVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "mdns",
+      "contractVerified": true,
+      "physicalVerified": false
+    }
+  ],
+  "routes": [
+    {
+      "id": "gun-wire",
+      "deterministicVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "cellular-gun-wire",
+      "deterministicVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "direct-libp2p",
+      "deterministicVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "webrtc",
+      "deterministicVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "circuit-relay",
+      "deterministicVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "peer-forward",
+      "deterministicVerified": true,
+      "physicalVerified": false
+    },
+    {
+      "id": "mailbox",
+      "deterministicVerified": true,
+      "physicalVerified": false
+    }
+  ],
+  "faultInjection": [
+    "connect-failure",
+    "mid-send-drop",
+    "latency",
+    "duplication",
+    "corruption",
+    "metered-route",
+    "low-battery"
+  ],
+  "transitions": [
+    "direct-to-relay",
+    "direct-to-peer-forward",
+    "lan-to-cellular-with-permission",
+    "relay-to-direct",
+    "live-to-mailbox-to-live"
+  ],
+  "supportedHardwareRoutes": [],
+  "evidence": [
+    "src/test/unit/deterministic-connectivity-harness.test.ts",
+    "docs/device-verification/report.json"
+  ]
+}

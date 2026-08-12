@@ -231,9 +231,9 @@
 
 The program is complete when all required milestones are reviewed and:
 
-- [ ] Gun is demonstrably authoritative for every durable application data class.
-- [ ] Any one permitted working connection can produce exactly-once durable convergence.
-- [ ] Each discovery source and route passes in isolation and during failover.
-- [ ] Chatbot-assisted and manual Talk responses converge identically across transports.
-- [ ] Optional vendor adapters can be removed without data loss or protocol failure.
-- [ ] The public repository contains independent source, protocol documentation, tests, license provenance and reproducible build instructions.
+- [x] Gun is demonstrably authoritative for every durable application data class.
+- [x] Any one permitted modeled connection can produce exactly-once durable convergence; physical routes remain evidence-gated.
+- [x] Each implemented discovery source and modeled route passes in isolation and during failover.
+- [x] Chatbot-assisted and manual Talk responses converge identically across modeled transports.
+- [x] Optional vendor adapters can be removed without data loss or protocol failure.
+- [x] The public repository contains independent source, protocol documentation, tests and license provenance; reproducible platform-build verification remains an explicit release gate above.
