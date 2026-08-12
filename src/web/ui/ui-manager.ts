@@ -65,6 +65,7 @@ import {
   type ContactsViewDeps,
 } from './contacts-view';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
+import { applyConnectivityPreset, loadConnectivitySettings, saveConnectivitySettings, type ConnectivityPreset } from './connectivity-settings';
 import {
   clearAnswerPreferences,
   getAnswerPreferences,
@@ -3744,6 +3745,7 @@ export class UIManager extends EventEmitter {
   }
 
   private renderSettingsView(user: User): void {
+    const connectivity = loadConnectivitySettings();
     const container = document.getElementById('settings-content');
     if (!container) return;
     const currentColorScheme = getColorSchemePreference();
@@ -3852,6 +3854,7 @@ export class UIManager extends EventEmitter {
       { icon: '🗣️', label: this.t('settingsTalkBehavior'), target: 'settings-section-talk-behavior' },
       { icon: '📍', label: this.t('settingsDistanceHome'), target: 'settings-section-distance-home' },
       { icon: '🚫', label: this.t('settingsContentFilters'), target: 'settings-section-content-filters' },
+      { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
       { icon: '🔗', label: this.t('settingsLinkedDevices'), target: 'settings-section-linked-devices' },
       { icon: '🗑️', label: this.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
       { icon: '💾', label: this.t('settingsStorage'), target: 'settings-storage-inspector' },
@@ -4099,6 +4102,24 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
         `)}
+        ${this.renderSettingsSection(
+          { id: 'settings-section-connectivity', title: 'Connectivity', subtitle: 'Choose routes automatically or tune data, battery, and forwarding policy.' },
+          `<div style="display:grid;gap:12px;">
+            <label>Preset
+              <select id="settings-connectivity-preset" class="form-input" data-testid="settings-connectivity-preset">
+                ${(['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'] as ConnectivityPreset[]).map((preset) => `<option value="${preset}" ${connectivity.preset === preset ? 'selected' : ''}>${preset.replace('-', ' ')}</option>`).join('')}
+              </select>
+            </label>
+            <div id="settings-connectivity-status" role="status">Automatic route selection · forwarding ${connectivity.forwarding.enabled ? 'on' : 'off'}</div>
+            <label><input id="settings-connectivity-free-first" type="checkbox" ${connectivity.freeFirst ? 'checked' : ''}> Free routes first</label>
+            <label><input id="settings-connectivity-direct-first" type="checkbox" ${connectivity.directFirst ? 'checked' : ''}> Direct routes first</label>
+            <label><input id="settings-connectivity-battery-aware" type="checkbox" ${connectivity.batteryAware ? 'checked' : ''}> Battery-aware</label>
+            <label><input id="settings-connectivity-forwarding" type="checkbox" ${connectivity.forwarding.enabled ? 'checked' : ''}> Forward for peers</label>
+            <label><input id="settings-connectivity-cellular-forwarding" type="checkbox" ${connectivity.forwarding.cellularForwarding ? 'checked' : ''}> Allow cellular forwarding</label>
+            <label>Cellular byte budget <input id="settings-connectivity-cellular-budget" class="form-input" type="number" min="0" value="${connectivity.forwarding.cellularByteBudget}"></label>
+            <details><summary>Advanced diagnostics</summary><div id="settings-connectivity-diagnostics" data-testid="settings-connectivity-diagnostics">Providers and verified SEA bindings appear here when active. Transport identifiers are diagnostics only.</div></details>
+          </div>`,
+        )}
         ${this.renderSettingsSection(
           {
             id: 'settings-section-linked-devices',
@@ -4436,6 +4457,24 @@ export class UIManager extends EventEmitter {
       document.querySelectorAll<HTMLElement>('.settings-scheme-option').forEach((label) => {
         label.style.borderColor = label.dataset.scheme === scheme ? 'var(--accent)' : 'var(--border)';
       });
+    });
+
+    const persistConnectivity = (): void => {
+      const preset = (document.getElementById('settings-connectivity-preset') as HTMLSelectElement | null)?.value as ConnectivityPreset | undefined;
+      if (!preset) return;
+      const value = applyConnectivityPreset(preset);
+      value.preset = preset;
+      value.freeFirst = !!(document.getElementById('settings-connectivity-free-first') as HTMLInputElement | null)?.checked;
+      value.directFirst = !!(document.getElementById('settings-connectivity-direct-first') as HTMLInputElement | null)?.checked;
+      value.batteryAware = !!(document.getElementById('settings-connectivity-battery-aware') as HTMLInputElement | null)?.checked;
+      value.forwarding.enabled = !!(document.getElementById('settings-connectivity-forwarding') as HTMLInputElement | null)?.checked;
+      value.forwarding.cellularForwarding = !!(document.getElementById('settings-connectivity-cellular-forwarding') as HTMLInputElement | null)?.checked;
+      value.forwarding.cellularByteBudget = Math.max(0, Number((document.getElementById('settings-connectivity-cellular-budget') as HTMLInputElement | null)?.value || 0));
+      saveConnectivitySettings(value);
+      this.emit('connectivitySettingsChanged', value);
+    };
+    document.querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select').forEach((element) => {
+      element.addEventListener('change', persistConnectivity);
     });
 
     const selectedValues = (id: string): string[] => {
