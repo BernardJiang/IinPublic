@@ -1204,6 +1204,207 @@ boolean-expression-builder UI that non-technical users can't be expected to use.
 
 ---
 
+## GG. E2E scenario: local-chatroom taxi driver ↔ passenger matching `[Sonnet]`
+
+**Not yet implemented — design/analysis only, per Bernard's request 2026-08-11.** No code
+changes yet; this section records how the scenario maps onto existing machinery before anyone
+writes the spec.
+
+**Scenario (verbatim from Bernard).** Adam and Eve are both taxi drivers; they join a local
+chatroom with their precise locations and post a talk looking for passengers. Alice and Bob join
+the same local chatroom with their precise locations, looking for a taxi driver. The chatbot
+finds a match between Adam and Alice; no match for Eve and Bob. Adam gets Alice's precise
+location to pick her up. Alice makes sure Adam is a licensed, experienced taxi driver. No
+financial transaction happens in the app. Adam accepts popular credit card payment and cash.
+
+**What this reuses untouched — no new engine code required for a first passing version:**
+
+- **The Adam/Eve/Bob/Alice "one match, one no-match" naming and structure already exists** as a
+  proven e2e pattern: `tests/e2e/staged/stage4-four-user/04-dealmaker-chatbot-match.spec.ts`
+  builds exactly this shape (4 strangers, each creates their own talk before broadcasting, the
+  chatbot resolves matches purely from exact-question-text self-answers, zero manual clicks) for
+  a notebook deal. This scenario is the same mechanic with taxi wording and a different pairing:
+  Adam(driver)+Alice(passenger) share byte-identical question wording and self-answer
+  "yes"/compatible on every question when creating their own talk; Eve(driver)+Bob(passenger) use
+  differently-worded questions (mirroring `BOB_QUESTIONS`/`ALICE_QUESTIONS` in the existing spec)
+  so no one's exact-chatbot memory ever resolves them against anyone. This alone produces "Adam
+  matches Alice, Eve and Bob match no one" with **zero new engine work** — same technique, new
+  narrative.
+- **`Talk.role`** (`'offer'` for drivers, `'request'` for passengers) — already fully wired,
+  including the same-role veto in `checkIfMatch` (two drivers, or two passengers, can never
+  match each other). No need to invent a new opposite-tag pair (§BB Phase 1's registry) for
+  this — role already expresses driver/passenger cleanly and is the only dimension the match
+  engine actually reads.
+- **Local (city-level) chatroom.** `CHATROOM_HIERARCHY` (`src/shared/chatroom-hierarchy.ts`)
+  already has city leaf nodes (`san-diego`, `austin`, `toronto`, …); joining one is a real,
+  already-built, e2e-tested client flow
+  (`tests/e2e/staged/stage1-single-user/18-travel-mode-single-room.spec.ts` drills down
+  global → continent → country → region → city and clicks
+  `.chatroom-item[data-chatroom-id="..."]`). All 4 users join the same city room instead of
+  Global and broadcast there — this is the "local chatroom" requirement, and needs no new code,
+  just reusing this navigation + `broadcastFromGlobalChatroom`-equivalent for a non-Global room
+  (may need a small helper generalization if that function is Global-specific — check before
+  writing the spec).
+- **"Adam accepts popular credit card payment and cash."** Plain descriptive text (e.g. in the
+  talk title/description or an answer). Confirmed this does NOT trip §CC's mandatory
+  financial-data guard: `financial-data-guard.ts`'s card detector requires an actual Luhn-valid,
+  network-prefixed 12+ digit number, not brand-name mentions — "accepts Visa, Mastercard, cash"
+  contains no such run. Worth an explicit assertion in the test (create-talk succeeds, no
+  `editorFinancialDataBlocked` error) as a regression guard, not just an assumption.
+- **"No financial transaction in the app."** Already true today — there is no payment UI/field
+  anywhere in the app to begin with. Encode as an assertion that the conversation/talk data
+  contains no payment fields, not something to build.
+
+**Real gaps this scenario surfaces — each has a recommended near-term simplification AND the
+"real" future feature it points at:**
+
+- **"Precise locations" / "Adam gets Alice's precise location to pick her up."** Does not exist
+  today, and isn't a small gap: `LocationPrivacy.blurLocation`/`blurCoordinatePair`
+  (`src/shared/location.ts`) grid-snap every coordinate to ~2km before it ever reaches Gun —
+  `trueLocation` exists on the client-only `BlurredLocation` type but is explicitly "never
+  transmitted." There is no "share my precise location with someone" mechanism anywhere in the
+  codebase, and it's already an explicitly deferred, unscoped feature (§X's completion note in
+  `docs/completed.md`; "Future / low priority" list above, Bernard 2026-08-01: *"share location
+  with someone is another feature in the future"*). **Recommended near-term simplification**:
+  simulate the pickup-location exchange as an ordinary DM text message after the match forms —
+  Alice types her address/location as a normal conversation message, using the already-fully-built
+  `DirectP2PConversationTransport`. No new engine code, and it's honest about what's actually
+  being tested (matching + messaging, not a location-reveal feature that doesn't exist).
+  **Do NOT build a real precise-location-reveal-on-match feature as a side effect of writing this
+  test** — that's a separate, larger, previously-declined-scope feature; flag it back to Bernard
+  explicitly if he wants it built for real.
+- **"Alice makes sure Adam is a licensed, experienced taxi driver."** No verification/vouch
+  system exists for arbitrary attributes — `ReputationManager.updateReputation`
+  (`src/shared/reputation.ts`) is a generic score (stars, matches, friends, `ageVerified`); the
+  only vouch-like precedent is age-verify's hardcoded threshold-vote boolean, not generalized to
+  "vouch this person is X." Building a real one would mean generalizing that single-purpose
+  mechanism the same way §BB's Phase 1 generalized `Talk.role` into opposite-tags — a real,
+  `[Opus]`-scale idea worth its own section if Bernard wants it, but **not required for this
+  test**. **Recommended near-term simplification**: model "licensed, experienced" as an ordinary
+  self-declared answer on Adam's own talk/profile (ordinary flow Q&A, ideally something already
+  visible to a peer after matching, e.g. via the peer-detail view or the talk's own recorded
+  answers) — Alice "makes sure" by reading a claim Adam declared, not by consulting a trust
+  system that doesn't exist. The test asserts the claim is visible to Alice post-match, not that
+  it's independently verified.
+- **Location-distance-based match differentiation (optional, not required).** If a future
+  version of this test wants Eve/Bob's non-match to be driven by *geographic distance* rather
+  than reworded question text, two existing/partial mechanisms could do it without inventing
+  anything: (a) `talk-intake-filters.ts`'s already-built `minDistanceMiles`/`maxDistanceMiles`
+  intake filter (rejects an incoming talk before it's ever delivered, based on the receiver's
+  current location vs. the talk's blurred `authorLocation`) — fully wired today, zero new code;
+  or (b) finishing §BB Phase 4's deliberately-deferred `location` builtIn kind
+  (`resolveBuiltInQuestion` currently always returns `ASK_USER` for it) — bigger, still needs the
+  geo/privacy source design flagged there. Recommend (a) if geographic differentiation is wanted
+  at all; neither is required for the reworded-question version above.
+
+**Not yet decided:**
+
+- Exact chatroom id to use for "local" (any city leaf works; pick one already exercised by
+  `18-travel-mode-single-room.spec.ts` for consistency, e.g. `san-diego`).
+- Whether the license/experience claim should gate the match (an ordinary chained yes/no
+  criterion, like the existing dealmaker spec's other criteria) or purely be a post-match
+  trust-check Alice performs by reading Adam's talk answers. Leaning toward the latter — keeps
+  "the chatbot found a match" and "Alice trusts the match" as two separate, clearly-narrated
+  steps, matching the order Bernard described them in.
+
+**Test plan (staged, single spec):**
+
+- E2E: `tests/e2e/staged/stage4-four-user/` (4-browser, same tier as `04-dealmaker-chatbot-match`)
+  — Adam+Eve (drivers, `role: 'offer'`) and Bob+Alice (passengers, `role: 'request'`) each create
+  their own talk before joining any room; all 4 join the same city-level chatroom and broadcast;
+  assert `hasConversationWith(Adam, Alice)` and the reverse are eventually true, and every other
+  cross-pairing (Adam-Bob, Adam-Eve, Eve-Alice, Eve-Bob, Bob-Alice) stays false — same assertion
+  rigor as the existing dealmaker spec.
+- E2E: post-match, Alice sends Adam a DM containing a location string; assert it arrives in
+  Adam's conversation view (reuses existing messaging E2E patterns, no new assertions needed).
+- E2E: assert Adam's "licensed and experienced" claim is visible to Alice (peer-detail view or
+  talk-answers view) after the match, without any manual "verify" action.
+- E2E: assert creating Adam's talk with payment-method text in it does NOT trigger
+  `editorFinancialDataBlocked` (regression guard for §CC applying correctly to descriptive,
+  non-numeric payment text).
+
+---
+
+## HH. E2E scenario: local-chatroom handyman ↔ customer matching with detailed criteria `[Sonnet]`
+
+**Not yet implemented — design/analysis only, per Bernard's request 2026-08-11.** No code
+changes yet. This scenario is a natural showcase/integration test for §FF (multi-select) and
+§BB's already-wired `priceRange`/`timeFrame` typed comparisons working together in one talk —
+most of what it needs shipped this session.
+
+**Scenario (verbatim from Bernard).** Handyman Adam and Eve go to a local chatroom where they
+offer their service, posting talks to advertise. Alice and Bob go to the same chatroom looking
+for a handyman, with some detailed criteria. Alice finds Adam is a match; Eve and Bob don't
+match.
+
+**What this reuses untouched:**
+
+- Local chatroom join + `Talk.role` (`'offer'` handyman / `'request'` customer) — identical to
+  §GG above, same precedent (`18-travel-mode-single-room.spec.ts`), same veto mechanics.
+- **§FF's multi-select ("pick any that apply") questions** — service category/skills ("Which
+  services do you offer?" / "Which service do you need?"), set-intersection matched
+  (`checkIfMatch`'s generalized `anySelectedIsMatch`), proven end to end in
+  `85-multi-value-checkbox-match.spec.ts`.
+- **§BB's `priceRange` and `timeFrame` builtIn kinds** — both are fully wired today (Phases 1-6,
+  `docs/completed.md`), proven zero-click end to end for `quantity` in
+  `86-builtin-quantity-match.spec.ts`; `priceRange`/`timeFrame` use the exact same machinery
+  (`intervalsOverlap`, same `resolveBuiltInQuestion` dispatch, same talk-editor "Compare using:"
+  selector) — no new engine code, just a different `kind` value. This is the concrete
+  "detailed criteria" the scenario asks for: Adam's hourly-rate range must overlap Alice's
+  budget, and Adam's availability window must overlap when Alice needs the work done — computed
+  interval math, not exact-text luck.
+- **All-or-nothing matching** — already the decided semantics (§BB "Resolved," 2026-08-11): every
+  criterion in the chain (service category, price, availability, and any ordinary yes/no
+  criteria like "insured?") must resolve compatible for a match; one mismatch anywhere blocks it,
+  exactly like flow/route already behave. No new scoring model needed.
+
+**One real implementation gotcha to get right, found while writing this analysis (not yet a
+bug — nothing's built yet, but easy to trip on):** a `'multiple'`-mode (checkbox) question is
+**always chain-terminal** — `TalkAutofix.fix` and `TalkValidator` both enforce this (§FF,
+`answerSelectionMode: 'multiple'` answers may never carry `nextQuestionId`; the talk-editor's own
+answer-next dropdown is restricted to Ignore/Noticed only in multi mode). That means the service-
+category checkbox question **must be the LAST question in the flow**, not the first — put
+`priceRange` and `timeFrame` (both ordinary chained builtIn questions, which *can* link to a next
+question, per §BB Phase 2) earlier in the chain, and the multi-select service-category question
+last, deciding the final match/ignore outcome. Ordering it the other way around (service category
+first) would fail `TalkValidator` outright once actually implemented.
+
+**Match/no-match design.** Unlike §GG's "differently-worded questions never resolve" approach,
+this scenario is a better showcase of §BB's **computed-incompatible** path (the same one proven
+in `86-builtin-quantity-match.spec.ts`'s second test): give Adam and Eve the **same** talk title
+and question wording (required for typed-preference scope-key alignment, see §BB Phase 5's
+scope-key note) as what Alice/Bob create, but make Eve's own declared price range (or
+availability window) genuinely disjoint from Alice's/Bob's budget/need. The mismatch then
+auto-resolves to a confident "not compatible" — Eve's talk never sits waiting in anyone's inbox,
+it's actively computed as incompatible, reinforcing the "computed 'not compatible' is trustworthy
+enough to auto-resolve" decision from §BB in a richer, multi-criteria setting rather than a single
+isolated question.
+
+**Not yet decided:**
+
+- Which single criterion should be the actual differentiator (price range disjoint vs. timeframe
+  disjoint vs. service-category disjoint) — any one works structurally; price range is probably
+  the most intuitive to a reader of the test.
+- Whether to also assert the "insured?" (or similar) self-declared criterion the same way §GG
+  treats "licensed, experienced" — as a post-match visible claim, not a system-verified fact. Same
+  open question as §GG, same recommended answer (self-declared, visible post-match, not gating).
+
+**Test plan (staged, single spec, `stage4-four-user` tier):**
+
+- E2E: Adam+Eve (handymen) and Alice+Bob (customers) each create their own multi-criteria route/
+  flow talk (service category last as a `'multiple'`-mode question; `priceRange`/`timeFrame`
+  builtIn questions chained earlier) before joining any room; all 4 join the same city chatroom
+  and broadcast. Assert Adam↔Alice match; assert every other cross-pairing (including Eve↔Bob)
+  stays unmatched, with the same full assertion coverage as `04-dealmaker-chatbot-match.spec.ts`.
+- E2E: confirm Eve's incompatible criterion produces a confident no-match (never sits in a human
+  inbox — poll briefly, same pattern as `86-builtin-quantity-match.spec.ts`'s second test) rather
+  than silently doing nothing.
+- Unit (if any new pure logic is needed once this is actually implemented — likely none, this
+  scenario should be fully expressible with existing `resolveBuiltInQuestion`/`checkIfMatch`):
+  none anticipated: no new engine surface, this is a pure composition of already-shipped pieces.
+
+---
+
 ## Future / low priority (explicitly deferred)
 
 - Multiple identities on one device (profile switching). Decided low priority 2026-07-13; v1 stays one identity per device install.
