@@ -207,7 +207,25 @@ test.describe('Super user: 20 talks completed by Tom', () => {
         { message: 'TechSupport OUT should retain all created talks and show creator-facing match state', timeout: 60_000 },
       )
       .toMatchObject({ totalRows: 20 });
-    await expect(pageTechSupport.locator('.talk-item-matched, .talk-item-stats').filter({ hasText: /Matched with:|Matches:\s*1/i }).first()).toBeVisible({ timeout: 15_000 });
+    // `.first()` on a multi-match locator isn't guaranteed to land on a *visible* match — under
+    // heavy parallel load, DOM completion order varies run to run, and a naive `.first()` could
+    // pick a match that's momentarily off-screen/re-rendering while other matches are already
+    // visible. Poll for *any* visible match instead of asserting on an arbitrary first element.
+    await expect
+      .poll(
+        async () => {
+          const matches = pageTechSupport
+            .locator('.talk-item-matched, .talk-item-stats')
+            .filter({ hasText: /Matched with:|Matches:\s*1/i });
+          const count = await matches.count();
+          for (let i = 0; i < count; i++) {
+            if (await matches.nth(i).isVisible()) return true;
+          }
+          return false;
+        },
+        { message: 'At least one creator-facing match indicator should be visible', timeout: 15_000 },
+      )
+      .toBe(true);
 
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterLoad();

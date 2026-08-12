@@ -9,7 +9,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { webAppURLStableChatroom } from '../../helpers/ports';
-import { afterLoad, afterSync, afterNav } from '../../helpers/timing';
+import { afterLoad, afterSync, afterNav, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
@@ -86,9 +86,9 @@ test.describe('Thread isolation across three users', () => {
     await page.click('.nav-btn[data-view="contacts"]');
     await afterSync();
     const row = page.locator('#contacts-list .contact-item').filter({ hasText: name }).first();
-    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
     await row.click();
-    await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
   }
 
   test('same talk, three users: threads stay pair-private with per-thread badges', async () => {
@@ -119,18 +119,26 @@ test.describe('Thread isolation across three users', () => {
     await expect(tom.locator('#conversation-thread-scope')).toContainText(TALK_TITLE);
     await tom.locator('#conversation-message-input').fill(jerryThreadMsg);
     await tom.locator('#send-conversation-message').click();
-    await expect(tom.locator('#conversation-messages')).toContainText(jerryThreadMsg, { timeout: 20_000 });
+    await expect(tom.locator('#conversation-messages')).toContainText(jerryThreadMsg, { timeout: E2E_ASSERT_TIMEOUT_MS });
     await tom.click('#back-from-conversation');
 
-    // Jerry's open User layout gains a per-thread unread badge for that talk row.
+    // Jerry's open User layout gains a per-thread unread badge for that talk row. Cross-user
+    // sync (Jerry's device picking up Tom's write), so gets extra headroom beyond the base
+    // per-worker-count budget on top of the load-aware floor.
     const jerryThreadRow = jerry.locator('[data-testid="matched-talk-thread"]').first();
-    await expect(jerryThreadRow.locator('.thread-unread-badge')).toBeVisible({ timeout: 30_000 });
+    await expect(jerryThreadRow.locator('.thread-unread-badge')).toBeVisible({
+      timeout: Math.max(30_000, E2E_ASSERT_TIMEOUT_MS),
+    });
 
     // Reading the thread clears the badge and shows the message.
     await jerryThreadRow.click();
-    await expect(jerry.locator('#conversation-messages')).toContainText(jerryThreadMsg, { timeout: 30_000 });
+    await expect(jerry.locator('#conversation-messages')).toContainText(jerryThreadMsg, {
+      timeout: Math.max(30_000, E2E_ASSERT_TIMEOUT_MS),
+    });
     await jerry.click('#back-from-conversation');
-    await expect(jerry.locator('[data-testid="matched-talk-thread"]').first().locator('.thread-unread-badge')).toBeHidden({ timeout: 15_000 });
+    await expect(
+      jerry.locator('[data-testid="matched-talk-thread"]').first().locator('.thread-unread-badge'),
+    ).toBeHidden({ timeout: E2E_ASSERT_TIMEOUT_MS });
 
     // Bob's thread for the SAME talk with Tom is a different pair thread: empty of Jerry's message.
     await openUserLayoutFor(bob, 'TomMulti');

@@ -35,22 +35,40 @@ async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
  * The talks list can re-render mid-interaction under real 3-user Gun traffic, replacing
  * the checkbox DOM node right as Playwright is clicking it ("element is not stable" /
  * "detached from the DOM, retrying" — the same class of race documented in
- * openIncomingTalkModal, talks-matching-flow.ts). Retry with a freshly-queried locator
- * instead of relying on a single long actionability wait.
+ * openIncomingTalkModal/talks-matching-flow.ts, "observed in 00l-... on the 8-worker light
+ * shard"). Playwright's `.check()`/`.uncheck()` waits for the element to be "stable" across
+ * consecutive animation frames before acting — under a re-render storm that condition can
+ * never be satisfied, so the action times out even though the checkbox is perfectly
+ * clickable at any single instant. Same fix as the other helper: drive the interaction
+ * through a raw DOM `.click()` (a real native click — correctly toggles `.checked` and
+ * fires the `change` event the app's delegated listener expects, see displayTalksList's
+ * "A native checkbox's own toggle is exactly the behavior wanted here") via `page.evaluate`,
+ * which reads whatever is in the DOM at that instant instead of going through Playwright's
+ * stability-polling.
  */
 async function toggleCheckboxWithRetry(
-  getCheckbox: () => ReturnType<Page['locator']>,
+  page: Page,
+  talkId: string,
   action: 'check' | 'uncheck',
-  attempts = 5,
+  attempts = 8,
 ): Promise<void> {
+  const selector = `.talk-broadcast-toggle-checkbox[data-talk-id="${talkId}"]`;
+  const wantChecked = action === 'check';
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
-      await getCheckbox()[action]({ timeout: 5_000 });
+      await page.evaluate(
+        ({ selector, wantChecked }) => {
+          const el = document.querySelector<HTMLInputElement>(selector);
+          if (el && el.checked !== wantChecked) el.click();
+        },
+        { selector, wantChecked },
+      );
+      await expect(page.locator(selector).first()).toBeChecked(wantChecked ? undefined : { checked: false });
       return;
     } catch (error) {
       lastError = error;
-      await getCheckbox().page().waitForTimeout(500).catch(() => {});
+      await page.waitForTimeout(500).catch(() => {});
     }
   }
   throw lastError;
@@ -201,12 +219,12 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await expect(copiedCheckbox()).toBeChecked();
     await expect(copiedOut.locator('.edit-talk-btn')).toHaveCount(0);
 
-    await toggleCheckboxWithRetry(copiedCheckbox, 'uncheck');
+    await toggleCheckboxWithRetry(pageJerry, copiedId, 'uncheck');
     await expect(copiedOut).toHaveClass(/talk-broadcast-disabled/);
     await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast Off');
     await expect(copiedCheckbox()).not.toBeChecked();
 
-    await toggleCheckboxWithRetry(copiedCheckbox, 'check');
+    await toggleCheckboxWithRetry(pageJerry, copiedId, 'check');
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
     await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast On');
     await expect(copiedCheckbox()).toBeChecked();
