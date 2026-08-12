@@ -2,6 +2,52 @@
 
 Last updated: 2026-08-11
 
+## 2026-08-11 — BB: opposite-tag deal matching, typed built-in comparison questions
+
+Moved from `docs/TODO.md` §BB. All 6 planned implementation phases shipped in 6 separate
+commits, each independently verified (type-check, lint, unit suite, targeted + regression e2e)
+before the next started. Full rationale, decisions, and explicit deferrals are in `docs/TODO.md`
+§BB and `docs/specs/iinpublic-technical-specifications.md` §30.2 — this entry is a pointer/summary.
+
+- **Phase 1** — `src/shared/tag-opposite-pairs.ts`: opposite-tag registry generalizing the
+  hardcoded `Talk.role` 'offer'/'request' pair (canonical tag identity, predefined seed pairs,
+  user-created pairs). Pure module, no persistence wiring yet.
+- **Phase 2** — `Question.builtIn` on `types.ts` (`quantity`/`priceRange`/`timeFrame`/`location`);
+  `TalkAutofix.fix` auto-generates the 2 synthetic answers (Compatible/Not compatible) for a
+  builtIn question with no author-typed answers. `location` reuses the talk's own existing
+  `authorLocation`/`locationRadiusMiles` rather than duplicating coordinates onto the question.
+- **Phase 3** — `src/shared/built-in-comparisons.ts` (interval-overlap, quantity sufficiency,
+  location mutual-containment) and `src/shared/typed-preference-store.ts` (tag-scoped local
+  storage for a user's own typed preference), both pure and unit-tested including boundary cases.
+- **Phase 4** — `src/shared/built-in-question-resolution.ts`'s `resolveBuiltInQuestion`, wired
+  into `resolveAnswerPreferenceForTalkQuestion` (ui-manager.ts) ahead of the exact-text chatbot
+  paths. `quantity`/`priceRange`/`timeFrame` wired now (scoped by role, an interim substitute for
+  a real deal tag); `location` deliberately deferred (always asks a human, needs a geo/privacy
+  source not yet designed).
+- **Phase 5** — Flow talk-editor UI: a per-question "Compare using:" kind selector + typed input
+  widgets replacing "+ Add Answer," wired into `processTalkForm` (reads the value, forces
+  `answers: []`, saves the value as the author's own typed preference as a side effect). Found
+  and fixed a real scope-key bug (the read side used the incoming talk's own role instead of its
+  complement) before shipping. Verified end-to-end via a new e2e spec, zero manual clicks.
+- **Phase 6** — Route-branch integration for multi-item listings. Found and fixed a real
+  pre-existing bug unrelated to §BB: the route editor never wrote `answer.nextQuestionId`, so any
+  route talk saved through the live editor could never navigate past its first question (no
+  existing test caught it — route coverage seeds via the API, never drives the live branch UI).
+  Fixed alongside adding per-item builtIn leaf questions to the route editor. First test to
+  exercise the interactive route editor's branch-authoring flow end to end.
+
+**Not shipped, tracked as deliberate deferrals in `docs/TODO.md` §BB**: the tag-pair picker and
+auto-generated first-question template (Phase 5 — building it wouldn't change live behavior since
+Phase 4 doesn't consume tags yet); `location` auto-resolution (Phase 4 — no geo/privacy source
+designed); route's talk-level shared time-frame/location across branches (Phase 6 — blocked on
+the same "add child to a builtIn node" gap as the tag picker); cross-browser auto-match proof for
+route builtIn questions.
+
+**Verification:** `npm run test:type`, `npx eslint`, `npm run test:unit` (1219 passing throughout),
+and e2e regression runs after each phase — final combined run: `08-route-job-seeking`,
+`00-ui-navigation-settings`, `05-talks-edit`, `82-route-editor-multi-item-builtin` (11/11),
+`04-dealmaker-chatbot-match`, `85-multi-value-checkbox-match`, `86-builtin-quantity-match` (7/7).
+
 ## 2026-07-14 — S3 embedded-node mobile shells: Android/iOS native builds verified
 
 Moved from `docs/TODO.md` (S3 "Remaining" items).
