@@ -15,7 +15,9 @@ export class GunDeliveryRepository {
   constructor(private readonly gun: GunKeyValueStore) {}
 
   async putPairResponse(localSeaPub: string, payload: P2PMeshTalkResponsePayload): Promise<void> {
-    const pairId = [localSeaPub, payload.authorId].sort().map(encodeURIComponent).join('~');
+    // `~` is reserved by GUN for SEA user souls. Using it as a pair delimiter makes GUN
+    // demand a signature for an ordinary application record and reject it as unverified.
+    const pairId = [localSeaPub, payload.authorId].sort().map(encodeURIComponent).join('__');
     const soul = `pairs/${pairId}/talkResponses/${encodeURIComponent(payload.talkId)}/${encodeURIComponent(payload.responseId)}`;
     await this.putAndVerify(soul, payload.responseId, { version: 1, responseId: payload.responseId, payload });
   }
@@ -44,4 +46,3 @@ export class GunDeliveryRepository {
     }
   }
 }
-

@@ -132,6 +132,8 @@ export class WebGunService extends EventEmitter {
   private connected: boolean = false;
   /** In-memory copy of the SEA pair after `ensureKeypairAndAuth()`. */
   private seaPair: GunPair | null = null;
+  /** Serialize authenticated private-namespace writes; GUN/SEA can reject overlapping signs. */
+  private privateWriteQueue: Promise<void> = Promise.resolve();
 
   constructor() {
     super();
@@ -581,6 +583,28 @@ export class WebGunService extends EventEmitter {
 
   /** Write to the current user's private namespace (AES-encrypted, owner-only). */
   async putPrivate(key: string, data: any): Promise<void> {
+    const write = this.privateWriteQueue
+      .catch(() => undefined)
+      .then(() => this.putPrivateWithRetry(key, data));
+    this.privateWriteQueue = write;
+    return write;
+  }
+
+  private async putPrivateWithRetry(key: string, data: any): Promise<void> {
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await this.putPrivateOnce(key, data);
+        return;
+      } catch (error) {
+        const transientSeaConflict = String((error as Error)?.message || error).includes('Unverified data');
+        if (!transientSeaConflict || attempt === maxAttempts) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 25 * attempt));
+      }
+    }
+  }
+
+  private async putPrivateOnce(key: string, data: any): Promise<void> {
     const pair = this.seaPair;
     if (!pair) {
       throw new Error('SEA keypair not authenticated');

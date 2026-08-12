@@ -16,7 +16,10 @@ describe('GunDeliveryRepository', () => {
     await beforeCrash.recordDelivery({ objectId: response.responseId, recipientId: 'alice', objectKind: 'talk-response', state: 'committed' });
     const afterRestart = new GunDeliveryRepository(store);
     await expect(afterRestart.getDelivery(response.responseId, 'alice')).resolves.toMatchObject({ state: 'committed', objectId: response.responseId });
-    expect([...graph.keys()].some((key) => key.includes('/talkResponses/talk-cid/response-cid'))).toBe(true);
+    const pairResponseSoul = [...graph.keys()].find((key) => key.includes('/talkResponses/talk-cid/response-cid'));
+    expect(pairResponseSoul).toBeTruthy();
+    expect(pairResponseSoul).toContain('pairs/alice__bob-sea/');
+    expect(pairResponseSoul).not.toContain('~');
   });
 
   test('advances journal idempotently without changing object identity', async () => {
@@ -28,4 +31,3 @@ describe('GunDeliveryRepository', () => {
     expect([...graph.keys()].filter((key) => key.includes('deliveryJournal/talk-cid/bob'))).toHaveLength(1);
   });
 });
-

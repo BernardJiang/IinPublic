@@ -7,7 +7,7 @@ describe('selective Gun synchronization', () => {
   beforeAll(async () => { [alice, bob, mallory] = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[]; });
 
   async function fixture(scope: 'accepted-talk' | 'pair-response' = 'accepted-talk') {
-    const prefix = scope === 'accepted-talk' ? `users/${alice.pub}/talks/talk-1` : `pairs/${[alice.pub, bob.pub].sort().join('~')}/talkResponses`;
+    const prefix = scope === 'accepted-talk' ? `users/${alice.pub}/talks/talk-1` : `pairs/${[alice.pub, bob.pub].sort().join('__')}/talkResponses`;
     const grant = await issueGunSyncGrant({ pair: alice, grantId: `g-${scope}`, scope, recipientSeaPub: bob.pub, soulPrefix: prefix });
     const delta = await issueGunSyncDelta({ pair: alice, grantId: grant.grantId, soul: `${prefix}/body`, objectId: 'talk-1', value: { id: 'talk-1' }, head: 'h1' });
     return { prefix, grant, delta };
@@ -52,4 +52,3 @@ describe('selective Gun synchronization', () => {
     expect(convergeVersionedValue({ ...edit, title: 'a' }, { ...edit, changedAt: '2026-08-12T00:04:00Z', title: 'b' }).title).toBe('b');
   });
 });
-

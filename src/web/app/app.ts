@@ -3766,10 +3766,17 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return;
     // Persist exact-answer memory and provenance privately before any chatbot/manual
     // response can leave this device. Public offers never subscribe to this path.
-    await new GunChatbotMemoryRepository(this.gunService).saveState(
-      getExactChatbotMemory(),
-      params.isChatbotResponse ? 'chatbot-reuse' : 'human',
-    );
+    try {
+      await new GunChatbotMemoryRepository(this.gunService).saveState(
+        getExactChatbotMemory(),
+        params.isChatbotResponse ? 'chatbot-reuse' : 'human',
+      );
+    } catch (error) {
+      // Exact-answer memory is already durable in the device-local store. A transient SEA
+      // conflict while backing it up to the private Gun namespace must not suppress the talk
+      // response itself; a later completion rewrites both per-question state and the snapshot.
+      console.warn('Private chatbot-memory backup failed (non-fatal):', error);
+    }
     // docs/TODO.md §W Gap 2 completeness note: a survey response that hasn't answered every
     // question is not yet "done" on the responder's side — the sender must not receive it and
     // must go on treating it as not-yet-answered (no ledger write, no mesh send). This is the
