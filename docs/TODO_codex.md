@@ -33,17 +33,17 @@
 
 - [x] Add `PeerDiscoveryProvider` with start, stop, status and candidate subscription methods.
 - [x] Add normalized `ConnectivityCandidate` and source provenance.
-- [ ] Wrap current hub presence/roster discovery.
-- [ ] Wrap known verified peers.
-- [ ] Wrap libp2p DHT room rendezvous and bootstrap multiaddresses.
-- [ ] Wrap mDNS/Bonjour.
+- [x] Wrap current hub presence/roster discovery.
+- [x] Wrap known verified peers.
+- [x] Wrap libp2p DHT room rendezvous and bootstrap multiaddresses.
+- [x] Wrap mDNS/Bonjour.
 - [ ] Add bounded authenticated discovery-gossip provider.
-- [ ] Add provider-specific backoff without globally disabling discovery.
-- [ ] Enforce candidate count, address count, record size, expiry and rate limits.
+- [x] Add provider-specific backoff without globally disabling discovery.
+- [x] Enforce candidate count, address count, record size, expiry and rate limits.
 - [ ] Test: common provider contract suite runs against every provider.
-- [ ] Test: each provider fails independently while remaining providers continue.
-- [ ] Test: candidate source provenance and dedup survive the same peer arriving from multiple providers.
-- [ ] Test: invalid/expired/malformed candidates fail closed.
+- [x] Test: each provider fails independently while remaining providers continue.
+- [x] Test: candidate source provenance and dedup survive the same peer arriving from multiple providers.
+- [x] Test: invalid/expired/malformed candidates fail closed.
 
 ## Milestone 2 — SEA-signed connectivity bindings
 
