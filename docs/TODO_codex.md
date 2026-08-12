@@ -48,14 +48,14 @@
 ## Milestone 2 — SEA-signed connectivity bindings
 
 - [x] Add versioned `ConnectivityBinding` with SEA pub, kind, ID, addresses, capabilities, sequence, issue/expiry and signature.
-- [ ] Migrate the existing SEA↔libp2p binding to the common schema.
+- [x] Migrate the existing SEA↔libp2p binding to the common schema.
 - [x] Verify `connectivityId` control separately from SEA authorship control.
 - [x] Reject stale sequences, expired records, mismatched SEA signatures and replayed handshakes.
-- [ ] Persist recently successful verified bindings in local Gun.
-- [ ] Ensure a new transport ID cannot evade a SEA-level block.
+- [x] Persist recently successful verified bindings in local Gun.
+- [x] Ensure a new transport ID cannot evade a SEA-level block.
 - [x] Test: binding issuance, verification, rotation, expiry and revocation.
 - [x] Test: compromised discovery provider cannot impersonate a SEA identity.
-- [ ] Test: UI never displays libp2p/radio identifiers as the person identity.
+- [x] Test: UI never displays libp2p/radio identifiers as the person identity.
 
 ## Milestone 3 — Connection Manager and path metadata
 

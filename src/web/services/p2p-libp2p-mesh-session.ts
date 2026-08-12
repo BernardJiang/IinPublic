@@ -6,9 +6,16 @@ import {
   type SignedP2PEnvelopeProof,
 } from '../../shared/p2p-runtime';
 import type { WebGunService } from './web-gun-service';
+import {
+  ConnectivityBindingVerifier,
+  issueConnectivityBinding,
+  type ConnectivityBinding,
+} from '../../shared/connectivity-binding';
+import { VerifiedConnectivityBindingStore } from './connectivity-binding-store';
 
 export const LIBP2P_MESH_PROTOCOL = '/iinpublic/mesh/1.0.0';
 const LIBP2P_BINDINGS_KEY = 'p2p-peer-bindings';
+const CONNECTIVITY_BINDINGS_KEY = 'connectivity-bindings';
 
 type Libp2pPeerId = {
   toString: () => string;
@@ -192,13 +199,13 @@ class Libp2pMeshSession implements MeshSession {
   private async publishLocalBinding(node: Libp2pLike): Promise<void> {
     const peerId = String(node.peerId?.toString?.() || '').trim();
     if (!peerId) throw new Error('libp2p node missing peerId');
-    const issuedAt = new Date().toISOString();
+    const issuedAt = new Date();
     const bindingWithoutProof = {
       userId: this.config.localUserId,
       seaPub: this.config.localPub,
       peerId,
       addresses: [],
-      issuedAt,
+      issuedAt: issuedAt.toISOString(),
     };
     const proof = await createSignedP2PEnvelopeProof({
       pair: this.config.localPair,
@@ -209,15 +216,44 @@ class Libp2pMeshSession implements MeshSession {
       proof,
     };
     await this.config.gunService.put(`${LIBP2P_BINDINGS_KEY}/${this.config.localUserId}`, binding);
+    const common = await issueConnectivityBinding({
+      pair: this.config.localPair,
+      connectivityKind: 'libp2p-peer',
+      connectivityId: peerId,
+      sequence: issuedAt.getTime(),
+      issuedAt,
+      lifetimeMs: 24 * 60 * 60_000,
+    });
+    await this.config.gunService.put(
+      `${CONNECTIVITY_BINDINGS_KEY}/${this.config.localUserId}/libp2p-peer`,
+      common,
+    );
   }
 
   private async resolveRemotePeerId(): Promise<string | null> {
     for (let i = 0; i < 6; i += 1) {
       try {
+        const common = await this.config.gunService.get(
+          `${CONNECTIVITY_BINDINGS_KEY}/${this.config.otherUserId}/libp2p-peer`,
+        ) as ConnectivityBinding | null;
+        if (common) {
+          const verifier = new ConnectivityBindingVerifier(() => true);
+          const verified = await verifier.verify(common);
+          if (verified.ok && common.seaPub === this.config.otherPub) {
+            try {
+              await new VerifiedConnectivityBindingStore(this.config.gunService).put(common);
+            } catch {
+              // Older/mocked Gun services may not expose owner-private helpers yet;
+              // successful live resolution must remain backward compatible.
+            }
+            return common.connectivityId;
+          }
+        }
         const raw = await this.config.gunService.get(
           `${LIBP2P_BINDINGS_KEY}/${this.config.otherUserId}`,
         ) as Libp2pBindingRecord | null;
         if (raw && (await this.verifyBinding(raw))) {
+          // Mixed-version fallback. The peer will publish the common record when upgraded.
           return String(raw.peerId || '').trim() || null;
         }
       } catch {
