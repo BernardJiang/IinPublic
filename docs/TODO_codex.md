@@ -31,8 +31,8 @@
 
 ## Milestone 1 — common discovery-provider model
 
-- [ ] Add `PeerDiscoveryProvider` with start, stop, status and candidate subscription methods.
-- [ ] Add normalized `ConnectivityCandidate` and source provenance.
+- [x] Add `PeerDiscoveryProvider` with start, stop, status and candidate subscription methods.
+- [x] Add normalized `ConnectivityCandidate` and source provenance.
 - [ ] Wrap current hub presence/roster discovery.
 - [ ] Wrap known verified peers.
 - [ ] Wrap libp2p DHT room rendezvous and bootstrap multiaddresses.
