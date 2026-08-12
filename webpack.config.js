@@ -34,6 +34,7 @@ const BUNDLED_ENV_KEYS = [
   // Content-node (IPFS) libp2p bootstrap/relay multiaddr(s) — lets the browser node dial a
   // reachable circuit relay so two browsers can peer for P2P media (dev:multi sets this).
   'IINPUBLIC_P2P_BOOTSTRAP_PEERS',
+  'IINPUBLIC_MESH_SYNC_MODE',
   // TODO §S Item 7: ledger E2E enable + checkpoint/retention overrides (see app.ts's
   // isLedgerDisabledForRun, web-ledger-service.ts, gun-message-store.ts). Missing these
   // here was itself a real bug found while writing the Item 7 E2E spec: without them in
@@ -146,6 +147,7 @@ module.exports = {
             'process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS': JSON.stringify(
               process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS || '',
             ),
+            'process.env.IINPUBLIC_MESH_SYNC_MODE': JSON.stringify(process.env.IINPUBLIC_MESH_SYNC_MODE || 'auto'),
             // TODO §S Item 7: the ledger (Phase E+F) is disabled for the whole DISABLE_HMR=true
             // E2E run by default (see app.ts's isLedgerDisabledForRun) — this narrowly
             // re-enables it for the one spec that needs it (checkpoint/prune/delta-sync E2E
@@ -185,6 +187,7 @@ module.exports = {
             P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED || '0',
             RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB || '0',
             IINPUBLIC_P2P_BOOTSTRAP_PEERS: process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS || '',
+            IINPUBLIC_MESH_SYNC_MODE: process.env.IINPUBLIC_MESH_SYNC_MODE || 'auto',
           }),
         ]),
     // Ignore Gun.js dynamic requires that are Node.js-only and must not be

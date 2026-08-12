@@ -1,4 +1,4 @@
-import { CURRENT_MESH_SYNC_CAPABILITIES, MESH_FRAME_INVENTORY, negotiateMeshSyncMode, translateLegacyTalkBody } from '../../shared/mesh-frame-policy';
+import { configuredMeshSyncCapabilities, CURRENT_MESH_SYNC_CAPABILITIES, MESH_FRAME_INVENTORY, negotiateMeshSyncMode, translateLegacyTalkBody } from '../../shared/mesh-frame-policy';
 
 describe('PeerMesh frame narrowing and mixed versions', () => {
   test('classifies every current frame kind', () => {
@@ -21,5 +21,9 @@ describe('PeerMesh frame narrowing and mixed versions', () => {
     const translated = translateLegacyTalkBody({ talkId: 'talk-1', authorId: 'alice', authorName: 'Alice', title: 'T', questionCount: 1, talkData: { id: 'talk-1' } });
     expect(translated).toEqual({ talkId: 'talk-1', authorKey: 'alice', talkData: { id: 'talk-1' }, source: 'legacy-talk-body-v1' });
   });
+  test('build/runtime preference isolates legacy and Gun-native modes', () => {
+    expect(configuredMeshSyncCapabilities('legacy-body')).toEqual({ protocolVersion: 1, gunNativeSync: false, legacyTalkBodyFrames: true });
+    expect(configuredMeshSyncCapabilities('gun-native')).toEqual({ protocolVersion: 1, gunNativeSync: true, legacyTalkBodyFrames: false });
+    expect(negotiateMeshSyncMode(configuredMeshSyncCapabilities('legacy-body'), configuredMeshSyncCapabilities('gun-native'))).toBe('incompatible');
+  });
 });
-

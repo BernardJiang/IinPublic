@@ -22,6 +22,16 @@ export const CURRENT_MESH_SYNC_CAPABILITIES: Readonly<MeshSyncCapabilities> = {
   gunNativeSync: true,
   legacyTalkBodyFrames: true,
 };
+export type MeshSyncPreference = 'auto' | 'gun-native' | 'legacy-body';
+export function meshSyncCapabilitiesForPreference(preference: MeshSyncPreference): MeshSyncCapabilities {
+  if (preference === 'legacy-body') return { protocolVersion: 1, gunNativeSync: false, legacyTalkBodyFrames: true };
+  if (preference === 'gun-native') return { protocolVersion: 1, gunNativeSync: true, legacyTalkBodyFrames: false };
+  return { ...CURRENT_MESH_SYNC_CAPABILITIES };
+}
+export function configuredMeshSyncCapabilities(envValue?: string): MeshSyncCapabilities {
+  const value = String(envValue || 'auto');
+  return meshSyncCapabilitiesForPreference(value === 'legacy-body' || value === 'gun-native' ? value : 'auto');
+}
 
 export type MeshSyncMode = 'gun-native' | 'legacy-body' | 'incompatible';
 export function negotiateMeshSyncMode(local: MeshSyncCapabilities, remote?: MeshSyncCapabilities): MeshSyncMode {
@@ -36,4 +46,3 @@ export function translateLegacyTalkBody(payload: P2PMeshTalkBodyPayload): {
 } {
   return { talkId: payload.talkId, authorKey: payload.authorId, talkData: payload.talkData, source: 'legacy-talk-body-v1' };
 }
-

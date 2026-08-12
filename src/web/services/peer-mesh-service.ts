@@ -25,7 +25,7 @@ import {
   type ForwardingContext,
   type ForwardingSettings,
 } from '../../shared/mesh-forwarding-policy';
-import { CURRENT_MESH_SYNC_CAPABILITIES } from '../../shared/mesh-frame-policy';
+import { configuredMeshSyncCapabilities } from '../../shared/mesh-frame-policy';
 
 type RoomMember = {
   userId: string;
@@ -524,7 +524,7 @@ export class PeerMeshService {
       ...(typeof (talk as { language?: unknown }).language === 'string' ? { language: String((talk as { language: string }).language) } : {}),
       ...(Array.isArray((talk as { tags?: unknown }).tags) ? { tags: (talk as { tags: unknown[] }).tags.map(String).slice(0, 32) } : {}),
       requestedAuthorization: 'accepted-talk-read',
-      syncCapabilities: CURRENT_MESH_SYNC_CAPABILITIES,
+      syncCapabilities: configuredMeshSyncCapabilities(process.env.IINPUBLIC_MESH_SYNC_MODE),
     };
     const bodyPayload: P2PMeshTalkBodyPayload = {
       ...payload,
