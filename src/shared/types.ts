@@ -314,6 +314,33 @@ export interface Question {
    * options — no boolean/AND-OR vocabulary is ever surfaced to the author or respondent.
    */
   answerSelectionMode?: 'single' | 'multiple';
+  /**
+   * Spec §30.2/§30.8, TODO.md §BB: marks this question as a typed built-in comparison
+   * (quantity/price range/time frame/location) instead of an author-typed text choice.
+   * `answers[]` still holds exactly the 2 outcomes flow/route already understand (proceed/
+   * ignore) — `TalkAutofix.fix` auto-generates them — but WHICH of the 2 gets picked is
+   * computed from typed values (interval-overlap, quantity sufficiency, mutual-containment)
+   * rather than chosen by a human or looked up by exact answer text.
+   *
+   * `location` has no nested lat/long/radius fields: it reuses the talk's own
+   * `authorLocation`/`locationRadiusMiles` (already populated at talk creation and already
+   * the basis for today's location-based intake filtering) rather than duplicating
+   * coordinates onto the question — both sides of a comparison read their own talk's fields.
+   */
+  builtIn?: BuiltInQuestionSpec;
+}
+
+/** See `Question.builtIn`. */
+export type BuiltInQuestionKind = 'quantity' | 'priceRange' | 'timeFrame' | 'location';
+
+export interface BuiltInQuestionSpec {
+  kind: BuiltInQuestionKind;
+  /** kind === 'quantity': this side's declared quantity (buyer's want / seller's have). */
+  quantity?: number;
+  /** kind === 'priceRange'. */
+  priceRange?: { min: number; max: number };
+  /** kind === 'timeFrame'. Epoch milliseconds. */
+  timeFrame?: { start: number; end: number };
 }
 
 export interface Answer {

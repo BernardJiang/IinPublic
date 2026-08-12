@@ -560,6 +560,106 @@ describe('TalkAutofix.fix — answerSelectionMode: "multiple" bypasses the singl
   });
 });
 
+describe('TalkAutofix.fix — builtIn typed questions (§BB, spec §30.2)', () => {
+  it('generates the 2 synthetic answers for a builtIn question with no author-typed answers', () => {
+    const talk = {
+      id: 't1',
+      title: 'Buy Notebook',
+      type: 'flow',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'How many do you want?',
+          builtIn: { kind: 'quantity', quantity: 2 },
+          answers: [],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed, fixes } = TalkAutofix.fix(talk);
+    const [compatible, incompatible] = fixed.questions[0].answers;
+    expect(fixed.questions[0].answers).toHaveLength(2);
+    expect(compatible.isMatch).toBe(true);
+    expect(compatible.text).toBeTruthy();
+    expect(incompatible.isIgnore).toBe(true);
+    expect(incompatible.text).toBeTruthy();
+    expect(fixes.some((f) => f.includes('built-in question'))).toBe(true);
+  });
+
+  it('terminal-matches a builtIn question that is the last in the flow', () => {
+    const talk = {
+      id: 't1',
+      title: 'Buy Notebook',
+      type: 'flow',
+      questions: [
+        { id: 'q_0', text: 'How many do you want?', builtIn: { kind: 'quantity', quantity: 2 }, answers: [] },
+      ],
+    } as any;
+
+    const { talk: fixed } = TalkAutofix.fix(talk);
+    const [compatible] = fixed.questions[0].answers;
+    expect(compatible.isMatch).toBe(true);
+    expect(compatible.isTerminal).toBe(true);
+    expect(compatible.nextQuestionId).toBeUndefined();
+  });
+
+  it('links a builtIn question\'s compatible answer to the next question when one follows', () => {
+    const talk = {
+      id: 't1',
+      title: 'Buy Notebook',
+      type: 'flow',
+      questions: [
+        { id: 'q_0', text: 'How many do you want?', builtIn: { kind: 'quantity', quantity: 2 }, answers: [] },
+        { id: 'q_1', text: 'Item specifics?', answers: [{ id: 'a_ok', text: 'OK', isMatch: true }] },
+      ],
+    } as any;
+
+    const { talk: fixed } = TalkAutofix.fix(talk);
+    const [compatible, incompatible] = fixed.questions[0].answers;
+    expect(compatible.isMatch).toBeFalsy();
+    expect(compatible.nextQuestionId).toBe('q_1');
+    expect(incompatible.isMatch).toBeFalsy();
+    expect(incompatible.isIgnore).toBe(true);
+  });
+
+  it('does not overwrite already-populated answers on a builtIn question (idempotent)', () => {
+    const talk = {
+      id: 't1',
+      title: 'Buy Notebook',
+      type: 'flow',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'How many do you want?',
+          builtIn: { kind: 'quantity', quantity: 2 },
+          answers: [
+            { id: 'q_0_compatible', text: 'Compatible', isMatch: true, isTerminal: true },
+            { id: 'q_0_incompatible', text: 'Not compatible', isIgnore: true },
+          ],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed, fixes } = TalkAutofix.fix(talk);
+    expect(fixed.questions[0].answers).toHaveLength(2);
+    expect(fixes.some((f) => f.includes('built-in question'))).toBe(false);
+  });
+
+  it('a builtIn question\'s synthetic answers pass TalkValidator.validateTalk unchanged (no exemption needed)', () => {
+    const talk = {
+      id: 't1',
+      title: 'Buy Notebook',
+      type: 'flow',
+      questions: [
+        { id: 'q_0', text: 'How many do you want?', builtIn: { kind: 'quantity', quantity: 2 }, answers: [] },
+      ],
+    } as any;
+
+    const { talk: fixed } = TalkAutofix.fix(talk);
+    expect(() => TalkValidator.validateTalk(fixed)).not.toThrow();
+  });
+});
+
 describe('TalkValidator.validateTalk — flow talks with answerSelectionMode: "multiple"', () => {
   // Regression found via e2e: validateFlowTalk had its OWN separate copy of the "only the
   // first answer may be isMatch" rule (independent of TalkAutofix's copy, already fixed

@@ -708,6 +708,22 @@ export class TalkAutofix {
       }
     }
 
+    // 1.5) Auto-generate the 2 synthetic answers for built-in typed questions (§BB, spec
+    // §30.2). A builtIn question's outcome is computed from typed values (interval-overlap /
+    // quantity sufficiency / location containment, wired in a later phase) rather than
+    // chosen by a human or looked up by exact text — the author never types answers for it.
+    // Feeding these synthetic answers into step 2 below (unchanged) is what turns the
+    // "compatible" answer into a terminal match or a link to the next question exactly like
+    // any other flow question.
+    for (const q of talk.questions) {
+      if (!q.builtIn || q.answers.length > 0) continue;
+      q.answers = [
+        { id: `${q.id}_compatible`, text: 'Compatible', isMatch: true, isTerminal: true },
+        { id: `${q.id}_incompatible`, text: 'Not compatible', isIgnore: true, isTerminal: true },
+      ];
+      fixes.push(`Generated synthetic answers for built-in question "${q.id}" (${q.builtIn.kind}).`);
+    }
+
     // 2) Ensure the first answer of every question is a match or "go to next".
     for (let i = 0; i < talk.questions.length; i++) {
       const q = talk.questions[i];

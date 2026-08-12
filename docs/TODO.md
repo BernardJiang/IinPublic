@@ -754,8 +754,6 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
 
 **Not yet decided:**
 
-- Does location need a per-question radius, or is reusing the existing talk-level
-  `authorLocation`/`locationRadiusMiles` fields sufficient?
 - Whether this needs a new SRS/FR entry before implementation (see note above).
 
 **Resolved:**
@@ -768,15 +766,28 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
   requires every built-in comparison and every ordinary text-choice question in the chain to
   resolve compatible — no partial/scored matching. Matches how flow/route already behave today (one
   failing answer already blocks a match); no new scoring model or "close but not exact" UI needed.
+- ~~Does location need a per-question radius, or reuse the existing talk-level fields?~~ — resolved
+  2026-08-11 during Phase 2 implementation: **reuse.** `Question.builtIn` for `kind: 'location'`
+  carries no nested lat/long/radius fields at all; the mutual-containment comparison (Phase 3) reads
+  each side's own `Talk.authorLocation`/`Talk.locationRadiusMiles` directly — already populated at
+  talk creation, already the basis for today's location-based intake filtering (§X), no duplicated
+  coordinates on the question.
 
 **Implementation plan (draft phases — re-sequence once the design note above is written):**
 
-1. Tag opposite-pair registry: canonical tag identity (normalized-name keyed, mirroring
-   `makeQuestionId`), a predefined seed set (buy/sell, hiring/jobseeking, male/female), storage for
-   user-created pairs, a `getOppositeTag(tag)` lookup.
-2. Extend `Talk`/`Question` types (`types.ts`) with `builtIn` per the schema above; extend
-   `TalkAutofix`/`TalkValidator` to auto-generate the 2 synthetic answers for built-in questions
-   instead of requiring author-typed ones.
+1. ✅ **Shipped 2026-08-11.** Tag opposite-pair registry: canonical tag identity (normalized-name
+   keyed, mirroring `makeQuestionId`), a predefined seed set (buy/sell, hiring/jobseeking,
+   male/female), storage for user-created pairs, a `getOppositeTag(tag)` lookup. New
+   `src/shared/tag-opposite-pairs.ts`, unit-tested (`tag-opposite-pairs.test.ts`), no persistence
+   wiring yet (lands with Phase 5's talk-editor UI).
+2. ✅ **Shipped 2026-08-11.** Extended `Talk`/`Question` types (`types.ts`) with `builtIn` per the
+   schema above (`BuiltInQuestionKind`/`BuiltInQuestionSpec`); `TalkAutofix.fix` auto-generates the
+   2 synthetic answers (`Compatible`/`Not compatible`, isMatch/isIgnore) for a `builtIn` question
+   with no author-typed answers, feeding them into the *existing* first-answer-normalization step
+   unchanged — a builtIn question ends up terminal-match or linked-to-next exactly like any other
+   flow question, no new engine logic needed there. **No `TalkValidator` exemption was needed**
+   (unlike `answerSelectionMode: 'multiple'`): the synthetic 2-answer (one match, one ignore) shape
+   already satisfies every existing flow-question validation rule verbatim.
 3. Typed preference storage (new, tag-scoped local store) + the three comparison functions
    (interval-overlap reused for price/time frame; quantity sufficiency; location mutual-containment
    using the existing `haversineMilesBetween`).
