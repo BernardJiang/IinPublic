@@ -12,4 +12,13 @@ This map distinguishes software convergence from physical-route support. A green
 | Independent open protocol and provenance | `LICENSE`, `docs/protocol/connectivity-v1.md`, executable vectors, threat model and CycloneDX SBOM |
 | Hardware support | Only `docs/device-verification/runs.json` may establish it. Current report has zero supported hardware routes. |
 
-The full legacy/Gun-native E2E suite and physical-device rows remain separate release gates and must not be inferred from this map.
+## Dual-mode full-suite evidence
+
+Both compatibility modes passed the complete no-retry `npm run test:all` matrix on 2026-08-12. Each run included TypeScript, lint, 124 Jest suites, light/staged/mass/mesh/isolated/heavy Playwright groups, and Firefox/WebKit smoke coverage.
+
+| Mode | Run ID | Result | Wall time |
+|---|---|---|---|
+| `legacy-body` | `run-20260812-111537-40015` | all phases `rc=0` | 18m31s |
+| `gun-native` | `run-20260812-113940-47944` | all phases `rc=0` | 18m19s |
+
+Physical-device rows remain separate release gates and must not be inferred from these software-mode results.

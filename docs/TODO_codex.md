@@ -123,7 +123,7 @@
 - [x] Maintain mixed-version translation while old clients still send Talk bodies.
 - [x] Compatibility decision: retain duplicate body caches/retry logic through at least two release cycles; do not delete in this milestone.
 - [x] Test: old sender→new receiver and new sender→old receiver.
-- [ ] Test: current full E2E suite remains green under both legacy and Gun-native flags.
+- [x] Test: current full E2E suite remains green under both legacy and Gun-native flags (2026-08-12: legacy `run-20260812-111537-40015`, Gun-native `run-20260812-113940-47944`).
 
 ## Milestone 8 — chatbot in the Gun Talk flow
 
