@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>IinPublic discovers nearby peers and connects directly to their local Gun nodes.</string>
+	<key>NSBonjourServices</key>
+	<array><string>_iinpublic._tcp</string></array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>IinPublic uses Bluetooth to discover nearby peers, then upgrades to a faster connection.</string>
   <key>CFBundleDisplayName</key>
   <string>IinPublic</string>
   <key>CFBundleIdentifier</key>

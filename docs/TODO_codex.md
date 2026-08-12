@@ -151,10 +151,10 @@
 ### Apple
 
 - [ ] Wi-Fi Aware discovery/data-path prototype on supported physical devices.
-- [ ] Network.framework/Bonjour local peer endpoint.
-- [ ] Core Bluetooth rotating discovery identifier.
-- [ ] Evaluate Multipeer Connectivity as an Apple-only accelerator behind the common adapter.
-- [ ] Treat share-sheet/AirDrop as explicit attachment/import/export only, not background sync.
+- [x] Network.framework/Bonjour local peer endpoint.
+- [x] Core Bluetooth rotating discovery identifier.
+- [x] Evaluate Multipeer Connectivity as an Apple-only accelerator behind the common adapter; omit from v1 because Bonjour/IP covers the open path.
+- [x] Treat share-sheet/AirDrop as explicit attachment/import/export only, not background sync.
 - [ ] Test: supported/unsupported device and permission matrices.
 
 ### Android/Google

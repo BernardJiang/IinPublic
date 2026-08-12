@@ -9,12 +9,20 @@ import WebKit
 final class ViewController: UIViewController {
 
     private var webView: WKWebView!
+    private let connectivityBridge = AppleConnectivityBridge()
 
     override func loadView() {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
+        config.userContentController.add(connectivityBridge, name: AppleConnectivityBridge.scriptName)
         webView = WKWebView(frame: .zero, configuration: config)
+        connectivityBridge.webView = webView
         view = webView
+    }
+
+    deinit {
+        connectivityBridge.stop()
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: AppleConnectivityBridge.scriptName)
     }
 
     override func viewDidLoad() {

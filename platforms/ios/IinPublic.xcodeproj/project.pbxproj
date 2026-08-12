@@ -12,6 +12,7 @@
 		61588FC55EE9A9A836713334 /* NodeRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2006AEA78D9BA4E32A03D42B /* NodeRunner.swift */; };
 		71C4657749102521A9B40AE5 /* NodeMobile.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 4F6E41859CA373109B191584 /* NodeMobile.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		740625051DCF0B1CB0BB6F1B /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688BF6D758D58BF982736686 /* ViewController.swift */; };
+		A11E00000000000000000001 /* AppleConnectivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E00000000000000000002 /* AppleConnectivityBridge.swift */; };
 		7BAF20667774DFA1C9BD5E2A /* NodeMobile.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4F6E41859CA373109B191584 /* NodeMobile.xcframework */; };
 /* End PBXBuildFile section */
 
@@ -37,6 +38,7 @@
 		70756B57D0C81B2190A5621B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9FB07462AF4E39AC7129F0F8 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B88F4A409CF55015824DF91E /* IinPublic.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = IinPublic.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A11E00000000000000000002 /* AppleConnectivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleConnectivityBridge.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,6 +86,7 @@
 				9FB07462AF4E39AC7129F0F8 /* AppDelegate.swift */,
 				2006AEA78D9BA4E32A03D42B /* NodeRunner.swift */,
 				688BF6D758D58BF982736686 /* ViewController.swift */,
+				A11E00000000000000000002 /* AppleConnectivityBridge.swift */,
 			);
 			path = IinPublic;
 			sourceTree = "<group>";
@@ -185,6 +188,7 @@
 				3E82342C61D3A5D5B0D821FD /* AppDelegate.swift in Sources */,
 				61588FC55EE9A9A836713334 /* NodeRunner.swift in Sources */,
 				740625051DCF0B1CB0BB6F1B /* ViewController.swift in Sources */,
+				A11E00000000000000000001 /* AppleConnectivityBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
