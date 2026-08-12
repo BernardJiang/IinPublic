@@ -188,14 +188,14 @@
 
 ## Milestone 11 — deterministic redundancy test harness
 
-- [ ] Add test-only controls to enable exactly one discovery source and one transport route.
-- [ ] Add fault injection: connect failure, mid-send drop, latency, duplication, corruption, metered route and battery state.
-- [ ] Define one hard oracle: Bob's expected Gun soul exists exactly once, rereads correctly, UI renders once, and Alice receives persisted receipt.
-- [ ] Ensure route tests disable mailbox and all untested fallbacks.
-- [ ] Add isolated tests for hub, known peer, DHT, mDNS, direct libp2p, WebRTC compatibility, Circuit Relay, peer forwarding and mailbox.
-- [ ] Add route-transition tests: direct→relay, direct→peer-forward, LAN→cellular with permission, relay→direct and live→mailbox→live.
-- [ ] Add server-export assertions proving prohibited application bodies are absent.
-- [ ] Produce a machine-readable capability/verification report per build.
+- [x] Add test-only controls to enable exactly one discovery source and one transport route.
+- [x] Add fault injection: connect failure, mid-send drop, latency, duplication, corruption, metered route and battery state.
+- [x] Define one hard oracle: Bob's expected Gun soul exists exactly once, rereads correctly, UI renders once, and Alice receives persisted receipt.
+- [x] Ensure route tests disable mailbox and all untested fallbacks.
+- [x] Add isolated tests for hub, known peer, DHT, mDNS, direct libp2p, WebRTC compatibility, Circuit Relay, peer forwarding and mailbox.
+- [x] Add route-transition tests: direct→relay, direct→peer-forward, LAN→cellular with permission, relay→direct and live→mailbox→live.
+- [x] Add server-export assertions proving prohibited application bodies are absent.
+- [x] Produce a machine-readable capability/verification report per build.
 
 ## Milestone 12 — physical-device verification
 
