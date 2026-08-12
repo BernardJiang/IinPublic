@@ -754,14 +754,15 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
 
 **Not yet decided:**
 
-- Tag-pair governance: what happens when two users configure the same tag name with conflicting
-  opposites?
 - Does location need a per-question radius, or is reusing the existing talk-level
   `authorLocation`/`locationRadiusMiles` fields sufficient?
 - All-or-nothing vs. threshold: does a match require every built-in + text-choice question to
   resolve compatible, or is a partial-overlap score acceptable?
-- Auto-generated question-template wording per tag pair — who authors the predefined set, and can a
-  user override the generated text for their own custom tag pairs?
+
+~~Tag-pair governance~~ and ~~auto-generated question-template wording authorship~~ — **resolved
+2026-08-11** (see spec §30.7 / this doc's §DD): no separate governance process, tag pairs and their
+templates are ordinary tags under the existing FR-TG-1 (free creation) / FR-TG-4 (popularity-ranked
+suggestion) rules, same answer to both questions.
 - Whether this needs a new SRS/FR entry before implementation (see note above).
 
 **Implementation plan (draft phases — re-sequence once the design note above is written):**
