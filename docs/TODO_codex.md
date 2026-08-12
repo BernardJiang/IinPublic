@@ -19,15 +19,15 @@
 
 ## Milestone 0 — architecture inventory and decision locks
 
-- [ ] Map every durable object to its current authoritative and compatibility stores:
+- [x] Map every durable object to its current authoritative and compatibility stores:
   Talks, incoming clusters, Q&A, chatbot memory, responses, conversations, chatrooms, reputation inputs and ledger.
-- [ ] Map every current transfer path: Gun Wire, libp2p stream, WebRTC fallback, peer forwarding and mailbox.
-- [ ] Identify all localStorage and in-memory caches currently capable of being the only Talk-body copy.
-- [ ] Define target Gun souls for authored Talks, received/accepted Talks, Me Q&A, chatbot provenance and pair responses.
-- [ ] Specify room-public, user-private and pair-private read/write/subscription authorization.
-- [ ] Decide whether control frames remain JSON `P2PMeshFrame`s or become a smaller versioned control envelope.
-- [ ] Document migration/rollback flags and mixed-version behavior.
-- [ ] Test: add an architecture-invariant unit test enumerating authoritative data classes and their allowed stores.
+- [x] Map every current transfer path: Gun Wire, libp2p stream, WebRTC fallback, peer forwarding and mailbox.
+- [x] Identify all localStorage and in-memory caches currently capable of being the only Talk-body copy.
+- [x] Define target Gun souls for authored Talks, received/accepted Talks, Me Q&A, chatbot provenance and pair responses.
+- [x] Specify room-public, user-private and pair-private read/write/subscription authorization.
+- [x] Decide whether control frames remain JSON `P2PMeshFrame`s or become a smaller versioned control envelope.
+- [x] Document migration/rollback flags and mixed-version behavior.
+- [x] Test: add an architecture-invariant unit test enumerating authoritative data classes and their allowed stores.
 
 ## Milestone 1 — common discovery-provider model
 
