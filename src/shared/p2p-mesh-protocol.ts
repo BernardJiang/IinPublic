@@ -19,6 +19,10 @@ export type P2PMeshTalkAnnouncePayload = {
   type?: string;
   questionCount: number;
   contentHash?: string;
+  isAdult?: boolean;
+  language?: string;
+  tags?: string[];
+  requestedAuthorization?: 'accepted-talk-read';
 };
 
 export type P2PMeshTalkBodyRequestPayload = {

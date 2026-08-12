@@ -785,6 +785,27 @@ describe('PeerMeshService', () => {
     expect(announceCallOrder[0]).toBe('announce');
   });
 
+  it('rejects an offer before requesting or persisting the full body', async () => {
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+    const network = createFakeNetwork();
+    const bodies: P2PMeshTalkBodyPayload[] = [];
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice', createSession: network.createSession,
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob', createSession: network.createSession,
+      onTalkAnnounce: () => false,
+      onTalkBody: (payload) => { bodies.push(payload); return true; },
+    });
+    const members = [{ userId: 'alice' }, { userId: 'bob' }];
+    await alice.joinRoom('global', members); await bob.joinRoom('global', members);
+    await alice.broadcastTalk({ id: 'rejected-offer', authorId: 'alice', title: 'No', type: 'tag', questions: [] });
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(bodies).toEqual([]);
+    expect(bob.getDiagnostics().cachedTalkBodies).toBe(0);
+  });
+
   /**
    * P0 step 2 — room-topology eligibility: peer in a different room does NOT receive
    * the announce.

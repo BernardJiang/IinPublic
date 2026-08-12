@@ -1604,7 +1604,7 @@ export class IinPublicApp {
       // Step 2: record announce receipt for durable E2E assertion (meshAnnounceDiagnostics).
       // Fires before body pull, enabling the test to assert announce reachability without
       // waiting for the full talk-body-request/talk-body round-trip.
-      onTalkAnnounce: (payload, _frame) => {
+      onTalkAnnounce: async (payload, _frame) => {
         const diag = this.meshAnnounceDiagnostics;
         const alreadyRecorded = diag.received.some(
           (r) => r.talkId === payload.talkId && r.authorId === payload.authorId,
@@ -1612,6 +1612,19 @@ export class IinPublicApp {
         if (!alreadyRecorded) {
           diag.received.push({ talkId: payload.talkId, authorId: payload.authorId });
         }
+        return this.shouldAcceptIncomingTalkAsync({
+          senderId: payload.authorId,
+          talkData: {
+            id: payload.talkId,
+            title: payload.title,
+            type: payload.type,
+            isAdult: payload.isAdult === true,
+            language: payload.language,
+            tags: payload.tags ?? [],
+            questions: [],
+          },
+          ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
+        });
       },
       // R-a step 7: mailbox fallback — post talk-body payload per unreachable recipient
       // when the DataChannel overlay cannot guarantee full coverage (below-wanted-degree

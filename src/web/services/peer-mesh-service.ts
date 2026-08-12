@@ -83,7 +83,7 @@ type PeerMeshServiceOptions = {
    * Fires before the body request is scheduled, so callers can record receipt for E2E
    * diagnostics without waiting for the full body pull to complete.
    */
-  onTalkAnnounce?: (payload: P2PMeshTalkAnnouncePayload, frame: P2PMeshFrame) => void | Promise<void>;
+  onTalkAnnounce?: (payload: P2PMeshTalkAnnouncePayload, frame: P2PMeshFrame) => boolean | void | Promise<boolean | void>;
   /**
    * R-a step 7: mailbox fallback for recipients unreachable over the DataChannel overlay.
    * Called with the talk-body payload and the list of recipient user IDs that cannot be
@@ -190,6 +190,7 @@ export class PeerMeshService {
   private readonly seen = new BoundedFifoSet(SEEN_SET_MAX_SIZE);
   private readonly talkBodies = new Map<string, Record<string, unknown>>();
   private readonly deliveredTalkBodyIds = new Set<string>();
+  private readonly rejectedTalkOfferIds = new Set<string>();
   private readonly pendingTalkBodyRequestTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly bodyRequestWaiters = new Map<string, (payload: P2PMeshTalkBodyPayload) => void>();
   private readonly acknowledgements = new Map<string, Set<string>>();
@@ -514,6 +515,10 @@ export class PeerMeshService {
       questionCount: Array.isArray((talk as { questions?: unknown }).questions)
         ? ((talk as { questions: unknown[] }).questions).length
         : 0,
+      ...((talk as { isAdult?: unknown }).isAdult === true ? { isAdult: true } : {}),
+      ...(typeof (talk as { language?: unknown }).language === 'string' ? { language: String((talk as { language: string }).language) } : {}),
+      ...(Array.isArray((talk as { tags?: unknown }).tags) ? { tags: (talk as { tags: unknown[] }).tags.map(String).slice(0, 32) } : {}),
+      requestedAuthorization: 'accepted-talk-read',
     };
     const bodyPayload: P2PMeshTalkBodyPayload = {
       ...payload,
@@ -1023,7 +1028,13 @@ export class PeerMeshService {
       // Step 2: fire announce callback before body pull so callers can record receipt
       // for durable diagnostics (e.g. E2E meshAnnounceDiagnostics) without waiting for
       // the talk-body-request/talk-body round-trip.
-      await this.opts.onTalkAnnounce?.(payload, frame);
+      const accepted = await this.opts.onTalkAnnounce?.(payload, frame);
+      const offerKey = talkBodyDeliveryKey(String(payload.talkId || ''), String(payload.authorId || ''));
+      if (accepted === false) {
+        this.rejectedTalkOfferIds.add(offerKey);
+        return;
+      }
+      this.rejectedTalkOfferIds.delete(offerKey);
       this.scheduleTalkBodyRequest(payload);
       return;
     }
@@ -1036,6 +1047,7 @@ export class PeerMeshService {
     if (frame.kind === 'talk-body' && isP2PMeshTalkBodyPayload(frame.payload)) {
       const talkId = String(frame.payload.talkId || '');
       const deliveryKey = talkBodyDeliveryKey(talkId, String(frame.payload.authorId || ''));
+      if (this.rejectedTalkOfferIds.has(deliveryKey)) return;
       const pendingTimer = talkId ? this.pendingTalkBodyRequestTimers.get(deliveryKey) : undefined;
       if (pendingTimer) {
         clearTimeout(pendingTimer);
