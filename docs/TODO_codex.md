@@ -90,15 +90,15 @@
 - [x] Add authored-Talk Gun repository and migrate existing authored localStorage records idempotently.
 - [x] Add received/accepted-Talk Gun repository and migrate received content caches idempotently.
 - [x] Keep compatibility reads during migration; make new writes Gun-first.
-- [ ] Write to local Gun before sending an offer or response.
+- [x] Write to local Gun before sending an offer or response.
 - [x] Add read-back verification before sending acceptance receipts.
 - [x] Preserve current content IDs, author lineage, expiry and retraction semantics.
 - [x] Ensure localStorage and mesh caches become disposable accelerators, not authoritative stores.
-- [ ] Add crash recovery between local commit, send and receipt.
-- [ ] Test: restart sender before delivery; Talk remains available from Gun.
+- [x] Add crash recovery between local commit, send and receipt.
+- [x] Test: restart sender before delivery; Talk remains available from Gun.
 - [ ] Test: restart receiver after acceptance; Talk and UI rebuild from Gun only.
-- [ ] Test: delete transport caches; no application history is lost.
-- [ ] Test: migration is idempotent and rollback reads old storage without data loss.
+- [x] Test: delete transport caches; no application history is lost.
+- [x] Test: migration is idempotent and rollback reads old storage without data loss.
 
 ## Milestone 6 — selective Gun synchronization
 

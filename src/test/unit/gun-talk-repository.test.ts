@@ -39,4 +39,11 @@ describe('GunTalkRepository', () => {
     const restarted = new GunTalkRepository({ put: async (key, value) => { graph.set(key, value); }, get: async (key) => graph.get(key) ?? null });
     await expect(restarted.getReceivedById('bob', talk.id)).resolves.toMatchObject({ id: talk.id, title: talk.title });
   });
+
+  test('restarts sender before delivery and rereads authored Talk from Gun', async () => {
+    const graph = new Map<string, unknown>();
+    const store = { put: async (key: string, value: unknown) => { graph.set(key, value); }, get: async (key: string) => graph.get(key) ?? null };
+    await new GunTalkRepository(store).putAuthored('alice', talk);
+    await expect(new GunTalkRepository(store).getAuthored('alice', talk.id)).resolves.toMatchObject({ id: talk.id, title: talk.title });
+  });
 });

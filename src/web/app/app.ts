@@ -8,6 +8,7 @@ import {
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
+import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
@@ -3847,6 +3848,16 @@ export class IinPublicApp {
         // so the author never has to network-resolve it at ingest (see type comment).
         ...(responderEpub ? { responderEpub } : {}),
       };
+      const deliveryRepository = new GunDeliveryRepository(this.gunService);
+      const localSeaPub = String(this.gunService.getStoredPair()?.pub || this.currentUser!.id);
+      // Pair response and recovery journal are durable before any transport is attempted.
+      await deliveryRepository.putPairResponse(localSeaPub, meshPayload);
+      await deliveryRepository.recordDelivery({
+        objectId: targetResponseId,
+        recipientId: targetAuthorId,
+        objectKind: 'talk-response',
+        state: 'committed',
+      });
       const mesh = this.ensurePeerMeshService();
       let sent = false;
       if (mesh) {
@@ -3866,6 +3877,14 @@ export class IinPublicApp {
           this.enqueueFailedMailboxPost(meshPayload);
           queued = true;
         }
+      }
+      if (sent || mailboxPosted || queued) {
+        await deliveryRepository.recordDelivery({
+          objectId: targetResponseId,
+          recipientId: targetAuthorId,
+          objectKind: 'talk-response',
+          state: 'sent',
+        });
       }
       // Delivery-matrix diagnostic: exactly one line per response send with every stage's
       // outcome — the silent-success pipeline made every saturation post-mortem archaeology.
