@@ -184,7 +184,7 @@
 - [x] Explain permissions in product language before OS prompts.
 - [x] Test: every setting affects policy without exposing transport IDs as user identities.
 - [x] Test: denied nearby permission leaves Internet discovery operational.
-- [ ] Test: accessibility, responsive layout and persisted settings.
+- [x] Test: accessibility, responsive layout and persisted settings.
 
 ## Milestone 11 — deterministic redundancy test harness
 

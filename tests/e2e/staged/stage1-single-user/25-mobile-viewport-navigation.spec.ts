@@ -7,6 +7,7 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('Mobile viewport navigation', () => {
   let context: BrowserContext | undefined;
@@ -52,5 +53,27 @@ test.describe('Mobile viewport navigation', () => {
       const horizontalOverflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(horizontalOverflow).toBeLessThanOrEqual(2);
     }
+  });
+
+  test('connectivity controls are labelled, responsive, and persist on a phone viewport', async () => {
+    const p = page!;
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.connectivity);
+
+    await expect(p.getByLabel('Preset')).toBeVisible();
+    await expect(p.getByLabel('Metered network permission')).toBeVisible();
+    await expect(p.getByLabel('Forward for peers')).toBeVisible();
+    await expect(p.locator('#settings-connectivity-status')).toHaveAttribute('role', 'status');
+    await p.getByLabel('Preset').selectOption('data-saver');
+    await expect.poll(() => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_connectivity_settings_v1') || '{}').preset)).toBe('data-saver');
+    expect(await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(2);
+
+    await p.reload();
+    await afterSync();
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await afterNav();
+    await openSettingsSection(p, SETTINGS_SECTION.connectivity);
+    await expect(p.getByLabel('Preset')).toHaveValue('data-saver');
   });
 });

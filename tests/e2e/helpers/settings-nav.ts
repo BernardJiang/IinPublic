@@ -26,6 +26,7 @@ export const SETTINGS_SECTION = {
   talkBehavior: 'settings-section-talk-behavior',
   distanceHome: 'settings-section-distance-home',
   contentFilters: 'settings-section-content-filters',
+  connectivity: 'settings-section-connectivity',
   linkedDevices: 'settings-section-linked-devices',
   eraseDevice: 'settings-section-erase-device',
   storageInspector: 'settings-storage-inspector',
