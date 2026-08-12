@@ -57,6 +57,19 @@ export class GunTalkRepository {
     }
   }
 
+  async listReceived(ownerSeaPub: string): Promise<Talk[]> {
+    try {
+      const raw = await this.gun.get(`users/${encodeURIComponent(ownerSeaPub)}/receivedTalkIndex`) as Record<string, unknown> | null;
+      if (!raw || typeof raw !== 'object') return [];
+      const talks: Talk[] = [];
+      for (const talkId of Object.keys(raw).filter((key) => key !== '_' && !key.startsWith('_')).sort()) {
+        const talk = await this.getReceivedById(ownerSeaPub, talkId);
+        if (talk) talks.push(talk);
+      }
+      return talks;
+    } catch { return []; }
+  }
+
   authoredSoul(ownerSeaPub: string, talkId: string): string {
     return `users/${encodeURIComponent(ownerSeaPub)}/talks/${encodeURIComponent(talkId)}`;
   }

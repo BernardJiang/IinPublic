@@ -9,6 +9,7 @@ import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
+import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
@@ -878,6 +879,10 @@ export class IinPublicApp {
     });
     // Get or create user
     await this.initializeUser();
+    await restoreReceivedTalkHistory(
+      this.talkService,
+      (talk) => this.uiManager.displayIncomingTalk(talk),
+    );
 
     // Join appropriate chatroom
     await this.initializeChatrooms();

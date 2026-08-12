@@ -281,6 +281,12 @@ export class WebTalkService {
     }
   }
 
+  async listReceivedTalksFromGun(): Promise<Talk[]> {
+    const ownerSeaPub = this.ownerSeaPub();
+    if (!this.repositoryEnabled() || !ownerSeaPub) return [];
+    return this.talkRepository.listReceived(ownerSeaPub);
+  }
+
   /** Server is authoritative for complete talk data; Gun is used as a low-latency cache. */
   async getTalkWithRetry(
     talkId: string,

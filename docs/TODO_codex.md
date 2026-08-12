@@ -96,7 +96,7 @@
 - [x] Ensure localStorage and mesh caches become disposable accelerators, not authoritative stores.
 - [x] Add crash recovery between local commit, send and receipt.
 - [x] Test: restart sender before delivery; Talk remains available from Gun.
-- [ ] Test: restart receiver after acceptance; Talk and UI rebuild from Gun only.
+- [x] Test: restart receiver after acceptance; Talk and UI rebuild from Gun only.
 - [x] Test: delete transport caches; no application history is lost.
 - [x] Test: migration is idempotent and rollback reads old storage without data loss.
 
