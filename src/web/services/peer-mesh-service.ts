@@ -20,6 +20,11 @@ import type { Talk } from '../../shared/types';
 import type { WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession } from './p2p-webrtc-session';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import {
+  MeshForwardingPolicy,
+  type ForwardingContext,
+  type ForwardingSettings,
+} from '../../shared/mesh-forwarding-policy';
 
 type RoomMember = {
   userId: string;
@@ -86,6 +91,8 @@ type PeerMeshServiceOptions = {
    * The caller posts per-recipient encrypted envelopes via WebMailboxClient.
    */
   onMailboxFallback?: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) => void | Promise<void>;
+  forwardingSettings?: Partial<ForwardingSettings>;
+  getForwardingContext?: (neighborUserId: string) => ForwardingContext;
 };
 
 type Neighbor = {
@@ -187,11 +194,18 @@ export class PeerMeshService {
   private readonly bodyRequestWaiters = new Map<string, (payload: P2PMeshTalkBodyPayload) => void>();
   private readonly acknowledgements = new Map<string, Set<string>>();
   private readonly acknowledgementWaiters = new Map<string, Set<() => void>>();
+  private readonly forwardingPolicy: MeshForwardingPolicy;
 
   constructor(
     private readonly gunService: WebGunService,
     private readonly opts: PeerMeshServiceOptions,
-  ) {}
+  ) {
+    this.forwardingPolicy = new MeshForwardingPolicy(opts.forwardingSettings);
+  }
+
+  updateForwardingSettings(settings: Partial<ForwardingSettings>): void {
+    this.forwardingPolicy.update(settings);
+  }
 
   getDiagnostics(): {
     roomId: string | null;
@@ -870,9 +884,14 @@ export class PeerMeshService {
     // A cached direct edge may be stale while a healthy relay path exists. Directed
     // frames therefore remain gossip-routed: try the direct peer first, but also send
     // through the rest of the bounded overlay. Seen-set dedup and TTL cap duplicates.
-    const targets = directTarget && directTarget.userId !== exceptUserId
+    const candidateTargets = directTarget && directTarget.userId !== exceptUserId
       ? [directTarget, ...available.filter((neighbor) => neighbor.userId !== directTarget.userId)]
       : available;
+    const estimatedBytes = new TextEncoder().encode(JSON.stringify(forwarded)).byteLength;
+    const targets = candidateTargets.filter((neighbor) => {
+      const context = this.forwardingContext(neighbor.userId);
+      return this.forwardingPolicy.evaluate(forwarded, this.opts.localUserId, context, estimatedBytes).allowed;
+    });
     const results = await Promise.all(
       targets.map((neighbor) => this.sendFrameToNeighbor(neighbor, forwarded)),
     );
@@ -880,6 +899,12 @@ export class PeerMeshService {
   }
 
   private async sendFrameToNeighbor(neighbor: Neighbor, frame: P2PMeshFrame): Promise<boolean> {
+    const bytes = new TextEncoder().encode(JSON.stringify(frame)).byteLength;
+    const context = this.forwardingContext(neighbor.userId);
+    // Re-check immediately before every transmission; settings/battery/network may
+    // have changed since neighbor selection.
+    const decision = this.forwardingPolicy.evaluate(frame, this.opts.localUserId, context, bytes);
+    if (!decision.allowed) return false;
     try {
       await this.withTimeout(
         neighbor.session.sendMeshFrame(frame),
@@ -887,6 +912,9 @@ export class PeerMeshService {
         'mesh send timeout',
       );
       neighbor.connected = true;
+      if (decision.frameClass === 'third-party' || decision.frameClass === 'discovery-gossip') {
+        this.forwardingPolicy.recordForwarded(context.routeId, bytes);
+      }
       return true;
     } catch {
       neighbor.connected = false;
@@ -901,17 +929,32 @@ export class PeerMeshService {
         this.opts.retryTimeoutMs ?? DEFAULT_MESH_RETRY_TIMEOUT_MS,
         'mesh retry connect timeout',
       );
+      const bytes = new TextEncoder().encode(JSON.stringify(frame)).byteLength;
+      const context = this.forwardingContext(neighbor.userId);
+      const decision = this.forwardingPolicy.evaluate(frame, this.opts.localUserId, context, bytes);
+      if (!decision.allowed) return false;
       await this.withTimeout(
         neighbor.session.sendMeshFrame(frame),
         this.opts.sendTimeoutMs ?? DEFAULT_MESH_SEND_TIMEOUT_MS,
         'mesh retry send timeout',
       );
       neighbor.connected = true;
+      if (decision.frameClass === 'third-party' || decision.frameClass === 'discovery-gossip') {
+        this.forwardingPolicy.recordForwarded(context.routeId, bytes);
+      }
       return true;
     } catch {
       neighbor.connected = false;
       return false;
     }
+  }
+
+  private forwardingContext(neighborUserId: string): ForwardingContext {
+    return this.opts.getForwardingContext?.(neighborUserId) ?? {
+      routeId: `mesh:${neighborUserId}`,
+      interface: 'wifi',
+      lowBattery: false,
+    };
   }
 
   private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

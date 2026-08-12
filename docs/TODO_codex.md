@@ -73,16 +73,16 @@
 
 ## Milestone 4 — configurable peer forwarding
 
-- [ ] Add settings: forwarding enabled, Wi-Fi forwarding, cellular forwarding, low-battery pause and byte budget.
-- [ ] Defaults: enabled; Wi-Fi on; cellular off; low-battery pause on; cellular budget zero.
-- [ ] Classify frames/deltas as locally originated, locally addressed, discovery gossip or third-party forwarding.
-- [ ] Enforce policy before neighbor selection and immediately before transmission.
-- [ ] Preserve original SEA authorship and signed payload across hops.
-- [ ] Add per-route byte counters, hop bounds, dedup, rate limits and abuse counters.
-- [ ] Ensure disabling forwarding does not disable the user's own Talks, responses, ACKs or accepted discovery gossip.
-- [ ] Test: Alice→Carol→Bob with Alice↔Bob blocked.
-- [ ] Test: disable Carol forwarding and prove the path is not used.
-- [ ] Test: low battery and cellular policies independently stop only third-party forwarding.
+- [x] Add settings: forwarding enabled, Wi-Fi forwarding, cellular forwarding, low-battery pause and byte budget.
+- [x] Defaults: enabled; Wi-Fi on; cellular off; low-battery pause on; cellular budget zero.
+- [x] Classify frames/deltas as locally originated, locally addressed, discovery gossip or third-party forwarding.
+- [x] Enforce policy before neighbor selection and immediately before transmission.
+- [x] Preserve original SEA authorship and signed payload across hops.
+- [x] Add per-route byte counters, hop bounds, dedup, rate limits and abuse counters.
+- [x] Ensure disabling forwarding does not disable the user's own Talks, responses, ACKs or accepted discovery gossip.
+- [x] Test: Alice→Carol→Bob with Alice↔Bob blocked.
+- [x] Test: disable Carol forwarding and prove the path is not used.
+- [x] Test: low battery and cellular policies independently stop only third-party forwarding.
 - [ ] Test: duplicate multi-path delivery creates one durable Bob record.
 
 ## Milestone 5 — restore Gun as authoritative Talk storage
