@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "controlFrames": [
+    {
+      "name": "valid metadata ping",
+      "valid": true,
+      "value": { "version": 1, "kind": "mesh-ping", "msgId": "msg-001", "roomId": "global", "originUserId": "alice", "originPub": "alice-sea-pub", "createdAt": "2026-08-12T00:00:00.000Z", "ttlHops": 3, "payload": { "text": "availability probe" } }
+    },
+    {
+      "name": "reject excessive hop count",
+      "valid": false,
+      "value": { "version": 1, "kind": "mesh-ping", "msgId": "msg-002", "roomId": "global", "originUserId": "alice", "originPub": "alice-sea-pub", "createdAt": "2026-08-12T00:00:00.000Z", "ttlHops": 17, "payload": {} }
+    },
+    {
+      "name": "reject unknown kind",
+      "valid": false,
+      "value": { "version": 1, "kind": "execute", "msgId": "msg-003", "roomId": "global", "originUserId": "alice", "originPub": "alice-sea-pub", "createdAt": "2026-08-12T00:00:00.000Z", "ttlHops": 1, "payload": {} }
+    }
+  ],
+  "gunDeltas": [
+    {
+      "name": "valid bounded delta shape",
+      "valid": true,
+      "value": { "version": 1, "grantId": "grant-1", "soul": "users/bob/receivedTalks/alice/talk-1", "objectId": "talk-1", "valueJson": "{\"id\":\"talk-1\"}", "head": "head-1", "authorSeaPub": "alice-sea-pub", "proof": { "pub": "alice-sea-pub", "signature": "vector-shape-only", "timestamp": "2026-08-12T00:00:00.000Z", "nonce": "vector" } }
+    },
+    {
+      "name": "reject missing proof",
+      "valid": false,
+      "value": { "version": 1, "grantId": "grant-1", "soul": "users/bob/receivedTalks/alice/talk-1", "objectId": "talk-1", "valueJson": "{}", "head": "head-1", "authorSeaPub": "alice-sea-pub" }
+    }
+  ]
+}

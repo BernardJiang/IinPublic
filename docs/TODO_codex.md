@@ -214,8 +214,8 @@
 - [x] Fuzz pre-auth candidate, binding, control-frame and Gun-delta parsers.
 - [x] Audit dependency licenses and generate an attribution/SBOM artifact.
 - [ ] Verify reproducible documented builds for web, desktop, Android and iOS where supported.
-- [ ] Publish protocol/schema documentation and test vectors produced specifically for IinPublic.
-- [ ] Document cryptographic limits of SEA pair encryption and separately evaluate a reviewed ratcheting protocol for private conversations.
+- [x] Publish protocol/schema documentation and test vectors produced specifically for IinPublic.
+- [x] Document cryptographic limits of SEA pair encryption and separately evaluate a reviewed ratcheting protocol for private conversations.
 - [ ] External security review before enabling cellular peer forwarding or BLE data transport by default.
 - [ ] Test: malicious intermediary cannot alter original SEA authorship or decrypt pair-private payloads.
 
