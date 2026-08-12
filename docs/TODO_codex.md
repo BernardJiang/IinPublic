@@ -127,16 +127,16 @@
 
 ## Milestone 8 — chatbot in the Gun Talk flow
 
-- [ ] Trigger chatbot evaluation only after receiver intake and accepted Talk persistence.
-- [ ] Store exact chatbot answer memory in user-private Gun paths.
-- [ ] Add answer provenance: human, chatbot reuse, chatbot draft, human approval and source version.
-- [ ] Preserve question-level differential answering and stale-answer notification.
-- [ ] Write chatbot/manual responses to pair-private local Gun before network synchronization.
-- [ ] Attribute every submitted response to the user's SEA identity, never a chatbot identity.
-- [ ] Ensure public Talk discovery cannot expose private answer memory.
-- [ ] Test: exact reuse, partial differential prompt, changed question, withdrawn Talk and manual mode.
-- [ ] Test: same chatbot result over direct, relayed, peer-forwarded and mailbox delivery.
-- [ ] Test: private chatbot memory absent from hub/server exports and unauthorized peer graphs.
+- [x] Trigger chatbot evaluation only after receiver intake and accepted Talk persistence.
+- [x] Store exact chatbot answer memory in user-private Gun paths.
+- [x] Add answer provenance: human, chatbot reuse, chatbot draft, human approval and source version.
+- [x] Preserve question-level differential answering and stale-answer notification.
+- [x] Write chatbot/manual responses to pair-private local Gun before network synchronization.
+- [x] Attribute every submitted response to the user's SEA identity, never a chatbot identity.
+- [x] Ensure public Talk discovery cannot expose private answer memory.
+- [x] Test: exact reuse, partial differential prompt, changed question, withdrawn Talk and manual mode.
+- [x] Test: same chatbot result over direct, relayed, peer-forwarded and mailbox delivery.
+- [x] Test: private chatbot memory absent from hub/server exports and unauthorized peer graphs.
 
 ## Milestone 9 — platform adapters
 

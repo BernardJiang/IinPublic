@@ -10,6 +10,8 @@ import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
+import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
+import { getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
@@ -760,6 +762,9 @@ export class IinPublicApp {
       applyPublicChatroomHierarchy(raw);
     });
     await this.gunService.ensureKeypairAndAuth();
+    const durableChatbotMemory = new GunChatbotMemoryRepository(this.gunService);
+    const restoredChatbotMemory = await durableChatbotMemory.loadState().catch(() => null);
+    if (restoredChatbotMemory) setExactChatbotMemory(restoredChatbotMemory);
     await this.syncConversationTransportFromServer();
     this.initLedgerTransportHooks();
 
@@ -3750,6 +3755,12 @@ export class IinPublicApp {
     isAutoResponse: boolean;
   }): Promise<void> {
     if (!this.currentUser?.id) return;
+    // Persist exact-answer memory and provenance privately before any chatbot/manual
+    // response can leave this device. Public offers never subscribe to this path.
+    await new GunChatbotMemoryRepository(this.gunService).saveState(
+      getExactChatbotMemory(),
+      params.isChatbotResponse ? 'chatbot-reuse' : 'human',
+    );
     // docs/TODO.md §W Gap 2 completeness note: a survey response that hasn't answered every
     // question is not yet "done" on the responder's side — the sender must not receive it and
     // must go on treating it as not-yet-answered (no ledger write, no mesh send). This is the
