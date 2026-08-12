@@ -1,5 +1,6 @@
 import { DEFAULT_FORWARDING_SETTINGS, type ForwardingSettings } from '../../shared/mesh-forwarding-policy';
 import type { MeteredPermission } from '../../shared/connection-manager';
+import type { RoutePreferences } from '../../shared/connection-manager';
 
 export type ConnectivityPreset = 'automatic' | 'data-saver' | 'fastest' | 'local-event' | 'private' | 'advanced';
 export type ConnectivitySettings = {
@@ -43,3 +44,6 @@ export function connectivityStatusText(input: { directness: 'direct' | 'relay' |
   return `${input.directness}; ${input.interface}; ${input.metered ? 'metered' : 'free'}`;
 }
 
+export function routePreferencesFromSettings(value: ConnectivitySettings): RoutePreferences {
+  return { freeFirst: value.freeFirst, directFirst: value.directFirst, batteryAware: value.batteryAware };
+}

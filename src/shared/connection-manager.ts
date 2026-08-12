@@ -5,6 +5,8 @@ export type BatteryClass = 'low' | 'medium' | 'high';
 export type PathHealth = 'healthy' | 'degraded' | 'unavailable';
 export type OperationClass = 'discovery' | 'text' | 'background-sync' | 'urgent-action' | 'ipfs-bulk';
 export type MeteredPermission = 'ask' | 'allow-once' | 'always-allow' | 'wait-for-free';
+export type RoutePreferences = { freeFirst: boolean; directFirst: boolean; batteryAware: boolean };
+export const DEFAULT_ROUTE_PREFERENCES: Readonly<RoutePreferences> = { freeFirst: true, directFirst: true, batteryAware: true };
 
 export type PathInfo = {
   pathId: string;
@@ -44,6 +46,7 @@ export class ConnectionManager {
   constructor(
     permission: MeteredPermission = 'ask',
     private readonly prompt?: MeteredPermissionPrompt,
+    private preferences: RoutePreferences = { ...DEFAULT_ROUTE_PREFERENCES },
   ) {
     this.permission = permission;
   }
@@ -62,11 +65,13 @@ export class ConnectionManager {
     this.permission = permission;
   }
 
+  setRoutePreferences(preferences: RoutePreferences): void { this.preferences = { ...preferences }; }
+
   select(operation: OperationClass): RouteSelection {
     const available = [...this.adapters.values()].map((adapter) => adapter.path)
       .filter((path) => isEligible(path, operation));
     const allowed = available.filter((path) => !path.metered || this.permission === 'always-allow' || this.permission === 'allow-once');
-    allowed.sort((a, b) => comparePaths(a, b, operation, this.activePathId));
+    allowed.sort((a, b) => comparePaths(a, b, operation, this.activePathId, this.preferences));
     const selected = allowed[0] ?? null;
     const meteredOnly = !selected && available.some((path) => path.metered);
     return {
@@ -114,16 +119,16 @@ export class ConnectionManager {
   }
 }
 
-export function comparePaths(a: PathInfo, b: PathInfo, operation: OperationClass, activePathId: string | null): number {
-  return pathScore(b, operation, activePathId) - pathScore(a, operation, activePathId) || a.pathId.localeCompare(b.pathId);
+export function comparePaths(a: PathInfo, b: PathInfo, operation: OperationClass, activePathId: string | null, preferences: RoutePreferences = DEFAULT_ROUTE_PREFERENCES): number {
+  return pathScore(b, operation, activePathId, preferences) - pathScore(a, operation, activePathId, preferences) || a.pathId.localeCompare(b.pathId);
 }
 
-export function pathScore(path: PathInfo, operation: OperationClass, activePathId: string | null): number {
-  const batteryPenalty = { low: 0, medium: 400, high: 900 }[path.batteryClass];
-  const directBonus = path.directness === 'direct' ? 2_500 : path.directness === 'relay' ? 500 : 0;
+export function pathScore(path: PathInfo, operation: OperationClass, activePathId: string | null, preferences: RoutePreferences = DEFAULT_ROUTE_PREFERENCES): number {
+  const batteryPenalty = preferences.batteryAware ? { low: 0, medium: 400, high: 900 }[path.batteryClass] : 0;
+  const directBonus = path.directness === 'direct' ? (preferences.directFirst ? 2_500 : 200) : path.directness === 'relay' ? 100 : 0;
   const operationBandwidth = operation === 'ipfs-bulk' ? Math.min(path.bandwidthKbps, 100_000) / 5 : Math.min(path.bandwidthKbps, 10_000) / 20;
   return (path.pathId === activePathId && path.health === 'healthy' ? 12_000 : 0)
-    + (!path.metered ? 10_000 : 0)
+    + (!path.metered ? (preferences.freeFirst ? 10_000 : 500) : 0)
     + directBonus
     + Math.max(0, Math.min(100, path.stability)) * 30
     + operationBandwidth
@@ -145,4 +150,3 @@ function selectionReason(path: PathInfo, operation: OperationClass, reused: bool
   if (operation === 'ipfs-bulk') parts.push('bulk-capable');
   return parts.join('; ');
 }
-
