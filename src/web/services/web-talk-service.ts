@@ -3,6 +3,7 @@ import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
 import { computeTalkCIDv1, computeCIDv1, normalizeIdentityText } from '../../shared/cid';
+import { GunTalkRepository } from './gun-talk-repository';
 
 // ── Local authored-talks store (R-f debt: replaces Gun talks/* author writes) ──
 const AUTHORED_TALKS_KEY = 'myAuthoredTalks';
@@ -61,12 +62,24 @@ function loadReceivedTalk(talkId: string): Talk | null {
 }
 
 export class WebTalkService {
+  private readonly talkRepository: GunTalkRepository;
+
   constructor(
     private gunService: WebGunService,
     /** When set, incomplete Gun reads fall back to GET this host + /api/talks/:id (server graph). */
     private apiBase?: string,
-    private opts?: { meshLocalFirst?: boolean },
-  ) {}
+    private opts?: { meshLocalFirst?: boolean; gunTalkRepository?: boolean },
+  ) {
+    this.talkRepository = new GunTalkRepository(gunService);
+  }
+
+  private repositoryEnabled(): boolean {
+    return this.opts?.gunTalkRepository !== false;
+  }
+
+  private ownerSeaPub(): string {
+    return String(this.gunService.getStoredPair?.()?.pub || '').trim();
+  }
 
   /**
    * Compute a stable CIDv1 content hash for each question in the talk, per spec
@@ -201,9 +214,11 @@ export class WebTalkService {
     const authorPair = this.gunService.getStoredPair?.();
     if (authorPair?.epub && !talk.authorEpub) talk.authorEpub = authorPair.epub;
 
-    // Store talk in local authored-talks store (R-f: replaces Gun talks/* write).
+    // Gun-first dual write. Browser storage is rollback compatibility only.
+    const ownerSeaPub = this.ownerSeaPub() || talk.authorId;
+    if (this.repositoryEnabled()) await this.talkRepository.putAuthored(ownerSeaPub, talk);
     saveAuthoredTalk(talk.id, talk);
-    console.log('Talk stored in local authored-talks store:', talk.id);
+    console.log('Talk committed to local Gun repository:', talk.id);
     return talk;
   }
 
@@ -212,12 +227,19 @@ export class WebTalkService {
    * The key is the content-addressed talk id; this local block store is the
    * browser-side boundary that can later be backed by Helia/IPFS.
    */
-  cacheReceivedTalk(talkId: string, talkData: Talk | Record<string, unknown>): void {
-    if (!talkId || typeof localStorage === 'undefined') return;
+  async cacheReceivedTalk(talkId: string, talkData: Talk | Record<string, unknown>): Promise<void> {
+    if (!talkId) return;
+    const talk = { ...talkData, id: talkId } as Talk;
+    const ownerSeaPub = this.ownerSeaPub();
+    const authorKey = String(talk.authorId || 'unknown-author');
+    if (this.repositoryEnabled() && ownerSeaPub) {
+      await this.talkRepository.putReceived(ownerSeaPub, authorKey, talk);
+    }
+    if (typeof localStorage === 'undefined') return;
     try {
       const store = loadReceivedTalks();
       store[talkId] = {
-        talkJson: JSON.stringify({ ...talkData, id: talkId }),
+        talkJson: JSON.stringify(talk),
         receivedAt: new Date().toISOString(),
       };
       localStorage.setItem(RECEIVED_TALKS_KEY, JSON.stringify(store));
@@ -227,10 +249,26 @@ export class WebTalkService {
   }
 
   async getTalk(talkId: string): Promise<Talk | null> {
-    // Local-first: authored and mesh-received bodies are receiver-owned. Gun is
-    // retained only as a legacy read fallback during the P2P migration.
+    const ownerSeaPub = this.ownerSeaPub();
+    if (this.repositoryEnabled() && ownerSeaPub) {
+      const authored = await this.talkRepository.getAuthored(ownerSeaPub, talkId);
+      if (authored) return this.normalizeTalkFromStorage(authored);
+      const receivedFromGun = await this.talkRepository.getReceivedById(ownerSeaPub, talkId);
+      if (receivedFromGun) return this.normalizeTalkFromStorage(receivedFromGun);
+      // Received records are author-partitioned; compatibility storage supplies
+      // the author key during migration, then the record is promoted idempotently.
+      const compatReceived = loadReceivedTalk(talkId);
+      if (compatReceived) {
+        await this.talkRepository.putReceived(ownerSeaPub, String(compatReceived.authorId || 'unknown-author'), compatReceived);
+        return this.normalizeTalkFromStorage(compatReceived);
+      }
+    }
+    // Compatibility reads remain available for rollback and migrate on read.
     const local = loadAuthoredTalk(talkId);
-    if (local) return this.normalizeTalkFromStorage(local);
+    if (local) {
+      if (this.repositoryEnabled() && ownerSeaPub) await this.talkRepository.putAuthored(ownerSeaPub, local);
+      return this.normalizeTalkFromStorage(local);
+    }
     const received = loadReceivedTalk(talkId);
     if (received) return this.normalizeTalkFromStorage(received);
     try {
@@ -336,7 +374,8 @@ export class WebTalkService {
     else if (existing.authorLocation != null) updated.authorLocation = existing.authorLocation;
     // Re-stamp CIDs on edit so routing-only changes don't affect cidId
     updated.questions = await this.stampQuestionCids(updated.questions);
-    // Persist to local authored-talks store (R-f: replaces Gun talks/* write).
+    const ownerSeaPub = this.ownerSeaPub() || updated.authorId;
+    if (this.repositoryEnabled()) await this.talkRepository.putAuthored(ownerSeaPub, updated);
     saveAuthoredTalk(talkId, updated);
     return updated;
   }

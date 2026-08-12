@@ -83,17 +83,17 @@
 - [x] Test: Alice→Carol→Bob with Alice↔Bob blocked.
 - [x] Test: disable Carol forwarding and prove the path is not used.
 - [x] Test: low battery and cellular policies independently stop only third-party forwarding.
-- [ ] Test: duplicate multi-path delivery creates one durable Bob record.
+- [x] Test: duplicate multi-path delivery creates one durable Bob record.
 
 ## Milestone 5 — restore Gun as authoritative Talk storage
 
-- [ ] Add authored-Talk Gun repository and migrate existing authored localStorage records idempotently.
-- [ ] Add received/accepted-Talk Gun repository and migrate received content caches idempotently.
-- [ ] Keep compatibility reads during migration; make new writes Gun-first.
+- [x] Add authored-Talk Gun repository and migrate existing authored localStorage records idempotently.
+- [x] Add received/accepted-Talk Gun repository and migrate received content caches idempotently.
+- [x] Keep compatibility reads during migration; make new writes Gun-first.
 - [ ] Write to local Gun before sending an offer or response.
-- [ ] Add read-back verification before sending acceptance receipts.
-- [ ] Preserve current content IDs, author lineage, expiry and retraction semantics.
-- [ ] Ensure localStorage and mesh caches become disposable accelerators, not authoritative stores.
+- [x] Add read-back verification before sending acceptance receipts.
+- [x] Preserve current content IDs, author lineage, expiry and retraction semantics.
+- [x] Ensure localStorage and mesh caches become disposable accelerators, not authoritative stores.
 - [ ] Add crash recovery between local commit, send and receipt.
 - [ ] Test: restart sender before delivery; Talk remains available from Gun.
 - [ ] Test: restart receiver after acceptance; Talk and UI rebuild from Gun only.

@@ -2244,7 +2244,9 @@ export class IinPublicApp {
     );
     if (!accepted) return false;
     this.peerMeshService?.cacheTalkBody(payload.talkId, talkData);
-    this.talkService.cacheReceivedTalk(payload.talkId, talkData);
+    // Delivery is ACK-eligible only after the receiver's local Gun commit and
+    // repository read-back verification complete.
+    await this.talkService.cacheReceivedTalk(payload.talkId, talkData);
     const pairKey = `${payload.talkId}::${payload.authorId}`;
     const firstUi = !this.processedTalkResponseKeys.has(`mesh-talk-body::${pairKey}`);
     if (firstUi) {
