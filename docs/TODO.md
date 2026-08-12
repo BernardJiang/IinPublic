@@ -756,14 +756,18 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
 
 - Does location need a per-question radius, or is reusing the existing talk-level
   `authorLocation`/`locationRadiusMiles` fields sufficient?
-- All-or-nothing vs. threshold: does a match require every built-in + text-choice question to
-  resolve compatible, or is a partial-overlap score acceptable?
-
-~~Tag-pair governance~~ and ~~auto-generated question-template wording authorship~~ — **resolved
-2026-08-11** (see spec §30.7 / this doc's §DD): no separate governance process, tag pairs and their
-templates are ordinary tags under the existing FR-TG-1 (free creation) / FR-TG-4 (popularity-ranked
-suggestion) rules, same answer to both questions.
 - Whether this needs a new SRS/FR entry before implementation (see note above).
+
+**Resolved:**
+
+- ~~Tag-pair governance~~ and ~~auto-generated question-template wording authorship~~ — resolved
+  2026-08-11 (see spec §30.7 / this doc's §DD): no separate governance process, tag pairs and their
+  templates are ordinary tags under the existing FR-TG-1 (free creation) / FR-TG-4 (popularity-ranked
+  suggestion) rules, same answer to both questions.
+- ~~All-or-nothing vs. threshold~~ — resolved 2026-08-11 (Bernard): **all-or-nothing.** A match
+  requires every built-in comparison and every ordinary text-choice question in the chain to
+  resolve compatible — no partial/scored matching. Matches how flow/route already behave today (one
+  failing answer already blocks a match); no new scoring model or "close but not exact" UI needed.
 
 **Implementation plan (draft phases — re-sequence once the design note above is written):**
 

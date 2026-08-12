@@ -6682,9 +6682,10 @@ as data, not bespoke question text:
   it isn't rejected or arbitrated.
 - ~~Race/ethnicity preference: mutual or one-directional?~~ **Resolved 2026-08-11:** mutual, same as
   every other hard criterion — see §30.6.
-- All-or-nothing vs. a scored/threshold model when a talk mixes several built-ins and ordinary
-  text-choice questions — does one incompatible built-in veto the match, or does the app tolerate a
-  score below full agreement? **Still open.**
+- ~~All-or-nothing vs. a scored/threshold model when a talk mixes several built-ins and ordinary
+  text-choice questions?~~ **Resolved 2026-08-11 (Bernard): all-or-nothing.** Every built-in and
+  every text-choice question in the chain must resolve compatible — no partial/scored matching,
+  matching flow/route's existing behavior (one failing answer already blocks a match today).
 - ~~Who authors the predefined tag-pair question templates, and can a user override generated
   wording?~~ **Resolved 2026-08-11:** same answer as tag-pair governance — templates are seed
   suggestions sourced from usage, not app-authored canon; a user's own custom pair uses their own
