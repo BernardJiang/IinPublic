@@ -32,6 +32,31 @@ function saveAuthoredTalk(talkId: string, talk: Talk): void {
   }
 }
 
+/**
+ * Keep the user-facing OUT list immediately usable while the authoritative Gun commit waits
+ * for relay acknowledgement. UIManager.saveCreatedTalk later merges self-answer metadata into
+ * the same entry, so this compatibility projection is intentionally idempotent.
+ */
+function projectAuthoredTalkToMyTalks(talkId: string, talk: Talk): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const raw = localStorage.getItem('myTalks');
+    const myTalks = raw ? JSON.parse(raw) : {};
+    const now = new Date().toISOString();
+    myTalks[talkId] = {
+      ...myTalks[talkId], talkId, title: talk.title, type: talk.type,
+      language: talk.language || 'en', timestamp: now, role: 'created', fullTalk: talk,
+      disabled: myTalks[talkId]?.disabled ?? false,
+      expiresAt: talk.expiresAt ?? undefined,
+      locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
+      lastInteraction: now,
+    };
+    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+  } catch {
+    // Compatibility projection only; Gun remains authoritative.
+  }
+}
+
 function loadAuthoredTalk(talkId: string): Talk | null {
   try {
     const store = loadAuthoredTalks();
@@ -214,7 +239,9 @@ export class WebTalkService {
     const authorPair = this.gunService.getStoredPair?.();
     if (authorPair?.epub && !talk.authorEpub) talk.authorEpub = authorPair.epub;
 
-    // Gun-first dual write. Browser storage is rollback compatibility only.
+    // Project locally before waiting on a relay ACK so OUT rows and Broadcast are immediately
+    // available; the awaited Gun repository write below is still the authoritative commit.
+    projectAuthoredTalkToMyTalks(talk.id, talk);
     const ownerSeaPub = this.ownerSeaPub() || talk.authorId;
     if (this.repositoryEnabled()) await this.talkRepository.putAuthored(ownerSeaPub, talk);
     saveAuthoredTalk(talk.id, talk);
