@@ -118,6 +118,20 @@ export function p2pMeshFrameSigningPayload(frame: P2PMeshFrame): unknown {
   };
 }
 
+export function isP2PMeshFrame(value: unknown): value is P2PMeshFrame {
+  if (!value || typeof value !== 'object') return false;
+  const frame = value as Partial<P2PMeshFrame>;
+  return frame.version === 1
+    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'ack'].includes(String(frame.kind))
+    && typeof frame.msgId === 'string' && frame.msgId.length > 0 && frame.msgId.length <= 256
+    && typeof frame.roomId === 'string' && frame.roomId.length <= 256
+    && typeof frame.originUserId === 'string' && frame.originUserId.length <= 256
+    && typeof frame.originPub === 'string' && frame.originPub.length <= 2048
+    && typeof frame.createdAt === 'string' && Number.isFinite(Date.parse(frame.createdAt))
+    && Number.isSafeInteger(frame.ttlHops) && Number(frame.ttlHops) >= 0 && Number(frame.ttlHops) <= 16
+    && !!frame.payload && typeof frame.payload === 'object';
+}
+
 export function isP2PMeshTalkBodyPayload(
   payload: P2PMeshFramePayload,
 ): payload is P2PMeshTalkBodyPayload {

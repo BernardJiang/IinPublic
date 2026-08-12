@@ -211,7 +211,7 @@
 ## Milestone 13 — security and open-source release gates
 
 - [x] Threat-model discovery poisoning, binding replay, malicious relays, Sybil flooding, metadata leakage and graph over-subscription.
-- [ ] Fuzz pre-auth candidate, binding, control-frame and Gun-delta parsers.
+- [x] Fuzz pre-auth candidate, binding, control-frame and Gun-delta parsers.
 - [x] Audit dependency licenses and generate an attribution/SBOM artifact.
 - [ ] Verify reproducible documented builds for web, desktop, Android and iOS where supported.
 - [ ] Publish protocol/schema documentation and test vectors produced specifically for IinPublic.

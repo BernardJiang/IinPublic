@@ -106,12 +106,13 @@ export function validateAndNormalizeCandidate(
   raw: ConnectivityCandidate,
   now = new Date(),
 ): ConnectivityCandidate | null {
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.addresses) || !Array.isArray(raw.capabilities) || !Array.isArray(raw.roomIds)) return null;
   const observedAt = Date.parse(raw.observedAt);
   const expiresAt = Date.parse(raw.expiresAt);
   if (raw.version !== 1 || !raw.candidateId?.trim() || !raw.sourceInstanceId?.trim()) return null;
   if (!Number.isFinite(observedAt) || !Number.isFinite(expiresAt) || expiresAt <= now.getTime()) return null;
   if (expiresAt <= observedAt || expiresAt - observedAt > DISCOVERY_LIMITS.maxLifetimeMs) return null;
-  const addresses = uniqueBy(raw.addresses, (value) => `${value.kind}:${value.value}`)
+  const addresses = uniqueBy(raw.addresses.filter((value) => !!value && typeof value.kind === 'string' && typeof value.value === 'string'), (value) => `${value.kind}:${value.value}`)
     .filter((value) => value.value.length > 0 && value.value.length <= DISCOVERY_LIMITS.fieldLength)
     .slice(0, DISCOVERY_LIMITS.addressesPerCandidate);
   return {
@@ -149,4 +150,3 @@ function uniqueStrings(values: readonly string[]): string[] {
 function uniqueBy<T>(values: readonly T[], key: (value: T) => string): T[] {
   return [...new Map(values.map((value) => [key(value), value])).values()];
 }
-

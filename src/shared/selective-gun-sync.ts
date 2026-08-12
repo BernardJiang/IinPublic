@@ -30,6 +30,19 @@ export type GunSyncDelta = {
 };
 export type GunDeltaStore = { put: (key: string, value: unknown) => Promise<void>; get: (key: string) => Promise<unknown> };
 
+export function isGunSyncDeltaShape(value: unknown): value is GunSyncDelta {
+  if (!value || typeof value !== 'object') return false;
+  const delta = value as Partial<GunSyncDelta>;
+  return delta.version === 1
+    && typeof delta.grantId === 'string' && delta.grantId.length > 0 && delta.grantId.length <= 256
+    && typeof delta.soul === 'string' && delta.soul.length > 0 && delta.soul.length <= 4096
+    && typeof delta.objectId === 'string' && delta.objectId.length <= 256
+    && typeof delta.valueJson === 'string' && delta.valueJson.length <= 2 * 1024 * 1024
+    && typeof delta.head === 'string' && delta.head.length <= 256
+    && typeof delta.authorSeaPub === 'string'
+    && !!delta.proof && typeof delta.proof === 'object' && typeof delta.proof.pub === 'string';
+}
+
 function grantPayload(value: Omit<GunSyncGrant, 'proof'>): unknown {
   return { type: 'iinpublic-gun-sync-grant', ...value };
 }
@@ -67,6 +80,7 @@ export class SelectiveGunSyncReceiver {
   constructor(private readonly localSeaPub: string, private readonly store: GunDeltaStore) {}
 
   async apply(grant: GunSyncGrant, delta: GunSyncDelta, now = new Date()): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (!isGunSyncDeltaShape(delta)) return { ok: false, reason: 'malformed delta' };
     const grantCheck = await verifyGrant(grant, this.localSeaPub, now);
     if (!grantCheck.ok) return grantCheck;
     if (delta.grantId !== grant.grantId) return { ok: false, reason: 'grant mismatch' };
@@ -110,4 +124,3 @@ function isUserPrivateSoul(soul: string): boolean {
 function checkpointSoul(sourceSeaPub: string, prefix: string): string {
   return `syncCheckpoints/${encodeURIComponent(sourceSeaPub)}/${encodeURIComponent(prefix)}`;
 }
-

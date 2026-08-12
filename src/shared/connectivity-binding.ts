@@ -73,6 +73,7 @@ export class ConnectivityBindingVerifier {
   ) {}
 
   async verify(binding: ConnectivityBinding, now = new Date()): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (!isConnectivityBindingShape(binding)) return { ok: false, reason: 'malformed binding' };
     if (binding.version !== 1 || !binding.seaPub || !binding.connectivityId) return { ok: false, reason: 'missing binding fields' };
     if (binding.proof.pub !== binding.seaPub) return { ok: false, reason: 'SEA pub mismatch' };
     const issued = Date.parse(binding.issuedAt);
@@ -102,3 +103,18 @@ export class ConnectivityBindingVerifier {
   }
 }
 
+export function isConnectivityBindingShape(value: unknown): value is ConnectivityBinding {
+  if (!value || typeof value !== 'object') return false;
+  const binding = value as Partial<ConnectivityBinding>;
+  return binding.version === 1
+    && typeof binding.seaPub === 'string'
+    && typeof binding.connectivityKind === 'string'
+    && typeof binding.connectivityId === 'string'
+    && Number.isSafeInteger(binding.sequence)
+    && typeof binding.issuedAt === 'string'
+    && typeof binding.expiresAt === 'string'
+    && Array.isArray(binding.addresses)
+    && Array.isArray(binding.capabilities)
+    && !!binding.proof && typeof binding.proof === 'object'
+    && typeof binding.proof.pub === 'string';
+}
