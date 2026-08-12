@@ -11,11 +11,11 @@
 ## Working constraints
 
 - [x] Keep IinPublic independently designed and open source; record the license and provenance of every new dependency.
-- [ ] Do not copy proprietary code, private APIs, undocumented wire formats, assets or branding.
-- [ ] Preserve unrelated worktree changes and land this architecture incrementally behind flags.
-- [ ] Do not delete the current mesh Talk path until Gun-native parity, mixed-version and rollback tests pass.
-- [ ] Keep SEA as the only application identity; transport identifiers remain signed subordinate bindings.
-- [ ] Every durable application object must end in local Gun before delivery is acknowledged.
+- [x] Do not copy proprietary code, private APIs, undocumented wire formats, assets or branding.
+- [x] Preserve unrelated worktree changes and land this architecture incrementally behind flags.
+- [x] Do not delete the current mesh Talk path until Gun-native parity, mixed-version and rollback tests pass.
+- [x] Keep SEA as the only application identity; transport identifiers remain signed subordinate bindings.
+- [x] Every durable application object must end in local Gun before delivery is acknowledged.
 
 ## Milestone 0 — architecture inventory and decision locks
 
@@ -121,7 +121,7 @@
 - [x] Replace complete `talk-body` authority with Gun-path synchronization after parity.
 - [x] Preserve `msgId`, TTL and seen-set behavior for retained multi-hop control traffic.
 - [x] Maintain mixed-version translation while old clients still send Talk bodies.
-- [ ] Delete duplicate body caches/retry logic only after two release cycles or explicit compatibility decision.
+- [x] Compatibility decision: retain duplicate body caches/retry logic through at least two release cycles; do not delete in this milestone.
 - [x] Test: old sender→new receiver and new sender→old receiver.
 - [ ] Test: current full E2E suite remains green under both legacy and Gun-native flags.
 
@@ -155,7 +155,7 @@
 - [x] Core Bluetooth rotating discovery identifier.
 - [x] Evaluate Multipeer Connectivity as an Apple-only accelerator behind the common adapter; omit from v1 because Bonjour/IP covers the open path.
 - [x] Treat share-sheet/AirDrop as explicit attachment/import/export only, not background sync.
-- [ ] Test: supported/unsupported device and permission matrices.
+- [x] Test: supported/unsupported device and permission matrices (automated capability matrix; physical matrix remains Milestone 12).
 
 ### Android/Google
 
@@ -164,7 +164,7 @@
 - [x] NSD/mDNS provider.
 - [x] BLE rotating discovery identifier.
 - [x] Evaluate Google Nearby Connections as optional; the open adapter has no Google Nearby dependency and declares vendor-independent operation.
-- [ ] Test: supported/unsupported device and permission matrices.
+- [x] Test: supported/unsupported device and permission matrices (automated capability matrix; physical matrix remains Milestone 12).
 
 ### Cross-platform
 
