@@ -7,6 +7,12 @@ import {
 
 const userId = 'local';
 
+// The scope key under test is always MY OWN role (the complement of the incoming `talk`'s
+// role) — this is what `processTalkForm` (ui-manager.ts) saves under when I author my own
+// talk, so a test simulating "I'm responding to a role:'offer' talk" must seed my preference
+// under scope 'request' (my own role), not 'offer' (their role). See the doc comment in
+// built-in-question-resolution.ts.
+
 describe('resolveBuiltInQuestion', () => {
   it('asks the user when the question has no builtIn spec', () => {
     const state = createEmptyTypedPreferenceState();
@@ -33,7 +39,7 @@ describe('resolveBuiltInQuestion', () => {
     it('is compatible when the offer-side (seller) has enough for the responder\'s want', () => {
       const state = createEmptyTypedPreferenceState();
       const talk = { role: 'offer' as const, title: 'Notebook' }; // they declared "have" = 5
-      const scopeKey = makeTypedPreferenceScopeKey('offer', 'Notebook');
+      const scopeKey = makeTypedPreferenceScopeKey('request', 'Notebook'); // my own role: buyer
       saveTypedPreference(state, userId, scopeKey, { kind: 'quantity', quantity: 2 }); // I want 2
       const question = { builtIn: { kind: 'quantity' as const, quantity: 5 } };
 
@@ -46,7 +52,7 @@ describe('resolveBuiltInQuestion', () => {
     it('is not compatible when the responder wants more than the offer-side declared', () => {
       const state = createEmptyTypedPreferenceState();
       const talk = { role: 'offer' as const, title: 'Notebook' }; // they have 2
-      const scopeKey = makeTypedPreferenceScopeKey('offer', 'Notebook');
+      const scopeKey = makeTypedPreferenceScopeKey('request', 'Notebook');
       saveTypedPreference(state, userId, scopeKey, { kind: 'quantity', quantity: 5 }); // I want 5
       const question = { builtIn: { kind: 'quantity' as const, quantity: 2 } };
 
@@ -59,7 +65,7 @@ describe('resolveBuiltInQuestion', () => {
     it('is compatible when the request-side (buyer) wants no more than the responder has', () => {
       const state = createEmptyTypedPreferenceState();
       const talk = { role: 'request' as const, title: 'Notebook' }; // they want 3
-      const scopeKey = makeTypedPreferenceScopeKey('request', 'Notebook');
+      const scopeKey = makeTypedPreferenceScopeKey('offer', 'Notebook'); // my own role: seller
       saveTypedPreference(state, userId, scopeKey, { kind: 'quantity', quantity: 10 }); // I have 10
       const question = { builtIn: { kind: 'quantity' as const, quantity: 3 } };
 
@@ -82,7 +88,7 @@ describe('resolveBuiltInQuestion', () => {
     it('asks the user when the stored preference is a different kind than the question', () => {
       const state = createEmptyTypedPreferenceState();
       const talk = { role: 'offer' as const, title: 'Notebook' };
-      const scopeKey = makeTypedPreferenceScopeKey('offer', 'Notebook');
+      const scopeKey = makeTypedPreferenceScopeKey('request', 'Notebook');
       saveTypedPreference(state, userId, scopeKey, { kind: 'priceRange', priceRange: { min: 1, max: 2 } });
       const question = { builtIn: { kind: 'quantity' as const, quantity: 5 } };
 
@@ -94,7 +100,7 @@ describe('resolveBuiltInQuestion', () => {
     it('is compatible when the ranges genuinely overlap (not identical, real interval math)', () => {
       const state = createEmptyTypedPreferenceState();
       const talk = { role: 'offer' as const, title: 'Notebook' };
-      const scopeKey = makeTypedPreferenceScopeKey('offer', 'Notebook');
+      const scopeKey = makeTypedPreferenceScopeKey('request', 'Notebook');
       saveTypedPreference(state, userId, scopeKey, { kind: 'priceRange', priceRange: { min: 300, max: 500 } });
       const question = { builtIn: { kind: 'priceRange' as const, priceRange: { min: 400, max: 600 } } };
 
@@ -107,7 +113,7 @@ describe('resolveBuiltInQuestion', () => {
     it('is not compatible when the ranges are disjoint', () => {
       const state = createEmptyTypedPreferenceState();
       const talk = { role: 'offer' as const, title: 'Notebook' };
-      const scopeKey = makeTypedPreferenceScopeKey('offer', 'Notebook');
+      const scopeKey = makeTypedPreferenceScopeKey('request', 'Notebook');
       saveTypedPreference(state, userId, scopeKey, { kind: 'priceRange', priceRange: { min: 10, max: 20 } });
       const question = { builtIn: { kind: 'priceRange' as const, priceRange: { min: 400, max: 600 } } };
 
@@ -122,7 +128,7 @@ describe('resolveBuiltInQuestion', () => {
     it('is compatible when date ranges overlap', () => {
       const state = createEmptyTypedPreferenceState();
       const talk = { role: 'offer' as const, title: 'Studio rental' };
-      const scopeKey = makeTypedPreferenceScopeKey('offer', 'Studio rental');
+      const scopeKey = makeTypedPreferenceScopeKey('request', 'Studio rental');
       saveTypedPreference(state, userId, scopeKey, {
         kind: 'timeFrame',
         timeFrame: { start: new Date('2026-09-01').getTime(), end: new Date('2026-09-30').getTime() },
@@ -143,7 +149,7 @@ describe('resolveBuiltInQuestion', () => {
     it('is not compatible when date ranges do not overlap', () => {
       const state = createEmptyTypedPreferenceState();
       const talk = { role: 'offer' as const, title: 'Studio rental' };
-      const scopeKey = makeTypedPreferenceScopeKey('offer', 'Studio rental');
+      const scopeKey = makeTypedPreferenceScopeKey('request', 'Studio rental');
       saveTypedPreference(state, userId, scopeKey, {
         kind: 'timeFrame',
         timeFrame: { start: new Date('2026-09-01').getTime(), end: new Date('2026-09-30').getTime() },

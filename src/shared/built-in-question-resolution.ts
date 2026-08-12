@@ -9,6 +9,7 @@
  * trustworthy enough to auto-resolve" decision in `docs/TODO.md` §BB.
  */
 import type { Talk, Question } from './types';
+import { complementRole } from './talk-engine';
 import { intervalsOverlap, quantitySufficient } from './built-in-comparisons';
 import { getTypedPreference, makeTypedPreferenceScopeKey, type TypedPreferenceState } from './typed-preference-store';
 
@@ -36,7 +37,13 @@ export function resolveBuiltInQuestion(
   if (!builtIn) return { action: 'ASK_USER' };
   if (builtIn.kind === 'location') return { action: 'ASK_USER' };
 
-  const scopeKey = makeTypedPreferenceScopeKey(String(talk.role || 'general'), talk.title);
+  // Scoped by MY OWN role (the complement of the incoming talk's role), not the incoming
+  // talk's role directly — this must match the scope key `processTalkForm` (ui-manager.ts)
+  // saves under when I create MY OWN talk, where the scope is always my own talk's role. A
+  // buyer's incoming-talk-side lookup with role='request' and a buyer's own saved preference
+  // (from authoring their own role='request' talk) must resolve to the SAME scope key.
+  const myRole = complementRole(talk.role);
+  const scopeKey = makeTypedPreferenceScopeKey(String(myRole || 'general'), talk.title);
   const myPref = getTypedPreference(preferenceState, userId, scopeKey);
   if (!myPref || myPref.kind !== builtIn.kind) return { action: 'ASK_USER' };
 

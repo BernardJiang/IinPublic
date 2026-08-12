@@ -77,11 +77,13 @@ import {
   setExactChatbotMemory,
   setFlattenedAnswerPreferences,
   setMyQuestionAnswer,
+  setTypedPreferenceState,
   type AnswerPreferenceEntry,
   type AnswerPreferenceMap,
   type MyQuestionAnswerEntry,
 } from './answer-preferences-storage';
 import { resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
+import { makeTypedPreferenceScopeKey, saveTypedPreference } from '../../shared/typed-preference-store';
 import {
   findAutoAnswer,
   findAutoAnswerMultiple,
@@ -130,6 +132,8 @@ import {
   addAnswerToQuestion as addTalkEditorAnswerToQuestion,
   addQuestionToForm as addTalkEditorQuestionToForm,
   appendIgnoreRow as appendTalkEditorIgnoreRow,
+  applyBuiltInKindToQuestion,
+  readBuiltInSpecFromQuestion,
   setupTalkFormHandlers as setupTalkEditorFormHandlers,
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
 } from './talk-editor-form-helpers';
@@ -8447,6 +8451,7 @@ export class UIManager extends EventEmitter {
         processTalkForm: this.processTalkForm.bind(this),
         text: this.t.bind(this),
       }),
+      applyBuiltInKindToQuestion,
       updateAllAnswerDropdowns: this.updateAllAnswerDropdowns.bind(this),
       refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
       ensureRouteEditorRendered: this.ensureRouteEditorRendered.bind(this),
@@ -8530,6 +8535,7 @@ export class UIManager extends EventEmitter {
       // flow + survey share the linear editor
       questions = [];
       const questionItems = form.querySelectorAll('.question-item');
+      const builtInErrors: string[] = [];
 
       questionItems.forEach((item, qIndex) => {
         const questionId = `q_${qIndex}`;
@@ -8597,8 +8603,33 @@ export class UIManager extends EventEmitter {
           questionObj.isAggregatable = true;
           questionObj.contextHashId = '';
         }
+        // §BB / spec §30.2: a builtIn question has no author-typed answers at all —
+        // TalkAutofix.fix generates the 2 synthetic answers from questionObj.builtIn alone, so
+        // force answers back to [] regardless of what the (hidden, unused) answer-item rows
+        // produced above.
+        const builtInRead = readBuiltInSpecFromQuestion(item, {
+          refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
+          processTalkForm: this.processTalkForm.bind(this),
+          text: this.t.bind(this),
+        });
+        if (builtInRead.error) {
+          builtInErrors.push(builtInRead.error);
+        } else if (builtInRead.kind) {
+          questionObj.answers = [];
+          questionObj.builtIn = {
+            kind: builtInRead.kind,
+            ...(builtInRead.quantity !== undefined ? { quantity: builtInRead.quantity } : {}),
+            ...(builtInRead.priceRange ? { priceRange: builtInRead.priceRange } : {}),
+            ...(builtInRead.timeFrame ? { timeFrame: builtInRead.timeFrame } : {}),
+          };
+        }
         questions.push(questionObj);
       });
+
+      if (builtInErrors.length > 0) {
+        this.showTalkValidationError(builtInErrors);
+        return false;
+      }
     }
 
     // ── Mandatory financial-data check (spec §7.4, FR-FIN-2) ───────────────
@@ -8643,6 +8674,25 @@ export class UIManager extends EventEmitter {
       return false;
     }
     questions = fixed.questions;
+
+    // §BB / spec §30.2: the value I just declared on my OWN builtIn question is also my own
+    // typed preference for future auto-resolution when I respond to someone ELSE'S talk of the
+    // same shape — save it into the same store `resolveBuiltInQuestion` (Phase 4) reads,
+    // scoped the same way (talk.role + talk.title, the interim substitute for a real deal tag
+    // pending Phase 5's tag-pair picker). 'location' is excluded: it has no stored preference,
+    // see Question.builtIn's doc comment.
+    for (const q of questions) {
+      if (!q.builtIn || q.builtIn.kind === 'location') continue;
+      const preferenceState = getTypedPreferenceState();
+      const scopeKey = makeTypedPreferenceScopeKey(String(role || 'general'), title);
+      saveTypedPreference(preferenceState, LOCAL_EXACT_CHATBOT_USER_ID, scopeKey, {
+        kind: q.builtIn.kind,
+        ...(q.builtIn.quantity !== undefined ? { quantity: q.builtIn.quantity } : {}),
+        ...(q.builtIn.priceRange ? { priceRange: q.builtIn.priceRange } : {}),
+        ...(q.builtIn.timeFrame ? { timeFrame: q.builtIn.timeFrame } : {}),
+      });
+      setTypedPreferenceState(preferenceState);
+    }
 
     const editingTalkId = form.dataset.editingTalkId;
     if (editingTalkId) {

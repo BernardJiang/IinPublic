@@ -807,10 +807,12 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
    (`getTypedPreferenceState`/`setTypedPreferenceState` in `answer-preferences-storage.ts`,
    mirroring the existing exact-chatbot-memory persistence pair; also cleared by
    `clearAnswerPreferences`).
-   - **Wired now:** `quantity`, `priceRange`, `timeFrame` — using `talk.role` as an **interim**
+   - **Wired now:** `quantity`, `priceRange`, `timeFrame` — using role (specifically MY OWN
+     role, `complementRole(talk.role)` — the incoming talk's role complement, matching what
+     `processTalkForm` saves under when I author my own talk, see Phase 5) as an **interim**
      typed-preference scope substitute for the real opposite-tag (Phase 1's registry), since a
-     talk carries no resolvable deal-tag until Phase 5 wires the tag picker into the editor.
-     Revisit the scope key once Phase 5 ships.
+     talk carries no resolvable deal-tag until a tag picker is wired into the editor (still not
+     shipped as of Phase 5, see below). Revisit the scope key once that lands.
    - **Deliberately deferred:** `location` — always resolves `ASK_USER` (falls through to the
      human inbox, same as "no stored preference"). Needs a geo/privacy-aware source for the
      responder's OWN location + radius (their blurred coordinate, or a matching counterpart
@@ -825,9 +827,45 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
      the builtIn path itself yet** — there is no UI path to create a `builtIn` talk or set a
      typed preference until Phase 5 ships; the original test plan's e2e cases (quantity-
      insufficient, price-overlap, location-outside-radius, route multi-item) apply once it does.
-5. Talk editor UI: tag-pair picker (leading section), typed input widgets per built-in kind (number
-   field, date-range picker, location+radius picker) replacing "+ Add Answer" for these questions;
-   auto-generated first-question preview from the tag-pair template.
+5. **Shipped 2026-08-11 (partial — typed input widgets only, see below).** Talk editor UI: a
+   per-question "Compare using:" `<select>` (`.builtin-kind`, mirroring §FF's
+   `answer-selection-mode` toggle exactly) with `quantity`/`priceRange`/`timeFrame`/`location`
+   options, each swapping in its own typed input widget (`talk-editor-form-helpers.ts`'s
+   `applyBuiltInKindToQuestion`) in place of the ordinary "+ Add Answer" UI — hides the answers
+   container AND clears `required` off its now-invisible `.answer-text` inputs (a real risk:
+   `display:none` does not reliably exempt a `required` field from native form-submit
+   validation, unlike the `hidden` attribute). `processTalkForm` (ui-manager.ts) reads the typed
+   value via `readBuiltInSpecFromQuestion`, forces `answers: []` (so `TalkAutofix.fix` generates
+   the synthetic pair per Phase 2), and — as a side effect — saves that same value into MY OWN
+   `typed-preference-store` (the same store Phase 4 reads when auto-resolving someone else's
+   talk), closing the loop without needing a separate "declare your preference" screen. Early
+   per-field validation (empty/invalid typed values) reuses the existing
+   `showTalkValidationError` early-return pattern, not native HTML `required` (deliberately, for
+   the same display:none reason above). Edit-reopen correctly rehydrates the kind + typed value
+   (the `answerSelectionMode` toggle has this same gap unfixed from §FF — noted, not fixed here,
+   out of scope for this change).
+   - **Real bug caught and fixed before shipping:** `resolveBuiltInQuestion`'s scope key
+     originally used the INCOMING talk's own role directly, but `processTalkForm`'s save-side
+     effect scopes by MY OWN talk's role — for a buyer responding to a seller's `role: 'offer'`
+     talk, that's `'offer'` (their role) vs `'request'` (my role, saved when I created my own
+     talk) — two different strings that would never match. Fixed by scoping the read side by
+     `complementRole(talk.role)` (my own role) instead. Caught before any UI wiring existed, via
+     reasoning through the new end-to-end e2e test below, not a live incident.
+   - E2E: new `tests/e2e/staged/stage2-two-user/86-builtin-quantity-match.spec.ts` — 2 tests,
+     both zero manual clicks, driven entirely through the real talk editor: buyer wants 2 /
+     seller has 5 (2≤5) auto-matches; buyer wants 10 / seller has 2 (10>2) resolves to no-match
+     automatically (never sits waiting on a human — proving the "computed incompatible is
+     trustworthy enough to auto-resolve" decision actually holds through the full UI→engine→UI
+     path). Plus a full regression run (`04-dealmaker-chatbot-match`,
+     `85-multi-value-checkbox-match`, `86-builtin-quantity-match`, 7/7 pass).
+   - **NOT shipped**: the tag-pair picker (leading section) and "auto-generated first-question
+     preview from the tag-pair template." Deliberately deferred — building it now wouldn't
+     change any live behavior, since Phase 4's resolver still scopes by `talk.role`, not by any
+     tag (`Talk.tags` stays hardcoded to `[]` everywhere in the editor, unchanged this phase);
+     revisit once there's an actual consumer for tag-scoped preferences, otherwise it's
+     speculative UI. `location` also still has no editor input (by design — it reuses the talk's
+     own existing location/radius fields, see Phase 2) and no auto-resolution wiring yet (Phase 4
+     deferred it for the same geo/privacy-source reason).
 6. Route branch integration: per-branch quantity/price fields, talk-level time frame/location shared
    across branches.
 

@@ -177,6 +177,42 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
         <option value="multiple">${text(options, 'editorAnswerSelectionModeMultiple', 'Any that apply (checkboxes)')}</option>
       </select>
     </label>
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
+      ${text(options, 'editorBuiltInKindLabel', 'Compare using:')}
+      <select class="form-input builtin-kind" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
+        <option value="">${text(options, 'editorBuiltInKindNone', 'Ordinary answer choices')}</option>
+        <option value="quantity">${text(options, 'editorBuiltInKindQuantity', 'Quantity (number comparison)')}</option>
+        <option value="priceRange">${text(options, 'editorBuiltInKindPriceRange', 'Price range (overlap)')}</option>
+        <option value="timeFrame">${text(options, 'editorBuiltInKindTimeFrame', 'Time frame (date overlap)')}</option>
+        <option value="location">${text(options, 'editorBuiltInKindLocation', 'Location (radius match)')}</option>
+      </select>
+    </label>
+    <div class="builtin-inputs" style="display: none; margin-left: 15px; margin-bottom: 10px;">
+      <div class="builtin-kind-fields" data-builtin-kind="quantity" style="display: none; margin-bottom: 6px;">
+        <label style="font-size: 0.9em;">${text(options, 'editorBuiltInQuantityLabel', 'Quantity:')}
+          <input type="number" class="form-input builtin-quantity-input" style="width: 120px; display: inline-block;">
+        </label>
+      </div>
+      <div class="builtin-kind-fields" data-builtin-kind="priceRange" style="display: none; margin-bottom: 6px;">
+        <label style="font-size: 0.9em;">${text(options, 'editorBuiltInPriceMinLabel', 'Min price:')}
+          <input type="number" class="form-input builtin-pricerange-min" style="width: 100px; display: inline-block;">
+        </label>
+        <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInPriceMaxLabel', 'Max price:')}
+          <input type="number" class="form-input builtin-pricerange-max" style="width: 100px; display: inline-block;">
+        </label>
+      </div>
+      <div class="builtin-kind-fields" data-builtin-kind="timeFrame" style="display: none; margin-bottom: 6px;">
+        <label style="font-size: 0.9em;">${text(options, 'editorBuiltInTimeStartLabel', 'From:')}
+          <input type="date" class="form-input builtin-timeframe-start" style="display: inline-block;">
+        </label>
+        <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInTimeEndLabel', 'To:')}
+          <input type="date" class="form-input builtin-timeframe-end" style="display: inline-block;">
+        </label>
+      </div>
+      <div class="builtin-kind-fields" data-builtin-kind="location" style="display: none; font-size: 0.85em; color: #666;">
+        ${text(options, 'editorBuiltInLocationNote', "Uses this talk's own location and radius (set below).")}
+      </div>
+    </div>
     <div class="answers-container" style="margin-left: 15px;"></div>
     <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">${text(options, 'editorAddAnswer', '+ Add Answer')}</button>
   `;
@@ -207,6 +243,11 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
     applyAnswerSelectionModeToQuestion(questionDiv, modeSelect.value === 'multiple' ? 'multiple' : 'single');
     updateAllAnswerDropdowns(options);
   });
+
+  const builtInKindSelect = questionDiv.querySelector('.builtin-kind') as HTMLSelectElement | null;
+  builtInKindSelect?.addEventListener('change', () => {
+    applyBuiltInKindToQuestion(questionDiv, builtInKindSelect.value);
+  });
 }
 
 /**
@@ -235,6 +276,98 @@ export function applyAnswerSelectionModeToQuestion(questionItem: HTMLElement, mo
     const qIdx = parseInt(questionItem.getAttribute('data-question-index') ?? '0', 10);
     if (answersContainer) appendIgnoreRow(answersContainer, qIdx);
   }
+}
+
+/**
+ * §BB / spec §30.2: a `builtIn` (typed comparison) question has no author-typed answers at
+ * all — `TalkAutofix.fix` generates its 2 synthetic answers (`Compatible`/`Not compatible`)
+ * from `Question.builtIn` alone. Selecting a kind hides the ordinary answers UI (and the now-
+ * meaningless answer-selection-mode toggle) and shows the matching typed-input widget instead;
+ * clearing the `required` attribute on the hidden `.answer-text` inputs so they never block
+ * native form submission while invisible.
+ */
+export function applyBuiltInKindToQuestion(questionItem: HTMLElement, kind: string): void {
+  const isBuiltIn = kind !== '';
+  const answersContainer = questionItem.querySelector('.answers-container') as HTMLElement | null;
+  const addAnswerBtn = questionItem.querySelector('.btn-add-answer') as HTMLElement | null;
+  const modeLabel = questionItem.querySelector('.answer-selection-mode')?.closest('label') as HTMLElement | null;
+  const builtinInputs = questionItem.querySelector('.builtin-inputs') as HTMLElement | null;
+
+  if (answersContainer) {
+    answersContainer.style.display = isBuiltIn ? 'none' : '';
+    answersContainer.querySelectorAll<HTMLInputElement>('.answer-text').forEach((input) => {
+      input.required = !isBuiltIn;
+    });
+  }
+  if (addAnswerBtn) addAnswerBtn.style.display = isBuiltIn ? 'none' : '';
+  if (modeLabel) modeLabel.style.display = isBuiltIn ? 'none' : '';
+  if (builtinInputs) {
+    builtinInputs.style.display = isBuiltIn ? '' : 'none';
+    builtinInputs.querySelectorAll<HTMLElement>('.builtin-kind-fields').forEach((el) => {
+      el.style.display = el.dataset.builtinKind === kind ? '' : 'none';
+    });
+  }
+}
+
+export interface BuiltInReadResult {
+  kind: string;
+  quantity?: number;
+  priceRange?: { min: number; max: number };
+  timeFrame?: { start: number; end: number };
+  /** Set when `kind` is non-empty but the typed value is missing/invalid — caller should
+   *  surface this and abort before autofix/validate, same as any other early-exit field error. */
+  error?: string;
+}
+
+/** Reads the builtIn kind + typed value directly authored on this question row, if any. */
+export function readBuiltInSpecFromQuestion(
+  questionItem: Element | null,
+  options: TalkEditorFormHelperOptions,
+): BuiltInReadResult {
+  const select = questionItem?.querySelector('.builtin-kind') as HTMLSelectElement | null;
+  const kind = select?.value || '';
+  if (!kind) return { kind: '' };
+
+  if (kind === 'quantity') {
+    const input = questionItem?.querySelector('.builtin-quantity-input') as HTMLInputElement | null;
+    const quantity = Number(input?.value);
+    if (!input?.value || !Number.isFinite(quantity)) {
+      return { kind, error: text(options, 'editorBuiltInQuantityRequired', 'Enter a quantity for the built-in comparison question.') };
+    }
+    return { kind, quantity };
+  }
+
+  if (kind === 'priceRange') {
+    const minInput = questionItem?.querySelector('.builtin-pricerange-min') as HTMLInputElement | null;
+    const maxInput = questionItem?.querySelector('.builtin-pricerange-max') as HTMLInputElement | null;
+    const min = Number(minInput?.value);
+    const max = Number(maxInput?.value);
+    if (!minInput?.value || !maxInput?.value || !Number.isFinite(min) || !Number.isFinite(max) || min > max) {
+      return {
+        kind,
+        error: text(options, 'editorBuiltInPriceRangeRequired', 'Enter a valid min/max price range for the built-in comparison question.'),
+      };
+    }
+    return { kind, priceRange: { min, max } };
+  }
+
+  if (kind === 'timeFrame') {
+    const startInput = questionItem?.querySelector('.builtin-timeframe-start') as HTMLInputElement | null;
+    const endInput = questionItem?.querySelector('.builtin-timeframe-end') as HTMLInputElement | null;
+    const start = startInput?.value ? new Date(startInput.value).getTime() : NaN;
+    const end = endInput?.value ? new Date(endInput.value).getTime() : NaN;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+      return {
+        kind,
+        error: text(options, 'editorBuiltInTimeFrameRequired', 'Enter a valid date range for the built-in comparison question.'),
+      };
+    }
+    return { kind, timeFrame: { start, end } };
+  }
+
+  // 'location' needs no typed value of its own — it reuses the talk's own
+  // authorLocation/locationRadiusMiles (see Question.builtIn doc comment, types.ts).
+  return { kind };
 }
 
 export function updateAllAnswerDropdowns(options: TalkEditorFormHelperOptions): void {

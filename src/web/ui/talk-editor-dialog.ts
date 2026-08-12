@@ -17,6 +17,7 @@ type TalkEditorDialogOptions = {
   addQuestionToForm: (index: number, container: HTMLElement) => void;
   addAnswerToQuestion: (container: HTMLElement, index: number) => void;
   appendIgnoreRow: (container: HTMLElement, qIndex: number) => void;
+  applyBuiltInKindToQuestion: (questionItem: HTMLElement, kind: string) => void;
   updateAllAnswerDropdowns: () => void;
   refreshFlowAnswerConstraints: (type: string) => void;
   ensureRouteEditorRendered: (existingTalk?: any) => void;
@@ -197,6 +198,29 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           if (questionItem) {
             const textInput = questionItem.querySelector('.question-text') as HTMLInputElement | null;
             if (textInput) textInput.value = q.text || '';
+            // §BB / spec §30.2: rehydrate the builtIn kind selector + its typed value so
+            // reopening the editor for a saved builtIn question doesn't silently reset to
+            // "ordinary answer choices" (the answer-selection-mode toggle has this same gap
+            // pre-existing from §FF — not fixed here, out of scope for this change).
+            if (q.builtIn?.kind) {
+              const kindSelect = questionItem.querySelector('.builtin-kind') as HTMLSelectElement | null;
+              if (kindSelect) kindSelect.value = q.builtIn.kind;
+              options.applyBuiltInKindToQuestion(questionItem as HTMLElement, q.builtIn.kind);
+              if (q.builtIn.kind === 'quantity' && typeof q.builtIn.quantity === 'number') {
+                const input = questionItem.querySelector('.builtin-quantity-input') as HTMLInputElement | null;
+                if (input) input.value = String(q.builtIn.quantity);
+              } else if (q.builtIn.kind === 'priceRange' && q.builtIn.priceRange) {
+                const minInput = questionItem.querySelector('.builtin-pricerange-min') as HTMLInputElement | null;
+                const maxInput = questionItem.querySelector('.builtin-pricerange-max') as HTMLInputElement | null;
+                if (minInput) minInput.value = String(q.builtIn.priceRange.min);
+                if (maxInput) maxInput.value = String(q.builtIn.priceRange.max);
+              } else if (q.builtIn.kind === 'timeFrame' && q.builtIn.timeFrame) {
+                const startInput = questionItem.querySelector('.builtin-timeframe-start') as HTMLInputElement | null;
+                const endInput = questionItem.querySelector('.builtin-timeframe-end') as HTMLInputElement | null;
+                if (startInput) startInput.value = new Date(q.builtIn.timeFrame.start).toISOString().slice(0, 10);
+                if (endInput) endInput.value = new Date(q.builtIn.timeFrame.end).toISOString().slice(0, 10);
+              }
+            }
             const answersContainer = questionItem.querySelector('.answers-container') as HTMLElement | null;
             if (answersContainer && Array.isArray(q.answers)) {
               answersContainer.innerHTML = '';
