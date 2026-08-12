@@ -1,4 +1,4 @@
-import { applyConnectivityPreset, connectivityStatusText, defaultConnectivitySettings, loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings } from '../../web/ui/connectivity-settings';
+import { applyConnectivityPreset, connectivityDiagnosticsText, connectivityStatusText, defaultConnectivitySettings, loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings } from '../../web/ui/connectivity-settings';
 import { MeshForwardingPolicy } from '../../shared/mesh-forwarding-policy';
 import { ConnectionManager, pathScore, type PathInfo } from '../../shared/connection-manager';
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
@@ -18,6 +18,19 @@ describe('connectivity UI settings', () => {
   });
   test('formats compact active status', () => {
     expect(connectivityStatusText({ directness: 'direct', interface: 'wifi', metered: false })).toBe('direct; wifi; free');
+  });
+  test('formats accessible advanced diagnostics and labels routes as non-identity data', () => {
+    const text = connectivityDiagnosticsText({
+      providers: [{ providerId: 'local-mdns', source: 'mdns', state: 'degraded', candidateCount: 2, lastError: 'permission denied' }],
+      candidateCount: 2,
+      verifiedSeaBindingCount: 1,
+      activePath: { pathId: '12D3-route-only', transport: 'libp2p', interface: 'wifi', directness: 'direct', metered: false, latencyMs: 12, bandwidthKbps: 1000, batteryClass: 'high', stability: 90, health: 'healthy' },
+      recentFailures: [{ component: 'mDNS', reason: 'permission denied', at: '2026-08-12T00:00:00Z' }],
+    });
+    expect(text).toContain('mdns (degraded); 2 candidates; failure: permission denied');
+    expect(text).toContain('Verified SEA connectivity bindings: 1');
+    expect(text).toContain('Active route (transport, not identity): direct wifi/libp2p');
+    expect(text).toContain('mDNS: permission denied');
   });
   test('persisted forwarding setting changes live policy without exposing an ID as identity', () => {
     const settings = applyConnectivityPreset('private'); saveConnectivitySettings(settings);

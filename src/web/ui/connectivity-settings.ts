@@ -1,6 +1,8 @@
 import { DEFAULT_FORWARDING_SETTINGS, type ForwardingSettings } from '../../shared/mesh-forwarding-policy';
 import type { MeteredPermission } from '../../shared/connection-manager';
 import type { RoutePreferences } from '../../shared/connection-manager';
+import type { PathInfo } from '../../shared/connection-manager';
+import type { PeerDiscoveryProviderStatus } from '../../shared/peer-discovery-provider';
 
 export type ConnectivityPreset = 'automatic' | 'data-saver' | 'fastest' | 'local-event' | 'private' | 'advanced';
 export type ConnectivitySettings = {
@@ -11,6 +13,17 @@ export type ConnectivitySettings = {
   batteryAware: boolean;
   meteredPermission: MeteredPermission;
   forwarding: ForwardingSettings;
+};
+export type ConnectivityDiagnostics = {
+  providers?: readonly PeerDiscoveryProviderStatus[];
+  candidateCount?: number;
+  verifiedSeaBindingCount?: number;
+  activePath?: PathInfo | null;
+  recentFailures?: readonly { component: string; reason: string; at: string }[];
+  bytesByRoute?: Readonly<Record<string, number>>;
+  forwardedFrames?: number;
+  droppedFrames?: number;
+  abuseDrops?: number;
 };
 const KEY = 'iinpublic_connectivity_settings_v1';
 
@@ -42,6 +55,26 @@ export function saveConnectivitySettings(value: ConnectivitySettings): void {
 
 export function connectivityStatusText(input: { directness: 'direct' | 'relay' | 'store-forward'; interface: string; metered: boolean }): string {
   return `${input.directness}; ${input.interface}; ${input.metered ? 'metered' : 'free'}`;
+}
+
+/** Product-safe diagnostics: SEA bindings are counted, while transport IDs stay clearly labelled as routes. */
+export function connectivityDiagnosticsText(value: ConnectivityDiagnostics): string {
+  const providers = value.providers ?? [];
+  const active = value.activePath
+    ? `${value.activePath.directness} ${value.activePath.interface}/${value.activePath.transport} (${value.activePath.health}${value.activePath.metered ? ', metered' : ', free'})`
+    : 'none';
+  const failures = (value.recentFailures ?? []).slice(-10).map((failure) => `${failure.at} ${failure.component}: ${failure.reason}`);
+  const routes = Object.entries(value.bytesByRoute ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([route, bytes]) => `${route}: ${bytes} bytes`);
+  return [
+    `Discovery providers: ${providers.length || 0}`,
+    ...providers.map((provider) => `- ${provider.source} (${provider.state}); ${provider.candidateCount} candidates${provider.lastError ? `; failure: ${provider.lastError}` : ''}`),
+    `Candidates: ${value.candidateCount ?? providers.reduce((sum, provider) => sum + provider.candidateCount, 0)}`,
+    `Verified SEA connectivity bindings: ${value.verifiedSeaBindingCount ?? 0}`,
+    `Active route (transport, not identity): ${active}`,
+    `Forwarding: ${value.forwardedFrames ?? 0} frames; ${value.droppedFrames ?? 0} policy drops; ${value.abuseDrops ?? 0} abuse drops`,
+    ...(routes.length ? ['Route usage:', ...routes] : []),
+    ...(failures.length ? ['Recent failures:', ...failures] : ['Recent failures: none']),
+  ].join('\n');
 }
 
 export function routePreferencesFromSettings(value: ConnectivitySettings): RoutePreferences {

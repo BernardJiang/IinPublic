@@ -180,7 +180,7 @@
 - [x] Add free/direct/battery priorities and cellular permission control.
 - [x] Add forwarding controls and byte usage.
 - [x] Show compact active status: direct/relayed, interface and free/metered.
-- [ ] Add advanced provider, candidate, SEA-binding, route, health and failure diagnostics.
+- [x] Add advanced provider, candidate, SEA-binding, route, health and failure diagnostics.
 - [x] Explain permissions in product language before OS prompts.
 - [x] Test: every setting affects policy without exposing transport IDs as user identities.
 - [x] Test: denied nearby permission leaves Internet discovery operational.

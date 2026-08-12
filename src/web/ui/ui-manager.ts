@@ -65,7 +65,7 @@ import {
   type ContactsViewDeps,
 } from './contacts-view';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
-import { applyConnectivityPreset, loadConnectivitySettings, saveConnectivitySettings, type ConnectivityPreset } from './connectivity-settings';
+import { applyConnectivityPreset, connectivityDiagnosticsText, loadConnectivitySettings, saveConnectivitySettings, type ConnectivityDiagnostics, type ConnectivityPreset } from './connectivity-settings';
 import {
   clearAnswerPreferences,
   getAnswerPreferences,
@@ -4800,12 +4800,12 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  updateConnectivityDiagnostics(value: { bytesByRoute: Record<string, number>; forwardedFrames: number; droppedFrames: number; abuseDrops: number }): void {
-    const totalBytes = Object.values(value.bytesByRoute).reduce((sum, bytes) => sum + bytes, 0);
+  updateConnectivityDiagnostics(value: ConnectivityDiagnostics): void {
+    const totalBytes = Object.values(value.bytesByRoute ?? {}).reduce((sum, bytes) => sum + bytes, 0);
     const status = document.getElementById('settings-connectivity-status');
     if (status) status.textContent = `Forwarded ${totalBytes} bytes · ${value.forwardedFrames} frames · ${value.droppedFrames} policy drops`;
     const diagnostics = document.getElementById('settings-connectivity-diagnostics');
-    if (diagnostics) diagnostics.textContent = JSON.stringify(value, null, 2);
+    if (diagnostics) diagnostics.textContent = connectivityDiagnosticsText(value);
   }
 
   private async getBrowserStorageSnapshot(): Promise<{
