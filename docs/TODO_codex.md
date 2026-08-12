@@ -10,7 +10,7 @@
 
 ## Working constraints
 
-- [ ] Keep IinPublic independently designed and open source; record the license and provenance of every new dependency.
+- [x] Keep IinPublic independently designed and open source; record the license and provenance of every new dependency.
 - [ ] Do not copy proprietary code, private APIs, undocumented wire formats, assets or branding.
 - [ ] Preserve unrelated worktree changes and land this architecture incrementally behind flags.
 - [ ] Do not delete the current mesh Talk path until Gun-native parity, mixed-version and rollback tests pass.
@@ -210,9 +210,9 @@
 
 ## Milestone 13 — security and open-source release gates
 
-- [ ] Threat-model discovery poisoning, binding replay, malicious relays, Sybil flooding, metadata leakage and graph over-subscription.
+- [x] Threat-model discovery poisoning, binding replay, malicious relays, Sybil flooding, metadata leakage and graph over-subscription.
 - [ ] Fuzz pre-auth candidate, binding, control-frame and Gun-delta parsers.
-- [ ] Audit dependency licenses and generate an attribution/SBOM artifact.
+- [x] Audit dependency licenses and generate an attribution/SBOM artifact.
 - [ ] Verify reproducible documented builds for web, desktop, Android and iOS where supported.
 - [ ] Publish protocol/schema documentation and test vectors produced specifically for IinPublic.
 - [ ] Document cryptographic limits of SEA pair encryption and separately evaluate a reviewed ratcheting protocol for private conversations.

@@ -46,6 +46,7 @@
     "health": "npm run test:type && npm run lint && npm run test:unit && npm run test:integration && npm run build:web && npm run build:server",
     "coverage:matrix": "node scripts/coverage-matrix.mjs",
     "coverage:check": "node scripts/coverage-matrix.mjs --check",
+    "sbom": "node scripts/generate-sbom.mjs",
     "test:unit+e2e": "npm run test:unit && npm run test:e2e",
     "test:e2e": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true playwright test",
     "test:e2e:parallel": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_SKIP_HEAVY=1 PW_WORKERS=${PW_WORKERS:-12} DISABLE_HMR=true playwright test",
