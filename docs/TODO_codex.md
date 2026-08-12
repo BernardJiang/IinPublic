@@ -200,13 +200,13 @@
 ## Milestone 12 — physical-device verification
 
 - [ ] Maintain at least two iPhones, two Android devices and one desktop node across supported OS ranges.
-- [ ] Record device model, OS, app build, route, battery state and network type for every run.
+- [x] Record device model, OS, app build, route, battery state and network type for every run (enforced by `npm run verify:devices`; physical run inventory is currently empty).
 - [ ] Test foreground/background/locked-screen transitions.
 - [ ] Test normal Wi-Fi, isolated LAN, no Internet, cellular NAT and mixed routes.
 - [ ] Test Wi-Fi Aware both directions on supported iPhone↔Android hardware.
 - [ ] Test BLE discovery roles in both directions.
 - [ ] Measure latency, throughput, battery drain, reconnect time and forwarding bytes.
-- [ ] Gate release claims: a route is “supported” only after contract, integration and physical-device verification pass.
+- [x] Gate release claims: a route is “supported” only after contract, integration and physical-device verification pass.
 
 ## Milestone 13 — security and open-source release gates
 
