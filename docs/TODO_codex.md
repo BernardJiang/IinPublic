@@ -178,10 +178,10 @@
 
 - [x] Add Automatic, Data Saver, Fastest, Local/Event, Private and Advanced presets.
 - [x] Add free/direct/battery priorities and cellular permission control.
-- [ ] Add forwarding controls and byte usage.
+- [x] Add forwarding controls and byte usage.
 - [x] Show compact active status: direct/relayed, interface and free/metered.
 - [ ] Add advanced provider, candidate, SEA-binding, route, health and failure diagnostics.
-- [ ] Explain permissions in product language before OS prompts.
+- [x] Explain permissions in product language before OS prompts.
 - [ ] Test: every setting affects policy without exposing transport IDs as user identities.
 - [ ] Test: denied nearby permission leaves Internet discovery operational.
 - [ ] Test: accessibility, responsive layout and persisted settings.

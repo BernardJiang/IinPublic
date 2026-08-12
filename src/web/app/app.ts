@@ -12,6 +12,7 @@ import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
 import { getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
+import { loadConnectivitySettings, type ConnectivitySettings } from '../ui/connectivity-settings';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
@@ -1549,6 +1550,7 @@ export class IinPublicApp {
       apiBase: this.getBackendApiBase(),
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
+      forwardingSettings: loadConnectivitySettings().forwarding,
       // Keep the E2E mesh dense enough for the 20-peer saturation scenario while
       // still using the production default cap (12) outside that harness.
       ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 12 } : {}),
@@ -4655,6 +4657,12 @@ export class IinPublicApp {
 
   private setupEventHandlers(): void {
     // Handle UI events
+
+    this.uiManager.on('connectivitySettingsChanged', (settings: ConnectivitySettings) => {
+      const mesh = this.ensurePeerMeshService();
+      mesh?.updateForwardingSettings(settings.forwarding);
+      if (mesh) this.uiManager.updateConnectivityDiagnostics(mesh.getForwardingDiagnostics());
+    });
 
     this.uiManager.on('conversationAdded', (data: { conversationId: string }) => {
       this.refreshStatusBar();

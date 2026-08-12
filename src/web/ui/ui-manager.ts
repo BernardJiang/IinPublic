@@ -4114,6 +4114,12 @@ export class UIManager extends EventEmitter {
             <label><input id="settings-connectivity-free-first" type="checkbox" ${connectivity.freeFirst ? 'checked' : ''}> Free routes first</label>
             <label><input id="settings-connectivity-direct-first" type="checkbox" ${connectivity.directFirst ? 'checked' : ''}> Direct routes first</label>
             <label><input id="settings-connectivity-battery-aware" type="checkbox" ${connectivity.batteryAware ? 'checked' : ''}> Battery-aware</label>
+            <label>Metered network permission
+              <select id="settings-connectivity-metered-permission" class="form-input">
+                ${(['ask', 'allow-once', 'always-allow', 'wait-for-free'] as const).map((permission) => `<option value="${permission}" ${connectivity.meteredPermission === permission ? 'selected' : ''}>${permission.replaceAll('-', ' ')}</option>`).join('')}
+              </select>
+              <small>IinPublic asks before using a newly metered route. Nearby OS permission enables local discovery; denying it leaves Internet connectivity available.</small>
+            </label>
             <label><input id="settings-connectivity-forwarding" type="checkbox" ${connectivity.forwarding.enabled ? 'checked' : ''}> Forward for peers</label>
             <label><input id="settings-connectivity-cellular-forwarding" type="checkbox" ${connectivity.forwarding.cellularForwarding ? 'checked' : ''}> Allow cellular forwarding</label>
             <label>Cellular byte budget <input id="settings-connectivity-cellular-budget" class="form-input" type="number" min="0" value="${connectivity.forwarding.cellularByteBudget}"></label>
@@ -4467,6 +4473,7 @@ export class UIManager extends EventEmitter {
       value.freeFirst = !!(document.getElementById('settings-connectivity-free-first') as HTMLInputElement | null)?.checked;
       value.directFirst = !!(document.getElementById('settings-connectivity-direct-first') as HTMLInputElement | null)?.checked;
       value.batteryAware = !!(document.getElementById('settings-connectivity-battery-aware') as HTMLInputElement | null)?.checked;
+      value.meteredPermission = ((document.getElementById('settings-connectivity-metered-permission') as HTMLSelectElement | null)?.value || 'ask') as typeof value.meteredPermission;
       value.forwarding.enabled = !!(document.getElementById('settings-connectivity-forwarding') as HTMLInputElement | null)?.checked;
       value.forwarding.cellularForwarding = !!(document.getElementById('settings-connectivity-cellular-forwarding') as HTMLInputElement | null)?.checked;
       value.forwarding.cellularByteBudget = Math.max(0, Number((document.getElementById('settings-connectivity-cellular-budget') as HTMLInputElement | null)?.value || 0));
@@ -4791,6 +4798,14 @@ export class UIManager extends EventEmitter {
     document.getElementById('settings-refresh-storage-btn')?.addEventListener('click', () => {
       void this.refreshStorageInspector();
     });
+  }
+
+  updateConnectivityDiagnostics(value: { bytesByRoute: Record<string, number>; forwardedFrames: number; droppedFrames: number; abuseDrops: number }): void {
+    const totalBytes = Object.values(value.bytesByRoute).reduce((sum, bytes) => sum + bytes, 0);
+    const status = document.getElementById('settings-connectivity-status');
+    if (status) status.textContent = `Forwarded ${totalBytes} bytes · ${value.forwardedFrames} frames · ${value.droppedFrames} policy drops`;
+    const diagnostics = document.getElementById('settings-connectivity-diagnostics');
+    if (diagnostics) diagnostics.textContent = JSON.stringify(value, null, 2);
   }
 
   private async getBrowserStorageSnapshot(): Promise<{

@@ -209,6 +209,10 @@ export class PeerMeshService {
     this.forwardingPolicy.update(settings);
   }
 
+  getForwardingDiagnostics(): ReturnType<MeshForwardingPolicy['diagnostics']> {
+    return this.forwardingPolicy.diagnostics();
+  }
+
   getDiagnostics(): {
     roomId: string | null;
     neighborCount: number;
