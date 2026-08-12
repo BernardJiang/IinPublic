@@ -788,9 +788,16 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
    flow question, no new engine logic needed there. **No `TalkValidator` exemption was needed**
    (unlike `answerSelectionMode: 'multiple'`): the synthetic 2-answer (one match, one ignore) shape
    already satisfies every existing flow-question validation rule verbatim.
-3. Typed preference storage (new, tag-scoped local store) + the three comparison functions
-   (interval-overlap reused for price/time frame; quantity sufficiency; location mutual-containment
-   using the existing `haversineMilesBetween`).
+3. ✅ **Shipped 2026-08-11.** Typed preference storage (new `src/shared/typed-preference-store.ts`,
+   tag-scoped local store — `makeTypedPreferenceScopeKey(tagId, item?)` so the same user's
+   quantity/price/time preference for two different items under the same tag never collides,
+   last-write-wins) + the three comparison functions in new `src/shared/built-in-comparisons.ts`
+   (`intervalsOverlap` shared by price range and time frame — closed intervals, touching endpoints
+   count as overlapping; `quantitySufficient(want, have)`; `locationsMutuallyContained`, reusing
+   the existing `haversineMilesBetween` and each side's own `Talk.authorLocation`/
+   `locationRadiusMiles`, fails closed — not "compatible" — when either side lacks a location or
+   radius). All pure functions, unit-tested including boundary cases (touching/nested/disjoint
+   intervals, N==M/N&lt;M/N&gt;M quantity, exact-boundary and asymmetric-radius location cases).
 4. Wire comparison resolution into the same call points `resolveAnswerPreferenceForTalkQuestion`/
    `findAutoAnswer` occupy today, dispatching on `question.builtIn.kind` before falling through to
    the existing exact-text path for ordinary choice questions.
