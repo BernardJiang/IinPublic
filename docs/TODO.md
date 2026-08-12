@@ -1206,9 +1206,17 @@ boolean-expression-builder UI that non-technical users can't be expected to use.
 
 ## GG. E2E scenario: local-chatroom taxi driver ↔ passenger matching `[Sonnet]`
 
-**Not yet implemented — design/analysis only, per Bernard's request 2026-08-11.** No code
-changes yet; this section records how the scenario maps onto existing machinery before anyone
-writes the spec.
+> **Complete 2026-08-11** — see `docs/completed.md`. New
+> `tests/e2e/staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts`, implemented exactly
+> per the analysis below: reuses the proven Adam/Eve/Bob/Alice 4-user "one match, one no-match"
+> pattern from `04-dealmaker-chatbot-match.spec.ts`, joins a real city-level chatroom
+> (`san-diego`) instead of Global, simulates "precise location for pickup" as a plain post-match
+> DM message, and models "licensed and experienced" as a self-declared criterion baked into the
+> same matching chain (asserted as real recorded talk data, not a separate trust system).
+> Confirmed §CC's financial-data guard correctly ignores descriptive payment-method text. No new
+> engine bugs found for this one — passed on the first real run. Verified: type-check, lint, and
+> a standalone + combined regression e2e run (10/10 across taxi/handyman/dealmaker/checkbox/
+> quantity-builtIn/route-editor specs).
 
 **Scenario (verbatim from Bernard).** Adam and Eve are both taxi drivers; they join a local
 chatroom with their precise locations and post a talk looking for passengers. Alice and Bob join
@@ -1327,10 +1335,21 @@ financial transaction happens in the app. Adam accepts popular credit card payme
 
 ## HH. E2E scenario: local-chatroom handyman ↔ customer matching with detailed criteria `[Sonnet]`
 
-**Not yet implemented — design/analysis only, per Bernard's request 2026-08-11.** No code
-changes yet. This scenario is a natural showcase/integration test for §FF (multi-select) and
-§BB's already-wired `priceRange`/`timeFrame` typed comparisons working together in one talk —
-most of what it needs shipped this session.
+> **Complete 2026-08-11** — see `docs/completed.md`. New
+> `tests/e2e/staged/stage4-four-user/06-handyman-local-chatroom-match.spec.ts` — the first real
+> exercise of a MULTI-CRITERION `builtIn` chain (`priceRange` -> `timeFrame` -> multi-select
+> service category in one flow talk), and it surfaced two real, previously-latent §BB engine bugs
+> neither `86-builtin-quantity-match.spec.ts` nor `82-route-editor-multi-item-builtin.spec.ts`
+> exercised (both used exactly one `builtIn` question per talk): (1) `typed-preference-store`'s
+> scope key was `(role, title)` only, so a talk with two `builtIn` questions silently overwrote
+> the first preference with the second — fixed by adding the question's own text as a third scope
+> component; (2) the builtIn answer-lookup picked the "compatible" answer by its `isMatch` flag,
+> which `TalkAutofix.fix` strips (replacing it with `nextQuestionId`) for any `builtIn` question
+> that isn't the LAST in its chain — fixed by extracting `pickBuiltInAnswer`
+> (`built-in-question-resolution.ts`), which looks answers up by their fixed, deterministic id
+> instead. Both diagnosed by instrumenting the real resolution call chain, not guessed. Verified:
+> type-check, lint, full unit suite (1225 passing, +8 new tests for both fixes), and a combined
+> 10/10 e2e regression run.
 
 **Scenario (verbatim from Bernard).** Handyman Adam and Eve go to a local chatroom where they
 offer their service, posting talks to advertise. Alice and Bob go to the same chatroom looking

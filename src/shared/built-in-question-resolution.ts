@@ -29,7 +29,7 @@ export type BuiltInResolution = { action: 'ANSWER'; compatible: boolean } | { ac
  */
 export function resolveBuiltInQuestion(
   talk: Pick<Talk, 'role' | 'title'>,
-  question: Pick<Question, 'builtIn'>,
+  question: Pick<Question, 'builtIn'> & { text?: string },
   preferenceState: TypedPreferenceState,
   userId: string,
 ): BuiltInResolution {
@@ -42,8 +42,12 @@ export function resolveBuiltInQuestion(
   // saves under when I create MY OWN talk, where the scope is always my own talk's role. A
   // buyer's incoming-talk-side lookup with role='request' and a buyer's own saved preference
   // (from authoring their own role='request' talk) must resolve to the SAME scope key.
+  //
+  // The question's own text is ALSO part of the scope key — without it, a talk with more than
+  // one builtIn question (e.g. priceRange AND timeFrame in the same talk, §HH) would have both
+  // saved under the identical (role, title) key, the second silently overwriting the first.
   const myRole = complementRole(talk.role);
-  const scopeKey = makeTypedPreferenceScopeKey(String(myRole || 'general'), talk.title);
+  const scopeKey = makeTypedPreferenceScopeKey(String(myRole || 'general'), talk.title, question.text);
   const myPref = getTypedPreference(preferenceState, userId, scopeKey);
   if (!myPref || myPref.kind !== builtIn.kind) return { action: 'ASK_USER' };
 
@@ -77,4 +81,30 @@ export function resolveBuiltInQuestion(
   }
 
   return { action: 'ASK_USER' };
+}
+
+/**
+ * Picks which of a `builtIn` question's 2 synthetic answers (`TalkAutofix.fix`) a resolution
+ * selects — by their fixed, deterministic ids (`${questionId}_compatible` /
+ * `${questionId}_incompatible`, set once at generation time and never changed), NOT by
+ * `isMatch`/`isIgnore` flags.
+ *
+ * This distinction is load-bearing: when a builtIn question links to a NEXT question (i.e. it
+ * isn't the last one in the chain), the flow-normalization step in `TalkAutofix.fix` strips
+ * `isMatch` from the "compatible" answer and replaces it with `nextQuestionId` — the same
+ * redirect every ordinary flow question's first answer goes through. An `isMatch`-based lookup
+ * therefore only ever finds the compatible answer when the builtIn question happens to be
+ * terminal (the last in the chain) — a real bug found via docs/TODO.md §HH's 3-criterion
+ * handyman talk (priceRange -> timeFrame -> service category), where the first two questions
+ * are never terminal. `86-builtin-quantity-match.spec.ts`'s single-question talks never
+ * exercised the non-terminal case.
+ */
+export function pickBuiltInAnswer<T extends { id: string }>(
+  answers: T[] | undefined,
+  questionId: string,
+  resolution: BuiltInResolution,
+): T | undefined {
+  if (resolution.action !== 'ANSWER') return undefined;
+  const targetId = `${questionId}_${resolution.compatible ? 'compatible' : 'incompatible'}`;
+  return (answers || []).find((a) => a?.id === targetId);
 }

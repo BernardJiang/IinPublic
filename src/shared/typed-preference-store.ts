@@ -32,11 +32,22 @@ export function createEmptyTypedPreferenceState(): TypedPreferenceState {
   return { users: {} };
 }
 
-/** `item` (when given) is normalized (trim + lowercase) so "Notebook" and "notebook" share
- * a scope, mirroring how tag/question text is canonicalized elsewhere in this codebase. */
-export function makeTypedPreferenceScopeKey(tagId: string, item?: string): string {
+/**
+ * `item` (when given) is normalized (trim + lowercase) so "Notebook" and "notebook" share
+ * a scope, mirroring how tag/question text is canonicalized elsewhere in this codebase.
+ *
+ * `questionText` (when given) disambiguates MULTIPLE builtIn questions inside the SAME talk
+ * (e.g. a "price range" and a "time frame" question both scoped to the same tag+item) — without
+ * it, a talk with two builtIn questions silently collapses to one stored value, since the second
+ * save overwrites the first at the same (tagId, item) key. Real bug found while implementing
+ * docs/TODO.md §HH (a 3-criterion handyman talk: priceRange + timeFrame + service category).
+ */
+export function makeTypedPreferenceScopeKey(tagId: string, item?: string, questionText?: string): string {
   const normalizedItem = item ? item.trim().toLowerCase() : '';
-  return normalizedItem ? `${tagId}:${normalizedItem}` : tagId;
+  const normalizedQuestionText = questionText ? questionText.trim().toLowerCase() : '';
+  let key = normalizedItem ? `${tagId}:${normalizedItem}` : tagId;
+  if (normalizedQuestionText) key = `${key}:${normalizedQuestionText}`;
+  return key;
 }
 
 export function saveTypedPreference(

@@ -2,6 +2,53 @@
 
 Last updated: 2026-08-11
 
+## 2026-08-11 — GG/HH: taxi and handyman local-chatroom matching e2e scenarios
+
+Moved from `docs/TODO.md` §GG/§HH. Two new 4-user e2e scenarios implemented from Bernard's
+plain-English descriptions, both reusing the proven Adam/Eve/Bob/Alice "one match, one no-match"
+pattern (`04-dealmaker-chatbot-match.spec.ts`) and joining a real city-level chatroom
+(`san-diego`) instead of Global for the first time in any matching-focused e2e spec.
+
+- **§GG (taxi)** — `tests/e2e/staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts`.
+  Driver/passenger matching via reworded-question-text differentiation (no new engine work
+  needed). Two scenario elements that don't exist as real features were deliberately simulated
+  rather than built: "precise location for pickup" (no such feature exists, already flagged
+  unscoped elsewhere) as a plain post-match DM message; "licensed and experienced driver" as a
+  self-declared criterion baked into the shared matching chain. Passed on the first real run.
+- **§HH (handyman)** — `tests/e2e/staged/stage4-four-user/06-handyman-local-chatroom-match.spec.ts`.
+  A showcase for §FF (multi-select) + §BB (`priceRange`/`timeFrame` builtIn) composing in one
+  3-question chained flow talk — real interval-overlap and set-intersection math, not exact-text
+  luck. This is the first talk in the whole test suite with MORE THAN ONE `builtIn` question,
+  which surfaced two real, previously-latent §BB engine bugs:
+  1. `typed-preference-store`'s scope key was `(role, title)` only — two `builtIn` questions in
+     the same talk collided on an identical key, the second save silently overwriting the first.
+     Fixed by adding the question's own text as a third scope-key component
+     (`makeTypedPreferenceScopeKey(role, title, questionText)`), on both the save side
+     (`processTalkForm`) and read side (`resolveBuiltInQuestion`).
+  2. The builtIn answer-lookup picked the "compatible" synthetic answer by its `isMatch` flag —
+     which only survives when the `builtIn` question is the LAST one in its chain.
+     `TalkAutofix.fix`'s flow-normalization step strips `isMatch` and substitutes `nextQuestionId`
+     for any `builtIn` question that links to a next question (both price range and time frame
+     here do, since a service-category question follows). Fixed by extracting a new
+     `pickBuiltInAnswer` helper (`built-in-question-resolution.ts`) that looks answers up by their
+     fixed, deterministic id (`${questionId}_compatible`/`${questionId}_incompatible`) instead of
+     a flag TalkAutofix may or may not have preserved.
+
+  Both bugs were diagnosed by adding temporary instrumentation directly to the real resolution
+  call chain (confirmed the typed-preference save was correct, confirmed correct delivery
+  content, then traced exactly where the per-question auto-resolution loop silently stopped) —
+  not guessed or worked around in the test. Neither `86-builtin-quantity-match.spec.ts` nor
+  `82-route-editor-multi-item-builtin.spec.ts` caught either bug, since both only ever used a
+  single `builtIn` question per talk.
+
+  Also documented (not a bug, a real constraint): a `'multiple'`-mode question is always
+  chain-terminal, so the service-category question must be LAST in the flow, with the builtIn
+  questions chained earlier — putting it first would fail `TalkValidator` outright.
+
+**Verification:** `npm run test:type`, `npx eslint`, `npm run test:unit` (1225 passing, +8 new
+tests across both fixes), and a combined 10/10 e2e regression run (taxi, handyman, dealmaker,
+multi-value-checkbox, builtin-quantity, route-editor specs).
+
 ## 2026-08-11 — BB: opposite-tag deal matching, typed built-in comparison questions
 
 Moved from `docs/TODO.md` §BB. All 6 planned implementation phases shipped in 6 separate

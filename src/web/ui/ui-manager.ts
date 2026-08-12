@@ -82,7 +82,7 @@ import {
   type AnswerPreferenceMap,
   type MyQuestionAnswerEntry,
 } from './answer-preferences-storage';
-import { resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
+import { pickBuiltInAnswer, resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
 import { makeTypedPreferenceScopeKey, saveTypedPreference } from '../../shared/typed-preference-store';
 import {
   findAutoAnswer,
@@ -7475,14 +7475,12 @@ export class UIManager extends EventEmitter {
     if (currentQuestion.builtIn) {
       const resolution = resolveBuiltInQuestion(
         { role: talk?.role, title: talk?.title },
-        { builtIn: currentQuestion.builtIn },
+        { builtIn: currentQuestion.builtIn, text: currentQuestion.text || '' },
         getTypedPreferenceState(),
         LOCAL_EXACT_CHATBOT_USER_ID,
       );
       if (resolution.action === 'ASK_USER') return null;
-      const compatibleAnswer = (currentQuestion.answers || []).find((a: any) => a?.isMatch);
-      const incompatibleAnswer = (currentQuestion.answers || []).find((a: any) => a?.isIgnore);
-      const chosen = resolution.compatible ? compatibleAnswer : incompatibleAnswer;
+      const chosen = pickBuiltInAnswer(currentQuestion.answers, currentQuestion.id, resolution);
       if (!chosen?.id) return null;
       return {
         answerId: chosen.id,
@@ -8683,13 +8681,15 @@ export class UIManager extends EventEmitter {
     // §BB / spec §30.2: the value I just declared on my OWN builtIn question is also my own
     // typed preference for future auto-resolution when I respond to someone ELSE'S talk of the
     // same shape — save it into the same store `resolveBuiltInQuestion` (Phase 4) reads,
-    // scoped the same way (talk.role + talk.title, the interim substitute for a real deal tag
-    // pending Phase 5's tag-pair picker). 'location' is excluded: it has no stored preference,
-    // see Question.builtIn's doc comment.
+    // scoped the same way (talk.role + talk.title + this question's own text — the text
+    // component is required so a talk with MORE THAN ONE builtIn question, e.g. priceRange AND
+    // timeFrame in the same talk (§HH), doesn't have the second overwrite the first at an
+    // otherwise-identical scope key). 'location' is excluded: it has no stored preference, see
+    // Question.builtIn's doc comment.
     for (const q of questions) {
       if (!q.builtIn || q.builtIn.kind === 'location') continue;
       const preferenceState = getTypedPreferenceState();
-      const scopeKey = makeTypedPreferenceScopeKey(String(role || 'general'), title);
+      const scopeKey = makeTypedPreferenceScopeKey(String(role || 'general'), title, q.text);
       saveTypedPreference(preferenceState, LOCAL_EXACT_CHATBOT_USER_ID, scopeKey, {
         kind: q.builtIn.kind,
         ...(q.builtIn.quantity !== undefined ? { quantity: q.builtIn.quantity } : {}),
