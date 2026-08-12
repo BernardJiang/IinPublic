@@ -5157,3 +5157,46 @@ Finished the remaining UI/auto-fill layer on top of the schema + match-engine co
   (2/2, re-run for stability), and a regression pass on the dealmaker spec + the earlier
   per-question-deep-link spec (both still pass unmodified) to confirm the `TalkAutofix`/
   `TalkValidator` changes didn't disturb existing single-select flow talks.
+
+## 2026-08-11 — FF: wired chatbot auto-fill into both auto-resolution paths (closing the last gap)
+
+Moved from `docs/TODO.md` FF (the one remaining piece from the completion entry above). Wires
+`findAutoAnswerMultiple` (already built and unit-tested) into `ui-manager.ts`'s
+`resolveAnswerPreferenceForTalkQuestion` (the per-question resolver both the response dialog's
+auto-answer check and `tryBuildChatbotAnswersFromFlattened` funnel through) — so a `'multiple'`-mode
+question can now auto-match with zero manual clicks, the same as single-select questions always
+could.
+
+Two more real bugs found and fixed along the way, both via an e2e test actually failing (not
+inspection):
+
+- **Content-identity collision.** `buildIdentityPayloadFromTalk` (`cid.ts`) hashes question/answer
+  *text* only, never isMatch/isIgnore flags. A buyer's and a seller's multi-select talk sharing
+  byte-identical question/option wording (required for the chatbot's exact-text memory to connect
+  them at all) computed the *same* `qa_` identity key despite opposite match semantics — the
+  delivery-dedup ledger silently treated the second broadcast as "already exchanged" and dropped
+  it. Not a new gap: this is exactly the collision `Talk.role` was added to the identity hash to
+  prevent, earlier this session — the fix was using `role` on the test's talks (as the dealmaker
+  spec already does for its buyer/seller pairs), not inventing a second mechanism.
+- **Answer-id scheme mismatch.** `findAutoAnswerMultiple` returns content-hash answer ids
+  (`makeAnswerId`, `exact-chatbot-memory.ts`); a talk's own `Answer.id` fields are positional
+  (`a_0_0`, `a_0_1`, ...) — a different scheme entirely. The existing single-select ANSWER branch
+  already translates between the two via text comparison
+  (`currentQuestion.answers.find(a => a.text === exact.answerText)`); the new multi-select branch
+  initially skipped that translation and returned the content-hash ids straight through, so
+  `tryBuildChatbotAnswersFromFlattened`'s `q.answers.some(a => a.id === id)` validity check could
+  never match and silently rejected every resolution. Fixed by applying the same
+  text-to-positional-id translation per remembered answer.
+- A third, more mundane ordering bug was also found and fixed in the *test itself* (not app code):
+  the test's helper auto-broadcast a talk at creation time (via the talk editor's
+  "Send to Chatroom" default) before the chatbot was enabled on either side, so the one-shot
+  auto-reply-on-arrival mechanism had nothing to resolve against — fixed by explicitly
+  unchecking "Send to Chatroom" at creation and controlling broadcast timing directly in the test,
+  matching the dealmaker spec's "create everything before anyone broadcasts" ordering.
+- New e2e test in the same spec file: byte-identical multi-select question on both sides, buyer
+  self-answers {Model A, Model B}, seller self-answers {Model B} — zero `openIncomingTalkModal`
+  calls, zero checkbox clicks, both sides reach a conversation purely from chatbot auto-resolution.
+  3/3 tests in the file passed together, re-run for stability.
+- Verified: type-check, lint, full unit suite green (87 suites / 1167 tests), the spec's all 3
+  tests together (2 runs), and a regression pass on the dealmaker spec + per-question-deep-link +
+  tags-checkbox specs (all pass unmodified).

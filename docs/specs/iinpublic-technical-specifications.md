@@ -2518,7 +2518,7 @@ The following items are known open questions or planned post-MVP work:
 | Opposite-attribute preference-sets + typed built-ins + dating profile (gender/sex/race opinion-neutral) | §30.1 – §30.7 | **not yet implemented** — docs/TODO.md §BB, §DD |
 | Profile scope (StageName + headshot only); "Me" tab pinned identity header | FR-UM-3, FR-UM-9, §13.7.1 | **shipped 2026-08-11** — `src/web/ui/answers-view.ts` (identity header), `ui-manager.ts` (`getCurrentIdentity`), docs/TODO.md §EE |
 | "Me" tab sectioning (General + per-context/category sections) | §13.7.1 | **shipped 2026-08-11** — `src/web/ui/answers-view.ts` (`buildAnswerSections`); category-prefixed titles wired but currently a no-op since `Talk.tags` isn't populated by any talk-creation path yet (pre-existing gap, separate from this item) |
-| Multi-value ("pick any that apply") questions + set-intersection matching | FR-QA-15, FR-QA-16, §30.8 | **shipped 2026-08-11** — `src/shared/talk-engine.ts`/`types.ts` (match engine), `exact-chatbot-memory.ts` (`findAutoAnswerMultiple`), `talk-editor-form-helpers.ts`/`ui-manager.ts` (editor toggle), `talk-response-dialog.ts` (checkbox UI); chatbot auto-fill not yet wired into `ui-manager.ts`'s two auto-resolution paths (manual answering only), docs/TODO.md §FF |
+| Multi-value ("pick any that apply") questions + set-intersection matching | FR-QA-15, FR-QA-16, §30.8 | **shipped 2026-08-11, fully complete** — `src/shared/talk-engine.ts`/`types.ts` (match engine), `exact-chatbot-memory.ts` (`findAutoAnswerMultiple`), `talk-editor-form-helpers.ts`/`ui-manager.ts` (editor toggle + chatbot wiring, zero-click auto-match proven), `talk-response-dialog.ts` (checkbox UI), docs/TODO.md §FF |
 | Auto/Manual conversation modes (Yellow obsolete) | §7.6 | `shouldChatbotFire()`, `ConversationMode` type |
 | Answer mutability + immutable history | §7.7 | `ITalkRepo.submitAnswer`, Gun path design |
 | SEA encryption per user | NFR-S-5, §7.8 | `GunDataAccess.ts` write pipeline |
@@ -6694,13 +6694,15 @@ as data, not bespoke question text:
 
 ### 30.8 Multi-Value (OR-Set) Question/Answer Matching
 
-> Status: shipped 2026-08-11 (talk editor, response dialog, match engine, chatbot memory
-> generalization — see docs/TODO.md §FF and docs/completed.md). Chatbot auto-fill
-> (`findAutoAnswerMultiple`) is implemented and unit-tested but not yet wired into either of
-> `ui-manager.ts`'s two auto-resolution consumption points, so a `'multiple'`-mode question always
-> falls to manual human answering today. Schema in FR-QA-15/FR-QA-16 (§3.4). Orthogonal to §30.3's
-> built-in typed comparisons — this section covers discrete/categorical "any of these values"
-> criteria (e.g. item models, colors), not continuous numeric/geographic comparisons.
+> Status: shipped 2026-08-11, fully complete (talk editor, response dialog, match engine, and
+> chatbot memory generalization all wired end to end — see docs/TODO.md §FF and docs/completed.md).
+> `findAutoAnswerMultiple` is wired into both of `ui-manager.ts`'s auto-resolution paths
+> (`resolveAnswerPreferenceForTalkQuestion`, consumed by both the response dialog's auto-answer
+> check and `tryBuildChatbotAnswersFromFlattened`'s zero-click path); a `'multiple'`-mode question
+> can auto-match with zero manual clicks, proven by e2e. Schema in FR-QA-15/FR-QA-16 (§3.4).
+> Orthogonal to §30.3's built-in typed comparisons — this section covers discrete/categorical "any
+> of these values" criteria (e.g. item models, colors), not continuous numeric/geographic
+> comparisons.
 
 **The gap this closes:** today's Q&A system allows exactly one answer per question — there is no
 way to express "I'd accept either of these two things" as a single criterion (FR-QA-2 assumes one

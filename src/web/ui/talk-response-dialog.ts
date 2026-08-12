@@ -12,6 +12,8 @@ type SavedPreference = {
   allAnswers?: any[];
   autoAnswerAction?: string;
   autoAnswerReason?: string;
+  /** Spec §3.4 FR-QA-15/16, §30.8: the full checked set for a resolved multi-select preference. */
+  answerIds?: string[];
 } | null;
 
 type ResponseDraft = {
@@ -107,7 +109,7 @@ type TalkResponseDialogOptions = {
     talk: any,
     questionIndex: number,
     previousQAPairs: Array<{ questionText: string; answerText: string }>,
-    currentQuestion: { id: string; text?: string },
+    currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string },
     talkInstanceId: string,
   ) => SavedPreference;
   saveAnswerPreference: (
@@ -539,6 +541,31 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         clearResponseDraft(talk);
         options.completeTalk(talk, answers, 'mismatch', { withholdFromSender: true });
         closeModal();
+        return;
+      }
+      if (savedPreference.answerIds && savedPreference.answerIds.length > 0) {
+        // Spec §3.4 FR-QA-15/16, §30.8: a resolved multi-select ("pick any that apply")
+        // preference — always chain-terminal (§30.8/talk-editor-form-helpers.ts), so unlike
+        // the single-answer branch below there's no isTerminal/nextQuestionId to follow.
+        // Outcome comes from the canonical set-intersection checkIfMatch, never a single
+        // answer's own isMatch/isIgnore flag (which would be wrong here — any one of several
+        // checked options being isMatch-flagged is enough).
+        answers.push({
+          questionId: currentQuestion.id,
+          answerId: savedPreference.answerId,
+          answerIds: savedPreference.answerIds,
+          answerText: savedPreference.answerText,
+          mode: 'auto',
+        });
+        if (checkIfMatch(talk, answers)) {
+          clearResponseDraft(talk);
+          options.completeTalk(talk, answers, 'match');
+          options.showNotification(text('responseMatchAuto', 'Match! You both noticed each other. (auto)'), 'success');
+          closeModal();
+        } else {
+          options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
+          completeAndClose();
+        }
         return;
       }
       const answer = currentQuestion.answers.find((a: any) => a.id === savedPreference.answerId);

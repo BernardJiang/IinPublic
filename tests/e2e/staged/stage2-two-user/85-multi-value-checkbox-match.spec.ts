@@ -13,10 +13,10 @@
  * This exercises the shipped pieces of §FF end to end through real UI: the talk editor's
  * "pick one / pick any that apply" toggle (talk-editor-form-helpers.ts), the response dialog's
  * checkbox list + Submit button (talk-response-dialog.ts), and the set-intersection match rule
- * (checkIfMatch, talk-engine.ts). The chatbot's own multi-select auto-fill
- * (findAutoAnswerMultiple, exact-chatbot-memory.ts) is unit-tested separately — it is not yet
- * wired into either of ui-manager.ts's auto-resolution paths (docs/TODO.md §FF), so this test
- * answers manually rather than relying on a zero-click chatbot auto-match.
+ * (checkIfMatch, talk-engine.ts). A third test proves the chatbot's own multi-select auto-fill
+ * (findAutoAnswerMultiple, exact-chatbot-memory.ts, wired into ui-manager.ts's two
+ * auto-resolution paths) resolves a matching multi-select question with zero manual clicks,
+ * mirroring stage4's dealmaker test but for a checkbox question instead of a plain yes/no chain.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -25,14 +25,37 @@ import { afterSync, afterAction, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, openIncomingTalkModal, waitForResponseModalClosed, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
-async function createBuyerTalk(page: Page, title: string, questionText: string): Promise<void> {
+/** `noticedModels` get "Noticed (match)" (auto-checks that option as this author's own
+ *  self-answer too, talk-editor-form-helpers.ts); every other option gets "Ignore". Creates and
+ *  submits only — does NOT broadcast (see {@link broadcastTalk}), so a zero-click multi-user
+ *  scenario can create every talk first and only broadcast once everyone is ready, mirroring
+ *  the dealmaker spec's "strangers create their own talk before ever meeting" ordering. */
+async function createChecklistTalk(
+  page: Page,
+  title: string,
+  questionText: string,
+  noticedModels: string[],
+  role?: 'offer' | 'request',
+): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
+  if (role) {
+    // Talk.role (checkIfMatch's same-role veto, talk-engine.ts) also happens to be the
+    // existing fix for a real content-identity collision: buildIdentityPayloadFromTalk
+    // (cid.ts) hashes question/answer TEXT only, never isMatch/isIgnore flags — so a buyer's
+    // and a seller's talk sharing byte-identical question/option wording (required for the
+    // chatbot's exact-text memory to connect them) compute the SAME qa_ identityKey despite
+    // opposite match semantics, and the delivery-dedup ledger silently drops the second
+    // broadcast as "already exchanged." role is included in the identity hash specifically
+    // to prevent this — set it whenever two sides share wording, same as the dealmaker spec.
+    await page.selectOption('#talk-role', role);
+  }
 
   const q = page.locator('.question-item').first();
   // Unique question text per test run (not just a unique title): the talk's content-hash
@@ -48,17 +71,38 @@ async function createBuyerTalk(page: Page, title: string, questionText: string):
   await q.locator('.btn-add-answer').click();
   await afterAction();
 
+  const models = ['Model A', 'Model B', 'Model C'];
   const answerItems = q.locator('.answer-item');
-  await answerItems.nth(0).locator('.answer-text').fill('Model A');
-  await answerItems.nth(0).locator('.answer-next').selectOption('noticed');
-  await answerItems.nth(1).locator('.answer-text').fill('Model B');
-  await answerItems.nth(1).locator('.answer-next').selectOption('noticed');
-  await answerItems.nth(2).locator('.answer-text').fill('Model C');
-  await answerItems.nth(2).locator('.answer-next').selectOption('ignore');
+  for (let i = 0; i < models.length; i++) {
+    await answerItems.nth(i).locator('.answer-text').fill(models[i]);
+    await answerItems.nth(i).locator('.answer-next').selectOption(noticedModels.includes(models[i]) ? 'noticed' : 'ignore');
+  }
+
+  // "Send to Chatroom" defaults checked, which would auto-broadcast right here at creation
+  // time — before the zero-click test has had a chance to enable chatbot on both sides.
+  // Delivery is owned entirely by the explicit broadcastTalk() call below instead.
+  await page.locator('#talk-send-to-chatroom').setChecked(false);
 
   await submitTalkEditorAndWaitForOut(page, title);
+}
+
+async function broadcastTalk(page: Page): Promise<void> {
   await broadcastFromGlobalChatroom(page);
   await afterSync();
+}
+
+async function createBuyerTalk(page: Page, title: string, questionText: string): Promise<void> {
+  await createChecklistTalk(page, title, questionText, ['Model A', 'Model B']);
+  await broadcastTalk(page);
+}
+
+async function enableChatbot(page: Page): Promise<void> {
+  await page.click('.nav-btn[data-view="settings"]');
+  await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
+  const chatbotCheckbox = page.locator('#settings-chatbot-enabled');
+  if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
 }
 
 async function answerWithCheckedModels(page: Page, talkTitle: string, modelsToCheck: string[]): Promise<'match' | 'no-match'> {
@@ -159,5 +203,44 @@ test.describe('Multi-value checkbox questions (§FF)', () => {
     const sellerId = await getCurrentUserId(pageSeller);
     expect(await hasConversationWith(pageBuyer, sellerId)).toBe(false);
     expect(await hasConversationWith(pageSeller, buyerId)).toBe(false);
+  });
+
+  test('chatbot auto-matches a multi-select question with zero manual clicks (findAutoAnswerMultiple wiring)', async () => {
+    const buyer = await bootstrapUser(browserBuyer, 'Buyer', 'BuyerAutoCB');
+    const seller = await bootstrapUser(browserSeller, 'Seller', 'SellerAutoCB');
+    contextBuyer = buyer.context;
+    pageBuyer = buyer.page;
+    contextSeller = seller.context;
+    pageSeller = seller.page;
+
+    // Byte-identical question text on both sides — required for the chatbot's exact-text
+    // memory lookup to connect the two independently-authored talks (§ FR-QA-7).
+    const questionText = `Which models would you accept? (zero-click case, ${Date.now()})`;
+
+    // Both strangers create their own talk BEFORE either one broadcasts — mirrors the
+    // dealmaker spec's ordering. Broadcasting Buyer's talk before Seller has recorded their
+    // own self-answer would mean the chatbot has nothing to resolve against on first receipt
+    // (auto-reply fires once on arrival, not retried later once memory catches up).
+    //
+    // Buyer accepts Model A or Model B (checks both as their own self-answer when creating —
+    // talk-editor-form-helpers.ts auto-checks on "Noticed"); Model C is not acceptable.
+    await createChecklistTalk(pageBuyer, `Buyer Zero-Click ${Date.now()}`, questionText, ['Model A', 'Model B'], 'request');
+    // Seller only has Model B — same question text, so this also records Seller's own
+    // self-answer {Model B} against the exact question text, which is what the chatbot on
+    // Seller's device will use to auto-resolve Buyer's incoming talk.
+    await createChecklistTalk(pageSeller, `Seller Zero-Click ${Date.now()}`, questionText, ['Model B'], 'offer');
+
+    await enableChatbot(pageBuyer);
+    await enableChatbot(pageSeller);
+    await broadcastTalk(pageBuyer);
+    await broadcastTalk(pageSeller);
+
+    const buyerId = await getCurrentUserId(pageBuyer);
+    const sellerId = await getCurrentUserId(pageSeller);
+
+    // No openIncomingTalkModal, no checkbox clicks anywhere — the chatbot resolves both
+    // directions purely from each side's own self-answer history.
+    await expect.poll(() => hasConversationWith(pageBuyer, sellerId), { timeout: 20_000, intervals: [300] }).toBe(true);
+    await expect.poll(() => hasConversationWith(pageSeller, buyerId), { timeout: 20_000, intervals: [300] }).toBe(true);
   });
 });

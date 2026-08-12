@@ -82,6 +82,7 @@ import {
 } from './answer-preferences-storage';
 import {
   findAutoAnswer,
+  findAutoAnswerMultiple,
   getRoleForQuestionText,
   LOCAL_EXACT_CHATBOT_USER_ID,
   makeQuestionId,
@@ -7445,7 +7446,7 @@ export class UIManager extends EventEmitter {
     talk: any,
     questionIndex: number,
     previousQAPairs: QAPair[],
-    currentQuestion: { id: string; text?: string; answers?: any[] },
+    currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string },
     talkInstanceId: string,
   ): {
     answerId: string;
@@ -7455,10 +7456,76 @@ export class UIManager extends EventEmitter {
     allAnswers?: any[];
     autoAnswerAction?: string;
     autoAnswerReason?: string;
+    /** Spec §3.4 FR-QA-15/16, §30.8: present only when `currentQuestion.answerSelectionMode ===
+     *  'multiple'` and the chatbot resolved a non-empty checked set. `answerId` above is always
+     *  `answerIds[0]`, kept for callers that only look at the single-value shape. */
+    answerIds?: string[];
   } | null {
     const exactMemory = getExactChatbotMemory();
     const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
+    const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
+    if (currentQuestion.text && currentOptions.length > 0 && isMultiSelect) {
+      const exact = findAutoAnswerMultiple(
+        exactMemory,
+        LOCAL_EXACT_CHATBOT_USER_ID,
+        currentQuestion.text,
+        currentOptions,
+        undefined,
+        languageContext,
+        talk?.role,
+      );
+      setExactChatbotMemory(exactMemory);
+      if (exact.action === 'ASK_USER' && exact.reason === 'ROLE_CONFLICT') {
+        return null;
+      }
+      if (exact.action === 'SKIP') {
+        return {
+          answerId: 'ignore',
+          answerText: 'ignore',
+          mode: 'auto',
+          questionText: currentQuestion.text || '',
+          allAnswers: currentQuestion.answers || [],
+          autoAnswerAction: exact.action,
+          autoAnswerReason: exact.reason,
+        };
+      }
+      if (exact.action === 'ANSWER' && exact.answerIds && exact.answerIds.length > 0) {
+        // exact.answerIds are content-hash ids (makeAnswerId, exact-chatbot-memory.ts) — this
+        // TALK's own Answer.id fields are positional ("a_0_0", ...), a different scheme
+        // entirely (same translation the single-select ANSWER branch above already does via
+        // text comparison). Map each remembered text back to this talk's own answer id.
+        const exactTexts = exact.answerTexts || [];
+        const matchedAnswerIds: string[] = [];
+        const matchedTexts: string[] = [];
+        for (const answerText of exactTexts) {
+          const matchingAnswer = (currentQuestion.answers || []).find((answer: any) => {
+            return String(answer?.text || '').trim() === answerText;
+          });
+          if (matchingAnswer?.id) {
+            matchedAnswerIds.push(matchingAnswer.id);
+            matchedTexts.push(String(matchingAnswer.text || answerText));
+          }
+        }
+        if (matchedAnswerIds.length > 0) {
+          return {
+            answerId: matchedAnswerIds[0],
+            answerIds: matchedAnswerIds,
+            answerText: matchedTexts.join(', '),
+            mode: 'auto',
+            questionText: currentQuestion.text || '',
+            allAnswers: currentQuestion.answers || [],
+            autoAnswerAction: exact.action,
+            autoAnswerReason: exact.reason,
+          };
+        }
+      }
+      // No resolvable multi-select preference — the flattened/legacy stores below were built
+      // for single-value answers and have no concept of a checked set, so a multi-select
+      // question that doesn't resolve here falls straight to manual human answering (§30.4's
+      // fail-safe: no stored preference → ask, never guess or partially resolve).
+      return null;
+    }
     if (currentQuestion.text && currentOptions.length > 0) {
       const exact = findAutoAnswer(
         exactMemory,
@@ -7612,10 +7679,10 @@ export class UIManager extends EventEmitter {
    */
   tryBuildChatbotAnswersFromFlattened(
     talkData: any,
-  ): Array<{ questionId: string; answerId: string; answerText: string; mode?: string }> | null {
+  ): Array<{ questionId: string; answerId: string; answerText: string; mode?: string; answerIds?: string[] }> | null {
     const questions = talkData?.questions;
     if (!Array.isArray(questions) || questions.length === 0) return null;
-    const out: Array<{ questionId: string; answerId: string; answerText: string; mode?: string }> =
+    const out: Array<{ questionId: string; answerId: string; answerText: string; mode?: string; answerIds?: string[] }> =
       [];
     const pairs: QAPair[] = [];
     const gunId = talkData.id || '';
@@ -7624,6 +7691,24 @@ export class UIManager extends EventEmitter {
       const pref = this.resolveAnswerPreferenceForTalkQuestion(talkData, i, pairs, q, gunId);
       if (!pref || pref.mode !== 'auto') return null;
       if (pref.answerId === 'ignore') return null;
+      if (pref.answerIds && pref.answerIds.length > 0) {
+        // Spec §3.4 FR-QA-15/16, §30.8: every checked id must be a real option on this
+        // question — same fail-safe spirit as the single-value lookup below.
+        const allValid = pref.answerIds.every((id) => q.answers?.some((a: { id: string }) => a.id === id));
+        if (!allValid) return null;
+        out.push({
+          questionId: q.id,
+          answerId: pref.answerId,
+          answerIds: pref.answerIds,
+          answerText: pref.answerText,
+          mode: 'auto',
+        });
+        pairs.push({
+          questionText: (q.text || '').trim(),
+          answerText: (pref.answerText || '').trim(),
+        });
+        continue;
+      }
       const ans = q.answers?.find((a: { id: string }) => a.id === pref.answerId);
       if (!ans) return null;
       out.push({

@@ -994,12 +994,18 @@ the pointer + implementation/test plan.
 ## FF. Multi-value ("pick any that apply") questions + set-intersection matching `[Sonnet]`
 
 > **Complete 2026-08-11** — see docs/completed.md. Schema, set-intersection match engine, chatbot
-> multi-select auto-fill, talk-editor "pick one / pick any that apply" toggle, response-dialog
-> checkbox UI, and e2e coverage all shipped. Along the way, found and fixed two real bugs where
-> `TalkAutofix`/`TalkValidator` each had their own separate copy of the "only the first flow
-> answer may be isMatch" rule, neither aware of the new mode — both silently defeated the whole
-> feature until fixed. Not done: talk-editor UI for large option counts (searchable chip input
-> instead of a flat checklist) — deferred, low priority, most talks won't hit this.
+> multi-select auto-fill (now wired into both of `ui-manager.ts`'s auto-resolution paths, zero-click
+> matching proven end to end), talk-editor "pick one / pick any that apply" toggle, response-dialog
+> checkbox UI, and e2e coverage all shipped. Found and fixed four real bugs along the way (not by
+> inspection — each one broke an e2e test): `TalkAutofix`/`TalkValidator` each had their own
+> separate copy of "only the first flow answer may be isMatch"; two structurally-identical
+> multi-select talks from different authors (same question/option text, different isMatch/isIgnore
+> assignment) collided on the same content-identity hash since `Talk.role` is the only field that
+> hash accounts for beyond raw text (fixed by using `role`, as designed, not a new mechanism); and
+> the chatbot wiring itself initially passed content-hash answer ids straight through instead of
+> translating them to the talk's own positional ids, so nothing downstream could match. Not done:
+> talk-editor UI for large option counts (searchable chip input instead of a flat checklist) —
+> deferred, low priority, most talks won't hit this.
 
 **Design note, not yet implemented (2026-08-11).** Answers Bernard's question: today's chatbot
 matching is strict single-value exact-text match (FR-QA-7) with no way to express "accept any of
