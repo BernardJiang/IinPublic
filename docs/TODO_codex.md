@@ -142,11 +142,11 @@
 
 ### Common adapter contracts
 
-- [ ] Define open discovery and connection adapter interfaces.
-- [ ] Add capability negotiation and permission-denied degradation.
-- [ ] Prefer temporary Gun WebSocket peers when the adapter supplies IP connectivity.
-- [ ] Implement a Gun-over-libp2p stream adapter only if required by measured path limitations.
-- [ ] Test: common adapter contract, reconnect, backpressure, malformed input and shutdown.
+- [x] Define open discovery and connection adapter interfaces.
+- [x] Add capability negotiation and permission-denied degradation.
+- [x] Prefer temporary Gun WebSocket peers when the adapter supplies IP connectivity.
+- [x] Implement a Gun-over-libp2p stream adapter only if required by measured path limitations.
+- [x] Test: common adapter contract, reconnect, backpressure, malformed input and shutdown.
 
 ### Apple
 
