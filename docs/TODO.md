@@ -798,9 +798,33 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
    `locationRadiusMiles`, fails closed — not "compatible" — when either side lacks a location or
    radius). All pure functions, unit-tested including boundary cases (touching/nested/disjoint
    intervals, N==M/N&lt;M/N&gt;M quantity, exact-boundary and asymmetric-radius location cases).
-4. Wire comparison resolution into the same call points `resolveAnswerPreferenceForTalkQuestion`/
-   `findAutoAnswer` occupy today, dispatching on `question.builtIn.kind` before falling through to
-   the existing exact-text path for ordinary choice questions.
+4. ✅ **Shipped 2026-08-11.** Wired comparison resolution into
+   `resolveAnswerPreferenceForTalkQuestion` (`ui-manager.ts`) via a new pure dispatcher, new
+   `src/shared/built-in-question-resolution.ts`'s `resolveBuiltInQuestion` — runs BEFORE the
+   multi-select/single-select exact-text branches so a `builtIn` question's app-generated
+   placeholder answer text ("Compatible"/"Not compatible") is never memorized or exact-text
+   matched by mistake. New localStorage-backed persistence for `typed-preference-store.ts`
+   (`getTypedPreferenceState`/`setTypedPreferenceState` in `answer-preferences-storage.ts`,
+   mirroring the existing exact-chatbot-memory persistence pair; also cleared by
+   `clearAnswerPreferences`).
+   - **Wired now:** `quantity`, `priceRange`, `timeFrame` — using `talk.role` as an **interim**
+     typed-preference scope substitute for the real opposite-tag (Phase 1's registry), since a
+     talk carries no resolvable deal-tag until Phase 5 wires the tag picker into the editor.
+     Revisit the scope key once Phase 5 ships.
+   - **Deliberately deferred:** `location` — always resolves `ASK_USER` (falls through to the
+     human inbox, same as "no stored preference"). Needs a geo/privacy-aware source for the
+     responder's OWN location + radius (their blurred coordinate, or a matching counterpart
+     talk's `authorLocation`/`locationRadiusMiles`) that hasn't been designed yet;
+     `locationsMutuallyContained` (Phase 3) is ready to be called once that source exists. Never
+     guesses — fails safe to manual answering, not a silent wrong resolution.
+   - Unit-tested (12 cases covering missing-preference vs. computed-incompatible, both role
+     directions for quantity, kind-mismatch, price/time-frame overlap and disjoint cases) plus a
+     full e2e regression run (`04-dealmaker-chatbot-match.spec.ts`,
+     `85-multi-value-checkbox-match.spec.ts`, all pass unmodified) confirming the new early-return
+     branch doesn't affect ordinary (non-`builtIn`) questions. **No dedicated e2e coverage for
+     the builtIn path itself yet** — there is no UI path to create a `builtIn` talk or set a
+     typed preference until Phase 5 ships; the original test plan's e2e cases (quantity-
+     insufficient, price-overlap, location-outside-radius, route multi-item) apply once it does.
 5. Talk editor UI: tag-pair picker (leading section), typed input widgets per built-in kind (number
    field, date-range picker, location+radius picker) replacing "+ Add Answer" for these questions;
    auto-generated first-question preview from the tag-pair template.

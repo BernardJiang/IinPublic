@@ -14,6 +14,10 @@ import {
   createEmptyExactChatbotMemoryState,
   type ExactChatbotMemoryState,
 } from '../../shared/exact-chatbot-memory';
+import {
+  createEmptyTypedPreferenceState,
+  type TypedPreferenceState,
+} from '../../shared/typed-preference-store';
 
 export type AnswerPreferenceMap = Record<string, AnswerPreferenceEntry>;
 
@@ -67,6 +71,7 @@ export function clearAnswerPreferences(): void {
   localStorage.removeItem('answerPreferences');
   localStorage.removeItem('flattenedAnswerPreferences');
   localStorage.removeItem('exactChatbotMemory');
+  localStorage.removeItem('typedPreferenceState');
 }
 
 export function getExactChatbotMemory(): ExactChatbotMemoryState {
@@ -86,6 +91,23 @@ export function getExactChatbotMemory(): ExactChatbotMemoryState {
 
 export function setExactChatbotMemory(value: ExactChatbotMemoryState): void {
   localStorage.setItem('exactChatbotMemory', JSON.stringify(value));
+}
+
+/** §BB / spec §30.2: local persistence for `typed-preference-store.ts`'s pure state, mirroring
+ *  `getExactChatbotMemory`/`setExactChatbotMemory` above. */
+export function getTypedPreferenceState(): TypedPreferenceState {
+  try {
+    const raw = localStorage.getItem('typedPreferenceState');
+    if (!raw) return createEmptyTypedPreferenceState();
+    const parsed = JSON.parse(raw) as Partial<TypedPreferenceState>;
+    return { users: parsed.users && typeof parsed.users === 'object' ? parsed.users : {} };
+  } catch {
+    return createEmptyTypedPreferenceState();
+  }
+}
+
+export function setTypedPreferenceState(value: TypedPreferenceState): void {
+  localStorage.setItem('typedPreferenceState', JSON.stringify(value));
 }
 
 export function getMyQuestionAnswers(): Record<string, MyQuestionAnswerEntry> {

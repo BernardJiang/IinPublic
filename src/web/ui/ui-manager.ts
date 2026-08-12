@@ -71,6 +71,7 @@ import {
   getAnsweredTalkByContent,
   getExactChatbotMemory,
   getFlattenedAnswerPreferences,
+  getTypedPreferenceState,
   setAnswerPreferences,
   setAnsweredTalkByContent,
   setExactChatbotMemory,
@@ -80,6 +81,7 @@ import {
   type AnswerPreferenceMap,
   type MyQuestionAnswerEntry,
 } from './answer-preferences-storage';
+import { resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
 import {
   findAutoAnswer,
   findAutoAnswerMultiple,
@@ -7446,7 +7448,7 @@ export class UIManager extends EventEmitter {
     talk: any,
     questionIndex: number,
     previousQAPairs: QAPair[],
-    currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string },
+    currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string; builtIn?: any },
     talkInstanceId: string,
   ): {
     answerId: string;
@@ -7461,6 +7463,34 @@ export class UIManager extends EventEmitter {
      *  `answerIds[0]`, kept for callers that only look at the single-value shape. */
     answerIds?: string[];
   } | null {
+    // §BB / spec §30.2: a builtIn (typed comparison) question is dispatched entirely separately
+    // from the exact-text paths below — its 2 answers are app-generated placeholder text
+    // ("Compatible"/"Not compatible", see TalkAutofix.fix), never something to memorize or
+    // reuse via string equality. Must run BEFORE the multi-select/single-select branches so a
+    // builtIn question never falls through to exact-text lookup by mistake.
+    if (currentQuestion.builtIn) {
+      const resolution = resolveBuiltInQuestion(
+        { role: talk?.role, title: talk?.title },
+        { builtIn: currentQuestion.builtIn },
+        getTypedPreferenceState(),
+        LOCAL_EXACT_CHATBOT_USER_ID,
+      );
+      if (resolution.action === 'ASK_USER') return null;
+      const compatibleAnswer = (currentQuestion.answers || []).find((a: any) => a?.isMatch);
+      const incompatibleAnswer = (currentQuestion.answers || []).find((a: any) => a?.isIgnore);
+      const chosen = resolution.compatible ? compatibleAnswer : incompatibleAnswer;
+      if (!chosen?.id) return null;
+      return {
+        answerId: chosen.id,
+        answerText: String(chosen.text || ''),
+        mode: 'auto',
+        questionText: currentQuestion.text || '',
+        allAnswers: currentQuestion.answers || [],
+        autoAnswerAction: 'ANSWER',
+        autoAnswerReason: resolution.compatible ? 'BUILT_IN_COMPATIBLE' : 'BUILT_IN_INCOMPATIBLE',
+      };
+    }
+
     const exactMemory = getExactChatbotMemory();
     const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
