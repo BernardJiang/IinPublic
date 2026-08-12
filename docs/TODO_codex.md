@@ -217,7 +217,7 @@
 - [x] Publish protocol/schema documentation and test vectors produced specifically for IinPublic.
 - [x] Document cryptographic limits of SEA pair encryption and separately evaluate a reviewed ratcheting protocol for private conversations.
 - [ ] External security review before enabling cellular peer forwarding or BLE data transport by default.
-- [ ] Test: malicious intermediary cannot alter original SEA authorship or decrypt pair-private payloads.
+- [x] Test: malicious intermediary cannot alter original SEA authorship or decrypt pair-private payloads.
 
 ## Deferred decisions
 
