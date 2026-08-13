@@ -102,6 +102,7 @@
   "license": "MIT",
   "dependencies": {
     "bad-words": "^3.0.4",
+    "bonjour-service": "^1.4.4",
     "compromise": "^14.14.0",
     "cors": "^2.8.5",
     "express": "^4.19.0",

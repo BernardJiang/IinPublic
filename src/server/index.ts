@@ -23,6 +23,7 @@ import { registerMailboxRoutes } from './routes/mailbox-routes';
 import { registerAdminRoutes } from './routes/admin-routes';
 import { registerDownloadRoutes } from './routes/downloads-routes';
 import { TechSupportAnnouncementService } from './services/techsupport-announcement-service';
+import { LanGunDiscovery } from './services/lan-gun-discovery';
 import {
   inspectSchemaVersions,
   type SchemaKind,
@@ -78,6 +79,7 @@ class IinPublicServer {
   private reputationService!: ReputationService;
   private techSupportAnnouncements!: TechSupportAnnouncementService;
   private hubRelayClient?: EmbeddedHubRelayClient;
+  private lanGunDiscovery?: LanGunDiscovery;
 
   private mailboxStore = new MailboxStore();
   private mailboxSweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -284,6 +286,12 @@ class IinPublicServer {
     });
     this.server.listen(port, () => {
       logger.info({ port, env: process.env.NODE_ENV || 'development' }, '🚀 IinPublic server started');
+      const embedded = resolveEmbeddedNodeConfig(process.env);
+      const lanDiscoveryEnabled = process.env.IINPUBLIC_LAN_DISCOVERY_ENABLED !== '0';
+      if (embedded.enabled && lanDiscoveryEnabled) {
+        this.lanGunDiscovery = new LanGunDiscovery(this.gun, port);
+        this.lanGunDiscovery.start();
+      }
     });
     // Periodic mailbox sweep: evict expired envelopes every 5 minutes.
     this.mailboxSweepTimer = setInterval(() => {
