@@ -3,6 +3,7 @@
 // access. We only expose a tiny, read-only surface for the shell to advertise
 // that it is the native host (e.g. to hide "install desktop app" prompts).
 const { contextBridge } = require('electron');
+const { version } = require('./package.json');
 
 contextBridge.exposeInMainWorld('iinpublicNative', {
   platform: process.platform === 'win32' ? 'windows'
@@ -10,4 +11,5 @@ contextBridge.exposeInMainWorld('iinpublicNative', {
     : process.platform === 'darwin' ? 'macos' : 'unknown',
   shell: 'electron',
   embeddedNode: true,
+  version,
 });

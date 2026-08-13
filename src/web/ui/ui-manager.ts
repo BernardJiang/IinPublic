@@ -3746,6 +3746,10 @@ export class UIManager extends EventEmitter {
 
   private renderSettingsView(user: User): void {
     const connectivity = loadConnectivitySettings();
+    const nativeHost = (window as unknown as {
+      iinpublicNative?: { version?: string; platform?: string };
+    }).iinpublicNative;
+    const appVersion = String(nativeHost?.version || 'web');
     const container = document.getElementById('settings-content');
     if (!container) return;
     const currentColorScheme = getColorSchemePreference();
@@ -3868,6 +3872,9 @@ export class UIManager extends EventEmitter {
             <span aria-hidden="true" style="color:var(--text-tertiary);">›</span>
           </button>
         `).join('')}
+      </div>
+      <div id="settings-app-version" data-testid="settings-app-version" style="padding:2px 4px;text-align:center;font-size:0.78em;color:var(--text-tertiary);">
+        IinPublic version ${escapeHtml(appVersion)}${nativeHost?.platform ? ` · ${escapeHtml(nativeHost.platform)}` : ''}
       </div>
     `;
     container.innerHTML = `

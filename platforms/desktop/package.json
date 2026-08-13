@@ -1,7 +1,7 @@
 {
   "name": "iinpublic-desktop",
   "productName": "IinPublic",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "IinPublic desktop app — Electron shell hosting the embedded P2P node",
   "main": "main.js",
   "author": {
@@ -58,7 +58,17 @@
     "win": { "target": ["nsis", "zip"], "icon": "resources/icon.ico" },
     "linux": { "target": ["AppImage", "deb"], "category": "Network", "icon": "resources/icon.png" },
     "mac": { "target": ["dmg"], "category": "public.app-category.social-networking", "icon": "resources/icon.icns" },
-    "nsis": { "differentialPackage": false },
+    "nsis": {
+      "guid": "6f9f68bf-1077-5657-84fa-95bd35774b1a",
+      "oneClick": false,
+      "perMachine": false,
+      "selectPerMachineByDefault": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
+      "uninstallDisplayName": "IinPublic",
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false
+    },
     "publish": [
       {
         "provider": "github",

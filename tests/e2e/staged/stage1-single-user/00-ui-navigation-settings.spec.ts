@@ -766,6 +766,12 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#return-home-btn')).toBeEnabled();
   });
 
+  test('Settings menu shows the running app version', async () => {
+    const p = page!;
+    await p.click('.nav-btn[data-view="settings"]');
+    await expect(p.getByTestId('settings-app-version')).toHaveText('IinPublic version web');
+  });
+
   test('custom room creation opens the newly created room', async () => {
     const p = page!;
     const roomName = `Mesa College ${Date.now()}`;
