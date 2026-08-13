@@ -4,7 +4,11 @@
   "version": "1.0.0",
   "description": "IinPublic desktop app — Electron shell hosting the embedded P2P node",
   "main": "main.js",
-  "author": "IinPublic Team",
+  "author": {
+    "name": "IinPublic Team",
+    "email": "hongyujiang@gmail.com"
+  },
+  "homepage": "https://github.com/BernardJiang/IinPublic",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -12,7 +16,7 @@
     "dist:win": "electron-builder --win --x64",
     "dist:win:arm64": "electron-builder --win --arm64",
     "dist:win:all": "electron-builder --win --x64 --arm64",
-    "dist:linux": "electron-builder --linux",
+    "dist:linux": "electron-builder --linux AppImage --x64",
     "dist:mac": "electron-builder --mac"
   },
   "dependencies": {
