@@ -1,6 +1,38 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
+
+## 2026-08-12 — BB Phase 5 follow-up: tag-pair picker wired into the talk editor
+
+Moved from `docs/TODO.md` §BB Phase 5's "NOT shipped" note — built on request after the taxi/
+handyman e2e work (§GG/§HH) surfaced the question of why `Talk.role` is still the only live
+mechanism when Phase 1's opposite-tag registry (`tag-opposite-pairs.ts`) already existed.
+
+- New `#talk-tag-group` in the talk editor (`talk-editor-dialog.ts`), a "leading section" text
+  input placed before the existing role dropdown: typing one of the 3 app-predefined deal tags
+  (`buy`/`sell`/`hiring`/`jobseeking`) shows a live opposite-tag preview, auto-sets `#talk-role`
+  via new `dealRoleForTag` (`tag-opposite-pairs.ts`), and — only when the first question's text
+  is still empty, so a real edit is never clobbered — pre-fills it from new
+  `questionTemplateForTag`'s "addressed to the opposite side" wording (e.g. a `buy`-tagged talk
+  suggests "Do you sell {title}?", the "self-describing tags, decoupled question wording" idea
+  from §BB's original design).
+- `checkIfMatch` still reads `Talk.role` completely unchanged, per the original "zero engine
+  changes" decision recorded when §BB was designed — this picker is a friendlier way to SET that
+  same field, not a replacement for it.
+- `Talk.tags` is now real persisted data via `processTalkForm` (was hardcoded to `[]`
+  everywhere in the editor). Verified the full create/update pipeline (`app.ts` →
+  `WebTalkService`) forwards it correctly — checked specifically because a near-identical bug
+  (a field silently dropped by a whitelist) bit §Y1 earlier this project.
+- An unrecognized tag (including `male`/`female`, reserved for §DD) falls back to manual role
+  selection exactly like before this control existed. Deliberately still no persistence for
+  user-created (non-seeded) tag pairs — only the 3 app-predefined ones are live.
+
+**Verification:** `npm run test:type`, `npx eslint`, `npm run test:unit` (1365 passing, +14 new
+tests for `dealRoleForTag`/`questionTemplateForTag`), new
+`tests/e2e/staged/stage1-single-user/83-tag-pair-picker.spec.ts` (live preview, auto-role-set,
+non-clobbering auto-fill, unrecognized-tag fallback, full round-trip through save + reopen —
+passed on the first real run), plus a 15/15 combined e2e regression run (dealmaker, taxi,
+handyman, talks-edit, ui-navigation-settings).
 
 ## 2026-08-11 — GG/HH: taxi and handyman local-chatroom matching e2e scenarios
 

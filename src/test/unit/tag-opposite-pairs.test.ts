@@ -1,10 +1,12 @@
 import {
   createEmptyTagOppositePairRegistryState,
   createSeededTagOppositePairRegistryState,
+  dealRoleForTag,
   getOppositeTagId,
   getOppositeTagName,
   hasOppositeTag,
   makeTagId,
+  questionTemplateForTag,
   registerOppositeTagPair,
 } from '../../shared/tag-opposite-pairs';
 
@@ -74,5 +76,44 @@ describe('tag-opposite-pairs', () => {
     const state = createSeededTagOppositePairRegistryState();
     expect(hasOppositeTag(state, 'notacatalogedtag')).toBe(false);
     expect(getOppositeTagId(state, makeTagId('notacatalogedtag'))).toBeUndefined();
+  });
+
+  describe('dealRoleForTag', () => {
+    it('maps sell/hiring to offer and buy/jobseeking to request', () => {
+      expect(dealRoleForTag('sell')).toBe('offer');
+      expect(dealRoleForTag('hiring')).toBe('offer');
+      expect(dealRoleForTag('buy')).toBe('request');
+      expect(dealRoleForTag('jobseeking')).toBe('request');
+    });
+
+    it('is case/whitespace-insensitive, same canonicalization as makeTagId', () => {
+      expect(dealRoleForTag(' Buy ')).toBe('request');
+      expect(dealRoleForTag('SELL')).toBe('offer');
+    });
+
+    it('has no role mapping for male/female (reserved for §DD) or an unknown tag', () => {
+      expect(dealRoleForTag('male')).toBeUndefined();
+      expect(dealRoleForTag('female')).toBeUndefined();
+      expect(dealRoleForTag('notacatalogedtag')).toBeUndefined();
+    });
+  });
+
+  describe('questionTemplateForTag', () => {
+    it('generates a template addressed to the OPPOSITE side, filling in the item', () => {
+      expect(questionTemplateForTag('buy', 'a used notebook')).toBe('Do you sell a used notebook?');
+      expect(questionTemplateForTag('sell', 'a used notebook')).toBe('Do you want to buy a used notebook?');
+      expect(questionTemplateForTag('hiring', 'anything')).toBe('Are you looking for a job?');
+      expect(questionTemplateForTag('jobseeking', 'anything')).toBe('Are you hiring?');
+    });
+
+    it('falls back to a generic "this" when the item is blank', () => {
+      expect(questionTemplateForTag('buy', '')).toBe('Do you sell this?');
+      expect(questionTemplateForTag('buy', '   ')).toBe('Do you sell this?');
+    });
+
+    it('has no template for male/female or an unknown tag', () => {
+      expect(questionTemplateForTag('male', 'anything')).toBeUndefined();
+      expect(questionTemplateForTag('notacatalogedtag', 'anything')).toBeUndefined();
+    });
   });
 });

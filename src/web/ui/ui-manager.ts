@@ -85,6 +85,7 @@ import {
 } from './answer-preferences-storage';
 import { pickBuiltInAnswer, resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
 import { makeTypedPreferenceScopeKey, saveTypedPreference } from '../../shared/typed-preference-store';
+import { makeTagId } from '../../shared/tag-opposite-pairs';
 import {
   findAutoAnswer,
   findAutoAnswerMultiple,
@@ -172,6 +173,16 @@ function resolveExpiresAtMs(value: unknown): number {
   if (typeof value === 'string' && value.trim()) return new Date(value).getTime();
   return Number.NaN;
 }
+
+/** Best-effort category guess for the tag-pair picker's 3 seeded deal pairs (talk-editor-
+ *  dialog.ts) — any other tag (including a user-typed one with no known opposite) falls back
+ *  to 'other', matching how ordinary free-form tags have no category guidance today either. */
+const DEAL_TAG_CATEGORY_BY_NAME: Partial<Record<string, TagCategory>> = {
+  buy: 'for-sale',
+  sell: 'for-sale',
+  hiring: 'jobs',
+  jobseeking: 'jobs',
+};
 
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
 // Settings → Appearance: decorative swatch + label per scheme, matching the
@@ -8552,6 +8563,21 @@ export class UIManager extends EventEmitter {
     const sendToChatroomCheck = document.getElementById('talk-send-to-chatroom') as HTMLInputElement;
     const roleSelect = document.getElementById('talk-role') as HTMLSelectElement | null;
     const role = roleSelect?.value === 'offer' || roleSelect?.value === 'request' ? roleSelect.value : undefined;
+    // §BB / spec §30.2: the tag-pair picker (talk-editor-dialog.ts) stores a real Tag on the
+    // talk — not just UI chrome. Category is a light best-effort guess for the 3 seeded deal
+    // pairs; everything else (including any user-typed tag with no known opposite) falls back
+    // to 'other', matching how ordinary free-form tags have no category guidance today either.
+    const tagInputValue = (document.getElementById('talk-tag') as HTMLInputElement | null)?.value.trim() || '';
+    const tags: Tag[] = tagInputValue
+      ? [
+          {
+            id: makeTagId(tagInputValue),
+            name: tagInputValue.toLowerCase(),
+            category: DEAL_TAG_CATEGORY_BY_NAME[tagInputValue.toLowerCase()] || 'other',
+            popularity: 0,
+          },
+        ]
+      : [];
     const expiresVal = expiresSelect?.value || '';
     const oneDay = 24 * 60 * 60 * 1000;
     let expiresAt: number | null = null;
@@ -8722,7 +8748,7 @@ export class UIManager extends EventEmitter {
       type,
       isAdult,
       language,
-      tags: [],
+      tags,
       questions,
       createdAt: new Date(),
       isTemplate: false,
@@ -8781,7 +8807,7 @@ export class UIManager extends EventEmitter {
         isAdult,
         questions,
         language,
-        tags: [],
+        tags,
         expiresAt,
         locationRadiusMiles,
         role,
@@ -8808,7 +8834,7 @@ export class UIManager extends EventEmitter {
         isAdult,
         questions,
         language,
-        tags: [],
+        tags,
         sendToChatroom,
         expiresAt,
         locationRadiusMiles,

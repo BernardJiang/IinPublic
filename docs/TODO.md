@@ -810,9 +810,11 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
    - **Wired now:** `quantity`, `priceRange`, `timeFrame` — using role (specifically MY OWN
      role, `complementRole(talk.role)` — the incoming talk's role complement, matching what
      `processTalkForm` saves under when I author my own talk, see Phase 5) as an **interim**
-     typed-preference scope substitute for the real opposite-tag (Phase 1's registry), since a
-     talk carries no resolvable deal-tag until a tag picker is wired into the editor (still not
-     shipped as of Phase 5, see below). Revisit the scope key once that lands.
+     typed-preference scope substitute for the real opposite-tag (Phase 1's registry). The tag
+     picker shipped 2026-08-12 (see Phase 5 below) and now sets `Talk.role` from a tag, but this
+     resolver still reads `role` directly, not `Talk.tags` — the scope key itself is unchanged.
+     Revisit if a talk ever needs a role-independent tag-scoped preference (e.g. a user-created
+     pair with no role mapping).
    - **Deliberately deferred:** `location` — always resolves `ASK_USER` (falls through to the
      human inbox, same as "no stored preference"). Needs a geo/privacy-aware source for the
      responder's OWN location + radius (their blurred coordinate, or a matching counterpart
@@ -858,14 +860,30 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
      trustworthy enough to auto-resolve" decision actually holds through the full UI→engine→UI
      path). Plus a full regression run (`04-dealmaker-chatbot-match`,
      `85-multi-value-checkbox-match`, `86-builtin-quantity-match`, 7/7 pass).
-   - **NOT shipped**: the tag-pair picker (leading section) and "auto-generated first-question
-     preview from the tag-pair template." Deliberately deferred — building it now wouldn't
-     change any live behavior, since Phase 4's resolver still scopes by `talk.role`, not by any
-     tag (`Talk.tags` stays hardcoded to `[]` everywhere in the editor, unchanged this phase);
-     revisit once there's an actual consumer for tag-scoped preferences, otherwise it's
-     speculative UI. `location` also still has no editor input (by design — it reuses the talk's
-     own existing location/radius fields, see Phase 2) and no auto-resolution wiring yet (Phase 4
-     deferred it for the same geo/privacy-source reason).
+   - **Tag-pair picker: shipped 2026-08-12** (was deferred here, added on request). New
+     `#talk-tag-group` (talk-editor-dialog.ts), a "leading section" text input placed before
+     `#talk-role-group`: typing a known deal tag (`buy`/`sell`/`hiring`/`jobseeking`, the 3
+     app-predefined pairs) shows a live opposite-tag preview, auto-sets `#talk-role` via new
+     `dealRoleForTag` (`tag-opposite-pairs.ts`), and — only when the first question's text is
+     still empty, so a real edit is never clobbered — pre-fills it from new
+     `questionTemplateForTag`'s "addressed to the opposite side" wording (e.g. a `buy`-tagged
+     talk suggests "Do you sell {title}?"). `checkIfMatch` still reads `Talk.role` completely
+     unchanged, per the original "zero engine changes" decision — this is a friendlier way to
+     SET that same field, not a replacement for it. `Talk.tags` is now real persisted data (was
+     hardcoded to `[]` everywhere) via `processTalkForm`; verified the full create/update
+     pipeline (`app.ts` → `WebTalkService`) forwards it correctly, unlike a prior similar bug
+     (§Y1) where a field silently got whitelisted out. An unrecognized tag (including
+     `male`/`female`, reserved for §DD) falls back to manual role selection exactly like before
+     this control existed — still **no persistence for user-created pairs** in this pass, only
+     the 3 seeded ones are live; that remains deliberately out of scope. New
+     `tests/e2e/staged/stage1-single-user/83-tag-pair-picker.spec.ts` proves the live preview,
+     auto-role-set, non-clobbering auto-fill, unrecognized-tag fallback, and full round-trip
+     through save + reopen — passed on the first real run. Verified: type-check, lint, full unit
+     suite (1365 passing, +14 new tests), and a 15/15 combined e2e regression run (dealmaker,
+     taxi, handyman, talks-edit, ui-navigation-settings).
+   - **Still not shipped**: `location` has no editor input (by design — it reuses the talk's own
+     existing location/radius fields, see Phase 2) and no auto-resolution wiring (Phase 4
+     deferred it for the geo/privacy-source reason recorded there).
 6. **Shipped 2026-08-11 (partial — per-item builtIn leaves; talk-level shared fields deferred, see
    below).** Route branch integration for multi-item listings.
    - **Real pre-existing bug found and fixed first (unrelated to §BB, blocking any route-editor
@@ -920,10 +938,11 @@ ever does string equality, which can't express "$400 is inside $300–500" or "5
 
 **§BB is now complete across all 6 planned phases** (engine: tag registry, builtIn schema,
 comparisons, typed-preference storage, auto-resolution wiring; UI: flow + route talk-editor
-support for typed comparisons). Not shipped, tracked above as explicit deferrals rather than
-oversights: the tag-pair picker/auto-generated-question-template (Phase 5), `location`
-auto-resolution (Phase 4, needs a geo/privacy source), and route's talk-level shared fields
-(Phase 6, blocked on the same root-branching gap as the tag picker).
+support for typed comparisons, tag-pair picker). Not shipped, tracked above as explicit deferrals
+rather than oversights: `location` auto-resolution (Phase 4, needs a geo/privacy source),
+route's talk-level shared fields (Phase 6, blocked on the "add child to a builtIn node" editor
+gap), and persistence for user-created (non-seeded) tag pairs (Phase 5's tag-pair picker,
+shipped 2026-08-12, supports only the 3 app-predefined pairs).
 
 **Test plan:**
 

@@ -1,4 +1,10 @@
 import type { UiTranslationKey } from './ui-translations';
+import {
+  createSeededTagOppositePairRegistryState,
+  dealRoleForTag,
+  getOppositeTagName,
+  questionTemplateForTag,
+} from '../../shared/tag-opposite-pairs';
 
 type TalkEditorDialogOptions = {
   existingTalk?: any;
@@ -112,6 +118,25 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               <option value="survey">Survey</option>
               <option value="route">Route</option>
             </select>
+          </div>
+
+          <div class="form-group" id="talk-tag-group">
+            <label class="form-label" for="talk-tag">${text('editorTagPairLabel', 'What is this? (optional)')}</label>
+            <input
+              type="text"
+              class="form-input"
+              id="talk-tag"
+              value="${options.escapeHtml(existingTalk?.tags?.[0]?.name || '')}"
+              placeholder="${text('editorTagPairPlaceholder', 'e.g. buy, sell, hiring, jobseeking')}"
+              list="talk-tag-suggestions"
+            >
+            <datalist id="talk-tag-suggestions">
+              <option value="buy"></option>
+              <option value="sell"></option>
+              <option value="hiring"></option>
+              <option value="jobseeking"></option>
+            </datalist>
+            <p id="talk-tag-preview" style="margin: 6px 0 0 0; font-size: 0.85em; color: #666;"></p>
           </div>
 
           <div class="form-group" id="talk-role-group">
@@ -297,6 +322,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     const talkLocationGroup = document.getElementById('talk-location-group');
     const talkSendChatroomGroup = document.getElementById('talk-send-chatroom-group');
     const talkRoleGroup = document.getElementById('talk-role-group');
+    const talkTagGroup = document.getElementById('talk-tag-group');
     const tagLikeGroup = document.getElementById('tag-like-group');
     const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
     const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement | null;
@@ -316,6 +342,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       if (talkLocationGroup) talkLocationGroup.style.display = 'none';
       if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = 'none';
       if (talkRoleGroup) talkRoleGroup.style.display = 'block';
+      if (talkTagGroup) talkTagGroup.style.display = 'block';
       if (questionsFormGroup) {
         questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
           (el as HTMLInputElement).disabled = true;
@@ -358,6 +385,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         // Surveys never have a match/ignore outcome (checkIfMatch always returns false for
         // them) — a role selector would be meaningless here.
         if (talkRoleGroup) talkRoleGroup.style.display = 'none';
+        if (talkTagGroup) talkTagGroup.style.display = 'none';
         if (questionsFormLabel) questionsFormLabel.textContent = text('editorSurveyQuestions', 'Questions (independent)');
         if (questionsTypeHint) {
           questionsTypeHint.textContent = text('editorSurveyHint', 'Survey: questions are independent - no branching. Every answer has a counter used for aggregate statistics.');
@@ -388,6 +416,56 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       talkTypeSelect.addEventListener('change', updateFormForType);
       updateFormForType();
     }
+
+    // §BB / spec §30.2: tag-pair picker (docs/TODO.md §BB, deferred from Phase 5, added now).
+    // `checkIfMatch` keeps reading `Talk.role` unchanged (the original "zero engine changes"
+    // decision) — this control is a friendlier way to SET role for the app-predefined deal
+    // pairs (buy/sell, hiring/jobseeking) via `dealRoleForTag`, plus a live opposite-tag preview
+    // and an auto-generated first-question suggestion (`questionTemplateForTag`) so two
+    // independently-authored talks can share exact wording without either side typing it by
+    // hand. A tag with no known deal mapping (a user-typed tag, or `male`/`female`, reserved for
+    // §DD) falls back to manual role selection exactly like before this control existed — no
+    // persistence for user-created pairs in this pass, only the 3 seeded ones are live.
+    const talkTagInput = document.getElementById('talk-tag') as HTMLInputElement | null;
+    const talkTagPreview = document.getElementById('talk-tag-preview');
+    const talkRoleSelect = document.getElementById('talk-role') as HTMLSelectElement | null;
+    const tagRegistry = createSeededTagOppositePairRegistryState();
+
+    const updateTagPreview = (): void => {
+      const tagValue = talkTagInput?.value.trim() || '';
+      if (!talkTagPreview) return;
+      if (!tagValue) {
+        talkTagPreview.textContent = '';
+        return;
+      }
+      const opposite = getOppositeTagName(tagRegistry, tagValue);
+      if (!opposite) {
+        talkTagPreview.textContent = text(
+          'editorTagPairNoOpposite',
+          'No known opposite tag yet — pick a role manually below.',
+        );
+        return;
+      }
+      talkTagPreview.textContent = `${text('editorTagPairOppositeLabel', 'Shown to people tagged:')} ${opposite}`;
+
+      const mappedRole = dealRoleForTag(tagValue);
+      if (mappedRole && talkRoleSelect) {
+        talkRoleSelect.value = mappedRole;
+      }
+
+      // Auto-suggest the first question's wording — only when the author hasn't typed
+      // anything there yet, so this never clobbers a real edit.
+      const titleInput = document.getElementById('talk-title') as HTMLInputElement | null;
+      const template = questionTemplateForTag(tagValue, titleInput?.value || '');
+      if (template) {
+        const flowQ1Text = document.querySelector('.question-item[data-question-index="0"] .question-text') as HTMLInputElement | null;
+        if (flowQ1Text && !flowQ1Text.value.trim()) flowQ1Text.value = template;
+        const routeQ1Text = document.querySelector('.route-question-text[data-qid="q_0"]') as HTMLInputElement | null;
+        if (routeQ1Text && !routeQ1Text.value.trim()) routeQ1Text.value = template;
+      }
+    };
+    talkTagInput?.addEventListener('input', updateTagPreview);
+    updateTagPreview();
 
     options.setupTalkFormHandlers(modal);
   };
