@@ -3,7 +3,8 @@
 #
 # The compiled embedded server (dist/server, grepped directly for its own
 # `require(...)` calls — the ground truth of what actually ships) only ever
-# loads: cors, express, gun (+ its gun/sea subpath), helmet, socket.io, uuid.
+# loads: bonjour-service, cors, express, gun (+ its gun/sea subpath), helmet,
+# socket.io, uuid.
 #
 # `npm ci --omit=dev` alone is NOT enough to isolate that set: several of the
 # 13 packages under root package.json's "dependencies" (bad-words,
@@ -23,7 +24,7 @@
 # unrelated bundled binaries carries a notarization ticket Apple has since
 # revoked). Pruning to just `dependencies` cut that to ~340MB but the
 # hermes/react-native/fb-dotslash chain was still present via helia — this
-# script installs ONLY the 6 packages actually required(), each pinned to
+# script installs ONLY the packages actually required(), each pinned to
 # the same version range declared in the root package.json, so their own
 # transitive trees resolve fresh without ever pulling helia in at all.
 set -euo pipefail
@@ -33,7 +34,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # bundled resource is the node_modules/ it produces inside here.
 STAGE_DIR="$ROOT_DIR/platforms/desktop/.prod-deps-staging"
 
-RUNTIME_PACKAGES=(cors express gun helmet socket.io uuid)
+RUNTIME_PACKAGES=(bonjour-service cors express gun helmet socket.io uuid)
 
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
