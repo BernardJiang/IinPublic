@@ -4260,6 +4260,11 @@ export class IinPublicApp {
    */
   public async syncIncomingClustersFromServer(): Promise<void> {
     // R-a step 7: Gun p2pMeshTalkBodies/* rendezvous path removed; clusters arrive via mesh or mailbox drain.
+    // A mesh send can fall back to the encrypted mailbox when the receiver's DataChannel
+    // is not ready yet.  The periodic drain is deliberately asynchronous, so an explicit
+    // E2E sync must drain first; otherwise it can repeatedly observe the old local Gun
+    // snapshot while the correctly delivered envelope is still waiting on the server.
+    await this.drainMailbox();
     await this.refreshIncomingTalkClustersFromLocalGun();
     if (this.e2eSeededIncomingClusters.length > 0) {
       this.mergeIncomingClusterIntoUi(this.e2eSeededIncomingClusters);
