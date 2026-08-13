@@ -3749,7 +3749,10 @@ export class UIManager extends EventEmitter {
     const nativeHost = (window as unknown as {
       iinpublicNative?: { version?: string; platform?: string };
     }).iinpublicNative;
-    const appVersion = String(nativeHost?.version || 'web');
+    const nativeQuery = new URLSearchParams(window.location.search);
+    const queryPlatform = nativeQuery.get('native_platform') || '';
+    const appVersion = String(nativeHost?.version || nativeQuery.get('app_version') || 'web');
+    const appPlatform = nativeHost?.platform || queryPlatform;
     const container = document.getElementById('settings-content');
     if (!container) return;
     const currentColorScheme = getColorSchemePreference();
@@ -3874,7 +3877,7 @@ export class UIManager extends EventEmitter {
         `).join('')}
       </div>
       <div id="settings-app-version" data-testid="settings-app-version" style="padding:2px 4px;text-align:center;font-size:0.78em;color:var(--text-tertiary);">
-        IinPublic version ${escapeHtml(appVersion)}${nativeHost?.platform ? ` · ${escapeHtml(nativeHost.platform)}` : ''}
+        IinPublic version ${escapeHtml(appVersion)}${appPlatform ? ` · ${escapeHtml(appPlatform)}` : ''}
       </div>
     `;
     container.innerHTML = `

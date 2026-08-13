@@ -128,7 +128,11 @@ class MainActivity : AppCompatActivity() {
             val deadline = System.currentTimeMillis() + 20_000
             while (System.currentTimeMillis() < deadline) {
                 if (portOpen(port)) {
-                    runOnUiThread { webView.loadUrl("http://127.0.0.1:$port/") }
+                    runOnUiThread {
+                        webView.loadUrl(
+                            "http://127.0.0.1:$port/?native_platform=android&app_version=${BuildConfig.VERSION_NAME}"
+                        )
+                    }
                     return@Thread
                 }
                 Thread.sleep(300)

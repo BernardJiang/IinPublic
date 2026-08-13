@@ -287,8 +287,11 @@ class IinPublicServer {
     this.server.listen(port, () => {
       logger.info({ port, env: process.env.NODE_ENV || 'development' }, '🚀 IinPublic server started');
       const embedded = resolveEmbeddedNodeConfig(process.env);
-      const lanDiscoveryEnabled = process.env.IINPUBLIC_LAN_DISCOVERY_ENABLED !== '0';
-      if (embedded.enabled && lanDiscoveryEnabled) {
+      const lanDiscoveryExplicitlyEnabled = process.env.IINPUBLIC_LAN_DISCOVERY_ENABLED === '1';
+      const lanDiscoveryEnabled = embedded.enabled
+        ? process.env.IINPUBLIC_LAN_DISCOVERY_ENABLED !== '0'
+        : lanDiscoveryExplicitlyEnabled;
+      if (lanDiscoveryEnabled) {
         this.lanGunDiscovery = new LanGunDiscovery(this.gun, port);
         this.lanGunDiscovery.start();
       }
