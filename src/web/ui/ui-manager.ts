@@ -1779,7 +1779,19 @@ export class UIManager extends EventEmitter {
   /** Auto-send only the OUT talk revisions not yet delivered to each individual peer. */
   public broadcastPendingTalksOnRoomEntry(): void {
     if (!this.currentChatroom) return;
-    for (const peer of this.getCurrentChatroomMembers()) {
+    this.broadcastPendingTalksToMembers(this.getCurrentChatroomMembers());
+  }
+
+  /**
+   * Catch a newly-arrived room member up on active broadcasts without replaying anything that
+   * this sender has already delivered to that SEA identity. Keeping this receiver-scoped avoids
+   * re-flooding the whole room every time one phone appears or reconnects.
+   */
+  public broadcastPendingTalksToMembers(
+    members: Array<{ userId: string; stageName: string }>,
+  ): void {
+    if (!this.currentChatroom) return;
+    for (const peer of members) {
       const talkIds = this.getUnsentBroadcastTalkIdsForReceiver(this.currentChatroom, peer.userId);
       if (talkIds.length > 0) {
         this.emit('broadcastTalk', { chatroomId: this.currentChatroom, members: [peer], talkIds, automatic: true });
@@ -8392,7 +8404,14 @@ export class UIManager extends EventEmitter {
    * reports 'Electron' in its UA.
    */
   async renderAppDownloadBanner(): Promise<void> {
-    if (/Electron/i.test(navigator.userAgent || '')) return;
+    const nativeHost = (window as unknown as {
+      iinpublicNative?: { version?: string; platform?: string };
+    }).iinpublicNative;
+    const nativePlatform = new URLSearchParams(window.location.search).get('native_platform');
+    // Electron identifies itself through both its preload bridge and UA. Mobile shells use a
+    // query marker because their UI is served by the embedded loopback node inside a WebView.
+    // Neither is a web-version visitor and neither should be invited to download itself.
+    if (nativeHost?.platform || nativePlatform || /Electron/i.test(navigator.userAgent || '')) return;
     if (sessionStorage.getItem('iinpublic_dismissed_app_download_banner')) return;
     const shell = document.querySelector('.app-container');
     if (!shell || document.getElementById('app-download-banner')) return;

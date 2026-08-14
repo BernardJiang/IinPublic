@@ -265,6 +265,8 @@ export class IinPublicApp {
   private incomingTalkClusterUnsubscribe: (() => void) | null = null;
   private roomDiscoveryService: P2PRoomDiscoveryService | null = null;
   private readonly roomDiscoveredUserIds = new Map<string, Set<string>>();
+  /** Room members already scheduled for receiver-scoped historical broadcast catch-up. */
+  private readonly roomCatchupScheduledUserIds = new Map<string, Set<string>>();
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
       ? {
@@ -1707,9 +1709,27 @@ export class IinPublicApp {
           ...members,
           { userId: this.currentUser.id, stageName: this.currentUser.stageName },
         ];
-    void mesh.joinRoom(chatroomId, withSelf).catch((error) => {
-      console.warn('Peer mesh room join failed:', error);
+    const scheduled = this.roomCatchupScheduledUserIds.get(chatroomId) || new Set<string>();
+    const newlyArrived = withSelf.filter((member) => {
+      const userId = String(member.userId || '').trim();
+      return !!userId && userId !== this.currentUser?.id && !scheduled.has(userId);
     });
+    for (const member of newlyArrived) scheduled.add(member.userId);
+    this.roomCatchupScheduledUserIds.set(chatroomId, scheduled);
+
+    void mesh.joinRoom(chatroomId, withSelf)
+      .then(() => {
+        if (newlyArrived.length === 0 || this.currentChatroomId !== chatroomId) return;
+        this.uiManager.broadcastPendingTalksToMembers(newlyArrived.map((member) => ({
+          userId: member.userId,
+          stageName: member.stageName || member.userId,
+        })));
+      })
+      .catch((error) => {
+        // Let the next roster callback retry catch-up if joining the mesh failed.
+        for (const member of newlyArrived) scheduled.delete(member.userId);
+        console.warn('Peer mesh room join failed:', error);
+      });
     const discovery = this.ensureRoomDiscoveryService();
     if (discovery) {
       void discovery.announceRoom(chatroomId).catch((error) => {

@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/index.js",
   "scripts": {
