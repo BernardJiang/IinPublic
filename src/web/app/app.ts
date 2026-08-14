@@ -996,14 +996,23 @@ export class IinPublicApp {
   }
 
   private subscribeToAllChatroomMemberCounts(): void {
-    // Get all chatroom IDs from the hierarchy
-    const chatroomIds = getAllChatroomIds();
+    // Live-subscribing every leaf room created 188 permanent Gun listeners (member + visit
+    // counts) at startup. Older Android WebViews visibly stalled while replaying those 94 room
+    // graphs. Keep high-level discovery live and add the current room's full ancestor path;
+    // deep rooms outside that path refresh when entered instead of consuming background CPU.
+    const flatRooms = getFlatChatroomList();
+    const byId = new Map(flatRooms.map((room) => [room.id, room]));
+    const chatroomIds = flatRooms.filter((room) => room.level <= 2).map((room) => room.id);
 
     // Also include the current chatroom ID (location-based) if it's not in the list
     const currentChatroomId = this.chatroomService.getCurrentChatroomId();
-    if (currentChatroomId && !chatroomIds.includes(currentChatroomId)) {
-      chatroomIds.push(currentChatroomId);
-      console.log(`📍 Also subscribing to current location-based chatroom: ${currentChatroomId}`);
+    let pathRoomId = currentChatroomId;
+    while (pathRoomId) {
+      if (!chatroomIds.includes(pathRoomId)) chatroomIds.push(pathRoomId);
+      pathRoomId = byId.get(pathRoomId)?.parentId;
+    }
+    if (currentChatroomId) {
+      console.log(`📍 Including current chatroom path in live counts: ${currentChatroomId}`);
     }
 
     for (const id of this.uiManager.getCustomChatroomIds()) {
@@ -1080,7 +1089,14 @@ export class IinPublicApp {
 
     // Update user location
     if (this.currentLocation) {
-      await this.userService.updateUserLocation(this.currentUser.id, this.currentLocation);
+      try {
+        await this.userService.updateUserLocation(this.currentUser.id, this.currentLocation);
+      } catch (error) {
+        // A relay/Gun acknowledgement failure must not strand an existing identity on the
+        // fatal startup screen. The in-memory location is already available for room selection,
+        // and later location/status publications retry through their normal paths.
+        console.warn('Boot-time location publication skipped (non-fatal):', error);
+      }
     }
     const pair = this.gunService.getStoredPair();
     await this.userService.syncPublicUserForRelay({
@@ -3611,7 +3627,7 @@ export class IinPublicApp {
       return false;
     }
 
-    const cluster = upsertLocalIncomingTalkCluster(
+    const cluster = await upsertLocalIncomingTalkCluster(
       this.gunService,
       this.currentUser.id,
       {
@@ -4448,7 +4464,7 @@ export class IinPublicApp {
       ],
     };
     this.e2eSeededTagTalks.set(keyword.toLowerCase(), talkData);
-    const cluster = upsertLocalIncomingTalkCluster(
+    const cluster = await upsertLocalIncomingTalkCluster(
       this.gunService,
       this.currentUser.id,
       {
@@ -4483,7 +4499,7 @@ export class IinPublicApp {
     if (!talkId || !senderId || senderId === this.currentUser.id) return;
     const talkData = { ...params.talkData, authorId: senderId, authorName: params.senderName || senderId };
     this.ensurePeerMeshService()?.cacheTalkBody?.(talkId, talkData);
-    const cluster = upsertLocalIncomingTalkCluster(
+    const cluster = await upsertLocalIncomingTalkCluster(
       this.gunService,
       this.currentUser.id,
       {
