@@ -18,8 +18,25 @@ describe('GunDeliveryRepository', () => {
     await expect(afterRestart.getDelivery(response.responseId, 'alice')).resolves.toMatchObject({ state: 'committed', objectId: response.responseId });
     const pairResponseSoul = [...graph.keys()].find((key) => key.includes('/talkResponses/talk-cid/response-cid'));
     expect(pairResponseSoul).toBeTruthy();
-    expect(pairResponseSoul).toContain('pairs/alice__bob-sea/');
+    expect(pairResponseSoul).toMatch(/^pairs\/baguqeera/);
     expect(pairResponseSoul).not.toContain('~');
+  });
+
+  test('bounds pair-response souls below filesystem filename limits', async () => {
+    const graph = new Map<string, unknown>();
+    const store = { put: async (key: string, value: unknown) => { graph.set(key, value); }, get: async (key: string) => graph.get(key) ?? null };
+    const repo = new GunDeliveryRepository(store);
+    const longResponse = {
+      ...response,
+      talkId: `baguqeera${'t'.repeat(52)}`,
+      responseId: `baguqeera${'r'.repeat(52)}`,
+      authorId: `baguqeera${'a'.repeat(80)}`,
+    };
+
+    await repo.putPairResponse(`baguqeera${'b'.repeat(80)}`, longResponse);
+
+    const soul = [...graph.keys()][0];
+    expect(Buffer.byteLength(soul, 'utf8')).toBeLessThan(240);
   });
 
   test('advances journal idempotently without changing object identity', async () => {

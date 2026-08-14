@@ -1,4 +1,5 @@
 import type { P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
+import { computeCIDv1 } from '../../shared/cid';
 import type { GunKeyValueStore } from './gun-talk-repository';
 
 export type DeliveryState = 'committed' | 'sent' | 'persisted-receipt';
@@ -17,7 +18,11 @@ export class GunDeliveryRepository {
   async putPairResponse(localSeaPub: string, payload: P2PMeshTalkResponsePayload): Promise<void> {
     // `~` is reserved by GUN for SEA user souls. Using it as a pair delimiter makes GUN
     // demand a signature for an ordinary application record and reject it as unverified.
-    const pairId = [localSeaPub, payload.authorId].sort().map(encodeURIComponent).join('__');
+    // Radisk encodes a complete soul into a filesystem filename. Concatenating two SEA
+    // identities plus talk/response CIDs can exceed the 255-byte filename limit and poison
+    // unrelated later Gun acknowledgements with ENAMETOOLONG. A CID of the sorted identity
+    // pair is deterministic on both peers, collision-resistant, and keeps the soul bounded.
+    const pairId = await computeCIDv1([localSeaPub, payload.authorId].sort());
     const soul = `pairs/${pairId}/talkResponses/${encodeURIComponent(payload.talkId)}/${encodeURIComponent(payload.responseId)}`;
     await this.putAndVerify(soul, payload.responseId, { version: 1, responseId: payload.responseId, payload });
   }
