@@ -16,9 +16,17 @@ The server refuses to start without HTTPS. Generate the local certificate first
 with `./scripts/gen-dev-cert.sh`, then open `https://localhost:8080` and check
 `https://localhost:8080/health`.
 
-To test local installer downloads, place signed release files in
-`public/downloads/`. Supported extensions are `.dmg`, `.exe`, `.AppImage`,
-`.deb`, `.apk`, and `.ipa`. The directory is intentionally ignored by Git.
+The root `package.json` is the single release-version source. Use `npm version
+patch` (or `minor`/`major`) to bump it; the npm version hook synchronizes the
+desktop, Android, and iOS metadata. CI runs `npm run version:check` and rejects
+version drift.
+
+To test local installer downloads, first build the artifact, then stage it with
+`npm run downloads:stage -- windows` (or `mac`, `linux`, `android`, `ios`). The
+stager accepts only an artifact built for the current root version and copies it
+to ignored `public/downloads/`. The server also ignores any older files left in
+that directory. Supported extensions are `.dmg`, `.exe`, `.AppImage`, `.deb`,
+`.apk`, and `.ipa`.
 
 ## Container check
 
@@ -49,6 +57,10 @@ hosted outside the container:
 - `IINPUBLIC_DOWNLOAD_LINUX_URL`
 - `IINPUBLIC_DOWNLOAD_ANDROID_URL`
 - `IINPUBLIC_DOWNLOAD_IOS_URL`
+
+URLs may contain a `{version}` placeholder, for example
+`https://downloads.iinpublic.com/{version}/IinPublic-Windows.exe`.
+Only `https://` hosted download URLs are accepted.
 
 Do not publish unsigned desktop installers, debug APKs, or unsigned iOS builds
 as end-user releases.

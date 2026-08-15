@@ -21,7 +21,6 @@ import { registerSocketHandlers } from './socket/register-socket-handlers';
 import { MailboxStore } from './services/mailbox-store';
 import { registerMailboxRoutes } from './routes/mailbox-routes';
 import { registerAdminRoutes } from './routes/admin-routes';
-import { registerDownloadRoutes } from './routes/downloads-routes';
 import { TechSupportAnnouncementService } from './services/techsupport-announcement-service';
 import { LanGunDiscovery } from './services/lan-gun-discovery';
 import {
@@ -271,7 +270,6 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
     });
 
-    registerDownloadRoutes(this.app);
   }
 
   private setupSocketHandlers(): void {

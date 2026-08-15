@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import { registerDownloadRoutes } from '../routes/downloads-routes';
 import type { Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
@@ -119,6 +120,9 @@ export function configureHttpMiddleware(app: express.Application): void {
     warnIfBuildIdsDrifted(webRoot);
   }
 
+  // Register downloads before the broad static mount so stale installers cannot
+  // be fetched directly by an old bookmarked URL.
+  registerDownloadRoutes(app);
   app.use(express.static('public'));
 
   // worker.js imports Gun directly. Mount only that dependency instead of the

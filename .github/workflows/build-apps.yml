@@ -42,6 +42,8 @@ jobs:
       # Reused web + server bundles (dist/web, dist/server) — built once per OS.
       - name: Install root deps
         run: npm ci
+      - name: Verify release version
+        run: npm run version:check
       - name: Build embedded bundles
         run: npm run build:embedded
 
