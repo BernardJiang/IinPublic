@@ -8395,13 +8395,15 @@ export class UIManager extends EventEmitter {
   }
 
   /** Best-effort OS sniff for the app-download banner; unmatched UAs fall through to null (no dead link). */
-  private detectDownloadPlatform(): 'mac' | 'windows' | 'android' | null {
+  private detectDownloadPlatform(): 'mac' | 'windows' | 'linux' | 'android' | 'ios' | null {
     const ua = navigator.userAgent || '';
     if (/Android/i.test(ua)) return 'android';
+    if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
     if (/Win(dows)?(NT)?/i.test(ua)) return 'windows';
-    // iPadOS 13+ reports as Mac Safari; iPhone/iPad have no desktop app to offer, so exclude both.
-    if (/iPhone|iPad|iPod/i.test(ua)) return null;
-    if (/Mac/i.test(ua) && !(navigator.maxTouchPoints > 1)) return 'mac';
+    // iPadOS 13+ reports as Mac Safari but exposes touch points.
+    if (/Mac/i.test(ua) && navigator.maxTouchPoints > 1) return 'ios';
+    if (/Mac/i.test(ua)) return 'mac';
+    if (/Linux|X11/i.test(ua)) return 'linux';
     return null;
   }
 
@@ -8438,7 +8440,17 @@ export class UIManager extends EventEmitter {
       }
     }
 
-    const platformLabel = platform === 'mac' ? 'Mac' : platform === 'windows' ? 'Windows' : platform === 'android' ? 'Android' : '';
+    const platformLabel = platform === 'mac'
+      ? 'Mac'
+      : platform === 'windows'
+        ? 'Windows'
+        : platform === 'linux'
+          ? 'Linux'
+          : platform === 'android'
+            ? 'Android'
+            : platform === 'ios'
+              ? 'iPhone/iPad'
+              : '';
     const banner = document.createElement('div');
     banner.id = 'app-download-banner';
     banner.className = 'app-download-banner';

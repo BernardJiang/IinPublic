@@ -3,7 +3,7 @@
  *
  * Usage:
  *   const bridge = new GunBridge('/worker.js');
- *   await bridge.init({ hubUrl: 'http://localhost:8080/gun' });
+ *   await bridge.init({ hubUrl: 'https://localhost:8080/gun' });
  *
  *   await bridge.put('some/path', { hello: 'world' });
  *   const data = await bridge.get('some/path');

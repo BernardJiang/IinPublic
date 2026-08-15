@@ -20,6 +20,12 @@ Prerequisites:
 - npm
 - Android Studio only if you need the Android build
 
+Generate the local HTTPS certificate once (and again if your LAN IP changes):
+
+```bash
+./scripts/gen-dev-cert.sh
+```
+
 Install dependencies:
 
 ```bash
@@ -34,9 +40,9 @@ npm run dev
 
 Default local ports:
 
-- Web: `http://localhost:3001`
-- Server: `http://localhost:8080`
-- Health check: `http://localhost:8080/health`
+- Web: `https://localhost:3001`
+- Server: `https://localhost:8080`
+- Health check: `https://localhost:8080/health`
 
 Useful alternatives:
 

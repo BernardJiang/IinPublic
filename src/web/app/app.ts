@@ -3389,7 +3389,7 @@ export class IinPublicApp {
       const envPort = typeof process !== 'undefined' && process.env && process.env.PORT
         ? parseInt(process.env.PORT, 10)
         : 8080;
-      return `http://localhost:${Number.isFinite(envPort) ? envPort : 8080}`;
+      return `https://localhost:${Number.isFinite(envPort) ? envPort : 8080}`;
     }
     const { hostname, protocol, port } = window.location;
     return deriveBackendApiBaseFromLocation(protocol, hostname, port);

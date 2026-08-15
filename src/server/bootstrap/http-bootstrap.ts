@@ -11,10 +11,26 @@ import { requestLogger } from '../middleware/request-logger';
 import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
 
-export function buildAllowedOrigin(): string[] | RegExp {
-  return process.env.NODE_ENV === 'production'
-    ? ['https://iinpublic.com']
-    : /^https?:\/\/[^/]+(:\d+)?$/;
+export function buildAllowedOrigin(): Array<string | RegExp> | RegExp {
+  if (process.env.NODE_ENV !== 'production') {
+    const plaintextTest =
+      process.env.TLS_DISABLE === '1' ||
+      process.env.E2E_GUN_MEMORY_ONLY === '1' ||
+      process.env.E2E_GUN_MEMORY_ONLY === 'true';
+    return plaintextTest ? /^http:\/\/[^/]+(:\d+)?$/ : /^https:\/\/[^/]+(:\d+)?$/;
+  }
+
+  const configuredOrigins = (process.env.IINPUBLIC_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (configuredOrigins.length > 0) return configuredOrigins;
+
+  return [
+    /^https:\/\/(?:www\.)?iinpublic\.com$/,
+    // Keep the first Render deployment testable before the custom-domain cutover.
+    'https://iinpublic-network.onrender.com',
+  ];
 }
 
 export function createSocketServer(server: HttpServer): SocketIOServer {
@@ -28,6 +44,9 @@ export function createSocketServer(server: HttpServer): SocketIOServer {
 }
 
 export function configureHttpMiddleware(app: express.Application): void {
+  const hostedHttps =
+    process.env.NODE_ENV === 'production' &&
+    process.env.IINPUBLIC_TLS_TERMINATED_BY_PROXY === '1';
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -47,7 +66,7 @@ export function configureHttpMiddleware(app: express.Application): void {
           // https request then fails TLS against an http-only server, and the app hangs
           // at "Connecting..." forever with no visible network error). null opts the
           // directive out of the merged default set.
-          upgradeInsecureRequests: null,
+          upgradeInsecureRequests: hostedHttps ? [] : null,
         },
       },
       // This relay toggles between plain HTTP and self-signed HTTPS across dev/LAN-test
@@ -57,7 +76,9 @@ export function configureHttpMiddleware(app: express.Application): void {
       // — including subresource fetches — which then silently fails once the relay drops
       // back to plain HTTP (WebKit/Safari enforces this per-resource, breaking bundle.js
       // with no visible error beyond a stuck "Connecting..." screen). Never send it here.
-      hsts: false,
+      hsts: hostedHttps
+        ? { maxAge: 31_536_000, includeSubDomains: true, preload: false }
+        : false,
     }),
   );
 
@@ -99,27 +120,29 @@ export function configureHttpMiddleware(app: express.Application): void {
   }
 
   app.use(express.static('public'));
-  app.use(express.static('.'));
+
+  // worker.js imports Gun directly. Mount only that dependency instead of the
+  // repository root: express.static('.') would otherwise publish source files,
+  // package metadata, logs, and other deployment internals.
+  const gunRoot = process.env.IINPUBLIC_NODE_MODULES_ROOT
+    ? path.resolve(process.env.IINPUBLIC_NODE_MODULES_ROOT, 'gun')
+    : path.resolve(process.cwd(), 'node_modules', 'gun');
+  if (fs.existsSync(gunRoot)) {
+    app.use('/node_modules/gun', express.static(gunRoot));
+  } else {
+    logger.warn({ gunRoot }, 'Gun browser assets are missing; /worker.js cannot initialize');
+  }
   app.use((Gun as any).serve);
 
   if (embedded.enabled) {
     const publicRoot = process.env.IINPUBLIC_PUBLIC_ROOT
       ? path.resolve(process.env.IINPUBLIC_PUBLIC_ROOT)
       : path.resolve(webRoot, '..', '..', 'public');
-    const gunRoot = process.env.IINPUBLIC_NODE_MODULES_ROOT
-      ? path.resolve(process.env.IINPUBLIC_NODE_MODULES_ROOT, 'gun')
-      : path.resolve(webRoot, '..', '..', 'node_modules', 'gun');
     if (fs.existsSync(publicRoot)) {
       app.use(express.static(publicRoot));
       logger.info({ publicRoot }, 'S3 embedded-node: serving public assets from local node');
     } else {
       logger.warn({ publicRoot }, 'S3 embedded-node: public asset root missing; /worker.js may not load');
-    }
-    if (fs.existsSync(gunRoot)) {
-      app.use('/node_modules/gun', express.static(gunRoot));
-      logger.info({ gunRoot }, 'S3 embedded-node: serving Gun worker dependencies from local node');
-    } else {
-      logger.warn({ gunRoot }, 'S3 embedded-node: Gun worker dependency root missing');
     }
   }
 }
@@ -255,7 +278,7 @@ export function attachGun(server: HttpServer): any {
       embeddedPlatform: embedded.enabled ? embedded.platform : undefined,
       upstreamHubPeers: upstreamHubPeers.length > 0 ? upstreamHubPeers : undefined,
     },
-    embedded.enabled ? '🔫 Gun.js attached (embedded local node)' : '🔫 Gun.js attached to HTTP server',
+    embedded.enabled ? '🔫 Gun.js attached (embedded local node)' : '🔫 Gun.js attached to HTTP(S) server',
   );
   if (devGunFresh) {
     configureDevFreshGunIsolation(gun);

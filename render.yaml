@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: iinpublic-network
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: dev
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    domains:
+      - www.iinpublic.com
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RELAY_ONLY_HUB
+        value: "1"
+      - key: STAR_SERVER_PERSISTENCE
+        value: ephemeral
+      - key: IINPUBLIC_TLS_TERMINATED_BY_PROXY
+        value: "1"

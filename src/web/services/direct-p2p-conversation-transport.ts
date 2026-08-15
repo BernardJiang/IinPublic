@@ -55,7 +55,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         typeof process !== 'undefined' && process.env?.PORT
           ? parseInt(process.env.PORT, 10)
           : 8080;
-      return `http://127.0.0.1:${Number.isFinite(envPort) ? envPort : 8080}`;
+      return `https://127.0.0.1:${Number.isFinite(envPort) ? envPort : 8080}`;
     }
     const { hostname, protocol, port } = window.location;
     return deriveBackendApiBaseFromLocation(protocol, hostname, port);

@@ -5,13 +5,25 @@ import path from 'path';
 export interface DownloadManifest {
   mac: string | null;
   windows: string | null;
+  linux: string | null;
   android: string | null;
+  ios: string | null;
 }
 
-const EXTENSION_BY_PLATFORM: Record<keyof DownloadManifest, string> = {
-  mac: '.dmg',
-  windows: '.exe',
-  android: '.apk',
+const EXTENSIONS_BY_PLATFORM: Record<keyof DownloadManifest, string[]> = {
+  mac: ['.dmg'],
+  windows: ['.exe'],
+  linux: ['.appimage', '.deb'],
+  android: ['.apk'],
+  ios: ['.ipa'],
+};
+
+const ENV_URL_BY_PLATFORM: Record<keyof DownloadManifest, string> = {
+  mac: 'IINPUBLIC_DOWNLOAD_MAC_URL',
+  windows: 'IINPUBLIC_DOWNLOAD_WINDOWS_URL',
+  linux: 'IINPUBLIC_DOWNLOAD_LINUX_URL',
+  android: 'IINPUBLIC_DOWNLOAD_ANDROID_URL',
+  ios: 'IINPUBLIC_DOWNLOAD_IOS_URL',
 };
 
 /**
@@ -20,17 +32,38 @@ const EXTENSION_BY_PLATFORM: Record<keyof DownloadManifest, string> = {
  * plain browser tab pointed at the hub can offer a same-network download instead
  * of a dead link to a public app-store listing we don't have yet.
  */
-export function buildDownloadManifest(downloadsDir: string): DownloadManifest {
+export function buildDownloadManifest(
+  downloadsDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): DownloadManifest {
   let files: string[] = [];
   try {
     files = fs.readdirSync(downloadsDir);
   } catch {
     // public/downloads/ does not exist on this deployment — manifest stays empty.
   }
-  const manifest = { mac: null, windows: null, android: null } as DownloadManifest;
-  for (const platform of Object.keys(EXTENSION_BY_PLATFORM) as Array<keyof DownloadManifest>) {
-    const match = files.find((f) => f.toLowerCase().endsWith(EXTENSION_BY_PLATFORM[platform]));
-    manifest[platform] = match ? `/downloads/${match}` : null;
+  const manifest = {
+    mac: null,
+    windows: null,
+    linux: null,
+    android: null,
+    ios: null,
+  } as DownloadManifest;
+  const newestFirst = files.sort((left, right) =>
+    right.localeCompare(left, undefined, { numeric: true, sensitivity: 'base' }),
+  );
+  for (const platform of Object.keys(EXTENSIONS_BY_PLATFORM) as Array<keyof DownloadManifest>) {
+    const configuredUrl = env[ENV_URL_BY_PLATFORM[platform]]?.trim();
+    if (configuredUrl) {
+      manifest[platform] = configuredUrl;
+      continue;
+    }
+    const match = newestFirst.find((file) =>
+      EXTENSIONS_BY_PLATFORM[platform].some((extension) =>
+        file.toLowerCase().endsWith(extension),
+      ),
+    );
+    manifest[platform] = match ? `/downloads/${encodeURIComponent(match)}` : null;
   }
   return manifest;
 }

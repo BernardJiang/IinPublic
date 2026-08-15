@@ -13,6 +13,7 @@ This guide is the current source of truth for local development commands.
 
 ```bash
 npm install
+./scripts/gen-dev-cert.sh
 ```
 
 ## Development
@@ -32,9 +33,9 @@ npm run dev:server
 
 Default local endpoints:
 
-- Web UI: `http://localhost:3001`
-- Server: `http://localhost:8080`
-- Health endpoint: `http://localhost:8080/health`
+- Web UI: `https://localhost:3001`
+- Server: `https://localhost:8080`
+- Health endpoint: `https://localhost:8080/health`
 
 Notes:
 
@@ -76,7 +77,7 @@ unit tests, integration tests, and the web/server builds.
 Server health:
 
 ```bash
-curl http://localhost:8080/health
+curl --insecure https://localhost:8080/health
 ```
 
 Port conflicts:

@@ -83,7 +83,7 @@ let HUB_URL = (function () {
   try {
     var loc = self.location || {};
     var hostname = loc.hostname || 'localhost';
-    var protocol = loc.protocol || 'http:';
+    var protocol = loc.protocol || 'https:';
     var webPort = Number(loc.port);
     if (
       (hostname === 'localhost' || hostname === '127.0.0.1') &&
@@ -97,7 +97,7 @@ let HUB_URL = (function () {
     }
     return protocol + '//' + hostname + '/gun';
   } catch (_e) {
-    return 'http://localhost:8080/gun';
+    return 'https://localhost:8080/gun';
   }
 })();
 

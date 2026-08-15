@@ -21,7 +21,7 @@ export class GunService {
       const defaultPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
       this.peers = process.env.GUN_PEERS
         ? process.env.GUN_PEERS.split(',')
-        : [`http://localhost:${Number.isFinite(defaultPort) ? defaultPort : 8080}/gun`];
+        : [`https://localhost:${Number.isFinite(defaultPort) ? defaultPort : 8080}/gun`];
 
       this.gun = Gun({
         peers: this.peers,

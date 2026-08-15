@@ -35,9 +35,18 @@ function walkFiles(dir: string, extensions: Set<string>, out: string[] = []): st
 
 describe('production/development topology contract', () => {
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalAllowedOrigins = process.env.IINPUBLIC_ALLOWED_ORIGINS;
+  const originalE2EMemoryOnly = process.env.E2E_GUN_MEMORY_ONLY;
+  const originalTlsDisable = process.env.TLS_DISABLE;
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
+    if (originalAllowedOrigins === undefined) delete process.env.IINPUBLIC_ALLOWED_ORIGINS;
+    else process.env.IINPUBLIC_ALLOWED_ORIGINS = originalAllowedOrigins;
+    if (originalE2EMemoryOnly === undefined) delete process.env.E2E_GUN_MEMORY_ONLY;
+    else process.env.E2E_GUN_MEMORY_ONLY = originalE2EMemoryOnly;
+    if (originalTlsDisable === undefined) delete process.env.TLS_DISABLE;
+    else process.env.TLS_DISABLE = originalTlsDisable;
   });
 
   it('keeps browser URL derivation compatible across production, LAN dev, and native loopback', () => {
@@ -63,14 +72,38 @@ describe('production/development topology contract', () => {
 
   it('restricts production CORS while allowing non-production LAN development origins', () => {
     process.env.NODE_ENV = 'production';
-    expect(buildAllowedOrigin()).toEqual(['https://iinpublic.com']);
+    expect(buildAllowedOrigin()).toEqual([
+      /^https:\/\/(?:www\.)?iinpublic\.com$/,
+      'https://iinpublic-network.onrender.com',
+    ]);
 
     process.env.NODE_ENV = 'test';
     const devOrigin = buildAllowedOrigin();
     expect(devOrigin).toBeInstanceOf(RegExp);
-    expect((devOrigin as RegExp).test('http://localhost:3001')).toBe(true);
-    expect((devOrigin as RegExp).test('http://192.168.10.48:3001')).toBe(true);
-    expect((devOrigin as RegExp).test('http://iinpublic-lan.localhost:3001')).toBe(true);
+    expect((devOrigin as RegExp).test('https://localhost:3001')).toBe(true);
+    expect((devOrigin as RegExp).test('https://192.168.10.48:3001')).toBe(true);
+    expect((devOrigin as RegExp).test('https://iinpublic-lan.localhost:3001')).toBe(true);
+    expect((devOrigin as RegExp).test('http://localhost:3001')).toBe(false);
+  });
+
+  it('allows HTTP origins only in explicitly isolated test mode', () => {
+    process.env.NODE_ENV = 'test';
+    process.env.E2E_GUN_MEMORY_ONLY = '1';
+    const testOrigin = buildAllowedOrigin();
+
+    expect((testOrigin as RegExp).test('http://localhost:3001')).toBe(true);
+    expect((testOrigin as RegExp).test('https://localhost:3001')).toBe(false);
+  });
+
+  it('allows an operator to replace the production origin allowlist', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.IINPUBLIC_ALLOWED_ORIGINS =
+      'https://preview.example, https://another.example';
+
+    expect(buildAllowedOrigin()).toEqual([
+      'https://preview.example',
+      'https://another.example',
+    ]);
   });
 
   it('keeps hard-coded loopback URLs limited to explicit native/dev-local paths', () => {

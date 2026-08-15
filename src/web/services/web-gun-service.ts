@@ -38,8 +38,8 @@ export const TECHSUPPORT_KEYPAIR_STORAGE = 'iinpublic_techsupport_keypair_v1';
  *   web 3001+N ↔ gun 8080+N, for N in [0, DEV_E2E_WEB_PORT_RANGE_END-3001).
  *
  * LAN dev follows the same mapping when another machine loads the webpack dev
- * server from `http://<dev-host>:3001`: the web origin is on the dev host, but
- * the Gun/API server is still on `http://<dev-host>:8080`. Therefore the
+ * server from `https://<dev-host>:3001`: the web origin is on the dev host, but
+ * the Gun/API server is still on `https://<dev-host>:8080`. Therefore the
  * dev/e2e port-band check must apply to any hostname, not just localhost.
  *
  * S3 embedded-node (Electron/Android/iOS): the local node serves BOTH the SPA
@@ -165,7 +165,7 @@ export class WebGunService extends EventEmitter {
       const envPort = typeof process !== 'undefined' && process.env && process.env.PORT
         ? parseInt(process.env.PORT, 10)
         : 8080;
-      return `http://localhost:${Number.isFinite(envPort) ? envPort : 8080}/gun`;
+      return `https://localhost:${Number.isFinite(envPort) ? envPort : 8080}/gun`;
     }
     const { protocol, hostname, port } = window.location;
     return deriveGunHubUrlFromLocation(protocol, hostname, port);
