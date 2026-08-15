@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var nearbyBridge: NearbyJavascriptBridge
+    @Volatile private var nodeLoadScheduled = false
 
     // Android 13+ (API 33, TIRAMISU) requires POST_NOTIFICATIONS to be granted
     // at runtime — declaring it in the manifest alone is not enough. Without
@@ -123,6 +124,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun waitForNodeThenLoad() {
+        // Permission callbacks and activity lifecycle delivery can both reach this method. Only
+        // one poller may own the eventual loadUrl, otherwise the SPA boots and joins Global twice.
+        synchronized(this) {
+            if (nodeLoadScheduled) return
+            nodeLoadScheduled = true
+        }
         val port = NodeForegroundService.LOCAL_PORT
         Thread {
             // First launch on older phones can spend 30–45 seconds unpacking the embedded

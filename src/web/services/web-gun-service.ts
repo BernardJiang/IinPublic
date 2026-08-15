@@ -189,8 +189,6 @@ export class WebGunService extends EventEmitter {
         ...(disableAxe ? { axe: false, multicast: false } : {}),
       });
 
-      await this.waitForHubPeer(disableAxe ? 12_000 : 5000);
-
       this.gun.on('hi', (peer: any) => {
         console.log('🤝 Gun peer connected:', peer.id || 'unknown');
       });
@@ -201,6 +199,13 @@ export class WebGunService extends EventEmitter {
       // ── Worker bridge (new, IndexedDB-backed, SEA-enabled) ──
       // Non-fatal: if the bridge worker fails (e.g. script load error), the app
       // continues using the direct Gun instance for all existing functionality.
+      this.connected = true;
+      console.log('🔗 Gun.js initialized — hub:', this.peers[0]);
+
+      // The direct Gun instance is usable immediately from its local graph. Hub presence is a
+      // hydration concern, not a reason to hold startup for 5–12 seconds on a phone. Existing
+      // put/get operations retain their own bounded ACK waits.
+      void this.waitForHubPeer(disableAxe ? 12_000 : 5000);
       try {
         await this.bridge.init({ hubUrl: this.peers[0] });
         this.bridgeReady = true;
@@ -209,9 +214,6 @@ export class WebGunService extends EventEmitter {
         this.bridgeReady = false;
         console.warn('⚠️ Gun worker bridge unavailable — SEA/IndexedDB features disabled:', bridgeErr);
       }
-
-      this.connected = true;
-      console.log('🔗 Gun.js initialized — hub:', this.peers[0]);
     } catch (error) {
       console.error('Failed to initialize Gun.js service:', error);
       throw error;

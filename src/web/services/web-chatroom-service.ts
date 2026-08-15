@@ -145,8 +145,8 @@ export class WebChatroomService {
 
     // Re-entering user: always rejoin last room (even if empty)
     // This preserves the user's room assignment, especially important for evicted users
-    const lastRoomCount = await this.getMemberCount(lastChatroomId);
-    console.log(`  Last room (${lastChatroomId}) member count: ${lastRoomCount}`);
+    // Re-entry no longer branches on the live count, so do not block startup on a Gun read.
+    // The member-count subscription hydrates the displayed status after the room is visible.
     console.log(`  → Re-entering last room: ${lastChatroomId}`);
 
     // If it's at capacity, FIFO will be enforced in joinChatroom()

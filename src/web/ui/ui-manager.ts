@@ -961,6 +961,14 @@ export class UIManager extends EventEmitter {
     document.body.classList.toggle('iinpublic-debug', this.isDebugModeEnabled());
   }
 
+  /** First paint: render the deterministic room hierarchy before identity/network hydration. */
+  showStartupInterface(): void {
+    const headerStatus = document.getElementById('header-status');
+    if (headerStatus) headerStatus.style.display = 'flex';
+    this.currentChatroom = localStorage.getItem('iinpublic_last_chatroom') || 'global';
+    this.showChatroomList();
+  }
+
   /** Debug view flag: ?debug=1 in the URL, or localStorage iinpublic_debug=1. */
   private isDebugModeEnabled(): boolean {
     try {

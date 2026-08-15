@@ -766,6 +766,11 @@ export class IinPublicApp {
     this.initialized = false;
     this.currentLocation = location;
 
+    // Paint Global/the cached hierarchy immediately. Identity, presence and counts hydrate below.
+    this.uiManager.initialize();
+    this.uiManager.setCurrentLocation(location);
+    this.uiManager.showStartupInterface();
+
     // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
     await this.gunService.initialize();
@@ -782,11 +787,9 @@ export class IinPublicApp {
     // Phase E: initialize ledger after SEA keypair is established
     this.initLedger();
 
-    // Initialize UI
-    this.uiManager.initialize();
+    // Finish wiring the already-visible UI.
     this.uiManager.setApiBase(this.getBackendApiBase());
     void this.uiManager.renderAppDownloadBanner();
-    this.uiManager.setCurrentLocation(location);
     this.uiManager.setPublicProfileFoundationReader(async (userId: string) => {
       const [data, reputation] = await Promise.all([
         this.gunService.get(`user-public-profile/${userId}`),

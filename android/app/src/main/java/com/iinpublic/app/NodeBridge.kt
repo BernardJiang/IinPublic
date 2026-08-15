@@ -61,8 +61,15 @@ object NodeBridge {
             android.util.Log.e("NodeBridge", "could not create node dir: ${nodeDir.absolutePath}")
             return
         }
+        val versionMarker = File(nodeDir, ".iinpublic-assets-version")
+        val packagedVersion = "${BuildConfig.VERSION_CODE}:${BuildConfig.VERSION_NAME}"
+        if (versionMarker.exists() && versionMarker.readText().trim() == packagedVersion) {
+            android.util.Log.i("NodeBridge", "embedded assets already current ($packagedVersion); skipping unpack")
+            return
+        }
         try {
             copyAssetDirRecursive(context, assetRoot, nodeDir)
+            versionMarker.writeText(packagedVersion)
             android.util.Log.i("NodeBridge", "unpacked $assetRoot -> ${nodeDir.absolutePath}")
         } catch (e: Exception) {
             android.util.Log.e("NodeBridge", "failed to unpack $assetRoot: ${e.message}")

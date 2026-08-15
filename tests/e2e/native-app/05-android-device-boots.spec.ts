@@ -29,6 +29,7 @@ import * as os from 'os';
 import { launchAndroidUser, closeAndroidUser, type AndroidUser } from './helpers/native-app-android';
 
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
+const ANDROID_SERIAL = process.env.NATIVE_APP_ANDROID_SERIAL?.trim() || undefined;
 
 function resolveLanIp(): string {
   if (process.env.NATIVE_APP_ANDROID_HOST) return process.env.NATIVE_APP_ANDROID_HOST;
@@ -60,8 +61,9 @@ test.describe('Native app: Android device boot', () => {
     );
 
     const hubGunUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
-    user = await launchAndroidUser({ hubGunUrl });
+    user = await launchAndroidUser({ hubGunUrl, ...(ANDROID_SERIAL ? { deviceSerial: ANDROID_SERIAL } : {}) });
 
+    await expect(user.window.locator('#chatroom-list')).toContainText('Global', { timeout: 5_000 });
     await expect(user.window.locator('body')).not.toContainText('Connecting to IinPublic network...', {
       timeout: 45_000,
     });
