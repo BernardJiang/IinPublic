@@ -117,7 +117,7 @@ async function ensureInLocalRoom(page: Page): Promise<void> {
   await afterSync();
 }
 
-async function meetAndBroadcastLocally(page: Page): Promise<void> {
+async function prepareLocalBroadcast(page: Page): Promise<void> {
   await ensureInLocalRoom(page);
   await page.click('.nav-btn[data-view="settings"]');
   await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
@@ -127,7 +127,6 @@ async function meetAndBroadcastLocally(page: Page): Promise<void> {
   // clickBroadcastUntilBulkAck's own "not already in a room detail" fallback (hardcoded to
   // Global) never fires.
   await ensureInLocalRoom(page);
-  await clickBroadcastUntilBulkAck(page);
 }
 
 async function getCurrentUserId(page: Page): Promise<string> {
@@ -290,9 +289,11 @@ test.describe('Taxi driver ↔ passenger matching in a local chatroom (§GG)', (
 
     // === All 4 join the SAME local (San Diego) chatroom — not Global — and broadcast the
     // talks they already created. From here, matching happens with zero manual clicks. ===
-    for (const page of [pageAdam, pageEve, pageBob, pageAlice]) {
-      await meetAndBroadcastLocally(page);
-    }
+    const localPages = [pageAdam, pageEve, pageBob, pageAlice];
+    // Establish the complete local-room audience before the first broadcast. Moving and
+    // broadcasting one user at a time made Adam's audience check race at zero peers.
+    await Promise.all(localPages.map((page) => prepareLocalBroadcast(page)));
+    for (const page of localPages) await clickBroadcastUntilBulkAck(page);
 
     await expect.poll(() => hasConversationWith(pageAdam!, aliceId), { timeout: 30_000 }).toBe(true);
     await expect.poll(() => hasConversationWith(pageAlice!, adamId), { timeout: 30_000 }).toBe(true);

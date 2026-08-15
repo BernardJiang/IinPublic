@@ -1,5 +1,8 @@
 import type { IncomingTalkClusterWire } from '../../shared/peer-talk-delivery';
-import { mirrorIncomingTalkClustersToLocalGun } from '../../web/services/client-incoming-talk-mirror';
+import {
+  mirrorIncomingTalkClustersToLocalGun,
+  upsertLocalIncomingTalkClusters,
+} from '../../web/services/client-incoming-talk-mirror';
 
 describe('client incoming talk mirror', () => {
   it('does not rewrite an unchanged owner envelope during a UI refresh', async () => {
@@ -46,5 +49,32 @@ describe('client incoming talk mirror', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(gunService.put).not.toHaveBeenCalled();
+  });
+
+  it('persists a batch of incoming talks with one owner-envelope write', async () => {
+    let envelope: any = null;
+    const emptyMap = { map: () => ({ once: () => undefined, off: () => undefined }) };
+    const gunService = {
+      getStoredPair: jest.fn(() => ({ pub: 'receiver-sea-pub' })),
+      get: jest.fn(async () => envelope),
+      put: jest.fn(async (_soul: string, value: unknown) => { envelope = value; }),
+      getGun: jest.fn(() => ({ get: () => ({ get: () => emptyMap }) })),
+    };
+
+    const clusters = await upsertLocalIncomingTalkClusters(
+      gunService as any,
+      'receiver-id',
+      ['coffee', 'tea'].map((title) => ({
+        talkId: `talk-${title}`,
+        talkData: { id: `talk-${title}`, title, type: 'tag', questions: [] },
+        senderId: `sender-${title}`,
+        senderName: title,
+      })),
+      { p2pClientTalkMirror: true } as any,
+    );
+
+    expect(clusters).toHaveLength(2);
+    expect(gunService.put).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(envelope.clustersJson)).toHaveLength(2);
   });
 });

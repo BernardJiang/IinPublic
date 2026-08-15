@@ -100,19 +100,32 @@ function persistIncomingTalkClusterToLocalGun(
   receiverUserId: string,
   cluster: IncomingTalkClusterWire,
 ): Promise<void> {
+  return persistIncomingTalkClustersToLocalGun(gunService, receiverUserId, [cluster]);
+}
+
+function persistIncomingTalkClustersToLocalGun(
+  gunService: WebGunService,
+  receiverUserId: string,
+  clusters: IncomingTalkClusterWire[],
+): Promise<void> {
   const queued = (ownerEnvelopeWriteQueues.get(gunService) || Promise.resolve())
     .catch(() => undefined)
     .then(async () => {
       const current = await readOwnerEnvelopeClusters(gunService, receiverUserId);
       const byIdentity = new Map(current.map((item) => [item.identityKey, item]));
-      const stored = byIdentity.get(cluster.identityKey);
-      // Server/UI refreshes mirror their current rows back through this helper. Rewriting an
-      // identical row changes updatedAt, fires the owner-envelope subscription, refreshes the
-      // UI again, and creates a write/refresh feedback loop (especially costly on Android).
-      if (stored && JSON.stringify(serializeCluster(stored)) === JSON.stringify(serializeCluster(cluster))) {
-        return;
+      let changed = false;
+      for (const cluster of clusters) {
+        const stored = byIdentity.get(cluster.identityKey);
+        // Server/UI refreshes mirror their current rows back through this helper. Rewriting an
+        // identical row changes updatedAt, fires the owner-envelope subscription, refreshes the
+        // UI again, and creates a write/refresh feedback loop (especially costly on Android).
+        if (stored && JSON.stringify(serializeCluster(stored)) === JSON.stringify(serializeCluster(cluster))) {
+          continue;
+        }
+        byIdentity.set(cluster.identityKey, cluster);
+        changed = true;
       }
-      byIdentity.set(cluster.identityKey, cluster);
+      if (!changed) return;
       const envelope: OwnerIncomingTalkEnvelope = {
         version: 1,
         clustersJson: JSON.stringify([...byIdentity.values()].map(serializeCluster)),
@@ -122,11 +135,42 @@ function persistIncomingTalkClusterToLocalGun(
       await gunService.put(soul, envelope);
       const verified = await gunService.get(soul) as OwnerIncomingTalkEnvelope | null;
       if (verified?.version !== 1 || verified.clustersJson !== envelope.clustersJson) {
-        throw new Error(`incoming talk envelope read-back failed: ${cluster.identityKey}`);
+        throw new Error(`incoming talk envelope read-back failed: ${clusters.map((c) => c.identityKey).join(',')}`);
       }
     });
   ownerEnvelopeWriteQueues.set(gunService, queued);
   return queued;
+}
+
+export async function upsertLocalIncomingTalkClusters(
+  gunService: WebGunService,
+  receiverUserId: string,
+  items: Array<{
+    talkId: string;
+    talkData: Record<string, unknown>;
+    senderId: string;
+    senderName: string;
+  }>,
+  flags: P2PRuntimeFlags,
+): Promise<IncomingTalkClusterWire[]> {
+  const ownerClusters = flags.p2pClientTalkMirror
+    ? await readOwnerEnvelopeClusters(gunService, receiverUserId)
+    : [];
+  const byIdentity = new Map(ownerClusters.map((cluster) => [cluster.identityKey, cluster]));
+  const results: IncomingTalkClusterWire[] = [];
+  for (const params of items) {
+    const draft = mergeIncomingTalkCluster(null, params);
+    const cluster = mergeIncomingTalkCluster(byIdentity.get(draft.identityKey), params);
+    byIdentity.set(cluster.identityKey, cluster);
+    results.push(cluster);
+  }
+  if (flags.p2pClientTalkMirror && results.length > 0) {
+    await persistIncomingTalkClustersToLocalGun(gunService, receiverUserId, results);
+    void pruneIncomingTalkClustersIfNeeded(gunService, receiverUserId, flags).catch((err) => {
+      console.warn('[client-incoming-talk-mirror] incoming-talk-cluster prune failed (non-fatal):', receiverUserId, err);
+    });
+  }
+  return results;
 }
 
 export async function upsertLocalIncomingTalkCluster(

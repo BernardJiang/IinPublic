@@ -60,6 +60,19 @@ describe('planMessageCheckpoint / planMessagePruning (TODO §S Item 4, pure logi
     expect(content.merkleRoot).toBe(recomputedRoot);
   });
 
+  it('continues checkpointing when the wire list no longer contains a pruned prefix', async () => {
+    const retained = wires(MESSAGE_CHECKPOINT_INTERVAL * 2).slice(MESSAGE_CHECKPOINT_INTERVAL);
+    const plan = await planMessageCheckpoint(
+      retained,
+      MESSAGE_CHECKPOINT_INTERVAL,
+      MESSAGE_CHECKPOINT_INTERVAL,
+      MESSAGE_CHECKPOINT_INTERVAL,
+    );
+
+    expect(plan?.newLastCheckpointedCount).toBe(MESSAGE_CHECKPOINT_INTERVAL * 2);
+    expect(plan?.content.rangeStartId).toBe(`msg-${String(MESSAGE_CHECKPOINT_INTERVAL).padStart(4, '0')}`);
+  });
+
   it('takes the next window after an existing checkpoint, not the whole backlog', async () => {
     const all = wires(MESSAGE_CHECKPOINT_INTERVAL * 2);
     const plan = await planMessageCheckpoint(all, MESSAGE_CHECKPOINT_INTERVAL, MESSAGE_CHECKPOINT_INTERVAL);
@@ -309,4 +322,33 @@ describe('GunMessageStore Gun wiring (TODO §S Item 4)', () => {
     conversationNode(root).get('checkpointState').once((data) => { stateNode = data; });
     expect(stateNode.prunedThroughCount).toBe(deletableThrough);
   });
+
+  it('coalesces a rapid backlog and keeps checkpointing after pruning changes the local list offset', async () => {
+    const { gunService, root } = makeGunService();
+    const store = new GunMessageStore(gunService);
+    const total = MESSAGE_RETENTION_WINDOW + MESSAGE_CHECKPOINT_INTERVAL * 2;
+
+    for (let i = 0; i < total; i += 1) {
+      store.putMessageRecord(conversationId, makeWire(i, senderId), { otherUserId });
+    }
+
+    await waitForNodeValue(
+      conversationNode(root).get('checkpoints').get(`count_${total}`),
+      { timeoutMs: 20_000 },
+    );
+    await waitForNodeValue(
+      conversationNode(root).get('messages').get('msg-0000'),
+      { invert: true, timeoutMs: 20_000 },
+    );
+    let state: any;
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      conversationNode(root).get('checkpointState').once((data) => { state = data; });
+      if (state?.prunedThroughCount === total - MESSAGE_RETENTION_WINDOW) break;
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(state.lastCheckpointedCount).toBe(total);
+    expect(state.prunedThroughCount).toBe(total - MESSAGE_RETENTION_WINDOW);
+  }, 30_000);
 });

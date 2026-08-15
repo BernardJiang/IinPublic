@@ -127,7 +127,11 @@ test.describe('Find similar people', () => {
   // spec (10 browser processes); flakes here mean the machine is oversubscribed at
   // high PW_WORKERS. The fix is load-scaled timeouts / lower concurrency, not retries.
   test.describe.configure({ retries: 0 });
-  test.setTimeout(300_000);
+  // Six independent browser processes create and exchange 120 UI-authored talks. Under
+  // test:all wave concurrency the verified work reached the rejection phase but the old
+  // five-minute whole-test ceiling closed every page mid-evaluate. Individual convergence
+  // polls remain capped at 60s; this is only the aggregate budget for all six users' work.
+  test.setTimeout(420_000);
 
   const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
@@ -345,19 +349,21 @@ test.describe('Find similar people', () => {
         await page.locator('#talks-filter-outgoing').uncheck();
         await afterAction();
         await afterSync();
+        const seededTalks = [...toReject].flatMap((keyword) => {
+          const senderIdx = senderByKeyword.get(keyword);
+          if (senderIdx === undefined) return [];
+          return [{
+            keyword,
+            senderId: userMetas[senderIdx].id,
+            senderName: userMetas[senderIdx].stageName,
+          }];
+        });
+        await page.evaluate((items) => {
+          return (window as any).__iinpublic_app?.getApp?.()?.seedIncomingTagTalksForE2e?.(items);
+        }, seededTalks);
         for (const keyword of toReject) {
           const senderIdx = senderByKeyword.get(keyword);
           if (senderIdx !== undefined) {
-            await page.evaluate(
-              ({ kw, sender }) => {
-                return (window as any).__iinpublic_app?.getApp?.()?.seedIncomingTagTalkForE2e?.({
-                  keyword: kw,
-                  senderId: sender.id,
-                  senderName: sender.stageName,
-                });
-              },
-              { kw: keyword, sender: userMetas[senderIdx] },
-            );
             const opened = await page.evaluate((kw) => {
               return (window as any).__iinpublic_app?.getApp?.()?.openSeededTagResponseForE2e?.(kw) === true;
             }, keyword);

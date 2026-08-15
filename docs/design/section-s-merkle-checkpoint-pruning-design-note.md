@@ -648,20 +648,13 @@ module directly.
 > initially checked the wrong key (`tomUserId` instead of `tomPub`), exactly the same
 > distinction the Item 3 unit test itself already got right.
 >
-> **Ledger requirements 1-3 are now solidly proven end to end** across many repeated runs.
-> **Message-side pruning (part of requirement 1/2) remains an open, documented gap**: unlike
-> the ledger, message checkpoint/prune reliability in a real browser was found to be
-> inconsistent — `checkpointState.prunedThroughCount` sometimes advances and the
-> corresponding deletes land, sometimes it advances but the deletes don't, and sometimes no
-> checkpoint/prune completes at all for the tail of a fill. This was reproduced even after
-> eliminating the most likely cause (concurrent fire-and-forget `maybeCreateMessageCheckpoint`
-> passes racing on inconsistent `listLocalWires` snapshots — pacing sends up to 2.5s apart,
-> nearly 5x `listLocalWires`' own 500ms settle window, did not make it reliable). The spec
-> deliberately does **not** assert a specific message is pruned; it asserts what's actually
-> proven (checkpoint creation itself, and that the UI keeps rendering correctly after heavy
-> send/checkpoint activity). Root-causing message-side prune reliability is unfinished work —
-> a natural next investigation, distinct from Items 1-3's now-confirmed-solid ledger
-> mechanism.
+> **2026-08-14 follow-up:** message-side root causes were fixed: concurrent passes now share an
+> early lock and coalesce a follow-up scan; checkpoint/delete/state mutations wait for Gun ack;
+> and checkpoint/prune calculations account for the absolute pruned prefix after deleted wires
+> disappear from `listLocalWires`. A rapid 300-message unit regression proves later checkpoints
+> and prune boundaries still advance. The real-browser oldest-message assertion is restored,
+> but its combined scenario currently stops earlier at the ledger sequence-1 deletion assertion;
+> keep browser verification open until that prerequisite is green again.
 >
 > Full unit suite throughout this item's debugging: 91 suites, 1094 passed, 0 regressions
 > (unchanged from Item 4, since every fix here is either E2E-hook-only or normalized by

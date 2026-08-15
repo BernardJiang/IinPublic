@@ -352,17 +352,14 @@ wait_wave 1
 RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wave 2: mesh phases + find-similar (lighter, multi-browser), PLUS the two
-# single-worker tail phases (isolated, heavy-staged) folded in on their own port
-# bands (speed plan Part 4 step 3). Rationale: the mesh phases finish in ~60-80s,
-# after which isolated/heavy-staged have the machine essentially to themselves for
-# their remaining runtime — approximating their old solo condition while removing
-# ~340s of serial tail. heavy-staged runs its specs at 1 worker in file order, so
-# its contention-sensitive chatbot spec lands well after the mesh phases are done.
-# Set TEST_ALL_SEQUENTIAL_TAIL=1 to restore the old strictly-serial tail if this
-# machine flakes under the overlap.
+# Wave 2: mesh phases + find-similar. The two machine-sensitive tail phases run
+# sequentially afterward by default. TEST_ALL_SEQUENTIAL_TAIL=0 opts back into folding
+# isolated/heavy-staged into this wave on separate port bands for speed experiments.
 # ─────────────────────────────────────────────────────────────────────────────
-SEQUENTIAL_TAIL="${TEST_ALL_SEQUENTIAL_TAIL:-0}"
+# The six-browser mixed-saturation test passed solo in 40s immediately after timing out at
+# 60s in the folded wave. Keep these explicitly machine-sensitive phases sequential by
+# default; TEST_ALL_SEQUENTIAL_TAIL=0 remains available as an opt-in speed experiment.
+SEQUENTIAL_TAIL="${TEST_ALL_SEQUENTIAL_TAIL:-1}"
 start_phase mesh-batch 0 \
   env PW_WORKERS="$MESH_WORKERS" npx playwright test \
     tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts \
@@ -426,9 +423,8 @@ wait_wave 3
 RC_MASS=$(cat "$LOG_DIR/mass.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sequential tail (TEST_ALL_SEQUENTIAL_TAIL=1 only): the pre-Part-4 behavior — the
-# two machine-sensitive isolated specs, then heavy-staged, each with the machine to
-# itself. Default runs fold both into wave 2 above.
+# Sequential tail (default): the two machine-sensitive isolated specs, then
+# heavy-staged, each with the machine to itself.
 # ─────────────────────────────────────────────────────────────────────────────
 if [ "$SEQUENTIAL_TAIL" = "1" ]; then
   start_phase isolated 100 \

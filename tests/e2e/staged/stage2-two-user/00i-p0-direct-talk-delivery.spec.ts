@@ -1,4 +1,4 @@
-import { chromium, Browser, Page } from '@playwright/test';
+import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync } from '../../helpers/timing';
@@ -81,7 +81,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
           return {
             offerCount: 0,
             offersWithBody: 0,
-            ownerIndexCount: 0,
+            ownerEnvelopeCount: 0,
+            legacyOwnerIndexCount: 0,
             legacyIndexCount: 0,
             announcementCount: 0,
             legacyRoomTalkCount: 0,
@@ -104,14 +105,26 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
             }, 500);
           });
         const offers = await collect(gun.get('peerTalkOffers').get(receiverId));
-        const ownerIndex = await collect(gun.get('ownerIncomingTalkIndex').get(receiverId));
+        const ownerPub = String(app?.gunService?.getStoredPair?.()?.pub || receiverId);
+        const ownerEnvelope = await new Promise<any>((resolve) => {
+          gun.get(`users/${encodeURIComponent(ownerPub)}/incomingTalkClusters`).once((raw: unknown) => resolve(raw));
+        });
+        let ownerEnvelopeCount = 0;
+        try {
+          const rows = JSON.parse(String(ownerEnvelope?.clustersJson || '[]'));
+          ownerEnvelopeCount = Array.isArray(rows) ? rows.length : 0;
+        } catch {
+          ownerEnvelopeCount = 0;
+        }
+        const legacyOwnerIndex = await collect(gun.get('ownerIncomingTalkIndex').get(receiverId));
         const legacyIndex = await collect(gun.get('incomingTalksByUser').get(receiverId));
         const announcements = await collect(gun.get('chatrooms').get('global').get('announcements'));
         const legacyRoomTalks = await collect(gun.get('chatrooms').get('global').get('talks'));
         return {
           offerCount: offers.length,
           offersWithBody: offers.filter((offer) => !!offer?.talkData).length,
-          ownerIndexCount: ownerIndex.length,
+          ownerEnvelopeCount,
+          legacyOwnerIndexCount: legacyOwnerIndex.length,
           legacyIndexCount: legacyIndex.length,
           announcementCount: announcements.length,
           legacyRoomTalkCount: legacyRoomTalks.length,
@@ -126,7 +139,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         expect(directDeliveryGraph.offersWithBody).toBe(0);
         expect(directDeliveryGraph.announcementCount).toBeGreaterThan(0);
       }
-      expect(directDeliveryGraph.ownerIndexCount).toBeGreaterThan(0);
+      expect(directDeliveryGraph.ownerEnvelopeCount).toBeGreaterThan(0);
+      expect(directDeliveryGraph.legacyOwnerIndexCount).toBe(0);
       expect(directDeliveryGraph.legacyIndexCount).toBe(0);
       expect(directDeliveryGraph.legacyRoomTalkCount).toBe(0);
 

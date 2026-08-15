@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 ## 2026-08-12 — BB Phase 5 follow-up: tag-pair picker wired into the talk editor
 
@@ -5325,3 +5325,38 @@ inspection):
 - Verified: type-check, lint, full unit suite green (87 suites / 1167 tests), the spec's all 3
   tests together (2 runs), and a regression pass on the dealmaker spec + per-question-deep-link +
   tags-checkbox specs (all pass unmodified).
+# TODO reconciliation archive — 2026-08-14
+
+The historical implementation narratives formerly retained in `docs/TODO.md` were reconciled on
+2026-08-14. The active file now contains only actionable work. The following completed areas were
+removed from the active backlog; their detailed implementation evidence remains elsewhere in this
+archive, the technical specification, tests, and commit history:
+
+- A–F and H; host E2E verification; K1–K6; L; Q/M; N; O; P; R1–R3.
+- Merkle checkpoint/pruning framework implementation (S), apart from storage-budget caps and final
+  real-browser correctness verification.
+- T, U, V, X, Y, AA, CC, FF, GG, and HH.
+- W incremental rebroadcast implementation, apart from the dead bulk-API disposition decision.
+- Z's main Talks row/gesture redesign, apart from popup-variant review.
+- BB's six core typed-matching phases: tag registry, built-in schema, comparisons, preference
+  storage, auto-resolution, flow/route editor support, and seeded tag-pair picker. Explicit
+  deferrals remain active in `TODO.md`.
+- EE pinned identity header and context-section grouping; remaining typed-value storage and
+  verification work stays active.
+
+Recent native-network work through app version 1.0.7 is also considered shipped: local discovery,
+Mac/Windows/Linux/Android packaging, native-version display, Android web-banner correction,
+incoming-talk persistence, multi-device fanout/reverse delivery, and the bounded Gun pair-response
+soul fix. Android is no longer treated as an unshipped browser-profile stand-in.
+
+## Seven-client physical runtime matrix — 2026-08-14
+
+- Added the opt-in `test:e2e:real-device-matrix` Playwright suite covering the macOS Electron
+  app, three physical Android phones, Chromium, WebKit, and Firefox on one memory-only LAN Gun hub.
+- Replaced the unavailable `RNV0217207000190` phone with Essential PH-1
+  `PM1LHMA7A2707315`; the other verified devices were Huawei `DUM0219418001663` and C10
+  `PADC100013000534`.
+- Each of the seven runtimes joined presence, authored and broadcast one tag talk, and completed
+  one cross-runtime match in a seven-node ring. The physical run passed in 5.0 minutes.
+- Physical WebView setup now supports deterministic serial-specific CDP attachment and removes
+  accumulated high-volume test/Gun caches while retaining SEA custody and user preferences.

@@ -340,21 +340,10 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
     );
     expect(checkpointKey).toBeTruthy();
 
-    // NOTE: an assertion that early fill messages (e.g. index 0) are actually pruned was
-    // deliberately removed here, not weakened. Across many runs of this spec, message-side
-    // pruning (unlike the ledger's Items 1-3, now solidly proven end to end above) was
-    // found to be *unreliable* in a real browser: `checkpointState.prunedThroughCount`
-    // sometimes advances correctly and deletes take effect, sometimes it advances but the
-    // corresponding deletes never land, and sometimes no checkpoint/prune ever completes
-    // at all for the tail of the fill — reproduced even after eliminating the most likely
-    // cause (concurrent fire-and-forget passes racing on inconsistent `listLocalWires`
-    // snapshots; pacing sends 2.5s apart, an order of magnitude past listLocalWires' own
-    // 500ms settle window, did not make it reliable). This is a real, open gap in Item 4
-    // — see the design note's own "Done" note for Item 4, which now points here — and
-    // needs dedicated root-causing before message-side pruning can be asserted end to end
-    // with the same confidence as the ledger. What's proven reliable and asserted below:
-    // checkpoint creation itself (checkpointKey above) and that the app keeps rendering
-    // correctly after the heavy send/checkpoint activity (Requirement 4).
+    // The checkpoint pass is serialized and coalesces messages arriving while it is in
+    // flight. Deletes are acknowledged before prunedThroughCount advances, so this checks
+    // the durable graph rather than trusting the in-memory bookkeeping counter.
+    expect(messageKeyFor('0')).toBeUndefined();
 
     // The very last fill message is always within the retained tail — must survive with
     // real ciphertext.

@@ -84,6 +84,7 @@ import {
   mirrorIncomingTalkClustersToLocalGun,
   subscribeLocalIncomingTalkClusters,
   upsertLocalIncomingTalkCluster,
+  upsertLocalIncomingTalkClusters,
 } from '../services/client-incoming-talk-mirror';
 import { getSEA, type GunPair } from '../sea-gun';
 import {
@@ -4437,47 +4438,53 @@ export class IinPublicApp {
     senderId: string;
     senderName: string;
   }): Promise<void> {
+    await this.seedIncomingTagTalksForE2e([params]);
+  }
+
+  public async seedIncomingTagTalksForE2e(paramsList: Array<{
+    keyword: string;
+    senderId: string;
+    senderName: string;
+  }>): Promise<void> {
     if (!this.currentUser?.id) return;
-    const keyword = String(params.keyword || '').trim();
-    const senderId = String(params.senderId || '').trim();
-    if (!keyword || !senderId || senderId === this.currentUser.id) return;
-    const talkId = `e2e-tag-${senderId}-${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-    const talkData = {
-      id: talkId,
-      title: keyword,
-      type: 'tag',
-      language: 'en',
-      authorId: senderId,
-      authorName: params.senderName || senderId,
-      e2eLocalOnlyReject: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      questions: [
-        {
-          id: `${talkId}-q`,
-          text: keyword,
-          answers: [
-            { id: 'match', text: 'Match.', isMatch: true },
-            { id: 'ignore', text: 'Ignore.', isIgnore: true },
-          ],
-        },
-      ],
-    };
-    this.e2eSeededTagTalks.set(keyword.toLowerCase(), talkData);
-    const cluster = await upsertLocalIncomingTalkCluster(
+    const items = paramsList.flatMap((params) => {
+      const keyword = String(params.keyword || '').trim();
+      const senderId = String(params.senderId || '').trim();
+      if (!keyword || !senderId || senderId === this.currentUser?.id) return [];
+      const talkId = `e2e-tag-${senderId}-${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      const talkData = {
+        id: talkId,
+        title: keyword,
+        type: 'tag',
+        language: 'en',
+        authorId: senderId,
+        authorName: params.senderName || senderId,
+        e2eLocalOnlyReject: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        questions: [
+          {
+            id: `${talkId}-q`,
+            text: keyword,
+            answers: [
+              { id: 'match', text: 'Match.', isMatch: true },
+              { id: 'ignore', text: 'Ignore.', isIgnore: true },
+            ],
+          },
+        ],
+      };
+      this.e2eSeededTagTalks.set(keyword.toLowerCase(), talkData);
+      return [{ talkId, talkData, senderId, senderName: params.senderName || senderId }];
+    });
+    const clusters = await upsertLocalIncomingTalkClusters(
       this.gunService,
       this.currentUser.id,
-      {
-        talkId,
-        talkData,
-        senderId,
-        senderName: params.senderName || senderId,
-      },
+      items,
       this.p2pRuntimeFlags,
     );
-    this.e2eSeededIncomingClusters.push(cluster);
+    this.e2eSeededIncomingClusters.push(...clusters);
     await this.refreshIncomingTalkClustersFromLocalGun();
-    this.mergeIncomingClusterIntoUi([cluster]);
+    this.mergeIncomingClusterIntoUi(clusters);
   }
 
   /**

@@ -132,56 +132,55 @@ async function publishCurrentPublicUserForRelay(page: Page): Promise<void> {
 export async function bootstrapNativeWindow(
   page: Page,
   stageName: string,
-  options: { waitForSupportGreeting?: boolean } = {},
+  options: {
+    waitForSupportGreeting?: boolean;
+    readinessTimeoutMs?: number;
+    pinStableLocation?: boolean;
+    updateStageName?: boolean;
+  } = {},
 ): Promise<string> {
-  await expect(page.locator('body')).not.toContainText('Connecting to IinPublic network...', { timeout: 45_000 });
-  await waitForAppReady(page, 45_000);
-  await page.evaluate(() => {
-    document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.click();
-  });
-  await afterNav();
-  // Settings is a drill-down (menu list first); the profile section's controls (including
-  // #settings-stage-name-input below) only render visible once its menu item is opened.
-  await page.evaluate(() => {
-    document
-      .querySelector<HTMLElement>('.settings-jump-menu-item[data-target="settings-section-profile"]')
-      ?.click();
-  });
-  await afterNav();
-  if (!(await page.locator('#settings-stage-name-input').isVisible().catch(() => false))) {
+  const readinessTimeoutMs = options.readinessTimeoutMs ?? 45_000;
+  await expect(page.locator('body')).not.toContainText('Connecting to IinPublic network...', { timeout: readinessTimeoutMs });
+  await waitForAppReady(page, readinessTimeoutMs);
+  if (options.updateStageName !== false) {
     await page.evaluate(() => {
-      const app = (window as any).__iinpublic_app?.getApp?.();
-      document.querySelectorAll('.nav-btn').forEach((button) => button.classList.remove('active'));
-      document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.classList.add('active');
-      document.querySelectorAll('.view-panel').forEach((panel) => panel.classList.remove('active'));
-      document.getElementById('settings-view')?.classList.add('active');
-      const headerTitle = document.getElementById('header-title');
-      if (headerTitle) headerTitle.textContent = '';
-      const headerActions = document.getElementById('header-actions');
-      if (headerActions) {
-        headerActions.style.display = 'flex';
-        headerActions.style.visibility = 'hidden';
-      }
-      app?.uiManager?.renderSettingsView?.(app.currentUser);
+      document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.click();
+    });
+    await afterNav();
+    await page.evaluate(() => {
       document
         .querySelector<HTMLElement>('.settings-jump-menu-item[data-target="settings-section-profile"]')
         ?.click();
-    }).catch(() => {});
+    });
+    await afterNav();
+    if (!(await page.locator('#settings-stage-name-input').isVisible().catch(() => false))) {
+      await page.evaluate(() => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        document.querySelectorAll('.nav-btn').forEach((button) => button.classList.remove('active'));
+        document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.classList.add('active');
+        document.querySelectorAll('.view-panel').forEach((panel) => panel.classList.remove('active'));
+        document.getElementById('settings-view')?.classList.add('active');
+        app?.uiManager?.renderSettingsView?.(app.currentUser);
+        document
+          .querySelector<HTMLElement>('.settings-jump-menu-item[data-target="settings-section-profile"]')
+          ?.click();
+      }).catch(() => {});
+    }
+    await page.waitForSelector('#settings-stage-name-input', { timeout: E2E_ASSERT_TIMEOUT_MS });
+    await page.fill('#settings-stage-name-input', stageName);
+    await page.locator('#settings-stage-name-input').blur();
+    await afterNav();
+    await expect
+      .poll(
+        () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
+        { timeout: Math.max(E2E_ASSERT_TIMEOUT_MS, readinessTimeoutMs) },
+      )
+      .toBe(stageName);
   }
-  await page.waitForSelector('#settings-stage-name-input', { timeout: E2E_ASSERT_TIMEOUT_MS });
-  await page.fill('#settings-stage-name-input', stageName);
-  await page.locator('#settings-stage-name-input').blur();
-  await afterNav();
-  await expect
-    .poll(
-      () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
-      { timeout: E2E_ASSERT_TIMEOUT_MS },
-    )
-    .toBe(stageName);
   await publishCurrentPublicUserForRelay(page);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
-  await pinStableE2eLocation(page);
+  if (options.pinStableLocation !== false) await pinStableE2eLocation(page);
   if (options.waitForSupportGreeting !== false) {
     await expectTechSupportGreetingReceived(page, stageName);
   }

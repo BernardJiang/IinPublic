@@ -61,6 +61,8 @@ interface MessageCheckpointLocalState {
   stateLoaded: boolean;
   /** Guards against an overlapping pass if another send fires before this one finishes. */
   checkpointInFlight: boolean;
+  /** Coalesces sends arriving during a pass into one follow-up scan of the latest graph. */
+  checkpointPending: boolean;
 }
 
 /**
@@ -76,9 +78,11 @@ export async function planMessageCheckpoint(
   wires: ReadonlyArray<{ id: string; text: string }>,
   lastCheckpointedCount: number,
   intervalSize: number,
+  prunedPrefixCount = 0,
 ): Promise<{ content: MessageCheckpointContent; newLastCheckpointedCount: number } | null> {
-  if (wires.length - lastCheckpointedCount < intervalSize) return null;
-  const window = wires.slice(lastCheckpointedCount, lastCheckpointedCount + intervalSize);
+  const localWindowStart = lastCheckpointedCount - prunedPrefixCount;
+  if (localWindowStart < 0 || wires.length - localWindowStart < intervalSize) return null;
+  const window = wires.slice(localWindowStart, localWindowStart + intervalSize);
   const leafHashes = await Promise.all(window.map(async (w) => `${w.id}:${await sha256Hex(w.text)}`));
   const merkleRoot = await computeMerkleRoot(leafHashes);
   return {
@@ -472,7 +476,16 @@ export class GunMessageStore {
     let state = this.messageCheckpointState.get(conversationId);
     if (state?.stateLoaded) return state;
     if (!state) {
-      state = { lastCheckpointedCount: 0, prunedThroughCount: 0, stateLoaded: false, checkpointInFlight: false };
+      state = {
+        lastCheckpointedCount: 0,
+        prunedThroughCount: 0,
+        stateLoaded: false,
+        checkpointInFlight: false,
+        checkpointPending: false,
+      };
+      // Publish the shared state before the async read so concurrent sends cannot create
+      // independent lock objects and run overlapping checkpoint passes.
+      this.messageCheckpointState.set(conversationId, state);
     }
     const raw = await this.readNodeOnce(
       this.conversationRoot(conversationId, transport, senderId, otherUserId).get('checkpointState'),
@@ -482,7 +495,6 @@ export class GunMessageStore {
       state.prunedThroughCount = typeof raw.prunedThroughCount === 'number' ? raw.prunedThroughCount : 0;
     }
     state.stateLoaded = true;
-    this.messageCheckpointState.set(conversationId, state);
     return state;
   }
 
@@ -492,10 +504,33 @@ export class GunMessageStore {
     senderId: string,
     otherUserId: string | undefined,
     state: MessageCheckpointLocalState,
-  ): void {
-    this.conversationRoot(conversationId, transport, senderId, otherUserId)
-      .get('checkpointState')
-      .put({ lastCheckpointedCount: state.lastCheckpointedCount, prunedThroughCount: state.prunedThroughCount });
+  ): Promise<void> {
+    return this.putWithAck(
+      this.conversationRoot(conversationId, transport, senderId, otherUserId).get('checkpointState'),
+      { lastCheckpointedCount: state.lastCheckpointedCount, prunedThroughCount: state.prunedThroughCount },
+    );
+  }
+
+  /** Resolve only when Gun acknowledges the mutation; never advance durable bookkeeping first. */
+  private putWithAck(root: any, value: Record<string, unknown> | null, timeoutMs = 12_000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve();
+      };
+      const timer = setTimeout(
+        () => finish(new Error('Gun mutation acknowledgement timed out')),
+        timeoutMs,
+      );
+      root.put(value, (ack: any) => {
+        if (ack?.err) finish(new Error(String(ack.err)));
+        else finish();
+      });
+    });
   }
 
   /**
@@ -513,29 +548,47 @@ export class GunMessageStore {
   ): Promise<void> {
     if (this.reconcileInFlight.has(conversationId)) return;
     const state = await this.getMessageCheckpointState(conversationId, transport, senderId, otherUserId);
-    if (state.checkpointInFlight) return;
-
-    // Full chronological read — bounded in practice by the retention policy itself (older
-    // messages get pruned, so this array never grows past ~MESSAGE_RETENTION_WINDOW plus
-    // one checkpoint interval's worth of headroom once the steady state is reached).
-    const wires = await this.listLocalWires(conversationId, senderId, otherUserId, 0);
-    const plan = await planMessageCheckpoint(wires, state.lastCheckpointedCount, MESSAGE_CHECKPOINT_INTERVAL);
-    if (!plan) return;
-    if (this.reconcileInFlight.has(conversationId)) return; // re-check: the read above was awaited
-
+    if (state.checkpointInFlight) {
+      state.checkpointPending = true;
+      return;
+    }
     state.checkpointInFlight = true;
+
     try {
-      this.conversationRoot(conversationId, transport, senderId, otherUserId)
-        .get('checkpoints')
-        .get(`count_${plan.newLastCheckpointedCount}`)
-        .put({ contentJson: JSON.stringify(plan.content) });
+      // Full chronological read — bounded in practice by the retention policy itself (older
+      // messages get pruned, so this array never grows past ~MESSAGE_RETENTION_WINDOW plus
+      // one checkpoint interval's worth of headroom once the steady state is reached).
+      const wires = await this.listLocalWires(conversationId, senderId, otherUserId, 0);
+      const plan = await planMessageCheckpoint(
+        wires,
+        state.lastCheckpointedCount,
+        MESSAGE_CHECKPOINT_INTERVAL,
+        state.prunedThroughCount,
+      );
+      if (!plan || this.reconcileInFlight.has(conversationId)) return;
+
+      await this.putWithAck(
+        this.conversationRoot(conversationId, transport, senderId, otherUserId)
+          .get('checkpoints')
+          .get(`count_${plan.newLastCheckpointedCount}`),
+        { contentJson: JSON.stringify(plan.content) },
+      );
 
       state.lastCheckpointedCount = plan.newLastCheckpointedCount;
-      this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
+      await this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
 
+      const observedAbsoluteCount = state.prunedThroughCount + wires.length;
       await this.pruneMessages(conversationId, transport, senderId, otherUserId, wires, state);
+      if (observedAbsoluteCount - state.lastCheckpointedCount >= MESSAGE_CHECKPOINT_INTERVAL) {
+        state.checkpointPending = true;
+      }
     } finally {
       state.checkpointInFlight = false;
+      if (state.checkpointPending) {
+        state.checkpointPending = false;
+        void this.maybeCreateMessageCheckpoint(conversationId, senderId, otherUserId, transport)
+          .catch((err) => console.warn('[GunMessageStore] queued checkpoint pass failed (non-fatal)', err));
+      }
     }
   }
 
@@ -557,19 +610,18 @@ export class GunMessageStore {
   ): Promise<void> {
     if (this.reconcileInFlight.has(conversationId)) return;
     const plan = planMessagePruning(
-      wires.length,
+      state.prunedThroughCount + wires.length,
       state.lastCheckpointedCount,
       state.prunedThroughCount,
       MESSAGE_RETENTION_WINDOW,
     );
     if (!plan) return;
 
-    for (let i = state.prunedThroughCount; i < plan.deletableThrough; i += 1) {
-      const wire = wires[i];
-      this.deleteMessageRecord(conversationId, wire.id, wire.transport || transport, senderId, otherUserId);
-    }
+    const deleteCount = plan.deletableThrough - state.prunedThroughCount;
+    await Promise.all(wires.slice(0, deleteCount).map((wire) =>
+      this.deleteMessageRecord(conversationId, wire.id, wire.transport || transport, senderId, otherUserId)));
     state.prunedThroughCount = plan.deletableThrough;
-    this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
+    await this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
   }
 
   /** TODO §S Item 4: same `.get(id).put(null)` deletion pattern putMessageRecord writes through. */
@@ -579,19 +631,17 @@ export class GunMessageStore {
     transport: string,
     senderId: string,
     otherUserId?: string,
-  ): void {
+  ): Promise<void> {
     const gun = this.gunService.getGun();
     if (transport === 'direct-p2p' && otherUserId) {
-      gun
+      return this.putWithAck(gun
         .get('pairConversations')
         .get(this.pairIdForUsers(senderId, otherUserId))
         .get(conversationId)
         .get('messages')
-        .get(wireId)
-        .put(null);
-      return;
+        .get(wireId), null);
     }
-    gun.get(`conversations/${conversationId}`).get('messages').get(wireId).put(null);
+    return this.putWithAck(gun.get(`conversations/${conversationId}`).get('messages').get(wireId), null);
   }
 
   /**

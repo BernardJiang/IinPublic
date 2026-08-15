@@ -32,6 +32,7 @@
     "smoke:embedded-node": "npm run build:embedded && node scripts/smoke-embedded-node.js",
     "test:e2e:embedded-node": "npm run build:embedded && E2E_GUN_MEMORY_ONLY=1 playwright test --config tests/e2e/embedded-node/playwright.config.ts",
     "test:e2e:native-app": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts",
+    "test:e2e:real-device-matrix": "npm run build:embedded && E2E_REAL_DEVICE_MATRIX=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/06-seven-client-real-device-matrix.spec.ts",
     "build": "npm run build:web && npm run build:server && npm run build:android && npm run report:connectivity",
     "build:web": "webpack --mode production --config webpack.config.js",
     "build:server": "tsc -p src/server/tsconfig.json",

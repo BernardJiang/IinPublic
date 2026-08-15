@@ -2,7 +2,7 @@
 
 covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
-**Features tested:** default pair-direct mesh path — server helps users discover/connect, then `peerTalkOffers` + `peerTalkCatalog` deliver talk data to local `incomingTalksByUser`. The server inbox API is empty and not authoritative.
+**Features tested:** default pair-direct mesh path — server helps users discover/connect, then the receiver persists the talk in its SEA-owner envelope at `users/<ownerSeaPub>/incomingTalkClusters`. Retired `ownerIncomingTalkIndex`/`incomingTalksByUser` paths and the server inbox remain empty and non-authoritative.
 
 **Run:** `npm run test:e2e` or `npm run test:e2e:p0-talks` (direct delivery + ephemeral server persistence).
 

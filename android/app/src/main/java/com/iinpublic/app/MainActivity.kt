@@ -125,7 +125,10 @@ class MainActivity : AppCompatActivity() {
     private fun waitForNodeThenLoad() {
         val port = NodeForegroundService.LOCAL_PORT
         Thread {
-            val deadline = System.currentTimeMillis() + 20_000
+            // First launch on older phones can spend 30–45 seconds unpacking the embedded
+            // Node project before the loopback health endpoint opens. A 20-second deadline
+            // stranded otherwise healthy Android 7 devices on the connecting screen forever.
+            val deadline = System.currentTimeMillis() + 90_000
             while (System.currentTimeMillis() < deadline) {
                 if (portOpen(port)) {
                     runOnUiThread {

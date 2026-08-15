@@ -6,9 +6,10 @@ covers: SPEC-3.7  <!-- auto-seeded; refine by hand -->
 
 ## Scenario
 
-10 users join the Global chatroom and interact entirely through the UI. The spec only
-performs user actions and verifications — all matching, chatbot, ranking and percentage
-logic lives in the app.
+Six users join the Global chatroom. Talk creation, rejection responses, sorting, and
+relationship editing use the UI; a batched E2E seed hook creates deterministic non-interest
+incoming rows after the real broadcast, while matching, chatbot, ranking, persistence, and
+percentage logic remain in the app.
 
 1. **Create 20 tag talks each** via the `➕` create-talk dialog (Talks tab). Each tag is
    created with its "I'm interested" checkbox checked (the default), so the tag is the
@@ -18,7 +19,7 @@ logic lives in the app.
 3. **Broadcast** every tag to the Global chatroom. Delivery uses the app E2E
    broadcast path with the audience preview skipped (`deliverPendingBroadcastTalksForE2e(n, { skipAudiencePreview: true })`):
    the preview is a per-talk server HTTP round-trip that is unused for direct
-   delivery and does not scale to 10 users x 20 tags. Peer offers + the chatroom
+   delivery and does not scale to 6 users x 20 tags. Peer offers + the chatroom
    announcement still publish, so receiver chatbots auto-answer exactly as they
    would from the Broadcast button.
 4. **Answer incoming tags.** The chatbot auto-matches every tag the user already created
@@ -61,12 +62,14 @@ so adjacent users share the most tags and rank highest by match rate.
   percentage and `matched/total tags matched` when the Contacts list is sorted by `match-rate`,
   and stamps `data-match-percent` / `data-matched-talks` on each contact row.
 - Translation key `contactsMatchRateDetail` (`{matched}/{total} tags matched`).
+- `seedIncomingTagTalksForE2e` batches each user's five deterministic non-interest rows into
+  one verified SEA-owner-envelope write instead of five serialized read/write/read-back cycles.
 
 ## Assertions
 
 - Each user's OUT list holds all 20 created tags.
 - The chatbot is enabled (`chatbotEnabled === 'true'`).
-- Every incoming tag from the other 9 users ends up answered.
-- Each user sees ≥ 9 stranger contacts, each with a visible match-% chip.
+- Every incoming tag from the other 5 users ends up answered.
+- Each user sees the expected stranger contacts, each with a visible match-% chip.
 - Contacts are ordered by descending match percentage.
 - The most-similar stranger keeps the `similar interest people` relationship label after save.

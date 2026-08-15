@@ -242,6 +242,7 @@ export async function createTalkFromCompanyPage(page: Page, talkPayload: unknown
 export async function createTalksFromCompanyPage(
   page: Page,
   talkPayloads: unknown[],
+  options: { timeoutMs?: number } = {},
 ): Promise<Array<{ title: string; talkId: string; talkData: any }>> {
   const json = JSON.stringify(talkPayloads, (_k, v) => (v instanceof Date ? (v as Date).toISOString() : v));
   const titles = talkPayloads.map((payload) => String((payload as { title?: unknown })?.title || ''));
@@ -269,7 +270,7 @@ export async function createTalksFromCompanyPage(
           );
           return expectedTitles.filter((title) => !createdTitles.has(title)).join(',');
         }, titles),
-      { timeout: 20_000, intervals: [200, 500, 1000] },
+      { timeout: options.timeoutMs ?? 20_000, intervals: [200, 500, 1000] },
     )
     .toBe('');
   return page.evaluate((expectedTitles) => {
