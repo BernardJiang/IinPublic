@@ -25,24 +25,31 @@ async function waitForAndroidApp(
   });
   window.on('pageerror', (error) => diagnostics.push(`pageerror:${error.message}`));
   const deadline = Date.now() + 110_000;
+  const fallbackNavigationAt = Date.now() + 15_000;
+  let fallbackNavigationUsed = false;
   let lastError: unknown;
   while (Date.now() < deadline) {
     try {
-      await window.goto('http://127.0.0.1:8088/?native_platform=android', {
-        waitUntil: 'domcontentloaded',
-        timeout: 5_000,
-      });
       await window.waitForFunction(
         () => {
           const app = (window as any).__iinpublic_app?.getApp?.();
           return app?.initialized === true && Boolean(app?.currentUser?.id);
         },
         undefined,
-        { timeout: Math.max(1_000, deadline - Date.now()) },
+        { timeout: Math.min(5_000, Math.max(1_000, deadline - Date.now())) },
       );
       return user;
     } catch (error) {
       lastError = error;
+    }
+    // MainActivity owns the initial navigation. Only intervene once if an unusual WebView never
+    // receives that load (for example, CDP attached to a newly-created about:blank page).
+    if (!fallbackNavigationUsed && Date.now() >= fallbackNavigationAt) {
+      fallbackNavigationUsed = true;
+      await window.goto('http://127.0.0.1:8088/?native_platform=android', {
+        waitUntil: 'domcontentloaded',
+        timeout: 5_000,
+      }).catch((error) => { lastError = error; });
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
@@ -84,23 +91,9 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
   return waitForAndroidApp({ deviceSerial: serial, window, cdpBrowser, cdpForwardPort });
 }
 
-/** Reset only high-volume E2E projections while preserving SEA identity and preferences. */
-export async function resetAndroidE2ETestState(user: AndroidUser): Promise<AndroidUser> {
-  await user.window.evaluate(async () => {
-    // Clearing Gun's cache must not strand a profile that has not yet reached the relay.
-    // Publish the current public record first so initialization can resolve the same user id.
-    const currentUser = (window as any).__iinpublic_app?.getApp?.()?.currentUser;
-    if (currentUser?.id) {
-      const response = await fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(currentUser),
-      });
-      if (!response.ok) throw new Error(`Could not preserve Android test identity: ${response.status}`);
-      // The API acknowledges after scheduling its Gun putFast; allow that graph write to
-      // propagate before deleting this WebView's only cached copy and reloading.
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    }
+/** Remove high-volume test projections at teardown without navigating/restarting the SPA. */
+export async function clearAndroidE2ETestProjections(user: AndroidUser): Promise<void> {
+  await user.window.evaluate(() => {
     const volatileKeys = [
       'peerNameCache',
       'myTalks',
@@ -112,16 +105,7 @@ export async function resetAndroidE2ETestState(user: AndroidUser): Promise<Andro
       'talkLedger',
     ];
     for (const key of volatileKeys) localStorage.removeItem(key);
-    // Gun's localStorage adapter uses a `gun/`-prefixed graph cache. A reused phone can
-    // otherwise carry megabytes of earlier E2E graph history and exhaust WebView's quota.
-    // The relay remains authoritative and repopulates current graph data after reload.
-    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
-      const key = localStorage.key(index);
-      if (key?.startsWith('gun/')) localStorage.removeItem(key);
-    }
   });
-  await user.window.reload({ waitUntil: 'domcontentloaded', timeout: 15_000 });
-  return waitForAndroidApp(user);
 }
 
 export type LaunchAndroidUserOptions = {

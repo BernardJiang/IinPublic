@@ -2041,8 +2041,16 @@ export class UIManager extends EventEmitter {
       `;
     }
 
-    // Initialize chatroom list view (default view)
-    this.showChatroomList();
+    // The startup path already painted the deterministic hierarchy. Do not tear it down and
+    // render it a second time when identity hydration finishes; live count subscriptions patch
+    // it later. Non-startup callers still get the normal list initialization fallback.
+    const startupList = document.getElementById('chatroom-list');
+    if (!startupList?.querySelector('.chatroom-item')) {
+      this.showChatroomList();
+    } else {
+      this.syncReturnHomeButton();
+      this.syncAppBarOverflow();
+    }
   }
 
   showChatroomList(): void {

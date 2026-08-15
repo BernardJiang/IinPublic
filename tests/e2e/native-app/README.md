@@ -34,7 +34,8 @@ NATIVE_APP_ANDROID_SERIALS=serial1,serial2,serial3 \
 ```
 
 The phones reach the test hub over the LAN; set `NATIVE_APP_ANDROID_HOST` only
-when automatic LAN-address detection selects the wrong interface. The suite preserves
-SEA key custody and preferences, clears high-volume prior test projections/Gun cache,
-then runs a seven-node matching ring (seven authors, seven broadcasts, seven completions).
-Use test devices or profiles because it creates ordinary test talks and exchanges.
+when automatic LAN-address detection selects the wrong interface. It never reloads an attached
+WebView: Android's Activity owns the one startup navigation, and high-volume test projections are
+cleared without navigation during teardown. The suite runs a seven-node matching ring (seven
+authors, seven broadcasts, seven completions). Use test devices or profiles because it creates
+ordinary test talks and exchanges.

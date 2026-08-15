@@ -20,8 +20,8 @@ import {
 } from './helpers/native-app';
 import {
   closeAndroidUser,
+  clearAndroidE2ETestProjections,
   launchAndroidUserViaAdb,
-  resetAndroidE2ETestState,
   type AndroidUser,
 } from './helpers/native-app-android';
 import {
@@ -116,6 +116,7 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
   test.afterAll(async () => {
     for (const close of browserClosers) await close().catch(() => {});
     for (const browser of browsers) await browser.close().catch(() => {});
+    await Promise.all(androidUsers.map((user) => clearAndroidE2ETestProjections(user).catch(() => {})));
     await Promise.all(androidUsers.map((user) => closeAndroidUser(user)));
     await electron?.app.close().catch(() => {});
     if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
@@ -141,10 +142,10 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
     // Chromium, WebKit, and Firefox are already consuming its browser-process event loop.
     for (let index = 0; index < DEVICE_SERIALS.length; index += 1) {
       console.log(`[matrix] launching Android ${index + 1}: ${DEVICE_SERIALS[index]}`);
-      const androidUser = await resetAndroidE2ETestState(await launchAndroidUserViaAdb({
+      const androidUser = await launchAndroidUserViaAdb({
         hubGunUrl: lanHubUrl,
         deviceSerial: DEVICE_SERIALS[index],
-      }));
+      });
       androidUsers.push(androidUser);
       const name = `Matrix Android ${index + 1}`;
       const id = await bootstrapNativeWindow(androidUser.window, name, {
