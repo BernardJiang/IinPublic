@@ -215,80 +215,80 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-07-26 9:52pm PDT
+# [IinPublic] recent context, 2026-08-14 9:57pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (24,485t read) | 530,998t work | 95% savings
+Stats: 50 obs (22,344t read) | 398,270t work | 94% savings
 
 ### Jun 14, 2026
-S22 Distance Sort Branch Implemented in contacts-view.ts Sort Comparator (Jun 14 at 2:36 PM)
-S23 Verify Phase 5 follow-up items (steps 3 and 4): re-digest on reconnect and listLocalWires bounding (Jun 14 at 2:42 PM)
-S24 Green CI Commit dbf22108 Landed with scripts/ci-local.sh Created (Jun 14 at 2:51 PM)
 S25 Use local PC as CI — run ./scripts/ci-local.sh, fix failures, commit on green (Jun 14 at 3:52 PM)
 S26 DMG Confirmed at 247MB — Wine Not Installed, brew install wine-stable Started as Background Task (Jun 14 at 3:52 PM)
 ### Jul 2, 2026
 S27 Fix two failing Playwright E2E mass tests (02-survey-mass-exchange and 04-mixed-saturation) that fail during concurrent-wave test:all execution due to Gun mesh timing issues (Jul 2 at 11:31 PM)
 ### Jul 10, 2026
 S28 IinPublic TODO.md: Full Project Backlog State as of 2026-07-25 (Jul 10 at 11:26 PM)
-### Jul 14, 2026
-911 10:46p 🟣 AppBar Component Created at src/web/ui/app-bar.ts
-912 " 🟣 AppBar Component Passes TypeScript Strict Type-Check with Zero Errors
-913 " 🟣 AppBar Unit Test Suite Created at src/test/unit/app-bar.test.ts
-914 10:47p 🔴 Overflow Test Assertion Fixed: Priority Order Spills Actions 1 and 2, Not Just 2
 ### Jul 25, 2026
-915 4:38p 🔵 IinPublic TODO.md: Full Project Backlog State as of 2026-07-25
-916 " ⚖️ K. TechSupport Redesigned as Peer Client, Not Server-Resident (2026-07-25)
-917 " 🟣 K6: TechSupport Made Unblockable and Unfilterable (2026-07-25)
-918 " 🟣 K5 Partial: TechSupport Talk Exclusion + FAQ Normalization Module (2026-07-25)
-919 " 🔴 L1: Room Visit Counters Fixed with CRDT G-Counter (2026-07-25)
-920 " 🟣 L2: Graph Size Instrumentation Added; Retention Policy Blocked on Human Decision
-921 " ⚖️ K4: Commit Stage0 Fixture to Repo; All E2E Specs Load Snapshots Instead of Constructing Graphs
 S29 Read docs/TODO.md and summarize all open action items for the IinPublic project (Jul 25 at 4:38 PM)
 S30 IinPublic Full E2E Suite Green: 199/201 Passed, 0 Failures (Jul 25, 2026) (Jul 25 at 4:38 PM)
-922 5:06p 🔵 test:all Script Architecture in IinPublic Project
-923 5:07p 🔵 Latest test:all Report Located at playwright-report/index.html (Jul 25 16:50)
-924 " 🔵 Playwright HTML Report Embeds Test Data as Base64 ZIP
-925 " 🔵 Playwright Report ZIP Contains Hash-Named JSON Test Result Files
-926 5:08p 🔵 Playwright Merged Report ZIP Contains report.json with Top-Level Stats
-927 " 🔵 test:all Run (Jul 25 16:50) Fully Passed: 199/201 Tests, 0 Failures
-928 5:20p 🔵 IinPublic Full E2E Suite Green: 199/201 Passed, 0 Failures (Jul 25, 2026)
 S31 Check the latest npm run test:all report for IinPublic project (Jul 25 at 5:20 PM)
-929 5:24p ✅ TODO.md Action Items Work Initiated
-930 5:25p 🟣 K1 Feature: TechSupport Built-in Identity + Relay-Light Presence
-931 5:26p 🟣 K1 Feature: Additional Tasks — Cleanup, Unification, and Tests
-932 5:27p 🔵 K-Section Architecture: Full Design Decisions for TechSupport Built-in Presence
-933 " 🔵 src/shared/techsupport.ts: Split Trust-Anchor Architecture Already Implemented
-934 " 🔵 TechSupportAnnouncementService Requires Full SEA Pair — Must Lose Private Half in K3
-935 5:28p 🔵 K1-3 Eviction Immunity Already Implemented in chatroom-manager.ts
-936 " 🔵 bootstrapTechSupportRootIfMissing() Full Flow: Browser-Side Root Minting to Be Deleted
-937 " 🔵 dev-techsupport-bootstrap.js: Third TechSupport Graph Builder — Full Structure Mapped
-938 5:29p 🔵 contacts-view.ts Already Renders TechSupport as Hardcoded Client-Side Row (Partial K1)
-939 " 🔵 Stage0-Bootstrap Test Directory Exists; Identity Bootstrap Test Already Written
-940 " 🔵 Three TechSupport Graph Builders: Structurally Identical Gun Graphs with Timestamp-Dependent Member Rows
-941 5:30p 🔵 Member Count Badge Depends on TechSupport Gun Member Row Being Present and Fresh
-942 5:31p 🟣 K1 Design Note Created: Full Implementation Guide for 7 K1 Items
-943 5:32p 🟣 Opus Research Agent Completed; K1 Design Note Verified; Task 6 (Graph Builder Unification) Begins
-944 5:33p 🔵 dev-techsupport-bootstrap.js Usage Map: Required by launch-browsers.js and smoke-dev-multi.js
-945 " 🔵 ensureTechSupportBootstrap Call Sites: Snapshot Import Controlled by DEV_MULTI_BOOTSTRAP_IMPORT
-946 " 🟣 src/shared/techsupport-baseline.ts Created: Canonical TechSupport Graph Factory
-947 5:34p 🔄 Graph Builder Unification: Shared Factory Renamed to techsupport-graph.ts; clear-database.ts Import Updated
-948 " 🔄 seedTechSupportRootBaseline() Refactored: 127 Lines of Inline Graph Replaced with techSupportBaselineGraph()
-949 " 🔄 dev-techsupport-bootstrap.js Refactored: Auto-Builds and Delegates to dist/shared/techsupport-graph.js
-950 5:35p 🔵 Build Pipeline Gotcha: Shared Modules Compile to dist/server/shared/, Not dist/shared/
-### Jul 26, 2026
-960 3:15p 🟣 Playwright E2E Stress Test: Heavy User GUI Load Spec
-961 3:16p 🔵 IinPublic E2E Test Infrastructure: Helper Patterns and DOM Selectors
-962 3:17p 🔵 IinPublic Contacts API, Answer History Storage, and DOM Selector Map
-963 " 🟣 Heavy-User GUI Stress Spec Written: tests/e2e/mass/04-heavy-user-gui-stress.spec.ts
-964 3:18p 🔴 Corrected UIManager method: setCurrentUser → adoptSessionUser
-965 " 🔵 Spec 04 Test Runner Started Successfully
-966 " 🔵 Gun.js Relaxed-Mode Timeout Warning During Talk Creation
-967 3:19p 🔵 Test Failure: #contacts-content DOM Element Does Not Exist
-968 3:20p 🔴 Contacts DOM Selector Corrected: #contacts-content → #contacts-list
-969 3:22p 🟣 Spec 04 Passes: Heavy-User GUI Stress Test Green in 1.5 Minutes
+S32 remote-control — investigating Playwright test results in IinPublic project (Jul 25 at 5:20 PM)
+### Jul 27, 2026
+S33 remote-control — fix single Playwright test failure in IinPublic caused by visit counter regression (Jul 27 at 7:11 PM)
+S34 remote-control — Playwright test failure fixed and committed: switchChatroom visit counter idempotency regression (Jul 27 at 7:43 PM)
+### Aug 14, 2026
+1033 9:09p 🟣 Production Deployment Stack Configured: Render.yaml, Fixed Dockerfile, CORS, and Download Manifest
+1034 " 🟣 Local Production Server Boots Successfully on PORT=8090 with New npm start Script
+1035 9:10p 🟣 Production Server Smoke Test Passes: Security Fixes Confirmed, Socket.IO and Downloads Verified
+1036 " 🔵 public/downloads/ Contains Three Real Installer Files Already Staged for Production
+1037 " 🟣 Download Banner Extended to Detect Linux and iOS Platforms; Render Auto-Deploy Disabled
+1038 " 🔵 Render Dashboard Requires Login — No Existing Session in In-App Browser
+1039 9:11p 🔵 Production Server Request Logs Confirm Security Test Results at Structured Log Level
+1040 " 🟣 Security Boundary and CORS Override Behavior Covered by New Unit Tests
+1041 " 🟣 All 8 Production Tests Pass; ESLint Clean; build:production Succeeds — Ready to Push and Deploy
+1044 9:17p ⚖️ Node.js Server Setup for iinpublic.com
+1045 9:18p 🔵 iinpublic Node.js Server Already Built and Running
+1046 " 🔵 Self-Signed TLS Cert for LAN HTTPS Dev with TLS_DISABLE Escape Hatch
+1047 9:19p 🔵 Production Deployment Plan: Render.com + Docker + DNS Cutover from Google to iinpublic.com
+1048 " 🔵 Gun Hub URL Port-Mapping Architecture: web 3001+N → gun 8080+N
+1049 " 🔵 /api/debug/storage Returns 404 — Called by syncConversationTransportFromServer(), Silently Ignored
+1050 " 🔵 mkcert Available but Not Used; Self-Signed Cert Not in System Keychain
+1051 9:20p 🟣 HTTPS-Only Server Policy with Three-Mode TLS Architecture
+1052 " 🔴 Test Fixture Updated for HTTPS-Only CORS Policy
+1053 9:21p 🔵 HTTPS-Only Build Verified: All Tests Pass and Production Server Starts with Dev Cert
+1054 " 🔵 Live HTTPS Verification: HTTP Plaintext Fully Rejected; WebSocket over WSS Fails with Self-Signed Cert
+1055 " 🔵 Socket.IO WSS Connection Times Out — rejectUnauthorized Option Placement Wrong for socket.io-client
+1056 9:22p 🔵 WSS WebSocket Connectivity Confirmed — ws Library Connects; socket.io-client Was the Issue
+1057 " 🔵 Cross-Device LAN HTTPS Confirmed: Windows PC at 192.168.10.67 Connected Over Self-Signed Cert
+1058 " 🔵 Two Intentional Plaintext References Remain After HTTPS-Only Sweep
+1059 9:23p 🟣 App Download Banner Expanded to Support Linux and iOS Platforms
+1060 " 🟣 Production CORS Allowlist Finalized for iinpublic.com and Render Hostname
+1061 9:24p ✅ Committed "feat: prepare HTTPS-only production hosting" to dev Branch (82764311)
+1062 9:26p 🔵 Staged App Downloads Are Outdated and Include Debug Builds — Not Ready for Public Release
+1063 " 🔵 iOS Version Stuck at 1.0 / Build 1; Desktop Auto-Update Wired to GitHub Releases
+1064 9:28p 🟣 Android Startup Speed Optimized: Chatrooms Render Before Gun/SEA Hydration
+1065 " 🔵 Seven-Client Real-Device E2E Matrix: Three Android Phones + Mac + Three Browsers
+1066 " 🔴 Three E2E Test Failures Fixed: Talk Delivery, Find-Similar Timeout, Isolated Saturation
+1067 " 🔵 Wine Available on Mac for Windows Build Testing; Downloads API Now Handles All 5 Platforms
+1068 9:30p 🔵 Desktop Build Artifacts: Mac at 1.0.7, Windows/Linux at 1.0.3; CI Triggers on Wrong Branch Names
+1069 9:31p 🔵 Version Bumped to 1.0.9; All Platforms Synchronized; Android versionCode Encoding Changed
+1070 9:32p 🔵 Windows 1.0.9 Desktop Build In Progress; 17 npm Audit Vulnerabilities in Desktop Shell
+1071 " 🔵 NSIS Installer "IinPublic Setup 1.0.9.exe" Being Written; oneClick=false perMachine=false
+1073 9:33p 🔵 Windows 1.0.9 Installer Staged (73MB); Local HTTPS Server Already Running on :8080
+1074 9:34p 🔵 Server Restart Confirmed; /api/downloads Returns version Field; Plain HTTP Correctly Rejected
+1075 9:35p 🔵 Download Security Hardening: HTTP URLs Rejected, Stale Installer URLs Blocked at Route Level, iOS Build Number Fixed
+1076 " 🔵 LAN IP Changed to 192.168.10.48; Dev Cert SAN Covers 192.168.10.50 — Certificate Mismatch on LAN
+1077 9:36p 🔵 DNS Still Points to Google; docs/LAN-HTTPS.md Has Outdated NODE_ENV=production Note; gen-dev-cert.sh Supports LAN_IP Override
+1081 9:42p ✅ Working Change Committed via Git
+1082 " 🔵 Failing Unit Test: downloads-routes "blocks stale installer URLs"
+1083 9:43p 🔴 Fixed Failing downloads-routes Test: Stale Installer URL Blocking
+1084 " 🟣 Version-Gated App Download Routes with Stale Installer Blocking
+1085 " 🟣 Version Sync Scripts and npm hooks for Multi-Platform Version Management
+1086 " ✅ CI Workflows Now Enforce Version Synchronization
+1087 " ✅ DEPLOY_PRODUCTION.md Updated for New Version and Download Workflow
+1088 9:44p ✅ Committed: "fix: synchronize app release downloads" (f3c2ffb8)
 
-Access 531k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 398k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
