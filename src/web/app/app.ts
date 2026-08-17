@@ -2301,6 +2301,20 @@ export class IinPublicApp {
 
   private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {
     if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return false;
+    // Mesh delivery deliberately re-floods the same talk-body frame to the same recipient for
+    // reliability (broadcastTalk's flood-retry, plus a separate mailbox-fallback copy), so this
+    // handler routinely runs several times for one logical delivery. Short-circuit once a
+    // (talkId, authorId) pair has actually been ACCEPTED (see the `accepted` gate below) —
+    // without this, every redundant re-delivery re-ran the full ingest+cache Gun-write path.
+    // Measured under a 6-browser saturation test: ~7x redundant writes for the same 20 logical
+    // deliveries, which cascaded into Gun's 12s put-ack "relaxed mode" timeout
+    // (web-gun-service.ts) piling up and blew isolated-02-mixed-saturation.spec.ts's 60s budget.
+    // Only marked on acceptance, not on entry: a REJECTED delivery (e.g. filtered by
+    // talkFilters) keeps re-checking on each redundant copy, since eligibility could change
+    // between flood attempts.
+    const pairKey = `${payload.talkId}::${payload.authorId}`;
+    const bodyDedupeKey = `mesh-talk-body::${pairKey}`;
+    if (this.processedTalkResponseKeys.has(bodyDedupeKey)) return true;
     if (payload.authorEpub) this.peerEpubByUserId.set(payload.authorId, payload.authorEpub);
     const talkData = {
       ...payload.talkData,
@@ -2326,31 +2340,27 @@ export class IinPublicApp {
       this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {},
     );
     if (!accepted) return false;
+    this.processedTalkResponseKeys.add(bodyDedupeKey);
     this.peerMeshService?.cacheTalkBody(payload.talkId, talkData);
     // Delivery is ACK-eligible only after the receiver's local Gun commit and
     // repository read-back verification complete.
     await this.talkService.cacheReceivedTalk(payload.talkId, talkData);
-    const pairKey = `${payload.talkId}::${payload.authorId}`;
-    const firstUi = !this.processedTalkResponseKeys.has(`mesh-talk-body::${pairKey}`);
-    if (firstUi) {
-      this.processedTalkResponseKeys.add(`mesh-talk-body::${pairKey}`);
-      this.uiManager.displayIncomingTalk({
-        id: payload.talkId,
-        title: String(payload.title || (talkData as any).title || 'Talk'),
-        authorName: payload.authorName || 'Unknown',
-        type: (talkData as any).type,
-        questionCount: Array.isArray((talkData as any).questions) ? (talkData as any).questions.length : payload.questionCount,
-        timestamp: new Date().toISOString(),
-        isOwnTalk: false,
-        fullTalk: talkData,
-      });
-      this.maybeAutoChatbotReplyToAnnouncer(
-        payload.talkId,
-        talkData,
-        payload.authorId,
-        payload.authorName || 'Unknown',
-      );
-    }
+    this.uiManager.displayIncomingTalk({
+      id: payload.talkId,
+      title: String(payload.title || (talkData as any).title || 'Talk'),
+      authorName: payload.authorName || 'Unknown',
+      type: (talkData as any).type,
+      questionCount: Array.isArray((talkData as any).questions) ? (talkData as any).questions.length : payload.questionCount,
+      timestamp: new Date().toISOString(),
+      isOwnTalk: false,
+      fullTalk: talkData,
+    });
+    this.maybeAutoChatbotReplyToAnnouncer(
+      payload.talkId,
+      talkData,
+      payload.authorId,
+      payload.authorName || 'Unknown',
+    );
     return true;
   }
 
