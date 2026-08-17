@@ -596,7 +596,7 @@ function renderStatsHtml(stats: PeerRelationshipStats, deps: UserDetailViewDeps)
   const sentIcon = stats.sent.talks === 0 ? '📤' : '📤';
   const receivedIcon = stats.received.talks === 0 ? '📥' : '📥';
   const nickname = String(deps.knownPerson?.nickname || '').trim();
-  const relationship = formatRelationshipLabel(deps.knownPerson?.label, deps);
+  const relationship = formatRelationshipLabel(deps.knownPerson?.labels, deps);
   return `
     <div class="peer-stats-grid">
       <div class="peer-stat-card">
@@ -660,8 +660,8 @@ function getPrimaryDisplayName(stageName: string, knownPerson?: KnownPerson): st
   return `${nickname} (${baseStageName})`;
 }
 
-function formatRelationshipLabel(label: string | undefined, deps: UserDetailViewDeps): string {
-  if (!label) return deps.text('contactNoRelationship');
+function formatRelationshipLabel(labels: string[] | undefined, deps: UserDetailViewDeps): string {
+  if (!labels || labels.length === 0) return deps.text('contactNoRelationship');
   const keyByLabel: Record<string, UiTranslationKey> = {
     friend: 'friends',
     relative: 'relatives',
@@ -670,7 +670,7 @@ function formatRelationshipLabel(label: string | undefined, deps: UserDetailView
     partner: 'partners',
     custom: 'custom',
   };
-  return keyByLabel[label] ? deps.text(keyByLabel[label]) : label;
+  return labels.map((label) => (keyByLabel[label] ? deps.text(keyByLabel[label]) : label)).join(', ');
 }
 
 function buildLoadingSubtitle(stageName: string, deps: UserDetailViewDeps): string {
@@ -685,7 +685,7 @@ function buildLoadingSubtitle(stageName: string, deps: UserDetailViewDeps): stri
 function buildStatsSubtitle(stageName: string, stats: PeerRelationshipStats, deps: UserDetailViewDeps): string {
   const nickname = String(deps.knownPerson?.nickname || '').trim();
   const baseStageName = String(stageName || 'Unknown').trim() || 'Unknown';
-  const relationship = deps.knownPerson?.label ? formatRelationshipLabel(deps.knownPerson.label, deps) : null;
+  const relationship = deps.knownPerson?.labels?.length ? formatRelationshipLabel(deps.knownPerson.labels, deps) : null;
   const parts: string[] = [];
   if (nickname && nickname.toLowerCase() !== baseStageName.toLowerCase()) {
     parts.push(format(deps, 'peerStageName', { name: baseStageName }));

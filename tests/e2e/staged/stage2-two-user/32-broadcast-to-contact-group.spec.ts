@@ -100,7 +100,7 @@ test.describe('Broadcast to a contact group', () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       const ui = app?.uiManager;
       if (!ui?.saveKnownPerson) throw new Error('uiManager.saveKnownPerson unavailable');
-      return ui.saveKnownPerson(targetId, { label: 'custom', customLabel: 'Tennis Buddy' });
+      return ui.saveKnownPerson(targetId, { labels: ['custom'], customLabel: 'Tennis Buddy' });
     }, jerryId);
     await afterAction();
 
@@ -155,5 +155,95 @@ test.describe('Broadcast to a contact group', () => {
         { message: 'Jerry should have received the group-broadcast talk', timeout: 60_000 },
       )
       .toContain(groupTalkTitle);
+  });
+
+  test('a contact with overlapping labels is reachable via either group broadcast', async () => {
+    const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
+    contextTom = tom.context;
+    pageTom = tom.page;
+
+    const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
+    contextJerry = jerry.context;
+    pageJerry = jerry.page;
+
+    const talkTitle = `Contact Group Overlap Test ${Date.now()}`;
+    await establishContactsTomJerry(pageTom, pageJerry, talkTitle);
+    const jerryId = await getCurrentUserId(pageJerry);
+
+    // ── Jerry is both a friend and a coworker — a genuinely overlapping contact ────────
+    await pageTom.evaluate((targetId) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const ui = app?.uiManager;
+      if (!ui?.saveKnownPerson) throw new Error('uiManager.saveKnownPerson unavailable');
+      return ui.saveKnownPerson(targetId, { labels: ['friend', 'coworker'] });
+    }, jerryId);
+    await afterAction();
+
+    async function createGroupTalk(title: string): Promise<void> {
+      // #create-talk-btn only shows on the chatrooms/talks appbar views — this helper gets
+      // called a second time from the contacts tab (right after the first group broadcast).
+      await pageTom.click('.nav-btn[data-view="talks"]');
+      await afterNav();
+      await pageTom.click('#create-talk-btn');
+      await pageTom.waitForSelector('#talk-editor-form');
+      await pageTom.fill('#talk-title', title);
+      await selectTalkEditorType(pageTom, 'flow');
+      const q = pageTom.locator('.question-item').first();
+      // Content-hash identity (computeTalkIdFromTalkData) ignores the title for flow talks —
+      // only questions/answers matter — so each talk needs distinct question text or the
+      // second one collides with the first's identity and gets suppressed as "already sent".
+      await q.locator('.question-text').fill(`Free to catch up soon? (${title})`);
+      await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes.');
+      await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
+      await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No.');
+      await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
+      // Same reasoning as the test above — isolate the group broadcast from the room's
+      // own auto-broadcast-on-create default.
+      const sendToChatroomCheckbox = pageTom.locator('#talk-send-to-chatroom');
+      if (await sendToChatroomCheckbox.count()) {
+        await sendToChatroomCheckbox.uncheck();
+      }
+      await submitTalkEditorAndWaitForOut(pageTom, title);
+    }
+
+    async function broadcastToGroup(groupOptionText: string, talkTitleToSend: string): Promise<void> {
+      await pageTom.click('.nav-btn[data-view="contacts"]');
+      await afterNav();
+      await pageTom.click('#contacts-broadcast-group-btn');
+      const modal = pageTom.locator('#broadcast-group-modal');
+      await expect(modal).toBeVisible({ timeout: 10_000 });
+      const groupSelect = pageTom.locator('#broadcast-group-select');
+      await expect(groupSelect.locator('option', { hasText: groupOptionText })).toHaveCount(1);
+      await groupSelect.selectOption({ label: groupOptionText });
+      await expect(pageTom.locator('#broadcast-group-preview')).toContainText('1');
+      const talkSelect = pageTom.locator('#broadcast-group-talk-select');
+      await expect(talkSelect.locator('option', { hasText: talkTitleToSend })).toHaveCount(1);
+      await talkSelect.selectOption({ label: talkTitleToSend });
+      await pageTom.click('[data-testid="broadcast-group-confirm"]');
+      await expect(modal).toHaveCount(0);
+      await afterSync();
+    }
+
+    // ── Reach Jerry via the "Friends" group first ──────────────────────────────────────
+    const friendTalkTitle = `Overlap Friend Talk ${Date.now()}`;
+    await createGroupTalk(friendTalkTitle);
+    await broadcastToGroup('Friends (1)', friendTalkTitle);
+    await expect
+      .poll(
+        async () => getIncomingClusterTitlesForUser(pageJerry, jerryId),
+        { message: 'Jerry should receive the talk broadcast to the Friends group', timeout: 60_000 },
+      )
+      .toContain(friendTalkTitle);
+
+    // ── The SAME contact must also be reachable via "Coworkers" ────────────────────────
+    const coworkerTalkTitle = `Overlap Coworker Talk ${Date.now()}`;
+    await createGroupTalk(coworkerTalkTitle);
+    await broadcastToGroup('Coworkers (1)', coworkerTalkTitle);
+    await expect
+      .poll(
+        async () => getIncomingClusterTitlesForUser(pageJerry, jerryId),
+        { message: 'Jerry should also receive the talk broadcast to the Coworkers group', timeout: 60_000 },
+      )
+      .toContain(coworkerTalkTitle);
   });
 });

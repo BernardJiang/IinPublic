@@ -15,12 +15,12 @@ describe('Contacts ranking and relationship filters', () => {
   const originalFetch = global.fetch;
   const knownPartner: KnownPerson = {
     userId: 'strong',
-    label: 'partner',
+    labels: ['partner'],
     addedAt: new Date('2026-05-01T00:00:00.000Z'),
   };
   const knownCustom: KnownPerson = {
     userId: 'weak',
-    label: 'custom',
+    labels: ['custom'],
     customLabel: 'Book Circle',
     addedAt: new Date('2026-05-01T00:00:00.000Z'),
   };
@@ -174,7 +174,7 @@ describe('Contacts ranking and relationship filters', () => {
 
   it('renders, searches, filters, and sorts custom relationship labels by their saved text', async () => {
     const customPeople: KnownPerson[] = [
-      { ...knownPartner, label: 'custom', customLabel: 'Zoom Group' },
+      { ...knownPartner, labels: ['custom'], customLabel: 'Zoom Group' },
       knownCustom,
     ];
     const contactDeps = deps(customPeople);
@@ -198,7 +198,7 @@ describe('Contacts ranking and relationship filters', () => {
     localStorage.clear(); // no exchanges
     const contactDeps = deps([{
       userId: 'jerry-id',
-      label: 'custom',
+      labels: ['custom'],
       nickname: 'J',
       customLabel: 'Coffee Circle',
       addedAt: new Date('2026-06-04T00:00:00.000Z'),
@@ -218,7 +218,7 @@ describe('Contacts ranking and relationship filters', () => {
     // rendering completes synchronously without needing any fetch.
     const contactDeps = deps([{
       userId: 'jerry-id',
-      label: 'custom',
+      labels: ['custom'],
       nickname: 'J',
       customLabel: 'Coffee Circle',
       addedAt: new Date('2026-06-04T00:00:00.000Z'),
@@ -356,7 +356,7 @@ describe('Contacts ranking and relationship filters', () => {
       const exchanges: Record<string, unknown> = {};
       for (let i = 0; i < count; i += 1) {
         const id = `peer-${String(i).padStart(3, '0')}`;
-        known.push({ userId: id, label: 'friend', addedAt: new Date('2026-05-01T00:00:00.000Z') });
+        known.push({ userId: id, labels: ['friend'], addedAt: new Date('2026-05-01T00:00:00.000Z') });
         exchanges[`${id}::talk-${i}`] = {
           peerId: id,
           peerName: id,

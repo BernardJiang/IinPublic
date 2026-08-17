@@ -167,6 +167,7 @@ import { decodePairingCode, isPairingExpired } from '../../shared/identity-linki
 import { showEraseDeviceDialog } from './erase-device-dialog';
 import { eraseDevice } from '../services/device-wipe';
 import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
+import { buildTagIdentityKeys } from '../../shared/talk-ledger';
 
 function resolveExpiresAtMs(value: unknown): number {
   if (typeof value === 'number') return value;
@@ -906,13 +907,19 @@ export class UIManager extends EventEmitter {
    * Content-hash keyed (`computeTalkIdFromTalkData`), so a genuinely revised talk (different
    * title/questions) always reads as unsent; a metadata-only touch (e.g. `lastInteraction`)
    * does not.
+   *
+   * For `type: 'tag'` talks, `deliverTalkToReceiversOverMesh` records `sent` under per-tag
+   * identity keys (`buildTagIdentityKeys`), never the whole-talk key — so this must check the
+   * same per-tag keys (any one still unsent = a partial resend is still owed to this receiver),
+   * not the whole-talk key, or a tag talk would always read as "unsent" for everyone forever.
    */
   private isBroadcastUnsentForReceiver(_chatroomId: string, receiverId: string, talkId: string): boolean {
     const talk = this.getMyTalks()[talkId];
     const fullTalk = talk?.fullTalk || talk;
     if (!fullTalk) return true;
-    const identityKey = computeTalkIdFromTalkData(fullTalk);
-    return !shouldSuppressForPeer(receiverId, identityKey);
+    const wholeTalkIdentityKey = computeTalkIdFromTalkData(fullTalk);
+    const identityKeys = buildTagIdentityKeys(fullTalk, wholeTalkIdentityKey);
+    return identityKeys.some((identityKey) => !shouldSuppressForPeer(receiverId, identityKey));
   }
 
   private getUnsentBroadcastTalkIds(chatroomId: string, receiverIds: string[]): string[] {
@@ -3518,12 +3525,14 @@ export class UIManager extends EventEmitter {
     const filtered = this.creatorReplyRows
       .filter((row) => {
         const known = this.getKnownPerson(row.responderId);
-        const label = String(known?.label || 'stranger').toLowerCase();
+        const labels = known?.labels && known.labels.length > 0
+          ? known.labels.map((l) => l.toLowerCase())
+          : ['stranger'];
         const time = new Date(row.date).getTime();
         if (this.creatorReplyScopedTalkId && row.talkId !== this.creatorReplyScopedTalkId) return false;
         if (query && !`${row.responderName} ${row.title}`.toLowerCase().includes(query)) return false;
         if (state.outcome !== 'all' && row.outcome !== state.outcome && row.answerMode !== state.outcome) return false;
-        if (state.relationship !== 'all' && label !== state.relationship) return false;
+        if (state.relationship !== 'all' && !labels.includes(state.relationship)) return false;
         if (state.type !== 'all' && String(row.type || 'flow').toLowerCase() !== state.type) return false;
         if (state.language !== 'all' && String(row.language || 'en').toLowerCase() !== state.language) return false;
         if (fromTime != null && time < fromTime) return false;
@@ -3546,8 +3555,8 @@ export class UIManager extends EventEmitter {
           const g = new Date(a.date).toLocaleDateString().localeCompare(new Date(b.date).toLocaleDateString());
           if (g !== 0) return g;
         } else if (state.group === 'relationship') {
-          const aRel = String(this.getKnownPerson(a.responderId)?.label || 'stranger');
-          const bRel = String(this.getKnownPerson(b.responderId)?.label || 'stranger');
+          const aRel = (this.getKnownPerson(a.responderId)?.labels || []).join(', ') || 'stranger';
+          const bRel = (this.getKnownPerson(b.responderId)?.labels || []).join(', ') || 'stranger';
           const g = aRel.localeCompare(bRel);
           if (g !== 0) return g;
         }
@@ -3555,8 +3564,8 @@ export class UIManager extends EventEmitter {
         if (state.sort === 'user') return a.responderName.localeCompare(b.responderName) || a.title.localeCompare(b.title);
         if (state.sort === 'talk') return a.title.localeCompare(b.title) || a.responderName.localeCompare(b.responderName);
         if (state.sort === 'relationship') {
-          const byRelationship = String(this.getKnownPerson(a.responderId)?.label || 'Stranger')
-            .localeCompare(String(this.getKnownPerson(b.responderId)?.label || 'Stranger'));
+          const byRelationship = ((this.getKnownPerson(a.responderId)?.labels || []).join(', ') || 'Stranger')
+            .localeCompare((this.getKnownPerson(b.responderId)?.labels || []).join(', ') || 'Stranger');
           if (byRelationship !== 0) return byRelationship;
         }
         if (state.sort === 'matches' && bMetrics.matches !== aMetrics.matches) return bMetrics.matches - aMetrics.matches;
@@ -3598,7 +3607,7 @@ export class UIManager extends EventEmitter {
     let previousGroup = '';
     list.innerHTML = filtered.slice(0, this.creatorReplyVisibleCount).map((row) => {
       const known = this.getKnownPerson(row.responderId);
-      const label = known?.label || this.t('stranger');
+      const label = known?.labels?.length ? known.labels.join(', ') : this.t('stranger');
       const metrics = metricsByResponder.get(row.responderId)!;
       const score = state.sort === 'weighted'
         ? this.getUiLanguage() === 'zh'
@@ -9627,7 +9636,7 @@ export class UIManager extends EventEmitter {
   private async saveKnownPerson(
     userId: string,
     details: {
-      label: KnownPerson['label'];
+      labels: KnownPerson['labels'];
       nickname?: string;
       customLabel?: string;
       rating?: number;
@@ -9637,7 +9646,7 @@ export class UIManager extends EventEmitter {
     if (!this.currentUser) return;
     const nextEntry: KnownPerson = {
       userId,
-      label: details.label,
+      labels: details.labels,
       ...(details.nickname ? { nickname: details.nickname } : {}),
       ...(details.customLabel ? { customLabel: details.customLabel } : {}),
       ...(typeof details.rating === 'number' ? { rating: details.rating } : {}),

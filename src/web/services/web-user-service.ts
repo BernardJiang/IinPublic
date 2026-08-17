@@ -38,6 +38,28 @@ const TAG_INDEX_KEY = 'tag-index';
 type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'blockedUserIds' | 'talkFilters'> & {
   headshot?: string;
 };
+
+/**
+ * `KnownPerson` used to carry a single `label: RelationshipLabel`; it now carries
+ * `labels: RelationshipLabel[]` so a contact can belong to more than one group at once.
+ * Private-data JSON is decrypted straight off the wire with no schema-version field, so an
+ * already-persisted single-label record still has `label`, not `labels`, until it's rewritten —
+ * normalize on every read so old contacts don't silently disappear from their group.
+ */
+export function normalizeKnownPeople(list: unknown): KnownPerson[] {
+  if (!Array.isArray(list)) return [];
+  return list.map((raw) => {
+    const entry = (raw ?? {}) as Record<string, unknown> & { label?: RelationshipLabel };
+    const existingLabels = Array.isArray(entry['labels'])
+      ? (entry['labels'] as RelationshipLabel[]).filter((l): l is RelationshipLabel => typeof l === 'string')
+      : [];
+    const labels = existingLabels.length > 0
+      ? existingLabels
+      : (typeof entry.label === 'string' ? [entry.label] : []);
+    const { label: _legacyLabel, ...rest } = entry;
+    return { ...rest, labels } as KnownPerson;
+  });
+}
 type PublicProfileFoundation = {
   headshot?: string | null;
   languagesJson?: string;
@@ -372,7 +394,7 @@ export class WebUserService {
         profile: privateData.profile || user.profile || [],
         languages: privateData.languages || user.languages || ['en'],
         interests: privateData.interests || user.interests || [],
-        knownPeople: privateData.knownPeople ?? user.knownPeople ?? [],
+        knownPeople: normalizeKnownPeople(privateData.knownPeople ?? user.knownPeople ?? []),
         blockedUserIds: privateData.blockedUserIds ?? user.blockedUserIds ?? [],
         ...((privateData.talkFilters ?? user.talkFilters)
           ? { talkFilters: privateData.talkFilters ?? user.talkFilters! }
@@ -734,13 +756,13 @@ export class WebUserService {
   async addKnownPerson(
     userId: string,
     targetId: string,
-    label: RelationshipLabel,
+    labels: RelationshipLabel[],
     nickname?: string,
     extras?: { customLabel?: string; rating?: number; notes?: string },
   ): Promise<void> {
     const entry: KnownPerson = {
       userId: targetId,
-      label,
+      labels: labels.length > 0 ? labels : ['acquaintance'],
       ...(nickname ? { nickname } : {}),
       ...(extras?.customLabel ? { customLabel: extras.customLabel } : {}),
       ...(typeof extras?.rating === 'number' ? { rating: extras.rating } : {}),

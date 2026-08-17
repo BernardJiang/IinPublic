@@ -40,7 +40,7 @@ export type ContactsViewDeps = {
   getMyTalks: () => Record<string, any>;
   saveKnownPerson: (
     userId: string,
-    details: { label: KnownPerson['label']; nickname?: string; customLabel?: string; rating?: number; notes?: string },
+    details: { labels: KnownPerson['labels']; nickname?: string; customLabel?: string; rating?: number; notes?: string },
   ) => Promise<void>;
   submitPeerReview: (userId: string, rating: number) => Promise<void>;
   vouchAgeVerified: (userId: string) => Promise<void>;
@@ -104,25 +104,43 @@ async function runBeforeRender(deps: ContactsViewDeps): Promise<void> {
 // fetchPeerSummariesWithTimeout removed — contacts are derived locally (P0 step 5).
 // Use deriveLocalPeers() from local-peer-derivation.ts instead.
 
+const RELATIONSHIP_LABEL_TRANSLATION_KEYS: Record<string, UiTranslationKey> = {
+  friend: 'friends',
+  relative: 'relatives',
+  coworker: 'coworkers',
+  acquaintance: 'acquaintances',
+  partner: 'partners',
+  custom: 'custom',
+};
+
+function formatSingleRelationshipLabel(label: string, deps: ContactsViewDeps): string {
+  const key = RELATIONSHIP_LABEL_TRANSLATION_KEYS[label];
+  return key ? deps.text(key) : label;
+}
+
+/**
+ * A contact can carry more than one `RelationshipLabel` at once (e.g. friend + coworker) —
+ * called either with the raw `KnownPerson` (joins every label the contact has, comma-separated)
+ * or with a single label string (e.g. rendering one checkbox's option text in the edit dialog).
+ */
 function formatRelationshipLabel(
   relationship: KnownPerson | string | undefined,
   deps: ContactsViewDeps,
 ): string {
-  const label = typeof relationship === 'string' ? relationship : relationship?.label;
-  if (!label) return deps.text('contactNoRelationship');
-  if (label === 'custom' && relationship && typeof relationship !== 'string') {
-    const customLabel = String(relationship.customLabel || '').trim();
-    if (customLabel) return customLabel;
+  if (typeof relationship === 'string') {
+    return formatSingleRelationshipLabel(relationship, deps);
   }
-  const keyByLabel: Record<string, UiTranslationKey> = {
-    friend: 'friends',
-    relative: 'relatives',
-    coworker: 'coworkers',
-    acquaintance: 'acquaintances',
-    partner: 'partners',
-    custom: 'custom',
-  };
-  return keyByLabel[label] ? deps.text(keyByLabel[label]) : label;
+  const labels = relationship?.labels || [];
+  if (labels.length === 0) return deps.text('contactNoRelationship');
+  return labels
+    .map((label) => {
+      if (label === 'custom') {
+        const customLabel = String(relationship?.customLabel || '').trim();
+        if (customLabel) return customLabel;
+      }
+      return formatSingleRelationshipLabel(label, deps);
+    })
+    .join(', ');
 }
 
 /**
@@ -143,7 +161,7 @@ function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, dep
     formatCountText(deps, summary.stats.totalTalks, 'contactsTalkCountOne', 'contactsTalkCount'),
     formatCountText(deps, matchedTalks, 'contactsMatchCountOne', 'contactsMatchCount'),
     formatCountText(deps, summary.stats.mutualTagCount, 'contactsCommonTagCountOne', 'contactsCommonTagCount'),
-    known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger'),
+    known?.labels?.length ? formatRelationshipLabel(known, deps) : deps.text('stranger'),
   ];
   return parts.join(' · ');
 }
@@ -159,7 +177,7 @@ function rankingMetrics(peer: PeerSummary, known: KnownPerson | undefined, deps:
 } {
   const matchedTalks = peer.stats.sent.matches + peer.stats.received.matches;
   const matchRate = peer.stats.totalTalks > 0 ? matchedTalks / peer.stats.totalTalks : 0;
-  const relationshipBoost = known?.label ? 10 : 0;
+  const relationshipBoost = known?.labels?.length ? 10 : 0;
   const lastAt = new Date(peer.lastInteractionAt || 0).getTime();
   const daysOld = lastAt > 0 ? Math.max(0, Math.floor((Date.now() - lastAt) / (24 * 60 * 60 * 1000))) : 30;
   const recencyBoost = Math.max(0, 30 - Math.min(30, daysOld));
@@ -482,20 +500,22 @@ export async function openRelationshipDialog(
         <button type="button" id="close-contact-relationship-modal" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-tertiary);">&times;</button>
       </div>
       <div style="padding:18px; display:grid; gap:16px;">
-        <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
-          <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
-            <span>${deps.text('relationship')}</span>
-            <select id="contact-relationship-label" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">
-              ${['friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom']
-                .map((label) => `<option value="${label}" ${(known?.label || '') === label ? 'selected' : ''}>${formatRelationshipLabel(label, deps)}</option>`)
-                .join('')}
-            </select>
-          </label>
-          <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
-            <span>${deps.text('contactNickname')}</span>
-            <input id="contact-relationship-nickname" type="text" value="${deps.escapeHtml(String(known?.nickname || ''))}" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">
-          </label>
-        </div>
+        <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
+          <span>${deps.text('relationship')}</span>
+          <div id="contact-relationship-labels" style="display:flex; flex-wrap:wrap; gap:8px;">
+            ${['friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom']
+              .map((label) => `
+                <label style="display:flex; align-items:center; gap:5px; padding:6px 10px; border:1px solid var(--border-strong); border-radius:8px; font-size:0.85em; cursor:pointer;">
+                  <input type="checkbox" class="contact-relationship-label-checkbox" value="${label}" ${(known?.labels || []).includes(label as any) ? 'checked' : ''}>
+                  ${formatRelationshipLabel(label, deps)}
+                </label>`)
+              .join('')}
+          </div>
+        </label>
+        <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
+          <span>${deps.text('contactNickname')}</span>
+          <input id="contact-relationship-nickname" type="text" value="${deps.escapeHtml(String(known?.nickname || ''))}" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">
+        </label>
         <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
           <span>${deps.text('contactCustomLabel')}</span>
           <input id="contact-relationship-custom-label" type="text" value="${deps.escapeHtml(String(known?.customLabel || ''))}" placeholder="${deps.text('contactCustomLabelHelp')}" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">
@@ -551,14 +571,16 @@ export async function openRelationshipDialog(
     document.getElementById('broadcast-preamble-modal')?.remove();
   });
   (document.getElementById('contact-relationship-save-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
-    const label = (document.getElementById('contact-relationship-label') as HTMLSelectElement).value as KnownPerson['label'];
+    const labels = Array.from(
+      document.querySelectorAll('.contact-relationship-label-checkbox:checked'),
+    ).map((el) => (el as HTMLInputElement).value) as KnownPerson['labels'];
     const nickname = (document.getElementById('contact-relationship-nickname') as HTMLInputElement).value.trim();
     const customLabel = (document.getElementById('contact-relationship-custom-label') as HTMLInputElement).value.trim();
     const ratingRaw = (document.getElementById('contact-relationship-rating') as HTMLSelectElement).value;
     const notes = (document.getElementById('contact-relationship-notes') as HTMLTextAreaElement).value.trim();
     const rating = ratingRaw ? Number(ratingRaw) : undefined;
     await deps.saveKnownPerson(userId, {
-      label,
+      labels,
       ...(nickname ? { nickname } : {}),
       ...(customLabel ? { customLabel } : {}),
       ...(typeof rating === 'number' ? { rating } : {}),
@@ -712,9 +734,9 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
         const displayName = buildDisplayName(resolvedStageName, known).toLowerCase();
-        const relationshipLabel = known?.label ? formatRelationshipLabel(known, deps).toLowerCase() : '';
+        const relationshipLabel = known?.labels?.length ? formatRelationshipLabel(known, deps).toLowerCase() : '';
         if (nameFilter && !`${displayName} ${relationshipLabel}`.includes(nameFilter)) return false;
-        if (relationFilter !== 'all' && known?.label !== relationFilter) return false;
+        if (relationFilter !== 'all' && !(known?.labels || []).includes(relationFilter as KnownPerson['labels'][number])) return false;
         if (outcomeFilter !== 'all') {
           const matchedTalks = peer.stats.sent.matches + peer.stats.received.matches;
           if (outcomeFilter === 'matched' && matchedTalks === 0) return false;
@@ -731,8 +753,8 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
           return tieBreak(a, b);
         }
         if (sortOrder === 'relationship') {
-          const aRelationship = aKnown?.label ? formatRelationshipLabel(aKnown, deps) : deps.text('stranger');
-          const bRelationship = bKnown?.label ? formatRelationshipLabel(bKnown, deps) : deps.text('stranger');
+          const aRelationship = aKnown?.labels?.length ? formatRelationshipLabel(aKnown, deps) : deps.text('stranger');
+          const bRelationship = bKnown?.labels?.length ? formatRelationshipLabel(bKnown, deps) : deps.text('stranger');
           const relationshipDiff = aRelationship.localeCompare(bRelationship);
           return relationshipDiff !== 0 ? relationshipDiff : tieBreak(a, b);
         }

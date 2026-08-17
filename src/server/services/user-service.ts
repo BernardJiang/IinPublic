@@ -270,7 +270,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
           if (!data || !key || key.startsWith('_')) return;
           items.push({
             userId: data.userId || key,
-            label: data.label,
+            labels: Array.isArray(data.labels) ? data.labels : (data.label ? [data.label] : []),
             ...(data.nickname ? { nickname: data.nickname } : {}),
             addedAt: new Date(data.addedAt),
           });

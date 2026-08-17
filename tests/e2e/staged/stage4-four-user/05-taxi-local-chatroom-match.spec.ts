@@ -34,9 +34,10 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage4Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, delay, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, pinStableE2eLocation, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 
 const LOCAL_ROOM_ID = 'san-diego';
 
@@ -316,5 +317,302 @@ test.describe('Taxi driver ↔ passenger matching in a local chatroom (§GG)', (
     await expectMessageVisible(pageAlice!, pickupMessage);
     await openConversationAndSendMessage(pageAdam!, aliceId, 'On my way, be there in 5 minutes.');
     await expectMessageVisible(pageAdam!, pickupMessage);
+  });
+});
+
+/** Whether the given page's own created talk with this title has been auto-disabled — the
+ *  "busy, no longer accepting new match inquiries" state (`setTalkDisabled`, `app.ts`). */
+async function isOwnTalkDisabled(page: Page, title: string): Promise<boolean> {
+  return page.evaluate((needle: string) => {
+    const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    return Object.values(talks).some((t: any) => t?.title === needle && t?.disabled === true);
+  }, title);
+}
+
+type FiveBrowsers = { adam: Browser; eve: Browser; frank: Browser; bob: Browser; alice: Browser };
+
+async function launchFiveBrowsers(): Promise<FiveBrowsers> {
+  const mk = (x: number, y: number) => ({
+    headless,
+    slowMo: headless ? 0 : delay(50, 120),
+    args: [...WEBRTC_CHROMIUM_ARGS, `--window-position=${x},${y}`, '--window-size=560,820', '--force-device-scale-factor=1'],
+  });
+  const [adam, eve, frank, bob, alice] = await Promise.all([
+    chromium.launch(mk(0, 0)),
+    chromium.launch(mk(560, 0)),
+    chromium.launch(mk(1120, 0)),
+    chromium.launch(mk(0, 860)),
+    chromium.launch(mk(560, 860)),
+  ]);
+  return { adam, eve, frank, bob, alice };
+}
+
+async function shutdownFiveBrowsers(b: FiveBrowsers | undefined): Promise<void> {
+  await b?.adam?.close().catch(() => {});
+  await b?.eve?.close().catch(() => {});
+  await b?.frank?.close().catch(() => {});
+  await b?.bob?.close().catch(() => {});
+  await b?.alice?.close().catch(() => {});
+}
+
+/**
+ * §GG follow-up: 3 drivers announce identically-worded offers into the local room, 2 passengers
+ * send identically-worded requests — the chatbot must pick each passenger's CLOSEST available
+ * driver (real distance via `Talk.authorLocation`, see `src/shared/closest-match.ts`), and once a
+ * driver has matched, a further inquiry to that same driver must be rejected rather than forming
+ * a second conversation (`isExclusiveMarketplaceTalk` guard in `app.ts`'s
+ * `handleMeshTalkResponse`).
+ *
+ * Adam is pinned essentially on top of both passengers, Eve a few miles out, Frank ~20 miles out
+ * — so both Alice and Bob independently rank Adam as nearest and race to match him. Whichever of
+ * them the mesh delivers first wins; the other must be rejected once Adam becomes busy — the test
+ * deliberately does not assert which one wins, only that exactly one does and the loser has no
+ * conversation with Adam. Eve and Frank, having lost the closest-match ranking on both passengers'
+ * own devices, should end up with no conversations at all.
+ */
+test.describe('Taxi: 3 drivers, 2 passengers, closest match + busy rejection (§GG follow-up)', () => {
+  let browsers: FiveBrowsers;
+  let contextAdam: BrowserContext | undefined;
+  let contextEve: BrowserContext | undefined;
+  let contextFrank: BrowserContext | undefined;
+  let contextBob: BrowserContext | undefined;
+  let contextAlice: BrowserContext | undefined;
+  let pageAdam: Page | undefined;
+  let pageEve: Page | undefined;
+  let pageFrank: Page | undefined;
+  let pageBob: Page | undefined;
+  let pageAlice: Page | undefined;
+
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
+    await clearGunForStage4Spec();
+    browsers = await launchFiveBrowsers();
+  });
+
+  test.afterAll(async () => {
+    const cleanup = async (p?: Page) => {
+      if (!p) return;
+      await p.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+    };
+    await Promise.all([cleanup(pageAdam), cleanup(pageEve), cleanup(pageFrank), cleanup(pageBob), cleanup(pageAlice)]);
+    await Promise.all([
+      pageAdam?.close().catch(() => {}),
+      pageEve?.close().catch(() => {}),
+      pageFrank?.close().catch(() => {}),
+      pageBob?.close().catch(() => {}),
+      pageAlice?.close().catch(() => {}),
+    ]);
+    await Promise.all([
+      contextAdam?.close().catch(() => {}),
+      contextEve?.close().catch(() => {}),
+      contextFrank?.close().catch(() => {}),
+      contextBob?.close().catch(() => {}),
+      contextAlice?.close().catch(() => {}),
+    ]);
+    await shutdownFiveBrowsers(browsers);
+    await clearGunForStage4Spec();
+  });
+
+  test('each driver matches its nearest passenger; a losing driver racing for the same passenger is rejected once busy', async () => {
+    test.setTimeout(300_000);
+    const ADAM_TITLE = 'Driver near Alice - Downtown';
+    const EVE_TITLE = 'Driver near Bob - Downtown';
+    const FRANK_TITLE = 'Driver closer to Alice than Bob - Downtown';
+    const ALICE_TITLE = 'Looking for a taxi - Downtown (Alice)';
+    const BOB_TITLE = 'Looking for a taxi - Downtown (Bob)';
+
+    // Alice and Bob are pinned ~54 miles apart — genuinely distinguishable locations, not the
+    // same spot with noise. Alice keeps bootstrapUser's default San Diego pin; Bob is pinned far
+    // north of it.
+    const ALICE_COORDS = { latitude: 32.7157, longitude: -117.1611 };
+    const BOB_COORDS = { latitude: 33.50, longitude: -117.1611 };
+
+    const adam = await bootstrapUser(browsers.adam, 'Adam', 'Adam');
+    contextAdam = adam.context;
+    pageAdam = adam.page;
+    // Essentially co-located with Alice, ~54 miles from Bob — Adam ranks Alice as his closer
+    // passenger every time.
+    await pinStableE2eLocation(pageAdam, ALICE_COORDS);
+    await createRideTalk(pageAdam, ADAM_TITLE, ADAM_ALICE_QUESTIONS, 'offer');
+
+    const eve = await bootstrapUser(browsers.eve, 'Eve', 'Eve');
+    contextEve = eve.context;
+    pageEve = eve.page;
+    // Essentially co-located with Bob, ~54 miles from Alice — Eve ranks Bob as her closer
+    // passenger, uncontested (no other driver is nearer to Bob than to Alice).
+    await pinStableE2eLocation(pageEve, BOB_COORDS);
+    await createRideTalk(pageEve, EVE_TITLE, ADAM_ALICE_QUESTIONS, 'offer');
+
+    const frank = await bootstrapUser(browsers.frank, 'Frank', 'Frank');
+    contextFrank = frank.context;
+    pageFrank = frank.page;
+    // ~2.4 miles from Alice, ~52 miles from Bob — clearly closer to Alice than to Bob, so Frank
+    // also ranks Alice as his nearer passenger and races Adam for her (Frank being farther from
+    // Alice than Adam is irrelevant here — each driver only compares its two candidates against
+    // itself, not against other drivers; see the file-level note on the offer/request asymmetry).
+    await pinStableE2eLocation(pageFrank, { latitude: 32.75, longitude: -117.1611 });
+    await createRideTalk(pageFrank, FRANK_TITLE, ADAM_ALICE_QUESTIONS, 'offer');
+
+    const bob = await bootstrapUser(browsers.bob, 'Bob', 'Bob');
+    contextBob = bob.context;
+    pageBob = bob.page;
+    await pinStableE2eLocation(pageBob, BOB_COORDS);
+    await createRideTalk(pageBob, BOB_TITLE, ADAM_ALICE_QUESTIONS, 'request');
+
+    const alice = await bootstrapUser(browsers.alice, 'Alice', 'Alice');
+    contextAlice = alice.context;
+    pageAlice = alice.page;
+    await pinStableE2eLocation(pageAlice, ALICE_COORDS);
+    await createRideTalk(pageAlice, ALICE_TITLE, ADAM_ALICE_QUESTIONS, 'request');
+
+    const [adamId, eveId, frankId, bobId, aliceId] = await Promise.all([
+      getCurrentUserId(pageAdam),
+      getCurrentUserId(pageEve),
+      getCurrentUserId(pageFrank),
+      getCurrentUserId(pageBob),
+      getCurrentUserId(pageAlice),
+    ]);
+    for (const id of [adamId, eveId, frankId, bobId, aliceId]) expect(id).toBeTruthy();
+
+    const localPages = [pageAdam, pageEve, pageFrank, pageBob, pageAlice];
+    await Promise.all(localPages.map((page) => prepareLocalBroadcast(page)));
+    // Concurrent, not sequential: mesh delivery + the closest-match debounce (800ms) can resolve
+    // faster than a slow UI-driven click on every page in turn. A driver can legitimately
+    // auto-match against an already-broadcast passenger request and auto-disable their OWN talk
+    // before their own click-broadcast UI flow even finishes navigating — at that point they have
+    // nothing left to broadcast, which is the correct outcome, not a failure to tolerate.
+    await Promise.all(
+      localPages.map((page) =>
+        clickBroadcastUntilBulkAck(page).catch(() => {
+          /* already matched-and-busy before this page's own broadcast completed — fine */
+        }),
+      ),
+    );
+
+    // === Eve uniquely gets Bob — no other driver ranked Bob as its nearer passenger. ===
+    await expect.poll(() => hasConversationWith(pageBob!, eveId), { timeout: 60_000 }).toBe(true);
+    expect(await conversationPartnerIds(pageBob!)).toEqual([eveId]);
+    expect(await conversationPartnerIds(pageEve!)).toEqual([bobId]);
+    await expect.poll(() => isOwnTalkDisabled(pageEve!, EVE_TITLE), { timeout: 15_000 }).toBe(true);
+
+    // === Both Adam and Frank ranked Alice as their nearer passenger and raced to answer her
+    // request — each independently computes isMatch locally and creates their OWN conversation
+    // the instant they submit a matching response (existing app architecture, not something
+    // this feature changes: a responder always commits locally before hearing back from the
+    // owner). What THIS feature guarantees is on Alice's side, the talk owner: her own device
+    // accepts only the first inquiry and rejects the second rather than double-booking herself
+    // — so we assert her own view settles to exactly one partner, not that the losing driver's
+    // own optimistic local state gets corrected (that would need a "match retracted, notify the
+    // loser" mechanism this feature does not build). ===
+    await expect
+      .poll(() => conversationPartnerIds(pageAlice!), {
+        timeout: 60_000,
+        message: 'Alice should settle on exactly one driver partner, never both',
+      })
+      .toHaveLength(1);
+
+    const alicePartners = await conversationPartnerIds(pageAlice!);
+    const winnerId = alicePartners[0];
+    expect([adamId, frankId]).toContain(winnerId);
+    const winnerTitle = winnerId === adamId ? ADAM_TITLE : FRANK_TITLE;
+    const winnerPage = winnerId === adamId ? pageAdam! : pageFrank!;
+
+    // Alice never ends up double-booked — this is the real, verifiable "reject new match
+    // inquiry" guarantee: whichever driver's response arrived second at Alice's device found
+    // her talk already disabled and was rejected outright, not queued as a second conversation.
+    expect(await conversationPartnerIds(pageAlice!)).toEqual([winnerId]);
+
+    // The winning driver is now busy — their own offer talk auto-disabled the instant their
+    // match with Alice was confirmed on their own device.
+    await expect.poll(() => isOwnTalkDisabled(winnerPage, winnerTitle), { timeout: 15_000 }).toBe(true);
+  });
+});
+
+/**
+ * Simplest possible form of the taxi scenario, per feedback after the flow-based tests above:
+ * a `type: 'tag'` talk — one question, a checkbox-style yes/no — is all a driver or passenger
+ * should need to author, no multi-question criteria list at all. This exercises the exact same
+ * matching engine as the flow-based tests above with zero additional code, since `checkIfMatch`
+ * and the marketplace busy guard (`isExclusiveMarketplaceTalk` in `app.ts`) are talk-type-
+ * agnostic — they key only on `Talk.role`, not on question count or structure. Matching stays
+ * exact-text throughout (no fuzzy/approximate matching); distance-based "closest driver" ranking
+ * with multiple simultaneous candidates is already covered by the flow-based race test above —
+ * this test's own job is only to confirm the SIMPLEST possible talk (single tag question) is
+ * sufficient, end to end, for two strangers to match with zero manual clicks.
+ */
+test.describe('Taxi: simplest form — a single-question tag talk per side (§GG follow-up, simple)', () => {
+  let browserDriver: Browser;
+  let browserPassenger: Browser;
+  let contextDriver: BrowserContext | undefined;
+  let contextPassenger: BrowserContext | undefined;
+  let pageDriver: Page | undefined;
+  let pagePassenger: Page | undefined;
+
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
+    await clearGunForStage4Spec();
+    const mk = (x: number) => ({
+      headless,
+      slowMo: headless ? 0 : delay(50, 120),
+      args: [...WEBRTC_CHROMIUM_ARGS, `--window-position=${x},0`, '--window-size=560,820', '--force-device-scale-factor=1'],
+    });
+    [browserDriver, browserPassenger] = await Promise.all([chromium.launch(mk(0)), chromium.launch(mk(560))]);
+  });
+
+  test.afterAll(async () => {
+    const cleanup = async (p?: Page) => {
+      if (!p) return;
+      await p.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+    };
+    await Promise.all([cleanup(pageDriver), cleanup(pagePassenger)]);
+    await Promise.all([pageDriver?.close().catch(() => {}), pagePassenger?.close().catch(() => {})]);
+    await Promise.all([contextDriver?.close().catch(() => {}), contextPassenger?.close().catch(() => {})]);
+    await Promise.all([browserDriver?.close().catch(() => {}), browserPassenger?.close().catch(() => {})]);
+    await clearGunForStage4Spec();
+  });
+
+  /** One question, two answers — "am I available?" is all a driver or passenger has to say. */
+  async function createSimpleTagTalk(page: Page, title: string, role: 'offer' | 'request'): Promise<void> {
+    await page.click('#create-talk-btn');
+    await page.waitForSelector('#talk-editor-form');
+    await page.fill('#talk-title', title);
+    await selectTalkEditorType(page, 'tag');
+    await page.selectOption('#talk-role', role);
+    const sendToChatroomCheckbox = page.locator('#talk-send-to-chatroom');
+    if (await sendToChatroomCheckbox.isVisible().catch(() => false)) {
+      await sendToChatroomCheckbox.uncheck();
+    }
+    await submitTalkEditorAndWaitForOut(page, title);
+  }
+
+  test('a single-question tag talk on each side is enough for the chatbot to match two strangers', async () => {
+    test.setTimeout(120_000);
+    const TITLE = 'Available for a ride - Downtown';
+
+    const driver = await bootstrapUser(browserDriver, 'Driver', 'Driver');
+    contextDriver = driver.context;
+    pageDriver = driver.page;
+    await createSimpleTagTalk(pageDriver, TITLE, 'offer');
+
+    const passenger = await bootstrapUser(browserPassenger, 'Passenger', 'Passenger');
+    contextPassenger = passenger.context;
+    pagePassenger = passenger.page;
+    await createSimpleTagTalk(pagePassenger, TITLE, 'request');
+
+    const driverId = await getCurrentUserId(pageDriver);
+    expect(driverId).toBeTruthy();
+
+    const pages = [pageDriver, pagePassenger];
+    await Promise.all(pages.map((page) => prepareLocalBroadcast(page)));
+    await Promise.all(
+      pages.map((page) =>
+        clickBroadcastUntilBulkAck(page).catch(() => {
+          /* already matched-and-busy before this page's own broadcast completed — fine */
+        }),
+      ),
+    );
+
+    await expect.poll(() => hasConversationWith(pagePassenger!, driverId), { timeout: 60_000 }).toBe(true);
+    expect(await conversationPartnerIds(pagePassenger!)).toEqual([driverId]);
+    // Busy-on-match still applies to the simplest talk shape too — no separate code path.
+    await expect.poll(() => isOwnTalkDisabled(pagePassenger!, TITLE), { timeout: 15_000 }).toBe(true);
   });
 });

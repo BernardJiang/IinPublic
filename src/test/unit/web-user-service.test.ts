@@ -52,7 +52,7 @@ describe('WebUserService', () => {
       knownPeople: [
         {
           userId: 'friend-1',
-          label: 'friend',
+          labels: ['friend'],
           addedAt: new Date('2026-04-21T11:00:00.000Z'),
         },
       ],
@@ -189,6 +189,9 @@ describe('WebUserService', () => {
     expect(user.languages).toEqual(['en', 'fr']);
     expect(user.profile).toHaveLength(1);
     expect(user.knownPeople).toHaveLength(1);
+    // Backward-compat: a legacy single-`label` record (predating multi-group support)
+    // normalizes to `labels` on read so it isn't silently dropped from its group.
+    expect(user.knownPeople?.[0].labels).toEqual(['friend']);
     expect(user.blockedUserIds).toEqual(['blocked-1']);
     expect(user.talkFilters?.allowedLanguages).toEqual(['en', 'zh']);
   });

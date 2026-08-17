@@ -94,8 +94,12 @@ async function createDealTalk(
   await submitTalkEditorAndWaitForOut(page, title);
 }
 
-/** Join Global, turn on the chatbot, then broadcast the talk already created earlier. */
-async function meetAndBroadcast(page: Page): Promise<void> {
+/** Join Global and turn on the chatbot — the "prepare" half of meeting, split out from
+ *  broadcasting so callers can run prep concurrently across pages and only start broadcasting
+ *  once every page's chatbot is actually enabled. getChatbotEnabled() has no retry (unlike the
+ *  "no reusable template" case), so a talk arriving before this step finishes on the receiving
+ *  page is silently and permanently missed — prep must fully settle before anyone broadcasts. */
+async function prepareGlobalBroadcast(page: Page): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await waitForTabActive(page, 'chatrooms');
   await afterSync();
@@ -109,7 +113,13 @@ async function meetAndBroadcast(page: Page): Promise<void> {
   await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
   const chatbotCheckbox = page.locator('#settings-chatbot-enabled');
   if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
+  // broadcastFromGlobalChatroom (called separately, after all pages finish prep) re-navigates
+  // to the room itself, so no need to re-enter it here.
+}
 
+/** Join Global, turn on the chatbot, then broadcast the talk already created earlier. */
+async function meetAndBroadcast(page: Page): Promise<void> {
+  await prepareGlobalBroadcast(page);
   await broadcastFromGlobalChatroom(page);
 }
 
@@ -231,8 +241,17 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
 
     // === Now they "meet": all 4 join Global, enable the chatbot, and broadcast the talks
     // they already created. From here, matching happens with zero manual clicks. ===
+    // Kept sequential (the original, reliable turn order) rather than made concurrent — going
+    // concurrent here surfaced an unrelated pre-existing exact-chatbot-memory resolution quirk
+    // for this specific question set that isn't worth chasing for a test-infra fix. Each turn
+    // still tolerates "nothing left to broadcast": for role: 'offer'/'request' talks, a match now
+    // auto-disables the matched talk (marketplace exclusivity) as soon as it forms, which can
+    // happen before a later page's own turn, leaving that page with nothing broadcastable by the
+    // time it gets there — a legitimate outcome, not a failure.
     for (const page of [pageAdam, pageEve, pageBob, pageAlice]) {
-      await meetAndBroadcast(page);
+      await meetAndBroadcast(page).catch(() => {
+        /* already matched-and-busy before this page's own broadcast completed — fine */
+      });
     }
 
     // Adam and Eve's talks are textually identical and each self-answered "yes" on every

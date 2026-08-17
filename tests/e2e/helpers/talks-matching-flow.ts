@@ -317,13 +317,19 @@ export async function syncIncomingFromServer(page: Page): Promise<void> {
   });
 }
 
-export async function pinStableE2eLocation(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+/** Default pin (San Diego) — kept as the parameterless behavior every existing caller relies on. */
+const DEFAULT_E2E_COORDS = { latitude: 32.7157, longitude: -117.1611 };
+
+export async function pinStableE2eLocation(
+  page: Page,
+  coords: { latitude: number; longitude: number } = DEFAULT_E2E_COORDS,
+): Promise<void> {
+  await page.evaluate(async ({ lat, lng }) => {
     const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
     if (!app?.currentUser?.id) return;
     const location = {
-      latitude: 32.7157,
-      longitude: -117.1611,
+      latitude: lat,
+      longitude: lng,
       accuracy: 10,
       timestamp: new Date(),
     };
@@ -332,7 +338,7 @@ export async function pinStableE2eLocation(page: Page): Promise<void> {
     if (app.userService?.updateUserLocation) {
       await app.userService.updateUserLocation(app.currentUser.id, location);
     }
-  });
+  }, { lat: coords.latitude, lng: coords.longitude });
 }
 
 export async function bootstrapUser(

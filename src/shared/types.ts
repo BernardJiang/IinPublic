@@ -21,7 +21,13 @@ export interface TalkIntakeFilters {
 
 export interface KnownPerson {
   userId: string;
-  label: RelationshipLabel;
+  /**
+   * A contact can belong to more than one relationship group at once (e.g. both
+   * "friend" and "coworker") — always non-empty. Legacy single-`label` records
+   * (persisted before this field existed) are normalized to a one-element array
+   * on read; see `normalizeKnownPersonLabels` in `web-user-service.ts`.
+   */
+  labels: RelationshipLabel[];
   customLabel?: string;
   nickname?: string;
   rating?: number;

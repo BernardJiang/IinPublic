@@ -106,7 +106,7 @@ async function saveKnownPersonForE2e(page: Page, targetId: string): Promise<void
     const app = (window as any).__iinpublic_app?.getApp?.();
     const ui = app?.uiManager;
     if (!ui?.saveKnownPerson) throw new Error('uiManager.saveKnownPerson unavailable');
-    return ui.saveKnownPerson(id, { label: 'friend' });
+    return ui.saveKnownPerson(id, { labels: ['friend'] });
   }, targetId);
 }
 

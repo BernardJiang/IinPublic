@@ -124,13 +124,21 @@ async function ensureInLocalRoom(page: Page): Promise<void> {
   await afterSync();
 }
 
-async function meetAndBroadcastLocally(page: Page): Promise<void> {
+/** Join + enable chatbot — split from broadcasting so callers can run prep concurrently across
+ *  pages and only start broadcasting once every page's chatbot is actually enabled.
+ *  getChatbotEnabled() has no retry (unlike the "no reusable template" case), so a talk arriving
+ *  before this step finishes on the receiving page would be silently and permanently missed. */
+async function prepareLocalBroadcastForHandyman(page: Page): Promise<void> {
   await ensureInLocalRoom(page);
   await page.click('.nav-btn[data-view="settings"]');
   await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
   const chatbotCheckbox = page.locator('#settings-chatbot-enabled');
   if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
   await ensureInLocalRoom(page);
+}
+
+async function meetAndBroadcastLocally(page: Page): Promise<void> {
+  await prepareLocalBroadcastForHandyman(page);
   await clickBroadcastUntilBulkAck(page);
 }
 
@@ -302,9 +310,23 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
 
     // === All 4 join the SAME local (San Diego) chatroom and broadcast the talks they already
     // created. From here, matching happens with zero manual clicks. ===
-    for (const page of [pageAdam, pageEve, pageBob, pageAlice]) {
-      await meetAndBroadcastLocally(page);
-    }
+    // Two phases, not one sequential loop: prep (join + enable chatbot) fully settles for every
+    // page BEFORE anyone broadcasts, otherwise a talk could arrive at a receiving page whose
+    // chatbot isn't enabled yet — getChatbotEnabled() has no retry, so that would be a silent,
+    // permanent miss. Broadcasting is concurrent, not sequential: for role: 'offer'/'request'
+    // talks, a match now auto-disables the matched talk (marketplace exclusivity) as soon as it
+    // forms, which can happen before a later page's own turn in a sequential loop, leaving that
+    // page with nothing broadcastable by the time it gets there — tolerate that as a legitimate
+    // outcome, not a failure.
+    const handymanPages = [pageAdam, pageEve, pageBob, pageAlice];
+    await Promise.all(handymanPages.map((page) => prepareLocalBroadcastForHandyman(page)));
+    await Promise.all(
+      handymanPages.map((page) =>
+        clickBroadcastUntilBulkAck(page).catch(() => {
+          /* already matched-and-busy before this page's own broadcast completed — fine */
+        }),
+      ),
+    );
 
     await expect.poll(() => hasConversationWith(pageAdam!, aliceId), { timeout: 30_000 }).toBe(true);
     await expect.poll(() => hasConversationWith(pageAlice!, adamId), { timeout: 30_000 }).toBe(true);

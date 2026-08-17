@@ -229,7 +229,7 @@ async function seedUser2Match(app: any, base: string): Promise<void> {
   const jordan = await createServerUser(base, 'Jordan');
   setCurrentUserDecorations(app, {
     stageName: me.stageName,
-    knownPeople: [{ userId: jordan.id, label: 'friend', nickname: 'J', addedAt: new Date() }],
+    knownPeople: [{ userId: jordan.id, labels: ['friend'], nickname: 'J', addedAt: new Date() }],
   });
 
   const myTalk = buildFlowTalk(me.id, 'Lunch Break', 'Lunch together tomorrow?', 'Yes, lunch works.');
@@ -274,8 +274,8 @@ async function seedUser3Network(app: any, base: string): Promise<void> {
   setCurrentUserDecorations(app, {
     stageName: me.stageName,
     knownPeople: [
-      { userId: jordan.id, label: 'friend', nickname: 'J', addedAt: new Date() },
-      { userId: casey.id, label: 'coworker', nickname: 'Case', addedAt: new Date() },
+      { userId: jordan.id, labels: ['friend'], nickname: 'J', addedAt: new Date() },
+      { userId: casey.id, labels: ['coworker'], nickname: 'Case', addedAt: new Date() },
     ],
   });
 

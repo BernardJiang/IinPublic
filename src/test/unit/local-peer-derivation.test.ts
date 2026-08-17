@@ -149,14 +149,14 @@ describe('peersFromKnownPeople', () => {
   });
 
   it('excludes self', () => {
-    const known: KnownPerson[] = [{ userId: SELF_ID, label: 'friend', addedAt: new Date() }];
+    const known: KnownPerson[] = [{ userId: SELF_ID, labels: ['friend'], addedAt: new Date() }];
     expect(peersFromKnownPeople(known, SELF_ID)).toEqual([]);
   });
 
   it('always includes a labeled contact even with zero exchange stats', () => {
     const known: KnownPerson[] = [{
       userId: PEER_A,
-      label: 'friend',
+      labels: ['friend'],
       nickname: 'Alice',
       addedAt: new Date('2026-04-01T00:00:00.000Z'),
     }];
@@ -220,7 +220,7 @@ describe('deriveLocalPeers', () => {
     const peers = deriveLocalPeers({
       currentUserId: SELF_ID,
       conversations: { 'c1': { otherUserId: SELF_ID } },
-      knownPeople: [{ userId: SELF_ID, label: 'friend', addedAt: new Date() }],
+      knownPeople: [{ userId: SELF_ID, labels: ['friend'], addedAt: new Date() }],
     });
     expect(peers).toEqual([]);
   });
@@ -236,7 +236,7 @@ describe('deriveLocalPeers', () => {
     const conversations = { 'conv1': { otherUserId: PEER_A, otherUserName: 'Alice', createdAt: '2026-05-01T00:00:00.000Z' } };
     // knownPeople: PEER_B — only appears via knownPeople
     const knownPeople: KnownPerson[] = [
-      { userId: PEER_B, label: 'friend', nickname: 'Bob', addedAt: new Date('2026-04-01T00:00:00.000Z') },
+      { userId: PEER_B, labels: ['friend'], nickname: 'Bob', addedAt: new Date('2026-04-01T00:00:00.000Z') },
     ];
 
     const peers = deriveLocalPeers({ currentUserId: SELF_ID, conversations, knownPeople });
