@@ -95,9 +95,17 @@ MESH_WORKERS="${PW_MESH_WORKERS:-$(scale_down_only 4)}"
 # ~242s wall at 1 worker. Each worker gets its OWN server/port pair, so the specs never
 # share room state; the old "flakes under any concurrency" observation was machine-level
 # CPU contention whose main drivers (mDNS-blocked WebRTC timeouts, unstable-click helper
-# stalls) are fixed. Rollback per-run with PW_HEAVY_WORKERS=1 if the chatbot spec's 30s
-# budget or the stage4 headcounts start flaking again.
-HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale_down_only 2)}"
+# stalls) are fixed.
+#
+# Bumped 2->4 (2026-08-17): stage4-four-user/ grew from 1 real spec (03-capacity-eviction) to
+# 4 (dealmaker, taxi, handyman added 08-10/08-11) — heavy-staged's file count roughly doubled
+# (4 specs -> 8, including the 3 explicit extras below) while this stayed pinned at the
+# original 2-workers-for-4-specs tuning. heavy-staged runs with the whole machine to itself
+# already (no other phase concurrent), and each of its specs is a 4-browser test, not mass's
+# 8-12-per-worker, so there's real headroom on a 14-core box. Rollback per-run with
+# PW_HEAVY_WORKERS=1 or =2 if the chatbot spec's 30s budget or the stage4 headcounts start
+# flaking again.
+HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale_down_only 4)}"
 
 # Waves run their phases CONCURRENTLY by default (each phase on its own port band with its
 # own servers): sequential phases measured 36+ minutes wall clock on a 14-core machine while
