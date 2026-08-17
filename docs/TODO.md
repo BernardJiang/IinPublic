@@ -80,6 +80,45 @@ Design is specified in technical specification §30.6; implementation has not st
 - [ ] Add typed-value round-trip and section-isolation E2E coverage.
 - [ ] Update the technical-specification implementation matrix.
 
+### II. User-defined tag compatibility, generalized beyond symmetric opposites
+
+Follow-up to §BB's opposite-tag registry (`tag-opposite-pairs.ts`) — design discussion only, not
+started, no engine changes made yet.
+
+Today's registry (`registerOppositeTagPair`) is UI-convenience only: it auto-fills `Talk.role`
+and a question template for exactly 3 app-predefined, hard-symmetric pairs (buy/sell,
+hiring/jobseeking, male/female — the latter reserved for §DD). `checkIfMatch` never reads tags
+directly; it still vetoes purely on `Talk.role`'s binary offer/request, per §BB's original
+"zero engine changes" decision. Two gaps surfaced in discussion:
+
+- [ ] No persistence for user-created pairs — typing any tag outside the 3 seeded ones has zero
+  compatibility effect today.
+- [ ] The registry is strictly 1:1 symmetric (`registerOppositeTagPair(A, B)` always writes both
+  directions). Real usage wants one tag to accept SEVERAL counterparts asymmetrically — e.g. "buy"
+  satisfied by any of "sell"/"offer"/"free" — without "sell" needing to reciprocally declare it
+  matches "buy". This also generalizes past transactional opposites to question/answer-shaped
+  relationships (a "need a plumber" tag satisfied by a "does plumbing" tag), which were never
+  representable as a symmetric pair at all.
+
+Design direction from discussion (not committed): don't invent a new parallel data structure for
+"list of acceptable counterpart tags" — a `type: 'tag'` talk already carries exactly that shape in
+`questions[0].answers`. Treat the tag's own title as the declaration and its existing answer list
+as the "satisfied by" set; a chatbot receiving an incoming talk checks whether that talk's own
+tag/title is present in the receiver's own compatibility set — one-directional, no requirement
+that the other side reciprocate. Where this would plug in, if built:
+
+- [ ] `checkIfMatch`'s role veto would need a tag-compatibility path alongside (or instead of) the
+  `Talk.role` check for talks that declare a compatibility set.
+- [ ] The marketplace "busy, reject new inquiry" exclusivity guard (`isExclusiveMarketplaceTalk`
+  in `app.ts`, added for taxi/dealmaker closest-match work) currently keys off
+  `role === 'offer'/'request'` — would need to also recognize tag-compatibility-declared talks as
+  exclusive.
+- [ ] Interacts with §DD (generalized dating): `male`/`female` is currently a reserved, inert seed
+  pair with no role mapping — this generalization is a plausible real mechanism for dating
+  preference matching (each side declares "satisfied by: [...]" attributes) without needing
+  `Talk.role` at all; address as its own decision, not folded silently into §DD's existing mutual
+  preference-set design.
+
 ## Priority 5 — TechSupport productionization
 
 ### K7. Delegated TechSupport answers
