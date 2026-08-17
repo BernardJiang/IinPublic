@@ -449,7 +449,7 @@ test.describe('Find similar people', () => {
         await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
         await page.locator('#contact-edit-relationship-btn').click();
         await expect(page.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10_000 });
-        await page.selectOption('#contact-relationship-label', 'custom');
+        await page.locator('.contact-relationship-label-checkbox[value="custom"]').check();
         await page.fill('#contact-relationship-custom-label', RELATIONSHIP_LABEL);
         await page.click('#contact-relationship-save-btn');
         await expect(page.locator('#contact-relationship-modal')).not.toBeVisible({ timeout: 10_000 });

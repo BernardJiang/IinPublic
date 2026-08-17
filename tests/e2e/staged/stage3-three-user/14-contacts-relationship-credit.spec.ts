@@ -110,7 +110,7 @@ test.describe('Contacts relationship dialog', () => {
 
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
-    await pageTom.selectOption('#contact-relationship-label', 'custom');
+    await pageTom.locator('.contact-relationship-label-checkbox[value="custom"]').check();
     await pageTom.fill('#contact-relationship-custom-label', 'Coffee Circle');
     await pageTom.fill('#contact-relationship-nickname', 'J');
     await pageTom.selectOption('#contact-relationship-rating', '4');
@@ -154,7 +154,7 @@ test.describe('Contacts relationship dialog', () => {
     await expect(pageTom.locator('.contact-context-block-status')).toContainText('No block is active');
     await expect(pageTom.locator('#contact-edit-relationship-btn')).toBeVisible({ timeout: 15000 });
     await pageTom.click('#contact-edit-relationship-btn');
-    await expect(pageTom.locator('#contact-relationship-label')).toHaveValue('custom');
+    await expect(pageTom.locator('.contact-relationship-label-checkbox[value="custom"]')).toBeChecked();
     await expect(pageTom.locator('#contact-relationship-custom-label')).toHaveValue('Coffee Circle');
     await expect(pageTom.locator('#contact-relationship-nickname')).toHaveValue('J');
     await expect(pageTom.locator('#contact-relationship-rating')).toHaveValue('4');

@@ -143,7 +143,7 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     await editBtn.click();
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10_000 });
 
-    await pageTom.locator('#contact-relationship-label').selectOption('friend');
+    await pageTom.locator('.contact-relationship-label-checkbox[value="friend"]').check();
     await pageTom.locator('#contact-relationship-save-btn').click();
     await afterSync();
     // Modal should close
