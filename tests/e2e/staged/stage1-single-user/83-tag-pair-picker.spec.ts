@@ -1,11 +1,13 @@
 /**
  * Talk-editor tag-pair picker — docs/TODO.md §BB (deferred from Phase 5, added on request).
  *
- * `checkIfMatch` keeps reading `Talk.role` unchanged (the original "zero engine changes"
- * decision) — this control is a friendlier way to SET role for the app-predefined deal pairs
- * (buy/sell, hiring/jobseeking) via a live opposite-tag preview and an auto-generated
- * first-question suggestion, so two independently-authored talks can share exact wording
- * without either side typing it by hand.
+ * `#talk-tag`'s value doubles as this talk's `selfTag` (spec §30.2), replacing the old separate
+ * `Talk.role`/`#talk-role` picker entirely. This control is a friendlier way to set a self-tag
+ * for the app-predefined deal pairs (buy/sell, hiring/jobseeking) via a live opposite-tag
+ * preview and an auto-generated first-question suggestion, so two independently-authored talks
+ * can share exact wording without either side typing it by hand. `preferenceSet` is derived
+ * from the same seeded opposite-tag registry at submit time — a tag with no known opposite gets
+ * no preferenceSet and matches anyone.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -31,7 +33,7 @@ test.describe('Talk editor: tag-pair picker (§BB)', () => {
     await clearGunForStage1Spec();
   });
 
-  test('typing a known deal tag shows the opposite, auto-sets role, and pre-fills Q1 — never clobbers a manual edit', async () => {
+  test('typing a known deal tag shows the opposite and pre-fills Q1 — never clobbers a manual edit', async () => {
     const user = await bootstrapUser(browser, 'Picker', 'PickerUser');
     context = user.context;
     page = user.page;
@@ -45,13 +47,11 @@ test.describe('Talk editor: tag-pair picker (§BB)', () => {
     await page.fill('#talk-title', title);
     await page.selectOption('#talk-type', 'flow');
 
-    // Before typing anything, no preview and role is unset.
+    // Before typing anything, no preview.
     await expect(page.locator('#talk-tag-preview')).toHaveText('');
-    await expect(page.locator('#talk-role')).toHaveValue('');
 
     await page.fill('#talk-tag', 'buy');
     await expect(page.locator('#talk-tag-preview')).toContainText('sell');
-    await expect(page.locator('#talk-role')).toHaveValue('request');
     // Q1's text was empty, so the template auto-filled it.
     await expect(page.locator('.question-item').first().locator('.question-text')).toHaveValue(`Do you sell ${title}?`);
 
@@ -60,7 +60,6 @@ test.describe('Talk editor: tag-pair picker (§BB)', () => {
     await page.locator('.question-item').first().locator('.question-text').fill('My own custom question?');
     await page.fill('#talk-tag', 'sell');
     await expect(page.locator('#talk-tag-preview')).toContainText('buy');
-    await expect(page.locator('#talk-role')).toHaveValue('offer');
     await expect(page.locator('.question-item').first().locator('.question-text')).toHaveValue('My own custom question?');
 
     // An unrecognized tag falls back to manual role selection — no auto-set, no crash.
@@ -75,13 +74,12 @@ test.describe('Talk editor: tag-pair picker (§BB)', () => {
     await submitTalkEditorAndWaitForOut(page, title);
     await expect(page.locator('#talk-validation-errors')).not.toBeVisible();
 
-    // Reopen for edit: the tag, role, and question text all round-trip correctly.
+    // Reopen for edit: the tag and question text round-trip correctly.
     const talkItem = page.locator('.talk-list-item').filter({ hasText: title }).first();
     await talkItem.waitFor({ state: 'visible', timeout: 15_000 });
     await talkItem.click();
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-tag')).toHaveValue('buy');
-    await expect(page.locator('#talk-role')).toHaveValue('request');
     await expect(page.locator('#talk-tag-preview')).toContainText('sell');
     await page.locator('#cancel-talk-btn').click();
   });

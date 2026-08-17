@@ -3663,8 +3663,11 @@ export class UIManager extends EventEmitter {
       // Spec §30.2: a matched row with a stored route matchThreshold score shows its match %
       // (Adam's "Matched items" list) and, when a conversation actually formed, is clickable
       // straight through to it instead of the profile view — review candidates, then DM.
+      // Scoped to matchThreshold-route matches only (pct != null) — an ordinary (non-route, or
+      // route without matchThreshold) match row keeps its long-standing behavior of navigating
+      // to the responder's contact detail instead (09-contacts-talks-cross-navigation.spec.ts).
       const pct = row.outcome === 'match' ? matchPercent(row.responderId) : null;
-      const matchConversationId = row.outcome === 'match' ? matchInfoByResponder.get(row.responderId)?.conversationId : undefined;
+      const matchConversationId = pct != null ? matchInfoByResponder.get(row.responderId)?.conversationId : undefined;
       const percentChip = pct != null
         ? `<span class="creator-reply-match-percent" data-match-percent="${pct}" style="font-size:0.8em;font-weight:700;color:var(--success-text);margin-left:8px;">${pct}%</span>`
         : '';

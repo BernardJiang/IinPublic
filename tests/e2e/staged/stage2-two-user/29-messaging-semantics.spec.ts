@@ -281,8 +281,11 @@ test.describe('Messaging semantics — concurrent order, read state, history ord
     await expect(messagesA.locator('.message-text').filter({ hasText: 'warmup-A' })).toBeVisible();
 
     // Conversation message edit/delete is intentionally unsupported right now: the overlay has
-    // only navigation, share-media and send controls, and message rows expose no action buttons.
-    // Media-gallery tab buttons carry no id, so they are identified by their data-media-tab value.
+    // only navigation, share-media, deal-confirmation and send controls, and message rows
+    // expose no action buttons. Media-gallery tab buttons carry no id, so they are identified
+    // by their data-media-tab value. `conversation-confirm-deal-btn` (spec §30.2) is always in
+    // the DOM but `display:none` unless the conversation's talk declares selfTag/preferenceSet
+    // — this plain messaging conversation never shows it, but the button element still exists.
     const overlayButtonIds = await pageA
       .locator('#conversation-detail-overlay button')
       .evaluateAll((buttons) => buttons
@@ -293,6 +296,7 @@ test.describe('Messaging semantics — concurrent order, read state, history ord
       'back-from-conversation',
       'back-from-media',
       'conversation-attach-btn',
+      'conversation-confirm-deal-btn',
       'conversation-media-btn',
       'send-conversation-message',
       'tab:files',
