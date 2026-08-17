@@ -1,5 +1,5 @@
 import { sessionAnswersToQAPairs } from '../../shared/flattened-answer-keys';
-import { checkIfMatch } from '../../shared/talk-engine';
+import { checkIfMatch, getRouteRootChildQuestionIds } from '../../shared/talk-engine';
 import type { UiTranslationKey } from './ui-translations';
 
 type AnswerSelectionMode = 'auto' | 'manual' | 'permanent';
@@ -367,7 +367,13 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   // If all questions can be auto-answered OR the talk was superseded (updated since
   // last answer), show a review screen instead of silently submitting.
   // The user must explicitly confirm pre-filled answers — no silent auto-submit.
-  if (!skipAutoAnswer) {
+  // Route talks in matchThreshold (multi-spec) mode always use the main step-by-step flow
+  // below, never this pre-filled review screen — the review screen lists every one of
+  // `talk.questions` at once, including the root's own "pick a branch" question, which
+  // matchThreshold mode deliberately skips (see the multi-branch walk further down). Scope
+  // cut, not a bug: pre-filled/superseded review for matchThreshold routes is a follow-up.
+  const isMatchThresholdRoute = talk.type === 'route' && talk.matchThreshold != null;
+  if (!skipAutoAnswer && !isMatchThresholdRoute) {
     const allAutoAnswers = tryCollectAllAutoAnswers(talk, options.resolveAnswerPreferenceForTalkQuestion);
     const needsReview = isTalkSuperseded || (allAutoAnswers !== null && allAutoAnswers.length > 0);
 
@@ -503,14 +509,56 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   const answers: { questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode; answerIds?: string[] }[] =
     draft?.answers || [];
 
+  // matchThreshold-mode route (spec §30.2 multi-spec matching): each of the root's direct
+  // children is an independent spec to walk in sequence, order the author declared them in —
+  // never the root's own "pick a branch" question itself, which this mode skips entirely.
+  const routeChildIds = getRouteRootChildQuestionIds(talk);
+  if (routeChildIds) {
+    const answeredIds = new Set(answers.map((a) => a.questionId));
+    const nextSpecId = routeChildIds.find((id) => !answeredIds.has(id));
+    currentQuestion = nextSpecId ? talk.questions.find((q: any) => q.id === nextSpecId) : undefined;
+  }
+
   const completeAndClose = (outcome: 'match' | 'mismatch' = 'mismatch'): void => {
     clearResponseDraft(talk);
     options.completeTalk(talk, answers, outcome);
     closeModal();
   };
 
+  /**
+   * matchThreshold-mode route only: after one spec's answer is recorded, advance to the next
+   * unvisited spec instead of letting that spec's own isMatch/isIgnore/isTerminal flags decide
+   * anything — an individual spec matching or not matching is never the final outcome by
+   * itself, only the aggregate score is (see `checkIfMatchOrRouteScore` below). Returns true
+   * (and re-renders) when there's another spec to walk to; false once every spec is answered,
+   * meaning the caller should complete now.
+   */
+  const tryAdvanceToNextRouteSpec = (): boolean => {
+    if (!routeChildIds) return false;
+    const answeredIds = new Set(answers.map((a) => a.questionId));
+    const nextSpecId = routeChildIds.find((id) => !answeredIds.has(id));
+    if (!nextSpecId) return false;
+    const nextQuestion = talk.questions.find((q: any) => q.id === nextSpecId);
+    if (!nextQuestion) return false;
+    currentQuestion = nextQuestion;
+    saveResponseDraft(talk, currentQuestion.id, answers);
+    renderQuestion();
+    return true;
+  };
+
+  /** matchThreshold-mode route only: every spec has been answered — the real outcome is the
+   *  aggregate score against `matchThreshold` (checkIfMatch's route branch), never whatever an
+   *  individual spec's own flags would otherwise imply. */
+  const completeRouteWalk = (): void => {
+    completeAndClose(checkIfMatch(talk, answers) ? 'match' : 'mismatch');
+  };
+
   const renderQuestion = (): void => {
     if (!currentQuestion) {
+      if (routeChildIds) {
+        completeRouteWalk();
+        return;
+      }
       completeAndClose();
       return;
     }
@@ -557,6 +605,11 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           answerText: savedPreference.answerText,
           mode: 'auto',
         });
+        if (routeChildIds) {
+          if (tryAdvanceToNextRouteSpec()) return;
+          completeRouteWalk();
+          return;
+        }
         if (checkIfMatch(talk, answers)) {
           clearResponseDraft(talk);
           options.completeTalk(talk, answers, 'match');
@@ -577,6 +630,11 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           mode: (savedPreference.mode as 'auto' | 'manual') || 'auto',
         });
 
+        if (routeChildIds) {
+          if (tryAdvanceToNextRouteSpec()) return;
+          completeRouteWalk();
+          return;
+        }
         if (talk.type === 'survey') {
           // A valid (asker-provided) answer always advances; only the last question ends
           // the response (see applyChoice's identical rule for the manual path).
@@ -788,11 +846,19 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       if (isDedicatedIgnore) {
         // Ignoring a question means ignoring the whole talk, at any question, in any talk
         // type — the sender must receive nothing at all, not even a mismatch record. Local
-        // bookkeeping (this device's own history) still happens via completeTalk.
+        // bookkeeping (this device's own history) still happens via completeTalk. Stays a
+        // hard stop even in matchThreshold-route mode — an explicit opt-out on one spec is a
+        // decision to withhold the whole response, not "this one spec didn't match."
         options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
         clearResponseDraft(talk);
         options.completeTalk(talk, answers, 'mismatch', { withholdFromSender: true });
         closeModal();
+        return;
+      }
+
+      if (routeChildIds) {
+        if (tryAdvanceToNextRouteSpec()) return;
+        completeRouteWalk();
         return;
       }
 
@@ -866,6 +932,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         );
       });
 
+      if (routeChildIds) {
+        if (tryAdvanceToNextRouteSpec()) return;
+        completeRouteWalk();
+        return;
+      }
+
       // A multi-select question is always chain-terminal (§30.8, see the editor's own
       // restriction to Ignore/Noticed-only options) — determine the outcome via the
       // canonical set-intersection checkIfMatch (talk-engine.ts), never reimplemented here.
@@ -889,13 +961,18 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           return;
         }
         const nextQuestion = talk.questions.find((question: any) => question.id === radio.dataset.nextQuestionId);
-        const previewText = nextQuestion
-          ? text('responseRouteLeadsTo', 'This leads to: {question}').replace('{question}', nextQuestion.text || '')
-          : radio.dataset.isMatch === 'true'
-            ? text('responseRouteLeadsToMatch', 'This leads to a match')
-            : radio.dataset.isIgnore === 'true'
-              ? text('responseRouteLeadsToIgnore', 'This ends this route')
-              : text('responseRouteLeadsToEnd', 'This ends this route');
+        // matchThreshold-mode route: an individual spec's own isMatch/isIgnore flag never
+        // decides the final outcome by itself (only the aggregate score does) — the normal
+        // "leads to a match"/"ends this route" phrasing would be actively misleading here.
+        const previewText = routeChildIds
+          ? text('responseRouteSpecRecorded' as UiTranslationKey, 'This answer is recorded — continue to the next question')
+          : nextQuestion
+            ? text('responseRouteLeadsTo', 'This leads to: {question}').replace('{question}', nextQuestion.text || '')
+            : radio.dataset.isMatch === 'true'
+              ? text('responseRouteLeadsToMatch', 'This leads to a match')
+              : radio.dataset.isIgnore === 'true'
+                ? text('responseRouteLeadsToIgnore', 'This ends this route')
+                : text('responseRouteLeadsToEnd', 'This ends this route');
         const preview = modal.querySelector<HTMLElement>('[data-testid="route-branch-preview"]');
         if (!preview) return;
         preview.innerHTML = `

@@ -1,7 +1,6 @@
 import {
   createEmptyTagOppositePairRegistryState,
   createSeededTagOppositePairRegistryState,
-  dealRoleForTag,
   getOppositeTagId,
   getOppositeTagName,
   hasOppositeTag,
@@ -76,26 +75,6 @@ describe('tag-opposite-pairs', () => {
     const state = createSeededTagOppositePairRegistryState();
     expect(hasOppositeTag(state, 'notacatalogedtag')).toBe(false);
     expect(getOppositeTagId(state, makeTagId('notacatalogedtag'))).toBeUndefined();
-  });
-
-  describe('dealRoleForTag', () => {
-    it('maps sell/hiring to offer and buy/jobseeking to request', () => {
-      expect(dealRoleForTag('sell')).toBe('offer');
-      expect(dealRoleForTag('hiring')).toBe('offer');
-      expect(dealRoleForTag('buy')).toBe('request');
-      expect(dealRoleForTag('jobseeking')).toBe('request');
-    });
-
-    it('is case/whitespace-insensitive, same canonicalization as makeTagId', () => {
-      expect(dealRoleForTag(' Buy ')).toBe('request');
-      expect(dealRoleForTag('SELL')).toBe('offer');
-    });
-
-    it('has no role mapping for male/female (reserved for §DD) or an unknown tag', () => {
-      expect(dealRoleForTag('male')).toBeUndefined();
-      expect(dealRoleForTag('female')).toBeUndefined();
-      expect(dealRoleForTag('notacatalogedtag')).toBeUndefined();
-    });
   });
 
   describe('questionTemplateForTag', () => {

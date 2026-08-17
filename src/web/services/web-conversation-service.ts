@@ -244,6 +244,23 @@ export class WebConversationService {
     talkId: string;
     respondedByBotForUser1?: boolean;
     respondedByBotForUser2?: boolean;
+    /**
+     * Spec §30.2: whether the talk this conversation formed from declares a
+     * selfTag/preferenceSet pair — written directly onto the conversation record (rather than
+     * left for each side to re-derive from their own local talk cache, which may not have a
+     * matching entry for whichever specific talkId this particular exchange ended up keyed to)
+     * so the deal-confirmation UI can read it with zero ambiguity from either side.
+     */
+    dealEligible?: boolean;
+    /**
+     * Route `matchThreshold` scoring result (spec §30.2, `computeRouteMatchScore` in
+     * talk-engine.ts) — written directly onto the conversation record, same reasoning as
+     * `dealEligible`, so the talk owner's "Matched items" list can sort/display it without
+     * re-deriving it from a local talk cache. Falls back to whatever's already on the record
+     * when this particular call doesn't carry one (e.g. an unrelated conversation update).
+     */
+    matchScore?: number;
+    matchTotal?: number;
   }): Promise<string> {
     const gun = this.gunService.getGun();
 
@@ -255,6 +272,9 @@ export class WebConversationService {
       params.talkId && params.talkId !== 'direct'
         ? params.talkId
         : existing?.talkId || params.talkId;
+    const dealEligible = !!params.dealEligible || !!existing?.dealEligible;
+    const matchScore = params.matchScore ?? existing?.matchScore;
+    const matchTotal = params.matchTotal ?? existing?.matchTotal;
 
     console.log(`💬 Creating conversation: ${conversationId}`);
 
@@ -269,6 +289,9 @@ export class WebConversationService {
       createdAt,
       status: 'active',
       transportMode: this.transport.mode,
+      dealEligible,
+      ...(matchScore !== undefined ? { matchScore } : {}),
+      ...(matchTotal !== undefined ? { matchTotal } : {}),
     };
 
     gun.get(`conversations/${conversationId}`).put({
@@ -284,6 +307,9 @@ export class WebConversationService {
       createdAt,
       respondedByBot: !!params.respondedByBotForUser1,
       transportMode: this.transport.mode,
+      dealEligible,
+      ...(matchScore !== undefined ? { matchScore } : {}),
+      ...(matchTotal !== undefined ? { matchTotal } : {}),
     });
 
     gun.get(`users/${params.userId2}`).get('conversations').get(conversationId).put({
@@ -295,10 +321,42 @@ export class WebConversationService {
       createdAt,
       respondedByBot: !!params.respondedByBotForUser2,
       transportMode: this.transport.mode,
+      dealEligible,
+      ...(matchScore !== undefined ? { matchScore } : {}),
+      ...(matchTotal !== undefined ? { matchTotal } : {}),
     });
 
     console.log(`✅ Conversation created: ${conversationId}`);
     return conversationId;
+  }
+
+  /**
+   * Bidirectional deal confirmation: appends `userId` to the conversation's `dealConfirmedBy`
+   * list, idempotently. Only meaningful for a conversation whose talk declares
+   * `selfTag`/`preferenceSet` (spec §30.2) — a match isn't exclusive on its own when several
+   * compatible buyers/sellers exist, so a deal is only "done" once BOTH participants have
+   * confirmed here. Returns the updated list so the caller can check for both-confirmed
+   * without a second read.
+   */
+  async confirmDeal(conversationId: string, userId: string): Promise<string[]> {
+    const gun = this.gunService.getGun();
+    const existing = await this.readConversationData(conversationId);
+    const alreadyConfirmedBy: string[] = Array.isArray(existing?.dealConfirmedBy) ? existing.dealConfirmedBy : [];
+    const dealConfirmedBy = alreadyConfirmedBy.includes(userId)
+      ? alreadyConfirmedBy
+      : [...alreadyConfirmedBy, userId];
+
+    const conversationData = { ...(existing || {}), dealConfirmedBy };
+    gun.get(`conversations/${conversationId}`).put({
+      data: JSON.stringify(conversationData),
+    });
+
+    const participants: string[] = Array.isArray(existing?.participants) ? existing.participants : [];
+    for (const participantId of participants) {
+      gun.get(`users/${participantId}`).get('conversations').get(conversationId).get('dealConfirmedByJson').put(JSON.stringify(dealConfirmedBy));
+    }
+
+    return dealConfirmedBy;
   }
 
   /**
@@ -417,6 +475,7 @@ export class WebConversationService {
           createdAt: normalized.createdAt || '',
           respondedByBot: !!normalized.respondedByBot,
           transportMode: normalized.transportMode || '',
+          dealConfirmedByJson: normalized.dealConfirmedByJson || '',
         });
         if (seenPayloadByConversation.get(conversationId) === signature) return;
 

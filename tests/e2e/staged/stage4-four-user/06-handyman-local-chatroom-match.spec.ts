@@ -2,8 +2,8 @@
  * Handyman ↔ customer matching in a local chatroom with detailed (typed) criteria —
  * docs/TODO.md §HH.
  *
- * Adam and Eve are both handymen (role 'offer'), advertising their service; Bob and Alice are
- * both customers (role 'request'), looking for a handyman. All four join the same local
+ * Adam and Eve are both handymen (selfTag 'sell'), advertising their service; Bob and Alice are
+ * both customers (selfTag 'buy'), looking for a handyman. All four join the same local
  * (San Diego) chatroom and broadcast talks they already created. Only Adam+Alice auto-match;
  * Eve and Bob never match anyone.
  *
@@ -59,13 +59,13 @@ async function createHandymanTalk(
   price: PriceRangeSpec,
   time: TimeFrameSpec,
   service: ServiceSpec,
-  role: 'offer' | 'request',
+  tag: 'buy' | 'sell',
 ): Promise<void> {
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  await page.selectOption('#talk-role', role);
+  await page.fill('#talk-tag', tag);
 
   // 3 questions total: price range -> time frame -> service category.
   await page.click('#add-question-btn');
@@ -251,7 +251,7 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
       { questionText: priceQuestionText, min: 50, max: 100 },
       { questionText: timeQuestionText, start: '2026-09-01', end: '2026-09-30' },
       { questionText: serviceQuestionText, options: ['Plumbing', 'Electrical', 'Carpentry'], matchOptions: ['Plumbing', 'Electrical'] },
-      'offer',
+      'sell',
     );
 
     const alice = await bootstrapUser(browsers.alice, 'Alice', 'Alice');
@@ -264,7 +264,7 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
       { questionText: priceQuestionText, min: 80, max: 120 },
       { questionText: timeQuestionText, start: '2026-09-15', end: '2026-10-15' },
       { questionText: serviceQuestionText, options: ['Plumbing', 'Electrical', 'Carpentry'], matchOptions: ['Plumbing'] },
-      'request',
+      'buy',
     );
 
     // Eve (handyman) and Bob (customer) each get their own distinctly-reworded title +
@@ -281,7 +281,7 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
       { questionText: `What's your rate per hour? (${runId})`, min: 200, max: 300 },
       { questionText: `What dates work for you? (${runId})`, start: '2026-11-01', end: '2026-11-15' },
       { questionText: `What kind of work do you do? (${runId})`, options: ['Painting', 'Roofing', 'Landscaping'], matchOptions: ['Painting'] },
-      'offer',
+      'sell',
     );
 
     const bob = await bootstrapUser(browsers.bob, 'Bob', 'Bob');
@@ -294,7 +294,7 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
       { questionText: `What rate are you willing to pay? (${runId})`, min: 60, max: 90 },
       { questionText: `When do you need this done? (${runId})`, start: '2026-09-05', end: '2026-09-10' },
       { questionText: `What type of help do you need? (${runId})`, options: ['Painting', 'Roofing', 'Landscaping'], matchOptions: ['Roofing'] },
-      'request',
+      'buy',
     );
 
     const [adamId, eveId, bobId, aliceId] = await Promise.all([
@@ -313,11 +313,9 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
     // Two phases, not one sequential loop: prep (join + enable chatbot) fully settles for every
     // page BEFORE anyone broadcasts, otherwise a talk could arrive at a receiving page whose
     // chatbot isn't enabled yet — getChatbotEnabled() has no retry, so that would be a silent,
-    // permanent miss. Broadcasting is concurrent, not sequential: for role: 'offer'/'request'
-    // talks, a match now auto-disables the matched talk (marketplace exclusivity) as soon as it
-    // forms, which can happen before a later page's own turn in a sequential loop, leaving that
-    // page with nothing broadcastable by the time it gets there — tolerate that as a legitimate
-    // outcome, not a failure.
+    // permanent miss. Broadcasting is concurrent, not sequential, purely to keep the test fast —
+    // matches aren't exclusive (spec §30.2's deal-confirmation feature replaced the old
+    // auto-disable-on-first-match mechanism), so there's no ordering hazard to avoid here.
     const handymanPages = [pageAdam, pageEve, pageBob, pageAlice];
     await Promise.all(handymanPages.map((page) => prepareLocalBroadcastForHandyman(page)));
     await Promise.all(

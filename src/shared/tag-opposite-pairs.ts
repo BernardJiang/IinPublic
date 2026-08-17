@@ -94,30 +94,14 @@ export function hasOppositeTag(state: TagOppositePairRegistryState, tagName: str
 }
 
 /**
- * For the app-predefined DEAL tag pairs only (buy/sell, hiring/jobseeking) — which side of
- * `Talk.role`'s 'offer'/'request' binary a self-declared tag represents. Per the "checkIfMatch
- * needs zero changes" decision (docs/TODO.md §BB): the match engine keeps reading `Talk.role`
- * unchanged, so a tag that DOES represent a deal side must still resolve to a role for the
- * engine to veto same-side matches. `male`/`female` (reserved for §DD's dating generalization)
- * and any user-created pair have no role mapping — the author picks role manually for those,
- * exactly like before this picker existed.
- */
-export function dealRoleForTag(tagName: string): 'offer' | 'request' | undefined {
-  const id = makeTagId(tagName);
-  if (id === makeTagId('sell') || id === makeTagId('hiring')) return 'offer';
-  if (id === makeTagId('buy') || id === makeTagId('jobseeking')) return 'request';
-  return undefined;
-}
-
-/**
  * A first-question template addressed to the OPPOSITE side, for the app-predefined deal tag
  * pairs — the "self-describing tags, decoupled question wording" idea (docs/TODO.md §BB): the
  * literal first question shown to a responder is generated from a per-tag template, never
  * hand-typed by the author, so two independently-authored talks can share exact wording (which
  * the chatbot's exact-text memory depends on) without either side typing it. Keyed by MY OWN
  * tag — a "buy"-tagged talk's template asks the responder "Do you sell?", not the reverse.
- * Returns `undefined` for any tag with no known deal-question template (same fallback posture
- * as `dealRoleForTag`: the author types their own first question, exactly like before).
+ * Returns `undefined` for any tag with no known deal-question template — the author types
+ * their own first question, exactly like before.
  */
 export function questionTemplateForTag(tagName: string, item: string): string | undefined {
   const id = makeTagId(tagName);

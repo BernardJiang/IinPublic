@@ -37,7 +37,7 @@ async function createChecklistTalk(
   title: string,
   questionText: string,
   noticedModels: string[],
-  role?: 'offer' | 'request',
+  tag?: 'buy' | 'sell',
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
@@ -45,16 +45,17 @@ async function createChecklistTalk(
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  if (role) {
-    // Talk.role (checkIfMatch's same-role veto, talk-engine.ts) also happens to be the
-    // existing fix for a real content-identity collision: buildIdentityPayloadFromTalk
-    // (cid.ts) hashes question/answer TEXT only, never isMatch/isIgnore flags — so a buyer's
-    // and a seller's talk sharing byte-identical question/option wording (required for the
-    // chatbot's exact-text memory to connect them) compute the SAME qa_ identityKey despite
-    // opposite match semantics, and the delivery-dedup ledger silently drops the second
-    // broadcast as "already exchanged." role is included in the identity hash specifically
-    // to prevent this — set it whenever two sides share wording, same as the dealmaker spec.
-    await page.selectOption('#talk-role', role);
+  if (tag) {
+    // Talk.selfTag/preferenceSet (checkIfMatch's preference-set veto, talk-engine.ts) also
+    // happens to be the existing fix for a real content-identity collision:
+    // buildIdentityPayloadFromTalk (cid.ts) hashes question/answer TEXT only, never
+    // isMatch/isIgnore flags — so a buyer's and a seller's talk sharing byte-identical
+    // question/option wording (required for the chatbot's exact-text memory to connect them)
+    // compute the SAME qa_ identityKey despite opposite match semantics, and the
+    // delivery-dedup ledger silently drops the second broadcast as "already exchanged."
+    // selfTag is included in the identity hash specifically to prevent this — set it
+    // whenever two sides share wording, same as the dealmaker spec.
+    await page.fill('#talk-tag', tag);
   }
 
   const q = page.locator('.question-item').first();
@@ -224,11 +225,11 @@ test.describe('Multi-value checkbox questions (§FF)', () => {
     //
     // Buyer accepts Model A or Model B (checks both as their own self-answer when creating —
     // talk-editor-form-helpers.ts auto-checks on "Noticed"); Model C is not acceptable.
-    await createChecklistTalk(pageBuyer, `Buyer Zero-Click ${Date.now()}`, questionText, ['Model A', 'Model B'], 'request');
+    await createChecklistTalk(pageBuyer, `Buyer Zero-Click ${Date.now()}`, questionText, ['Model A', 'Model B'], 'buy');
     // Seller only has Model B — same question text, so this also records Seller's own
     // self-answer {Model B} against the exact question text, which is what the chatbot on
     // Seller's device will use to auto-resolve Buyer's incoming talk.
-    await createChecklistTalk(pageSeller, `Seller Zero-Click ${Date.now()}`, questionText, ['Model B'], 'offer');
+    await createChecklistTalk(pageSeller, `Seller Zero-Click ${Date.now()}`, questionText, ['Model B'], 'sell');
 
     await enableChatbot(pageBuyer);
     await enableChatbot(pageSeller);

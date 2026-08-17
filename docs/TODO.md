@@ -58,12 +58,20 @@ checkpoint/prune offsets remain correct after the retained wire list loses its p
 
 ### BB. Typed opposite-tag matching follow-ups
 
+`Talk.role` ('offer'/'request') has been fully replaced by `Talk.selfTag`/`preferenceSet` (spec
+§30.2) — `checkIfMatch`, `exact-chatbot-memory.ts`, `resolveBuiltInQuestion`, and the talk editor
+all read the new fields; `role`/`TalkRole` no longer exist anywhere in the codebase. Price-overlap
+matching (`intervalsOverlap` + `builtIn.priceRange`) is E2E-covered end to end with
+non-identical, genuinely overlapping ranges (`stage2-two-user/87-price-overlap-buy-sell-
+match.spec.ts`) — a `type: 'route'` talk turned out unnecessary for that case; a single-question
+`type: 'flow'` talk with one `builtIn` question already covers it.
+
 - [ ] Design a privacy-safe source for the responder's blurred location/radius, then wire location
   auto-resolution using the existing mutual-containment comparison.
 - [ ] Persist user-created opposite-tag pairs; seeded pairs already work.
 - [ ] Support talk-level shared time/location questions before route item branches.
-- [ ] Add E2E cases for price overlap, location outside either radius, missing preference falling
-  to the human inbox, and real cross-browser route matching.
+- [ ] Add E2E cases for location outside either radius, missing preference falling to the human
+  inbox, and real cross-browser route (not flow) matching.
 
 ### DD. Generalized dating matching
 
@@ -82,42 +90,49 @@ Design is specified in technical specification §30.6; implementation has not st
 
 ### II. User-defined tag compatibility, generalized beyond symmetric opposites
 
-Follow-up to §BB's opposite-tag registry (`tag-opposite-pairs.ts`) — design discussion only, not
-started, no engine changes made yet.
+**Landed:** the core data model — `Talk.selfTag: string` + `Talk.preferenceSet: string[]` (spec
+§30.2), replacing `Talk.role` entirely. `checkIfMatch`'s veto is now
+`preferenceSet.includes(responderSelfTag)` — a real membership check against a list, so "buy"
+satisfied by several counterparts ("sell" AND "offer" AND "free") is already structurally
+supported, not just a future idea. `exact-chatbot-memory.ts`'s auto-reply veto and
+`resolveBuiltInQuestion`'s scope-key derivation were updated to match.
 
-Today's registry (`registerOppositeTagPair`) is UI-convenience only: it auto-fills `Talk.role`
-and a question template for exactly 3 app-predefined, hard-symmetric pairs (buy/sell,
-hiring/jobseeking, male/female — the latter reserved for §DD). `checkIfMatch` never reads tags
-directly; it still vetoes purely on `Talk.role`'s binary offer/request, per §BB's original
-"zero engine changes" decision. Two gaps surfaced in discussion:
+Still open:
+- [ ] No persistence for user-created pairs — the seeded registry (`tag-opposite-pairs.ts`:
+  buy/sell, hiring/jobseeking, male/female) still only auto-fills a **single** `preferenceSet`
+  value from those 3 hard-coded pairs; typing any other tag gets no auto-derived compatibility.
+- [ ] No multi-value **editing** UI — the talk editor can only auto-fill one counterpart tag per
+  talk today (via the seeded registry); authoring a talk that explicitly accepts several named
+  counterparts (typing "sell, offer, free" for a "buy" talk) has no UI yet, even though the
+  underlying `preferenceSet: string[]` field already supports it once populated.
+- [ ] The question/answer-shaped generalization ("need a plumber" satisfied by "does plumbing")
+  discussed alongside this is still just discussion — nothing beyond the buy/sell-style
+  self-tag/preference-set pattern has been built.
 
-- [ ] No persistence for user-created pairs — typing any tag outside the 3 seeded ones has zero
-  compatibility effect today.
-- [ ] The registry is strictly 1:1 symmetric (`registerOppositeTagPair(A, B)` always writes both
-  directions). Real usage wants one tag to accept SEVERAL counterparts asymmetrically — e.g. "buy"
-  satisfied by any of "sell"/"offer"/"free" — without "sell" needing to reciprocally declare it
-  matches "buy". This also generalizes past transactional opposites to question/answer-shaped
-  relationships (a "need a plumber" tag satisfied by a "does plumbing" tag), which were never
-  representable as a symmetric pair at all.
+### JJ. Bidirectional deal confirmation (spec §30.2, replaces the old auto-exclusivity guard)
 
-Design direction from discussion (not committed): don't invent a new parallel data structure for
-"list of acceptable counterpart tags" — a `type: 'tag'` talk already carries exactly that shape in
-`questions[0].answers`. Treat the tag's own title as the declaration and its existing answer list
-as the "satisfied by" set; a chatbot receiving an incoming talk checks whether that talk's own
-tag/title is present in the receiver's own compatibility set — one-directional, no requirement
-that the other side reciprocate. Where this would plug in, if built:
+Landed this session: a talk declaring `selfTag`/`preferenceSet` is no longer exclusive on its own
+— several compatible candidates can each hold an open conversation (the earlier
+`isExclusiveMarketplaceTalk`/closest-match auto-pick-and-reject machinery in `app.ts`, built for
+taxi/dealmaker, was removed entirely). Instead, each conversation gets a "Confirm Deal" affordance
+(`#conversation-confirm-deal-btn`, `showConversationDetail` in `ui-manager.ts`); once BOTH
+participants confirm (`WebConversationService.confirmDeal`, `Conversation.dealConfirmedBy`), each
+side's own device independently disables its own outstanding created deal-eligible talk(s)
+(`maybeFinalizeConfirmedDeal`, `app.ts`) — detected reactively on whichever device confirms
+second, and via Gun-sync on the other, since "both confirmed" can become true on either side.
 
-- [ ] `checkIfMatch`'s role veto would need a tag-compatibility path alongside (or instead of) the
-  `Talk.role` check for talks that declare a compatibility set.
-- [ ] The marketplace "busy, reject new inquiry" exclusivity guard (`isExclusiveMarketplaceTalk`
-  in `app.ts`, added for taxi/dealmaker closest-match work) currently keys off
-  `role === 'offer'/'request'` — would need to also recognize tag-compatibility-declared talks as
-  exclusive.
-- [ ] Interacts with §DD (generalized dating): `male`/`female` is currently a reserved, inert seed
-  pair with no role mapping — this generalization is a plausible real mechanism for dating
-  preference matching (each side declares "satisfied by: [...]" attributes) without needing
-  `Talk.role` at all; address as its own decision, not folded silently into §DD's existing mutual
-  preference-set design.
+- [ ] **Known gap:** confirming a deal does NOT mark a *different* candidate's conversation (e.g.
+  a losing driver with their own separate talkId, matched against the same passenger's request)
+  as "no longer available" — grouping "other candidates for the same underlying need" across
+  different authors' own talkIds needs a mapping that doesn't exist yet.
+  `05-taxi-local-chatroom-match.spec.ts`'s rewritten two-driver test documents this gap directly
+  rather than asserting it works.
+- [ ] `maybeFinalizeConfirmedDeal` currently disables **all** of the confirming user's outstanding
+  created deal-eligible talks, not just the one specific to the confirmed conversation (bidirectional
+  exchange means the conversation's own `talkId` field isn't a reliable way to find "my side" of a
+  specific deal — see the function's doc comment). Fine for the "one active listing" scenarios
+  this session's tests use; a user running several simultaneous listings and expecting confirming
+  one deal to leave the others open is unhandled.
 
 ## Priority 5 — TechSupport productionization
 

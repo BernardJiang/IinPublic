@@ -7,7 +7,6 @@ import {
   type TalkIntakeFilters,
   type QuestionAnswer,
   type Tag,
-  type TalkRole,
 } from '../../shared/types';
 import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
@@ -21,7 +20,7 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
-import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, complementRole } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
@@ -85,11 +84,11 @@ import {
 } from './answer-preferences-storage';
 import { pickBuiltInAnswer, resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
 import { makeTypedPreferenceScopeKey, saveTypedPreference } from '../../shared/typed-preference-store';
-import { makeTagId } from '../../shared/tag-opposite-pairs';
+import { makeTagId, getOppositeTagName, createSeededTagOppositePairRegistryState } from '../../shared/tag-opposite-pairs';
 import {
   findAutoAnswer,
   findAutoAnswerMultiple,
-  getRoleForQuestionText,
+  getSelfTagForQuestionText,
   LOCAL_EXACT_CHATBOT_USER_ID,
   makeQuestionId,
   savePermanentAnswer,
@@ -1202,6 +1201,7 @@ export class UIManager extends EventEmitter {
                     <option value="talk-matches">Matches per talk</option>
                     <option value="talk-replies">Replies per talk</option>
                     <option value="weighted">Relevance score</option>
+                    <option value="match-percent">Match % (highest first)</option>
                   </select>
                   <select class="form-input" id="reply-group-order" aria-label="Group replies" style="flex:0 0 150px;">
                     <option value="none">No grouping</option>
@@ -1229,6 +1229,10 @@ export class UIManager extends EventEmitter {
                 <div class="conversation-detail-info" id="conversation-detail-info">
                   <div class="conversation-detail-name" id="conversation-user-name">User</div>
                   <div class="conversation-thread-scope" id="conversation-thread-scope" style="display:none;font-size:0.82em;color:var(--accent);font-weight:600;"></div>
+                  <div class="conversation-deal-bar" id="conversation-deal-bar" style="display:none;align-items:center;gap:8px;font-size:0.85em;">
+                    <span id="conversation-deal-status"></span>
+                    <button class="btn" id="conversation-confirm-deal-btn" type="button" style="display:none;padding:4px 10px;font-size:0.85em;">Confirm Deal</button>
+                  </div>
                   <div class="conversation-detail-status" id="conversation-status">Online</div>
                   <div class="conversation-transport-status" id="conversation-transport-status"></div>
                   <div class="conversation-fallback-status" id="conversation-fallback-status"></div>
@@ -3510,6 +3514,26 @@ export class UIManager extends EventEmitter {
     const toTime = state.to ? new Date(`${state.to}T23:59:59.999`).getTime() : undefined;
     const metricsByResponder = new Map<string, { replies: number; matches: number; relevance: number }>();
     const metricsByTalk = new Map<string, { replies: number; matches: number; matchRate: number }>();
+    // Spec §30.2 matchThreshold routes: a matched row's own conversation (if the responder's
+    // reply actually formed one — see conversationId, otherUserId keyed lookup, robust to
+    // bidirectional-exchange talkId ambiguity the same way maybeFinalizeConfirmedDeal is,
+    // app.ts) carries the stored score/total for the "Matched items" percentage display/sort.
+    const conversationsById = this.getMyConversations();
+    const matchInfoByResponder = new Map<string, { conversationId: string; matchScore?: number; matchTotal?: number }>();
+    for (const [conversationId, conversation] of Object.entries(conversationsById) as Array<[string, any]>) {
+      const otherUserId = conversation?.otherUserId;
+      if (!otherUserId || matchInfoByResponder.has(otherUserId)) continue;
+      matchInfoByResponder.set(otherUserId, {
+        conversationId,
+        matchScore: conversation?.matchScore,
+        matchTotal: conversation?.matchTotal,
+      });
+    }
+    const matchPercent = (responderId: string): number | null => {
+      const info = matchInfoByResponder.get(responderId);
+      if (!info || info.matchScore == null || !info.matchTotal) return null;
+      return Math.round((info.matchScore / info.matchTotal) * 100);
+    };
     for (const row of this.creatorReplyRows) {
       const metrics = metricsByResponder.get(row.responderId) || { replies: 0, matches: 0, relevance: 0 };
       metrics.replies += 1;
@@ -3567,6 +3591,11 @@ export class UIManager extends EventEmitter {
           const byRelationship = ((this.getKnownPerson(a.responderId)?.labels || []).join(', ') || 'Stranger')
             .localeCompare((this.getKnownPerson(b.responderId)?.labels || []).join(', ') || 'Stranger');
           if (byRelationship !== 0) return byRelationship;
+        }
+        if (state.sort === 'match-percent') {
+          const aPct = matchPercent(a.responderId) ?? -1;
+          const bPct = matchPercent(b.responderId) ?? -1;
+          if (bPct !== aPct) return bPct - aPct;
         }
         if (state.sort === 'matches' && bMetrics.matches !== aMetrics.matches) return bMetrics.matches - aMetrics.matches;
         if (state.sort === 'talk-matches' && bTalk.matches !== aTalk.matches) return bTalk.matches - aTalk.matches;
@@ -3631,11 +3660,21 @@ export class UIManager extends EventEmitter {
         ? `<div class="creator-reply-group" style="font-weight:700;color:var(--text-secondary);margin-top:5px;">${escapeHtml(group)}</div>`
         : '';
       previousGroup = group;
+      // Spec §30.2: a matched row with a stored route matchThreshold score shows its match %
+      // (Adam's "Matched items" list) and, when a conversation actually formed, is clickable
+      // straight through to it instead of the profile view — review candidates, then DM.
+      const pct = row.outcome === 'match' ? matchPercent(row.responderId) : null;
+      const matchConversationId = row.outcome === 'match' ? matchInfoByResponder.get(row.responderId)?.conversationId : undefined;
+      const percentChip = pct != null
+        ? `<span class="creator-reply-match-percent" data-match-percent="${pct}" style="font-size:0.8em;font-weight:700;color:var(--success-text);margin-left:8px;">${pct}%</span>`
+        : '';
       return `${groupHeader}
-        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-responder-name="${escapeHtml(row.responderName)}" data-talk-id="${escapeHtml(row.talkId)}" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);cursor:pointer;" role="button" tabindex="0" title="${escapeHtml(this.t('repliesViewContact'))}">
+        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-responder-name="${escapeHtml(row.responderName)}" data-talk-id="${escapeHtml(row.talkId)}" ${matchConversationId ? `data-conversation-id="${escapeHtml(matchConversationId)}"` : ''} style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);cursor:pointer;" role="button" tabindex="0" title="${escapeHtml(this.t('repliesViewContact'))}">
           <div style="display:flex;justify-content:space-between;gap:10px;">
             <strong>${escapeHtml(row.responderName)}</strong>
-            <span style="color:${row.outcome === 'match' ? 'var(--success-text)' : 'var(--text-tertiary)'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>
+            <span>
+              <span style="color:${row.outcome === 'match' ? 'var(--success-text)' : 'var(--text-tertiary)'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>${percentChip}
+            </span>
           </div>
           <div style="font-size:0.86em;color:var(--text-secondary);">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(this.formatTalkLanguage(String(row.language || 'en').toLowerCase()))} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
           ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:var(--text-primary);margin-top:4px;">${this.t('repliesAnswers')}: ${escapeHtml(answerPreview)}</div>` : ''}
@@ -3644,6 +3683,11 @@ export class UIManager extends EventEmitter {
     }).join('');
     list.querySelectorAll<HTMLElement>('.creator-reply-row').forEach((row) => {
       row.addEventListener('click', () => {
+        const conversationId = row.dataset.conversationId || '';
+        if (conversationId) {
+          this.showConversationDetail(conversationId);
+          return;
+        }
         const id = row.dataset.responderId || '';
         const name = row.dataset.responderName || '';
         if (id) this.navigateToGraphNode({ type: 'person', id, name });
@@ -6119,6 +6163,43 @@ export class UIManager extends EventEmitter {
         delete threadScope.dataset.talkId;
       }
     }
+
+    // Spec §30.2 deal confirmation: only shown when the thread's own talk declares
+    // selfTag/preferenceSet — a match there isn't exclusive on its own, so both sides must
+    // explicitly confirm before the talk disables. Plain talks show no deal bar.
+    const dealBar = document.getElementById('conversation-deal-bar');
+    const dealStatusEl = document.getElementById('conversation-deal-status');
+    const dealBtn = document.getElementById('conversation-confirm-deal-btn') as HTMLButtonElement | null;
+    const isDealEligible = conversation.dealEligible === true;
+    if (dealBar && dealStatusEl && dealBtn) {
+      if (!isDealEligible || conversation.supportChannel === true) {
+        dealBar.style.display = 'none';
+      } else {
+        let confirmedBy: string[] = [];
+        try { confirmedBy = JSON.parse(conversation.dealConfirmedByJson || '[]'); } catch { /* ignore malformed */ }
+        const myId = this.currentUserId || '';
+        const iConfirmed = myId ? confirmedBy.includes(myId) : false;
+        const otherConfirmed = confirmedBy.some((id) => id && id !== myId);
+        dealBar.style.display = 'flex';
+        if (iConfirmed && otherConfirmed) {
+          dealStatusEl.textContent = '✅ Deal confirmed';
+          dealBtn.style.display = 'none';
+        } else if (iConfirmed) {
+          dealStatusEl.textContent = 'Waiting for the other side to confirm...';
+          dealBtn.style.display = 'none';
+        } else {
+          dealStatusEl.textContent = '';
+          dealBtn.style.display = 'inline-block';
+          dealBtn.textContent = 'Confirm Deal';
+          dealBtn.replaceWith(dealBtn.cloneNode(true));
+          const freshDealBtn = document.getElementById('conversation-confirm-deal-btn');
+          freshDealBtn?.addEventListener('click', () => {
+            this.emit('confirmDeal', { conversationId });
+          });
+        }
+      }
+    }
+
     const transportStatus = document.getElementById('conversation-transport-status');
     if (transportStatus) {
       const mode = String(conversation.transportMode || 'star-gun');
@@ -7586,7 +7667,7 @@ export class UIManager extends EventEmitter {
     // builtIn question never falls through to exact-text lookup by mistake.
     if (currentQuestion.builtIn) {
       const resolution = resolveBuiltInQuestion(
-        { role: talk?.role, title: talk?.title },
+        { selfTag: talk?.selfTag, title: talk?.title },
         { builtIn: currentQuestion.builtIn, text: currentQuestion.text || '' },
         getTypedPreferenceState(),
         LOCAL_EXACT_CHATBOT_USER_ID,
@@ -7617,10 +7698,10 @@ export class UIManager extends EventEmitter {
         currentOptions,
         undefined,
         languageContext,
-        talk?.role,
+        talk?.preferenceSet,
       );
       setExactChatbotMemory(exactMemory);
-      if (exact.action === 'ASK_USER' && exact.reason === 'ROLE_CONFLICT') {
+      if (exact.action === 'ASK_USER' && exact.reason === 'PREFERENCE_CONFLICT') {
         return null;
       }
       if (exact.action === 'SKIP') {
@@ -7678,13 +7759,13 @@ export class UIManager extends EventEmitter {
         currentOptions,
         undefined,
         languageContext,
-        talk?.role,
+        talk?.preferenceSet,
       );
       setExactChatbotMemory(exactMemory);
-      // A same-role conflict is an absolute veto — do not fall through to the weaker
-      // flattened/legacy preference lookups below, which aren't role-aware and could
+      // A preference-set conflict is an absolute veto — do not fall through to the weaker
+      // flattened/legacy preference lookups below, which aren't preference-aware and could
       // otherwise resolve an answer via stale per-talk-instance history.
-      if (exact.action === 'ASK_USER' && exact.reason === 'ROLE_CONFLICT') {
+      if (exact.action === 'ASK_USER' && exact.reason === 'PREFERENCE_CONFLICT') {
         return null;
       }
       if (exact.action === 'SKIP') {
@@ -7742,24 +7823,25 @@ export class UIManager extends EventEmitter {
   ): void {
     const exactMemory = getExactChatbotMemory();
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
-    // The role to persist alongside this answer is always MY OWN two-sided role for this
-    // deal — not necessarily the talk's own `role` field. When `talk` is one I authored
-    // myself, my role IS the talk's role (I set it when creating it). When `talk` is someone
-    // else's (I'm answering it), my role is the COMPLEMENT of theirs (their 'request' talk
-    // means I'm implicitly acting as the 'offer' side by answering it). This lets
-    // findAutoAnswer/getRoleForQuestionText later veto a same-role auto-match without every
-    // call site here having to know or pass that distinction explicitly.
-    const myRole =
+    // The selfTag to persist alongside this answer is always MY OWN self-tag for this deal —
+    // not necessarily the talk's own `selfTag` field. When `talk` is one I authored myself,
+    // my tag IS the talk's selfTag (I set it when creating it). When `talk` is someone else's
+    // (I'm answering it), my tag is the seeded OPPOSITE of theirs (their "buy" talk means I'm
+    // implicitly acting as the "sell" side by answering it) — same registry the talk editor's
+    // tag-pair preview uses. This lets findAutoAnswer/getSelfTagForQuestionText later veto a
+    // preference-set mismatch without every call site here having to know or pass that
+    // distinction explicitly.
+    const mySelfTag =
       talk?.authorId && this.currentUser?.id && talk.authorId === this.currentUser.id
-        ? talk.role
-        : complementRole(talk?.role);
+        ? talk.selfTag
+        : getOppositeTagName(createSeededTagOppositePairRegistryState(), talk?.selfTag || '');
     if (currentQuestion.text) {
       if (mode === 'suppressed') {
         saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, undefined, languageContext);
       } else if (mode === 'permanent') {
-        savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, myRole);
+        savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, mySelfTag);
       } else if (mode === 'auto') {
-        saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, myRole);
+        saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, mySelfTag);
       }
       setExactChatbotMemory(exactMemory);
     }
@@ -8159,14 +8241,14 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * My own two-sided deal role (see `Talk.role`) recorded for this exact question text, if
-   * any — lets app.ts resolve `responderRole` for `checkIfMatch`'s same-role veto on the
-   * manual answering path (the chatbot's own auto-reply path already vetoes internally via
-   * findAutoAnswer, see resolveAnswerPreferenceForTalkQuestion above).
+   * My own self-tag (see `Talk.selfTag`, spec §30.2) recorded for this exact question text,
+   * if any — lets app.ts resolve `responderSelfTag` for `checkIfMatch`'s preference-set veto
+   * on the manual answering path (the chatbot's own auto-reply path already vetoes internally
+   * via findAutoAnswer, see resolveAnswerPreferenceForTalkQuestion above).
    */
-  getMyRoleForQuestionText(questionText: string, language?: string): TalkRole | undefined {
+  getMySelfTagForQuestionText(questionText: string, language?: string): string | undefined {
     if (!questionText) return undefined;
-    return getRoleForQuestionText(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, questionText, {
+    return getSelfTagForQuestionText(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, questionText, {
       language: String(language || 'en').toLowerCase(),
     });
   }
@@ -8617,13 +8699,21 @@ export class UIManager extends EventEmitter {
     const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
     const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
     const sendToChatroomCheck = document.getElementById('talk-send-to-chatroom') as HTMLInputElement;
-    const roleSelect = document.getElementById('talk-role') as HTMLSelectElement | null;
-    const role = roleSelect?.value === 'offer' || roleSelect?.value === 'request' ? roleSelect.value : undefined;
+    // §BB / spec §30.2 Phase 5: the tag-pair picker's (talk-editor-dialog.ts) `#talk-tag`
+    // value doubles as this talk's selfTag; preferenceSet is derived from the same seeded
+    // opposite-tag registry the editor's live preview already queries. A tag with no known
+    // opposite (a user-typed tag, or male/female reserved for §DD) gets no preferenceSet — the
+    // talk matches any responder, exactly like an undeclared role used to.
+    const tagInputValue = (document.getElementById('talk-tag') as HTMLInputElement | null)?.value.trim() || '';
+    const selfTag = tagInputValue || undefined;
+    const oppositeTag = tagInputValue
+      ? getOppositeTagName(createSeededTagOppositePairRegistryState(), tagInputValue)
+      : undefined;
+    const preferenceSet = oppositeTag ? [oppositeTag] : undefined;
     // §BB / spec §30.2: the tag-pair picker (talk-editor-dialog.ts) stores a real Tag on the
     // talk — not just UI chrome. Category is a light best-effort guess for the 3 seeded deal
     // pairs; everything else (including any user-typed tag with no known opposite) falls back
     // to 'other', matching how ordinary free-form tags have no category guidance today either.
-    const tagInputValue = (document.getElementById('talk-tag') as HTMLInputElement | null)?.value.trim() || '';
     const tags: Tag[] = tagInputValue
       ? [
           {
@@ -8649,6 +8739,18 @@ export class UIManager extends EventEmitter {
 
     let questions: any[];
     const selfAnswers: { questionId: string; answerId: string }[] = [];
+    // Spec §30.2 multi-spec route matching: presence switches checkIfMatch (talk-engine.ts)
+    // from "check only the terminal answer" to a score-threshold rule over every direct child
+    // of the route's root. Only meaningful for type: 'route'; left undefined for every other
+    // type, and undefined for a route talk that leaves the field blank (today's terminal-only
+    // behavior, unchanged).
+    let matchThreshold: number | undefined;
+    if (type === 'route') {
+      const matchThresholdInput = document.getElementById('talk-match-threshold') as HTMLInputElement | null;
+      const rawThreshold = matchThresholdInput?.value.trim() || '';
+      const parsedThreshold = rawThreshold ? parseInt(rawThreshold, 10) : NaN;
+      matchThreshold = Number.isFinite(parsedThreshold) && parsedThreshold > 0 ? parsedThreshold : undefined;
+    }
 
       if (type === 'tag') {
       const keyword = title || (document.getElementById('talk-title') as HTMLInputElement).value.trim();
@@ -8826,8 +8928,8 @@ export class UIManager extends EventEmitter {
 
     // §BB / spec §30.2: the value I just declared on my OWN builtIn question is also my own
     // typed preference for future auto-resolution when I respond to someone ELSE'S talk of the
-    // same shape — save it into the same store `resolveBuiltInQuestion` (Phase 4) reads,
-    // scoped the same way (talk.role + talk.title + this question's own text — the text
+    // same shape — save it into the same store `resolveBuiltInQuestion` (Phase 5) reads,
+    // scoped the same way (talk.selfTag + talk.title + this question's own text — the text
     // component is required so a talk with MORE THAN ONE builtIn question, e.g. priceRange AND
     // timeFrame in the same talk (§HH), doesn't have the second overwrite the first at an
     // otherwise-identical scope key). 'location' is excluded: it has no stored preference, see
@@ -8835,7 +8937,7 @@ export class UIManager extends EventEmitter {
     for (const q of questions) {
       if (!q.builtIn || q.builtIn.kind === 'location') continue;
       const preferenceState = getTypedPreferenceState();
-      const scopeKey = makeTypedPreferenceScopeKey(String(role || 'general'), title, q.text);
+      const scopeKey = makeTypedPreferenceScopeKey(String(selfTag || 'general'), title, q.text);
       saveTypedPreference(preferenceState, LOCAL_EXACT_CHATBOT_USER_ID, scopeKey, {
         kind: q.builtIn.kind,
         ...(q.builtIn.quantity !== undefined ? { quantity: q.builtIn.quantity } : {}),
@@ -8866,7 +8968,9 @@ export class UIManager extends EventEmitter {
         tags,
         expiresAt,
         locationRadiusMiles,
-        role,
+        selfTag,
+        preferenceSet,
+        matchThreshold,
       });
     } else {
       const attachmentInput = document.getElementById('talk-attachment-input') as HTMLInputElement | null;
@@ -8894,7 +8998,9 @@ export class UIManager extends EventEmitter {
         sendToChatroom,
         expiresAt,
         locationRadiusMiles,
-        role,
+        selfTag,
+        preferenceSet,
+        matchThreshold,
         selfAnswers,
         ...(mediaFile ? { mediaFile } : {}),
         ...(reviseSourceTalk ? { reviseSourceTalk } : {}),
@@ -10500,6 +10606,13 @@ export class UIManager extends EventEmitter {
     transportFallbackReason?: string | null;
     /** Step 9: ISO timestamp of when the responder changed their mind to produce this match. */
     changeOfMindAt?: string;
+    /** Spec §30.2: whether this conversation's talk declares a selfTag/preferenceSet pair —
+     *  gates the "Confirm Deal" UI in showConversationDetail. */
+    dealEligible?: boolean;
+    /** Route `matchThreshold` scoring result (spec §30.2) — sorted/displayed by
+     *  `renderCreatorReplies`'s "Matched items" list. */
+    matchScore?: number;
+    matchTotal?: number;
   }): void {
     const conversations = this.getMyConversations();
     const existing = conversations[conversationData.conversationId];
@@ -10507,6 +10620,10 @@ export class UIManager extends EventEmitter {
 
     // Keep bot provenance sticky once true; some sync paths can emit records without this field.
     const respondedByBot = !!existing?.respondedByBot || conversationData.respondedByBot === true;
+    // Sticky like respondedByBot — the ingest/sync path may re-emit without this field.
+    const dealEligible = !!existing?.dealEligible || conversationData.dealEligible === true;
+    const matchScore = conversationData.matchScore ?? existing?.matchScore;
+    const matchTotal = conversationData.matchTotal ?? existing?.matchTotal;
     const incomingName = conversationData.otherUserName?.trim() || '';
     const existingName = existing?.otherUserName?.trim() || '';
     const preferredOtherUserName =
@@ -10577,6 +10694,9 @@ export class UIManager extends EventEmitter {
       lastMessageTime: existing?.lastMessageTime ?? null,
       unread: isSupportChannel ? false : (isNew ? true : (existing?.unread ?? false)),
       respondedByBot,
+      dealEligible,
+      ...(matchScore !== undefined ? { matchScore } : {}),
+      ...(matchTotal !== undefined ? { matchTotal } : {}),
       supportChannel: isSupportChannel,
       transportMode: conversationData.transportMode ?? existing?.transportMode ?? 'star-gun',
       transportFallbackReason: existing?.transportFallbackReason ?? conversationData.transportFallbackReason ?? null,
@@ -10687,6 +10807,48 @@ export class UIManager extends EventEmitter {
     conversations[convId].changedAt = changedAt;
     conversations[convId].lastMessage = `Answer changed · ${new Date(changedAt).toLocaleString()}`;
     conversations[convId].lastMessageTime = changedAt;
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    this.updateMatchBadge();
+    this.syncStatusBarMatchCount();
+    const meTab = document.querySelector('.nav-btn[data-view="me"]');
+    if (meTab?.classList.contains('active')) {
+      this.displayConversationsList();
+    }
+  }
+
+  /** Optimistic local update after a `confirmDeal` write — refreshes the deal bar without
+   *  waiting on a Gun round-trip. Re-renders the open thread if it's the one that changed. */
+  applyDealConfirmedBy(conversationId: string, dealConfirmedBy: string[]): void {
+    const conversations = this.getMyConversations();
+    const c = conversations[conversationId];
+    if (!c) return;
+    c.dealConfirmedByJson = JSON.stringify(dealConfirmedBy);
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    if (this.currentConversationId === conversationId) {
+      this.showConversationDetail(conversationId, this.currentThreadTalkId);
+    }
+  }
+
+  /**
+   * Deal confirmation (spec §30.2): once a Deal locks on one conversation for a given
+   * talkId, any OTHER locally-open conversation for that same talkId (other compatible
+   * candidates I'd also matched with) is marked ended on THIS device. Cross-device
+   * notification to those other candidates' own devices isn't wired yet — a real gap, not
+   * silently swept — see docs/TODO.md.
+   */
+  markOtherDealConversationsEnded(talkId: string, keepOtherUserId: string, changedAt: string): void {
+    const conversations = this.getMyConversations();
+    let changed = false;
+    for (const [, c] of Object.entries(conversations)) {
+      if (c?.talkId !== talkId || c?.otherUserId === keepOtherUserId) continue;
+      if (c.status === 'ignored' || c.status === 'withdrawn') continue;
+      c.status = 'ignored';
+      c.changedAt = changedAt;
+      c.lastMessage = `No longer available — the deal was confirmed with someone else · ${new Date(changedAt).toLocaleString()}`;
+      c.lastMessageTime = changedAt;
+      changed = true;
+    }
+    if (!changed) return;
     localStorage.setItem('myConversations', JSON.stringify(conversations));
     this.updateMatchBadge();
     this.syncStatusBarMatchCount();

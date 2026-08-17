@@ -1,4 +1,4 @@
-import { Talk, Question, Answer, ContextStep, AnswerWithContext, TalkRole } from './types';
+import { Talk, Question, Answer, ContextStep, AnswerWithContext } from './types';
 import { TalkStructureError, ValidationError } from './errors';
 
 /** Answer record as submitted by the user (e.g. from talk response flow) */
@@ -104,16 +104,6 @@ export function matchScore(
  * isMatch flag is sufficient.
  */
 /**
- * The complement of a two-sided deal role — 'offer' pairs with 'request' and vice versa.
- * Undefined in, undefined out (a talk/responder with no declared role has no complement).
- */
-export function complementRole(role?: TalkRole): TalkRole | undefined {
-  if (role === 'offer') return 'request';
-  if (role === 'request') return 'offer';
-  return undefined;
-}
-
-/**
  * Spec §3.4 FR-QA-16 / §30.8: every stored answer, single- or multi-select, is treated as a
  * set of answer IDs — a 'single'-mode answer is the degenerate case, a set of size one.
  * `SubmittedAnswer.answerIds` (when present) is the authoritative multi-select set;
@@ -142,18 +132,80 @@ function anySelectedIsIgnore(question: any, selectedIds: string[]): boolean {
   return selectedIds.some((id) => question.answers?.find((a: any) => a.id === id)?.isIgnore === true);
 }
 
-export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], responderRole?: TalkRole): boolean {
+/**
+ * Route talks with `Talk.matchThreshold` set treat every direct child of the root as an
+ * independent spec — order-independent by construction. The root is the question with an empty
+ * `contextPath` (route questions always carry one; empty means "no prior context," i.e. root —
+ * see `Question.contextPath`'s doc comment). Its direct children are whatever its own
+ * answers/`branchingLogic` point to via `nextQuestionId`, in the order the author declared them.
+ * Returns `null` when the talk isn't in matchThreshold mode at all, or has no recognizable
+ * root/children (malformed data) — callers treat this as "not applicable," never throwing.
+ *
+ * Shared between `computeRouteMatchScore` (scoring, this file) and the response dialog's
+ * multi-branch walk (`talk-response-dialog.ts`, spec's-own navigation) so both agree on exactly
+ * which questions count as "the specs to walk/score" from the same source of truth.
+ */
+export function getRouteRootChildQuestionIds(talkData: Talk | any): string[] | null {
+  if (talkData?.type !== 'route' || talkData?.matchThreshold == null) return null;
+  const questions = Array.isArray(talkData.questions) ? talkData.questions : [];
+  const root = questions.find((q: any) => Array.isArray(q.contextPath) && q.contextPath.length === 0);
+  if (!root) return null;
+
+  const childIds: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: unknown) => {
+    const value = String(id ?? '');
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    childIds.push(value);
+  };
+  for (const a of root.answers || []) add(a?.nextQuestionId);
+  for (const b of root.branchingLogic || []) add(b?.nextQuestionId);
+  return childIds.length > 0 ? childIds : null;
+}
+
+/**
+ * Each direct-child spec is assumed exactly one question deep (spec -> terminal) — nested
+ * branching under a matchThreshold route is out of scope; only `answers[]` entries for a
+ * recognized direct-child question id count toward the score, so any deeper/unexpected entries
+ * are silently ignored rather than corrupting the total. See `getRouteRootChildQuestionIds` for
+ * how the spec set itself is determined. Returns `null` when the talk isn't in matchThreshold
+ * mode — the caller falls back to the existing terminal-only rule unchanged.
+ */
+export function computeRouteMatchScore(
+  talkData: Talk | any,
+  answers: SubmittedAnswer[],
+): { score: number; total: number } | null {
+  const childIds = getRouteRootChildQuestionIds(talkData);
+  if (!childIds) return null;
+  const childIdSet = new Set(childIds);
+  const questions = Array.isArray(talkData.questions) ? talkData.questions : [];
+
+  let score = 0;
+  for (const submitted of answers) {
+    if (!childIdSet.has(submitted.questionId)) continue;
+    const question = questions.find((q: any) => q.id === submitted.questionId);
+    if (!question) continue;
+    if (anySelectedIsMatch(question, selectedAnswerIds(submitted))) score += 1;
+  }
+  return { score, total: childIds.length };
+}
+
+export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], responderSelfTag?: string): boolean {
   if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
     return false;
   }
-  // Same-role veto: a talk that declares a two-sided role (e.g. 'request' to buy) must
-  // never match a responder holding the SAME role (another buyer) — only a match against
-  // an undeclared role or the complementary role ('offer', a seller) is legitimate. This
-  // runs before the isMatch check so it overrides whatever answer was picked, whether by a
-  // human or the chatbot's exact-text auto-reply (src/shared/exact-chatbot-memory.ts).
-  if (talkData.role && responderRole && talkData.role === responderRole) {
+  // Preference-set veto (spec §30.2): a talk that declares a non-empty preferenceSet (e.g.
+  // "buy" accepted by "sell") must never match a responder whose own selfTag isn't a member
+  // of it — only a responder with no selfTag at all, or one within the set, is legitimate.
+  // This runs before the isMatch check so it overrides whatever answer was picked, whether by
+  // a human or the chatbot's exact-text auto-reply (src/shared/exact-chatbot-memory.ts).
+  if (talkData.preferenceSet?.length && responderSelfTag && !talkData.preferenceSet.includes(responderSelfTag)) {
     return false;
   }
+  const routeScore = computeRouteMatchScore(talkData, answers);
+  if (routeScore) return routeScore.score >= talkData.matchThreshold;
+
   const lastAnswer = answers[answers.length - 1];
   if (!lastAnswer) return false;
   const question = talkData.questions?.find((q: any) => q.id === lastAnswer.questionId);
@@ -1071,7 +1123,19 @@ export function buildRevisedTalkDraft(
   questions: Question[],
   editorId: string,
   overrides: Partial<
-    Pick<Talk, 'title' | 'type' | 'language' | 'tags' | 'isAdult' | 'expiresAt' | 'locationRadiusMiles' | 'role'>
+    Pick<
+      Talk,
+      | 'title'
+      | 'type'
+      | 'language'
+      | 'tags'
+      | 'isAdult'
+      | 'expiresAt'
+      | 'locationRadiusMiles'
+      | 'selfTag'
+      | 'preferenceSet'
+      | 'matchThreshold'
+    >
   > = {},
 ): Partial<Talk> {
   const draft: Partial<Talk> = {
@@ -1099,8 +1163,14 @@ export function buildRevisedTalkDraft(
     overrides.locationRadiusMiles !== undefined ? overrides.locationRadiusMiles : oldTalk.locationRadiusMiles;
   if (locationRadiusMiles != null) draft.locationRadiusMiles = locationRadiusMiles;
 
-  const role = overrides.role !== undefined ? overrides.role : oldTalk.role;
-  if (role != null) draft.role = role;
+  const selfTag = overrides.selfTag !== undefined ? overrides.selfTag : oldTalk.selfTag;
+  if (selfTag != null) draft.selfTag = selfTag;
+
+  const preferenceSet = overrides.preferenceSet !== undefined ? overrides.preferenceSet : oldTalk.preferenceSet;
+  if (preferenceSet != null) draft.preferenceSet = preferenceSet;
+
+  const matchThreshold = overrides.matchThreshold !== undefined ? overrides.matchThreshold : oldTalk.matchThreshold;
+  if (matchThreshold != null) draft.matchThreshold = matchThreshold;
 
   return draft;
 }

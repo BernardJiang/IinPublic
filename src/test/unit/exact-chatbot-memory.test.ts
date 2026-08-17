@@ -208,13 +208,16 @@ describe('findAutoAnswerMultiple — spec §3.4 FR-QA-15/16, §30.8 "pick any th
     expect(result).toEqual({ action: 'SKIP', reason: 'QUESTION_SUPPRESSED' });
   });
 
-  it('same-role veto refuses to auto-answer, mirroring findAutoAnswer', () => {
+  it('preference-set conflict refuses to auto-answer, mirroring findAutoAnswer', () => {
     const state = createEmptyExactChatbotMemoryState();
-    saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 1000, undefined, 'request');
+    // My own stored memory: I'm a buyer.
+    saveTemporaryAnswer(state, userId, 'Which models?', 'Model A', 1000, undefined, 'buy');
 
-    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A'], 2000, undefined, 'request');
+    // Incoming talk is itself buy-tagged, so it only accepts 'sell' — a fellow buyer's own
+    // memory must never auto-answer it (two buyers never match).
+    const result = findAutoAnswerMultiple(state, userId, 'Which models?', ['Model A'], 2000, undefined, ['sell']);
 
-    expect(result).toEqual({ action: 'ASK_USER', reason: 'ROLE_CONFLICT' });
+    expect(result).toEqual({ action: 'ASK_USER', reason: 'PREFERENCE_CONFLICT' });
   });
 
   it('records auto-use events for every matched answer', () => {

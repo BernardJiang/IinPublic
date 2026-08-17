@@ -1,7 +1,6 @@
 import type { UiTranslationKey } from './ui-translations';
 import {
   createSeededTagOppositePairRegistryState,
-  dealRoleForTag,
   getOppositeTagName,
   questionTemplateForTag,
 } from '../../shared/tag-opposite-pairs';
@@ -139,16 +138,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             <p id="talk-tag-preview" style="margin: 6px 0 0 0; font-size: 0.85em; color: #666;"></p>
           </div>
 
-          <div class="form-group" id="talk-role-group">
-            <label class="form-label">${text('editorRoleLabel', 'Role in this deal (optional)')}</label>
-            <select class="form-input" id="talk-role" aria-label="${text('editorRoleLabel', 'Role in this deal (optional)')}">
-              <option value="" ${!existingTalk?.role ? 'selected' : ''}>${text('editorRoleNone', 'No role')}</option>
-              <option value="offer" ${existingTalk?.role === 'offer' ? 'selected' : ''}>${text('editorRoleOffer', 'Offering (I have or provide something)')}</option>
-              <option value="request" ${existingTalk?.role === 'request' ? 'selected' : ''}>${text('editorRoleRequest', 'Requesting (I want or need something)')}</option>
-            </select>
-            <p style="margin: 6px 0 0 0; font-size: 0.85em; color: #666;">${text('editorRoleHelp', 'Two talks with the SAME role never match (e.g. two buyers) — only opposite roles can.')}</p>
-          </div>
-
           <div class="form-group" id="questions-form-group">
             <label class="form-label" id="questions-form-label">${text('editorQuestions', 'Questions & Branching')}</label>
             <p class="talk-editor-type-hint" id="talk-editor-type-hint" style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;"></p>
@@ -162,6 +151,20 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               ${text('editorRouteHelp', 'Build a branching tree. Each answer can lead to a follow-up question. On any path from root to leaf, the same question cannot appear twice; it may appear in separate branches with separate context ids.')}
             </p>
             <div id="route-editor"></div>
+            <label class="form-label" for="talk-match-threshold" style="margin-top: 14px; display: block;">${text('editorMatchThresholdLabel' as UiTranslationKey, 'Match threshold (optional)')}</label>
+            <p style="margin: 0 0 8px 0; font-size: 0.85em; color: #666;">
+              ${text('editorMatchThresholdHelp' as UiTranslationKey, 'Treats every direct branch off the root as an independent spec, answerable in any order. A responder matches once at least this many specs match — a partial match still counts. Leave blank for the default: only the terminal answer on the path taken decides.')}
+            </p>
+            <input
+              type="number"
+              class="form-input"
+              id="talk-match-threshold"
+              min="1"
+              step="1"
+              value="${existingTalk?.matchThreshold != null ? existingTalk.matchThreshold : ''}"
+              placeholder="${text('editorMatchThresholdPlaceholder' as UiTranslationKey, 'e.g. 2')}"
+              style="max-width: 140px;"
+            >
             <div id="talk-validation-errors" class="talk-validation-errors" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid var(--danger); background: var(--danger-soft); color: var(--danger-hover); border-radius: 6px; font-size: 0.9em;"></div>
           </div>
 
@@ -321,7 +324,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     const talkOptionsGroup = document.getElementById('talk-options-group');
     const talkLocationGroup = document.getElementById('talk-location-group');
     const talkSendChatroomGroup = document.getElementById('talk-send-chatroom-group');
-    const talkRoleGroup = document.getElementById('talk-role-group');
     const talkTagGroup = document.getElementById('talk-tag-group');
     const tagLikeGroup = document.getElementById('tag-like-group');
     const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
@@ -341,7 +343,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       if (talkOptionsGroup) talkOptionsGroup.style.display = 'none';
       if (talkLocationGroup) talkLocationGroup.style.display = 'none';
       if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = 'none';
-      if (talkRoleGroup) talkRoleGroup.style.display = 'block';
       if (talkTagGroup) talkTagGroup.style.display = 'block';
       if (questionsFormGroup) {
         questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
@@ -383,8 +384,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       }
       if (type === 'survey') {
         // Surveys never have a match/ignore outcome (checkIfMatch always returns false for
-        // them) — a role selector would be meaningless here.
-        if (talkRoleGroup) talkRoleGroup.style.display = 'none';
+        // them) — a self-tag/preference-set picker would be meaningless here.
         if (talkTagGroup) talkTagGroup.style.display = 'none';
         if (questionsFormLabel) questionsFormLabel.textContent = text('editorSurveyQuestions', 'Questions (independent)');
         if (questionsTypeHint) {
@@ -417,18 +417,17 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       updateFormForType();
     }
 
-    // §BB / spec §30.2: tag-pair picker (docs/TODO.md §BB, deferred from Phase 5, added now).
-    // `checkIfMatch` keeps reading `Talk.role` unchanged (the original "zero engine changes"
-    // decision) — this control is a friendlier way to SET role for the app-predefined deal
-    // pairs (buy/sell, hiring/jobseeking) via `dealRoleForTag`, plus a live opposite-tag preview
-    // and an auto-generated first-question suggestion (`questionTemplateForTag`) so two
-    // independently-authored talks can share exact wording without either side typing it by
-    // hand. A tag with no known deal mapping (a user-typed tag, or `male`/`female`, reserved for
-    // §DD) falls back to manual role selection exactly like before this control existed — no
-    // persistence for user-created pairs in this pass, only the 3 seeded ones are live.
+    // Spec §30.2 Phase 5: `#talk-tag`'s value doubles as this talk's `selfTag` (a plain
+    // self-declaration — "buy", "sell", ...), replacing the old separate role picker.
+    // `preferenceSet` is derived from it at submit time (processTalkForm, ui-manager.ts) via
+    // the same seeded opposite-tag registry this preview already queries — buy auto-accepts
+    // sell, and vice versa. A tag with no known opposite (a user-typed tag, or `male`/`female`,
+    // reserved for §DD) gets no preferenceSet — the talk matches any responder, exactly like an
+    // undeclared role used to. No persistence for user-created pairs in this pass, only the 3
+    // seeded ones are live; multi-value preference-set editing (accepting several counterpart
+    // tags) is a follow-up, not built here (docs/TODO.md §II).
     const talkTagInput = document.getElementById('talk-tag') as HTMLInputElement | null;
     const talkTagPreview = document.getElementById('talk-tag-preview');
-    const talkRoleSelect = document.getElementById('talk-role') as HTMLSelectElement | null;
     const tagRegistry = createSeededTagOppositePairRegistryState();
 
     const updateTagPreview = (): void => {
@@ -442,16 +441,11 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       if (!opposite) {
         talkTagPreview.textContent = text(
           'editorTagPairNoOpposite',
-          'No known opposite tag yet — pick a role manually below.',
+          'No known opposite tag yet — this talk will match anyone.',
         );
         return;
       }
       talkTagPreview.textContent = `${text('editorTagPairOppositeLabel', 'Shown to people tagged:')} ${opposite}`;
-
-      const mappedRole = dealRoleForTag(tagValue);
-      if (mappedRole && talkRoleSelect) {
-        talkRoleSelect.value = mappedRole;
-      }
 
       // Auto-suggest the first question's wording — only when the author hasn't typed
       // anything there yet, so this never clobbers a real edit.

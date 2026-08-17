@@ -261,18 +261,25 @@ export interface Talk {
    */
   supersedesTalkId?: string;
   /**
-   * Optional two-sided deal role: 'offer' = "I have/provide X", 'request' = "I want/need
-   * X". Generic (not marketplace-specific) so it covers buy/sell, seeking/offering,
-   * host/guest, etc. — the app never hardcodes what the two sides mean, only that a talk
-   * declaring a role must never be treated as a match against another talk (or a
-   * responder's own recorded preference) declaring the SAME role. See
+   * Spec §30.2: generalizes the old fixed 'offer'/'request' role binary. `selfTag` is what
+   * the author IS for this attribute (e.g. "buy", "sell"); `preferenceSet` is which self-tags
+   * of a respondent the author will accept (e.g. `["sell"]`, or several — "buy" accepted by
+   * "sell" OR "offer" OR "free"). A talk declaring a non-empty `preferenceSet` must never be
+   * treated as a match against a responder whose own `selfTag` isn't a member of it. See
    * talk-engine.ts's checkIfMatch and exact-chatbot-memory.ts's findAutoAnswer.
    */
-  role?: TalkRole;
+  selfTag?: string;
+  preferenceSet?: string[];
+  /**
+   * Route talks only. When set, switches `checkIfMatch` from the default "check only the
+   * terminal answer" rule to a score-threshold rule: every direct child of the route's root is
+   * treated as an independent spec (order the author declared them in doesn't matter — see
+   * `computeRouteMatchScore`, talk-engine.ts), and the talk matches a responder once the count
+   * of that responder's isMatch-flagged spec answers is >= this value. Absent = zero behavior
+   * change from today's terminal-only route matching.
+   */
+  matchThreshold?: number;
 }
-
-/** See `Talk.role`. */
-export type TalkRole = 'offer' | 'request';
 
 export interface Question {
   id: string;
@@ -399,6 +406,30 @@ export interface Conversation {
   createdAt: Date;
   lastActivity: Date;
   isSurvey: boolean;
+  /**
+   * Spec §30.2 deal confirmation: participant ids who've explicitly confirmed this deal is
+   * final. Only meaningful when the conversation's talk declares `selfTag`/`preferenceSet` —
+   * a match there isn't exclusive on its own (several compatible candidates can each hold an
+   * open conversation), so the talk only disables once BOTH participants appear here.
+   */
+  dealConfirmedBy?: string[];
+  /**
+   * Spec §30.2: whether the talk this conversation formed from declares
+   * `selfTag`/`preferenceSet` — written directly onto the conversation record at match time
+   * (rather than re-derived per-side from local talk caches, which may not have a matching
+   * entry for whichever direction's exchange happened to fire) so the deal-confirmation UI can
+   * read it unambiguously from either participant's device.
+   */
+  dealEligible?: boolean;
+  /**
+   * Route `matchThreshold` scoring result (see `Talk.matchThreshold`, `computeRouteMatchScore`
+   * in talk-engine.ts) — the responder's score and the total number of independent specs asked,
+   * computed once at match time. `matchScore / matchTotal` is the percentage shown/sorted-by in
+   * the talk owner's "Matched items" list (`renderCreatorReplies`, ui-manager.ts). Absent for
+   * conversations formed from anything other than a matchThreshold route.
+   */
+  matchScore?: number;
+  matchTotal?: number;
 }
 
 export interface Message {

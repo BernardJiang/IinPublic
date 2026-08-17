@@ -3,11 +3,11 @@
  * deal before ever meeting, then broadcast into Global — matching happens entirely via the
  * chatbot's exact-question-text auto-reply, with no manual answer clicks anywhere.
  *
- * Talks also declare a two-sided Talk.role ('request' = buyer, 'offer' = seller) — see
- * talk-engine.ts's checkIfMatch and exact-chatbot-memory.ts's findAutoAnswer. Without this,
- * matching is pure text-equality: two BUYERS with identical wording would "match" each other
- * just as readily as a buyer and a seller. The second test below proves that specific case is
- * now vetoed.
+ * Talks also declare a self-tag + preference-set pair (spec §30.2 — 'buy' = buyer, 'sell' =
+ * seller) — see talk-engine.ts's checkIfMatch and exact-chatbot-memory.ts's findAutoAnswer.
+ * Without this, matching is pure text-equality: two BUYERS with identical wording would
+ * "match" each other just as readily as a buyer and a seller. The second test below proves
+ * that specific case is now vetoed.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -67,13 +67,13 @@ async function createDealTalk(
   page: Page,
   title: string,
   questions: DealQuestion[],
-  role: 'offer' | 'request',
+  tag: 'buy' | 'sell',
 ): Promise<void> {
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  await page.selectOption('#talk-role', role);
+  await page.fill('#talk-tag', tag);
 
   for (let i = 1; i < questions.length; i++) {
     await page.click('#add-question-btn');
@@ -211,22 +211,22 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
     const adam = await bootstrapUser(browsers.adam, 'Adam', 'Adam');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await createDealTalk(pageAdam, 'Buy Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'request');
+    await createDealTalk(pageAdam, 'Buy Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'buy');
 
     const eve = await bootstrapUser(browsers.eve, 'Eve', 'Eve');
     contextEve = eve.context;
     pageEve = eve.page;
-    await createDealTalk(pageEve, 'Sell Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'offer');
+    await createDealTalk(pageEve, 'Sell Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'sell');
 
     const bob = await bootstrapUser(browsers.bob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await createDealTalk(pageBob, 'Buy Used Notebook - MacBook Deal', BOB_QUESTIONS, 'request');
+    await createDealTalk(pageBob, 'Buy Used Notebook - MacBook Deal', BOB_QUESTIONS, 'buy');
 
     const alice = await bootstrapUser(browsers.alice, 'Alice', 'Alice');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await createDealTalk(pageAlice, 'Sell Used Notebook - Dell Deal', ALICE_QUESTIONS, 'offer');
+    await createDealTalk(pageAlice, 'Sell Used Notebook - Dell Deal', ALICE_QUESTIONS, 'sell');
 
     const [adamId, eveId, bobId, aliceId] = await Promise.all([
       getCurrentUserId(pageAdam),
@@ -243,14 +243,13 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
     // they already created. From here, matching happens with zero manual clicks. ===
     // Kept sequential (the original, reliable turn order) rather than made concurrent — going
     // concurrent here surfaced an unrelated pre-existing exact-chatbot-memory resolution quirk
-    // for this specific question set that isn't worth chasing for a test-infra fix. Each turn
-    // still tolerates "nothing left to broadcast": for role: 'offer'/'request' talks, a match now
-    // auto-disables the matched talk (marketplace exclusivity) as soon as it forms, which can
-    // happen before a later page's own turn, leaving that page with nothing broadcastable by the
-    // time it gets there — a legitimate outcome, not a failure.
+    // for this specific question set that isn't worth chasing for a test-infra fix. Broadcast
+    // itself is no longer exclusive (spec §30.2's deal-confirmation feature replaced the old
+    // auto-disable-on-first-match mechanism), but the defensive catch stays cheap insurance
+    // against any other transient "nothing left to broadcast" state.
     for (const page of [pageAdam, pageEve, pageBob, pageAlice]) {
       await meetAndBroadcast(page).catch(() => {
-        /* already matched-and-busy before this page's own broadcast completed — fine */
+        /* defensive: tolerate an unexpected broadcast-state hiccup rather than fail the test */
       });
     }
 
@@ -269,19 +268,19 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
     expect(await conversationPartnerIds(pageAlice!)).toEqual([]);
   });
 
-  test('two buyers with byte-identical criteria do NOT match — same role is vetoed even when text matches exactly', async () => {
-    // Regression for the bug this whole role feature exists to fix: before Talk.role existed,
-    // two talks with identical question/answer wording matched regardless of who was on which
-    // side of the deal — the chatbot's exact-text memory can't tell "buyer" from "seller" on
-    // its own. Reuses the SAME wording as the positive test above (ADAM_EVE_QUESTIONS), but
-    // both sides declare 'request' (buyer) — proving that text equality alone is no longer
-    // enough to produce a match.
+  test('two buyers with byte-identical criteria do NOT match — same self-tag is vetoed even when text matches exactly', async () => {
+    // Regression for the bug this whole preference-set feature exists to fix: before
+    // Talk.selfTag/preferenceSet existed (as Talk.role), two talks with identical
+    // question/answer wording matched regardless of who was on which side of the deal — the
+    // chatbot's exact-text memory can't tell "buyer" from "seller" on its own. Reuses the SAME
+    // wording as the positive test above (ADAM_EVE_QUESTIONS), but both sides declare 'buy' —
+    // proving that text equality alone is no longer enough to produce a match.
     await clearGunForStage4Spec();
     const buyer1 = await bootstrapUser(browsers.adam, 'Buyer1', 'Buyer1');
     const buyer2 = await bootstrapUser(browsers.bob, 'Buyer2', 'Buyer2');
     try {
-      await createDealTalk(buyer1.page, 'Buy Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'request');
-      await createDealTalk(buyer2.page, 'Buy Used Notebook - Deal Terms Too', ADAM_EVE_QUESTIONS, 'request');
+      await createDealTalk(buyer1.page, 'Buy Used Notebook - Deal Terms', ADAM_EVE_QUESTIONS, 'buy');
+      await createDealTalk(buyer2.page, 'Buy Used Notebook - Deal Terms Too', ADAM_EVE_QUESTIONS, 'buy');
 
       const buyer1Id = await getCurrentUserId(buyer1.page);
       const buyer2Id = await getCurrentUserId(buyer2.page);
@@ -293,8 +292,8 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
 
       // Actively watch for the bug condition for as long as the positive test's own timeout
       // budget, rather than a single instant check or a blind sleep — if checkIfMatch's
-      // same-role veto regressed, this would catch it turning true within the window instead
-      // of silently passing because we didn't wait long enough to see it.
+      // preference-set veto regressed, this would catch it turning true within the window
+      // instead of silently passing because we didn't wait long enough to see it.
       let wronglyMatched = false;
       try {
         await expect.poll(() => hasConversationWith(buyer1.page, buyer2Id), { timeout: 8_000, intervals: [300] }).toBe(true);

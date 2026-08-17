@@ -9,17 +9,19 @@
  * trustworthy enough to auto-resolve" decision in `docs/TODO.md` §BB.
  */
 import type { Talk, Question } from './types';
-import { complementRole } from './talk-engine';
+import { getOppositeTagName, createSeededTagOppositePairRegistryState } from './tag-opposite-pairs';
 import { intervalsOverlap, quantitySufficient } from './built-in-comparisons';
 import { getTypedPreference, makeTypedPreferenceScopeKey, type TypedPreferenceState } from './typed-preference-store';
 
 export type BuiltInResolution = { action: 'ANSWER'; compatible: boolean } | { action: 'ASK_USER' };
 
 /**
- * `talk.role` is used as an interim typed-preference scope substitute for the real
- * opposite-tag (Phase 1's `tag-opposite-pairs.ts` registry) until Phase 5 wires a tag picker
- * into the talk editor and a talk actually carries a resolvable deal tag — today `role` is the
- * only live, wired categorical dimension a talk carries. Revisit once Phase 5 ships.
+ * Spec §30.2 Phase 5: `talk.selfTag`'s opposite (via the `tag-opposite-pairs.ts` seed
+ * registry — buy/sell, hiring/jobseeking) stands in for "my own" side of the deal, the same
+ * role `complementRole(talk.role)` used to play before role was generalized into free-form
+ * self-tag/preference-set pairs. Only resolves for the app-predefined singleton pairs today;
+ * a talk whose selfTag has no seeded opposite (or a genuinely multi-value preferenceSet) falls
+ * through to `ASK_USER` below, same fail-safe posture as every other unresolvable case.
  *
  * `location` is deferred entirely (always `ASK_USER`): it needs a geo/privacy-aware source for
  * "my own" location + radius (the responder's blurred coordinate, or a matching counterpart
@@ -28,7 +30,7 @@ export type BuiltInResolution = { action: 'ANSWER'; compatible: boolean } | { ac
  * that source exists.
  */
 export function resolveBuiltInQuestion(
-  talk: Pick<Talk, 'role' | 'title'>,
+  talk: Pick<Talk, 'selfTag' | 'title'>,
   question: Pick<Question, 'builtIn'> & { text?: string },
   preferenceState: TypedPreferenceState,
   userId: string,
@@ -37,30 +39,35 @@ export function resolveBuiltInQuestion(
   if (!builtIn) return { action: 'ASK_USER' };
   if (builtIn.kind === 'location') return { action: 'ASK_USER' };
 
-  // Scoped by MY OWN role (the complement of the incoming talk's role), not the incoming
-  // talk's role directly — this must match the scope key `processTalkForm` (ui-manager.ts)
-  // saves under when I create MY OWN talk, where the scope is always my own talk's role. A
-  // buyer's incoming-talk-side lookup with role='request' and a buyer's own saved preference
-  // (from authoring their own role='request' talk) must resolve to the SAME scope key.
+  // Scoped by MY OWN selfTag (the opposite of the incoming talk's selfTag), not the incoming
+  // talk's selfTag directly — this must match the scope key `processTalkForm` (ui-manager.ts)
+  // saves under when I create MY OWN talk, where the scope is always my own talk's selfTag. A
+  // buyer's incoming-talk-side lookup (talk.selfTag='sell', opposite='buy') and a buyer's own
+  // saved preference (from authoring their own selfTag='buy' talk) must resolve to the SAME
+  // scope key.
   //
   // The question's own text is ALSO part of the scope key — without it, a talk with more than
   // one builtIn question (e.g. priceRange AND timeFrame in the same talk, §HH) would have both
-  // saved under the identical (role, title) key, the second silently overwriting the first.
-  const myRole = complementRole(talk.role);
-  const scopeKey = makeTypedPreferenceScopeKey(String(myRole || 'general'), talk.title, question.text);
+  // saved under the identical (selfTag, title) key, the second silently overwriting the first.
+  const myTag = getOppositeTagName(createSeededTagOppositePairRegistryState(), talk.selfTag || '');
+  const scopeKey = makeTypedPreferenceScopeKey(String(myTag || 'general'), talk.title, question.text);
   const myPref = getTypedPreference(preferenceState, userId, scopeKey);
   if (!myPref || myPref.kind !== builtIn.kind) return { action: 'ASK_USER' };
 
   if (builtIn.kind === 'quantity') {
-    if (typeof builtIn.quantity !== 'number' || typeof myPref.quantity !== 'number' || !talk.role) {
+    if (typeof builtIn.quantity !== 'number' || typeof myPref.quantity !== 'number' || !talk.selfTag) {
       return { action: 'ASK_USER' };
     }
     // Spec §30.2: buyer's want N, seller's declared available M -> compatible iff N <= M.
-    // The incoming talk's role tells us which side ITS declared quantity represents: role
-    // 'offer' means it declared what it HAS (M), so my own stored quantity is what I WANT (N);
-    // role 'request' means it declared what it WANTS (N), so mine is what I HAVE (M).
-    const want = talk.role === 'offer' ? myPref.quantity : builtIn.quantity;
-    const have = talk.role === 'offer' ? builtIn.quantity : myPref.quantity;
+    // The incoming talk's selfTag tells us which side ITS declared quantity represents:
+    // selfTag 'sell' means it declared what it HAS (M), so my own stored quantity is what I
+    // WANT (N); selfTag 'buy' means it declared what it WANTS (N), so mine is what I HAVE (M).
+    // Case-insensitive since selfTag is free text, not a fixed enum like role was; only the
+    // app-predefined 'sell' spelling resolves a direction today (same seeded-pairs-only scope
+    // as the rest of this function).
+    const isSell = talk.selfTag?.trim().toLowerCase() === 'sell';
+    const want = isSell ? myPref.quantity : builtIn.quantity;
+    const have = isSell ? builtIn.quantity : myPref.quantity;
     return { action: 'ANSWER', compatible: quantitySufficient(want, have) };
   }
 

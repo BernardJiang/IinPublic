@@ -215,17 +215,14 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-08-14 9:57pm PDT
+# [IinPublic] recent context, 2026-08-15 10:09pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (22,344t read) | 398,270t work | 94% savings
+Stats: 50 obs (29,756t read) | 442,746t work | 93% savings
 
-### Jun 14, 2026
-S25 Use local PC as CI — run ./scripts/ci-local.sh, fix failures, commit on green (Jun 14 at 3:52 PM)
-S26 DMG Confirmed at 247MB — Wine Not Installed, brew install wine-stable Started as Background Task (Jun 14 at 3:52 PM)
 ### Jul 2, 2026
 S27 Fix two failing Playwright E2E mass tests (02-survey-mass-exchange and 04-mixed-saturation) that fail during concurrent-wave test:all execution due to Gun mesh timing issues (Jul 2 at 11:31 PM)
 ### Jul 10, 2026
@@ -237,58 +234,60 @@ S31 Check the latest npm run test:all report for IinPublic project (Jul 25 at 5:
 S32 remote-control — investigating Playwright test results in IinPublic project (Jul 25 at 5:20 PM)
 ### Jul 27, 2026
 S33 remote-control — fix single Playwright test failure in IinPublic caused by visit counter regression (Jul 27 at 7:11 PM)
-S34 remote-control — Playwright test failure fixed and committed: switchChatroom visit counter idempotency regression (Jul 27 at 7:43 PM)
-### Aug 14, 2026
-1033 9:09p 🟣 Production Deployment Stack Configured: Render.yaml, Fixed Dockerfile, CORS, and Download Manifest
-1034 " 🟣 Local Production Server Boots Successfully on PORT=8090 with New npm start Script
-1035 9:10p 🟣 Production Server Smoke Test Passes: Security Fixes Confirmed, Socket.IO and Downloads Verified
-1036 " 🔵 public/downloads/ Contains Three Real Installer Files Already Staged for Production
-1037 " 🟣 Download Banner Extended to Detect Linux and iOS Platforms; Render Auto-Deploy Disabled
-1038 " 🔵 Render Dashboard Requires Login — No Existing Session in In-App Browser
-1039 9:11p 🔵 Production Server Request Logs Confirm Security Test Results at Structured Log Level
-1040 " 🟣 Security Boundary and CORS Override Behavior Covered by New Unit Tests
-1041 " 🟣 All 8 Production Tests Pass; ESLint Clean; build:production Succeeds — Ready to Push and Deploy
-1044 9:17p ⚖️ Node.js Server Setup for iinpublic.com
-1045 9:18p 🔵 iinpublic Node.js Server Already Built and Running
-1046 " 🔵 Self-Signed TLS Cert for LAN HTTPS Dev with TLS_DISABLE Escape Hatch
-1047 9:19p 🔵 Production Deployment Plan: Render.com + Docker + DNS Cutover from Google to iinpublic.com
-1048 " 🔵 Gun Hub URL Port-Mapping Architecture: web 3001+N → gun 8080+N
-1049 " 🔵 /api/debug/storage Returns 404 — Called by syncConversationTransportFromServer(), Silently Ignored
-1050 " 🔵 mkcert Available but Not Used; Self-Signed Cert Not in System Keychain
-1051 9:20p 🟣 HTTPS-Only Server Policy with Three-Mode TLS Architecture
-1052 " 🔴 Test Fixture Updated for HTTPS-Only CORS Policy
-1053 9:21p 🔵 HTTPS-Only Build Verified: All Tests Pass and Production Server Starts with Dev Cert
-1054 " 🔵 Live HTTPS Verification: HTTP Plaintext Fully Rejected; WebSocket over WSS Fails with Self-Signed Cert
-1055 " 🔵 Socket.IO WSS Connection Times Out — rejectUnauthorized Option Placement Wrong for socket.io-client
-1056 9:22p 🔵 WSS WebSocket Connectivity Confirmed — ws Library Connects; socket.io-client Was the Issue
-1057 " 🔵 Cross-Device LAN HTTPS Confirmed: Windows PC at 192.168.10.67 Connected Over Self-Signed Cert
-1058 " 🔵 Two Intentional Plaintext References Remain After HTTPS-Only Sweep
-1059 9:23p 🟣 App Download Banner Expanded to Support Linux and iOS Platforms
-1060 " 🟣 Production CORS Allowlist Finalized for iinpublic.com and Render Hostname
-1061 9:24p ✅ Committed "feat: prepare HTTPS-only production hosting" to dev Branch (82764311)
-1062 9:26p 🔵 Staged App Downloads Are Outdated and Include Debug Builds — Not Ready for Public Release
-1063 " 🔵 iOS Version Stuck at 1.0 / Build 1; Desktop Auto-Update Wired to GitHub Releases
-1064 9:28p 🟣 Android Startup Speed Optimized: Chatrooms Render Before Gun/SEA Hydration
-1065 " 🔵 Seven-Client Real-Device E2E Matrix: Three Android Phones + Mac + Three Browsers
-1066 " 🔴 Three E2E Test Failures Fixed: Talk Delivery, Find-Similar Timeout, Isolated Saturation
-1067 " 🔵 Wine Available on Mac for Windows Build Testing; Downloads API Now Handles All 5 Platforms
-1068 9:30p 🔵 Desktop Build Artifacts: Mac at 1.0.7, Windows/Linux at 1.0.3; CI Triggers on Wrong Branch Names
-1069 9:31p 🔵 Version Bumped to 1.0.9; All Platforms Synchronized; Android versionCode Encoding Changed
-1070 9:32p 🔵 Windows 1.0.9 Desktop Build In Progress; 17 npm Audit Vulnerabilities in Desktop Shell
-1071 " 🔵 NSIS Installer "IinPublic Setup 1.0.9.exe" Being Written; oneClick=false perMachine=false
-1073 9:33p 🔵 Windows 1.0.9 Installer Staged (73MB); Local HTTPS Server Already Running on :8080
-1074 9:34p 🔵 Server Restart Confirmed; /api/downloads Returns version Field; Plain HTTP Correctly Rejected
-1075 9:35p 🔵 Download Security Hardening: HTTP URLs Rejected, Stale Installer URLs Blocked at Route Level, iOS Build Number Fixed
-1076 " 🔵 LAN IP Changed to 192.168.10.48; Dev Cert SAN Covers 192.168.10.50 — Certificate Mismatch on LAN
-1077 9:36p 🔵 DNS Still Points to Google; docs/LAN-HTTPS.md Has Outdated NODE_ENV=production Note; gen-dev-cert.sh Supports LAN_IP Override
-1081 9:42p ✅ Working Change Committed via Git
-1082 " 🔵 Failing Unit Test: downloads-routes "blocks stale installer URLs"
-1083 9:43p 🔴 Fixed Failing downloads-routes Test: Stale Installer URL Blocking
-1084 " 🟣 Version-Gated App Download Routes with Stale Installer Blocking
-1085 " 🟣 Version Sync Scripts and npm hooks for Multi-Platform Version Management
-1086 " ✅ CI Workflows Now Enforce Version Synchronization
-1087 " ✅ DEPLOY_PRODUCTION.md Updated for New Version and Download Workflow
-1088 9:44p ✅ Committed: "fix: synchronize app release downloads" (f3c2ffb8)
+S34 remote-control — Playwright test failure fixed and committed: switchChatroom visit counter idempotency regression (Jul 27 at 7:16 PM)
+S35 Verify broadcast function correctness — chatroom-tab (per-receiver delta) and contacts-tab (group filtering, offline treatment) — produce TODO list, no code changes (Jul 27 at 7:43 PM)
+### Aug 15, 2026
+1097 9:23p 🔵 canUserBroadcast Server Gate Is Orphaned — No Callers After talk-delivery-routes.ts Deletion
+1098 9:24p 🔵 FR-CR-12 Guest Broadcast Gate — Enforcement Fully Removed, No Client or Server Enforcement Remains
+1099 " 🔵 syncStatusBroadcastButtonVisibility Has No Role Check — Only Disables When No Chatroom Active
+1100 9:25p 🔵 Broadcast Function — Complete Verified Architecture Summary (Both Flows)
+1101 9:30p ✅ IinPublic Identity Management: Actionable UI/UX Plan Documented
+1102 9:31p 🔵 IinPublic Identity Architecture: Full 659-Line TODO Document Mapped
+1103 9:32p 🔵 Settings Tab &amp; Identity Management GUI: Current Implementation State Mapped
+1104 " 🔵 Key Custody Implementation: Device-Secret-Only Encryption, No User Password Layer
+1105 9:34p ✅ Identity Architecture TODO Replaced With 6-Section Actionable Plan
+1106 9:35p ✅ Section 18 Renamed: Recovery Reframed as Intentionally Unavailable in v1
+1107 9:38p 🔴 Old Tags Not Sent to Late Joiners — Bug Confirmed via Manual Testing
+1108 " 🟣 Friends/Coworkers Overlapping Groups Added to Contact
+1109 9:39p 🔵 Tag Broadcast Architecture for Late Joiners in ui-manager.ts
+1110 " 🔵 Late Joiner Broadcast Flow: getUnsentBroadcastTalkIdsForReceiver is the Key Filter
+1111 " 🔵 Broadcast Tag Targeting Logic in bulk-broadcast-audience.ts
+1112 " 🔵 appendBulkBroadcastDeliveryRejections Is Defined But Never Called in Broadcast Pipeline
+1113 " 🔵 broadcastTalk Event Handler Full Flow: Automatic Path Skips Audience Confirmation Modal
+1114 9:40p 🔵 broadcastTargetTags Declared in Event Type But Never Applied in Delivery Logic
+1115 " 🔵 deliverPendingBroadcastTalksForE2e: Dedicated E2E Broadcast Hook in app.ts
+1116 9:41p 🔵 Tag Talk Type vs Broadcast Target Tags: Two Distinct Concepts in Codebase
+1117 " 🔵 Root Cause of Late Joiner Bug: shouldSuppressForPeer and Edge Gate May Block Delivery
+1118 " 🔵 E2E Test Structure: No Late Joiner Coverage; Broadcast Tests in stage2/stage3/stage5
+1119 " 🔵 Two Late Joiner Broadcast Triggers Found: syncPeerMeshRoom and broadcastPendingTalksOnRoomEntry
+1120 " 🔵 E2E Test Pattern for Broadcast: bootstrapUser + deliverPendingBroadcastTalksForE2e + talk-list-item assertion
+1121 9:42p 🔵 Contact Groups: friend/coworker Labels Exist But Single-Valued — Overlap Requires Data Model Change
+1122 9:43p 🔵 Contact Relationship Modal UI: Single-Value Dropdown Must Become Multi-Select for Overlap
+1123 9:44p 🔵 Subagent Research Confirms: Late Joiner Bug Is NOT About Tag Targeting — Both Paths Skip It Equally
+1124 " 🔵 KnownPerson Label Migration Risk: No Schema Versioning in SEA-Encrypted Private Data
+1125 " 🔵 syncPeerMeshRoom Race: Late Joiner Catch-Up Silently Dropped If Room Changes During joinRoom()
+1126 9:52p 🔵 shouldSuppress() Root Cause Confirmed: TALK_SENT Ledger Entry Blocks Late Joiner Catch-Up
+1127 " 🔵 FR-CG-3 (Coworker Group) Listed as Pending in Existing Contact Group E2E Test
+1128 " 🔵 Public Key Recovery Scenario After Device Loss with Multi-Device Social ID Linking
+1129 9:53p 🔵 Ledger Suppression NOT Root Cause: getBroadcastableTalkIds Returns Talks as Broadcastable to New Late Joiners
+1130 9:58p 🔵 Device Loss Key Management: Original Public Key Options After Social ID Migration to Second Device
+1131 " 🔵 IinPublic Identity & Key Architecture: Full Design Document Structure Revealed
+1132 9:59p ✅ DeviceAuthorization Gains Explicit Capabilities Field and Data Migration Sections (4.1–4.3) Added
+1133 " ✅ Section 8.1 Added: Losing the Original Phone — Two-Model Analysis of Public Key Options
+1134 " ✅ Architecture Doc: A5 Separates Three Promises, B9 Defines Data Migration GUI, C1 Gains Sync Consent Events
+S36 Two tasks: (1) Add E2E test + fix for old tags not being sent to late-joining chatroom members; (2) Add overlapping friend/coworker group support to contact system (Aug 15 at 9:59 PM)
+1135 " ✅ WP5 Renamed to Encrypted Migration/Sync; WP6/WP7 Renumbered; Delivery Plan Restructured
+1136 " ✅ Acceptance Matrix and Core Design Rules Extended with Migration, Sync, and Lost-Phone Criteria
+1137 10:00p ✅ C2 Deferred Items Clarified: Public Aggregation Deferred, Local Encrypted Replication Is Not
+1138 " ✅ Architecture Doc Session Complete: 830 Insertions, 76 Deletions Across Full Identity & Key Document
+1139 10:04p 🔵 Platform App Attestation Research: Apple App Attest and Google Play Integrity API Mechanisms
+1140 " 🔵 Section 16 Already Positions Apple App Attest and Play Integrity as Optional Future Layers, Not v1 Requirements
+1141 10:05p ✅ Section 16 Expanded from Stub to Full Software Attestation Specification (16.1–16.7)
+1142 " ✅ A6 Decision Gate, B10 App Authenticity GUI, and C1 Credential Schema Added to Architecture Doc
+1143 10:06p ✅ WP7 Becomes Official App Authentication Delivery Package; WP8 Inherits Identity Continuity Work
+1144 " ✅ Acceptance Matrix Gains Official App Authentication Section; Core Design Rules Extended to 16
+1145 " ✅ Full Session Summary: Architecture Doc Grew by 1169 Insertions Across Two Capability Areas
+1146 10:07p 🔵 Current App IDs Confirmed: com.iinpublic.app on Both Platforms; iOS Missing Team ID and Distribution Config
 
-Access 398k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 443k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

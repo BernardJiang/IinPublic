@@ -1,4 +1,4 @@
-import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind, type TalkRole } from '../../shared/types';
+import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind } from '../../shared/types';
 import {
   deriveBackendApiBaseFromLocation,
   KEY_CUSTODY_DEVICE_SECRET_STORAGE,
@@ -13,7 +13,6 @@ import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
 import { getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { getMyTalks } from '../ui/my-talks-storage';
-import { pickClosestCandidate } from '../../shared/closest-match';
 import { loadConnectivitySettings, type ConnectivitySettings } from '../ui/connectivity-settings';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
@@ -29,7 +28,7 @@ import {
   type TechSupportIdentity,
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
+import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch, computeRouteMatchScore } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
@@ -167,17 +166,6 @@ type MailboxSupportQuestionPayload = {
   askedAt: string;
 };
 
-/** How long to wait for competing same-content marketplace offers before ranking by distance
- *  and committing to the nearest one (`stageClosestMatchCandidate`). */
-const CLOSEST_MATCH_WINDOW_MS = 800;
-
-type ClosestMatchStagedCandidate = {
-  talkId: string;
-  talkData: any;
-  authorId: string;
-  authorName: string;
-};
-
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -197,13 +185,6 @@ export class IinPublicApp {
   private chatbotAutoReplySentForPair = new Set<string>();
   /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
   private chatbotAutoReplyRetryCountByPair = new Map<string, number>();
-  /** Closest-match staging for `role: 'offer'|'request'` marketplace talks — candidates with
-   *  identical content from different authors, keyed by content-hash, collected for a short
-   *  window before ranking by distance. See `stageClosestMatchCandidate`. */
-  private pendingClosestMatchGroups = new Map<string, ClosestMatchStagedCandidate[]>();
-  private closestMatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Once a group has picked a winner, any further same-group candidate is declined immediately. */
-  private closedMarketplaceGroups = new Set<string>();
   private subscribedMemberCountRoomIds = new Set<string>();
   private stageZeroLastMemberCounts = new Map<string, number>();
   private stageZeroRepairInFlight = false;
@@ -2416,34 +2397,6 @@ export class IinPublicApp {
     const incomingVersion = payload.version ?? 1;
     const incomingRespondedAt = payload.respondedAt ?? payload.submittedAt;
 
-    // Marketplace exclusivity (taxi/dealmaker `role: 'offer'|'request'` talks): once this talk
-    // already produced a match, a genuinely NEW responder (no priorOutcome — an existing
-    // responder's own version-bump/re-answer is untouched) is "sorry, already taken" rather than
-    // a second conversation. No such guard existed before this feature — every prior responder
-    // independently formed their own match.
-    if (
-      !priorOutcome &&
-      this.isExclusiveMarketplaceTalk(talkData) &&
-      getMyTalks()[payload.talkId]?.disabled
-    ) {
-      console.debug(`[Marketplace] Rejecting new inquiry from ${payload.responderId} for talkId=${payload.talkId} — already matched/busy`);
-      this.processedTalkResponseKeys.add(dedupeKey);
-      this.recordLocalTalkExchange(
-        payload.responderId,
-        decrypted.responderName,
-        payload.talkId,
-        talkData,
-        'mismatch',
-        {
-          responseId: payload.responseId,
-          version: incomingVersion,
-          respondedAt: incomingRespondedAt,
-          answers: decrypted.answers,
-        },
-      );
-      return;
-    }
-
     if (priorOutcome) {
       const identityKey = buildTalkIdentityKey(talkData);
       // Use applyEvent to determine if this update should be accepted.
@@ -2493,10 +2446,9 @@ export class IinPublicApp {
       const changedAt = incomingRespondedAt;
 
       if (!wasMatch && nowMatch) {
-        // ignore → match: create conversation. Marketplace exclusivity: mark busy
-        // synchronously, before the awaited conversation-creation work below — see the
-        // matching comment in the "no prior entry" branch further down for why.
-        if (this.isExclusiveMarketplaceTalk(talkData)) this.uiManager.setTalkDisabled(payload.talkId, true);
+        // ignore → match: create conversation. No auto-disable here — matches aren't
+        // exclusive; the talk only disables once a Deal is mutually confirmed (see the
+        // deal-confirmation flow).
         this.uiManager.showNotification(
           `${decrypted.responderName} changed their answer — now a match · ${new Date(changedAt).toLocaleTimeString()}`,
           'success',
@@ -2509,6 +2461,8 @@ export class IinPublicApp {
           talkId: payload.talkId,
           respondedByBotForUser1: !!decrypted.isChatbotResponse,
           respondedByBotForUser2: false,
+          dealEligible: this.isDealEligibleTalk(talkData),
+          ...this.matchScoreParamsFor(talkData, decrypted.answers),
         });
         this.uiManager.maybeShowMatchSafetyToast();
         this.uiManager.addNewConversation({
@@ -2519,6 +2473,8 @@ export class IinPublicApp {
           respondedByBot: !!decrypted.isChatbotResponse,
           transportMode: this.conversationService.getTransportMode(),
           changeOfMindAt: changedAt,
+          dealEligible: this.isDealEligibleTalk(talkData),
+          ...this.matchScoreParamsFor(talkData, decrypted.answers),
         });
         await this.autoShareMatchedTalkAttachments({
           conversationId,
@@ -2565,14 +2521,9 @@ export class IinPublicApp {
       },
     );
     if (!isMatch) return;
-    // Marketplace exclusivity: mark busy SYNCHRONOUSLY, right here, before any further `await`
-    // in this function — not after createConversation/autoShareMatchedTalkAttachments below.
-    // Two concurrent responses (e.g. two drivers both racing to match the same passenger) each
-    // resume this function at their own pace across several earlier `await`s; if the disable
-    // happened only after the (awaited) conversation-creation work, both could pass the
-    // busy-guard check above before either had set the flag, double-booking the owner. Setting
-    // it here, synchronously, closes that window — whichever call reaches this line first wins.
-    if (this.isExclusiveMarketplaceTalk(talkData)) this.uiManager.setTalkDisabled(payload.talkId, true);
+    // No auto-disable here — matches aren't exclusive; multiple candidates can all form
+    // conversations for the same talk. The talk only disables once a Deal is mutually
+    // confirmed (see the deal-confirmation flow).
     const conversationId = await this.conversationService.createConversation({
       userId1: this.currentUser.id,
       userName1: this.currentUser.stageName,
@@ -2581,6 +2532,8 @@ export class IinPublicApp {
       talkId: payload.talkId,
       respondedByBotForUser1: !!decrypted.isChatbotResponse,
       respondedByBotForUser2: false,
+      dealEligible: this.isDealEligibleTalk(talkData),
+      ...this.matchScoreParamsFor(talkData, decrypted.answers),
     });
     this.uiManager.maybeShowMatchSafetyToast();
     this.uiManager.addNewConversation({
@@ -2590,6 +2543,8 @@ export class IinPublicApp {
       talkId: payload.talkId,
       respondedByBot: !!decrypted.isChatbotResponse,
       transportMode: this.conversationService.getTransportMode(),
+      dealEligible: this.isDealEligibleTalk(talkData),
+      ...this.matchScoreParamsFor(talkData, decrypted.answers),
     });
     // Match! toast after the conversation exists so clicking it navigates there (rule N6).
     this.uiManager.showNotification(
@@ -2608,11 +2563,64 @@ export class IinPublicApp {
     this.uiManager.setMemberMatched(payload.responderId);
   }
 
-  /** Taxi/dealmaker-style `role: 'offer'|'request'` talks are exclusive — one match closes it,
-   *  and further first-time inquiries get rejected instead of forming additional matches. Plain
-   *  roleless talks (surveys, generic flows) are unaffected and can match repeatedly as before. */
-  private isExclusiveMarketplaceTalk(talkData: any): boolean {
-    return talkData?.role === 'offer' || talkData?.role === 'request';
+  /** A talk that declares a self-tag/preference-set pair (spec §30.2 — taxi/dealmaker/buy-sell
+   *  style deals) is deal-eligible: matches against it aren't unique on their own (several
+   *  compatible responders can each form a conversation), so the conversation view offers an
+   *  explicit "Confirm Deal" step, and confirming on both sides is what finally closes the
+   *  listing. Plain talks with no declared preferenceSet (surveys, generic flows) never show
+   *  deal UI and can match repeatedly with no finalization step, same as before this existed. */
+  private isDealEligibleTalk(talkData: any): boolean {
+    return !!talkData?.selfTag && Array.isArray(talkData?.preferenceSet) && talkData.preferenceSet.length > 0;
+  }
+
+  /** Route `matchThreshold` scoring result (spec §30.2) for a confirmed match, if applicable —
+   *  threaded into `createConversation`/`addNewConversation` so the talk owner's "Matched
+   *  items" list (`renderCreatorReplies`, ui-manager.ts) can sort/display it. Empty object for
+   *  anything other than a matchThreshold route (ordinary flow/tag talks, or routes without
+   *  `matchThreshold` set) — the conversation record simply carries no score fields. */
+  private matchScoreParamsFor(talkData: any, answers: any[]): { matchScore?: number; matchTotal?: number } {
+    const result = computeRouteMatchScore(talkData, answers);
+    return result ? { matchScore: result.score, matchTotal: result.total } : {};
+  }
+
+  /**
+   * Runs once a conversation's `dealConfirmedBy` includes BOTH participants — called both from
+   * the local `confirmDeal` click handler and (idempotently) whenever a synced conversation
+   * record shows the same thing, since "both confirmed" can become true on EITHER participant's
+   * device depending on who clicks second, and each side only has the context to run its own
+   * half of the finalization (only the talk's own author has a talk to disable).
+   *
+   * Deliberately does NOT restrict itself to `conversation.talkId`/`relatedTalkIds`: with
+   * bidirectional exchange (both sides can independently auto-reply to the other's broadcast),
+   * the successful match can go through EITHER side's own talk depending on which direction's
+   * mesh delivery happened to complete first — the conversation record only ever reflects
+   * whichever one actually fired, so a participant whose own broadcast was the one that never
+   * got a direct response would have no candidate talkId to find here at all. Instead: once I've
+   * confirmed a deal with someone, disable ALL of my own outstanding created deal-eligible
+   * talks — for the "I have one listing out" case this session's scenarios exercise, that's
+   * exactly the intended one; a user running several simultaneous listings and expecting
+   * confirming one deal to leave the others untouched is a real v2 nuance, not handled here.
+   *
+   * Known gap, not silently swept: this only disables MY OWN talk(s) on MY OWN device. It does
+   * NOT mark a DIFFERENT candidate's conversation (e.g. a losing driver with their own separate
+   * talkId, matched against the same passenger's request) as "no longer available" — grouping
+   * "other candidates for the same underlying need" needs its own talkId->need mapping that
+   * doesn't exist yet. See docs/TODO.md.
+   */
+  private maybeFinalizeConfirmedDeal(dealConfirmedBy: string[], otherUserId?: string): void {
+    if (!this.currentUser?.id || !otherUserId) return;
+    const bothConfirmed =
+      dealConfirmedBy.includes(this.currentUser.id) && dealConfirmedBy.includes(otherUserId);
+    if (!bothConfirmed) return;
+
+    const myTalks = getMyTalks();
+    for (const [talkId, entry] of Object.entries(myTalks) as Array<[string, any]>) {
+      if (!entry || entry.role !== 'created' || entry.disabled) continue;
+      const fullTalk = entry.fullTalk || entry;
+      if (this.isDealEligibleTalk(fullTalk)) {
+        this.uiManager.setTalkDisabled(talkId, true);
+      }
+    }
   }
 
   /**
@@ -3060,136 +3068,8 @@ export class IinPublicApp {
     this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
     this.chatbotAutoReplySentForPair.add(pairKey);
 
-    if (this.isExclusiveMarketplaceTalk(talkData)) {
-      // Taxi/dealmaker-style role talk: don't commit immediately — other same-content offers
-      // from different authors may still be in flight. Stage and rank by distance instead.
-      this.stageClosestMatchCandidate(contentId, { talkId, talkData, authorId, authorName });
-      return;
-    }
-
     console.log('🤖 Chatbot auto-reply triggered', { talkId, contentId, authorId, authorName });
     this.tryChatbotReply(talkId, talkData, authorId, authorName);
-  }
-
-  /**
-   * Collects same-content (`contentId`) marketplace candidates from different authors for
-   * `CLOSEST_MATCH_WINDOW_MS`, then ranks by distance to `this.currentLocation` and commits to
-   * the nearest via the normal chatbot-reply path; the rest get an explicit decline instead of
-   * a match. If this content group already has a winner, a new candidate is declined outright —
-   * this is the "busy, reject new inquiries" behavior from the responder's own side (mirrors the
-   * owner-side guard in `handleMeshTalkResponse`).
-   */
-  private stageClosestMatchCandidate(groupKey: string, candidate: ClosestMatchStagedCandidate): void {
-    if (this.closedMarketplaceGroups.has(groupKey)) {
-      this.declineMarketplaceCandidate(candidate);
-      return;
-    }
-    const staged = this.pendingClosestMatchGroups.get(groupKey) ?? [];
-    staged.push(candidate);
-    this.pendingClosestMatchGroups.set(groupKey, staged);
-
-    const existingTimer = this.closestMatchTimers.get(groupKey);
-    if (existingTimer) clearTimeout(existingTimer);
-    this.closestMatchTimers.set(
-      groupKey,
-      setTimeout(() => this.resolveClosestMatchGroup(groupKey), CLOSEST_MATCH_WINDOW_MS),
-    );
-  }
-
-  private resolveClosestMatchGroup(groupKey: string): void {
-    const staged = this.pendingClosestMatchGroups.get(groupKey) ?? [];
-    this.pendingClosestMatchGroups.delete(groupKey);
-    this.closestMatchTimers.delete(groupKey);
-    if (staged.length === 0) return;
-    if (this.closedMarketplaceGroups.has(groupKey)) {
-      for (const candidate of staged) this.declineMarketplaceCandidate(candidate);
-      return;
-    }
-
-    const result = pickClosestCandidate(
-      staged.map((c) => ({
-        talkId: c.talkId,
-        authorId: c.authorId,
-        authorLocation: c.talkData?.authorLocation ?? null,
-      })),
-      this.currentLocation ?? null,
-    );
-    if (!result) return;
-
-    this.closedMarketplaceGroups.add(groupKey);
-    const winner = staged.find(
-      (c) => c.talkId === result.winner.talkId && c.authorId === result.winner.authorId,
-    );
-    if (!winner) return;
-    console.log(
-      `🚕 Closest-match winner for group ${groupKey}: ${winner.authorName}` +
-        (result.distanceMiles != null ? ` (${result.distanceMiles.toFixed(2)} mi)` : '') +
-        `, declining ${result.losers.length} other candidate(s)`,
-    );
-    // Note: does NOT disable our own complementary talk here — that only happens once
-    // submitTalkResponsePairDirect actually confirms isMatch===true (see there). Disabling at
-    // "decided to try" time would withdraw our own talk from the room before we even know
-    // whether this candidate is still reachable/willing, breaking our own future broadcasts for
-    // no reason if the match doesn't pan out.
-    this.tryChatbotReply(winner.talkId, winner.talkData, winner.authorId, winner.authorName);
-
-    for (const loser of result.losers) {
-      const loserCandidate = staged.find(
-        (c) => c.talkId === loser.talkId && c.authorId === loser.authorId,
-      );
-      if (loserCandidate) this.declineMarketplaceCandidate(loserCandidate);
-    }
-  }
-
-  /** Explicitly answers "ignore" for a marketplace talk this device decided not to pursue —
-   *  a genuinely closest-wins loser, or a new inquiry to a group that's already matched. */
-  private declineMarketplaceCandidate(candidate: ClosestMatchStagedCandidate): void {
-    const ignoreAnswers = this.buildIgnoreAnswersForTalk(candidate.talkData);
-    if (!ignoreAnswers) return;
-    void this.submitTalkResponsePairDirect({
-      talkId: candidate.talkId,
-      talkData: candidate.talkData,
-      answers: ignoreAnswers,
-      isChatbotResponse: true,
-      authorId: candidate.authorId,
-      authorName: candidate.authorName,
-      isAutoResponse: true,
-    });
-  }
-
-  /** Every question needs an explicit `isIgnore`-flagged answer to build a clean decline;
-   *  returns null (no response sent) rather than guessing when a talk doesn't have one. */
-  private buildIgnoreAnswersForTalk(
-    talkData: any,
-  ): Array<{ questionId: string; answerId: string; answerText?: string; mode: string }> | null {
-    const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
-    if (questions.length === 0) return null;
-    const out: Array<{ questionId: string; answerId: string; answerText?: string; mode: string }> = [];
-    for (const q of questions) {
-      const answers = Array.isArray(q?.answers) ? q.answers : [];
-      const ignoreAnswer = answers.find((a: any) => a?.isIgnore);
-      if (!ignoreAnswer) return null;
-      out.push({ questionId: q.id, answerId: ignoreAnswer.id, answerText: ignoreAnswer.text, mode: 'auto' });
-    }
-    return out;
-  }
-
-  /** "I just matched" — auto-withdraw my own outstanding talk(s) of the complementary
-   *  marketplace role (e.g. a passenger's request talk once they've matched a driver) so I
-   *  stop being offered as a candidate to anyone else. */
-  private disableOwnMarketplaceTalksComplementaryTo(otherTalkData: any): void {
-    const complementaryRole =
-      otherTalkData?.role === 'offer' ? 'request' : otherTalkData?.role === 'request' ? 'offer' : null;
-    if (!complementaryRole) return;
-    const myTalks = getMyTalks();
-    for (const [talkId, entry] of Object.entries(myTalks)) {
-      if (entry.role !== 'created' && entry.role !== 'copied') continue;
-      if (entry.disabled) continue;
-      const fullTalk = entry.fullTalk || entry;
-      if (fullTalk?.role === complementaryRole) {
-        this.uiManager.setTalkDisabled(talkId, true);
-      }
-    }
   }
 
   /** Load full talk for an incoming mesh/local announcement. */
@@ -3902,7 +3782,7 @@ export class IinPublicApp {
     const isChatbot = !!data.isChatbotResponse;
     const locallyLooksLikeMatch =
       !!data.talkData &&
-      checkIfMatch(data.talkData, data.answers, this.resolveResponderRoleForAnswers(data.talkData, data.answers));
+      checkIfMatch(data.talkData, data.answers, this.resolveResponderSelfTagForAnswers(data.talkData, data.answers));
     const isE2eLocalOnlyReject =
       data.talkData?.e2eLocalOnlyReject === true &&
       !locallyLooksLikeMatch &&
@@ -4040,12 +3920,12 @@ export class IinPublicApp {
     }
     // The canonical match decision (both the manual-click path via handleTalkCompleted and
     // the chatbot's auto-reply path via tryChatbotReply funnel through here) — resolving my
-    // own role here is what makes the same-role veto authoritative regardless of how the
-    // answers were chosen, not just an optimization the chatbot's findAutoAnswer short-circuits.
+    // own selfTag here is what makes the preference-set veto authoritative regardless of how
+    // the answers were chosen, not just an optimization the chatbot's findAutoAnswer short-circuits.
     const isMatch = checkIfMatch(
       params.talkData,
       params.answers,
-      this.resolveResponderRoleForAnswers(params.talkData, params.answers),
+      this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
     );
     const isIgnore = params.answers.some((answer: any) => {
       const answerId = String(answer?.answerId || '').toLowerCase();
@@ -4313,6 +4193,8 @@ export class IinPublicApp {
       talkId: params.talkId,
       respondedByBotForUser1: false,
       respondedByBotForUser2: params.isChatbotResponse,
+      dealEligible: this.isDealEligibleTalk(params.talkData),
+      ...this.matchScoreParamsFor(params.talkData, params.answers),
     });
     this.uiManager.maybeShowMatchSafetyToast();
     this.uiManager.addNewConversation({
@@ -4322,6 +4204,8 @@ export class IinPublicApp {
       talkId: params.talkId,
       respondedByBot: false,
       transportMode: this.conversationService.getTransportMode(),
+      dealEligible: this.isDealEligibleTalk(params.talkData),
+      ...this.matchScoreParamsFor(params.talkData, params.answers),
     });
     this.uiManager.setMemberMatched(params.authorId);
     this.ledgerEmit(InteractionKind.MATCH_CREATED, {
@@ -4329,28 +4213,23 @@ export class IinPublicApp {
       conversationId,
       otherUserId: params.authorId,
     });
-    // Marketplace exclusivity, responder side: NOW that a match is actually confirmed (not
-    // merely attempted — see stageClosestMatchCandidate's comment), withdraw my own outstanding
-    // complementary-role talk (e.g. a passenger's request once they've matched a driver) so I
-    // stop being offered to anyone else.
-    if (this.isExclusiveMarketplaceTalk(params.talkData)) {
-      this.disableOwnMarketplaceTalksComplementaryTo(params.talkData);
-    }
+    // No auto-withdraw here — a match doesn't close the listing anymore; only a mutually
+    // confirmed Deal does (see the deal-confirmation flow).
   }
 
   /**
-   * My own role for the last question of a would-be match, if I've ever recorded one for
-   * this exact question text (see ui-manager.ts's getMyRoleForQuestionText /
-   * exact-chatbot-memory.ts) — passed into checkIfMatch's same-role veto so a manual answer
-   * gets the same protection the chatbot's auto-reply already has via findAutoAnswer.
-   * Undefined (no veto) if I have no role history for this question or the talk itself
-   * declares no role.
+   * My own self-tag for the last question of a would-be match, if I've ever recorded one for
+   * this exact question text (see ui-manager.ts's getMySelfTagForQuestionText /
+   * exact-chatbot-memory.ts) — passed into checkIfMatch's preference-set veto so a manual
+   * answer gets the same protection the chatbot's auto-reply already has via findAutoAnswer.
+   * Undefined (no veto) if I have no self-tag history for this question or the talk itself
+   * declares no preferenceSet.
    */
-  private resolveResponderRoleForAnswers(talkData: any, answers: any[]): TalkRole | undefined {
+  private resolveResponderSelfTagForAnswers(talkData: any, answers: any[]): string | undefined {
     const lastAnswer = answers?.[answers.length - 1];
     const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
     if (!question?.text) return undefined;
-    return this.uiManager.getMyRoleForQuestionText(question.text, talkData?.language);
+    return this.uiManager.getMySelfTagForQuestionText(question.text, talkData?.language);
   }
 
   /** Resolve full talk using the receiver-owned local incoming-talk index. */
@@ -4831,24 +4710,6 @@ export class IinPublicApp {
       // out of their own contacts list.
       if (!otherUserId || otherUserId === this.currentUser.id) continue;
 
-      // Marketplace exclusivity: a conversation record for one of MY OWN already-busy
-      // exclusive talks, with someone OTHER than who I already matched, can arrive here via
-      // Gun sync independent of handleMeshTalkResponse — the losing side's own device commits
-      // its own local match and writes a shared conversation record before ever learning I'd
-      // already matched someone else. The mesh-response busy guard alone doesn't stop this
-      // second, separate ingestion path; reject it here too.
-      const myTalkEntryForConversation = conversationData.talkId ? getMyTalks()[conversationData.talkId] : undefined;
-      if (myTalkEntryForConversation?.disabled && this.isExclusiveMarketplaceTalk(myTalkEntryForConversation.fullTalk)) {
-        const existingConversations = JSON.parse(localStorage.getItem('myConversations') || '{}') as Record<string, any>;
-        const alreadyMatchedWithSomeoneElse = Object.values(existingConversations).some(
-          (conv: any) => conv?.talkId === conversationData.talkId && conv?.otherUserId && conv.otherUserId !== otherUserId,
-        );
-        if (alreadyMatchedWithSomeoneElse) {
-          console.debug(`[Marketplace] Ignoring synced conversation record for already-busy talkId=${conversationData.talkId} from ${otherUserId}`);
-          continue;
-        }
-      }
-
       let resolvedOtherUserName = otherUserName ?? 'Unknown';
       if (
         !resolvedOtherUserName ||
@@ -4891,7 +4752,22 @@ export class IinPublicApp {
         transportMode:
           conversationData.transportMode ?? this.conversationService.getTransportMode(),
         transportFallbackReason: conversationData.transportFallbackReason,
+        dealEligible: conversationData.dealEligible === true,
+        ...(conversationData.matchScore !== undefined ? { matchScore: conversationData.matchScore } : {}),
+        ...(conversationData.matchTotal !== undefined ? { matchTotal: conversationData.matchTotal } : {}),
       });
+
+      if (typeof conversationData.dealConfirmedByJson === 'string') {
+        try {
+          const dealConfirmedBy = JSON.parse(conversationData.dealConfirmedByJson);
+          if (Array.isArray(dealConfirmedBy)) {
+            this.uiManager.applyDealConfirmedBy(conversationData.conversationId, dealConfirmedBy);
+            this.maybeFinalizeConfirmedDeal(dealConfirmedBy, otherUserId);
+          }
+        } catch {
+          /* malformed sync payload — ignore, next sync tick will retry */
+        }
+      }
     }
   }
 
@@ -4962,6 +4838,19 @@ export class IinPublicApp {
       this.refreshStatusBar();
       this.ensureConversationPreviewSubscription(data.conversationId);
       void this.refreshConversationPresence();
+    });
+
+    // Spec §30.2 deal confirmation: a match on a selfTag/preferenceSet talk isn't exclusive
+    // on its own (several compatible candidates can each hold an open conversation) — the
+    // talk only disables, and other open candidates get marked "no longer available" on this
+    // device, once BOTH participants have confirmed here.
+    this.uiManager.on('confirmDeal', async (data: { conversationId: string }) => {
+      if (!this.currentUser?.id) return;
+      const conversation = this.uiManager.getMyConversations()[data.conversationId] as any;
+      if (!conversation) return;
+      const dealConfirmedBy = await this.conversationService.confirmDeal(data.conversationId, this.currentUser.id);
+      this.uiManager.applyDealConfirmedBy(data.conversationId, dealConfirmedBy);
+      this.maybeFinalizeConfirmedDeal(dealConfirmedBy, conversation.otherUserId);
     });
 
     this.uiManager.on('updateTalkFilters', async (filters: any) => {
@@ -5199,7 +5088,9 @@ export class IinPublicApp {
                 ...(talkFields.isAdult !== undefined ? { isAdult: talkFields.isAdult } : {}),
                 ...(talkFields.expiresAt !== undefined ? { expiresAt: talkFields.expiresAt } : {}),
                 ...(talkFields.locationRadiusMiles !== undefined ? { locationRadiusMiles: talkFields.locationRadiusMiles } : {}),
-                ...(talkFields.role !== undefined ? { role: talkFields.role } : {}),
+                ...(talkFields.selfTag !== undefined ? { selfTag: talkFields.selfTag } : {}),
+                ...(talkFields.preferenceSet !== undefined ? { preferenceSet: talkFields.preferenceSet } : {}),
+                ...(talkFields.matchThreshold !== undefined ? { matchThreshold: talkFields.matchThreshold } : {}),
               }),
               ...(ipfsAttachments ? { ipfsAttachments } : {}),
               ...(authorLocation ? { authorLocation } : {}),

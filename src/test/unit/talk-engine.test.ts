@@ -1,4 +1,4 @@
-import { TalkValidator, TalkAutofix, matchScore, checkIfMatch, checkIfIgnore, type SubmittedAnswer } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, matchScore, checkIfMatch, checkIfIgnore, computeRouteMatchScore, type SubmittedAnswer } from '../../shared/talk-engine';
 import { Talk } from '../../shared/types';
 
 describe('matchScore', () => {
@@ -493,6 +493,121 @@ describe('checkIfMatch / checkIfIgnore on route talks', () => {
     expect(checkIfMatch(hrRouteTalk, answers)).toBe(false);
     expect(checkIfIgnore(hrRouteTalk, answers)).toBe(true);
   });
+
+  it('an ordinary route talk (no matchThreshold) is byte-for-byte unaffected by computeRouteMatchScore', () => {
+    expect(computeRouteMatchScore(hrRouteTalk, path(['q_position', 'a_accountant'], ['q_accountant_screen', 'a_cpa_yes']))).toBeNull();
+  });
+});
+
+describe('checkIfMatch — route matchThreshold scoring (independent specs, order-independent, partial match)', () => {
+  // Adam's "buy iPhone" route: root -> 3 independent sibling specs (color, condition, item),
+  // each exactly one question deep. matchThreshold: 2 means "at least 2 of the 3 specs must
+  // match" — partial match is the normal case, not "all 3 required."
+  const specRouteTalk: Talk = {
+    id: 'buy-iphone-route',
+    title: 'Buy Used White iPhone',
+    authorId: 'adam',
+    type: 'route',
+    isAdult: false,
+    language: 'en',
+    tags: [],
+    matchThreshold: 2,
+    questions: [
+      {
+        id: 'q_root',
+        text: 'What are you offering?',
+        contextPath: [],
+        answers: [
+          { id: 'a_root_color', text: 'Color', nextQuestionId: 'q_color' },
+          { id: 'a_root_condition', text: 'Condition', nextQuestionId: 'q_condition' },
+          { id: 'a_root_item', text: 'Item', nextQuestionId: 'q_item' },
+        ],
+      },
+      {
+        id: 'q_color',
+        text: 'Is it white?',
+        contextPath: [{ questionId: 'q_root', answerId: 'a_root_color' }],
+        answers: [
+          { id: 'a_color_yes', text: 'Yes, white', isMatch: true, isTerminal: true },
+          { id: 'a_color_no', text: 'No, a different color', isIgnore: true, isTerminal: true },
+        ],
+      },
+      {
+        id: 'q_condition',
+        text: 'Is it used?',
+        contextPath: [{ questionId: 'q_root', answerId: 'a_root_condition' }],
+        answers: [
+          { id: 'a_condition_yes', text: 'Yes, used', isMatch: true, isTerminal: true },
+          { id: 'a_condition_no', text: 'No, new', isIgnore: true, isTerminal: true },
+        ],
+      },
+      {
+        id: 'q_item',
+        text: 'Is it an iPhone?',
+        contextPath: [{ questionId: 'q_root', answerId: 'a_root_item' }],
+        answers: [
+          { id: 'a_item_yes', text: 'Yes, iPhone', isMatch: true, isTerminal: true },
+          { id: 'a_item_no', text: 'No, a different phone', isIgnore: true, isTerminal: true },
+        ],
+      },
+    ],
+    createdAt: new Date(),
+    isTemplate: false,
+    usageCount: 0,
+  };
+
+  const specAnswers = (color: 'yes' | 'no', condition: 'yes' | 'no', item: 'yes' | 'no'): SubmittedAnswer[] => [
+    { questionId: 'q_color', answerId: `a_color_${color}` },
+    { questionId: 'q_condition', answerId: `a_condition_${condition}` },
+    { questionId: 'q_item', answerId: `a_item_${item}` },
+  ];
+
+  it('scores a 3-of-3 (100%) response and matches', () => {
+    const answers = specAnswers('yes', 'yes', 'yes');
+    expect(computeRouteMatchScore(specRouteTalk, answers)).toEqual({ score: 3, total: 3 });
+    expect(checkIfMatch(specRouteTalk, answers)).toBe(true);
+  });
+
+  it('scores a partial 2-of-3 (66%) response as a match — partial match is the normal case, not an exception', () => {
+    const answers = specAnswers('yes', 'yes', 'no');
+    expect(computeRouteMatchScore(specRouteTalk, answers)).toEqual({ score: 2, total: 3 });
+    expect(checkIfMatch(specRouteTalk, answers)).toBe(true);
+  });
+
+  it('does not match a 1-of-3 response — below the threshold of 2', () => {
+    const answers = specAnswers('yes', 'no', 'no');
+    expect(computeRouteMatchScore(specRouteTalk, answers)).toEqual({ score: 1, total: 3 });
+    expect(checkIfMatch(specRouteTalk, answers)).toBe(false);
+  });
+
+  it('does not match a 0-of-3 response', () => {
+    const answers = specAnswers('no', 'no', 'no');
+    expect(computeRouteMatchScore(specRouteTalk, answers)).toEqual({ score: 0, total: 3 });
+    expect(checkIfMatch(specRouteTalk, answers)).toBe(false);
+  });
+
+  it('is exactly at the threshold boundary — score === matchThreshold matches (>=, not >)', () => {
+    const exactlyTwo: Talk = { ...specRouteTalk, matchThreshold: 2 };
+    const answers = specAnswers('yes', 'yes', 'no');
+    expect(checkIfMatch(exactlyTwo, answers)).toBe(true);
+  });
+
+  it('is order-independent — specs submitted in a different order produce the identical score', () => {
+    const inOrder = specAnswers('yes', 'yes', 'no');
+    const reordered: SubmittedAnswer[] = [inOrder[2], inOrder[0], inOrder[1]];
+    expect(computeRouteMatchScore(specRouteTalk, inOrder)).toEqual(computeRouteMatchScore(specRouteTalk, reordered));
+    expect(checkIfMatch(specRouteTalk, reordered)).toBe(checkIfMatch(specRouteTalk, inOrder));
+  });
+
+  it('ignores answers to questions outside the root\'s direct children rather than corrupting the score', () => {
+    const answers: SubmittedAnswer[] = [...specAnswers('yes', 'yes', 'no'), { questionId: 'not_a_real_question', answerId: 'x' }];
+    expect(computeRouteMatchScore(specRouteTalk, answers)).toEqual({ score: 2, total: 3 });
+  });
+
+  it('a talk with matchThreshold set but no recognizable root/children falls back to null (never throws)', () => {
+    const malformed: Talk = { ...specRouteTalk, questions: [] };
+    expect(computeRouteMatchScore(malformed, specAnswers('yes', 'yes', 'yes'))).toBeNull();
+  });
 });
 
 describe('checkIfMatch / checkIfIgnore — multi-value ("pick any that apply") questions, spec §30.8/FR-QA-16', () => {
@@ -569,6 +684,51 @@ describe('checkIfMatch / checkIfIgnore — multi-value ("pick any that apply") q
     } as any;
     expect(checkIfMatch(singleTalk, [{ questionId: 'q_0', answerId: 'a_match' }])).toBe(true);
     expect(checkIfIgnore(singleTalk, [{ questionId: 'q_0', answerId: 'a_ignore' }])).toBe(true);
+  });
+});
+
+describe('checkIfMatch — preference-set veto, spec §30.2 (generalizes the old Talk.role binary)', () => {
+  const dealTalk: Talk = {
+    id: 'talk-buy-iphone',
+    title: 'Buy Notebook',
+    type: 'tag',
+    selfTag: 'buy',
+    preferenceSet: ['sell'],
+    questions: [
+      {
+        id: 'q_0',
+        text: 'Do you sell this?',
+        answers: [
+          { id: 'a_yes', text: 'Yes', isMatch: true },
+          { id: 'a_no', text: 'No', isIgnore: true },
+        ],
+      },
+    ],
+  } as any;
+  const matchAnswers: SubmittedAnswer[] = [{ questionId: 'q_0', answerId: 'a_yes' }];
+
+  it('vetoes a match when the responder\'s own selfTag is NOT in the declared preferenceSet (two buyers)', () => {
+    expect(checkIfMatch(dealTalk, matchAnswers, 'buy')).toBe(false);
+  });
+
+  it('matches when the responder\'s own selfTag IS in the declared preferenceSet', () => {
+    expect(checkIfMatch(dealTalk, matchAnswers, 'sell')).toBe(true);
+  });
+
+  it('does not veto when the responder has no recorded selfTag at all — same permissive fallback role had', () => {
+    expect(checkIfMatch(dealTalk, matchAnswers, undefined)).toBe(true);
+  });
+
+  it('does not veto when the talk itself declares no preferenceSet, regardless of responder selfTag', () => {
+    const plainTalk: Talk = { ...dealTalk, selfTag: undefined, preferenceSet: undefined } as any;
+    expect(checkIfMatch(plainTalk, matchAnswers, 'buy')).toBe(true);
+  });
+
+  it('accepts several counterpart tags in one preferenceSet — "buy" satisfied by "sell" OR "offer" OR "free"', () => {
+    const broadTalk: Talk = { ...dealTalk, preferenceSet: ['sell', 'offer', 'free'] } as any;
+    expect(checkIfMatch(broadTalk, matchAnswers, 'offer')).toBe(true);
+    expect(checkIfMatch(broadTalk, matchAnswers, 'free')).toBe(true);
+    expect(checkIfMatch(broadTalk, matchAnswers, 'buy')).toBe(false);
   });
 });
 

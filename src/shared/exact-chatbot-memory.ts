@@ -1,5 +1,3 @@
-import type { TalkRole } from './types';
-
 export type AnswerMode = 'TEMPORARY' | 'PERMANENT' | 'SUPPRESSED';
 
 export type AutoAnswerAction = 'ANSWER' | 'ASK_USER' | 'SKIP';
@@ -11,7 +9,7 @@ export type AutoAnswerReason =
   | 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS'
   | 'TEMPORARY_HISTORY_MATCH'
   | 'NO_VALID_HISTORY_ANSWER'
-  | 'ROLE_CONFLICT';
+  | 'PREFERENCE_CONFLICT';
 
 export interface ChatbotUseEvent {
   usedAt: number;
@@ -36,13 +34,14 @@ export interface ChatbotQuestionSummary {
   latestTemporaryAnswerText: string | null;
   updatedAt: number;
   /**
-   * The two-sided deal role (see `Talk.role`) the user was holding when this answer was
-   * recorded — 'offer' if it came from their own offer-talk (or from answering someone
-   * else's request-talk), 'request' likewise. Undefined for answers with no role context.
-   * `findAutoAnswer` refuses to auto-answer when this equals the INCOMING talk's own role
-   * (e.g. two buyers), even if the question/answer text otherwise matches exactly.
+   * The self-tag (see `Talk.selfTag`, spec §30.2) the user was holding when this answer was
+   * recorded — e.g. "buy" if it came from their own buy-talk (or from answering someone
+   * else's sell-talk). Undefined for answers with no self-tag context. `findAutoAnswer`
+   * refuses to auto-answer when this ISN'T a member of the INCOMING talk's own
+   * `preferenceSet` (e.g. two buyers), even if the question/answer text otherwise matches
+   * exactly.
    */
-  role?: TalkRole;
+  selfTag?: string;
 }
 
 export interface ChatbotQuestionMemory {
@@ -177,7 +176,7 @@ export function saveTemporaryAnswer(
   answerText: string,
   now = Date.now(),
   context?: { language?: string },
-  role?: TalkRole,
+  selfTag?: string,
 ): { questionId: string; answerId: string; eventId: string } {
   const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const normalizedAnswer = normalizeText(answerText);
@@ -191,9 +190,9 @@ export function saveTemporaryAnswer(
     latestTemporaryAnswerId: answerId,
     latestTemporaryAnswerText: normalizedAnswer,
     updatedAt: now,
-    // Only overwrite when this save actually knows the role — an unrelated no-role save
-    // (e.g. a plain talk with no role at all) must not erase a role learned earlier.
-    ...(role !== undefined ? { role } : {}),
+    // Only overwrite when this save actually knows the selfTag — an unrelated no-tag save
+    // (e.g. a plain talk with no self-tag at all) must not erase a tag learned earlier.
+    ...(selfTag !== undefined ? { selfTag } : {}),
   };
   memory.history[eventId] = {
     mode: 'TEMPORARY',
@@ -215,7 +214,7 @@ export function savePermanentAnswer(
   answerText: string,
   now = Date.now(),
   context?: { language?: string },
-  role?: TalkRole,
+  selfTag?: string,
 ): { questionId: string; answerId: string; eventId: string } {
   const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const normalizedAnswer = normalizeText(answerText);
@@ -229,7 +228,7 @@ export function savePermanentAnswer(
     permanentAnswerId: answerId,
     permanentAnswerText: normalizedAnswer,
     updatedAt: now,
-    ...(role !== undefined ? { role } : {}),
+    ...(selfTag !== undefined ? { selfTag } : {}),
   };
   memory.history[eventId] = {
     mode: 'PERMANENT',
@@ -308,7 +307,7 @@ export function findAutoAnswer(
   currentOptions: string[],
   now = Date.now(),
   context?: { language?: string },
-  incomingTalkRole?: TalkRole,
+  incomingTalkPreferenceSet?: string[],
 ): AutoAnswerResult {
   const language = normalizedLanguage(context?.language);
   let questionId = makeQuestionId(questionText, language ? { language } : undefined);
@@ -322,13 +321,18 @@ export function findAutoAnswer(
     return { action: 'ASK_USER', reason: 'NO_HISTORY' };
   }
 
-  // Same-role veto (see Talk.role): this stored answer came from the user's own role in
-  // some other talk — if that role is the SAME as the talk currently asking (e.g. this
-  // memory came from being a buyer, and the incoming talk is also a buyer's), refuse to
-  // auto-answer no matter how exactly the question/answer text lines up. A different role,
-  // or no role on either side, is unaffected.
-  if (incomingTalkRole && memory.summary.role && memory.summary.role === incomingTalkRole) {
-    return { action: 'ASK_USER', reason: 'ROLE_CONFLICT' };
+  // Preference-set veto (see Talk.preferenceSet, spec §30.2): this stored answer came from
+  // the user's own self-tag in some other talk — if the talk currently asking declares a
+  // preferenceSet that doesn't include this self-tag (e.g. this memory came from being a
+  // buyer, and the incoming talk only accepts sellers), refuse to auto-answer no matter how
+  // exactly the question/answer text lines up. No declared preferenceSet, or no self-tag on
+  // either side, is unaffected.
+  if (
+    incomingTalkPreferenceSet?.length &&
+    memory.summary.selfTag &&
+    !incomingTalkPreferenceSet.includes(memory.summary.selfTag)
+  ) {
+    return { action: 'ASK_USER', reason: 'PREFERENCE_CONFLICT' };
   }
 
   const currentOptionMap = new Map<string, string>();
@@ -415,7 +419,7 @@ export function findAutoAnswerMultiple(
   currentOptions: string[],
   now = Date.now(),
   context?: { language?: string },
-  incomingTalkRole?: TalkRole,
+  incomingTalkPreferenceSet?: string[],
 ): AutoAnswerResult & { answerIds?: string[]; answerTexts?: string[] } {
   const language = normalizedLanguage(context?.language);
   let questionId = makeQuestionId(questionText, language ? { language } : undefined);
@@ -428,8 +432,12 @@ export function findAutoAnswerMultiple(
     return { action: 'ASK_USER', reason: 'NO_HISTORY' };
   }
 
-  if (incomingTalkRole && memory.summary.role && memory.summary.role === incomingTalkRole) {
-    return { action: 'ASK_USER', reason: 'ROLE_CONFLICT' };
+  if (
+    incomingTalkPreferenceSet?.length &&
+    memory.summary.selfTag &&
+    !incomingTalkPreferenceSet.includes(memory.summary.selfTag)
+  ) {
+    return { action: 'ASK_USER', reason: 'PREFERENCE_CONFLICT' };
   }
 
   const currentOptionMap = new Map<string, string>();
@@ -496,19 +504,19 @@ export function findAutoAnswerMultiple(
 }
 
 /**
- * The role (see `Talk.role`) recorded alongside the user's own stored answer for this
- * exact question text, if any — used by `checkIfMatch` (talk-engine.ts) callers to veto a
- * same-role match on the manual answering path, the same way `findAutoAnswer` already does
- * for the chatbot's automatic path. Mirrors `findAutoAnswer`'s own question-id resolution
- * (including the legacy pre-language-scoping fallback) so both paths agree on which memory
- * entry is "the" one for a given question.
+ * The self-tag (see `Talk.selfTag`, spec §30.2) recorded alongside the user's own stored
+ * answer for this exact question text, if any — used by `checkIfMatch` (talk-engine.ts)
+ * callers to veto a preference-set mismatch on the manual answering path, the same way
+ * `findAutoAnswer` already does for the chatbot's automatic path. Mirrors `findAutoAnswer`'s
+ * own question-id resolution (including the legacy pre-language-scoping fallback) so both
+ * paths agree on which memory entry is "the" one for a given question.
  */
-export function getRoleForQuestionText(
+export function getSelfTagForQuestionText(
   state: ExactChatbotMemoryState,
   userId: string,
   questionText: string,
   context?: { language?: string },
-): TalkRole | undefined {
+): string | undefined {
   const language = normalizedLanguage(context?.language);
   let questionId = makeQuestionId(questionText, language ? { language } : undefined);
   let memory = state.users[userId]?.[questionId];
@@ -516,5 +524,5 @@ export function getRoleForQuestionText(
     questionId = makeQuestionId(questionText);
     memory = state.users[userId]?.[questionId];
   }
-  return memory?.summary.role;
+  return memory?.summary.selfTag;
 }

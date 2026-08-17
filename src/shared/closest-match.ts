@@ -1,9 +1,10 @@
 /**
- * Closest-match selection for `role: 'offer'/'request'` marketplace-style talks (taxi
- * driver/passenger, dealmaker, etc.) — when several candidates with identical content arrive
- * from different authors within a short window, pick the nearest one instead of matching
- * whichever happened to arrive first. Pure functions only; the staging/debounce/mesh-response
- * plumbing lives in `IinPublicApp` (`src/web/app/app.ts`).
+ * Closest-match distance ranking for preference-set-based marketplace-style talks (taxi
+ * driver/passenger, dealmaker, buy/sell, etc.) — a pure, unit-tested helper for ranking several
+ * same-content candidates by distance. Not currently wired into any auto-reject flow (matches
+ * aren't exclusive; the deal-confirmation feature is what finalizes one — see `app.ts`); kept
+ * as a reusable building block for an optional future "sort open marketplace conversations by
+ * distance" UI.
  */
 import { haversineMilesBetween } from './talk-intake-filters';
 

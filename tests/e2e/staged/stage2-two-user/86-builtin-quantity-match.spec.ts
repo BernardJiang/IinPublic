@@ -2,7 +2,7 @@
  * Typed built-in comparison questions — spec §30.2, docs/TODO.md §BB.
  *
  * A "quantity" builtIn question compares typed numeric values instead of matching text: a
- * buyer's talk (role 'request') declares how many they want, a seller's talk (role 'offer')
+ * buyer's talk (selfTag 'buy') declares how many they want, a seller's talk (selfTag 'sell')
  * declares how many they have, and `resolveBuiltInQuestion` (built-in-question-resolution.ts)
  * auto-resolves the deal — no manual answer picking, no exact-text chatbot memory involved.
  *
@@ -32,7 +32,7 @@ async function createQuantityTalk(
   title: string,
   questionText: string,
   quantity: number,
-  role: 'offer' | 'request',
+  tag: 'buy' | 'sell',
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
@@ -40,7 +40,7 @@ async function createQuantityTalk(
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  await page.selectOption('#talk-role', role);
+  await page.fill('#talk-tag', tag);
 
   const q = page.locator('.question-item').first();
   await q.locator('.question-text').fill(questionText);
@@ -116,14 +116,14 @@ test.describe('Typed built-in "quantity" comparison questions (§BB)', () => {
     pageSeller = seller.page;
 
     // Scope-key alignment (built-in-question-resolution.ts): my own typed preference is saved
-    // under (my own talk's role, my own talk's title) at creation time, and looked up under
-    // (my own complement role, the INCOMING talk's title) when auto-resolving — so both sides
-    // must share the same title, not just the same question text.
+    // under (my own talk's selfTag, my own talk's title) at creation time, and looked up under
+    // (my own seeded-opposite tag, the INCOMING talk's title) when auto-resolving — so both
+    // sides must share the same title, not just the same question text.
     const title = `Notebook Deal Qty ${Date.now()}`;
     const questionText = `How many notebooks? (compatible case, ${Date.now()})`;
 
-    await createQuantityTalk(pageBuyer, title, questionText, 2, 'request'); // buyer wants 2
-    await createQuantityTalk(pageSeller, title, questionText, 5, 'offer'); // seller has 5
+    await createQuantityTalk(pageBuyer, title, questionText, 2, 'buy'); // buyer wants 2
+    await createQuantityTalk(pageSeller, title, questionText, 5, 'sell'); // seller has 5
 
     await enableChatbot(pageBuyer);
     await enableChatbot(pageSeller);
@@ -150,8 +150,8 @@ test.describe('Typed built-in "quantity" comparison questions (§BB)', () => {
     const title = `Notebook Deal Qty NoMatch ${Date.now()}`;
     const questionText = `How many notebooks? (incompatible case, ${Date.now()})`;
 
-    await createQuantityTalk(pageBuyer, title, questionText, 10, 'request'); // buyer wants 10
-    await createQuantityTalk(pageSeller, title, questionText, 2, 'offer'); // seller has only 2
+    await createQuantityTalk(pageBuyer, title, questionText, 10, 'buy'); // buyer wants 10
+    await createQuantityTalk(pageSeller, title, questionText, 2, 'sell'); // seller has only 2
 
     await enableChatbot(pageBuyer);
     await enableChatbot(pageSeller);
