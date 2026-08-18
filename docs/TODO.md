@@ -134,6 +134,57 @@ second, and via Gun-sync on the other, since "both confirmed" can become true on
   this session's tests use; a user running several simultaneous listings and expecting confirming
   one deal to leave the others open is unhandled.
 
+### KK. Context-aware chatbot answer matching, generalized beyond talk-title scoping
+
+The target model: an incoming talk's question is never matched against a specific counterpart
+talk directly — every question a user answers flattens into that user's own Me-tab Q&A store,
+keyed by context, and a NEW incoming talk's question is resolved by looking itself up in that
+flattened store. This is largely how the codebase already behaved for ordinary flow/tag
+questions via two existing pieces, not a new mechanism that had to be built:
+`saveAnswerPreference` (`ui-manager.ts`) writes every answered question into 3 stores at once
+(exact-chatbot-memory, a context-aware flattened store, and a legacy per-talk-instance store);
+`buildAnswerPreferenceLookupKey` (`shared/flattened-answer-keys.ts`) keys the flattened store by
+the normalized chain of prior `{questionText, answerText}` pairs leading to the current question
+— talk-identity-independent, which is exactly the per-context matching this design wants (except
+for the first question in a chain, deliberately talk-independent for cross-talk reuse, and
+tag/single-question talks, which are content-hash-scoped instead).
+
+**Landed:**
+- Lookup order fixed: `resolveAnswerPreferenceForTalkQuestion` now tries the context-aware
+  flattened lookup FIRST (single-select only — the flattened store has no concept of a checked
+  set), translating the stored answer back to the current talk's own answer id by TEXT (not by
+  the stored id, which may belong to a different, independently-authored talk's id scheme).
+  Falls back to context-free `exact-chatbot-memory` only when the flattened lookup has nothing.
+- `selfTag`/`preferenceSet` now enter the context key via `myEffectiveTagContext` (`ui-manager.ts`)
+  and `buildAnswerPreferenceLookupKey`'s new `tagContext` param. Correction from the original
+  proposal in this section: hashing `preferenceSet` as ONE sorted+joined string (mirroring
+  `cid.ts`'s talk-content-hash) turned out to be wrong, not just suboptimal — a single incoming
+  talk only ever declares one `selfTag`, so a joined multi-member string can never be reconstructed
+  from the read side, breaking the cross-talk lookup entirely for any talk whose `preferenceSet`
+  has more than one member. The actual fix: fan out per `preferenceSet` member on SAVE (one
+  bucket per member of the CURRENT talk being saved — bounded by that one talk's own tag count,
+  not combinatorial across the question chain), single lookup per READ (an incoming talk has
+  exactly one `selfTag`). E2E-verified end to end for the ordinary buy⇄sell case and for the
+  collision this section was written to fix (a user's two same-item talks with different
+  `preferenceSet` no longer bleed into each other) —
+  `stage2-two-user/89-buy-sell-chatbot-cross-talk-match.spec.ts`. Still open: the "answering
+  someone else's talk ad hoc, with no talk of my own in play" case has no `preferenceSet` to fan
+  out at all (falls through to `mySelfTag`-only scoping, which is correct but coarser).
+
+Still open:
+- [ ] **Tag position is not fixed to "root" or "talk-level singular metadata."** The current
+  model treats `selfTag`/`preferenceSet` as a single property of the whole `Talk`, checked once
+  as a global veto in `checkIfMatch`, independent of tree position. The working assumption so far
+  (mirrored in the route-editor UI and this session's route/`matchThreshold` work) has been that
+  a tag-like veto sits at the root of a route talk, evaluated first. That's not a necessary rule —
+  a tag is really just a simplified question, and there's no reason it can't appear in the middle
+  of a route tree, more than once, or in any order relative to other questions. Needs a real
+  design pass before implementation: can a talk carry more than one tag-check node? Does
+  `checkIfMatch`'s single global veto generalize to a position-aware check per node? Does the
+  context hash need to include tag-node position in the `previousQAPairs` path the same way
+  ordinary questions already do (this may fall out for free if a tag node is modeled as an
+  ordinary node in the chain rather than special-cased talk-level metadata)?
+
 ## Priority 5 — TechSupport productionization
 
 ### K7. Delegated TechSupport answers

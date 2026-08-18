@@ -16,6 +16,7 @@ import {
   buildAnswerPreferenceLookupKey,
   sessionAnswersToQAPairs,
   type QAPair,
+  type TagContext,
 } from '../../shared/flattened-answer-keys';
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
@@ -7642,7 +7643,35 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Prefer context-aware flat key (cross-talk + multi-question path), then legacy `${talkId}_${questionId}`.
+   * docs/TODO.md §KK: the single derived "my own effective tag" for this exchange, plus every
+   * counterpart tag context that could apply, for `buildAnswerPreferenceLookupKey`'s `tagContext`.
+   *
+   * `mySelfTag` mirrors the derivation `saveAnswerPreference` already used (kept here so both
+   * the read and write sides compute it identically): my own talk's declared `selfTag` when
+   * `talk` is mine, or the seeded OPPOSITE of `talk.selfTag` when I'm answering someone else's.
+   *
+   * `counterpartCandidates` is what's new: when `talk` is my own, it's every member of my own
+   * `preferenceSet` (the set of counterpart tags I declared compatible) — a talk with
+   * `preferenceSet: ['sell', 'free']` fans out to 2 candidates, so the SAME answer gets saved
+   * under 2 buckets (bounded by however many tags that one talk declares, not combinatorial
+   * across the whole question chain — see docs/TODO.md §KK). When `talk` is someone else's,
+   * there is exactly one relevant tag: their own single `selfTag` — no fan-out needed on lookup,
+   * since an incoming talk only ever declares one tag for itself.
+   */
+  private myEffectiveTagContext(talk: any): { mySelfTag: string | undefined; counterpartCandidates: Array<string | undefined> } {
+    const isMine = !!(talk?.authorId && this.currentUser?.id && talk.authorId === this.currentUser.id);
+    const mySelfTag: string | undefined = isMine
+      ? talk?.selfTag
+      : getOppositeTagName(createSeededTagOppositePairRegistryState(), talk?.selfTag || '');
+    const counterpartCandidates: Array<string | undefined> = isMine
+      ? (Array.isArray(talk?.preferenceSet) && talk.preferenceSet.length > 0 ? talk.preferenceSet : [undefined])
+      : [talk?.selfTag || undefined];
+    return { mySelfTag, counterpartCandidates };
+  }
+
+  /**
+   * Prefer context-aware flat key (cross-talk + multi-question path, tag-scoped — §KK), then
+   * exact-chatbot-memory, then legacy `${talkId}_${questionId}`.
    */
   private resolveAnswerPreferenceForTalkQuestion(
     talk: any,
@@ -7689,10 +7718,51 @@ export class UIManager extends EventEmitter {
       };
     }
 
-    const exactMemory = getExactChatbotMemory();
     const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
     const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
+
+    // §KK: context-aware flattened lookup, tried BEFORE exact-chatbot-memory (was the reverse —
+    // exact-chatbot-memory is keyed by question text alone, no context, so it used to win on any
+    // hit even when the correct, context-matched flattened entry was sitting right there unused).
+    // Single-select only: the flattened store has no concept of a checked set (see the
+    // multi-select branch below, unchanged). Translates the stored answer back to THIS talk's
+    // OWN answer id by TEXT, not by the stored `answerId` — the flattened entry may have been
+    // saved under a different, independently-authored talk whose answer ids don't line up.
+    if (!isMultiSelect && currentQuestion.text && currentOptions.length > 0) {
+      const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk);
+      const talkContentHash = computeTalkIdFromTalkData(talk);
+      const flatMap = getFlattenedAnswerPreferences();
+      for (const counterpartTag of counterpartCandidates) {
+        const tagContext: TagContext = { mySelfTag, counterpartTag };
+        const flatKey = buildAnswerPreferenceLookupKey(
+          talk,
+          talkContentHash,
+          questionIndex,
+          previousQAPairs,
+          currentQuestion.text,
+          tagContext,
+        );
+        const flat = flatMap[flatKey];
+        if (!flat) continue;
+        const matchingAnswer = (currentQuestion.answers || []).find(
+          (answer: any) => String(answer?.text || '').trim() === String(flat.answerText || '').trim(),
+        );
+        if (matchingAnswer?.id) {
+          return {
+            answerId: matchingAnswer.id,
+            answerText: String(matchingAnswer.text || flat.answerText),
+            mode: flat.mode === 'temporary' ? 'auto' : flat.mode,
+            questionText: currentQuestion.text || '',
+            allAnswers: currentQuestion.answers || [],
+            autoAnswerAction: 'ANSWER',
+            autoAnswerReason: 'FLATTENED_CONTEXT_MATCH',
+          };
+        }
+      }
+    }
+
+    const exactMemory = getExactChatbotMemory();
     if (currentQuestion.text && currentOptions.length > 0 && isMultiSelect) {
       const exact = findAutoAnswerMultiple(
         exactMemory,
@@ -7800,16 +7870,8 @@ export class UIManager extends EventEmitter {
       }
     }
 
-    const talkContentHash = computeTalkIdFromTalkData(talk);
-    const flatKey = buildAnswerPreferenceLookupKey(
-      talk,
-      talkContentHash,
-      questionIndex,
-      previousQAPairs,
-      currentQuestion.text || '',
-    );
-    const flat = getFlattenedAnswerPreferences()[flatKey];
-    if (flat) return flat;
+    // Last resort: resume MY OWN prior answer to this exact talk instance (same id namespace,
+    // no translation needed) — the §KK flattened lookup above already covers the cross-talk case.
     const preferences = getAnswerPreferences();
     const legacyKey = `${talkInstanceId}_${currentQuestion.id}`;
     return preferences[legacyKey] || null;
@@ -7833,11 +7895,8 @@ export class UIManager extends EventEmitter {
     // implicitly acting as the "sell" side by answering it) — same registry the talk editor's
     // tag-pair preview uses. This lets findAutoAnswer/getSelfTagForQuestionText later veto a
     // preference-set mismatch without every call site here having to know or pass that
-    // distinction explicitly.
-    const mySelfTag =
-      talk?.authorId && this.currentUser?.id && talk.authorId === this.currentUser.id
-        ? talk.selfTag
-        : getOppositeTagName(createSeededTagOppositePairRegistryState(), talk?.selfTag || '');
+    // distinction explicitly. §KK: also drives the flattened-store write below.
+    const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk);
     if (currentQuestion.text) {
       if (mode === 'suppressed') {
         saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, undefined, languageContext);
@@ -7857,12 +7916,18 @@ export class UIManager extends EventEmitter {
       talk.questions?.findIndex((q: { id: string }) => q.id === currentQuestion.id) ?? 0,
     );
     const previous = sessionAnswersToQAPairs(talk, fullSessionAnswersIncludingCurrent.slice(0, -1));
-    const flatKey = buildAnswerPreferenceLookupKey(
+
+    // §KK: write the same answer under one flattened-key bucket per counterpart-tag candidate —
+    // e.g. a "buy iPhone" talk with `preferenceSet: ['sell', 'free']` fans out to 2 buckets, so
+    // a lookup from either a single 'sell' or a single 'free' incoming talk finds it. Bounded by
+    // how many tags THIS ONE talk declares, not combinatorial across the question chain.
+    const primaryFlatKey = buildAnswerPreferenceLookupKey(
       talk,
       talkContentHash,
       qIndex,
       previous,
       currentQuestion.text || '',
+      { mySelfTag, counterpartTag: counterpartCandidates[0] },
     );
 
     const entry = {
@@ -7874,16 +7939,26 @@ export class UIManager extends EventEmitter {
       questionText: currentQuestion.text || '',
       allAnswers: currentQuestion.answers || [],
       timestamp: new Date().toISOString(),
-      flatKey,
+      flatKey: primaryFlatKey,
     };
 
     preferences[legacyKey] = entry;
     setAnswerPreferences(preferences);
 
     const flatMap = getFlattenedAnswerPreferences();
-    flatMap[flatKey] = entry;
+    for (const counterpartTag of counterpartCandidates) {
+      const flatKey = buildAnswerPreferenceLookupKey(
+        talk,
+        talkContentHash,
+        qIndex,
+        previous,
+        currentQuestion.text || '',
+        { mySelfTag, counterpartTag },
+      );
+      flatMap[flatKey] = { ...entry, flatKey };
+    }
     setFlattenedAnswerPreferences(flatMap);
-    console.log('💾 Saved answer (exact + flat + legacy):', flatKey, answerText, mode);
+    console.log('💾 Saved answer (exact + flat + legacy):', primaryFlatKey, answerText, mode);
   }
 
   /** Snapshot for syncing encrypted/auto answers to Gun (Phase 2). */
