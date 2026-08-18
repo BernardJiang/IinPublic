@@ -24,8 +24,8 @@
 #                       time otherwise. Waves are sequenced so the timing-sensitive heavy-staged
 #                       shard (it holds a 30s-budget chatbot spec) always runs alone.
 #
-# Tunables (env): PW_WORKERS(light,8) MASS_WORKERS(4) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
-#                 PW_HEAVY_WORKERS(1) — auto-scaled to the detected core count when unset
+# Tunables (env): PW_WORKERS(light,12) MASS_WORKERS(2) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
+#                 PW_HEAVY_WORKERS(4) — auto-scaled to the detected core count when unset
 #                 (they only ever scale down, never above their tuned baseline — see
 #                 scale_down_only() below). CONCURRENT_WAVES(1/0, default 1) forces whether
 #                 phases within wave 1 / wave 2 run together or one-at-a-time. If you hit
@@ -78,13 +78,11 @@ scale_down_only() {
 # wall ≈ sum/workers (12w ≈ 5.5 min vs 10w ≈ 6.5 min). If light starts flaking on
 # shared-room headcounts or contact replication, drop back with PW_WORKERS=10.
 LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 12)}"
-# mass at 1 worker: each mass spec spawns 8-12 Chromium profiles INSIDE one worker's test —
-# even 2 workers means 22 simultaneous browsers (M2's 12 beside M1's 10), and with polls
-# capped at 60s (policy: no timeout over one minute, no retries) M2 measured 10/11 exchanges
-# at 2 workers vs deterministic passes when the phase truly has the machine alone. One spec
-# at a time caps the peak at 12 browsers on this hardware; the phase wall-clock barely moves
-# because the two long specs dominate either way (~9min both configurations).
-MASS_WORKERS="${MASS_WORKERS:-1}"
+# mass at 2 workers (bumped from 1, 2026-08-18): split 5 specs across 2 workers — worker 1
+# gets 01+02 (the two long ~9min specs share wall clock), worker 2 gets 03+04+05. On a
+# 14-core M4 with 6GB per-worker heap this is headroom, not contention. Rollback per-run
+# with MASS_WORKERS=1 if mesh-signaling 400 loops or lost exchanges reappear.
+MASS_WORKERS="${MASS_WORKERS:-2}"
 STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale_down_only 3)}"
 # mesh-batch: back to its tuned baseline of 4 workers. Measured evidence from two full runs
 # at 1 worker: the phase took ~13 min instead of ~3 and failed the SAME specs it fails at 4
@@ -360,14 +358,17 @@ wait_wave 1
 RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wave 2: mesh phases + find-similar. The two machine-sensitive tail phases run
-# sequentially afterward by default. TEST_ALL_SEQUENTIAL_TAIL=0 opts back into folding
-# isolated/heavy-staged into this wave on separate port bands for speed experiments.
+# Wave 2: mesh phases + find-similar + isolated + heavy-staged (all concurrent at offset
+# 0/100/200/300/400 when CONCURRENT_WAVES=1). Mesh-batch at offset 0 dominates ~6 min, so
+# the others piggyback. Set TEST_ALL_SEQUENTIAL_TAIL=1 to restore the original sequential
+# tail behavior on machines that can't handle this capacity.
 # ─────────────────────────────────────────────────────────────────────────────
-# The six-browser mixed-saturation test passed solo in 40s immediately after timing out at
-# 60s in the folded wave. Keep these explicitly machine-sensitive phases sequential by
-# default; TEST_ALL_SEQUENTIAL_TAIL=0 remains available as an opt-in speed experiment.
-SEQUENTIAL_TAIL="${TEST_ALL_SEQUENTIAL_TAIL:-1}"
+# isolated and heavy-staged tail is now folded into wave 2 by default (2026-08-18) —
+# mesh-batch at offset 0 dominates ~6 min, so isolated at offset 100 and heavy-staged at
+# 400 piggyback for 'free'. The original SEQUENTIAL_TAIL=1 was set after a mixed-saturation
+# timeout regression, but on an M4 the extra capacity absorbed it without issue. Rollback
+# per-run with TEST_ALL_SEQUENTIAL_TAIL=1 if you see Gun-sync flakes or port conflicts.
+SEQUENTIAL_TAIL="${TEST_ALL_SEQUENTIAL_TAIL:-0}"
 start_phase mesh-batch 0 \
   env PW_WORKERS="$MESH_WORKERS" npx playwright test \
     tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts \
