@@ -1,74 +1,58 @@
 /**
- * Deterministic talk payloads for lifecycle / branch matrix E2E specs.
+ * Deterministic talk creation for lifecycle / branch matrix E2E specs — built through the real
+ * Talk Editor UI (`createFlowOrSurveyTalkViaEditor`/`createTagTalkViaEditor`, talk-demo-ui.ts),
+ * not a script-supplied payload.
  */
-export function buildFlowTalkPayload(
-  authorId: string,
+import type { Page } from '@playwright/test';
+import { createFlowOrSurveyTalkViaEditor, createTagTalkViaEditor } from './talk-demo-ui';
+
+export async function createFlowTalkForLifecycle(
+  page: Page,
   title: string,
   opts?: { matchText?: string; ignoreText?: string },
-): Record<string, unknown> {
+): Promise<{ title: string; talkId: string; talkData: any }> {
   const matchText = opts?.matchText ?? 'Yes';
   const ignoreText = opts?.ignoreText ?? 'No';
-  return {
+  return createFlowOrSurveyTalkViaEditor(page, {
     title,
-    authorId,
     type: 'flow',
-    language: 'en',
-    isAdult: false,
-    tags: [],
     questions: [
       {
-        id: 'q1',
         text: `Would you like to discuss ${title}?`,
         answers: [
-          { id: 'a_match', text: matchText, isMatch: true, isTerminal: true },
-          { id: 'a_ignore', text: ignoreText, isIgnore: true, isTerminal: true },
+          { text: matchText, outcome: 'match' },
+          { text: ignoreText, outcome: 'ignore' },
         ],
       },
     ],
-    createdAt: new Date().toISOString(),
-    isTemplate: false,
-    usageCount: 0,
-  };
+  });
 }
 
-export function buildTagTalkPayload(authorId: string, title: string): Record<string, unknown> {
-  return {
-    title,
-    authorId,
-    type: 'tag',
-    language: 'en',
-    isAdult: false,
-    tags: [],
-    questions: [
-      {
-        id: 'q1',
-        text: `Select interests for ${title}`,
-        answers: [
-          { id: 'tag_match', text: 'Interested', isMatch: true },
-          { id: 'tag_ignore', text: 'Not interested', isIgnore: true },
-        ],
-      },
-    ],
-    createdAt: new Date().toISOString(),
-    isTemplate: false,
-    usageCount: 0,
-  };
+export async function createTagTalkForLifecycle(
+  page: Page,
+  title: string,
+): Promise<{ title: string; talkId: string; talkData: any }> {
+  return createTagTalkViaEditor(page, { title });
 }
 
+/** `processTalkForm`'s flow branch (ui-manager.ts) ids answers `a_${qIndex}_${aIndex}` —
+ *  deterministic from array position, matching `createFlowTalkForLifecycle`'s single question
+ *  with match listed first (index 0), ignore second (index 1). */
 export function flowMatchAnswerIds(): string[] {
-  return ['a_match'];
+  return ['a_0_0'];
 }
 
 export function flowIgnoreAnswerIds(): string[] {
-  return ['a_ignore'];
+  return ['a_0_1'];
 }
 
+/** `processTalkForm`'s tag branch hardcodes both ids regardless of author input. */
 export function tagMatchAnswerIds(): string[] {
-  return ['tag_match'];
+  return ['a_0_match'];
 }
 
 export function tagIgnoreAnswerIds(): string[] {
-  return ['tag_ignore'];
+  return ['a_0_ignore'];
 }
 
 export const LIFECYCLE_FLOW_MATCH_TEXT = 'Yes, lets meet.';

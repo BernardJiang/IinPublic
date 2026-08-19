@@ -33,8 +33,10 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import {
   answerSurveyByAnswerIds,
   clickBroadcastUntilBulkAck,
-  createTalksFromCompanyPage,
+  createFlowOrSurveyTalkViaEditor,
+  createRouteTalkViaEditor,
   expectTalkResponsesLine,
+  talkRouteQuestionsToUiSpec,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
@@ -44,65 +46,6 @@ const SIMPLE_TITLE = `Selling an iPhone ${RUN_ID}`;
 const DETAILED_TITLE = `iPhone full specs ${RUN_ID}`;
 const ATTACHMENT_NAME = 'iphone.jpg';
 const ATTACHMENT_BYTES_TEXT = `E2E fake iPhone photo bytes ${RUN_ID}`;
-
-type PublishedAttachment = { cid: string; name: string; sizeBytes: number; mimeType: string; enc: 'none' };
-
-/** Publishes real (locally content-addressed) bytes to Eve's own content node — the same call
- *  `IinPublicApp.publishMediaFileToIpfs` makes for a real file-input upload, just skipping the
- *  DOM file picker. `enc: 'none'` needs no recipient epub: the link is shared publicly, only the
- *  key-envelope wrapper (built at share time) is pair-encrypted. Receiver-side fetch/decrypt of
- *  the actual bytes is already covered by `talks-matching/09-ipfs-auto-share.spec.ts` — this test
- *  only needs a real CID and proof the share message carrying it reaches the conversation. */
-async function publishIphonePhoto(page: Page, talkId: string): Promise<PublishedAttachment> {
-  return page.evaluate(
-    async ({ id, text, name }) => {
-      const app = (window as any).__iinpublic_app?.getApp?.();
-      const service = app.contentNodeService;
-      const attachment = await service.publishAttachmentBytes({
-        talkId: id,
-        attachment: {
-          cid: 'pending',
-          name,
-          sizeBytes: new TextEncoder().encode(text).length,
-          mimeType: 'image/jpeg',
-          enc: 'none',
-        },
-        bytes: text,
-        publicOptIn: true,
-      });
-      return attachment;
-    },
-    { id: talkId, text: ATTACHMENT_BYTES_TEXT, name: ATTACHMENT_NAME },
-  );
-}
-
-function buildSimpleExactMatchTalkPayload(attachment: PublishedAttachment): Record<string, unknown> {
-  return {
-    id: `demo-simple-iphone-${RUN_ID}`,
-    title: SIMPLE_TITLE,
-    authorId: 'eve',
-    type: 'flow',
-    selfTag: 'sell',
-    preferenceSet: ['buy'],
-    ipfsAttachments: [attachment],
-    isAdult: false,
-    language: 'en',
-    tags: [],
-    createdAt: new Date(),
-    isTemplate: false,
-    usageCount: 0,
-    questions: [
-      {
-        id: 'q_simple',
-        text: 'Want to buy an iPhone (any condition)?',
-        answers: [
-          { id: 'a_simple_yes', text: 'Yes, any condition works', isMatch: true, isTerminal: true },
-          { id: 'a_simple_no', text: 'No thanks', isIgnore: true, isTerminal: true },
-        ],
-      },
-    ],
-  };
-}
 
 /** The picky-buyer path (§30.2 matchThreshold route) — exists purely to prove Adam never has to
  *  touch it. No `selfTag`/`preferenceSet`, so it is also never deal-eligible. */
@@ -242,16 +185,28 @@ test.describe('Asymmetric exact match (buyer wants "any iPhone") + IPFS photo au
     expect(eveId).toBeTruthy();
     expect(adamId).toBeTruthy();
 
-    // --- Eve publishes her photo to her own content node, then authors both talks ---
-    const attachment = await publishIphonePhoto(pageEve, `demo-simple-iphone-${RUN_ID}`);
-    expect(attachment.cid).toBeTruthy();
+    // --- Eve authors the simple talk with a real photo attached through the editor's own file
+    // input — the same `publishMediaFileToIpfs` path a real user's file picker selection
+    // triggers (app.ts); no separate content-node bypass needed. ---
+    const simpleTalk = await createFlowOrSurveyTalkViaEditor(pageEve, {
+      title: SIMPLE_TITLE,
+      type: 'flow',
+      tag: 'sell',
+      questions: [{
+        text: 'Want to buy an iPhone (any condition)?',
+        answers: [{ text: 'Yes, any condition works', outcome: 'match' }, { text: 'No thanks', outcome: 'ignore' }],
+      }],
+      attachment: { name: ATTACHMENT_NAME, mimeType: 'image/jpeg', buffer: Buffer.from(ATTACHMENT_BYTES_TEXT) },
+    });
+    const attachment = simpleTalk.talkData.ipfsAttachments?.[0];
+    expect(attachment?.cid).toBeTruthy();
 
-    const created = await createTalksFromCompanyPage(pageEve, [
-      buildSimpleExactMatchTalkPayload(attachment),
-      buildDetailedRouteTalkPayload(),
-    ]);
-    const simpleTalk = created.find((t) => t.title === SIMPLE_TITLE)!;
-    expect(simpleTalk).toBeTruthy();
+    const detailedPayload = buildDetailedRouteTalkPayload();
+    await createRouteTalkViaEditor(pageEve, {
+      title: DETAILED_TITLE,
+      root: talkRouteQuestionsToUiSpec(detailedPayload.questions as any[]),
+      matchThreshold: detailedPayload.matchThreshold as number,
+    });
 
     await pageEve.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
@@ -259,7 +214,7 @@ test.describe('Asymmetric exact match (buyer wants "any iPhone") + IPFS photo au
     await clickBroadcastUntilBulkAck(pageEve);
 
     // --- Adam responds ONLY to the simple talk — exact, unidirectional match ---
-    await answerSurveyByAnswerIds(pageAdam, SIMPLE_TITLE, ['a_simple_yes'], simpleTalk.talkId);
+    await answerSurveyByAnswerIds(pageAdam, SIMPLE_TITLE, ['a_0_0'], simpleTalk.talkId);
 
     await expect
       .poll(() => getConversationIdForPeer(pageAdam!, eveId), { timeout: 30_000, message: 'Adam: match conversation with Eve missing' })

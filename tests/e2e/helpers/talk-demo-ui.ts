@@ -9,7 +9,9 @@ import {
   openIncomingTalkModal,
   openIncomingTalkModalByTalkId,
   waitForResponseModalClosed,
+  waitForTabActive,
 } from './talks-matching-flow';
+import { selectTalkEditorType } from './talk-editor-e2e';
 import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
 import { deliverBroadcastViaAppPath, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 import { gunBaseURL, isDirectTalkDeliveryE2e, isMeshTalkDeliveryE2e } from './ports';
@@ -334,6 +336,374 @@ export async function waitForOutgoingTalkRow(page: Page, titleSubstring: string,
   const tid = await row.first().getAttribute('data-talk-id');
   if (!tid) throw new Error(`No data-talk-id on created row for "${titleSubstring}"`);
   return tid;
+}
+
+/** Same shape `createTalksFromCompanyPage` already returns — lets UI-driven creation slot into
+ *  existing call sites that read `{ title, talkId, talkData }` afterward. */
+export async function readCreatedTalkFromMyTalks(
+  page: Page,
+  title: string,
+): Promise<{ title: string; talkId: string; talkData: any }> {
+  return page.evaluate((expectedTitle) => {
+    const raw = localStorage.getItem('myTalks');
+    const myTalks = raw ? JSON.parse(raw) : {};
+    const entry = Object.entries(myTalks).find(
+      ([, talk]: [string, any]) => talk?.role === 'created' && talk?.title === expectedTitle,
+    );
+    if (!entry) throw new Error(`No created talk in myTalks for "${expectedTitle}"`);
+    const [talkId, talk] = entry as [string, any];
+    const talkData = talk?.fullTalk;
+    if (!talkData) throw new Error(`No local fullTalk for "${expectedTitle}"`);
+    return { title: expectedTitle, talkId, talkData };
+  }, title);
+}
+
+export type UiTalkAnswerSpec = {
+  text: string;
+  /** 'match' -> Noticed (match), 'ignore' -> Ignore (filter out), 'next' -> chain to the
+   *  immediately-following question (linear chains only; not a general branch target). */
+  outcome: 'match' | 'ignore' | 'next';
+  /** Checks this answer's own "My answer" radio — the author's self-declared pick for this
+   *  question, saved to the flattened §KK preference store at creation and shown on the Me
+   *  tab. Omitted/false leaves the editor's own default (the Ignore row starts pre-checked). */
+  self?: boolean;
+};
+
+export type UiTalkQuestionSpec = {
+  text: string;
+  answers: UiTalkAnswerSpec[];
+  answerSelectionMode?: 'single' | 'multiple';
+};
+
+export type CreateFlowOrSurveyTalkViaEditorOpts = {
+  title: string;
+  type: 'flow' | 'survey';
+  questions: UiTalkQuestionSpec[];
+  /** selfTag — hidden/irrelevant for survey (the real editor hides this field for that type). */
+  tag?: string;
+  expiresOption?: '' | '1d' | '1w' | '1M' | '1y';
+  locationRadiusMiles?: '' | '10' | '100' | '1000';
+  isAdult?: boolean;
+  /** Real file-input upload (`#talk-attachment-input`) — drives the same
+   *  `publishMediaFileToIpfs` path a real user's file picker selection triggers (app.ts). */
+  attachment?: { name: string; mimeType: string; buffer: Buffer };
+  /** Passed through to the submit-and-wait-for-OUT-row step; raise it for a test that creates
+   *  several talks back to back in one page and has seen the default budget run tight. */
+  timeoutMs?: number;
+};
+
+/**
+ * Builds a flow or survey talk through the real Talk Editor form (`.question-item`/`.answer-item`
+ * DOM, `talk-editor-form-helpers.ts`) instead of a script-supplied payload — every e2e talk should
+ * be created this way. Question/answer ids end up exactly `q_${index}`/`a_${qIndex}_${aIndex}`
+ * (`processTalkForm`, ui-manager.ts), fully deterministic from array position, so callers that
+ * need to answer by id afterward can compute them without reading back `talkData`.
+ */
+export async function createFlowOrSurveyTalkViaEditor(
+  page: Page,
+  opts: CreateFlowOrSurveyTalkViaEditorOpts,
+): Promise<{ title: string; talkId: string; talkData: any }> {
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+  // A transient toast (e.g. "Talk saved...", an incoming-talk notification) can momentarily
+  // intercept this click in a busy/heavily-seeded session — Playwright's own retry already
+  // handles it once the toast fades; `timeoutMs` just widens the retry budget for a caller
+  // that knows its page is unusually noisy.
+  await page.click('#create-talk-btn', { timeout: opts.timeoutMs });
+  await page.waitForSelector('#talk-editor-form');
+
+  await page.fill('#talk-title', opts.title);
+  await selectTalkEditorType(page, opts.type);
+  if (opts.tag) await page.fill('#talk-tag', opts.tag);
+
+  // One question is pre-seeded; add the rest up front so `.answer-next`'s "Go to Question N"
+  // options are already correct (they're recomputed from the live total question count) by the
+  // time answer values are picked below.
+  for (let i = 1; i < opts.questions.length; i++) {
+    await page.click('#add-question-btn');
+  }
+
+  for (let qIndex = 0; qIndex < opts.questions.length; qIndex++) {
+    const qSpec = opts.questions[qIndex];
+    const qItem = page.locator(`.question-item[data-question-index="${qIndex}"]`);
+    await qItem.locator('.question-text').fill(qSpec.text);
+    if (qSpec.answerSelectionMode === 'multiple') {
+      await qItem.locator('.answer-selection-mode').selectOption('multiple');
+    }
+    for (let aIndex = 2; aIndex < qSpec.answers.length; aIndex++) {
+      await qItem.locator('.btn-add-answer').click();
+    }
+    // `.answer-next`'s own option list only offers 'noticed' (match) on the LAST question (or
+    // any 'multiple'-mode question, always treated as terminal) — `updateAllAnswerDropdowns`,
+    // talk-editor-form-helpers.ts. Every earlier question must chain forward instead.
+    const isLastQuestion = qSpec.answerSelectionMode === 'multiple' || qIndex === opts.questions.length - 1;
+    for (let aIndex = 0; aIndex < qSpec.answers.length; aIndex++) {
+      const aSpec = qSpec.answers[aIndex];
+      const aItem = qItem.locator(`.answer-item[data-answer-index="${aIndex}"]`);
+      await aItem.locator('.answer-text').fill(aSpec.text);
+      const nextValue =
+        aSpec.outcome === 'ignore' ? 'ignore' : isLastQuestion ? 'noticed' : `q_${qIndex + 1}`;
+      await aItem.locator('.answer-next').selectOption(nextValue);
+    }
+    // Second pass, after every `.answer-next` is settled: selecting "Noticed (match)" for an
+    // answer auto-checks that SAME answer's own self-answer radio as a convenience default
+    // (addAnswerToQuestion's own change listener, talk-editor-form-helpers.ts) — with more than
+    // one 'match' answer on a question, whichever was selected last wins that radio group. Any
+    // answer this spec explicitly marks `self` must be (re-)checked after all of those defaults
+    // have already fired, or a later sibling's own auto-check silently steals it.
+    for (let aIndex = 0; aIndex < qSpec.answers.length; aIndex++) {
+      const aSpec = qSpec.answers[aIndex];
+      if (aSpec.self) {
+        await qItem.locator(`.answer-item[data-answer-index="${aIndex}"] .self-answer-radio`).check();
+      }
+    }
+  }
+
+  if (opts.expiresOption) await page.selectOption('#talk-expires', opts.expiresOption);
+  if (opts.locationRadiusMiles) await page.selectOption('#talk-location-radius', opts.locationRadiusMiles);
+  if (opts.isAdult) await page.locator('#talk-is-adult').setChecked(true, { force: true });
+  if (opts.attachment) {
+    await page.locator('#talk-attachment-input').setInputFiles({
+      name: opts.attachment.name,
+      mimeType: opts.attachment.mimeType,
+      buffer: opts.attachment.buffer,
+    });
+  }
+  // Delivery stays explicit (broadcast step owned by the caller), matching the script-supplied
+  // helpers this replaces (`sendToChatroom: false`).
+  await page.locator('#talk-send-to-chatroom').setChecked(false, { force: true });
+
+  await submitTalkEditorAndWaitForOut(page, opts.title, opts.timeoutMs);
+  return readCreatedTalkFromMyTalks(page, opts.title);
+}
+
+export type CreateTagTalkViaEditorOpts = {
+  title: string;
+  /** Whether the author's own self-answer is "match" (checked, default) or "ignore" (unchecked). */
+  likesTag?: boolean;
+  timeoutMs?: number;
+};
+
+/** Builds a tag talk through the real Talk Editor. The real editor hardcodes both the single
+ *  question's text (= the title) and its two answer ids (`a_0_match`/`a_0_ignore`) regardless of
+ *  author input — `processTalkForm`'s tag branch, ui-manager.ts — so there's nothing else to fill. */
+export async function createTagTalkViaEditor(
+  page: Page,
+  opts: CreateTagTalkViaEditorOpts,
+): Promise<{ title: string; talkId: string; talkData: any }> {
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+  // A transient toast (e.g. "Talk saved...", an incoming-talk notification) can momentarily
+  // intercept this click in a busy/heavily-seeded session — Playwright's own retry already
+  // handles it once the toast fades; `timeoutMs` just widens the retry budget for a caller
+  // that knows its page is unusually noisy.
+  await page.click('#create-talk-btn', { timeout: opts.timeoutMs });
+  await page.waitForSelector('#talk-editor-form');
+
+  await page.fill('#talk-title', opts.title);
+  await selectTalkEditorType(page, 'tag');
+  const wantChecked = opts.likesTag !== false;
+  await page.locator('#tag-like-checkbox').setChecked(wantChecked, { force: true });
+  // `#talk-send-to-chatroom` is CSS `display:none` for the tag type (updateFormForType,
+  // talk-editor-dialog.ts) — no bounding box, so even a forced Playwright click can't reach it.
+  // `processTalkForm` still reads its `.checked` property at submit time regardless of
+  // visibility, so set it directly.
+  await page.evaluate(() => {
+    const el = document.getElementById('talk-send-to-chatroom') as HTMLInputElement | null;
+    if (el) el.checked = false;
+  });
+
+  await submitTalkEditorAndWaitForOut(page, opts.title, opts.timeoutMs);
+  return readCreatedTalkFromMyTalks(page, opts.title);
+}
+
+/** Converts a script-authored `Talk.questions` array (author-typed semantic ids like `bg_mc`)
+ *  into the shape `createFlowOrSurveyTalkViaEditor` needs, and a positional id map so tests that
+ *  used to reference the original ids can translate them to the real UI-generated ones
+ *  (`a_${qIndex}_${aIndex}`) after switching that talk's creation over to the real editor. */
+export function talkQuestionsToUiSpec(questions: any[]): UiTalkQuestionSpec[] {
+  return questions.map((q: any) => ({
+    text: String(q.text || ''),
+    answerSelectionMode: q.answerSelectionMode,
+    answers: (q.answers || []).map((a: any) => ({
+      text: String(a.text || ''),
+      outcome: a.isIgnore ? 'ignore' : a.nextQuestionId ? ('next' as const) : ('match' as const),
+    })),
+  }));
+}
+
+export function buildPositionalAnswerIdMap(originalQuestions: any[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  originalQuestions.forEach((q: any, qIdx: number) => {
+    (q.answers || []).forEach((a: any, aIdx: number) => {
+      map[String(a.id)] = `a_${qIdx}_${aIdx}`;
+    });
+  });
+  return map;
+}
+
+export type UiRouteAnswerSpec =
+  | { text: string; outcome: 'match' | 'ignore' }
+  | { text: string; child: UiRouteNodeSpec };
+
+export type UiRouteNodeSpec = {
+  text: string;
+  answers: UiRouteAnswerSpec[];
+};
+
+export type CreateRouteTalkViaEditorOpts = {
+  title: string;
+  root: UiRouteNodeSpec;
+  tag?: string;
+  matchThreshold?: number;
+  expiresOption?: '' | '1d' | '1w' | '1M' | '1y';
+  locationRadiusMiles?: '' | '10' | '100' | '1000';
+  timeoutMs?: number;
+};
+
+/**
+ * Builds an arbitrary route (DAG) talk through the real Talk Editor's tree UI
+ * (`.route-question-text`/`.route-answer-text`/`.route-add-answer-btn`/`.route-add-child-btn`,
+ * ui-manager.ts's `renderRouteEditor`), recursively — one call site for every route-shaped e2e
+ * talk instead of a script-supplied payload. Answer ids are discovered by DOM diff after each
+ * "add child" click rather than predicted from the app's internal question-count counter, so
+ * this stays correct even if that internal numbering ever changes.
+ *
+ * A freshly-opened route editor seeds every question with exactly 2 answers, ids
+ * `${qid}_match`/`${qid}_ignore` — matching `node.answers[0]`/`node.answers[1]`. A 3rd+ answer
+ * (via "+ Add Answer") gets id `${qid}_a${index}` (`renderRouteEditor`'s add-answer handler).
+ */
+export async function createRouteTalkViaEditor(
+  page: Page,
+  opts: CreateRouteTalkViaEditorOpts,
+): Promise<{ title: string; talkId: string; talkData: any }> {
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+  // A transient toast (e.g. "Talk saved...", an incoming-talk notification) can momentarily
+  // intercept this click in a busy/heavily-seeded session — Playwright's own retry already
+  // handles it once the toast fades; `timeoutMs` just widens the retry budget for a caller
+  // that knows its page is unusually noisy.
+  await page.click('#create-talk-btn', { timeout: opts.timeoutMs });
+  await page.waitForSelector('#talk-editor-form');
+
+  await page.fill('#talk-title', opts.title);
+  await selectTalkEditorType(page, 'route');
+  await expect(page.locator('#route-editor')).toBeVisible();
+  if (opts.tag) await page.fill('#talk-tag', opts.tag);
+
+  const addChildAndGetId = async (qid: string, aid: string): Promise<string> => {
+    const before = await page
+      .locator('.route-question-text')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-qid')));
+    await page.locator(`.route-add-child-btn[data-qid="${qid}"][data-aid="${aid}"]`).click();
+    await page.waitForFunction(
+      (prevCount) => document.querySelectorAll('.route-question-text').length > prevCount,
+      before.length,
+    );
+    const after = await page
+      .locator('.route-question-text')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-qid')));
+    const newId = after.find((id) => !before.includes(id));
+    if (!newId) throw new Error(`route add-child for ${qid}/${aid} did not produce a new question`);
+    return newId;
+  };
+
+  const fillNode = async (qid: string, node: UiRouteNodeSpec): Promise<void> => {
+    await page.locator(`.route-question-text[data-qid="${qid}"]`).fill(node.text);
+    for (let i = 2; i < node.answers.length; i++) {
+      await page.locator(`.route-add-answer-btn[data-qid="${qid}"]`).click();
+    }
+    for (let i = 0; i < node.answers.length; i++) {
+      // The seeded root's first two answers keep the editor's original `a_0_*` naming (from
+      // before per-question child ids existed); every other node — and the root's own 3rd+
+      // answer, added via "+ Add Answer" same as any other node — uses `${qid}_*`.
+      const aid =
+        qid === 'q_0' && i === 0
+          ? 'a_0_match'
+          : qid === 'q_0' && i === 1
+            ? 'a_0_ignore'
+            : i === 0
+              ? `${qid}_match`
+              : i === 1
+                ? `${qid}_ignore`
+                : `${qid}_a${i}`;
+      const spec = node.answers[i]!;
+      await page.locator(`.route-answer-text[data-qid="${qid}"][data-aid="${aid}"]`).fill(spec.text);
+      if ('child' in spec) {
+        const childId = await addChildAndGetId(qid, aid);
+        await fillNode(childId, spec.child);
+      }
+    }
+  };
+  await fillNode('q_0', opts.root);
+
+  if (opts.matchThreshold != null) await page.fill('#talk-match-threshold', String(opts.matchThreshold));
+  if (opts.expiresOption) await page.selectOption('#talk-expires', opts.expiresOption);
+  if (opts.locationRadiusMiles) await page.selectOption('#talk-location-radius', opts.locationRadiusMiles);
+  await page.locator('#talk-send-to-chatroom').setChecked(false, { force: true });
+
+  await submitTalkEditorAndWaitForOut(page, opts.title, opts.timeoutMs);
+  return readCreatedTalkFromMyTalks(page, opts.title);
+}
+
+/** Converts a script-authored route `Talk.questions` array (`nextQuestionId` chain, author-typed
+ *  ids) into the `UiRouteNodeSpec` tree `createRouteTalkViaEditor` needs — reuses an existing
+ *  shared payload's wording instead of re-typing it, while creation itself still goes through
+ *  the real editor. */
+export function talkRouteQuestionsToUiSpec(questions: any[], qid: string = questions[0]?.id ?? 'q_0'): UiRouteNodeSpec {
+  const byId = new Map(questions.map((q: any) => [q.id, q]));
+  const q = byId.get(qid);
+  if (!q) throw new Error(`talkRouteQuestionsToUiSpec: question "${qid}" not found`);
+  return {
+    text: String(q.text || ''),
+    answers: (q.answers || []).map((a: any) => {
+      if (a.nextQuestionId) {
+        return { text: String(a.text || ''), child: talkRouteQuestionsToUiSpec(questions, a.nextQuestionId) };
+      }
+      return { text: String(a.text || ''), outcome: a.isIgnore ? 'ignore' : 'match' };
+    }),
+  };
+}
+
+/** DFS pre-order over a route talk's `questions` (root first, then each answer's `nextQuestionId`
+ *  chain before moving to the next answer) — the same order `createRouteTalkViaEditor`'s
+ *  recursive `fillNode` visits, so a script-authored tree and its real-editor-created equivalent
+ *  line up index-for-index even though the editor assigns its own ids. */
+function flattenRouteQuestionsDfs(
+  questions: any[],
+  rootId: string = questions[0]?.id ?? 'q_0',
+): Array<{ questionId: string; answerIds: string[] }> {
+  const byId = new Map(questions.map((q: any) => [q.id, q]));
+  const out: Array<{ questionId: string; answerIds: string[] }> = [];
+  const visit = (qid: string): void => {
+    const q = byId.get(qid);
+    if (!q) return;
+    out.push({ questionId: qid, answerIds: (q.answers || []).map((a: any) => String(a.id)) });
+    for (const a of q.answers || []) {
+      if (a.nextQuestionId) visit(a.nextQuestionId);
+    }
+  };
+  visit(rootId);
+  return out;
+}
+
+/** Maps a script-authored route talk's semantic answer ids (`a_role_rec`, ...) to the real
+ *  UI-generated ids (`q_2_match`, ...) of the equivalent talk built via `createRouteTalkViaEditor`
+ *  from `talkRouteQuestionsToUiSpec(originalQuestions)` — lets existing scenario/answer-id tables
+ *  keep referencing the original wording's ids after switching that talk's creation to the editor. */
+export function buildRouteAnswerIdMap(originalQuestions: any[], createdQuestions: any[]): Record<string, string> {
+  const original = flattenRouteQuestionsDfs(originalQuestions);
+  const created = flattenRouteQuestionsDfs(createdQuestions);
+  const map: Record<string, string> = {};
+  original.forEach((node, i) => {
+    const createdNode = created[i];
+    if (!createdNode) return;
+    node.answerIds.forEach((aid, j) => {
+      const createdAid = createdNode.answerIds[j];
+      if (createdAid) map[aid] = createdAid;
+    });
+  });
+  return map;
 }
 
 async function currentUserIdentity(page: Page): Promise<{ id: string; name: string }> {

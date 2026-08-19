@@ -21,9 +21,11 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync } from '../../helpers/timing';
 import {
+  buildRouteAnswerIdMap,
   clickBroadcastUntilBulkAck,
-  createTalksFromCompanyPage,
+  createRouteTalkViaEditor,
   expectTalkResponsesLine,
+  talkRouteQuestionsToUiSpec,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import {
@@ -174,17 +176,32 @@ test.describe('Route multi-spec matching — order-independent partial match, ra
     await afterSync();
 
     // --- Adam authors + broadcasts the 3-spec matchThreshold route talk ---
-    await createTalksFromCompanyPage(pageAdam, [buildMultiSpecRoutePayload()]);
+    const originalPayload = buildMultiSpecRoutePayload();
+    const originalQuestions = originalPayload.questions as any[];
+    const created = await createRouteTalkViaEditor(pageAdam, {
+      title: ROUTE_TITLE,
+      root: talkRouteQuestionsToUiSpec(originalQuestions),
+      matchThreshold: originalPayload.matchThreshold as number,
+    });
+    const idMap = buildRouteAnswerIdMap(originalQuestions, created.talkData.questions);
     await pageAdam.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageAdam, 2, 120_000);
     await clickBroadcastUntilBulkAck(pageAdam);
 
     // --- Eve: white, used, iPhone — all 3 specs match => 100% ---
-    await answerMultiSpecRoute(pageEve, ROUTE_TITLE, ['a_color_yes', 'a_condition_yes', 'a_item_yes']);
+    await answerMultiSpecRoute(
+      pageEve,
+      ROUTE_TITLE,
+      ['a_color_yes', 'a_condition_yes', 'a_item_yes'].map((id) => idMap[id]!),
+    );
 
     // --- Bob: white, used, but NOT an iPhone — 2 of 3 => 67%, still >= matchThreshold(2) ---
-    await answerMultiSpecRoute(pageBob, ROUTE_TITLE, ['a_color_yes', 'a_condition_yes', 'a_item_no']);
+    await answerMultiSpecRoute(
+      pageBob,
+      ROUTE_TITLE,
+      ['a_color_yes', 'a_condition_yes', 'a_item_no'].map((id) => idMap[id]!),
+    );
 
     // --- Adam sees both responses land on the OUT row before opening "Matched items" ---
     await expectTalkResponsesLine(pageAdam, ROUTE_TITLE, 2);

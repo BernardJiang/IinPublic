@@ -27,9 +27,11 @@ import {
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
 import {
+  buildRouteAnswerIdMap,
   clickBroadcastUntilBulkAck,
   completeTalksInAppByAnswerIds,
-  createTalksFromCompanyPage,
+  createRouteTalkViaEditor,
+  talkRouteQuestionsToUiSpec,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -155,7 +157,12 @@ test.describe('Route talk: HR hiring — sender correctly detects match vs. mism
     await waitForDistinctGunPeersExcludingSelf(hrPage, candidates.length, 120_000);
 
     const runId = `hr-route-${Date.now()}`;
-    const [talk] = await createTalksFromCompanyPage(hrPage, [buildHrRouteTalk(hrId, runId)]);
+    const originalTalk = buildHrRouteTalk(hrId, runId);
+    const talk = await createRouteTalkViaEditor(hrPage, {
+      title: originalTalk.title,
+      root: talkRouteQuestionsToUiSpec(originalTalk.questions),
+    });
+    const idMap = buildRouteAnswerIdMap(originalTalk.questions, talk.talkData.questions);
     await clickBroadcastUntilBulkAck(hrPage, { minGunPeers: candidates.length, minSent: 1 });
 
     for (const c of candidates) {
@@ -163,7 +170,7 @@ test.describe('Route talk: HR hiring — sender correctly detects match vs. mism
         {
           talkId: talk.talkId,
           talkData: talk.talkData,
-          answerIds: c.path,
+          answerIds: c.path.map((id) => idMap[id] ?? id),
           outcome: c.expectMatch ? 'match' : 'mismatch',
         },
       ]);

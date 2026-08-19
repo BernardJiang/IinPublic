@@ -24,7 +24,7 @@ import {
   waitForResponseModalClosed,
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
-import { createTalkFromCompanyPage } from '../../helpers/talk-demo-ui';
+import { createFlowOrSurveyTalkViaEditor } from '../../helpers/talk-demo-ui';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from '../../helpers/ports';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
@@ -34,28 +34,22 @@ const TITLE_BANANA = 'E2E Exact Memory Context B';
 const TITLE_DISABLED_APPLE = 'E2E Exact Memory Disabled Apple';
 const TITLE_REUSE_APPLE = 'E2E Exact Memory Reuse Apple';
 
-function fruitTalk(title: string, matchAnswerId: string, matchAnswerText: string, otherAnswerId: string, otherAnswerText: string) {
-  return {
+/** Every fruit talk is a single question, match answer first (real UI id `a_0_0`), ignore
+ *  answer second (`a_0_1`) — deterministic from array position, `processTalkForm` (ui-manager.ts). */
+const FRUIT_MATCH_ID = 'a_0_0';
+
+async function createFruitTalk(
+  page: Page,
+  title: string,
+  matchText: string,
+  otherText: string,
+): Promise<{ talkId: string; talkData: any }> {
+  const created = await createFlowOrSurveyTalkViaEditor(page, {
     title,
     type: 'flow',
-    isAdult: false,
-    language: 'en',
-    tags: [],
-    questions: [
-      {
-        id: 'q_fruit',
-        text: QUESTION,
-        answers: [
-          { id: matchAnswerId, text: matchAnswerText, isMatch: true, isTerminal: true },
-          { id: otherAnswerId, text: otherAnswerText, isIgnore: true, isTerminal: true },
-        ],
-        contextHashId: '',
-      },
-    ],
-    createdAt: new Date(),
-    isTemplate: false,
-    usageCount: 0,
-  };
+    questions: [{ text: QUESTION, answers: [{ text: matchText, outcome: 'match' }, { text: otherText, outcome: 'ignore' }] }],
+  });
+  return { talkId: created.talkId, talkData: created.talkData };
 }
 
 async function chooseAutoAnswer(page: Page, answerId: string): Promise<void> {
@@ -290,9 +284,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     const bobIdentity = await currentUser(pageBob);
 
     // Context A: Jerry asks Favorite fruit? with Apple available. Tom saves Apple as TEMPORARY.
-    const applePayload = fruitTalk(TITLE_APPLE, 'a_apple', 'Apple', 'a_banana_ignore', 'Banana');
-    const appleTalkId = await createTalkFromCompanyPage(pageJerry, applePayload);
-    const appleTalkData = { ...applePayload, id: appleTalkId, authorId: jerryIdentity.id };
+    const { talkId: appleTalkId, talkData: appleTalkData } = await createFruitTalk(pageJerry, TITLE_APPLE, 'Apple', 'Banana');
     expect(await deliverTalkToReceiver(pageJerry, pageTom, jerryIdentity, tomIdentity, appleTalkId, appleTalkData)).toMatchObject({
       registered: true,
       autoResponded: false,
@@ -300,15 +292,13 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_APPLE, { timeout: 60_000, polling: 500 });
     await syncIncomingFromServer(pageTom);
     await openIncomingTalkModal(pageTom, TITLE_APPLE);
-    await chooseAutoAnswer(pageTom, 'a_apple');
+    await chooseAutoAnswer(pageTom, FRUIT_MATCH_ID);
     await waitForRecordedResponse(pageTom, appleTalkId);
     await waitForExactMemoryAnswer(pageTom, tomIdentity.id, 'Apple');
 
     // Context B: same exact question, but Apple is absent. Auto mode must not answer;
     // the modal is dispatched to Tom so he can choose Banana.
-    const bananaPayload = fruitTalk(TITLE_BANANA, 'a_banana', 'Banana', 'a_mango_ignore', 'Mango');
-    const bananaTalkId = await createTalkFromCompanyPage(pageJerry, bananaPayload);
-    const bananaTalkData = { ...bananaPayload, id: bananaTalkId, authorId: jerryIdentity.id };
+    const { talkId: bananaTalkId, talkData: bananaTalkData } = await createFruitTalk(pageJerry, TITLE_BANANA, 'Banana', 'Mango');
     expect(await deliverTalkToReceiver(pageJerry, pageTom, jerryIdentity, tomIdentity, bananaTalkId, bananaTalkData)).toMatchObject({
       registered: true,
       autoResponded: false,
@@ -318,8 +308,8 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     await openIncomingTalkModalWithAutoAnswers(pageTom, TITLE_BANANA);
     const modal = pageTom.locator('#talk-response-modal');
     await expect(modal.locator('.modal-content')).toContainText(QUESTION, { timeout: 60_000 });
-    await expect(modal.locator('input.choice-radio[data-answer-id="a_banana"][data-mode="auto"]')).toBeVisible();
-    await chooseAutoAnswer(pageTom, 'a_banana');
+    await expect(modal.locator(`input.choice-radio[data-answer-id="${FRUIT_MATCH_ID}"][data-mode="auto"]`)).toBeVisible();
+    await chooseAutoAnswer(pageTom, FRUIT_MATCH_ID);
     await waitForRecordedResponse(pageTom, bananaTalkId);
     await waitForExactMemoryAnswer(pageTom, tomIdentity.id, 'Banana');
 
@@ -331,9 +321,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     await expect
       .poll(() => pageTom!.evaluate(() => localStorage.getItem('chatbotEnabled')))
       .toBe('false');
-    const disabledPayload = fruitTalk(TITLE_DISABLED_APPLE, 'a_apple', 'Apple', 'a_orange_ignore', 'Orange');
-    const disabledTalkId = await createTalkFromCompanyPage(pageBob, disabledPayload);
-    const disabledTalkData = { ...disabledPayload, id: disabledTalkId, authorId: bobIdentity.id };
+    const { talkId: disabledTalkId, talkData: disabledTalkData } = await createFruitTalk(pageBob, TITLE_DISABLED_APPLE, 'Apple', 'Orange');
     expect(await deliverTalkToReceiver(pageBob, pageTom, bobIdentity, tomIdentity, disabledTalkId, disabledTalkData, false)).toMatchObject({
       registered: true,
       autoResponded: false,
@@ -348,9 +336,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     // Bob sends another context with Apple available and Banana absent.
     // In direct P2P mode Tom's browser owns exact memory, so it pre-fills Apple locally
     // and Tom confirms the reviewed auto answer.
-    const reusePayload = fruitTalk(TITLE_REUSE_APPLE, 'a_apple', 'Apple', 'a_pear_ignore', 'Pear');
-    const reuseTalkId = await createTalkFromCompanyPage(pageBob, reusePayload);
-    const reuseTalkData = { ...reusePayload, id: reuseTalkId, authorId: bobIdentity.id };
+    const { talkId: reuseTalkId, talkData: reuseTalkData } = await createFruitTalk(pageBob, TITLE_REUSE_APPLE, 'Apple', 'Pear');
     expect(await deliverTalkToReceiver(pageBob, pageTom, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData, true)).toMatchObject({
       registered: true,
       autoResponded: false,
@@ -359,7 +345,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     await syncIncomingFromServer(pageTom);
     await openIncomingTalkModalWithAutoAnswers(pageTom, TITLE_REUSE_APPLE);
     const reviewModal = pageTom.locator('#talk-response-modal');
-    await expect(reviewModal.locator('input[type="radio"][data-answer-id="a_apple"]')).toBeChecked({ timeout: 30_000 });
+    await expect(reviewModal.locator(`input[type="radio"][data-answer-id="${FRUIT_MATCH_ID}"]`)).toBeChecked({ timeout: 30_000 });
     await reviewModal.locator('#review-submit-btn').click();
     await waitForResponseModalClosed(pageTom);
     await waitForRecordedResponse(pageTom, reuseTalkId);

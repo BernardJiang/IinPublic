@@ -15,9 +15,13 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
 import {
-  createTalkFromCompanyPage,
+  createFlowOrSurveyTalkViaEditor,
+  createRouteTalkViaEditor,
+  createTagTalkViaEditor,
   seedTalkLedgerOutcome,
   expectTalkResponsesLine,
+  talkQuestionsToUiSpec,
+  talkRouteQuestionsToUiSpec,
 } from '../../helpers/talk-demo-ui';
 import {
   makeTagTalk,
@@ -68,7 +72,18 @@ test.describe('Talks matching — local stats aggregation across four talk types
     const createdTalks: Array<{ kind: TalkKind; title: string; talkId: string }> = [];
     for (const t of talks) {
       const talk = t.build(runId);
-      const talkId = await createTalkFromCompanyPage(tom.page, talk);
+      const talkId =
+        t.kind === 'tag'
+          ? (await createTagTalkViaEditor(tom.page, { title: talk.title })).talkId
+          : t.kind === 'route'
+            ? (await createRouteTalkViaEditor(tom.page, { title: talk.title, root: talkRouteQuestionsToUiSpec(talk.questions) })).talkId
+            : (
+                await createFlowOrSurveyTalkViaEditor(tom.page, {
+                  title: talk.title,
+                  type: t.kind,
+                  questions: talkQuestionsToUiSpec(talk.questions),
+                })
+              ).talkId;
       await tom.page.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(tom.page, 'chatrooms');
       createdTalks.push({ kind: t.kind, title: talk.title, talkId });

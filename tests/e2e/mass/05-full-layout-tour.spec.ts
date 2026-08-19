@@ -16,7 +16,14 @@ import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless, afterSync, afterAction } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive, longPressTalkRow, openIncomingTalkModal } from '../helpers/talks-matching-flow';
-import { createTalksFromCompanyPage, broadcastFromGlobalChatroom } from '../helpers/talk-demo-ui';
+import {
+  broadcastFromGlobalChatroom,
+  createFlowOrSurveyTalkViaEditor,
+  createRouteTalkViaEditor,
+  createTagTalkViaEditor,
+  talkQuestionsToUiSpec,
+  talkRouteQuestionsToUiSpec,
+} from '../helpers/talk-demo-ui';
 import { selectTalkEditorType } from '../helpers/talk-editor-e2e';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { makeTagTalk, makeFlowTalk, makeSurveyTalk, makeRouteTalk } from '../talks-matching/lib/four-types-talks';
@@ -81,9 +88,18 @@ test.describe('M5 full-layout screenshot tour', () => {
       senderContext = senderBoot.context;
       senderPage = senderBoot.page;
       const runId = Date.now();
-      await createTalksFromCompanyPage(senderPage, [
-        makeTagTalk(runId), makeFlowTalk(runId), makeSurveyTalk(runId), makeRouteTalk(runId),
-      ]);
+      const tagTalk = makeTagTalk(runId);
+      const flowTalk = makeFlowTalk(runId);
+      const surveyTalk = makeSurveyTalk(runId);
+      const routeTalk = makeRouteTalk(runId);
+      // Generous timeout: this sender page sits in the same Global room as the 500-talk heavy
+      // user seeded above, so incoming-talk toasts fire constantly and can momentarily intercept
+      // a click — Playwright's own retry clears it, just needs more budget here than usual.
+      const timeoutMs = 30_000;
+      await createTagTalkViaEditor(senderPage, { title: tagTalk.title, timeoutMs });
+      await createFlowOrSurveyTalkViaEditor(senderPage, { title: flowTalk.title, type: 'flow', questions: talkQuestionsToUiSpec(flowTalk.questions), timeoutMs });
+      await createFlowOrSurveyTalkViaEditor(senderPage, { title: surveyTalk.title, type: 'survey', questions: talkQuestionsToUiSpec(surveyTalk.questions), timeoutMs });
+      await createRouteTalkViaEditor(senderPage, { title: routeTalk.title, root: talkRouteQuestionsToUiSpec(routeTalk.questions), timeoutMs });
       await broadcastFromGlobalChatroom(senderPage);
       await afterSync();
 

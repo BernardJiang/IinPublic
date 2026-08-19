@@ -13,7 +13,16 @@ import { afterSync, afterNav } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
-import { completeTalksInAppByAnswerIds, createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
+import {
+  buildPositionalAnswerIdMap,
+  buildRouteAnswerIdMap,
+  completeTalksInAppByAnswerIds,
+  createFlowOrSurveyTalkViaEditor,
+  createRouteTalkViaEditor,
+  createTagTalkViaEditor,
+  talkQuestionsToUiSpec,
+  talkRouteQuestionsToUiSpec,
+} from '../../helpers/talk-demo-ui';
 import {
   makeTagTalk,
   makeFlowTalk,
@@ -36,6 +45,10 @@ function answerIdsFor(kind: TalkKind): string[] {
       return ['a_r_job_yes', 'a_r_role_yes'];
   }
 }
+
+/** Real UI-generated tag ids are always fixed (`processTalkForm`'s tag branch), regardless of
+ *  the script-authored fixture's own ids. */
+const TAG_ANSWER_ID_MAP: Record<string, string> = { a_tag_match: 'a_0_match', a_tag_ignore: 'a_0_ignore' };
 
 test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sam', () => {
   test.setTimeout(120_000);
@@ -84,19 +97,44 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     await jerry.page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
 
-    // --- Tom creates all four talk types in OUT; delivery is covered by broadcast-focused specs. ---
-    const talks = [
-      { kind: 'tag', build: makeTagTalk },
-      { kind: 'flow', build: makeFlowTalk },
-      { kind: 'survey', build: makeSurveyTalk },
-      { kind: 'route', build: makeRouteTalk },
-    ] as const;
+    // --- Tom creates all four talk types in OUT, each through the real Talk Editor; delivery is
+    // covered by broadcast-focused specs. ---
+    const tagTalk = makeTagTalk(runId);
+    const flowTalk = makeFlowTalk(runId);
+    const surveyTalk = makeSurveyTalk(runId);
+    const routeTalk = makeRouteTalk(runId);
 
-    const createdTalks = await createTalksFromCompanyPage(tom.page, talks.map((t) => t.build(runId)));
-    const createdByKind = talks.map((talk, index) => ({
-      kind: talk.kind,
-      ...createdTalks[index]!,
-    }));
+    const createdTag = await createTagTalkViaEditor(tom.page, { title: tagTalk.title });
+    const createdFlow = await createFlowOrSurveyTalkViaEditor(tom.page, {
+      title: flowTalk.title,
+      type: 'flow',
+      questions: talkQuestionsToUiSpec(flowTalk.questions),
+    });
+    const createdSurvey = await createFlowOrSurveyTalkViaEditor(tom.page, {
+      title: surveyTalk.title,
+      type: 'survey',
+      questions: talkQuestionsToUiSpec(surveyTalk.questions),
+    });
+    const createdRoute = await createRouteTalkViaEditor(tom.page, {
+      title: routeTalk.title,
+      root: talkRouteQuestionsToUiSpec(routeTalk.questions),
+    });
+
+    // The real editor generates its own answer ids, independent of each fixture's own — map the
+    // fixed answer ids `answerIdsFor` returns to the ones the created talk actually has.
+    const idMapByKind: Record<TalkKind, Record<string, string>> = {
+      tag: TAG_ANSWER_ID_MAP,
+      flow: buildPositionalAnswerIdMap(flowTalk.questions),
+      survey: buildPositionalAnswerIdMap(surveyTalk.questions),
+      route: buildRouteAnswerIdMap(routeTalk.questions, createdRoute.talkData.questions),
+    };
+
+    const createdByKind = [
+      { kind: 'tag' as const, ...createdTag },
+      { kind: 'flow' as const, ...createdFlow },
+      { kind: 'survey' as const, ...createdSurvey },
+      { kind: 'route' as const, ...createdRoute },
+    ];
     expect(createdByKind).toHaveLength(4);
 
     // --- Jerry auto-answers each talk through the app completion path. Auto mode is the key behavior under test. ---
@@ -105,7 +143,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
       createdByKind.map(({ kind, talkId, talkData }) => ({
         talkId,
         talkData,
-        answerIds: answerIdsFor(kind),
+        answerIds: answerIdsFor(kind).map((id) => idMapByKind[kind][id] ?? id),
         outcome: kind === 'survey' ? 'mismatch' : 'match',
         mode: 'auto',
       })),

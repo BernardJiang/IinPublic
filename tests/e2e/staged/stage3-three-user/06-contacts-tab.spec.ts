@@ -6,8 +6,10 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import {
+  buildPositionalAnswerIdMap,
   completeTalkInAppByAnswerIds,
-  createTalksFromCompanyPage,
+  createFlowOrSurveyTalkViaEditor,
+  talkQuestionsToUiSpec,
 } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast, waitForPeerHistoryTitle, waitForContactDetailReady } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
@@ -131,46 +133,44 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterNav();
 
-    const [tennis, coffee] = await createTalksFromCompanyPage(pageTom, [
-      {
-        title: TALK_TENNIS,
-        type: 'flow',
-        language: 'en',
-        questions: [{
-          id: 'q_tennis',
-          text: 'Want a tennis partner?',
-          answers: [
-            { id: TENNIS_MATCH_ID, text: MATCH_ANSWER, isMatch: true, isTerminal: true },
-            { id: TENNIS_IGNORE_ID, text: IGNORE_ANSWER, isIgnore: true, isTerminal: true },
-          ],
-        }],
-        selfAnswers: [{ questionId: 'q_tennis', answerId: TENNIS_MATCH_ID }],
-      },
-      {
-        title: TALK_COFFEE,
-        type: 'flow',
-        language: 'en',
-        questions: [{
-          id: 'q_coffee',
-          text: 'Want to grab coffee?',
-          answers: [
-            { id: COFFEE_MATCH_ID, text: MATCH_ANSWER_COFFEE, isMatch: true, isTerminal: true },
-            { id: COFFEE_IGNORE_ID, text: IGNORE_ANSWER_COFFEE, isIgnore: true, isTerminal: true },
-          ],
-        }],
-        selfAnswers: [{ questionId: 'q_coffee', answerId: COFFEE_MATCH_ID }],
-      },
-    ]);
+    const tennisQuestions = [{
+      id: 'q_tennis',
+      text: 'Want a tennis partner?',
+      answers: [
+        { id: TENNIS_MATCH_ID, text: MATCH_ANSWER, isMatch: true, isTerminal: true },
+        { id: TENNIS_IGNORE_ID, text: IGNORE_ANSWER, isIgnore: true, isTerminal: true },
+      ],
+    }];
+    const coffeeQuestions = [{
+      id: 'q_coffee',
+      text: 'Want to grab coffee?',
+      answers: [
+        { id: COFFEE_MATCH_ID, text: MATCH_ANSWER_COFFEE, isMatch: true, isTerminal: true },
+        { id: COFFEE_IGNORE_ID, text: IGNORE_ANSWER_COFFEE, isIgnore: true, isTerminal: true },
+      ],
+    }];
+    const tennis = await createFlowOrSurveyTalkViaEditor(pageTom, {
+      title: TALK_TENNIS,
+      type: 'flow',
+      questions: talkQuestionsToUiSpec(tennisQuestions),
+    });
+    const coffee = await createFlowOrSurveyTalkViaEditor(pageTom, {
+      title: TALK_COFFEE,
+      type: 'flow',
+      questions: talkQuestionsToUiSpec(coffeeQuestions),
+    });
+    const tennisIdMap = buildPositionalAnswerIdMap(tennisQuestions);
+    const coffeeIdMap = buildPositionalAnswerIdMap(coffeeQuestions);
 
-    await completeTalkInAppByAnswerIds(pageJerry, tennis.talkId, tennis.talkData, [TENNIS_MATCH_ID], 'match');
+    await completeTalkInAppByAnswerIds(pageJerry, tennis.talkId, tennis.talkData, [tennisIdMap[TENNIS_MATCH_ID]!], 'match');
     await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
 
-    await completeTalkInAppByAnswerIds(pageJerry, coffee.talkId, coffee.talkData, [COFFEE_IGNORE_ID], 'mismatch');
+    await completeTalkInAppByAnswerIds(pageJerry, coffee.talkId, coffee.talkData, [coffeeIdMap[COFFEE_IGNORE_ID]!], 'mismatch');
 
-    await completeTalkInAppByAnswerIds(pageBob, coffee.talkId, coffee.talkData, [COFFEE_MATCH_ID], 'match');
+    await completeTalkInAppByAnswerIds(pageBob, coffee.talkId, coffee.talkData, [coffeeIdMap[COFFEE_MATCH_ID]!], 'match');
     await waitForStatusBarMatchCountAtLeast(pageBob, 1);
 
-    await completeTalkInAppByAnswerIds(pageBob, tennis.talkId, tennis.talkData, [TENNIS_IGNORE_ID], 'mismatch');
+    await completeTalkInAppByAnswerIds(pageBob, tennis.talkId, tennis.talkData, [tennisIdMap[TENNIS_IGNORE_ID]!], 'mismatch');
 
     const tomUserId = await currentUserId(pageTom);
     const jerryUserId = await currentUserId(pageJerry);

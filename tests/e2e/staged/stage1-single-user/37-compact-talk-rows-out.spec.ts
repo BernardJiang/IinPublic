@@ -12,7 +12,12 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser, waitForTabActive, longPressTalkRow, dragTalkRow } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
-import { createTalkFromCompanyPage } from '../../helpers/talk-demo-ui';
+import {
+  createFlowOrSurveyTalkViaEditor,
+  createRouteTalkViaEditor,
+  talkQuestionsToUiSpec,
+  talkRouteQuestionsToUiSpec,
+} from '../../helpers/talk-demo-ui';
 import { makeFlowTalk, makeSurveyTalk, makeRouteTalk } from '../../talks-matching/lib/four-types-talks';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 
@@ -45,13 +50,13 @@ test.describe('Compact talk rows (M2) — OUT row 2-line collapse + popup detail
     const surveyTalk = makeSurveyTalk(runId);
     const routeTalk = makeRouteTalk(runId);
 
-    await createTalkFromCompanyPage(page, flowTalk);
+    await createFlowOrSurveyTalkViaEditor(page, { title: flowTalk.title, type: 'flow', questions: talkQuestionsToUiSpec(flowTalk.questions) });
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');
-    await createTalkFromCompanyPage(page, surveyTalk);
+    await createFlowOrSurveyTalkViaEditor(page, { title: surveyTalk.title, type: 'survey', questions: talkQuestionsToUiSpec(surveyTalk.questions) });
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');
-    await createTalkFromCompanyPage(page, routeTalk);
+    await createRouteTalkViaEditor(page, { title: routeTalk.title, root: talkRouteQuestionsToUiSpec(routeTalk.questions) });
 
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');

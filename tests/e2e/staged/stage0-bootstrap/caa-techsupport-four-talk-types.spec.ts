@@ -2,7 +2,12 @@ import { chromium, expect } from '@playwright/test';
 import { test } from '../../helpers/fixtures';
 import { isStagePipeline } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapTechSupport } from '../../helpers/bootstrap-canonical';
-import { createTalkFromCompanyPage } from '../../helpers/talk-demo-ui';
+import {
+  createFlowOrSurveyTalkViaEditor,
+  createRouteTalkViaEditor,
+  createTagTalkViaEditor,
+  talkRouteQuestionsToUiSpec,
+} from '../../helpers/talk-demo-ui';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
 import type { Talk } from '../../../../src/shared/types';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -130,7 +135,33 @@ test.describe('Stage 0 — TechSupport creates four talk types', () => {
     const talks = techSupportFourTalks(Date.now());
 
     for (const talk of talks) {
-      await createTalkFromCompanyPage(page, talk);
+      if (talk.type === 'tag') {
+        await createTagTalkViaEditor(page, { title: talk.title });
+      } else if (talk.type === 'route') {
+        await createRouteTalkViaEditor(page, { title: talk.title, root: talkRouteQuestionsToUiSpec(talk.questions) });
+      } else if (talk.type === 'flow') {
+        await createFlowOrSurveyTalkViaEditor(page, {
+          title: talk.title,
+          type: 'flow',
+          questions: [{
+            text: 'TechSupport tennis partner?',
+            answers: [{ text: 'Yes, tennis.', outcome: 'match', self: true }, { text: 'No.', outcome: 'ignore' }],
+          }],
+        });
+      } else {
+        await createFlowOrSurveyTalkViaEditor(page, {
+          title: talk.title,
+          type: 'survey',
+          questions: [{
+            text: 'TechSupport survey cuisine?',
+            answers: [
+              { text: 'Chinese food', outcome: 'match', self: true },
+              { text: 'Italian food', outcome: 'match' },
+              { text: 'Neither', outcome: 'ignore' },
+            ],
+          }],
+        });
+      }
       await afterSync();
     }
 
@@ -148,8 +179,12 @@ test.describe('Stage 0 — TechSupport creates four talk types', () => {
       ).toBeVisible();
     }
 
+    // A real tag talk's question text is always the title itself (processTalkForm's tag
+    // branch, ui-manager.ts) — the script fixture's own custom wording ('TechSupport food
+    // tag?') was never reachable through the real editor.
+    const tagTitle = talks.find((t) => t.type === 'tag')!.title;
     const expectedAnswerRows = [
-      ['TechSupport food tag?', 'Checked'],
+      [tagTitle, 'Checked'],
       ['TechSupport tennis partner?', 'Yes, tennis.'],
       ['TechSupport survey cuisine?', 'Chinese food'],
       ['TechSupport job searching?', 'Yes.'],

@@ -5,7 +5,6 @@ import { afterAction, afterSync } from '../../helpers/timing';
 import {
   clickBroadcastUntilBulkAck,
   completeTalkInAppByAnswerIds,
-  createTalksFromCompanyPage,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
@@ -20,7 +19,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
-import { buildFlowTalkPayload, flowMatchAnswerIds } from '../../helpers/talk-lifecycle-fixtures';
+import { createFlowTalkForLifecycle, flowMatchAnswerIds } from '../../helpers/talk-lifecycle-fixtures';
 
 test.describe('Talk lifecycle: stranger before match, then contact', () => {
   let browsers: ThreeBrowsers;
@@ -73,10 +72,7 @@ test.describe('Talk lifecycle: stranger before match, then contact', () => {
     await pageJerry.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
-    const [created] = await createTalksFromCompanyPage(pageTom, [
-      buildFlowTalkPayload(tomId, MATCH_TALK, { matchText: 'Yes, lets meet.', ignoreText: 'No thanks.' }),
-    ]);
+    const created = await createFlowTalkForLifecycle(pageTom, MATCH_TALK, { matchText: 'Yes, lets meet.', ignoreText: 'No thanks.' });
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 120_000);

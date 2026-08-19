@@ -4,7 +4,13 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
+import {
+  createFlowOrSurveyTalkViaEditor,
+  createRouteTalkViaEditor,
+  createTagTalkViaEditor,
+  talkQuestionsToUiSpec,
+  talkRouteQuestionsToUiSpec,
+} from '../../helpers/talk-demo-ui';
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import type { Talk } from '../../../../src/shared/types';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
@@ -74,6 +80,7 @@ function talkSet(owner: string, runId: number): Talk[] {
           answers: [
             { id: 'a_chinese', text: 'Chinese food', isTerminal: true, counter: 0 },
             { id: 'a_italian', text: 'Italian food', isTerminal: true, counter: 0 },
+            { id: 'a_foodies_ignore', text: 'Not into either.', isIgnore: true, isTerminal: true, counter: 0 },
           ],
         },
       ],
@@ -219,7 +226,15 @@ test.describe('Stage zero N2N smoke', () => {
     await afterNav();
     await expect(page.locator('#talks-list')).toContainText('No talks yet');
 
-    await createTalksFromCompanyPage(page, talkSet('Adam', runId));
+    for (const talk of talkSet('Adam', runId)) {
+      if (talk.type === 'tag') {
+        await createTagTalkViaEditor(page, { title: talk.title });
+      } else if (talk.type === 'route') {
+        await createRouteTalkViaEditor(page, { title: talk.title, root: talkRouteQuestionsToUiSpec(talk.questions) });
+      } else {
+        await createFlowOrSurveyTalkViaEditor(page, { title: talk.title, type: talk.type, questions: talkQuestionsToUiSpec(talk.questions) });
+      }
+    }
     await expect(page.locator('.talk-list-item[data-role="created"]')).toHaveCount(4, { timeout: 20_000 });
     await expect(page.locator('.talk-list-item[data-talk-type="tag"]')).toHaveCount(1);
     await expect(page.locator('.talk-list-item[data-talk-type="flow"]')).toHaveCount(1);

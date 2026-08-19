@@ -7,9 +7,11 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
 import {
-  createTalkFromCompanyPage,
+  buildPositionalAnswerIdMap,
+  createFlowOrSurveyTalkViaEditor,
   expectTalkResponsesLine,
   recordTalkStatsByAnswerIds,
+  talkQuestionsToUiSpec,
 } from '../../helpers/talk-demo-ui';
 import { makeRestaurantSurvey } from '../../talks-matching/lib/survey-restaurants';
 
@@ -50,14 +52,17 @@ test.describe('Talks matching — restaurant survey (multi-browser)', () => {
     await co.click('.chatroom-item:has-text("Global")');
     await waitForTabActive(co, 'chatrooms');
 
-    const { id: _id, ...base } = makeRestaurantSurvey();
-    const talkPayload = { ...base, title };
-    const talkId = await createTalkFromCompanyPage(co, talkPayload);
-    const talkData = { ...talkPayload, id: talkId };
+    const original = makeRestaurantSurvey();
+    const created = await createFlowOrSurveyTalkViaEditor(co, {
+      title,
+      type: 'survey',
+      questions: talkQuestionsToUiSpec(original.questions),
+    });
+    const idMap = buildPositionalAnswerIdMap(original.questions);
 
     await Promise.all(Array.from({ length: 10 }, async (_, u) => {
-      const ids = [burger[u % 4]!, fries[(u + 1) % 4]!, pizza[(u + 2) % 4]!];
-      await recordTalkStatsByAnswerIds(co, talkId, talkData, `stats-diner-${u + 1}`, ids);
+      const ids = [burger[u % 4]!, fries[(u + 1) % 4]!, pizza[(u + 2) % 4]!].map((id) => idMap[id] ?? id);
+      await recordTalkStatsByAnswerIds(co, created.talkId, created.talkData, `stats-diner-${u + 1}`, ids);
     }));
 
     await expectTalkResponsesLine(co, title, 10);

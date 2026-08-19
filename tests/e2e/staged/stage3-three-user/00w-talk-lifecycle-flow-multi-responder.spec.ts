@@ -7,7 +7,6 @@ import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync } from '../../helpers/timing';
 import {
   clickBroadcastUntilBulkAck,
-  createTalksFromCompanyPage,
   completeTalkInAppByAnswerIds,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
@@ -18,7 +17,7 @@ import {
 } from '../../helpers/p2p-transport-e2e';
 import { waitForServerConversations } from '../../helpers/talk-lifecycle-e2e';
 import {
-  buildFlowTalkPayload,
+  createFlowTalkForLifecycle,
   flowMatchAnswerIds,
   flowIgnoreAnswerIds,
   LIFECYCLE_FLOW_MATCH_TEXT,
@@ -97,13 +96,10 @@ test.describe('Talk lifecycle — flow multi-responder matrix (D4)', () => {
     await pageBob.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
-    const [created] = await createTalksFromCompanyPage(pageTom, [
-      buildFlowTalkPayload(tomId, FLOW_TITLE, {
-        matchText: LIFECYCLE_FLOW_MATCH_TEXT,
-        ignoreText: LIFECYCLE_FLOW_IGNORE_TEXT,
-      }),
-    ]);
+    const created = await createFlowTalkForLifecycle(pageTom, FLOW_TITLE, {
+      matchText: LIFECYCLE_FLOW_MATCH_TEXT,
+      ignoreText: LIFECYCLE_FLOW_IGNORE_TEXT,
+    });
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 120_000);

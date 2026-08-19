@@ -8,9 +8,11 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
 import {
-  createTalkFromCompanyPage,
+  buildPositionalAnswerIdMap,
+  createFlowOrSurveyTalkViaEditor,
   expectTalkResponsesLine,
   recordTalkStatsByAnswerIds,
+  talkQuestionsToUiSpec,
 } from '../../helpers/talk-demo-ui';
 import { makeSurveyTalk } from '../../talks-matching/lib/survey-customer-satisfaction';
 
@@ -48,16 +50,20 @@ test.describe('Talks matching — survey customer satisfaction (multi-browser)',
     await co.click('.chatroom-item:has-text("Global")');
     await waitForTabActive(co, 'chatrooms');
 
-    const { id: _id, ...base } = makeSurveyTalk('E2ECo');
-    const talkPayload = { ...base, title };
-    const talkId = await createTalkFromCompanyPage(co, talkPayload);
-    const talkData = { ...talkPayload, id: talkId };
+    const original = makeSurveyTalk('E2ECo');
+    const created = await createFlowOrSurveyTalkViaEditor(co, {
+      title,
+      type: 'survey',
+      questions: talkQuestionsToUiSpec(original.questions),
+    });
+    const idMap = buildPositionalAnswerIdMap(original.questions);
 
     await Promise.all(Array.from({ length: 10 }, async (_, u) => {
       const staffId = `staff_${(u % 5) + 1}`;
       const svcId = u % 9 === 8 ? 'svc_9_10' : `svc_${(u % 8) + 1}`;
       const npsId = ['nps_yes', 'nps_maybe', 'nps_no'][u % 3]!;
-      await recordTalkStatsByAnswerIds(co, talkId, talkData, `stats-user-${u + 1}`, [staffId, svcId, npsId]);
+      const ids = [staffId, svcId, npsId].map((id) => idMap[id] ?? id);
+      await recordTalkStatsByAnswerIds(co, created.talkId, created.talkData, `stats-user-${u + 1}`, ids);
     }));
 
     await expectTalkResponsesLine(co, title, 10);

@@ -27,7 +27,7 @@ import {
 import {
   clickBroadcastUntilBulkAck,
   completeTalksInAppByAnswerIds,
-  createTalksFromCompanyPage,
+  createTagTalkViaEditor,
 } from '../helpers/talk-demo-ui';
 
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
@@ -191,15 +191,14 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
     }, { timeout: 90_000, intervals: [1000, 2000, 3000] }).toEqual(users.map((user) => user.runtime).sort());
 
     const runId = `matrix-${Date.now()}`;
-    const authored = new Map<MatrixUser, Awaited<ReturnType<typeof createTalksFromCompanyPage>>>();
+    const authored = new Map<MatrixUser, Awaited<ReturnType<typeof createTagTalkViaEditor>>>();
     for (const user of users) {
       console.log(`[matrix] authoring: ${user.runtime} (${user.name})`);
       // Physical WebViews share the Mac-hosted Gun relay with six other active runtimes;
       // allow their authoritative write acknowledgement more time than an in-process browser.
-      authored.set(user, await createTalksFromCompanyPage(
+      authored.set(user, await createTagTalkViaEditor(
         user.page,
-        oneTagTalk(user.id, user.name, runId),
-        { timeoutMs: 90_000 },
+        { title: oneTagTalk(user.id, user.name, runId)[0].title, timeoutMs: 90_000 },
       ));
     }
     // Exercise the lower-memory C10 first; this is a cross-runtime matrix, not a 42-response
@@ -219,11 +218,13 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
       const recipient = users[index];
       const author = users[(index + users.length - 1) % users.length];
       console.log(`[matrix] completing incoming talk: ${recipient.runtime} <- ${author.runtime}`);
-      const incoming = authored.get(author) || [];
-      await completeTalksInAppByAnswerIds(recipient.page, incoming.map((talk) => ({
+      const incoming = authored.get(author);
+      await completeTalksInAppByAnswerIds(recipient.page, (incoming ? [incoming] : []).map((talk) => ({
         talkId: talk.talkId,
         talkData: talk.talkData,
-        answerIds: ['match_1'],
+        // Real UI-generated tag ids are always fixed (`processTalkForm`'s tag branch,
+        // ui-manager.ts) regardless of the script fixture's own semantic id.
+        answerIds: ['a_0_match'],
         outcome: 'match' as const,
       })));
     }

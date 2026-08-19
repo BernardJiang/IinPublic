@@ -18,10 +18,9 @@ import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync } from '../../helpers/timing';
 import {
   clickBroadcastUntilBulkAck,
-  createTalksFromCompanyPage,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
-import { buildTagTalkPayload } from '../../helpers/talk-lifecycle-fixtures';
+import { createTagTalkForLifecycle } from '../../helpers/talk-lifecycle-fixtures';
 import {
   bootstrapUser,
   finalCleanupPages,
@@ -89,8 +88,7 @@ test.describe('Late joiner receives an already-broadcast tag talk (catch-up)', (
     await pageJerry.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
-    await createTalksFromCompanyPage(pageTom, [buildTagTalkPayload(tomId, TAG_TITLE)]);
+    await createTagTalkForLifecycle(pageTom, TAG_TITLE);
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 120_000);

@@ -7,13 +7,12 @@ import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync } from '../../helpers/timing';
 import {
   clickBroadcastUntilBulkAck,
-  createTalksFromCompanyPage,
   completeTalkInAppByAnswerIds,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import {
-  buildTagTalkPayload,
+  createTagTalkForLifecycle,
   tagMatchAnswerIds,
   tagIgnoreAnswerIds,
 } from '../../helpers/talk-lifecycle-fixtures';
@@ -90,8 +89,7 @@ test.describe('Talk lifecycle — tag multi-responder matrix (D4)', () => {
     await pageBob.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
-    const [created] = await createTalksFromCompanyPage(pageTom, [buildTagTalkPayload(tomId, TAG_TITLE)]);
+    const created = await createTagTalkForLifecycle(pageTom, TAG_TITLE);
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 120_000);

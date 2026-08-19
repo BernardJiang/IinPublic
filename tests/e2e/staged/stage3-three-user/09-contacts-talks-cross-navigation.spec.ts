@@ -26,7 +26,12 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
-import { completeTalkInAppByAnswerIds, createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
+import {
+  buildPositionalAnswerIdMap,
+  completeTalkInAppByAnswerIds,
+  createFlowOrSurveyTalkViaEditor,
+  talkQuestionsToUiSpec,
+} from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast, waitForPeerHistoryTitle, waitForContactDetailReady } from '../../helpers/durable-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 // bootstrapUser here (not a local copy) specifically for its rename-propagation barrier —
@@ -122,37 +127,39 @@ test.describe('Contacts/Talks cross-navigation: outcome filters + a talk\'s resp
     await pageBob.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    const [bookClub] = await createTalksFromCompanyPage(pageTom, [{
+    const bookQuestions = [{
+      id: 'q_book',
+      text: 'Want to join the book club?',
+      answers: [
+        { id: BOOK_MATCH_ID, text: 'Yes, count me in.', isMatch: true, isTerminal: true },
+        { id: BOOK_IGNORE_ID, text: 'Not for me.', isIgnore: true, isTerminal: true },
+      ],
+    }];
+    const chessQuestions = [{
+      id: 'q_chess',
+      text: 'Fancy a chess match?',
+      answers: [
+        { id: CHESS_MATCH_ID, text: 'Yes, let\'s play.', isMatch: true, isTerminal: true },
+        { id: CHESS_IGNORE_ID, text: 'No thanks.', isIgnore: true, isTerminal: true },
+      ],
+    }];
+    const bookClub = await createFlowOrSurveyTalkViaEditor(pageTom, {
       title: TALK_BOOK_CLUB,
       type: 'flow',
-      language: 'en',
-      questions: [{
-        id: 'q_book',
-        text: 'Want to join the book club?',
-        answers: [
-          { id: BOOK_MATCH_ID, text: 'Yes, count me in.', isMatch: true, isTerminal: true },
-          { id: BOOK_IGNORE_ID, text: 'Not for me.', isIgnore: true, isTerminal: true },
-        ],
-      }],
-    }]);
-    const [chess] = await createTalksFromCompanyPage(pageJerry, [{
+      questions: talkQuestionsToUiSpec(bookQuestions),
+    });
+    const chess = await createFlowOrSurveyTalkViaEditor(pageJerry, {
       title: TALK_CHESS,
       type: 'flow',
-      language: 'en',
-      questions: [{
-        id: 'q_chess',
-        text: 'Fancy a chess match?',
-        answers: [
-          { id: CHESS_MATCH_ID, text: 'Yes, let\'s play.', isMatch: true, isTerminal: true },
-          { id: CHESS_IGNORE_ID, text: 'No thanks.', isIgnore: true, isTerminal: true },
-        ],
-      }],
-    }]);
+      questions: talkQuestionsToUiSpec(chessQuestions),
+    });
+    const bookIdMap = buildPositionalAnswerIdMap(bookQuestions);
+    const chessIdMap = buildPositionalAnswerIdMap(chessQuestions);
 
-    await completeTalkInAppByAnswerIds(pageJerry, bookClub.talkId, bookClub.talkData, [BOOK_MATCH_ID], 'match');
+    await completeTalkInAppByAnswerIds(pageJerry, bookClub.talkId, bookClub.talkData, [bookIdMap[BOOK_MATCH_ID]!], 'match');
     await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
-    await completeTalkInAppByAnswerIds(pageBob, bookClub.talkId, bookClub.talkData, [BOOK_IGNORE_ID], 'mismatch');
-    await completeTalkInAppByAnswerIds(pageTom, chess.talkId, chess.talkData, [CHESS_MATCH_ID], 'match');
+    await completeTalkInAppByAnswerIds(pageBob, bookClub.talkId, bookClub.talkData, [bookIdMap[BOOK_IGNORE_ID]!], 'mismatch');
+    await completeTalkInAppByAnswerIds(pageTom, chess.talkId, chess.talkData, [chessIdMap[CHESS_MATCH_ID]!], 'match');
     await waitForStatusBarMatchCountAtLeast(pageTom, 1);
 
     const tomId = await currentUserId(pageTom);

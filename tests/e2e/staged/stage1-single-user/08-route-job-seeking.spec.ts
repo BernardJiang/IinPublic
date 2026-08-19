@@ -7,9 +7,11 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
 import {
-  createTalkFromCompanyPage,
+  buildRouteAnswerIdMap,
+  createRouteTalkViaEditor,
   expectTalkResponsesLine,
   recordTalkStatsByAnswerIds,
+  talkRouteQuestionsToUiSpec,
 } from '../../helpers/talk-demo-ui';
 import { getJobRouteScenarios, prepareValidatedJobRouteTalk } from '../../talks-matching/lib/route-job-seeking';
 
@@ -47,17 +49,18 @@ test.describe('Talks matching — job seeker route (multi-browser)', () => {
     await waitForTabActive(co, 'chatrooms');
 
     const raw = prepareValidatedJobRouteTalk();
-    const { id: _drop, ...rest } = raw;
-    const talkPayload = { ...rest, title };
-    const talkId = await createTalkFromCompanyPage(co, talkPayload);
-    const talkData = { ...talkPayload, id: talkId };
+    const created = await createRouteTalkViaEditor(co, {
+      title,
+      root: talkRouteQuestionsToUiSpec(raw.questions),
+    });
+    const idMap = buildRouteAnswerIdMap(raw.questions, created.talkData.questions);
 
     const scenarios = getJobRouteScenarios();
     expect(scenarios.length).toBeGreaterThanOrEqual(10);
 
     await Promise.all(Array.from({ length: 10 }, async (_, u) => {
-      const aids = scenarios[u]!.steps.map((s) => s.a);
-      await recordTalkStatsByAnswerIds(co, talkId, talkData, `stats-seeker-${u + 1}`, aids);
+      const aids = scenarios[u]!.steps.map((s) => idMap[s.a] ?? s.a);
+      await recordTalkStatsByAnswerIds(co, created.talkId, created.talkData, `stats-seeker-${u + 1}`, aids);
     }));
 
     await expectTalkResponsesLine(co, title, 10);

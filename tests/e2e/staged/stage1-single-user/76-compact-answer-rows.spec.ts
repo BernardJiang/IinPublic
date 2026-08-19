@@ -11,7 +11,12 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
-import { createTalkFromCompanyPage, completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
+import {
+  buildRouteAnswerIdMap,
+  completeTalkInAppByAnswerIds,
+  createRouteTalkViaEditor,
+  talkRouteQuestionsToUiSpec,
+} from '../../helpers/talk-demo-ui';
 import { makeRouteTalk } from '../../talks-matching/lib/four-types-talks';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 
@@ -45,17 +50,23 @@ test.describe('Compact answer rows (M3) — 1-line collapse + popup details', ()
     // nested per-question detail (prompt/answer/context) of all four types, and a good
     // stress case for the details-popup move.
     const routeTalk = makeRouteTalk(runId);
-    const talkId = await createTalkFromCompanyPage(page, routeTalk);
+    const created = await createRouteTalkViaEditor(page, {
+      title: routeTalk.title,
+      root: talkRouteQuestionsToUiSpec(routeTalk.questions),
+    });
+    const idMap = buildRouteAnswerIdMap(routeTalk.questions, created.talkData.questions);
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');
 
+    const talkId = created.talkId;
     const talkData = await page.evaluate(async (id) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }) ?? null;
     }, talkId);
     expect(talkData).toBeTruthy();
 
-    await completeTalkInAppByAnswerIds(page, talkId, talkData, ['a_r_job_yes', 'a_r_role_yes'], 'match');
+    const aids = ['a_r_job_yes', 'a_r_role_yes'].map((id) => idMap[id] ?? id);
+    await completeTalkInAppByAnswerIds(page, talkId, talkData, aids, 'match');
 
     await page.click('.nav-btn[data-view="me"]');
     await waitForTabActive(page, 'me');

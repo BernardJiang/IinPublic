@@ -18,7 +18,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterNav } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { createTalksFromCompanyPage, broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
+import { createTagTalkViaEditor, broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
 import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -77,7 +77,7 @@ test.describe('Presence indicator parity: Contacts tab vs chatroom member list',
 
     // --- Match so Jerry also appears as a Contacts-tab row ---
     const tag = makeTagTalk(runId);
-    await createTalksFromCompanyPage(pageTom, [tag]);
+    await createTagTalkViaEditor(pageTom, { title: tag.title });
     await broadcastFromGlobalChatroom(pageTom);
     await afterSync();
     await openIncomingTalkModal(pageJerry, tag.title);

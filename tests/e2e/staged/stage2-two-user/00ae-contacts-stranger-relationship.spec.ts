@@ -23,7 +23,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { afterLoad, afterSync, afterNav, afterAction } from '../../helpers/timing';
-import { completeTalkInAppByAnswerIds, createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
+import { completeTalkInAppByAnswerIds, createFlowOrSurveyTalkViaEditor } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
@@ -95,25 +95,14 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     await afterSync();
 
     // Tom creates a simple flow talk
-    const [tennis] = await createTalksFromCompanyPage(pageTom, [
-      {
-        title: 'Tennis Partner',
-        type: 'flow',
-        language: 'en',
-        questions: [{
-          id: 'q_tennis_rel',
-          text: 'Want a tennis partner?',
-          answers: [
-            { id: 'a_tennis_rel_yes', text: 'Yes!', isMatch: true, isTerminal: true },
-            { id: 'a_tennis_rel_no', text: 'No thanks.', isIgnore: true, isTerminal: true },
-          ],
-        }],
-        selfAnswers: [{ questionId: 'q_tennis_rel', answerId: 'a_tennis_rel_yes' }],
-      },
-    ]);
+    const tennis = await createFlowOrSurveyTalkViaEditor(pageTom, {
+      title: 'Tennis Partner',
+      type: 'flow',
+      questions: [{ text: 'Want a tennis partner?', answers: [{ text: 'Yes!', outcome: 'match' }, { text: 'No thanks.', outcome: 'ignore' }] }],
+    });
 
     // Jerry answers with match
-    await completeTalkInAppByAnswerIds(pageJerry, tennis.talkId, tennis.talkData, ['a_tennis_rel_yes'], 'match');
+    await completeTalkInAppByAnswerIds(pageJerry, tennis.talkId, tennis.talkData, ['a_0_0'], 'match');
     await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
     await afterSync();
 
