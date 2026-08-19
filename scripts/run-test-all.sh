@@ -43,6 +43,13 @@ set -a; [ -f .env.local ] && . ./.env.local; set +a
 # timing-sensitive direct-P2P waits even when the same specs pass in isolation. It runs at 6
 # workers by default (the same tuned default as test:e2e:parallel); explicit env vars
 # (PW_WORKERS, MASS_WORKERS, etc.) always win.
+#
+# Bumped 12→14 (2026-08-18): the suite is ~83% sync-wait, not compute, and every light
+# worker runs fully isolated servers on its own port pair — the old flake modes (shared-room
+# headcounts, contact replication) were CPU-contention driven and are not expected on a
+# same-count 14-core M4. Rollback per-run with PW_WORKERS=12 if flakes reappear; try 16 next
+# only after a clean 14-worker run.
+LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 14)}"
 detect_cores() {
   if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu >/dev/null 2>&1; then
     sysctl -n hw.ncpu
@@ -345,8 +352,7 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wave 1: the two heavyweights (light + mass) run together, plus stage5.
-# Offsets keep them on separate port bands; each gets its own fresh servers.
+# Wave 1: light + stage5 run together at different port offsets.
 # ─────────────────────────────────────────────────────────────────────────────
 start_phase light 0 \
   env E2E_SKIP_HEAVY=1 PW_WORKERS="$LIGHT_WORKERS" npx playwright test
@@ -581,8 +587,8 @@ wave_label() { [ "$CONCURRENT_WAVES" = "1" ] && echo "concurrent" || echo "seque
 echo ""
 echo "[test:all] ───────────── per-phase wall time ─────────────"
 printf '  %-26s %5ss  %s\n' "phase0 (builds gate e2e)" "$p0_dur" "type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST$([ "$PREFIX_OVERLAP" = "1" ] && echo ' (overlapped)')"
-printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"  "$(phase_time light)"  "$RC_LIGHT" "$(wave_label)"
-printf '  %-26s %5ss  rc=%s   ┘\n'                      "stage5" "$(phase_time stage5)" "$RC_S5"
+printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"      "$(phase_time light)" "$RC_LIGHT"          "$(wave_label)"
+printf '  %-26s %5ss  rc=%s   │\n'                      "stage5"     "$(phase_time stage5)"  "$RC_S5"
 if [ "$SEQUENTIAL_TAIL" != "1" ]; then
   printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s, tail folded)\n' "mesh-batch" "$(phase_time mesh-batch)" "$RC_MESH" "$(wave_label)"
   printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
