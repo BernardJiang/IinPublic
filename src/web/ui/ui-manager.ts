@@ -8711,6 +8711,13 @@ export class UIManager extends EventEmitter {
   }
 
   showTalkEditorDialog(existingTalk?: any): void {
+    // Reset the route DAG editor's in-memory model on every open — it's a field on this
+    // (singleton) instance, not scoped to one dialog session, so without this a second route
+    // talk created back-to-back (or an edit opened right after an unrelated route create)
+    // would silently inherit the previous session's leftover question tree instead of either
+    // a fresh root (`ensureRouteEditorRendered` only reseeds when this array is empty) or the
+    // one actually being edited.
+    this.routeEditorQuestions = [];
     const defaultLanguage = String(existingTalk?.language || getDefaultTalkLanguagePreference(this.getUiLanguage())).toLowerCase();
     openTalkEditorDialog({
       existingTalk,
@@ -8860,6 +8867,7 @@ export class UIManager extends EventEmitter {
         this.showTalkValidationError([this.t('editorRouteRequired')]);
         return false;
       }
+      selfAnswers.push(...this.buildRouteSelfAnswers());
     } else {
       // flow + survey share the linear editor
       questions = [];
@@ -9442,6 +9450,35 @@ export class UIManager extends EventEmitter {
         this.renderRouteEditor();
       });
     });
+  }
+
+  /**
+   * Route talks have no dedicated self-answer picker (unlike flow/tag, `input[name="self-answer-…"]`
+   * above) — the author's own answer to each of their own questions defaults to that question's
+   * first authored answer, walking the DAG from the root and always taking the first answer's
+   * link at each fork. A question with a single answer (the common case: "Model?" → "16 Pro")
+   * makes this unambiguous — that one answer simply IS the self-answer. Stops at a builtIn node
+   * (no authored answers; its own typed-preference save, `processTalkForm` below, is unconditional
+   * on type and covers it separately) or a leaf with no outgoing link.
+   */
+  private buildRouteSelfAnswers(): { questionId: string; answerId: string }[] {
+    const childQuestionIdByParentAnswerKey = new Map<string, string>();
+    for (const q of this.routeEditorQuestions) {
+      if (q.parentAnswer) {
+        childQuestionIdByParentAnswerKey.set(`${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`, q.id);
+      }
+    }
+    const byId = new Map(this.routeEditorQuestions.map((q) => [q.id, q]));
+    const selfAnswers: { questionId: string; answerId: string }[] = [];
+    let current = this.routeEditorQuestions.find((q) => !q.parentAnswer);
+    while (current) {
+      if (current.builtIn || current.answers.length === 0) break;
+      const firstAnswer = current.answers[0];
+      selfAnswers.push({ questionId: current.id, answerId: firstAnswer.id });
+      const nextId = childQuestionIdByParentAnswerKey.get(`${current.id}::${firstAnswer.id}`);
+      current = nextId ? byId.get(nextId) : undefined;
+    }
+    return selfAnswers;
   }
 
   /**

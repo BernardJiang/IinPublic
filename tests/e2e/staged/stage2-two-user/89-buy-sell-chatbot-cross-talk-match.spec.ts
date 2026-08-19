@@ -1,32 +1,53 @@
 /**
- * Two independently-authored buy/sell talks match each other via the chatbot's flattened,
- * context-aware answer store — docs/TODO.md §KK.
+ * Independently-authored buy/sell talks match each other — first via a real, interactive
+ * route-talk build, second (unchanged) via the chatbot's flattened context-aware store,
+ * docs/TODO.md §KK.
  *
- * Adam authors "Buy iPhone" (`selfTag: 'buy'`, `preferenceSet: ['sell']`) and self-answers it
- * (Item: iPhone, Model: 16 Pro, Capacity: 128GB) while creating it — exactly what a real user
- * does by filling in their own Me-tab preferences. Eve authors "Sell iPhone" (mirror image:
- * `selfTag: 'sell'`, `preferenceSet: ['buy']`) with the SAME question wording and self-answers
- * it with the same values (a genuinely compatible listing).
+ * First test: Adam and Eve each build their OWN talks live through the real Talk Editor, type
+ * 'route' — one talk per item (iPhone, iPad), each a `matchThreshold` multi-spec talk: a root
+ * question with 3 independent SIBLING specs (Model / Condition / Capacity) branching directly
+ * off it, not a linear chain — the "parallel, sharing the same [root] context" shape, scored
+ * like `80-route-multi-spec-match-percent.spec.ts` (2 of 3 matched specs still counts, ranked
+ * lower). Adam declares `selfTag: 'buy'` (auto preferenceSet `['sell']`), Eve declares
+ * `selfTag: 'sell'` (auto preferenceSet `['buy']`).
  *
- * Neither ever manually answers the OTHER's talk. Each side's chatbot auto-resolves the
- * incoming talk entirely from its own flattened Q&A store (`resolveAnswerPreferenceForTalkQuestion`
- * → `buildAnswerPreferenceLookupKey`, tag-scoped per §KK) — the two talks are different objects
- * with different content hashes and different internal answer ids; only the identically-worded
- * question chain and the tag-context match. This is the "flatten into Me tab, match any incoming
- * talk against it" model, not talk-vs-talk comparison — see the §KK design discussion.
+ * Matching here is MANUAL per spec (`answerMultiSpecRouteYes`, mirroring 80's own
+ * `answerMultiSpecRoute` helper), not the automatic chatbot — two real gaps found while
+ * building this ruled out a zero-click version for a multi-spec/branching route talk:
+ *  1. `tryBuildChatbotAnswersFromFlattened` (ui-manager.ts) walks a talk's `questions` array by
+ *     plain INDEX order with no branch/sibling awareness at all — it has no way to treat a
+ *     root's N independent children as anything but one flat sequence, so it can't resolve a
+ *     spec-selector root question (there's no single "self-answer" for a question whose whole
+ *     point is 3-4 parallel specs at once).
+ *  2. The interactive dialog's own pre-scan (`tryCollectAllAutoAnswers`) explicitly skips
+ *     `route` talks outright ("branching paths — skip pre-scan").
+ * A single branching route talk covering BOTH items (iPhone + iPad in one DAG) was also
+ * considered and rejected for the same reason — kept as two separate item talks instead.
  *
- * Both broadcasts happen, so this proves the "two unidirectional matches, one converged
- * conversation" shape the design was built for: Eve's chatbot resolves Adam's incoming "buy"
- * talk, and separately Adam's chatbot resolves Eve's incoming "sell" talk — both land on the
- * same `conv_pair_<sortedIds>` conversation.
+ * A real, incidental product bug surfaced and was fixed while building this: `UIManager`'s
+ * `routeEditorQuestions` field is a singleton, never reset between Talk Editor opens — a second
+ * route talk created in the same session inherited the first one's leftover DAG state instead
+ * of starting fresh (`showTalkEditorDialog`, ui-manager.ts). Also added: `buildRouteSelfAnswers`
+ * (ui-manager.ts), which defaults a route question's self-answer to its first authored answer
+ * while walking the chain from the root — route talks previously saved none at all. Not
+ * exercised by this test (manual answering, not chatbot recall) but a real, separately useful
+ * fix for any future zero-click route-talk chatbot work.
+ *
+ * Second test (§KK collision regression, unchanged): flow-type talks built via direct payload
+ * injection, kept as-is — see `buildQuestions`/`buildBuySellTalkPayload` below.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { createTalksFromCompanyPage, clickBroadcastUntilBulkAck, waitForDistinctGunPeersExcludingSelf } from '../../helpers/talk-demo-ui';
+import { bootstrapUser, waitForTabActive, openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
+import {
+  createTalksFromCompanyPage,
+  clickBroadcastUntilBulkAck,
+  waitForDistinctGunPeersExcludingSelf,
+  submitTalkEditorAndWaitForOut,
+} from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const RUN_ID = 890100;
@@ -101,6 +122,102 @@ async function enableChatbot(page: Page): Promise<void> {
   await waitForTabActive(page, 'talks');
 }
 
+type MultiSpecRouteTalkOpts = {
+  title: string;
+  tag: 'buy' | 'sell';
+  /** e.g. "Is the model 16 Pro?" */
+  modelQuestion: string;
+  /** e.g. "Is the capacity 128GB?" */
+  capacityQuestion: string;
+  expiresOption: '' | '1d' | '1w' | '1M' | '1y';
+  locationRadiusMiles: '' | '10' | '100' | '1000';
+};
+
+/** The 3 spec leaves' own "yes, compatible" answer ids — fully deterministic from the click
+ *  sequence in `createMultiSpecRouteTalk` below (root q_0's 3 answers spawn q_1/q_2/q_3 in
+ *  that order; each child's own answers are always named `${childId}_match`/`${childId}_ignore`
+ *  by the route editor's "add child" handler). Same ids on both Adam's and Eve's talks since
+ *  both are built by the identical sequence. */
+const MULTI_SPEC_YES_ANSWER_IDS = ['q_1_match', 'q_2_match', 'q_3_match'];
+
+/**
+ * Builds one route talk, live through the real Talk Editor, as 3 independent SIBLING specs
+ * off a shared root — Model / Condition / Capacity — not a linear chain: this is
+ * `Talk.matchThreshold` multi-spec matching (spec §30.2, `computeRouteMatchScore`,
+ * `talk-engine.ts`), the same shape `80-route-multi-spec-match-percent.spec.ts` proves end to
+ * end, just built here through the interactive editor instead of a JSON payload. Each spec is a
+ * real yes/no choice (2 answers) so a responder can genuinely mismatch one spec and still clear
+ * threshold on the rest — a single-answer leaf would make every spec vacuously "match."
+ * `matchThreshold` is set to require all 3 (an exact-match demo, consistent with this project's
+ * existing preference for exact rather than fuzzy matching) — see
+ * `80-route-multi-spec-match-percent.spec.ts` for the canonical partial-match (2 of 3, ranked
+ * lower) demonstration; not duplicated here.
+ */
+async function createMultiSpecRouteTalk(page: Page, opts: MultiSpecRouteTalkOpts): Promise<void> {
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+  await page.click('#create-talk-btn');
+  await page.waitForSelector('#talk-editor-form');
+
+  await page.fill('#talk-title', opts.title);
+  await page.selectOption('#talk-type', 'route');
+  await expect(page.locator('#route-editor')).toBeVisible();
+  await page.fill('#talk-tag', opts.tag);
+
+  // Root: 3 independent specs (Model / Condition / Capacity), each its own sibling branch —
+  // not chained to one another. Seeded with 2 answers; add a 3rd for the 3rd spec.
+  await page.locator('.route-question-text[data-qid="q_0"]').fill(`${opts.title} — independent specs`);
+  await page.locator('.route-add-answer-btn[data-qid="q_0"]').click();
+  await page.locator('.route-answer-text[data-qid="q_0"][data-aid="a_0_match"]').fill('Model');
+  await page.locator('.route-answer-text[data-qid="q_0"][data-aid="a_0_ignore"]').fill('Condition');
+  await page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a2"]').fill('Capacity');
+  await page.locator('.route-add-child-btn[data-qid="q_0"][data-aid="a_0_match"]').click(); // -> q_1 (Model)
+  await page.locator('.route-add-child-btn[data-qid="q_0"][data-aid="a_0_ignore"]').click(); // -> q_2 (Condition)
+  await page.locator('.route-add-child-btn[data-qid="q_0"][data-aid="q_0_a2"]').click(); // -> q_3 (Capacity)
+
+  // q_1: Model spec — leaf, yes/no.
+  await page.locator('.route-question-text[data-qid="q_1"]').fill(opts.modelQuestion);
+  await page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_match"]').fill('Yes');
+  await page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_ignore"]').fill('No');
+
+  // q_2: Condition spec — leaf, yes/no ("used").
+  await page.locator('.route-question-text[data-qid="q_2"]').fill('Is it used?');
+  await page.locator('.route-answer-text[data-qid="q_2"][data-aid="q_2_match"]').fill('Yes, used');
+  await page.locator('.route-answer-text[data-qid="q_2"][data-aid="q_2_ignore"]').fill('No');
+
+  // q_3: Capacity spec — leaf, yes/no.
+  await page.locator('.route-question-text[data-qid="q_3"]').fill(opts.capacityQuestion);
+  await page.locator('.route-answer-text[data-qid="q_3"][data-aid="q_3_match"]').fill('Yes');
+  await page.locator('.route-answer-text[data-qid="q_3"][data-aid="q_3_ignore"]').fill('No');
+
+  // Require all 3 specs — exact match only.
+  await page.fill('#talk-match-threshold', '3');
+
+  if (opts.expiresOption) await page.selectOption('#talk-expires', opts.expiresOption);
+  if (opts.locationRadiusMiles) await page.selectOption('#talk-location-radius', opts.locationRadiusMiles);
+
+  // Delivery is owned entirely by the explicit broadcast call after both of a user's talks
+  // exist, not by an auto-broadcast on submit.
+  await page.locator('#talk-send-to-chatroom').setChecked(false);
+
+  await submitTalkEditorAndWaitForOut(page, opts.title);
+}
+
+/** Walks the matchThreshold multi-branch route dialog answering every spec "yes" — mirrors
+ *  `80-route-multi-spec-match-percent.spec.ts`'s own `answerMultiSpecRoute` helper. */
+async function answerMultiSpecRouteYes(page: Page, titleSubstring: string): Promise<void> {
+  await openIncomingTalkModal(page, titleSubstring);
+  for (const aid of MULTI_SPEC_YES_ANSWER_IDS) {
+    await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 90_000 });
+    const radio = page.locator(`input.choice-radio[data-answer-id="${aid}"][data-mode="manual"]`).first();
+    await expect(radio).toBeVisible({ timeout: 30_000 });
+    await radio.check();
+    await page.locator('[data-testid="route-branch-continue"]').click();
+    await afterSync();
+  }
+  await waitForResponseModalClosed(page);
+}
+
 async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id ?? '');
 }
@@ -124,8 +241,13 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
 
   test.beforeEach(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
+    // Deliberately slow (not the usual jitter-only delay(35, 90) other multi-browser helpers
+    // use) — this spec is meant to be watched step by step, not just proven non-flaky. Override
+    // with PW_SLOW_MO=<ms> for a different pace.
+    const slowMoMs = headless ? 0 : Number(process.env.PW_SLOW_MO) || 400;
     const mk = (x: number) => ({
       headless,
+      slowMo: slowMoMs,
       args: [...WEBRTC_CHROMIUM_ARGS, `--window-position=${x},0`, '--window-size=640,900', '--force-device-scale-factor=1'],
     });
     [browserAdam, browserEve] = await Promise.all([chromium.launch(mk(0)), chromium.launch(mk(650))]);
@@ -140,7 +262,7 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     await clearGunForStage2Spec();
   });
 
-  test('Adam\'s buy-iPhone talk and Eve\'s sell-iPhone talk auto-match in both directions with zero manual clicks', async () => {
+  test('Adam\'s buy talks and Eve\'s sell talks (iPhone + iPad, route type + matchThreshold, real Talk Editor UI) match after each side manually answers the other\'s', async () => {
     test.setTimeout(300_000);
 
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam BuySell');
@@ -148,27 +270,60 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     pageAdam = adam.page;
     await pageAdam.click('.chatroom-item:has-text("Global")');
     await afterSync();
-    await enableChatbot(pageAdam);
 
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve BuySell');
     contextEve = eve.context;
     pageEve = eve.page;
     await pageEve.click('.chatroom-item:has-text("Global")');
     await afterSync();
-    await enableChatbot(pageEve);
 
     const [adamId, eveId] = await Promise.all([getCurrentUserId(pageAdam), getCurrentUserId(pageEve)]);
     expect(adamId).toBeTruthy();
     expect(eveId).toBeTruthy();
 
-    // --- Each side authors and self-answers their OWN talk — this is what populates the
-    // flattened, tag-scoped context store the other side's chatbot will read from. ---
-    const [adamTalk] = await createTalksFromCompanyPage(pageAdam, [buildBuySellTalkPayload('buy')]);
-    const [eveTalk] = await createTalksFromCompanyPage(pageEve, [buildBuySellTalkPayload('sell')]);
-    expect(adamTalk).toBeTruthy();
-    expect(eveTalk).toBeTruthy();
+    const iphoneTitle = `iPhone Trade ${RUN_ID}`;
+    const ipadTitle = `iPad Trade ${RUN_ID}`;
 
-    // --- Both broadcast their own talk — nobody manually answers the other's. ---
+    // --- Adam builds two route talks live in the Talk Editor: one per item he's buying, each
+    // a 3-spec (Model/Condition/Capacity) matchThreshold talk. ---
+    await createMultiSpecRouteTalk(pageAdam, {
+      title: iphoneTitle,
+      tag: 'buy',
+      modelQuestion: 'Is the model 16 Pro?',
+      capacityQuestion: 'Is the capacity 128GB?',
+      expiresOption: '1w',
+      locationRadiusMiles: '100',
+    });
+    await createMultiSpecRouteTalk(pageAdam, {
+      title: ipadTitle,
+      tag: 'buy',
+      modelQuestion: 'Is the model 3rd generation?',
+      capacityQuestion: 'Is the capacity 64GB?',
+      expiresOption: '1w',
+      locationRadiusMiles: '100',
+    });
+
+    // --- Eve builds the mirror-image route talks: selling instead of buying. Different
+    // location/expiry (decorative — neither affects this match: the receiver's own intake
+    // filters gate distance, not the talk's own radius). ---
+    await createMultiSpecRouteTalk(pageEve, {
+      title: iphoneTitle,
+      tag: 'sell',
+      modelQuestion: 'Is the model 16 Pro?',
+      capacityQuestion: 'Is the capacity 128GB?',
+      expiresOption: '1M',
+      locationRadiusMiles: '1000',
+    });
+    await createMultiSpecRouteTalk(pageEve, {
+      title: ipadTitle,
+      tag: 'sell',
+      modelQuestion: 'Is the model 3rd generation?',
+      capacityQuestion: 'Is the capacity 64GB?',
+      expiresOption: '1M',
+      locationRadiusMiles: '1000',
+    });
+
+    // --- Both broadcast everything they created. ---
     await pageAdam.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageAdam, 1, 120_000);
@@ -179,12 +334,20 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     await waitForDistinctGunPeersExcludingSelf(pageEve, 1, 120_000);
     await clickBroadcastUntilBulkAck(pageEve);
 
-    // --- Two unidirectional chatbot matches converge on one conversation, on both sides. ---
+    // --- Each side manually walks the other's incoming talks, answering all 3 specs "yes" on
+    // both items — no chatbot involved (see file header for why: matchThreshold/multi-spec
+    // route talks aren't reachable by the automatic resolver today). ---
+    await answerMultiSpecRouteYes(pageEve, iphoneTitle);
+    await answerMultiSpecRouteYes(pageEve, ipadTitle);
+    await answerMultiSpecRouteYes(pageAdam, iphoneTitle);
+    await answerMultiSpecRouteYes(pageAdam, ipadTitle);
+
+    // --- Two unidirectional 3/3 matches converge on one conversation, on both sides. ---
     await expect
-      .poll(() => hasConversationWith(pageAdam, eveId), { timeout: 60_000, message: 'Adam: no auto-matched conversation with Eve' })
+      .poll(() => hasConversationWith(pageAdam, eveId), { timeout: 60_000, message: 'Adam: no matched conversation with Eve' })
       .toBe(true);
     await expect
-      .poll(() => hasConversationWith(pageEve, adamId), { timeout: 60_000, message: 'Eve: no auto-matched conversation with Adam' })
+      .poll(() => hasConversationWith(pageEve, adamId), { timeout: 60_000, message: 'Eve: no matched conversation with Adam' })
       .toBe(true);
 
     await afterAction();
