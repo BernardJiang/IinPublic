@@ -1,7 +1,7 @@
 /**
  * Independently-authored buy/sell talks match each other — first via a real, interactive
- * route-talk build, second (unchanged) via the chatbot's flattened context-aware store,
- * docs/TODO.md §KK.
+ * route-talk build resolved by the chatbot with zero manual clicking, second (unchanged) via
+ * the chatbot's flattened context-aware store, docs/TODO.md §KK.
  *
  * First test: Adam and Eve each build their OWN talks live through the real Talk Editor, type
  * 'route' — one talk per item (iPhone, iPad), each a `matchThreshold` multi-spec talk: a root
@@ -11,27 +11,35 @@
  * lower). Adam declares `selfTag: 'buy'` (auto preferenceSet `['sell']`), Eve declares
  * `selfTag: 'sell'` (auto preferenceSet `['buy']`).
  *
- * Matching here is MANUAL per spec (`answerMultiSpecRouteYes`, mirroring 80's own
- * `answerMultiSpecRoute` helper), not the automatic chatbot — two real gaps found while
- * building this ruled out a zero-click version for a multi-spec/branching route talk:
- *  1. `tryBuildChatbotAnswersFromFlattened` (ui-manager.ts) walks a talk's `questions` array by
- *     plain INDEX order with no branch/sibling awareness at all — it has no way to treat a
- *     root's N independent children as anything but one flat sequence, so it can't resolve a
- *     spec-selector root question (there's no single "self-answer" for a question whose whole
- *     point is 3-4 parallel specs at once).
- *  2. The interactive dialog's own pre-scan (`tryCollectAllAutoAnswers`) explicitly skips
- *     `route` talks outright ("branching paths — skip pre-scan").
- * A single branching route talk covering BOTH items (iPhone + iPad in one DAG) was also
- * considered and rejected for the same reason — kept as two separate item talks instead.
+ * Matching is fully automatic — neither side ever opens the other's incoming-talk modal.
+ * Closing this gap required three production fixes (all in ui-manager.ts unless noted),
+ * because a matchThreshold route's root has no single "self-answer" (its whole point is N
+ * parallel specs at once, not one chosen path) and its direct-child specs are independent and
+ * order-independent by construction (talk-engine.ts):
+ *  1. `buildRouteSelfAnswers` previously only ever walked ONE linear "first answer" chain from
+ *     the root — useless for 3 SIBLING specs reached via 3 *different* root answers. It now
+ *     takes an optional `matchThreshold` and, when set, records one self-answer per direct
+ *     child of the root (that child's own first authored answer), skipping the root itself.
+ *  2. `tryBuildChatbotAnswersFromFlattened` walked a talk's `questions` array by plain INDEX
+ *     order with no branch/sibling awareness — it now detects a matchThreshold route via
+ *     `getRouteRootChildQuestionIds` (talk-engine.ts, shared with the response dialog's own
+ *     multi-branch walk) and resolves only the root's direct children, skipping the root.
+ *  3. `resolveAnswerPreferenceForTalkQuestion` and `saveAnswerPreference` both folded whichever
+ *     SIBLING specs happened to be answered/saved earlier in the same walk into the §KK
+ *     flattened-key's context path — harmless for a genuinely sequential chain, but wrong for
+ *     specs that are independent by construction (order-independence would break the moment two
+ *     independently-authored talks walked their specs in a different order). Both now force an
+ *     empty context path for a matchThreshold route's direct-child questions, the same key shape
+ *     a talk's very first question already uses.
+ * A single branching route talk covering BOTH items (iPhone + iPad in one DAG) was considered
+ * and rejected as a separate concern (nested branching under a spec is out of scope for
+ * matchThreshold routes, see `computeRouteMatchScore`'s doc comment) — kept as two separate item
+ * talks instead.
  *
- * A real, incidental product bug surfaced and was fixed while building this: `UIManager`'s
+ * A real, incidental product bug also surfaced and was fixed while building this: `UIManager`'s
  * `routeEditorQuestions` field is a singleton, never reset between Talk Editor opens — a second
  * route talk created in the same session inherited the first one's leftover DAG state instead
- * of starting fresh (`showTalkEditorDialog`, ui-manager.ts). Also added: `buildRouteSelfAnswers`
- * (ui-manager.ts), which defaults a route question's self-answer to its first authored answer
- * while walking the chain from the root — route talks previously saved none at all. Not
- * exercised by this test (manual answering, not chatbot recall) but a real, separately useful
- * fix for any future zero-click route-talk chatbot work.
+ * of starting fresh (`showTalkEditorDialog`, ui-manager.ts).
  *
  * Second test (§KK collision regression, unchanged): flow-type talks built via direct payload
  * injection, kept as-is — see `buildQuestions`/`buildBuySellTalkPayload` below.
@@ -41,7 +49,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { bootstrapUser, waitForTabActive, openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import {
   createTalksFromCompanyPage,
   clickBroadcastUntilBulkAck,
@@ -133,13 +141,6 @@ type MultiSpecRouteTalkOpts = {
   locationRadiusMiles: '' | '10' | '100' | '1000';
 };
 
-/** The 3 spec leaves' own "yes, compatible" answer ids — fully deterministic from the click
- *  sequence in `createMultiSpecRouteTalk` below (root q_0's 3 answers spawn q_1/q_2/q_3 in
- *  that order; each child's own answers are always named `${childId}_match`/`${childId}_ignore`
- *  by the route editor's "add child" handler). Same ids on both Adam's and Eve's talks since
- *  both are built by the identical sequence. */
-const MULTI_SPEC_YES_ANSWER_IDS = ['q_1_match', 'q_2_match', 'q_3_match'];
-
 /**
  * Builds one route talk, live through the real Talk Editor, as 3 independent SIBLING specs
  * off a shared root — Model / Condition / Capacity — not a linear chain: this is
@@ -203,21 +204,6 @@ async function createMultiSpecRouteTalk(page: Page, opts: MultiSpecRouteTalkOpts
   await submitTalkEditorAndWaitForOut(page, opts.title);
 }
 
-/** Walks the matchThreshold multi-branch route dialog answering every spec "yes" — mirrors
- *  `80-route-multi-spec-match-percent.spec.ts`'s own `answerMultiSpecRoute` helper. */
-async function answerMultiSpecRouteYes(page: Page, titleSubstring: string): Promise<void> {
-  await openIncomingTalkModal(page, titleSubstring);
-  for (const aid of MULTI_SPEC_YES_ANSWER_IDS) {
-    await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 90_000 });
-    const radio = page.locator(`input.choice-radio[data-answer-id="${aid}"][data-mode="manual"]`).first();
-    await expect(radio).toBeVisible({ timeout: 30_000 });
-    await radio.check();
-    await page.locator('[data-testid="route-branch-continue"]').click();
-    await afterSync();
-  }
-  await waitForResponseModalClosed(page);
-}
-
 async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id ?? '');
 }
@@ -262,7 +248,7 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     await clearGunForStage2Spec();
   });
 
-  test('Adam\'s buy talks and Eve\'s sell talks (iPhone + iPad, route type + matchThreshold, real Talk Editor UI) match after each side manually answers the other\'s', async () => {
+  test('Adam\'s buy talks and Eve\'s sell talks (iPhone + iPad, route type + matchThreshold, real Talk Editor UI) match with zero manual clicking', async () => {
     test.setTimeout(300_000);
 
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam BuySell');
@@ -270,12 +256,14 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     pageAdam = adam.page;
     await pageAdam.click('.chatroom-item:has-text("Global")');
     await afterSync();
+    await enableChatbot(pageAdam);
 
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve BuySell');
     contextEve = eve.context;
     pageEve = eve.page;
     await pageEve.click('.chatroom-item:has-text("Global")');
     await afterSync();
+    await enableChatbot(pageEve);
 
     const [adamId, eveId] = await Promise.all([getCurrentUserId(pageAdam), getCurrentUserId(pageEve)]);
     expect(adamId).toBeTruthy();
@@ -334,13 +322,10 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     await waitForDistinctGunPeersExcludingSelf(pageEve, 1, 120_000);
     await clickBroadcastUntilBulkAck(pageEve);
 
-    // --- Each side manually walks the other's incoming talks, answering all 3 specs "yes" on
-    // both items — no chatbot involved (see file header for why: matchThreshold/multi-spec
-    // route talks aren't reachable by the automatic resolver today). ---
-    await answerMultiSpecRouteYes(pageEve, iphoneTitle);
-    await answerMultiSpecRouteYes(pageEve, ipadTitle);
-    await answerMultiSpecRouteYes(pageAdam, iphoneTitle);
-    await answerMultiSpecRouteYes(pageAdam, ipadTitle);
+    // --- Neither side ever opens the other's incoming-talk modal. Each chatbot resolves the
+    // other's iPhone AND iPad talks entirely from its own flattened self-answer store — see file
+    // header for the three production fixes that made a matchThreshold/multi-spec route talk
+    // reachable by the automatic resolver. ---
 
     // --- Two unidirectional 3/3 matches converge on one conversation, on both sides. ---
     await expect

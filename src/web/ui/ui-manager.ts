@@ -21,7 +21,7 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
-import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, getRouteRootChildQuestionIds } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
@@ -7733,13 +7733,23 @@ export class UIManager extends EventEmitter {
       const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk);
       const talkContentHash = computeTalkIdFromTalkData(talk);
       const flatMap = getFlattenedAnswerPreferences();
+      // Spec §30.2/§KK zero-click follow-up: a matchThreshold route's direct-child specs are
+      // independent and order-independent by construction (talk-engine.ts) — the accumulated
+      // sibling-answer history that `previousQAPairs` would otherwise carry is irrelevant (and
+      // actively harmful: it would make the Model spec's lookup key depend on whichever specs
+      // happened to be answered before it, so two independently-authored talks walking specs in
+      // a different order would never share a bucket). Always resolve these questions with an
+      // empty context path, same key shape as a talk's very first question.
+      const effectivePreviousQAPairs = getRouteRootChildQuestionIds(talk)?.includes(currentQuestion.id)
+        ? []
+        : previousQAPairs;
       for (const counterpartTag of counterpartCandidates) {
         const tagContext: TagContext = { mySelfTag, counterpartTag };
         const flatKey = buildAnswerPreferenceLookupKey(
           talk,
           talkContentHash,
           questionIndex,
-          previousQAPairs,
+          effectivePreviousQAPairs,
           currentQuestion.text,
           tagContext,
         );
@@ -7915,7 +7925,12 @@ export class UIManager extends EventEmitter {
       0,
       talk.questions?.findIndex((q: { id: string }) => q.id === currentQuestion.id) ?? 0,
     );
-    const previous = sessionAnswersToQAPairs(talk, fullSessionAnswersIncludingCurrent.slice(0, -1));
+    // Mirrors the read-side override in `resolveAnswerPreferenceForTalkQuestion` — a
+    // matchThreshold route's direct-child specs are independent, so their save key must not
+    // depend on whichever sibling specs happened to be saved earlier in this loop.
+    const previous = getRouteRootChildQuestionIds(talk)?.includes(currentQuestion.id)
+      ? []
+      : sessionAnswersToQAPairs(talk, fullSessionAnswersIncludingCurrent.slice(0, -1));
 
     // §KK: write the same answer under one flattened-key bucket per counterpart-tag candidate —
     // e.g. a "buy iPhone" talk with `preferenceSet: ['sell', 'free']` fans out to 2 buckets, so
@@ -7990,6 +8005,36 @@ export class UIManager extends EventEmitter {
       [];
     const pairs: QAPair[] = [];
     const gunId = talkData.id || '';
+
+    // Spec §30.2/§KK zero-click follow-up: a matchThreshold route has no single "self-answer"
+    // for its root (the root's whole point is 3+ parallel specs at once, not one chosen path —
+    // matchThreshold mode never asks the respondent to answer it either, see
+    // `getRouteRootChildQuestionIds`/talk-response-dialog.ts's multi-branch walk). Resolve only
+    // the root's direct-child specs, each independently (no accumulated sibling context —
+    // enforced inside `resolveAnswerPreferenceForTalkQuestion`), and skip the root entirely.
+    // `checkIfMatch`'s route branch (`computeRouteMatchScore`) only ever reads answers for
+    // recognized child-spec ids, so an answer set with no root entry is already exactly the
+    // shape it expects.
+    const routeChildIds = getRouteRootChildQuestionIds(talkData);
+    if (routeChildIds) {
+      for (const childId of routeChildIds) {
+        const q = questions.find((qq: any) => qq.id === childId);
+        if (!q) return null;
+        const pref = this.resolveAnswerPreferenceForTalkQuestion(talkData, questions.indexOf(q), [], q, gunId);
+        if (!pref || pref.mode !== 'auto') return null;
+        if (pref.answerId === 'ignore') return null;
+        const ans = q.answers?.find((a: { id: string }) => a.id === pref.answerId);
+        if (!ans) return null;
+        out.push({
+          questionId: q.id,
+          answerId: pref.answerId,
+          answerText: pref.answerText,
+          mode: 'auto',
+        });
+      }
+      return out;
+    }
+
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const pref = this.resolveAnswerPreferenceForTalkQuestion(talkData, i, pairs, q, gunId);
@@ -8867,7 +8912,7 @@ export class UIManager extends EventEmitter {
         this.showTalkValidationError([this.t('editorRouteRequired')]);
         return false;
       }
-      selfAnswers.push(...this.buildRouteSelfAnswers());
+      selfAnswers.push(...this.buildRouteSelfAnswers(matchThreshold));
     } else {
       // flow + survey share the linear editor
       questions = [];
@@ -9460,8 +9505,16 @@ export class UIManager extends EventEmitter {
    * makes this unambiguous — that one answer simply IS the self-answer. Stops at a builtIn node
    * (no authored answers; its own typed-preference save, `processTalkForm` below, is unconditional
    * on type and covers it separately) or a leaf with no outgoing link.
+   *
+   * `matchThreshold` routes (spec §30.2) are a different shape and take a different branch here:
+   * the root's whole point is 3+ parallel, order-independent specs, not one chosen path, and
+   * matchThreshold mode never asks the respondent to answer the root either (see
+   * `getRouteRootChildQuestionIds`/talk-response-dialog.ts's multi-branch walk) — so the root
+   * itself gets no self-answer. Instead, every direct child of the root is its own independent
+   * spec: the author's self-answer is that spec's own first authored answer ("yes, compatible"),
+   * one per branch off the root (docs/TODO.md §KK zero-click follow-up).
    */
-  private buildRouteSelfAnswers(): { questionId: string; answerId: string }[] {
+  private buildRouteSelfAnswers(matchThreshold?: number): { questionId: string; answerId: string }[] {
     const childQuestionIdByParentAnswerKey = new Map<string, string>();
     for (const q of this.routeEditorQuestions) {
       if (q.parentAnswer) {
@@ -9469,8 +9522,20 @@ export class UIManager extends EventEmitter {
       }
     }
     const byId = new Map(this.routeEditorQuestions.map((q) => [q.id, q]));
+    const root = this.routeEditorQuestions.find((q) => !q.parentAnswer);
     const selfAnswers: { questionId: string; answerId: string }[] = [];
-    let current = this.routeEditorQuestions.find((q) => !q.parentAnswer);
+
+    if (matchThreshold != null && root) {
+      for (const answer of root.answers) {
+        const childId = childQuestionIdByParentAnswerKey.get(`${root.id}::${answer.id}`);
+        const child = childId ? byId.get(childId) : undefined;
+        if (!child || child.builtIn || child.answers.length === 0) continue;
+        selfAnswers.push({ questionId: child.id, answerId: child.answers[0].id });
+      }
+      return selfAnswers;
+    }
+
+    let current = root;
     while (current) {
       if (current.builtIn || current.answers.length === 0) break;
       const firstAnswer = current.answers[0];
