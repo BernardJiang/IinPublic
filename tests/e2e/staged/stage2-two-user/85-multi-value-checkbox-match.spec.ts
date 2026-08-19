@@ -182,8 +182,12 @@ test.describe('Multi-value checkbox questions (§FF)', () => {
 
     const buyerId = await getCurrentUserId(pageBuyer);
     const sellerId = await getCurrentUserId(pageSeller);
+    // Both sides poll: the buyer's and seller's own local conversation mirrors are written by
+    // separate async paths and don't necessarily settle at the same instant (matches the
+    // zero-click test below, which already polls both directions symmetrically) — a one-shot
+    // check on the second side raced the seller's own mirror write and flaked.
     await expect.poll(() => hasConversationWith(pageBuyer, sellerId), { timeout: 15_000, intervals: [300] }).toBe(true);
-    expect(await hasConversationWith(pageSeller, buyerId)).toBe(true);
+    await expect.poll(() => hasConversationWith(pageSeller, buyerId), { timeout: 15_000, intervals: [300] }).toBe(true);
   });
 
   test('seller checking only the buyer\'s rejected model does NOT match', async () => {
