@@ -1,7 +1,7 @@
 /**
  * Independently-authored buy/sell talks match each other — first via a real, interactive
- * route-talk build resolved by the chatbot with zero manual clicking, second (unchanged) via
- * the chatbot's flattened context-aware store, docs/TODO.md §KK.
+ * route-talk build resolved by the chatbot with zero manual clicking, second (also fully
+ * UI-driven now) via the chatbot's flattened context-aware store, docs/TODO.md §KK.
  *
  * First test: Adam and Eve each build their OWN talks live through the real Talk Editor, type
  * 'route' — one talk per item (iPhone, iPad), each a `matchThreshold` multi-spec talk: a root
@@ -41,8 +41,15 @@
  * route talk created in the same session inherited the first one's leftover DAG state instead
  * of starting fresh (`showTalkEditorDialog`, ui-manager.ts).
  *
- * Second test (§KK collision regression, unchanged): flow-type talks built via direct payload
- * injection, kept as-is — see `buildQuestions`/`buildBuySellTalkPayload` below.
+ * Second test (§KK collision regression) needed one more real gap closed to go fully UI-driven:
+ * "Buy Buddies iPhone" declares `preferenceSet: ['buy']` — the SAME tag as its own `selfTag`
+ * ("match fellow buy people," not the opposite tag) — which the editor's `#talk-tag` picker had
+ * no way to express; it only ever auto-derived the single seeded opposite (buy→sell). Added
+ * `#talk-preference-set` (talk-editor-dialog.ts, docs/TODO.md §II "generalized beyond symmetric
+ * opposites"): an explicit, editable counterpart-tag field that keeps auto-tracking the seeded
+ * opposite live until the author types their own value there (or opens an existing talk that
+ * already has one) — at which point that value wins outright, including a same-tag declaration.
+ * `processTalkForm` (ui-manager.ts) now reads whichever of the two ended up with content.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -51,74 +58,50 @@ import { afterSync, afterAction, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import {
-  createTalksFromCompanyPage,
   clickBroadcastUntilBulkAck,
+  createFlowOrSurveyTalkViaEditor,
   waitForDistinctGunPeersExcludingSelf,
   submitTalkEditorAndWaitForOut,
+  type UiTalkQuestionSpec,
 } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const RUN_ID = 890100;
 
-/** Identically-worded 3-question chain (Item -> Model -> Capacity) for both sides — only the
- *  title, id, selfTag/preferenceSet, and self-answers differ. Question/answer wording must
- *  match byte-for-byte for the flattened context-hash path to resolve across the two talks. */
-function buildQuestions() {
+/**
+ * Identically-worded 3-question chain (Item -> Model -> Capacity) for every talk in test 2 —
+ * question/answer wording must match byte-for-byte for the flattened context-hash path (§KK)
+ * to resolve across independently-authored talks. Only which answer is the author's own
+ * self-pick for Model/Capacity varies (Item is always "iPhone" for every talk in this test).
+ * Capacity is deliberately asymmetric on the RECEIVING talk (only 128GB is `isMatch`) — the
+ * §KK collision test needs a real behavioral difference between "resolved from the right
+ * context" and "resolved from the wrong one," not just two differently-worded but equally-valid
+ * answers.
+ */
+function iphoneQuestions(opts: { modelSelfIndex: 0 | 1; capacitySelfIndex: 0 | 1 }): UiTalkQuestionSpec[] {
   return [
     {
-      id: 'q_item',
       text: 'Which item?',
       answers: [
-        { id: 'a_item_iphone', text: 'iPhone' },
-        { id: 'a_item_ipad', text: 'iPad' },
+        { text: 'iPhone', outcome: 'next', self: true },
+        { text: 'iPad', outcome: 'ignore' },
       ],
     },
     {
-      id: 'q_model',
       text: 'Model?',
       answers: [
-        { id: 'a_model_16pro', text: '16 Pro' },
-        { id: 'a_model_other', text: 'Other' },
+        { text: '16 Pro', outcome: 'next', self: opts.modelSelfIndex === 0 },
+        { text: 'Other', outcome: 'ignore', self: opts.modelSelfIndex === 1 },
       ],
     },
     {
-      id: 'q_capacity',
       text: 'Capacity?',
-      // Deliberately asymmetric (only 128GB matches) — the §KK collision test below needs a
-      // real behavioral difference between "resolved from the right context" and "resolved
-      // from the wrong one," not just two differently-worded but equally-valid answers.
       answers: [
-        { id: 'a_capacity_128', text: '128GB', isMatch: true, isTerminal: true },
-        { id: 'a_capacity_256', text: '256GB', isIgnore: true, isTerminal: true },
+        { text: '128GB', outcome: 'match', self: opts.capacitySelfIndex === 0 },
+        { text: '256GB', outcome: 'ignore', self: opts.capacitySelfIndex === 1 },
       ],
     },
   ];
-}
-
-function buildBuySellTalkPayload(role: 'buy' | 'sell'): Record<string, unknown> {
-  const opposite = role === 'buy' ? 'sell' : 'buy';
-  return {
-    id: `demo-${role}-iphone-${RUN_ID}`,
-    title: `${role === 'buy' ? 'Buy' : 'Sell'} iPhone ${RUN_ID}`,
-    authorId: role,
-    type: 'flow',
-    selfTag: role,
-    preferenceSet: [opposite],
-    isAdult: false,
-    language: 'en',
-    tags: [],
-    createdAt: new Date(),
-    isTemplate: false,
-    usageCount: 0,
-    questions: buildQuestions(),
-    // Real users declare these while filling in the talk editor's own answers; `saveCreatedTalk`
-    // writes each one to the flattened context-aware store (§KK) as well as exact-chatbot-memory.
-    selfAnswers: [
-      { questionId: 'q_item', answerId: 'a_item_iphone' },
-      { questionId: 'q_model', answerId: 'a_model_16pro' },
-      { questionId: 'q_capacity', answerId: 'a_capacity_128' },
-    ],
-  };
 }
 
 async function enableChatbot(page: Page): Promise<void> {
@@ -369,60 +352,37 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
 
     const [adamId, eveId] = await Promise.all([getCurrentUserId(pageAdam), getCurrentUserId(pageEve)]);
 
-    const buyFromSellerTalk = {
-      id: `demo-buy-iphone-seller-${RUN_ID}`,
+    // "Buy iPhone Seller" wants a seller: tag 'buy' auto-fills preferenceSet ['sell'] (the
+    // seeded opposite) — untouched, so the live auto-fill default is exactly what's wanted here.
+    await createFlowOrSurveyTalkViaEditor(pageAdam, {
       title: `Buy iPhone Seller ${RUN_ID}`,
-      authorId: 'buy',
       type: 'flow',
-      selfTag: 'buy',
-      preferenceSet: ['sell'],
-      isAdult: false,
-      language: 'en',
-      tags: [],
-      createdAt: new Date(),
-      isTemplate: false,
-      usageCount: 0,
-      questions: buildQuestions(),
-      selfAnswers: [
-        { questionId: 'q_item', answerId: 'a_item_iphone' },
-        { questionId: 'q_model', answerId: 'a_model_16pro' },
-        { questionId: 'q_capacity', answerId: 'a_capacity_128' },
-      ],
-    };
-    // Saved SECOND, so it's the "latest" entry in context-free exact-chatbot-memory — the
-    // buggy path this test would catch if it won. Same question wording and answer text as
-    // the seller talk's Model/Capacity options (so exact-chatbot-memory's validity filter
-    // can't reject them outright), different answer ids (independently-authored-in-spirit),
-    // and deliberately the "wrong" (ignore-flagged) capacity for a real seller exchange.
-    const buyBuddiesTalk = {
-      id: `demo-buy-buddies-iphone-${RUN_ID}`,
+      tag: 'buy',
+      questions: iphoneQuestions({ modelSelfIndex: 0, capacitySelfIndex: 0 }),
+    });
+    // "Buy Buddies iPhone" wants fellow buyers, not a seller — preferenceSet ['buy'], the SAME
+    // tag as its own selfTag, which only an explicit `#talk-preference-set` value can produce
+    // (the auto-derived opposite would give 'sell', wrong for a buddy-matching talk). Saved
+    // SECOND, so it's the "latest" entry in context-free exact-chatbot-memory — the buggy path
+    // this test would catch if it won. Same question wording as the seller talk's Model/Capacity
+    // options (so exact-chatbot-memory's validity filter can't reject them outright), and
+    // deliberately the "wrong" (ignore-flagged) capacity for a real seller exchange.
+    await createFlowOrSurveyTalkViaEditor(pageAdam, {
       title: `Buy Buddies iPhone ${RUN_ID}`,
-      authorId: 'buy',
       type: 'flow',
-      selfTag: 'buy',
+      tag: 'buy',
       preferenceSet: ['buy'],
-      isAdult: false,
-      language: 'en',
-      tags: [],
-      createdAt: new Date(),
-      isTemplate: false,
-      usageCount: 0,
-      questions: [
-        buildQuestions()[0],
-        { id: 'q_model', text: 'Model?', answers: [{ id: 'a2_model_16pro', text: '16 Pro' }, { id: 'a2_model_other', text: 'Other' }] },
-        { id: 'q_capacity', text: 'Capacity?', answers: [{ id: 'a2_capacity_128', text: '128GB', isMatch: true, isTerminal: true }, { id: 'a2_capacity_256', text: '256GB', isIgnore: true, isTerminal: true }] },
-      ],
-      selfAnswers: [
-        { questionId: 'q_item', answerId: 'a_item_iphone' },
-        { questionId: 'q_model', answerId: 'a2_model_other' },
-        { questionId: 'q_capacity', answerId: 'a2_capacity_256' },
-      ],
-    };
-    await createTalksFromCompanyPage(pageAdam, [buyFromSellerTalk, buyBuddiesTalk]);
+      questions: iphoneQuestions({ modelSelfIndex: 1, capacitySelfIndex: 1 }),
+    });
 
     // Eve's sell-talk: same wording, 16 Pro / 128GB(match) / 256GB(ignore) — matches ONLY if
     // Adam's chatbot resolves from the seller-context talk, not the buddy-context one.
-    const [eveTalk] = await createTalksFromCompanyPage(pageEve, [buildBuySellTalkPayload('sell')]);
+    const eveTalk = await createFlowOrSurveyTalkViaEditor(pageEve, {
+      title: `Sell iPhone ${RUN_ID}`,
+      type: 'flow',
+      tag: 'sell',
+      questions: iphoneQuestions({ modelSelfIndex: 0, capacitySelfIndex: 0 }),
+    });
     expect(eveTalk).toBeTruthy();
 
     await pageEve.click('.nav-btn[data-view="chatrooms"]');

@@ -381,6 +381,10 @@ export type CreateFlowOrSurveyTalkViaEditorOpts = {
   questions: UiTalkQuestionSpec[];
   /** selfTag — hidden/irrelevant for survey (the real editor hides this field for that type). */
   tag?: string;
+  /** Explicit counterpart-tag list (docs/TODO.md §II) — overrides the seeded single-opposite
+   *  auto-fill `tag` alone would produce. Can include `tag`'s own value ("match fellow buy
+   *  people" buddy-style talks) or several tags at once; irrelevant/hidden for survey. */
+  preferenceSet?: string[];
   expiresOption?: '' | '1d' | '1w' | '1M' | '1y';
   locationRadiusMiles?: '' | '10' | '100' | '1000';
   isAdult?: boolean;
@@ -415,6 +419,12 @@ export async function createFlowOrSurveyTalkViaEditor(
   await page.fill('#talk-title', opts.title);
   await selectTalkEditorType(page, opts.type);
   if (opts.tag) await page.fill('#talk-tag', opts.tag);
+  // Filled AFTER `#talk-tag` on purpose: `#talk-tag`'s own input event may have already
+  // auto-filled the seeded single-opposite default (talk-editor-dialog.ts) — this explicit
+  // fill overwrites that default and locks the field so no later edit clobbers it.
+  if (opts.preferenceSet && opts.preferenceSet.length > 0) {
+    await page.fill('#talk-preference-set', opts.preferenceSet.join(', '));
+  }
 
   // One question is pre-seeded; add the rest up front so `.answer-next`'s "Go to Question N"
   // options are already correct (they're recomputed from the live total question count) by the

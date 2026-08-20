@@ -135,6 +135,14 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               <option value="hiring"></option>
               <option value="jobseeking"></option>
             </datalist>
+            <label class="form-label" for="talk-preference-set" style="margin-top: 10px; display: block;">${text('editorPreferenceSetLabel' as UiTranslationKey, 'Who can respond? (optional — leave blank to auto-fill the opposite tag)')}</label>
+            <input
+              type="text"
+              class="form-input"
+              id="talk-preference-set"
+              value="${options.escapeHtml((existingTalk?.preferenceSet || []).join(', '))}"
+              placeholder="${text('editorPreferenceSetPlaceholder' as UiTranslationKey, 'e.g. sell, offer, free — or type your own tag again to match fellow buy people')}"
+            >
             <p id="talk-tag-preview" style="margin: 6px 0 0 0; font-size: 0.85em; color: #666;"></p>
           </div>
 
@@ -419,47 +427,71 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
 
     // Spec §30.2 Phase 5: `#talk-tag`'s value doubles as this talk's `selfTag` (a plain
     // self-declaration — "buy", "sell", ...), replacing the old separate role picker.
-    // `preferenceSet` is derived from it at submit time (processTalkForm, ui-manager.ts) via
-    // the same seeded opposite-tag registry this preview already queries — buy auto-accepts
-    // sell, and vice versa. A tag with no known opposite (a user-typed tag, or `male`/`female`,
-    // reserved for §DD) gets no preferenceSet — the talk matches any responder, exactly like an
-    // undeclared role used to. No persistence for user-created pairs in this pass, only the 3
-    // seeded ones are live; multi-value preference-set editing (accepting several counterpart
-    // tags) is a follow-up, not built here (docs/TODO.md §II).
+    // `#talk-preference-set` (docs/TODO.md §II, "generalized beyond symmetric opposites") is the
+    // explicit, editable counterpart-tag list — the underlying `preferenceSet: string[]` field
+    // has always supported several members (or the SAME tag as `selfTag`, for "match fellow buy
+    // people" buddy-style talks); only the UI to declare that directly was missing. Typing into
+    // `#talk-tag` keeps AUTO-DRIVING this field with the seeded opposite (buy → sell → buy, live)
+    // until the author gives it a value of their own — either by typing into it directly, or by
+    // opening the editor on an existing talk that already carries an explicit `preferenceSet`.
+    // `preferenceSetLocked` (not mere emptiness — the field IS legitimately empty right after the
+    // author clears it, and that must stay cleared) is what tracks "own value", so a manual
+    // multi-value or same-tag declaration is never overwritten by a later `#talk-tag` edit, while
+    // an untouched field keeps tracking live for the common single-opposite case. Leaving the
+    // field blank with no locked value (no known opposite, or on purpose) means the talk matches
+    // anyone, exactly like an undeclared role used to. `processTalkForm` (ui-manager.ts) reads
+    // whichever of the two fields ended up with content at submit time.
     const talkTagInput = document.getElementById('talk-tag') as HTMLInputElement | null;
+    const talkPreferenceSetInput = document.getElementById('talk-preference-set') as HTMLInputElement | null;
     const talkTagPreview = document.getElementById('talk-tag-preview');
     const tagRegistry = createSeededTagOppositePairRegistryState();
+    let preferenceSetLocked = !!(existingTalk?.preferenceSet && existingTalk.preferenceSet.length > 0);
 
-    const updateTagPreview = (): void => {
-      const tagValue = talkTagInput?.value.trim() || '';
+    const renderTagPreview = (): void => {
       if (!talkTagPreview) return;
+      const tagValue = talkTagInput?.value.trim() || '';
       if (!tagValue) {
         talkTagPreview.textContent = '';
         return;
       }
-      const opposite = getOppositeTagName(tagRegistry, tagValue);
-      if (!opposite) {
+      const preferenceSetValue = talkPreferenceSetInput?.value.trim() || '';
+      if (!preferenceSetValue) {
         talkTagPreview.textContent = text(
           'editorTagPairNoOpposite',
           'No known opposite tag yet — this talk will match anyone.',
         );
         return;
       }
-      talkTagPreview.textContent = `${text('editorTagPairOppositeLabel', 'Shown to people tagged:')} ${opposite}`;
+      talkTagPreview.textContent = `${text('editorTagPairOppositeLabel', 'Shown to people tagged:')} ${preferenceSetValue}`;
+    };
+
+    const onTagInput = (): void => {
+      const tagValue = talkTagInput?.value.trim() || '';
+      if (tagValue && talkPreferenceSetInput && !preferenceSetLocked) {
+        const opposite = getOppositeTagName(tagRegistry, tagValue);
+        talkPreferenceSetInput.value = opposite || '';
+      }
+      renderTagPreview();
 
       // Auto-suggest the first question's wording — only when the author hasn't typed
       // anything there yet, so this never clobbers a real edit.
-      const titleInput = document.getElementById('talk-title') as HTMLInputElement | null;
-      const template = questionTemplateForTag(tagValue, titleInput?.value || '');
-      if (template) {
-        const flowQ1Text = document.querySelector('.question-item[data-question-index="0"] .question-text') as HTMLInputElement | null;
-        if (flowQ1Text && !flowQ1Text.value.trim()) flowQ1Text.value = template;
-        const routeQ1Text = document.querySelector('.route-question-text[data-qid="q_0"]') as HTMLInputElement | null;
-        if (routeQ1Text && !routeQ1Text.value.trim()) routeQ1Text.value = template;
+      if (tagValue) {
+        const titleInput = document.getElementById('talk-title') as HTMLInputElement | null;
+        const template = questionTemplateForTag(tagValue, titleInput?.value || '');
+        if (template) {
+          const flowQ1Text = document.querySelector('.question-item[data-question-index="0"] .question-text') as HTMLInputElement | null;
+          if (flowQ1Text && !flowQ1Text.value.trim()) flowQ1Text.value = template;
+          const routeQ1Text = document.querySelector('.route-question-text[data-qid="q_0"]') as HTMLInputElement | null;
+          if (routeQ1Text && !routeQ1Text.value.trim()) routeQ1Text.value = template;
+        }
       }
     };
-    talkTagInput?.addEventListener('input', updateTagPreview);
-    updateTagPreview();
+    talkTagInput?.addEventListener('input', onTagInput);
+    talkPreferenceSetInput?.addEventListener('input', () => {
+      preferenceSetLocked = true;
+      renderTagPreview();
+    });
+    onTagInput();
 
     options.setupTalkFormHandlers(modal);
   };

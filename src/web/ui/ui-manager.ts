@@ -8830,16 +8830,28 @@ export class UIManager extends EventEmitter {
     const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
     const sendToChatroomCheck = document.getElementById('talk-send-to-chatroom') as HTMLInputElement;
     // §BB / spec §30.2 Phase 5: the tag-pair picker's (talk-editor-dialog.ts) `#talk-tag`
-    // value doubles as this talk's selfTag; preferenceSet is derived from the same seeded
-    // opposite-tag registry the editor's live preview already queries. A tag with no known
-    // opposite (a user-typed tag, or male/female reserved for §DD) gets no preferenceSet — the
-    // talk matches any responder, exactly like an undeclared role used to.
+    // value doubles as this talk's selfTag. docs/TODO.md §II: `#talk-preference-set` is the
+    // explicit, author-editable counterpart list — when the author typed anything there
+    // (including their OWN tag again, for "match fellow buy people" buddy-style talks, or
+    // several tags at once), that wins outright. Only when it's untouched/empty does
+    // preferenceSet fall back to the single seeded opposite-tag registry lookup (buy→sell) the
+    // editor's live preview also auto-fills as a convenience default. A tag with no known
+    // opposite and no explicit preference-set (a user-typed tag, or male/female reserved for
+    // §DD) gets no preferenceSet — the talk matches any responder, exactly like an undeclared
+    // role used to.
     const tagInputValue = (document.getElementById('talk-tag') as HTMLInputElement | null)?.value.trim() || '';
     const selfTag = tagInputValue || undefined;
+    const preferenceSetInputValue =
+      (document.getElementById('talk-preference-set') as HTMLInputElement | null)?.value.trim() || '';
+    const explicitPreferenceSet = preferenceSetInputValue
+      ? preferenceSetInputValue.split(',').map((t) => t.trim()).filter(Boolean)
+      : [];
     const oppositeTag = tagInputValue
       ? getOppositeTagName(createSeededTagOppositePairRegistryState(), tagInputValue)
       : undefined;
-    const preferenceSet = oppositeTag ? [oppositeTag] : undefined;
+    const preferenceSet = explicitPreferenceSet.length > 0
+      ? explicitPreferenceSet
+      : (oppositeTag ? [oppositeTag] : undefined);
     // §BB / spec §30.2: the tag-pair picker (talk-editor-dialog.ts) stores a real Tag on the
     // talk — not just UI chrome. Category is a light best-effort guess for the 3 seeded deal
     // pairs; everything else (including any user-typed tag with no known opposite) falls back
