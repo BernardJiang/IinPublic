@@ -178,6 +178,10 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
       </select>
     </label>
     <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
+      <input type="checkbox" class="question-reciprocal-tag">
+      ${text(options, 'editorReciprocalTagLabel', 'Define buy/sell context here for later questions (needs exactly 1 real answer, besides Ignore)')}
+    </label>
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
       ${text(options, 'editorBuiltInKindLabel', 'Compare using:')}
       <select class="form-input builtin-kind" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
         <option value="">${text(options, 'editorBuiltInKindNone', 'Ordinary answer choices')}</option>

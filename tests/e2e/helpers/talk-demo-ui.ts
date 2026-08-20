@@ -373,6 +373,11 @@ export type UiTalkQuestionSpec = {
   text: string;
   answers: UiTalkAnswerSpec[];
   answerSelectionMode?: 'single' | 'multiple';
+  /** docs/TODO.md §LL follow-up: checks the editor's per-question `.question-reciprocal-tag`
+   *  checkbox — only meaningful (matching engine side) with exactly one non-`ignore` answer,
+   *  which an ordinary single-`match`/`next` + one `ignore` question (the usual 2-answer shape)
+   *  already satisfies; no special answer count needed. */
+  reciprocalTagContext?: boolean;
 };
 
 export type CreateFlowOrSurveyTalkViaEditorOpts = {
@@ -439,6 +444,9 @@ export async function createFlowOrSurveyTalkViaEditor(
     await qItem.locator('.question-text').fill(qSpec.text);
     if (qSpec.answerSelectionMode === 'multiple') {
       await qItem.locator('.answer-selection-mode').selectOption('multiple');
+    }
+    if (qSpec.reciprocalTagContext) {
+      await qItem.locator('.question-reciprocal-tag').setChecked(true, { force: true });
     }
     for (let aIndex = 2; aIndex < qSpec.answers.length; aIndex++) {
       await qItem.locator('.btn-add-answer').click();
@@ -559,6 +567,11 @@ export type UiRouteAnswerSpec =
 export type UiRouteNodeSpec = {
   text: string;
   answers: UiRouteAnswerSpec[];
+  /** docs/TODO.md §LL follow-up: checks the editor's per-question `.route-question-reciprocal-
+   *  tag` checkbox — only meaningful (matching engine side) with exactly one non-`ignore`
+   *  answer, i.e. a single `{child}` or `{outcome:'match'}` answer alongside the seeded
+   *  `{outcome:'ignore'}` default; no special answer count needed. */
+  reciprocalTagContext?: boolean;
 };
 
 export type CreateRouteTalkViaEditorOpts = {
@@ -620,6 +633,9 @@ export async function createRouteTalkViaEditor(
 
   const fillNode = async (qid: string, node: UiRouteNodeSpec): Promise<void> => {
     await page.locator(`.route-question-text[data-qid="${qid}"]`).fill(node.text);
+    if (node.reciprocalTagContext) {
+      await page.locator(`.route-question-reciprocal-tag[data-qid="${qid}"]`).setChecked(true, { force: true });
+    }
     for (let i = 2; i < node.answers.length; i++) {
       await page.locator(`.route-add-answer-btn[data-qid="${qid}"]`).click();
     }

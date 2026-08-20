@@ -341,6 +341,19 @@ export interface Question {
    * coordinates onto the question — both sides of a comparison read their own talk's fields.
    */
   builtIn?: BuiltInQuestionSpec;
+  /**
+   * docs/TODO.md §LL follow-up: when true (only meaningful if this question ends up with
+   * exactly one NON-ignore answer — every question needs an Ignore option regardless,
+   * `TalkValidator.validateQuestion`), this question's own (text, that one answer's text) pair
+   * defines the buy/sell-style tag context for every question after it in this branch — a
+   * nearer-scoped override of the talk-level `Talk.selfTag`/`preferenceSet` root fields (spec
+   * §30.2 Phase 5), usable anywhere in a flow/route instead of only at the root. Read
+   * "reversed" (answer text acts as my own tag, question text as the counterpart) when a
+   * responder — not this talk's own author — is the one walking through it; see
+   * `myEffectiveTagContext` (ui-manager.ts), which already swaps direction the same way for the
+   * talk-level fields.
+   */
+  reciprocalTagContext?: boolean;
 }
 
 /** See `Question.builtIn`. */

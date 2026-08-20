@@ -292,6 +292,44 @@ Resolved during implementation:
 - [x] Confirmed the seeded opposite-tag registry (`tag-opposite-pairs.ts`) is editor-autofill only
   (`talk-editor-dialog.ts`'s `wireTagAnswerAutoFill`), never read by any matching/runtime path.
 
+### LL.1 Per-question `reciprocalTagContext` — generalizes the root-only tag fields (Bernard, 2026-08-20; landed same day)
+
+The root-only `#talk-tag`/`#talk-preference-set` fields (spec §30.2 Phase 5, unchanged by this
+item) can only declare ONE buy/sell-style context for a whole talk. This adds a checkbox next to
+every question in the flow/route editor (`Question.reciprocalTagContext`, types.ts): when checked,
+that question's own (text, its one non-`ignore` answer's text) pair defines the tag context for
+every question after it in the same branch — usable anywhere in a tree, not just the root. A
+nearer-scoped override: `myEffectiveTagContext` (ui-manager.ts) now tries
+`findReciprocalTagAncestor` first (branch-aware via `Question.contextPath` for route, linear array
+position for flow), falling back to the unchanged talk-level `selfTag`/`preferenceSet` fields when
+no qualifying ancestor exists.
+
+"Exactly one answer" turned out to mean exactly one NON-`ignore` answer, not `answers.length===1`
+— `TalkValidator.validateQuestion` requires every question to carry an Ignore option regardless, so
+an ordinary single-`match`/`next` + one `ignore` question (the editor's normal 2-answer default)
+already qualifies; no special answer-count authoring step needed. `findReciprocalTagAncestor` and a
+matching early-exit in `resolveAnswerPreferenceForTalkQuestion` both share one helper,
+`singleNonIgnoreAnswer`.
+
+That early-exit was itself a necessary addition, not just wiring: a reciprocal question whose own
+text differs from anything the responder has ever answered before (e.g. a "buy" root vs. a "sell"
+root — the whole point of an opposite pair) can never win the ordinary flattened-store/exact-text
+memory lookup, since that lookup is inherently keyed on having seen this exact text before. Checking
+the box already IS the full declaration, so a reciprocal question with exactly one real answer now
+auto-proceeds unconditionally (`mode:'auto'`, `autoAnswerReason:'RECIPROCAL_TAG_CONTEXT'`) — the
+same "no real decision to make" pattern `type:'tag'` already established for its own single
+match-answer (§LL).
+
+Explicitly out of scope, confirmed unaffected: `checkIfMatch`'s `preferenceSet` veto and
+`resolveResponderSelfTagForAnswers` (talk-level only); `resolveBuiltInQuestion`/
+`typed-preference-store.ts` (separate typed quantity/price mechanism); `talk-response-dialog.ts`
+(responder UI unchanged — this is purely editor-authoring + matching-engine); survey and tag types
+(survey has no branching; tag's single Q&A is already fully expressed via title/`#talk-answer`).
+
+New coverage: `90-reciprocal-tag-context-non-root-question.spec.ts` — a "buy" flow talk and a
+"sell" flow talk, each declaring their tag via an ordinary Q1 (not talk-level metadata), zero-click
+auto-match on a shared downstream "Is it an iPhone?" question.
+
 ## Priority 5 — TechSupport productionization
 
 ### K7. Delegated TechSupport answers

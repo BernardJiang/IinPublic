@@ -297,6 +297,10 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           if (questionItem) {
             const textInput = questionItem.querySelector('.question-text') as HTMLInputElement | null;
             if (textInput) textInput.value = q.text || '';
+            if (q.reciprocalTagContext) {
+              const reciprocalCheckbox = questionItem.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
+              if (reciprocalCheckbox) reciprocalCheckbox.checked = true;
+            }
             // §BB / spec §30.2: rehydrate the builtIn kind selector + its typed value so
             // reopening the editor for a saved builtIn question doesn't silently reset to
             // "ordinary answer choices" (the answer-selection-mode toggle has this same gap

@@ -7680,8 +7680,57 @@ export class UIManager extends EventEmitter {
   }
 
   /**
+   * docs/TODO.md §LL follow-up: finds the nearest ancestor of `currentQuestion` (within the same
+   * branch) that's marked `reciprocalTagContext` and ends up with exactly one answer — the
+   * per-question generalization of the talk-level `selfTag`/`preferenceSet` root fields, usable
+   * anywhere in a flow/route instead of only at the root. Branch-aware for route talks (walks
+   * `currentQuestion.contextPath`, root-first, so two sibling branches with unrelated reciprocal
+   * markers never bleed into each other); a plain linear array-position scan for flow talks
+   * (no `contextPath` — not route type — array order IS branch order there). Nearest wins when
+   * more than one qualifying ancestor exists on the path.
+   */
+  /**
+   * Every question must carry an "Ignore" answer (`TalkValidator.validateQuestion`,
+   * talk-engine.ts) — so "exactly one answer" for a `reciprocalTagContext` question actually
+   * means exactly one NON-ignore answer (the real way forward) plus whatever Ignore option the
+   * question already has, not literally `answers.length === 1`. Returns that one real answer,
+   * or undefined if there isn't exactly one.
+   */
+  private singleNonIgnoreAnswer(question: { answers?: any[] } | undefined): any | undefined {
+    const real = (question?.answers || []).filter((a: any) => !a?.isIgnore);
+    return real.length === 1 ? real[0] : undefined;
+  }
+
+  private findReciprocalTagAncestor(
+    talk: any,
+    currentQuestion: { id: string; contextPath?: Array<{ questionId: string; answerId: string }> },
+  ): { questionText: string; answerText: string } | undefined {
+    const questions: any[] = Array.isArray(talk?.questions) ? talk.questions : [];
+    const ancestorIds: string[] =
+      talk?.type === 'route' && Array.isArray(currentQuestion?.contextPath)
+        ? currentQuestion.contextPath.map((step) => step.questionId)
+        : questions.slice(0, questions.findIndex((q) => q.id === currentQuestion?.id)).map((q) => q.id);
+    for (let i = ancestorIds.length - 1; i >= 0; i--) {
+      const q = questions.find((qq) => qq.id === ancestorIds[i]);
+      if (q?.reciprocalTagContext) {
+        const only = this.singleNonIgnoreAnswer(q);
+        if (only) return { questionText: q.text, answerText: only.text };
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * docs/TODO.md §KK: the single derived "my own effective tag" for this exchange, plus every
    * counterpart tag context that could apply, for `buildAnswerPreferenceLookupKey`'s `tagContext`.
+   *
+   * When `currentQuestion` is given and `findReciprocalTagAncestor` finds a qualifying nearer
+   * question, that WINS over the talk-level fields below (docs/TODO.md §LL follow-up) — the
+   * literal "reversed question and answer" the per-question checkbox asks for: `isMine` (I
+   * authored/self-answered this talk) uses the ancestor's own (question, answer) unreversed,
+   * same as authoring; answering someone else's talk swaps them, my own tag becomes the answer
+   * text and the counterpart becomes the question text — exactly the same swap direction as the
+   * talk-level fallback below, just one level down at the per-question scope.
    *
    * `mySelfTag` mirrors the derivation `saveAnswerPreference` already used (kept here so both
    * the read and write sides compute it identically): my own talk's declared `selfTag` when
@@ -7701,8 +7750,17 @@ export class UIManager extends EventEmitter {
    * there is exactly one relevant tag: their own single `selfTag` — no fan-out needed on lookup,
    * since an incoming talk only ever declares one tag for itself.
    */
-  private myEffectiveTagContext(talk: any): { mySelfTag: string | undefined; counterpartCandidates: Array<string | undefined> } {
+  private myEffectiveTagContext(
+    talk: any,
+    currentQuestion?: { id: string; contextPath?: Array<{ questionId: string; answerId: string }> },
+  ): { mySelfTag: string | undefined; counterpartCandidates: Array<string | undefined> } {
     const isMine = !!(talk?.authorId && this.currentUser?.id && talk.authorId === this.currentUser.id);
+    const ancestor = currentQuestion ? this.findReciprocalTagAncestor(talk, currentQuestion) : undefined;
+    if (ancestor) {
+      return isMine
+        ? { mySelfTag: ancestor.questionText, counterpartCandidates: [ancestor.answerText] }
+        : { mySelfTag: ancestor.answerText, counterpartCandidates: [ancestor.questionText] };
+    }
     const mySelfTag: string | undefined = isMine
       ? talk?.selfTag
       : (Array.isArray(talk?.preferenceSet) && talk.preferenceSet.length > 0
@@ -7722,7 +7780,15 @@ export class UIManager extends EventEmitter {
     talk: any,
     questionIndex: number,
     previousQAPairs: QAPair[],
-    currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string; builtIn?: any },
+    currentQuestion: {
+      id: string;
+      text?: string;
+      answers?: any[];
+      answerSelectionMode?: string;
+      builtIn?: any;
+      contextPath?: Array<{ questionId: string; answerId: string }>;
+      reciprocalTagContext?: boolean;
+    },
     talkInstanceId: string,
   ): {
     answerId: string;
@@ -7763,6 +7829,30 @@ export class UIManager extends EventEmitter {
       };
     }
 
+    // docs/TODO.md §LL follow-up: a reciprocalTagContext question with exactly one real answer
+    // has no actual decision to make — checking the box at authoring time already declared the
+    // whole (question, answer) pair, mirroring how a tag-type talk's single match-answer is
+    // always trivially "selectable" (§LL). Auto-proceed unconditionally rather than requiring a
+    // flattened-store/exact-text memory hit — that hit would be structurally impossible for the
+    // FIRST such question on a branch, whose own text differs from anything the responder has
+    // ever answered before (that's the whole point of a "buy" root auto-resolving against a
+    // "sell" root: the two sides never share literal text for THIS question, only downstream).
+    const reciprocalOnlyAnswer = currentQuestion.reciprocalTagContext
+      ? this.singleNonIgnoreAnswer(currentQuestion)
+      : undefined;
+    if (reciprocalOnlyAnswer) {
+      const only = reciprocalOnlyAnswer;
+      return {
+        answerId: only.id,
+        answerText: String(only.text || ''),
+        mode: 'auto',
+        questionText: currentQuestion.text || '',
+        allAnswers: currentQuestion.answers || [],
+        autoAnswerAction: 'ANSWER',
+        autoAnswerReason: 'RECIPROCAL_TAG_CONTEXT',
+      };
+    }
+
     const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
     const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
@@ -7775,7 +7865,7 @@ export class UIManager extends EventEmitter {
     // OWN answer id by TEXT, not by the stored `answerId` — the flattened entry may have been
     // saved under a different, independently-authored talk whose answer ids don't line up.
     if (!isMultiSelect && currentQuestion.text && currentOptions.length > 0) {
-      const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk);
+      const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk, currentQuestion);
       const talkContentHash = computeTalkIdFromTalkData(talk);
       const flatMap = getFlattenedAnswerPreferences();
       // Spec §30.2/§KK zero-click follow-up: a matchThreshold route's direct-child specs are
@@ -7935,7 +8025,7 @@ export class UIManager extends EventEmitter {
   private saveAnswerPreference(
     talk: any,
     talkInstanceId: string,
-    currentQuestion: { id: string; text?: string; answers?: any[] },
+    currentQuestion: { id: string; text?: string; answers?: any[]; contextPath?: Array<{ questionId: string; answerId: string }> },
     answerId: string,
     answerText: string,
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
@@ -7944,14 +8034,13 @@ export class UIManager extends EventEmitter {
     const exactMemory = getExactChatbotMemory();
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
     // The selfTag to persist alongside this answer is always MY OWN self-tag for this deal —
-    // not necessarily the talk's own `selfTag` field. When `talk` is one I authored myself,
-    // my tag IS the talk's selfTag (I set it when creating it). When `talk` is someone else's
-    // (I'm answering it), my tag is the seeded OPPOSITE of theirs (their "buy" talk means I'm
-    // implicitly acting as the "sell" side by answering it) — same registry the talk editor's
-    // tag-pair preview uses. This lets findAutoAnswer/getSelfTagForQuestionText later veto a
-    // preference-set mismatch without every call site here having to know or pass that
-    // distinction explicitly. §KK: also drives the flattened-store write below.
-    const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk);
+    // not necessarily the talk's own `selfTag` field. See `myEffectiveTagContext`'s own
+    // docstring for the exact derivation (talk-level selfTag/preferenceSet, or a nearer
+    // reciprocalTagContext-marked question when one applies, §LL follow-up) — this lets
+    // findAutoAnswer/getSelfTagForQuestionText later veto a preference-set mismatch without
+    // every call site here having to know or pass that distinction explicitly. §KK: also
+    // drives the flattened-store write below.
+    const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk, currentQuestion);
     if (currentQuestion.text) {
       if (mode === 'suppressed') {
         saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, undefined, languageContext);
@@ -9054,6 +9143,14 @@ export class UIManager extends EventEmitter {
         if (answerSelectionMode === 'multiple') {
           questionObj.answerSelectionMode = 'multiple';
         }
+        // docs/TODO.md §LL follow-up: only meaningful with exactly 1 real answer (matching
+        // engine's own gate, myEffectiveTagContext/findReciprocalTagAncestor) — stored either
+        // way so re-checking the box round-trips even while the answer count is temporarily
+        // off (e.g. mid-edit).
+        const reciprocalTagCheckbox = item.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
+        if (reciprocalTagCheckbox?.checked) {
+          questionObj.reciprocalTagContext = true;
+        }
         if (type === 'survey') {
           questionObj.isAggregatable = true;
           questionObj.contextHashId = '';
@@ -9268,6 +9365,8 @@ export class UIManager extends EventEmitter {
      * branches further. See the Phase 6 TODO.md note for the deferred root-branching case.
      */
     builtIn?: { kind: string; quantity?: number; priceRange?: { min: number; max: number }; timeFrame?: { start: number; end: number } };
+    /** See `Question.reciprocalTagContext` (types.ts) — only meaningful with exactly 1 answer. */
+    reciprocalTagContext?: boolean;
   }> = [];
 
   /** Builds or re-hydrates the route-editor in-memory state and redraws it. */
@@ -9296,6 +9395,7 @@ export class UIManager extends EventEmitter {
             isTerminal: !a.nextQuestionId && a.isTerminal !== false,
           })),
           ...(q.builtIn ? { builtIn: q.builtIn } : {}),
+          ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
         }));
       } else {
         // Seed with a single root question.
@@ -9402,6 +9502,11 @@ export class UIManager extends EventEmitter {
             ${q.builtIn ? '' : `<button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>`}
             ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">${this.t('editorRouteRemoveQuestion')}</button>` : ''}
           </div>
+          ${q.builtIn ? '' : `
+          <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:#555;">
+            <input type="checkbox" class="route-question-reciprocal-tag" data-qid="${q.id}" ${q.reciprocalTagContext ? 'checked' : ''}>
+            ${this.t('editorReciprocalTagLabel')}
+          </label>`}
           ${builtInHtml}
           ${answersHtml}
         </div>
@@ -9414,6 +9519,12 @@ export class UIManager extends EventEmitter {
       inp.addEventListener('input', () => {
         const q = byId.get(inp.dataset.qid!);
         if (q) q.text = inp.value;
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-question-reciprocal-tag').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const q = byId.get(cb.dataset.qid!);
+        if (q) q.reciprocalTagContext = cb.checked;
       });
     });
     host.querySelectorAll<HTMLSelectElement>('.route-builtin-kind').forEach((sel) => {
@@ -9672,7 +9783,14 @@ export class UIManager extends EventEmitter {
             errors.push(this.t('editorBuiltInTimeFrameRequired'));
           }
         }
-        return { id: q.id, text: q.text.trim(), contextPath, answers: [], builtIn: q.builtIn };
+        return {
+          id: q.id,
+          text: q.text.trim(),
+          contextPath,
+          answers: [],
+          builtIn: q.builtIn,
+          ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
+        };
       }
       return {
         id: q.id,
@@ -9690,6 +9808,7 @@ export class UIManager extends EventEmitter {
           }
           return obj;
         }),
+        ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
       };
     });
     return { questions, errors };
