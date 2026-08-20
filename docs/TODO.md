@@ -97,17 +97,29 @@ satisfied by several counterparts ("sell" AND "offer" AND "free") is already str
 supported, not just a future idea. `exact-chatbot-memory.ts`'s auto-reply veto and
 `resolveBuiltInQuestion`'s scope-key derivation were updated to match.
 
-Still open:
+**Landed, 2026-08-19:** `#talk-preference-set` (talk-editor-dialog.ts) — an explicit, editable
+counterpart-tag field next to `#talk-tag`. Auto-tracks the seeded single opposite live until the
+author types their own value there (or opens an existing talk that already has one), at which
+point that value wins outright, including declaring the SAME tag as `selfTag` itself ("match
+fellow buy people" buddy-style talks — previously impossible, since auto-fill only ever produced
+the opposite). `processTalkForm` reads whichever of the two fields has content, falling back to
+the old single-opposite auto-fill when empty. Closed the last script-injected talk creation in
+`89-buy-sell-chatbot-cross-talk-match.spec.ts`.
+
+Still open — **superseded by §LL below, not to be built as originally scoped here:**
 - [ ] No persistence for user-created pairs — the seeded registry (`tag-opposite-pairs.ts`:
   buy/sell, hiring/jobseeking, male/female) still only auto-fills a **single** `preferenceSet`
   value from those 3 hard-coded pairs; typing any other tag gets no auto-derived compatibility.
-- [ ] No multi-value **editing** UI — the talk editor can only auto-fill one counterpart tag per
-  talk today (via the seeded registry); authoring a talk that explicitly accepts several named
-  counterparts (typing "sell, offer, free" for a "buy" talk) has no UI yet, even though the
-  underlying `preferenceSet: string[]` field already supports it once populated.
+  Still real under §LL too (the registry becomes an editor-autofill-only convenience there), but
+  persistence itself is unscoped either way.
+- [ ] ~~No multi-value editing UI~~ — built as a comma-separated `#talk-preference-set` field
+  above, but §LL rejects multi-value on a tag outright (a bare second word like "free" is
+  ambiguous without its own question — give or receive?) and routes that need instead through
+  §LL's single-answer rule: a second accepted tag becomes a second ANSWER ROW on an ordinary
+  question, not a second comma-separated string entry. `#talk-preference-set` is expected to be
+  retired once §LL lands, not extended.
 - [ ] The question/answer-shaped generalization ("need a plumber" satisfied by "does plumbing")
-  discussed alongside this is still just discussion — nothing beyond the buy/sell-style
-  self-tag/preference-set pattern has been built.
+  discussed alongside this is now the substance of §LL, not separate discussion.
 
 ### JJ. Bidirectional deal confirmation (spec §30.2, replaces the old auto-exclusivity guard)
 
@@ -172,18 +184,83 @@ tag/single-question talks, which are content-hash-scoped instead).
   out at all (falls through to `mySelfTag`-only scoping, which is correct but coarser).
 
 Still open:
-- [ ] **Tag position is not fixed to "root" or "talk-level singular metadata."** The current
-  model treats `selfTag`/`preferenceSet` as a single property of the whole `Talk`, checked once
-  as a global veto in `checkIfMatch`, independent of tree position. The working assumption so far
-  (mirrored in the route-editor UI and this session's route/`matchThreshold` work) has been that
-  a tag-like veto sits at the root of a route talk, evaluated first. That's not a necessary rule —
-  a tag is really just a simplified question, and there's no reason it can't appear in the middle
-  of a route tree, more than once, or in any order relative to other questions. Needs a real
-  design pass before implementation: can a talk carry more than one tag-check node? Does
-  `checkIfMatch`'s single global veto generalize to a position-aware check per node? Does the
-  context hash need to include tag-node position in the `previousQAPairs` path the same way
-  ordinary questions already do (this may fall out for free if a tag node is modeled as an
-  ordinary node in the chain rather than special-cased talk-level metadata)?
+- [ ] **Tag position is not fixed to "root" or "talk-level singular metadata."** The design pass
+  this bullet used to call for is now written up in §LL below — a tag is really just a simplified
+  single-question talk, and the fix is to model it as an ordinary node in the question chain
+  rather than special-cased talk-level metadata, so `checkIfMatch`'s veto and the context-hash
+  path both fall out for free instead of needing position-awareness bolted on.
+
+### LL. Unify `type: 'tag'` and `selfTag`/`preferenceSet` into one mechanism (design, 2026-08-19)
+
+Design settled (Bernard, 2026-08-19); **not yet implemented — no code changes from this pass.**
+Supersedes §II's now-struck-through "multi-value editing UI" item and §KK's "tag position is not
+fixed to root" item above; both were pointing at the same underlying redundancy.
+
+**The core idea:** `type: 'tag'` (the one-checkbox talk — hardcoded "Match."/"Ignore." answer
+text) and `selfTag`/`preferenceSet` (talk-level metadata on flow/route talks, checked once as a
+special veto in `checkIfMatch`) are the same concept expressed two different ways. A tag is
+really just a single-question talk: title = question text (already true for `type: 'tag'`,
+`processTalkForm`'s tag branch), and the single answer's TEXT is the accepted counterpart —
+defaulting to the SAME word as the question (self-referential: "I'm tagged buy; match anyone else
+tagged buy" — the classic "Tennis" interest-tag case), overridden by typing a different word when
+the author wants an opposite-pair match ("buy" the question, "sell" the answer). Matching then
+needs no special veto at all — it's the ordinary flattened-answer-store (§KK) lookup already used
+for every other question, keyed on question text + answer text, exactly like any other
+single-question flow talk.
+
+**Real behavior change, not just a refactor:** today, a `#talk-tag`/`selfTag` with no known
+seeded opposite falls back to "no `preferenceSet`, matches anyone" — inconsistent with what a
+plain interest tag ("Tennis") has always actually meant (self-match, not "matches anyone"). Under
+this design self-match becomes the one universal default; "matches anyone" is no longer a
+distinct fallback state.
+
+**Single answer only — draw the line there, not at multi-value.** Considered and rejected: an
+author typing several accepted counterparts on one tag question ("buy" accepting "sell" OR
+"free"). Rejected because a bare word like "free" is ambiguous outside its own dedicated
+question — "free" could mean giving away or wanting to receive, and a single tag chip has no room
+to disambiguate that. If an author genuinely needs multiple accepted answers, it's not a tag
+anymore — it's an ordinary multi-answer question (the editor's existing "+ Add Answer" /
+`answerSelectionMode` machinery already handles this for flow/route questions), not a
+comma-separated list bolted onto the tag's own single-answer shape. This retires the shipped
+`#talk-preference-set` free-text field (talk-editor-dialog.ts, §II) once implemented — that field
+correctly closed the immediate gap, but a comma-separated string is the wrong shape once the
+single-answer rule is settled; a second accepted tag should be a second answer ROW using the same
+UI every other question already has, not a parsed string.
+
+**Display notation:** when the answer differs from the question, render the tag as
+`{question}?{answer}` — e.g. "buy?sell" for an opposite-pair tag, plain "buyer" (no `?`) for the
+self-match/buddy case where question and answer are the same word. Distinguishes "Buy iPhone"
+(seeking a seller) from "Buy Buddies iPhone" (seeking fellow buyers) at the chip/row level instead
+of relying on the talk's title alone to carry that meaning — the exact ambiguity
+`stage2-two-user/89-buy-sell-chatbot-cross-talk-match.spec.ts`'s two Adam talks exist to catch.
+
+**Route placement (on hold): drag-and-drop, not typed metadata.** The longer-term vision for "tag
+position is not fixed to root" is a graphical route editor where an author drags an existing tag
+onto any node of a route DAG and it drops in as an ordinary question/answer pair at that
+position — no separate label-and-type-out-a-question step, since the tag already carries its own
+question/answer text. Depends on a drag-and-drop route editor that doesn't exist yet (today's
+route editor is the custom DOM tree in talk-editor-dialog.ts, no graphical canvas) — explicitly
+parked until that exists, not part of this design pass.
+
+**Net effect: simplifies rather than adds.** One matching mechanism (ordinary question/answer via
+the flattened-answer store) instead of two (checkbox-tag booleans + `selfTag`/`preferenceSet`
+veto); one UI answer-editing surface (the existing question/answer rows) instead of two (that
+surface plus a separate free-text preference field); one default rule (self-match) instead of an
+inconsistent "matches anyone" fallback for the unrecognized-tag case.
+
+Still open before implementation:
+- [ ] Does `type: 'tag'` stay a distinct wire type (recommended — no Gun data migration, still
+  renders as a one-line chip instead of a full question row), with only its answer TEXT becoming
+  meaningful, or collapse into `type: 'flow'` entirely ("a talk is just flow with 1 question")?
+- [ ] Where exactly does `checkIfMatch`'s current `preferenceSet.includes(responderSelfTag)` veto
+  get removed from, and does every existing caller (`exact-chatbot-memory.ts`'s auto-reply veto,
+  `resolveBuiltInQuestion`'s scope-key, `myEffectiveTagContext`) fall out for free once a tag is
+  an ordinary question, or do any of them need to keep talk-level-metadata awareness?
+- [ ] Migration path for existing stored talks that already carry `selfTag`/`preferenceSet` as
+  talk-level metadata (not a question) — read-compat shim, or a one-time rewrite?
+- [ ] The seeded opposite-tag registry (`tag-opposite-pairs.ts`: buy/sell, hiring/jobseeking,
+  male/female) becomes purely an editor-autofill convenience (suggesting the answer text), never
+  a runtime matching dependency — confirm nothing outside the editor reads it directly today.
 
 ## Priority 5 — TechSupport productionization
 
