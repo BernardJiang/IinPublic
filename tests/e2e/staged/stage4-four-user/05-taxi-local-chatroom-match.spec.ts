@@ -479,11 +479,13 @@ test.describe('Taxi: two drivers reach the same passenger; a confirmed deal (not
  * a `type: 'tag'` talk — one question, a checkbox-style yes/no — is all a driver or passenger
  * should need to author, no multi-question criteria list at all. This exercises the exact same
  * matching engine as the flow-based tests above with zero additional code, since `checkIfMatch`
- * (talk-engine.ts) is talk-type-agnostic — it keys only on `Talk.selfTag`/`preferenceSet`, not
- * on question count or structure. Matching stays exact-text throughout (no fuzzy/approximate
- * matching); deal-confirmation finalizing a match is already covered by the two-driver test
- * above — this test's own job is only to confirm the SIMPLEST possible talk (single tag
- * question) is sufficient, end to end, for two strangers to match with zero manual clicks.
+ * (talk-engine.ts) is talk-type-agnostic — it just checks whether the selected/remembered
+ * answer for this exact question is the match one, not on question count or structure. Matching
+ * stays exact-text throughout (no fuzzy/approximate matching, no selfTag/preferenceSet
+ * involved for tag-type — docs/TODO.md §LL); deal-confirmation finalizing a match is already
+ * covered by the two-driver test above — this test's own job is only to confirm the SIMPLEST
+ * possible talk (single tag question) is sufficient, end to end, for two strangers to match
+ * with zero manual clicks.
  */
 test.describe('Taxi: simplest form — a single-question tag talk per side (§GG follow-up, simple)', () => {
   let browserDriver: Browser;
@@ -517,10 +519,13 @@ test.describe('Taxi: simplest form — a single-question tag talk per side (§GG
 
   /**
    * One question, two answers — "am I available?" is all a driver or passenger has to say.
-   * docs/TODO.md §LL: a `type: 'tag'` talk's own keyword IS its selfTag now (no separate
-   * `#talk-tag` field for tag-type talks), and with no `#talk-answer` override it defaults to
-   * self-match — driver and passenger sharing the SAME title both tag themselves "Available for
-   * a ride - Downtown" and match each other, exactly like two people both tagged "Tennis".
+   * docs/TODO.md §LL: a `type: 'tag'` talk carries no selfTag/preferenceSet — its question text
+   * is the keyword (the title, unchanged) and its match-answer text is whatever `#talk-answer`
+   * says, defaulting to the SAME word when left untouched. Driver and passenger sharing the
+   * SAME title both ask "Available for a ride - Downtown" and both self-answer "yes" (the
+   * match-answer text defaults to the same word) — the chatbot's plain exact-text memory
+   * (exact-chatbot-memory.ts) recognizes the identical question/answer text on each other's
+   * incoming talk and auto-matches them, exactly like two people both tagged "Tennis".
    */
   async function createSimpleTagTalk(page: Page, title: string): Promise<void> {
     await page.click('#create-talk-btn');
@@ -563,100 +568,11 @@ test.describe('Taxi: simplest form — a single-question tag talk per side (§GG
 
     await expect.poll(() => hasConversationWith(pagePassenger!, driverId), { timeout: 60_000 }).toBe(true);
     expect(await conversationPartnerIds(pagePassenger!)).toEqual([driverId]);
-    // A match alone no longer disables anything — deal confirmation does (spec §30.2), and it
-    // applies to the simplest talk shape too, no separate code path.
+    // docs/TODO.md §LL: a `type: 'tag'` talk carries no selfTag/preferenceSet, so
+    // isDealEligibleTalk (app.ts) is false for it — deal confirmation (spec §30.2) only applies
+    // to talks that declare selfTag/preferenceSet, so a tag-talk match never shows a "Confirm
+    // Deal" step and the talk simply never auto-disables, exactly like a plain flow/survey talk.
     expect(await isOwnTalkDisabled(pageDriver!, TITLE)).toBe(false);
     expect(await isOwnTalkDisabled(pagePassenger!, TITLE)).toBe(false);
-
-    const passengerId = await getCurrentUserId(pagePassenger!);
-    await confirmDealWith(pagePassenger!, driverId);
-    await confirmDealWith(pageDriver!, passengerId);
-
-    // Whichever of the two authored the matched talk (the pair is symmetric here — both sides
-    // could plausibly be the one whose talk the conversation is anchored to) sees it disable.
-    await expect
-      .poll(
-        async () => (await isOwnTalkDisabled(pageDriver!, TITLE)) || (await isOwnTalkDisabled(pagePassenger!, TITLE)),
-        { timeout: 15_000 },
-      )
-      .toBe(true);
-  });
-
-  test('two tag talks with the SAME keyword and incompatible accepted answers never match each other — proves the preferenceSet veto fires (§LL)', async () => {
-    test.setTimeout(60_000);
-
-    // docs/TODO.md §LL: a tag talk's own keyword (the title) IS its selfTag, and with no
-    // explicit `#talk-answer` the field auto-fills to the seeded opposite tag when one is known
-    // (talk-editor-dialog.ts's wireTagAnswerAutoFill, driven by the title's own 'input' event —
-    // no extra field needs touching). Both sellers here tag themselves "sell": SellerA leaves
-    // `#talk-answer` at its auto-filled default (the seeded opposite, 'buy'); SellerB overrides
-    // it to an unrelated word ('wholesale-only', deliberately not 'buy') — both stay non-self-
-    // match, DIFFERENT preferenceSet content (so the two talks don't collide as byte-identical
-    // "already exchanged" co-exchangers, see 80-talk-co-exchangers.spec.ts), but NEITHER side's
-    // preferenceSet includes the other's selfTag ('sell'), so checkIfMatch's veto
-    // (talk-engine.ts) must block them even though both broadcast the same question text
-    // ("sell"). Mirrors 04-dealmaker-chatbot-match.spec.ts's "two buyers with byte-identical
-    // criteria" regression test, applied to the simplest possible talk shape and exercising the
-    // NEW default path (no advanced `#talk-tag`/`#talk-preference-set` override — those are
-    // flow/route-only now).
-    async function createSellTagTalk(page: Page, answerOverride?: string): Promise<void> {
-      await page.click('#create-talk-btn');
-      await page.waitForSelector('#talk-editor-form');
-      await page.fill('#talk-title', 'sell');
-      await selectTalkEditorType(page, 'tag');
-      if (answerOverride) await page.fill('#talk-answer', answerOverride);
-      const sendToChatroomCheckbox = page.locator('#talk-send-to-chatroom');
-      if (await sendToChatroomCheckbox.isVisible().catch(() => false)) {
-        await sendToChatroomCheckbox.uncheck();
-      }
-      await submitTalkEditorAndWaitForOut(page, 'sell');
-    }
-
-    await clearGunForStage4Spec();
-    const mk = (x: number) => ({
-      headless,
-      slowMo: headless ? 0 : delay(50, 120),
-      args: [...WEBRTC_CHROMIUM_ARGS, `--window-position=${x},0`, '--window-size=560,820', '--force-device-scale-factor=1'],
-    });
-    const [browserSellerA, browserSellerB] = await Promise.all([chromium.launch(mk(0)), chromium.launch(mk(560))]);
-    try {
-      const sellerA = await bootstrapUser(browserSellerA, 'SellerA', 'SellerA');
-      const sellerB = await bootstrapUser(browserSellerB, 'SellerB', 'SellerB');
-      await createSellTagTalk(sellerA.page);
-      await createSellTagTalk(sellerB.page, 'wholesale-only');
-
-      const sellerAId = await getCurrentUserId(sellerA.page);
-      const sellerBId = await getCurrentUserId(sellerB.page);
-      expect(sellerAId).toBeTruthy();
-      expect(sellerBId).toBeTruthy();
-
-      await Promise.all([prepareLocalBroadcast(sellerA.page), prepareLocalBroadcast(sellerB.page)]);
-      await Promise.all(
-        [sellerA.page, sellerB.page].map((page) =>
-          clickBroadcastUntilBulkAck(page).catch(() => {
-            /* already matched-and-busy before this page's own broadcast completed — fine */
-          }),
-        ),
-      );
-
-      // Actively watch for the bug condition for a real window, rather than a single instant
-      // check or a blind sleep — if the veto regressed, this catches it turning true within the
-      // window instead of silently passing because we didn't wait long enough to see it.
-      let wronglyMatched = false;
-      try {
-        await expect.poll(() => hasConversationWith(sellerA.page, sellerBId), { timeout: 8_000, intervals: [300] }).toBe(true);
-        wronglyMatched = true;
-      } catch {
-        wronglyMatched = false;
-      }
-      expect(wronglyMatched).toBe(false);
-      expect(await hasConversationWith(sellerB.page, sellerAId)).toBe(false);
-      expect(await conversationPartnerIds(sellerA.page)).toEqual([]);
-      expect(await conversationPartnerIds(sellerB.page)).toEqual([]);
-    } finally {
-      await browserSellerA.close().catch(() => {});
-      await browserSellerB.close().catch(() => {});
-      await clearGunForStage4Spec();
-    }
   });
 });

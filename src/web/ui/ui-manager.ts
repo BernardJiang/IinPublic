@@ -505,13 +505,39 @@ export class UIManager extends EventEmitter {
   }
 
   // docs/TODO.md §LL: "buy?sell" notation — a small muted suffix showing the accepted answer
-  // word when it differs from the tag/selfTag itself (opposite-pair). Self-match talks (answer
-  // === selfTag, e.g. "Tennis") render no suffix — the plain word already says everything.
-  private tagAnswerSuffix(talk: { selfTag?: string; preferenceSet?: string[]; fullTalk?: { selfTag?: string; preferenceSet?: string[] } }): string {
+  // word when it differs from the tag word itself (opposite-pair). Self-match talks (answer ===
+  // question, e.g. "Tennis") render no suffix — the plain word already says everything. A
+  // `type: 'tag'` talk carries no selfTag/preferenceSet (§LL: a tag is just 1 question/1
+  // answer, matched via the plain Q&A text like anything else) — its own question/answer text
+  // IS the whole declaration, read directly here. Flow/route talks still declare the
+  // flow/route-only `#talk-tag`/`#talk-preference-set` pair (unrelated to tag-type matching),
+  // so that's checked first and wins when present.
+  private tagAnswerSuffix(talk: {
+    title?: string;
+    selfTag?: string;
+    preferenceSet?: string[];
+    questions?: Array<{ answers?: Array<{ text?: string; isMatch?: boolean }> }>;
+    fullTalk?: {
+      title?: string;
+      selfTag?: string;
+      preferenceSet?: string[];
+      questions?: Array<{ answers?: Array<{ text?: string; isMatch?: boolean }> }>;
+    };
+  }): string {
     const selfTag = talk?.selfTag ?? talk?.fullTalk?.selfTag;
     const preferenceSet = talk?.preferenceSet ?? talk?.fullTalk?.preferenceSet;
-    const answer = Array.isArray(preferenceSet) ? preferenceSet[0] : undefined;
-    if (!selfTag || !answer || answer === selfTag) return '';
+    const declaredAnswer = Array.isArray(preferenceSet) ? preferenceSet[0] : undefined;
+    if (selfTag && declaredAnswer) {
+      return declaredAnswer === selfTag ? '' : this.renderTagAnswerSuffixHtml(declaredAnswer);
+    }
+    const keyword = talk?.title ?? talk?.fullTalk?.title;
+    const questions = talk?.questions ?? talk?.fullTalk?.questions;
+    const matchAnswerText = Array.isArray(questions) ? questions[0]?.answers?.find((a) => a?.isMatch)?.text : undefined;
+    if (!keyword || !matchAnswerText || matchAnswerText === keyword) return '';
+    return this.renderTagAnswerSuffixHtml(matchAnswerText);
+  }
+
+  private renderTagAnswerSuffixHtml(answer: string): string {
     return `<span class="talk-tag-answer-suffix" style="color:var(--text-tertiary);font-weight:400;margin-left:2px;">?${escapeHtml(answer)}</span>`;
   }
 
@@ -8860,18 +8886,18 @@ export class UIManager extends EventEmitter {
     // another. Single value only (§LL rejected multi-value: a bare second word like "free" is
     // ambiguous without its own question — give or receive?); several accepted answers belong
     // on an ordinary multi-answer question, not a comma-separated list here.
+    // `#talk-tag`/`#talk-preference-set` are flow/route-only inputs, hidden entirely from the
+    // tag form (talk-editor-dialog.ts) — docs/TODO.md §LL: a `type: 'tag'` talk carries no
+    // selfTag/preferenceSet at all (matching is plain question/answer text, see the tag branch
+    // below), so `tagInputValue` is always empty for a tag submission and these stay undefined.
     const tagInputValue = (document.getElementById('talk-tag') as HTMLInputElement | null)?.value.trim() || '';
-    // `let`, not `const`: type 'tag' overrides both below with the title/keyword and the new
-    // `#talk-answer` field — `#talk-tag`/`#talk-preference-set` are flow/route-only inputs,
-    // hidden from the tag form (see talk-editor-dialog.ts), so they're never the right source
-    // for a tag talk's own selfTag/preferenceSet.
-    let selfTag = tagInputValue || undefined;
+    const selfTag = tagInputValue || undefined;
     const preferenceSetInputValue =
       (document.getElementById('talk-preference-set') as HTMLInputElement | null)?.value.trim() || '';
     const oppositeTag = tagInputValue
       ? getOppositeTagName(createSeededTagOppositePairRegistryState(), tagInputValue)
       : undefined;
-    let preferenceSet: string[] | undefined = preferenceSetInputValue
+    const preferenceSet: string[] | undefined = preferenceSetInputValue
       ? [preferenceSetInputValue]
       : (oppositeTag ? [oppositeTag] : (tagInputValue ? [tagInputValue] : undefined));
     // §BB / spec §30.2: the tag-pair picker (talk-editor-dialog.ts) stores a real Tag on the
@@ -8925,13 +8951,16 @@ export class UIManager extends EventEmitter {
       // docs/TODO.md §LL: a tag IS a single-question talk — the question text is the keyword
       // (unchanged), and the match answer's text is the accepted counterpart word from
       // `#talk-answer` (talk-editor-dialog.ts), defaulting to the SAME word as the keyword
-      // (self-match: "Tennis" matches anyone else tagged "Tennis") when left untouched. selfTag/
-      // preferenceSet override the flow/route-only computation above so the existing generic
-      // veto (checkIfMatch, myEffectiveTagContext) applies to tag talks with zero new plumbing.
+      // (self-match: "Tennis" matches anyone else tagged "Tennis") when left untouched. No
+      // selfTag/preferenceSet here — a tag is just 1 question/1 answer, so that pair (an
+      // ordinary Talk.questions entry) IS the whole declaration; a separate talk-level veto
+      // would only duplicate it. Matching (manual or chatbot) is the SAME plain question/answer
+      // mechanism every other question already uses — the chatbot has no concept of "opposite",
+      // only "what did I answer for this exact question before" (exact-chatbot-memory.ts);
+      // "buy"->"buy" self-match and "buy"->"sell" opposite-pair both just fall out of whatever
+      // question/answer text the two authors independently chose.
       const answerInputValue = (document.getElementById('talk-answer') as HTMLInputElement | null)?.value.trim() || '';
       const answerWord = answerInputValue || keyword;
-      selfTag = keyword;
-      preferenceSet = [answerWord];
       questions = [
         {
           id: 'q_0',
