@@ -515,13 +515,18 @@ test.describe('Taxi: simplest form — a single-question tag talk per side (§GG
     await clearGunForStage4Spec();
   });
 
-  /** One question, two answers — "am I available?" is all a driver or passenger has to say. */
-  async function createSimpleTagTalk(page: Page, title: string, tag: 'buy' | 'sell'): Promise<void> {
+  /**
+   * One question, two answers — "am I available?" is all a driver or passenger has to say.
+   * docs/TODO.md §LL: a `type: 'tag'` talk's own keyword IS its selfTag now (no separate
+   * `#talk-tag` field for tag-type talks), and with no `#talk-answer` override it defaults to
+   * self-match — driver and passenger sharing the SAME title both tag themselves "Available for
+   * a ride - Downtown" and match each other, exactly like two people both tagged "Tennis".
+   */
+  async function createSimpleTagTalk(page: Page, title: string): Promise<void> {
     await page.click('#create-talk-btn');
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', title);
     await selectTalkEditorType(page, 'tag');
-    await page.fill('#talk-tag', tag);
     const sendToChatroomCheckbox = page.locator('#talk-send-to-chatroom');
     if (await sendToChatroomCheckbox.isVisible().catch(() => false)) {
       await sendToChatroomCheckbox.uncheck();
@@ -536,12 +541,12 @@ test.describe('Taxi: simplest form — a single-question tag talk per side (§GG
     const driver = await bootstrapUser(browserDriver, 'Driver', 'Driver');
     contextDriver = driver.context;
     pageDriver = driver.page;
-    await createSimpleTagTalk(pageDriver, TITLE, 'sell');
+    await createSimpleTagTalk(pageDriver, TITLE);
 
     const passenger = await bootstrapUser(browserPassenger, 'Passenger', 'Passenger');
     contextPassenger = passenger.context;
     pagePassenger = passenger.page;
-    await createSimpleTagTalk(pagePassenger, TITLE, 'buy');
+    await createSimpleTagTalk(pagePassenger, TITLE);
 
     const driverId = await getCurrentUserId(pageDriver);
     expect(driverId).toBeTruthy();
@@ -575,5 +580,83 @@ test.describe('Taxi: simplest form — a single-question tag talk per side (§GG
         { timeout: 15_000 },
       )
       .toBe(true);
+  });
+
+  test('two tag talks with the SAME keyword and incompatible accepted answers never match each other — proves the preferenceSet veto fires (§LL)', async () => {
+    test.setTimeout(60_000);
+
+    // docs/TODO.md §LL: a tag talk's own keyword (the title) IS its selfTag, and with no
+    // explicit `#talk-answer` the field auto-fills to the seeded opposite tag when one is known
+    // (talk-editor-dialog.ts's wireTagAnswerAutoFill, driven by the title's own 'input' event —
+    // no extra field needs touching). Both sellers here tag themselves "sell": SellerA leaves
+    // `#talk-answer` at its auto-filled default (the seeded opposite, 'buy'); SellerB overrides
+    // it to an unrelated word ('wholesale-only', deliberately not 'buy') — both stay non-self-
+    // match, DIFFERENT preferenceSet content (so the two talks don't collide as byte-identical
+    // "already exchanged" co-exchangers, see 80-talk-co-exchangers.spec.ts), but NEITHER side's
+    // preferenceSet includes the other's selfTag ('sell'), so checkIfMatch's veto
+    // (talk-engine.ts) must block them even though both broadcast the same question text
+    // ("sell"). Mirrors 04-dealmaker-chatbot-match.spec.ts's "two buyers with byte-identical
+    // criteria" regression test, applied to the simplest possible talk shape and exercising the
+    // NEW default path (no advanced `#talk-tag`/`#talk-preference-set` override — those are
+    // flow/route-only now).
+    async function createSellTagTalk(page: Page, answerOverride?: string): Promise<void> {
+      await page.click('#create-talk-btn');
+      await page.waitForSelector('#talk-editor-form');
+      await page.fill('#talk-title', 'sell');
+      await selectTalkEditorType(page, 'tag');
+      if (answerOverride) await page.fill('#talk-answer', answerOverride);
+      const sendToChatroomCheckbox = page.locator('#talk-send-to-chatroom');
+      if (await sendToChatroomCheckbox.isVisible().catch(() => false)) {
+        await sendToChatroomCheckbox.uncheck();
+      }
+      await submitTalkEditorAndWaitForOut(page, 'sell');
+    }
+
+    await clearGunForStage4Spec();
+    const mk = (x: number) => ({
+      headless,
+      slowMo: headless ? 0 : delay(50, 120),
+      args: [...WEBRTC_CHROMIUM_ARGS, `--window-position=${x},0`, '--window-size=560,820', '--force-device-scale-factor=1'],
+    });
+    const [browserSellerA, browserSellerB] = await Promise.all([chromium.launch(mk(0)), chromium.launch(mk(560))]);
+    try {
+      const sellerA = await bootstrapUser(browserSellerA, 'SellerA', 'SellerA');
+      const sellerB = await bootstrapUser(browserSellerB, 'SellerB', 'SellerB');
+      await createSellTagTalk(sellerA.page);
+      await createSellTagTalk(sellerB.page, 'wholesale-only');
+
+      const sellerAId = await getCurrentUserId(sellerA.page);
+      const sellerBId = await getCurrentUserId(sellerB.page);
+      expect(sellerAId).toBeTruthy();
+      expect(sellerBId).toBeTruthy();
+
+      await Promise.all([prepareLocalBroadcast(sellerA.page), prepareLocalBroadcast(sellerB.page)]);
+      await Promise.all(
+        [sellerA.page, sellerB.page].map((page) =>
+          clickBroadcastUntilBulkAck(page).catch(() => {
+            /* already matched-and-busy before this page's own broadcast completed — fine */
+          }),
+        ),
+      );
+
+      // Actively watch for the bug condition for a real window, rather than a single instant
+      // check or a blind sleep — if the veto regressed, this catches it turning true within the
+      // window instead of silently passing because we didn't wait long enough to see it.
+      let wronglyMatched = false;
+      try {
+        await expect.poll(() => hasConversationWith(sellerA.page, sellerBId), { timeout: 8_000, intervals: [300] }).toBe(true);
+        wronglyMatched = true;
+      } catch {
+        wronglyMatched = false;
+      }
+      expect(wronglyMatched).toBe(false);
+      expect(await hasConversationWith(sellerB.page, sellerAId)).toBe(false);
+      expect(await conversationPartnerIds(sellerA.page)).toEqual([]);
+      expect(await conversationPartnerIds(sellerB.page)).toEqual([]);
+    } finally {
+      await browserSellerA.close().catch(() => {});
+      await browserSellerB.close().catch(() => {});
+      await clearGunForStage4Spec();
+    }
   });
 });

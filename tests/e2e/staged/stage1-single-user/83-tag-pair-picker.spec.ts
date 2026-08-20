@@ -6,8 +6,8 @@
  * for the app-predefined deal pairs (buy/sell, hiring/jobseeking) via a live opposite-tag
  * preview and an auto-generated first-question suggestion, so two independently-authored talks
  * can share exact wording without either side typing it by hand. `preferenceSet` is derived
- * from the same seeded opposite-tag registry at submit time — a tag with no known opposite gets
- * no preferenceSet and matches anyone.
+ * from the same seeded opposite-tag registry at submit time — a tag with no known opposite
+ * defaults to self-match (docs/TODO.md §LL): it matches anyone else tagged the same word.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -62,9 +62,10 @@ test.describe('Talk editor: tag-pair picker (§BB)', () => {
     await expect(page.locator('#talk-tag-preview')).toContainText('buy');
     await expect(page.locator('.question-item').first().locator('.question-text')).toHaveValue('My own custom question?');
 
-    // An unrecognized tag falls back to manual role selection — no auto-set, no crash.
+    // An unrecognized tag has no known opposite, so it defaults to self-match (§LL) — no
+    // crash, and the preview says so instead of leaving the field blank.
     await page.fill('#talk-tag', 'zzz-unrecognized-tag-zzz');
-    await expect(page.locator('#talk-tag-preview')).toContainText('No known opposite');
+    await expect(page.locator('#talk-tag-preview')).toContainText("Matches anyone also tagged 'zzz-unrecognized-tag-zzz'");
 
     // Reset to a known tag before submitting, to also prove the tag round-trips through save.
     await page.fill('#talk-tag', 'buy');

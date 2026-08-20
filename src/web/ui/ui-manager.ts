@@ -504,6 +504,17 @@ export class UIManager extends EventEmitter {
     return radiusMiles == null ? this.t('talksAnywhere') : this.tf('talksMiles', { count: radiusMiles });
   }
 
+  // docs/TODO.md §LL: "buy?sell" notation — a small muted suffix showing the accepted answer
+  // word when it differs from the tag/selfTag itself (opposite-pair). Self-match talks (answer
+  // === selfTag, e.g. "Tennis") render no suffix — the plain word already says everything.
+  private tagAnswerSuffix(talk: { selfTag?: string; preferenceSet?: string[]; fullTalk?: { selfTag?: string; preferenceSet?: string[] } }): string {
+    const selfTag = talk?.selfTag ?? talk?.fullTalk?.selfTag;
+    const preferenceSet = talk?.preferenceSet ?? talk?.fullTalk?.preferenceSet;
+    const answer = Array.isArray(preferenceSet) ? preferenceSet[0] : undefined;
+    if (!selfTag || !answer || answer === selfTag) return '';
+    return `<span class="talk-tag-answer-suffix" style="color:var(--text-tertiary);font-weight:400;margin-left:2px;">?${escapeHtml(answer)}</span>`;
+  }
+
   private formatTalkDistanceFromAuthor(authorLocation: { latitude?: number; longitude?: number } | null | undefined): string {
     if (!this.currentLocation || !authorLocation) return '';
     const latitude = Number(authorLocation.latitude);
@@ -2987,7 +2998,7 @@ export class UIManager extends EventEmitter {
           <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(this.t('talksTagChecked'))}">
             <input type="checkbox" class="talk-tag-checkbox talk-tag-out-checkbox" data-talk-id="${escapeHtml(talkId)}" checked>
           </label>
-          <span class="talk-tag-text">${escapeHtml(talk.title)}</span>
+          <span class="talk-tag-text">${escapeHtml(talk.title)}${this.tagAnswerSuffix(talk)}</span>
         </div>
       `;
                   }
@@ -3009,7 +3020,7 @@ export class UIManager extends EventEmitter {
               <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
               <span aria-hidden="true">${typeIcon}</span>
             </label>
-            <div class="talk-item-title">${escapeHtml(talk.title)}</div>
+            <div class="talk-item-title">${escapeHtml(talk.title)}${this.tagAnswerSuffix(talk)}</div>
             <span class="talk-item-chevron" aria-hidden="true">›</span>
           </div>
           <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
@@ -7648,7 +7659,13 @@ export class UIManager extends EventEmitter {
    *
    * `mySelfTag` mirrors the derivation `saveAnswerPreference` already used (kept here so both
    * the read and write sides compute it identically): my own talk's declared `selfTag` when
-   * `talk` is mine, or the seeded OPPOSITE of `talk.selfTag` when I'm answering someone else's.
+   * `talk` is mine. When answering someone else's talk, docs/TODO.md §LL: my own tag is
+   * whichever tag THIS talk actually declares it'll accept (`talk.preferenceSet[0]`) — correct
+   * for both an opposite-pair talk (accepts "sell") and a self-match/buddy talk (accepts "buy"
+   * again, same as its own `selfTag`), which the OLD registry-opposite-only derivation got wrong
+   * for the buddy case (there is no seeded "opposite" of "buy" that equals "buy"). Falls back to
+   * the seeded-opposite registry only for old talks stored before `preferenceSet` was always set
+   * (docs/TODO.md §LL's migration note — no data rewrite, only new saves changed).
    *
    * `counterpartCandidates` is what's new: when `talk` is my own, it's every member of my own
    * `preferenceSet` (the set of counterpart tags I declared compatible) — a talk with
@@ -7662,7 +7679,9 @@ export class UIManager extends EventEmitter {
     const isMine = !!(talk?.authorId && this.currentUser?.id && talk.authorId === this.currentUser.id);
     const mySelfTag: string | undefined = isMine
       ? talk?.selfTag
-      : getOppositeTagName(createSeededTagOppositePairRegistryState(), talk?.selfTag || '');
+      : (Array.isArray(talk?.preferenceSet) && talk.preferenceSet.length > 0
+          ? talk.preferenceSet[0]
+          : getOppositeTagName(createSeededTagOppositePairRegistryState(), talk?.selfTag || ''));
     const counterpartCandidates: Array<string | undefined> = isMine
       ? (Array.isArray(talk?.preferenceSet) && talk.preferenceSet.length > 0 ? talk.preferenceSet : [undefined])
       : [talk?.selfTag || undefined];
@@ -8830,28 +8849,31 @@ export class UIManager extends EventEmitter {
     const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
     const sendToChatroomCheck = document.getElementById('talk-send-to-chatroom') as HTMLInputElement;
     // §BB / spec §30.2 Phase 5: the tag-pair picker's (talk-editor-dialog.ts) `#talk-tag`
-    // value doubles as this talk's selfTag. docs/TODO.md §II: `#talk-preference-set` is the
-    // explicit, author-editable counterpart list — when the author typed anything there
-    // (including their OWN tag again, for "match fellow buy people" buddy-style talks, or
-    // several tags at once), that wins outright. Only when it's untouched/empty does
-    // preferenceSet fall back to the single seeded opposite-tag registry lookup (buy→sell) the
-    // editor's live preview also auto-fills as a convenience default. A tag with no known
-    // opposite and no explicit preference-set (a user-typed tag, or male/female reserved for
-    // §DD) gets no preferenceSet — the talk matches any responder, exactly like an undeclared
-    // role used to.
+    // value doubles as this talk's selfTag. docs/TODO.md §LL: `#talk-preference-set` is the
+    // explicit, author-editable single counterpart — when the author typed a value there
+    // (including their OWN tag again, for "match fellow buy people" buddy-style talks), that
+    // wins outright. Only when it's untouched/empty does preferenceSet fall back to the seeded
+    // opposite-tag registry lookup (buy→sell) the editor's live preview also auto-fills as a
+    // convenience default, and — when even THAT'S unknown — to the tag's own word (self-match:
+    // "Tennis" matches anyone else tagged "Tennis"). "Matches anyone, tag ignored" is no longer
+    // a distinct fallback state; a talk with a tag always matches by that tag, one way or
+    // another. Single value only (§LL rejected multi-value: a bare second word like "free" is
+    // ambiguous without its own question — give or receive?); several accepted answers belong
+    // on an ordinary multi-answer question, not a comma-separated list here.
     const tagInputValue = (document.getElementById('talk-tag') as HTMLInputElement | null)?.value.trim() || '';
-    const selfTag = tagInputValue || undefined;
+    // `let`, not `const`: type 'tag' overrides both below with the title/keyword and the new
+    // `#talk-answer` field — `#talk-tag`/`#talk-preference-set` are flow/route-only inputs,
+    // hidden from the tag form (see talk-editor-dialog.ts), so they're never the right source
+    // for a tag talk's own selfTag/preferenceSet.
+    let selfTag = tagInputValue || undefined;
     const preferenceSetInputValue =
       (document.getElementById('talk-preference-set') as HTMLInputElement | null)?.value.trim() || '';
-    const explicitPreferenceSet = preferenceSetInputValue
-      ? preferenceSetInputValue.split(',').map((t) => t.trim()).filter(Boolean)
-      : [];
     const oppositeTag = tagInputValue
       ? getOppositeTagName(createSeededTagOppositePairRegistryState(), tagInputValue)
       : undefined;
-    const preferenceSet = explicitPreferenceSet.length > 0
-      ? explicitPreferenceSet
-      : (oppositeTag ? [oppositeTag] : undefined);
+    let preferenceSet: string[] | undefined = preferenceSetInputValue
+      ? [preferenceSetInputValue]
+      : (oppositeTag ? [oppositeTag] : (tagInputValue ? [tagInputValue] : undefined));
     // §BB / spec §30.2: the tag-pair picker (talk-editor-dialog.ts) stores a real Tag on the
     // talk — not just UI chrome. Category is a light best-effort guess for the 3 seeded deal
     // pairs; everything else (including any user-typed tag with no known opposite) falls back
@@ -8900,12 +8922,22 @@ export class UIManager extends EventEmitter {
         this.showTalkValidationError([this.t('editorTagRequired')]);
         return false;
       }
+      // docs/TODO.md §LL: a tag IS a single-question talk — the question text is the keyword
+      // (unchanged), and the match answer's text is the accepted counterpart word from
+      // `#talk-answer` (talk-editor-dialog.ts), defaulting to the SAME word as the keyword
+      // (self-match: "Tennis" matches anyone else tagged "Tennis") when left untouched. selfTag/
+      // preferenceSet override the flow/route-only computation above so the existing generic
+      // veto (checkIfMatch, myEffectiveTagContext) applies to tag talks with zero new plumbing.
+      const answerInputValue = (document.getElementById('talk-answer') as HTMLInputElement | null)?.value.trim() || '';
+      const answerWord = answerInputValue || keyword;
+      selfTag = keyword;
+      preferenceSet = [answerWord];
       questions = [
         {
           id: 'q_0',
           text: keyword,
           answers: [
-            { id: 'a_0_match', text: 'Match.', isMatch: true, isTerminal: true },
+            { id: 'a_0_match', text: answerWord, isMatch: true, isTerminal: true },
             { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
           ],
         },

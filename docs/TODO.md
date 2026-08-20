@@ -190,11 +190,31 @@ Still open:
   rather than special-cased talk-level metadata, so `checkIfMatch`'s veto and the context-hash
   path both fall out for free instead of needing position-awareness bolted on.
 
-### LL. Unify `type: 'tag'` and `selfTag`/`preferenceSet` into one mechanism (design, 2026-08-19)
+### LL. Unify `type: 'tag'` and `selfTag`/`preferenceSet` into one mechanism (design, 2026-08-19; landed, 2026-08-19)
 
-Design settled (Bernard, 2026-08-19); **not yet implemented — no code changes from this pass.**
-Supersedes §II's now-struck-through "multi-value editing UI" item and §KK's "tag position is not
-fixed to root" item above; both were pointing at the same underlying redundancy.
+Design settled (Bernard, 2026-08-19), then implemented same day. Supersedes §II's now-struck-through
+"multi-value editing UI" item and §KK's "tag position is not fixed to root" item above; both were
+pointing at the same underlying redundancy.
+
+**Landed, lower-risk than the original proposal:** rather than removing `checkIfMatch`'s
+`preferenceSet.includes(responderSelfTag)` veto and re-routing tag matching through the ordinary
+flattened-answer store, the implementation keeps that veto exactly as-is and instead makes
+`processTalkForm`'s tag branch (`ui-manager.ts`) populate `selfTag`/`preferenceSet` for the first
+time — `selfTag = keyword` (the tag word/title), `preferenceSet = [answerWord]` where `answerWord`
+comes from a new `#talk-answer` field (talk-editor-dialog.ts), defaulting to the same word as the
+keyword when left untouched (self-match). The existing generic veto — already applied uniformly to
+every talk type via `handleTalkCompleted`/`resolveResponderSelfTagForAnswers` (app.ts) — simply
+stops being a no-op for tags once those fields are non-empty; zero new matching plumbing. Also
+fixed a latent bug in `myEffectiveTagContext` (ui-manager.ts): the responder's own self-tag for
+"answering someone else's talk" now prefers `talk.preferenceSet?.[0]` over the registry-opposite
+lookup, which was wrong for self-match/buddy talks (no registered opposite of "buy" equals "buy").
+`#talk-tag`/`#talk-preference-set` (spec §30.2 Phase 5) are NOT retired — they remain the
+flow/route-only self-tag/preference fields (now single-value, no comma-split), hidden from the tag
+form entirely (a tag's own keyword/`#talk-answer` pair replaces them there, per the single-answer
+rule below). `?`-notation renders at the tag-chip and OUT-row title (ui-manager.ts). Old stored
+talks with no `preferenceSet` are untouched (still "matches anyone" on read) — only newly-saved
+tag talks get the self-match default. The seeded opposite-tag registry is confirmed editor-autofill
+only, never a runtime matching dependency.
 
 **The core idea:** `type: 'tag'` (the one-checkbox talk — hardcoded "Match."/"Ignore." answer
 text) and `selfTag`/`preferenceSet` (talk-level metadata on flow/route talks, checked once as a
@@ -248,19 +268,16 @@ veto); one UI answer-editing surface (the existing question/answer rows) instead
 surface plus a separate free-text preference field); one default rule (self-match) instead of an
 inconsistent "matches anyone" fallback for the unrecognized-tag case.
 
-Still open before implementation:
-- [ ] Does `type: 'tag'` stay a distinct wire type (recommended — no Gun data migration, still
-  renders as a one-line chip instead of a full question row), with only its answer TEXT becoming
-  meaningful, or collapse into `type: 'flow'` entirely ("a talk is just flow with 1 question")?
-- [ ] Where exactly does `checkIfMatch`'s current `preferenceSet.includes(responderSelfTag)` veto
-  get removed from, and does every existing caller (`exact-chatbot-memory.ts`'s auto-reply veto,
-  `resolveBuiltInQuestion`'s scope-key, `myEffectiveTagContext`) fall out for free once a tag is
-  an ordinary question, or do any of them need to keep talk-level-metadata awareness?
-- [ ] Migration path for existing stored talks that already carry `selfTag`/`preferenceSet` as
-  talk-level metadata (not a question) — read-compat shim, or a one-time rewrite?
-- [ ] The seeded opposite-tag registry (`tag-opposite-pairs.ts`: buy/sell, hiring/jobseeking,
-  male/female) becomes purely an editor-autofill convenience (suggesting the answer text), never
-  a runtime matching dependency — confirm nothing outside the editor reads it directly today.
+Resolved during implementation:
+- [x] `type: 'tag'` stayed a distinct wire type — still renders as a one-line chip, no Gun data
+  migration; only its answer TEXT (via the new `#talk-answer` field) became meaningful.
+- [x] `checkIfMatch`'s veto was NOT removed anywhere — kept exactly as-is; every existing caller
+  (`exact-chatbot-memory.ts`, `resolveBuiltInQuestion`, `myEffectiveTagContext`) is unaffected
+  except `myEffectiveTagContext`, which got the self-match responder-side fix described above.
+- [x] No migration/rewrite for existing stored talks — old talks with no `preferenceSet` keep
+  today's "matches anyone" read behavior; only the editor's output for newly-saved talks changed.
+- [x] Confirmed the seeded opposite-tag registry (`tag-opposite-pairs.ts`) is editor-autofill only
+  (`talk-editor-dialog.ts`'s `wireTagAnswerAutoFill`), never read by any matching/runtime path.
 
 ## Priority 5 — TechSupport productionization
 
