@@ -36,8 +36,8 @@ const shared: LinkCrypto = {
   randomSecret: () => 'x',
 };
 
-const A = 'pubA';
-const B = 'pubB';
+const A = 'pubA.key';
+const B = 'pubB.key';
 
 describe('pairing payload + code', () => {
   it('creates a payload with a TTL and encodes/decodes round-trip', () => {
@@ -55,8 +55,21 @@ describe('pairing payload + code', () => {
     expect(decodePairingCode('')).toBeNull();
   });
 
+  it('rejects legacy and unsupported pairing schemas', () => {
+    const legacy = Buffer.from(JSON.stringify([A, 'legacy-secret', 1234])).toString('base64url');
+    const future = Buffer.from(JSON.stringify([2, 'request-2', A, 'future-secret', 1234])).toString('base64url');
+    expect(decodePairingCode(legacy)).toBeNull();
+    expect(decodePairingCode(future)).toBeNull();
+  });
+
   it('detects expiry', () => {
-    const payload = { pub: A, secret: 's', expiresAt: 100 };
+    const payload = {
+      version: 1 as const,
+      requestId: 'request-1',
+      pub: A,
+      secret: 'secret-1',
+      expiresAt: 100,
+    };
     expect(isPairingExpired(payload, 99)).toBe(false);
     expect(isPairingExpired(payload, 101)).toBe(true);
   });

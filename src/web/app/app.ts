@@ -6,6 +6,7 @@ import {
   WebGunService,
 } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
+import { WebIdentityLinkService } from '../services/web-identity-link-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
@@ -173,6 +174,7 @@ export class IinPublicApp {
   private talkService: WebTalkService;
   private conversationService: WebConversationService;
   private contentNodeService: WebContentNodeService;
+  private identityLinkService: WebIdentityLinkService;
   /** Interaction ledger (Phase E). Initialized lazily after SEA keypair is ready. */
   private ledgerService: WebLedgerService | null = null;
   private uiManager: UIManager;
@@ -759,7 +761,22 @@ export class IinPublicApp {
     });
     this.conversationService = new WebConversationService(this.gunService);
     this.contentNodeService = new WebContentNodeService();
+    this.identityLinkService = new WebIdentityLinkService(this.gunService);
     this.uiManager = new UIManager();
+    this.uiManager.setIdentityLinkHooks({
+      createLinkCode: (now) => this.identityLinkService.createLinkCode(now),
+      readIncomingRequest: () => this.identityLinkService.readIncomingLinkRequest(),
+      approveIncomingRequest: (pub) => this.identityLinkService.confirmIncomingLink(pub),
+      cancelPendingRequest: (requestId) => this.identityLinkService.cancelPendingLink(requestId),
+      refreshRecords: async () => {
+        await this.identityLinkService.refreshLocalRecords();
+      },
+      completeFromCode: async (code) => {
+        const result = await this.identityLinkService.completeLinkFromCode(code);
+        return result.ok ? null : result.error;
+      },
+      unlink: (pub) => this.identityLinkService.unlink(pub),
+    });
     this.loadAttachmentShareSentIds();
   }
 

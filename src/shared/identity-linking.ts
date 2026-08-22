@@ -2,8 +2,9 @@
  * Multi-device identity linking protocol (GUI redesign §10, TODO item I).
  *
  * Principle: every device has its own SEA keypair; keys never leave a device.
- * Linking joins two identities into one "person cluster" via **mutual signed
- * attestations**. A link exists only when BOTH sides have published an
+ * Linking records a direct relationship between two identities via **mutual
+ * signed attestations**. V1 does not infer a transitive cluster. A link exists
+ * only when BOTH sides have published an
  * attestation that verifies and references the other — one-sided claims are
  * ignored. A signed revocation supersedes an attestation.
  *
@@ -13,6 +14,7 @@
  */
 
 export const PAIRING_TTL_MS = 5 * 60 * 1000; // ~5 minutes (redesign §10.1)
+export const PAIRING_SCHEMA_VERSION = 1 as const;
 
 /** Injected crypto surface — real impl is SEA.sign/verify/work + random. */
 export interface LinkCrypto {
@@ -28,6 +30,10 @@ export interface LinkCrypto {
 
 /** The short-lived payload encoded in the link code / QR (device A → device B). */
 export interface PairingPayload {
+  /** Pairing-code schema. Unsupported versions fail closed. */
+  version: typeof PAIRING_SCHEMA_VERSION;
+  /** Random, non-secret identifier used for the recipient's request inbox. */
+  requestId: string;
   /** Public key of the device that generated the code. */
   pub: string;
   /** One-time pairing secret. */
@@ -67,12 +73,24 @@ function revocationSigningInput(r: Pick<LinkRevocation, 'fromPub' | 'toPub' | 'r
 
 /** Device A: build a fresh pairing payload for its link code / QR. */
 export function createPairingPayload(selfPub: string, crypto: LinkCrypto, now: number = Date.now()): PairingPayload {
-  return { pub: selfPub, secret: crypto.randomSecret(), expiresAt: now + PAIRING_TTL_MS };
+  return {
+    version: PAIRING_SCHEMA_VERSION,
+    requestId: crypto.randomSecret(),
+    pub: selfPub,
+    secret: crypto.randomSecret(),
+    expiresAt: now + PAIRING_TTL_MS,
+  };
 }
 
 /** Encode a payload as a compact code string (base64url of JSON). */
 export function encodePairingCode(payload: PairingPayload): string {
-  const json = JSON.stringify([payload.pub, payload.secret, payload.expiresAt]);
+  const json = JSON.stringify([
+    payload.version,
+    payload.requestId,
+    payload.pub,
+    payload.secret,
+    payload.expiresAt,
+  ]);
   return base64UrlEncode(json);
 }
 
@@ -80,10 +98,14 @@ export function encodePairingCode(payload: PairingPayload): string {
 export function decodePairingCode(code: string): PairingPayload | null {
   try {
     const arr = JSON.parse(base64UrlDecode(code.trim()));
-    if (!Array.isArray(arr) || arr.length !== 3) return null;
-    const [pub, secret, expiresAt] = arr;
-    if (typeof pub !== 'string' || typeof secret !== 'string' || typeof expiresAt !== 'number') return null;
-    return { pub, secret, expiresAt };
+    if (!Array.isArray(arr) || arr.length !== 5) return null;
+    const [version, requestId, pub, secret, expiresAt] = arr;
+    if (version !== PAIRING_SCHEMA_VERSION) return null;
+    if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 256) return null;
+    if (typeof pub !== 'string' || pub.length < 8 || pub.length > 2048) return null;
+    if (typeof secret !== 'string' || secret.length < 8 || secret.length > 512) return null;
+    if (!Number.isSafeInteger(expiresAt) || expiresAt <= 0) return null;
+    return { version, requestId, pub, secret, expiresAt };
   } catch {
     return null;
   }

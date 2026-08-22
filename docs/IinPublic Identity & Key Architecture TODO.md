@@ -1,8 +1,10 @@
 # IinPublic Identity & Key Architecture TODO
 
-**Status:** design review and implementation plan. The architectural sections below describe the
-long-term direction; the final section, **Actionable Implementation Plan**, defines the proposed
-delivery order and the decisions that must be made before code changes begin.
+**Status:** implementation started 2026-08-21. WP0 semantics are accepted in
+`docs/architecture/identity-v1-semantics.md`; WP1 is complete, WP2 is at its required security
+design gate, and WP3's browser-to-browser mutual-link protocol is implemented while native/app
+distribution extensions remain. The architectural sections below describe the long-term direction;
+the final section, **Actionable Implementation Plan**, defines the dependency-ordered delivery plan.
 
 ## Goal
 
@@ -1254,13 +1256,13 @@ explicitly mean **"these pseudonymous identities are controlled together"**. Tre
 user assertion, not proof of a legal or physical person. Introduce separate device and session keys
 later without silently changing Talk authorship, contact identity, blocks, or reputation.
 
-- [ ] Record this as an approved architecture decision.
-- [ ] Use `LINK_IDENTITY` / `UNLINK_IDENTITY` for the existing per-installation SEA relationship.
-- [ ] Reserve `ADD_DEVICE` / `REVOKE_DEVICE` for the future model in which a social identity really
+- [x] Record this as an approved architecture decision.
+- [x] Use `LINK_IDENTITY` / `UNLINK_IDENTITY` for the existing per-installation SEA relationship.
+- [x] Reserve `ADD_DEVICE` / `REVOKE_DEVICE` for the future model in which a social identity really
       authorizes a subordinate device key.
-- [ ] Do not label a linked set as a single cryptographic identity until authorship, reputation,
+- [x] Do not label a linked set as a single cryptographic identity until authorship, reputation,
       contacts, blocks, and cluster governance are specified.
-- [ ] Reconcile this decision with `docs/specs/iinpublic-technical-specifications.md` section 10,
+- [x] Reconcile this decision with `docs/specs/iinpublic-technical-specifications.md` section 10,
       `docs/TODO.md` item I, and `docs/iinpublic_discovery_design(3).md` before implementation begins.
 
 ### A2. Define what "same human" means in the product
@@ -1739,19 +1741,20 @@ start a later package if an earlier decision gate is still open.
 **Outcome:** one authoritative vocabulary and no conflict between the architecture, product spec,
 and current implementation.
 
-- [ ] Approve A1–A7.
-- [ ] Decide whether v1 links are direct-only (recommended) or transitive.
-- [ ] Define exactly what linking authorizes: display grouping only, data sync, or both.
-- [ ] Keep link, data-sync consent, and identity-recovery authority as independently revocable
+- [x] Approve A1–A7 through the conservative v1 boundary in
+      `docs/architecture/identity-v1-semantics.md`; unprovisioned optional services remain deferred.
+- [x] Decide whether v1 links are direct-only (recommended) or transitive.
+- [x] Define exactly what linking authorizes: display grouping only, data sync, or both.
+- [x] Keep link, data-sync consent, and identity-recovery authority as independently revocable
       capabilities.
-- [ ] Decide whether one recovery-capable surviving device may continue the original identity.
-- [ ] Define how an unlink affects pending and completed data transfers.
-- [ ] Document that the current `identity-links` implementation is `LINK_IDENTITY`, not
+- [x] Decide whether one recovery-capable surviving device may continue the original identity.
+- [x] Define how an unlink affects pending and completed data transfers.
+- [x] Document that the current `identity-links` implementation is `LINK_IDENTITY`, not
       `ADD_DEVICE`.
-- [ ] Audit the existing recovery-package language. The current browser custody record is wrapped
+- [x] Audit the existing recovery-package language. The current browser custody record is wrapped
       by a device-local secret, so documentation must not promise portable recovery unless a tested
       portable format is actually designed.
-- [ ] Update the technical specification, main TODO, discovery design, and test descriptions to use
+- [x] Update the technical specification, main TODO, discovery design, and test descriptions to use
       the approved terms.
 
 **Done when:** a reviewer can answer who signs a Talk, what a link proves, what removal does, and
@@ -1769,12 +1772,12 @@ Likely implementation ownership:
 - `src/web/ui/ui-translations.ts` — all labels, warnings, and errors.
 - A small local device-metadata service — privacy-minimized names/status.
 
-- [ ] Add **Identity & devices** to the Settings drill-down.
-- [ ] Add identity, protection-status, current-device, and linked-device cards.
-- [ ] Add copy fingerprint/ID and rename-current-device actions.
-- [ ] Preserve **Erase this device** as a separate danger-zone item.
-- [ ] Provide responsive, keyboard-accessible, screen-reader-labelled states.
-- [ ] Do not expose private material in DOM attributes, clipboard actions, logs, or Storage
+- [x] Add **Identity & devices** to the Settings drill-down.
+- [x] Add identity, protection-status, current-device, and linked-device cards.
+- [x] Add copy fingerprint/ID and rename-current-device actions.
+- [x] Preserve **Erase this device** as a separate danger-zone item.
+- [x] Provide responsive, keyboard-accessible, screen-reader-labelled states.
+- [x] Do not expose private material in DOM attributes, clipboard actions, logs, or Storage
       Inspector.
 
 **Done when:** a password-free user can understand where the identity lives, copy the public ID,
@@ -1792,6 +1795,8 @@ Likely implementation ownership:
 - New focused Settings/unlock UI modules instead of adding more logic to `ui-manager.ts`.
 
 - [ ] Write a short cryptographic design note and obtain security review before implementation.
+      The proposed note is `docs/security/local-identity-password-custody-design.md`; review is
+      still required, so custody implementation remains gated.
 - [ ] Choose a memory-hard password KDF where platform support and reviewed dependencies permit;
       otherwise document and benchmark the approved fallback and parameters.
 - [ ] Define a versioned authenticated-encryption envelope and bind metadata as authenticated data.
@@ -1822,17 +1827,17 @@ Likely implementation ownership:
 - `src/web/app/app.ts` — service lifecycle wiring.
 - Identity & devices UI — real QR, scan/enter, approval, pending, and error states.
 
-- [ ] Replace the placeholder QR block with a real encoded QR and add camera scanning where the
+- [x] Replace the placeholder QR block with a real encoded QR and add camera scanning where the
       platform permits.
-- [ ] Wire the existing service into the application; remove mock/local-success behavior.
-- [ ] Require explicit confirmation on both devices and verify both signatures.
-- [ ] Store pending operations with expiry and single-use replay protection.
-- [ ] Handle offline, cancellation, expiry, duplicate, self-link, replay, malformed signature, and
+- [x] Wire the existing service into the application; remove mock/local-success behavior.
+- [x] Require explicit confirmation on both devices and verify both signatures.
+- [x] Store pending operations with expiry and single-use replay protection.
+- [x] Handle offline, cancellation, expiry, duplicate, self-link, replay, malformed signature, and
       unsupported schema cases.
-- [ ] Populate device rows from verified state, not an unauthenticated local display list alone.
-- [ ] Keep passwords, device secrets, SEA private keys, and decrypted private data out of the pairing
+- [x] Populate device rows from verified state, not an unauthenticated local display list alone.
+- [x] Keep passwords, device secrets, SEA private keys, and decrypted private data out of the pairing
       payload.
-- [ ] State explicitly whether linking authorizes encrypted data transfer; default to **no** until a
+- [x] State explicitly whether linking authorizes encrypted data transfer; default to **no** until a
       separate consent step succeeds.
 
 **Done when:** two real installations link only after both approvals; either can independently
@@ -1842,12 +1847,12 @@ verify the relationship; a third party cannot forge it; and no private key moves
 
 **Outcome:** removing a link has defined local and network effects, including offline behavior.
 
-- [ ] Publish and verify signed unlink/revocation events.
+- [x] Publish and verify signed unlink/revocation events.
 - [ ] Deny new sync/authorization immediately after local removal.
 - [ ] Represent pending, acknowledged, conflicted, and invalid revocation states.
 - [ ] Converge correctly after either device was offline.
 - [ ] Preserve pre-revocation signed history.
-- [ ] Keep the historical-link privacy warning in the confirmation flow.
+- [x] Keep the historical-link privacy warning in the confirmation flow.
 - [ ] Test device sale: revoke old link, erase old installation, create unrelated new keys.
 - [ ] Test lost device: surviving device revokes, lost device stays offline, then later reconnects.
 
@@ -2037,14 +2042,14 @@ auditable; and compromise of ordinary TechSupport messaging cannot take over an 
 
 ### Linking
 
-- [ ] Real QR and manual code represent the same short-lived payload.
-- [ ] Invalid, expired, replayed, self, and reused codes fail safely.
-- [ ] Both devices show the other fingerprint and explicitly approve.
-- [ ] One-sided or forged attestations never display as `Linked`.
+- [x] Real QR and manual code represent the same short-lived payload.
+- [x] Invalid, expired, replayed, self, and reused codes fail safely.
+- [x] Both devices show the other fingerprint and explicitly approve.
+- [x] One-sided or forged attestations never display as `Linked`.
 - [ ] Linking works whether either device has a local password or neither does.
-- [ ] A device password never crosses the link.
-- [ ] Linking alone does not copy private data.
-- [ ] The privacy warning appears before signed public correlation.
+- [x] A device password never crosses the link.
+- [x] Linking alone does not copy private data.
+- [x] The privacy warning appears before signed public correlation.
 
 ### Migration and two-device synchronization
 

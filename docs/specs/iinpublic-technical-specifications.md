@@ -4635,7 +4635,7 @@ Legend: **From → To** with trigger (selector) and back target. `⟨User⟩` = 
 | S5 | Settings root | `settings-edit-profile-btn` | **Edit Profile dialog** | Settings root |
 | S6 | Settings root | Credit / Reputation row | Credit page (read-only) | Settings root |
 | S7 | Settings root | Development settings row | Dev settings page (storage inspector etc.) | Settings root |
-| S8 | Settings root | Linked devices row | Linked devices page (§10) — hosts **Link-device code**, **Enter-code**, and **Unlink confirm** dialogs | Settings root |
+| S8 | Settings root | Identity & devices row | Identity & devices page (§10) — identity/protection/current-installation cards plus **Link-device code**, **Enter-code**, and **Remove-link** dialogs | Settings root |
 | S9 | Settings root | Erase this device row (danger zone) | **Erase confirm dialog** (§11) → optional **Sync progress dialog** → full wipe + reload to fresh boot (new identity) | Settings root (on cancel) |
 
 **Global overlays (reachable from any page)**
@@ -4729,7 +4729,7 @@ Banners and toasts: at ≥ 768 toasts stack top-right (max 3 visible, newest on 
 | Send-My-Talks picker | `peer-send-picker-modal`, `confirm-send-picker`, `cancel-send-picker` | S | eligible talks as checked checkboxes; omitted talks with reasons (read-only); confirm disabled when none eligible | Confirm · Cancel · `✕` · scrim | bottom sheet |
 | Relationship editor | `contact-relationship-modal`, `close-contact-relationship-modal` | S | relationship label (friend/relative/coworker/acquaintance/partner/custom + custom label), credit panel | `✕` · Close btn · scrim | bottom sheet |
 | Broadcast preamble | `broadcast-preamble-modal`, `-send`, `-cancel` | S | preview of what will broadcast; Send / Cancel | Send · Cancel · scrim | bottom sheet |
-| Block confirm (peer) | via `peer-block-user-btn` | S | confirm text, Block / Cancel; warns + offers cluster-wide block when the target has linked identities (§10.2) | either button | bottom sheet |
+| Block confirm (peer) | via `peer-block-user-btn` | S | confirm text, Block / Cancel; blocking remains scoped to the selected SEA identity | either button | bottom sheet |
 | Link-device code | `link-device-code-modal`, `link-device-code`, `link-device-copy` | S | link code + QR + expiry countdown + Copy | Done · scrim · auto-close on expiry | bottom sheet; QR scales to width |
 | Enter link code | `enter-link-code-modal`, `enter-link-code-input`, `enter-link-code-submit` | S | code input; inline error (expired / invalid / reused) | Cancel · scrim · submit | bottom sheet |
 | Unlink confirm | `unlink-device-confirm` | S | device summary, Unlink / Cancel | either button | bottom sheet |
@@ -4768,35 +4768,58 @@ Same shape, same enforcement points, driven by the existing `assessGrammar` scor
 
 #### 10. Multi-device identity linking
 
-**Principle (decision, 2026-07-13):** a person who runs the app on multiple devices has a **different identity (SEA keypair) on each device** — keys are generated locally and never exported or copied between devices (consistent with the key-custody model, `stage1/00-p2p-sea-key-custody`). What gets developed is a way to **link** those identities into one person cluster. This replaces the former open question "same identity on two platforms?" — the answer is no; linking is the mechanism.
+**Principle (reconciled 2026-08-21):** a person who runs the app on multiple installations has a
+**different identity (SEA keypair) on each installation** — keys are generated locally and never
+copied as part of linking. A v1 link is a direct, mutual public assertion that two pseudonymous
+identities are controlled together. It is not a new identity, a transitive person cluster, or proof
+of one physical/legal person. See `docs/architecture/identity-v1-semantics.md`.
 
 **Non-goal for now (decision, 2026-07-13):** the inverse — **one person managing multiple identities on a single device** (profile switching) — is a **low-priority future item**. The v1 model stays strictly one identity per device install; nothing in §10/§11 (attestations, archives, erase) may assume otherwise, but no switching UI is designed or built until it's prioritized.
 
 ##### 10.1 Linking flow
 
-1. On device A (existing identity): Settings → **Linked devices** → **Link a device** — shows a short-lived **link code** (and QR of the same payload): device A's pub key + a one-time pairing secret + expiry (~5 min), with a countdown.
-2. On device B: Settings → Linked devices → **Enter link code** (or scan). B verifies the secret, then both devices write **mutual signed link attestations** to Gun — `identity-links/<pubA>/<pubB>` signed by A and `identity-links/<pubB>/<pubA>` signed by B. A link exists only when **both** attestations are present and verify (one-sided claims are ignored).
-3. Either device can **Unlink** at any time (confirm dialog); unlinking writes a signed revocation that supersedes the attestation. Expired, reused, or malformed codes are rejected with an inline error.
+1. On installation A: Settings → **Identity & devices** → **Link a device** shows a short-lived
+   link code (and QR of the same payload): schema version + random request ID + A's SEA public key
+   + a one-time pairing secret + expiry (~5 min). The request ID locates B's signed response without
+   publishing the secret. The internal user-record UUID is never the identity in this payload.
+2. On installation B: Settings → Identity & devices → **Enter or scan a code**. Both identities
+   write mutual signed `LINK_IDENTITY` attestations to Gun — `identity-links/<pubA>/<pubB>` signed
+   by A and the reverse path signed by B. A link exists only when both attestations verify;
+   one-sided claims are ignored.
+3. Either identity can **Remove link**. `UNLINK_IDENTITY` supersedes the direct attestation for
+   future decisions. Expired, reused, malformed, and self-link codes fail safely.
 
 ##### 10.2 v1 semantics of a link
 
-- **Public effect:** linked identities are attested as the same person; a peer viewing either identity's User layout sees a "also on N other devices" line, and the Contacts list **merges linked identities into one contact row** (expandable to per-device identities).
-- **What does NOT merge in v1:** message history and conversations stay per device-pair (P2P, device-local Gun); reputation stays per identity (aggregation is a flagged open question); blocks apply per identity but blocking one linked identity **warns** the blocker and offers to block the whole cluster.
-- Stage name may differ per device; the cluster displays the most recently updated one as primary.
+- **Public effect:** each identity may show its directly and mutually verified linked identities.
+  Links are not transitive.
+- **What does not merge in v1:** authorship, message history, conversations, reputation, contacts,
+  blocks, Q&A, Talks, and private data remain per SEA identity. No primary cluster profile exists.
+- Linking alone authorizes no private-data transfer and grants no identity-continuity/recovery
+  authority. Those capabilities require separate consent and later protocol work.
+- Removing a link stops future trust and pending transfer authorization through that edge. It
+  cannot erase already received data or historical public correlation.
 
 ##### 10.3 Same-device linking (app ↔ browser on one phone or computer)
 
 When the native app and the web browser run on the **same device** (iPhone/Android especially, but also desktop), typing a code from another screen is needless friction. Easier paths, same attestation protocol underneath (§10.1 — only the code delivery changes):
 
-- **Mobile (iPhone/Android):** the app's Linked devices page offers **"Link this device's browser"** — it opens iinpublic.com in the browser with the pairing payload in the URL fragment (`iinpublic.com/#link=…`; the fragment never reaches any server), and the web session auto-completes the link after one confirmation tap. The reverse direction: the website shows **"Open in app to link"** using the app's universal/app link with the same payload. Fallback for both: **Copy link code** to the clipboard, paste in the other side's Enter-code dialog.
-- **Desktop (Electron webapp + browser on the same machine):** the webapp's embedded node listens on loopback (`IINPUBLIC_LOCAL_PORT`); the browser session detects it, and the Linked devices page shows a one-click **"Link with the app on this computer"** — the handshake runs over localhost, no code shown at all.
-- **Data sharing after linking** on the same device uses the same encrypted handoff archive as §11.2, but transfers locally (loopback / same hub), so "move my browser data into the app" (or the reverse) is one tap from the Linked devices page: **"Copy my data to ⟨other side⟩"**.
+- **Mobile (iPhone/Android):** the app's Identity & devices page may offer **"Link this device's browser"** — it opens iinpublic.com in the browser with the pairing payload in the URL fragment (`iinpublic.com/#link=…`; the fragment never reaches any server), and the web session completes the link only after the required confirmations. The reverse direction uses **"Open in app to link"**. Fallback: copy and paste the same short-lived code.
+- **Desktop (Electron webapp + browser on the same machine):** the webapp's embedded node listens on loopback (`IINPUBLIC_LOCAL_PORT`); the browser session may offer **"Link with the app on this computer"**. The attestation and confirmation rules remain identical.
+- **Data sharing after linking** is a separate approval. A local route may carry a future encrypted handoff, but neither same-device detection nor a verified identity link grants transfer permission.
 - One-time payloads expire and are single-use exactly like typed codes; a link opened twice fails with the same reused-code error.
 
 ##### 10.4 GUI
 
-- **Linked devices page** (new Settings itemized row, transition S8): list of linked identities — stage name, platform glyph, linked date, per-row **Unlink**; actions **Link a device**, **Enter link code**, and the context-aware same-device shortcuts from §10.3 (**Link this device's browser** / **Open in app to link** / **Link with the app on this computer**, shown only when applicable) plus per-link **Copy my data to ⟨other side⟩**.
-- Three new popups (all size class **S**, §8 rules apply): **Link-device code dialog** (code + QR + countdown + copy), **Enter-code dialog** (input + inline error for expired/invalid), **Unlink confirm**.
+- **Identity & devices page** (Settings itemized row, transition S8): current SEA identity and short
+  fingerprint, local protection status, renameable local installation label, and direct linked
+  identities. Link-only actions are **Link a device**, **Enter or scan a code**, and **Remove link**.
+  Data-copy actions appear only after separate sync authorization is implemented.
+- Linking popups (all size class **S**, §8 rules apply): public-correlation warning before code
+  generation; **Link-device code dialog** (real QR of the exact manual code, countdown, copy,
+  signed-request check, final approval); **Enter-code dialog** (manual input plus capability-gated
+  `BarcodeDetector` camera scan, peer fingerprint/privacy preview, inline errors); and **Unlink
+  confirm**. Typed input remains available when camera APIs or permission are unavailable.
 - e2e requires the cross-platform harness (companion doc Part 6, revised X3): linking is most meaningful website ↔ webapp.
 
 #### 11. Public-device exit — sync-then-erase
@@ -4811,9 +4834,14 @@ Decentralized reality: there is **no server login/logout**. Visiting iinpublic.c
 
 ##### 11.2 Save & synchronize first (when a linked personal device is online)
 
-- If the device is **linked** (§10) and a linked personal device is currently online, the Erase dialog leads with **"Save to ⟨device⟩ first"**. If unlinked, it offers to run the §10 linking flow now ("link your phone to keep your data"); if no linked device is online, it says so and allows **Erase without saving** (extra warning).
+- If the installation has a direct verified link (§10), a separate mutual data-transfer authorization,
+  and the receiving installation is online, the Erase dialog may lead with **"Save to ⟨device⟩
+  first"**. A link alone is insufficient. If no authorized receiver is online, the UI says so and
+  allows **Erase without saving** with an extra warning.
 - **Sync = encrypted handoff archive**: the public-PC identity's private data — profile, contacts/known people, talk filters + dirty-word list, answer preferences, my-talks, and this device's conversation/thread history — is packaged, **encrypted to the personal device's pub key**, and transferred over the existing P2P channel. A **Sync progress dialog** shows per-category progress and ends in a verifiable "saved to ⟨device⟩" state; erase stays disabled until the archive is acknowledged by the receiving device (or the user explicitly skips).
-- On the **personal device**, the archive appears on the Linked devices page as an importable item: **merge per category** (contacts, talks/answers merge into the local identity; conversation history imports as a read-only archive, since those pair-threads belong to the erased identity).
+- On the **receiving installation**, the archive appears in Identity & devices as an importable
+  item. Imported records preserve their stable IDs, original SEA authors/signatures, timestamps,
+  and provenance. They are never rewritten as if authored by the receiving identity.
 
 ##### 11.3 Rules
 
@@ -4983,8 +5011,8 @@ Main App  ── persistent bottom nav: 5 tabs ───────────
     │   ├─ Location  (refresh / auto-assign)
     │   ├─ Travel mode
     │   ├─ Age verification
-    │   ├─ Linked devices  (per-device identities linked into one person cluster —
-    │   │                   link code / QR, enter code, unlink; redesign §10)
+    │   ├─ Identity & devices  (local SEA identity + direct mutual links —
+    │   │                       link code / QR, enter code, remove link; redesign §10)
     │   ├─ Feature toggles / preferences
     │   └─ Erase this device  (danger zone: public-PC exit — optional encrypted sync
     │                          to a linked device, then full local wipe + fresh
@@ -5105,14 +5133,23 @@ Add focused specs so shell refactors don't silently break single-spec screens:
 - **Update** `stage3` intake specs: assert the talk-path behavior is unchanged by the message-path work (regression guard).
 
 ##### T10 — Multi-device identity linking (redesign §10)
-- **New** `stage1/71-linked-devices-page.spec.ts` (P1): Settings → Linked devices page opens/closes; empty state; **Link a device** shows code + QR + countdown; code expires (clock override) and the dialog auto-closes; **Enter link code** rejects expired/invalid/reused codes with inline errors.
-- **New** `cross-platform/x3-identity-linking.spec.ts` (P0, replaces the old X3): website identity + webapp identity (different SEA keypairs) link via code; both sides show the other in Linked devices; **mutual signed attestations** exist in Gun (one-sided claim asserted to NOT create a link); a third user's Contacts merges the two identities into one row with "also on 1 other device"; **Unlink** from either side revokes and un-merges; blocking one linked identity triggers the cluster-wide-block offer.
+- **Updated** `stage1/71-linked-devices-page.spec.ts` (P1): Settings → Identity & devices shows
+  identity/protection/current-installation cards and linked-identity empty state; rename persists;
+  **Link a device** uses the SEA public key (never the internal UUID) and shows code + QR + countdown;
+  **Enter or scan a code** rejects expired/invalid/reused codes inline.
+- **New** `cross-platform/x3-identity-linking.spec.ts` (P0): website identity + webapp identity
+  (different SEA keypairs) link via code; both sides show the direct link; mutual signed attestations
+  exist in Gun; a one-sided claim does not create a link; **Remove link** publishes a revocation.
+  Contacts, authorship, reputation, blocks, and Q&A remain per identity.
 - **New** `cross-platform/x8-same-device-link.spec.ts` (P1): same-device shortcuts (redesign §10.3) — browser session + Electron app on one machine link via the **loopback one-click** path (no code typed); the URL-fragment path (`#link=…`) completes with one confirmation and the payload is single-use (opening the link twice fails with the reused-code error); after linking, **Copy my data to ⟨other side⟩** transfers the handoff archive locally.
 - Regression: key custody unchanged — no private key ever leaves its device (`stage1/00-p2p-sea-key-custody` still passes).
 
 ##### T11 — Public-device exit: sync-then-erase (redesign §11)
 - **New** `stage1/72-erase-this-device.spec.ts` (P0): Erase row → confirm dialog; erase button stays disabled until `ERASE` typed; cancel leaves everything intact; confirm with no linked device shows the lost-forever warning; after erase + reload: localStorage/IndexedDB empty of prior keys, **new identity pub differs**, fresh auto-created user, no prior talk/contact/conversation reachable, chatroom headcount reflects only the new identity.
-- **New** `stage2/72-sync-before-erase.spec.ts` (P0): two linked browser identities; Erase on device A offers "Save to ⟨B⟩ first"; sync transfers the encrypted archive (per-category progress; erase disabled until B acknowledges); B's Linked devices page shows the importable archive; B merges contacts + talks/answers (conversation history imports read-only); A erases; B retains everything; A's link shows revoked on B.
+- **New** `stage2/72-sync-before-erase.spec.ts` (P0): two directly linked browser identities grant
+  separate mutual transfer consent; Erase on A offers "Save to ⟨B⟩ first"; sync transfers and
+  verifies the encrypted archive before erase is enabled; B imports records without changing their
+  original authorship/provenance; A erases; B retains received data; A's link shows revoked on B.
 - **New** `cross-platform/x7-sync-then-erase.spec.ts` (P1): same flow website (public PC) → desktop webapp (personal device); abort-mid-sync leaves A intact and un-erased.
 - Guard checks inside both: erase never appears in the `⋯` overflow; sync-in-flight disables erase.
 
@@ -5202,7 +5239,7 @@ Merged from the former Stages 2 and 3 (both were three-user stages). Where a fun
 | Grammar / dirty-word filter pages | ✓ | | ✓ | | |
 | Dirty-word list editor (defaults/CRUD/reset) | ✓ | | | | |
 | Message content filters (send-block / receive-hide) | | ✓ | ✓ | | |
-| Linked devices page (linking flow: cross-platform X3) | ✓ | | | | |
+| Identity & devices page (linking flow: cross-platform X3) | ✓ | | | | |
 | Erase this device / sync-then-erase (X7) | ✓ | ✓ | | | |
 | Credit/Reputation read-only | ✓ | ✓ | | | |
 | Answer talks + outcomes (varied) | | ✓ | ✓ | | |
@@ -5345,7 +5382,7 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | `settings-refresh-location-btn` | click | location text updates; pending-location note when unknown | `stage1/66` | 1 |
 | Storage inspector + `settings-refresh-storage-btn` | open dev page; refresh | body populates, read-only | Part 4 Stage 1 sweep | 1 |
 | Age verification | vouch ×1, ×2 (still off), ×3 (flips 18+) | threshold = 3 | existing H1 | 2–3 |
-| Linked devices page (`link-device-code-modal`, `enter-link-code-input`, `unlink-device-confirm`) | empty state; link code + QR + expiry; enter valid / expired / invalid / reused code; unlink from either side; cluster-wide block offer | mutual attestations only; merged contact row for third users; key custody intact | T10 `stage1/71` · `cross-platform/x3` | 1, X |
+| Identity & devices page (`link-device-code-modal`, `enter-link-code-input`, `unlink-device-confirm`) | identity/protection/current-installation cards; rename; empty state; link code + QR + expiry; enter valid / expired / invalid / reused code; mutual approval; remove link from either side | SEA public key is the Identity ID; mutual direct attestations only; no data/authority merge; key custody intact | T10 `stage1/71` · `stage2/73` · `cross-platform/x3` | 1, 2, X |
 | Erase this device (`erase-device-modal`, `erase-confirm-input`, `erase-device-btn`, `erase-sync-first-btn`) | cancel; wrong/empty confirm text (button disabled, R4); erase unlinked (lost-forever warning); erase after sync; abort mid-sync | full wipe verified (storage empty, new pub, fresh user); archive + per-category merge on the linked device; revocation written | T11 `stage1/72` · `stage2/72` · `cross-platform/x7` | 1, 2, X |
 
 ##### 5.6 Conversation & notifications
@@ -5401,7 +5438,10 @@ Mixed topologies — different platforms **online simultaneously** against the s
 
 - **X1 — Website + webapp presence (P0):** one user on P1, one on P2, same room; both see headcount 2 and each other's member rows; extends `native-app/02`. |
 - **X2 — Cross-platform talk lifecycle (P0):** broadcast website→webapp and webapp→website; answer on the receiving side; match; conversation-first click and DM reply cross the boundary; per-talk **thread reply round-trips** website↔webapp.
-- **X3 — Identity linking across devices (P0, decided 2026-07-13):** the same person on website and webapp has **two distinct identities** (per-device SEA keypairs — never shared); X3 tests the **linking flow** (redesign §10): link code generated on one platform, entered on the other, mutual attestations, merged contact row seen by a third user, unlink/revoke. Spec: `cross-platform/x3-identity-linking` (T10).
+- **X3 — Identity linking across installations (P0, reconciled 2026-08-21):** website and webapp
+  have distinct SEA identities. X3 tests link-code delivery, mutual direct attestations, rejection
+  of one-sided claims, and remove-link revocation. It also guards that contacts, authorship,
+  reputation, blocks, Q&A, and private data do not merge. Spec: `cross-platform/x3-identity-linking`.
 - **X4 — Mobile ↔ desktop (P1):** P5/P6 device profile user matches and threads with a P2 desktop-app user; narrow-width overlay (T2) asserted live on the mobile side during the exchange.
 - **X5 — Three-platform network (P1):** stage-3 functions (multi-responder talks, intake filters, pair-private thread isolation) with one user each on P1, P2, and P5/P6 profile.
 - **X6 — Offline/mailbox across platforms (P2):** webapp goes offline (app quit), website user sends DM + thread reply + new talk; webapp relaunch receives all via mailbox; then the reverse direction.
@@ -5609,7 +5649,10 @@ Every user gets a Gun SEA keypair on first run. It is persisted as an AES-GCM en
 - **`pub` / `priv`**: Signing keys — authorize ledger events, prove talk authorship
 - **`epub` / `epriv`**: Ephemeral keys — generate per-pair shared secrets via `SEA.secret(peerEpub, myPair)` for message encryption
 
-Custody mechanism: PBKDF2-SHA256 (150k iterations) from a per-device 32-byte secret → AES-GCM key → encrypt full `{pub,epub,priv,epriv}`. Exportable + importable recovery package.
+Custody mechanism: PBKDF2-SHA256 (150k iterations) from a device-local 32-byte secret → AES-GCM key
+→ encrypt full `{pub,epub,priv,epriv}`. The current import/export wrapper depends on that local
+secret and is not a portable recovery package. Do not promise cross-device recovery until a
+separate portable format and threat model are reviewed and tested.
 
 localStorage keys: `iinpublic_key_custody_v1`, `iinpublic_key_custody_device_secret_v1`
 
@@ -6447,13 +6490,13 @@ Pause forwarding when battery is low            ON
 
 Advanced settings MAY expose providers, scan intervals, relay policy, byte budgets and diagnostics.
 
-### 29.11 Multi-device open issue
+### 29.11 Multi-installation v1 boundary
 
-A SEA identity remains device-based. Mutual link attestations exist, but the specification does
-not yet decide whether a person cluster has its own durable identifier, aggregates reputation or
-Q&A, changes contact/block scope, or authorizes device replacement/recovery. Discovery and
-synchronization SHALL NOT silently treat linked identities as one canonical SEA identity until a
-separate decision is approved.
+A SEA identity remains installation-based. Mutual links are direct only and do not create a person
+cluster, aggregate reputation/Q&A, change contact or block scope, authorize synchronization, or
+authorize device replacement/recovery. Discovery and synchronization SHALL NOT treat linked
+identities as one canonical SEA identity. Later capabilities require their own signed contracts and
+explicit consent; see `docs/architecture/identity-v1-semantics.md`.
 
 ### 29.12 Acceptance summary
 

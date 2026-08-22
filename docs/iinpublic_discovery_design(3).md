@@ -102,17 +102,17 @@ Verification of a libp2p session proves control of the libp2p key. Verification 
 
 A SEA identity is currently device-based. One person may therefore have multiple SEA identities across a phone, notebook, desktop, browser profile, or replacement device.
 
-The current linking design can record mutual attestations between device identities, but the complete meaning of a person with multiple devices is not yet settled. In particular, the project still needs to decide:
+The v1 linking boundary is direct and pairwise. A link exists only when both SEA identities sign and
+verify the relationship. It proves that the two keys approved a public assertion that they are
+controlled together; it does not prove one physical/legal person, create a durable cluster ID, or
+grant transitive trust.
 
-- whether a person cluster has a durable identifier of its own;
-- whether credit and reputation remain per device or can be aggregated;
-- how Talk authorship is displayed when several linked devices participate;
-- how device loss, unlinking, replacement, and key rotation affect the cluster;
-- whether contacts and blocks apply to one device identity or the whole person cluster;
-- whether and how Q&A history is presented across linked devices;
-- what a linked-device claim proves to third parties.
-
-This is an explicit open design item. Discovery must not assume that multiple device identities are already one canonical person identity.
+Talk authorship, messages, Q&A, contacts, blocks, credit, and reputation remain attributable to
+their original SEA identity. Linking alone authorizes neither private-data synchronization nor
+identity recovery. Removing a link ends future use of that direct edge but cannot erase historical
+correlation or data already copied. Discovery must therefore advertise and authenticate one SEA
+identity at a time and must never synthesize a canonical person identity from link paths. See
+`architecture/identity-v1-semantics.md`.
 
 ## 4. Public image scope
 

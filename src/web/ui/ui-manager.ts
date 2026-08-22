@@ -163,9 +163,14 @@ import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult 
 import { containsFinancialData } from '../../shared/financial-data-guard';
 import { CONFIG } from '../../shared/config';
 import { showLinkedDevicesDialog, type LinkedDeviceRow } from './linked-devices-dialog';
-import { decodePairingCode, isPairingExpired } from '../../shared/identity-linking';
+import { decodePairingCode, isPairingExpired, type PairingPayload } from '../../shared/identity-linking';
 import { showEraseDeviceDialog } from './erase-device-dialog';
 import { eraseDevice } from '../services/device-wipe';
+import {
+  detectLocalDevicePlatform,
+  getOrCreateLocalDeviceMetadata,
+  renameLocalDevice,
+} from '../services/local-device-metadata';
 import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { buildTagIdentityKeys } from '../../shared/talk-ledger';
 
@@ -3995,7 +4000,7 @@ export class UIManager extends EventEmitter {
       { icon: '📍', label: this.t('settingsDistanceHome'), target: 'settings-section-distance-home' },
       { icon: '🚫', label: this.t('settingsContentFilters'), target: 'settings-section-content-filters' },
       { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
-      { icon: '🔗', label: this.t('settingsLinkedDevices'), target: 'settings-section-linked-devices' },
+      { icon: '🔐', label: this.t('settingsIdentityDevices'), target: 'settings-section-linked-devices' },
       { icon: '🗑️', label: this.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
       { icon: '💾', label: this.t('settingsStorage'), target: 'settings-storage-inspector' },
     ];
@@ -4272,8 +4277,8 @@ export class UIManager extends EventEmitter {
         ${this.renderSettingsSection(
           {
             id: 'settings-section-linked-devices',
-            title: this.t('settingsLinkedDevices'),
-            subtitle: this.t('settingsLinkedDevicesHelp'),
+            title: this.t('settingsIdentityDevices'),
+            subtitle: this.t('settingsIdentityDevicesHelp'),
             action: `<button type="button" class="btn" id="settings-linked-devices-btn" data-testid="settings-linked-devices-btn">${this.t('settingsManage')}</button>`,
           },
           '',
@@ -4486,47 +4491,111 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Open the Linked devices page (§10 / item I). Uses the local display model for
-   * the list and the shared pairing protocol for code validation; signed-attestation
-   * publishing is delegated to the identity-link service when the app wires one
-   * (via `setIdentityLinkCompleter`), else a local record is recorded so the
-   * single-device page flows (stage1/71) are exercised.
+   * Open the Identity & devices page (identity architecture WP1). Uses the local display model for
+   * the list and the shared pairing protocol for code validation. Pairing-code
+   * retention and signed-attestation publishing are delegated to the identity-link
+   * service wired by the app. A one-sided attestation is shown as waiting, never as
+   * a verified link.
    */
   private openLinkedDevicesDialog(): void {
     const LOCAL_KEY = 'iinpublic_linked_devices';
+    let graphStateResolved = false;
     const listRecords = (): LinkedDeviceRow[] => {
       try {
         const arr = JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]');
-        return Array.isArray(arr) ? arr : [];
+        if (!Array.isArray(arr)) return [];
+        // localStorage supplies candidate identities and display labels only. A
+        // persisted row cannot claim a verified link until this page has resolved
+        // the signed graph state in the current view.
+        return graphStateResolved
+          ? arr
+          : arr.map((row: LinkedDeviceRow) => ({ ...row, state: 'waiting' as const }));
       } catch {
         return [];
       }
     };
     const saveRecords = (rows: LinkedDeviceRow[]): void => localStorage.setItem(LOCAL_KEY, JSON.stringify(rows));
+    const nativeHost = (window as unknown as {
+      iinpublicNative?: { version?: string; platform?: string };
+    }).iinpublicNative;
+    const nativeQuery = new URLSearchParams(window.location.search);
+    const explicitPlatform = nativeHost?.platform || nativeQuery.get('native_platform') || '';
+    const appVersion = String(nativeHost?.version || nativeQuery.get('app_version') || 'web');
+    const platform = detectLocalDevicePlatform(explicitPlatform, navigator.userAgent || '');
+    const createdAt = new Date(this.currentUser?.createdAt || Date.now()).getTime();
+    const defaultDeviceName = platform === 'android'
+      ? this.t('defaultAndroidDeviceName')
+      : platform === 'ios'
+        ? this.t('defaultIosDeviceName')
+        : platform === 'desktop'
+          ? this.t('defaultDesktopDeviceName')
+          : this.t('defaultBrowserDeviceName');
+    let deviceMetadata = getOrCreateLocalDeviceMetadata(localStorage, {
+      name: defaultDeviceName,
+      platform,
+      createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    });
+    const identityPub = this.currentUser?.pub || '';
     showLinkedDevicesDialog({
       text: (key: string, fallback?: string) => {
         const value = this.t(key as any);
         return value && value !== key ? value : (fallback ?? key);
       },
       listRecords,
-      selfPub: () => this.currentUserId || '',
+      identity: {
+        pub: identityPub,
+        stageName: this.currentUser?.stageName || this.t('unavailable'),
+        ...(this.currentUser?.headshot ? { headshot: this.currentUser.headshot } : {}),
+        createdAt: Number.isFinite(createdAt) ? createdAt : deviceMetadata.createdAt,
+        status: identityPub ? 'available' : 'needs-attention',
+      },
+      device: () => deviceMetadata,
+      appVersion,
+      renameDevice: (name: string) => {
+        deviceMetadata = renameLocalDevice(localStorage, deviceMetadata, name);
+        return deviceMetadata;
+      },
+      selfPub: () => identityPub,
       randomSecret: () => {
         const bytes = new Uint8Array(18);
         (globalThis.crypto || (window as any).crypto).getRandomValues(bytes);
         return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
       },
+      ...(this.identityLinkCodeCreator
+        ? { createLinkCode: (now: number) => this.identityLinkCodeCreator!(now) }
+        : {}),
+      ...(this.identityLinkRequestReader
+        ? { readIncomingRequest: () => this.identityLinkRequestReader!() }
+        : {}),
+      ...(this.identityLinkRequestApprover
+        ? { approveIncomingRequest: (pub: string) => this.identityLinkRequestApprover!(pub) }
+        : {}),
+      ...(this.identityLinkPendingCanceler
+        ? { cancelPendingRequest: (requestId: string) => this.identityLinkPendingCanceler!(requestId) }
+        : {}),
+      ...(this.identityLinkRefresher
+        ? { refreshRecords: async () => {
+            await this.identityLinkRefresher!();
+            graphStateResolved = true;
+          } }
+        : {}),
       completeFromCode: async (code: string) => {
         const decoded = decodePairingCode(code);
         if (!decoded) return 'invalid';
-        if (decoded.pub === (this.currentUserId || '')) return 'self';
+        if (decoded.pub === identityPub) return 'self';
         if (isPairingExpired(decoded)) return 'expired';
         const rows = listRecords();
         if (rows.some((r) => r.pub === decoded.pub)) return 'reused';
-        if (this.identityLinkCompleter) {
-          const err = await this.identityLinkCompleter(code);
-          if (err) return err;
-        }
-        rows.push({ pub: decoded.pub, stageName: this.t('linkedDeviceDefaultName'), platform: 'web', linkedAt: Date.now() });
+        if (!this.identityLinkCompleter) return 'invalid';
+        const err = await this.identityLinkCompleter(code).catch(() => 'unavailable' as const);
+        if (err) return err;
+        rows.push({
+          pub: decoded.pub,
+          stageName: this.t('linkedDeviceDefaultName'),
+          platform: 'web',
+          linkedAt: Date.now(),
+          state: 'waiting',
+        });
         saveRecords(rows);
         return null;
       },
@@ -4577,12 +4646,27 @@ export class UIManager extends EventEmitter {
   }
 
   /** Optional hooks the app wires to publish real signed attestations/revocations (§10). */
-  private identityLinkCompleter?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | null>;
+  private identityLinkCodeCreator?: (now: number) => { payload: PairingPayload; code: string };
+  private identityLinkRequestReader?: () => Promise<import('./linked-devices-dialog').IncomingLinkRequestSummary | null>;
+  private identityLinkRequestApprover?: (pub: string) => Promise<boolean>;
+  private identityLinkPendingCanceler?: (requestId: string) => void;
+  private identityLinkRefresher?: () => Promise<void>;
+  private identityLinkCompleter?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>;
   private identityLinkUnlinker?: (pub: string) => Promise<void>;
   setIdentityLinkHooks(hooks: {
-    completeFromCode?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | null>;
+    createLinkCode?: (now: number) => { payload: PairingPayload; code: string };
+    readIncomingRequest?: () => Promise<import('./linked-devices-dialog').IncomingLinkRequestSummary | null>;
+    approveIncomingRequest?: (pub: string) => Promise<boolean>;
+    cancelPendingRequest?: (requestId: string) => void;
+    refreshRecords?: () => Promise<void>;
+    completeFromCode?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>;
     unlink?: (pub: string) => Promise<void>;
   }): void {
+    if (hooks.createLinkCode) this.identityLinkCodeCreator = hooks.createLinkCode;
+    if (hooks.readIncomingRequest) this.identityLinkRequestReader = hooks.readIncomingRequest;
+    if (hooks.approveIncomingRequest) this.identityLinkRequestApprover = hooks.approveIncomingRequest;
+    if (hooks.cancelPendingRequest) this.identityLinkPendingCanceler = hooks.cancelPendingRequest;
+    if (hooks.refreshRecords) this.identityLinkRefresher = hooks.refreshRecords;
     if (hooks.completeFromCode) this.identityLinkCompleter = hooks.completeFromCode;
     if (hooks.unlink) this.identityLinkUnlinker = hooks.unlink;
   }

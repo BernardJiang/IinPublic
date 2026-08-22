@@ -14,6 +14,7 @@ import {
   buildRevocation,
   linkVerified,
   resolveLinkState,
+  verifyLinkAttestation,
 } from '../../shared/identity-linking';
 
 /** A linked-device record as displayed on the Linked devices page. */
@@ -22,12 +23,32 @@ export interface LinkedDeviceRecord {
   stageName: string;
   platform: string;
   linkedAt: number;
-  state: LinkState;
+  state: 'waiting' | 'linked' | 'revocation-pending' | 'removed' | 'invalid';
+}
+
+export interface IncomingLinkRequest {
+  peerPub: string;
+  issuedAt: number;
+  expiresAt: number;
+}
+
+interface PendingOutgoingLinkV1 {
+  version: 1;
+  payload: PairingPayload;
+  createdAt: number;
+}
+
+interface ConsumedPairingV1 {
+  requestId: string;
+  expiresAt: number;
 }
 
 const LOCAL_LINKS_KEY = 'iinpublic_linked_devices';
+const PENDING_OUTGOING_KEY = 'iinpublic_identity_link_pending_outgoing_v1';
+const CONSUMED_PAIRINGS_KEY = 'iinpublic_identity_link_consumed_v1';
 const GUN_LINK_ROOT = 'identity-links';
 const GUN_REVOKE_ROOT = 'identity-link-revocations';
+const GUN_REQUEST_ROOT = 'identity-link-requests';
 
 /**
  * Web wrapper around the shared identity-linking protocol (§10 / item I).
@@ -38,11 +59,14 @@ const GUN_REVOKE_ROOT = 'identity-link-revocations';
  */
 export class WebIdentityLinkService {
   private readonly gunService: WebGunService;
-  /** Secret for the code this device is currently showing (Link-a-device flow). */
-  private pendingSecret: string | null = null;
+  private readonly storage: Storage | undefined;
 
-  constructor(gunService: WebGunService) {
+  constructor(
+    gunService: WebGunService,
+    storage: Storage | undefined = typeof localStorage === 'undefined' ? undefined : localStorage,
+  ) {
     this.gunService = gunService;
+    this.storage = storage;
   }
 
   /** SEA-backed crypto for the shared protocol. */
@@ -80,11 +104,37 @@ export class WebIdentityLinkService {
     return this.gunService.getStoredPair()?.pub || '';
   }
 
-  /** Generate a fresh pairing code (device A). Stores the secret for completion. */
+  /** Generate a fresh pairing code (device A) and persist its expiring approval state. */
   createLinkCode(now: number = Date.now()): { payload: PairingPayload; code: string } {
+    if (!this.selfPub()) throw new Error('No SEA identity available for pairing');
     const payload = createPairingPayload(this.selfPub(), this.crypto(), now);
-    this.pendingSecret = payload.secret;
+    this.writeJson(PENDING_OUTGOING_KEY, {
+      version: 1,
+      payload,
+      createdAt: now,
+    } satisfies PendingOutgoingLinkV1);
     return { payload, code: encodePairingCode(payload) };
+  }
+
+  getPendingOutgoing(now: number = Date.now()): PairingPayload | null {
+    const record = this.readJson<PendingOutgoingLinkV1>(PENDING_OUTGOING_KEY);
+    if (
+      !record
+      || record.version !== 1
+      || !record.payload
+      || isPairingExpired(record.payload, now)
+    ) {
+      this.removeStorage(PENDING_OUTGOING_KEY);
+      return null;
+    }
+    return record.payload;
+  }
+
+  cancelPendingLink(requestId?: string): void {
+    const pending = this.getPendingOutgoing();
+    if (!requestId || !pending || pending.requestId === requestId) {
+      this.removeStorage(PENDING_OUTGOING_KEY);
+    }
   }
 
   /**
@@ -100,19 +150,58 @@ export class WebIdentityLinkService {
     if (payload.pub === this.selfPub()) return { ok: false, error: 'self' };
     if (isPairingExpired(payload, now)) return { ok: false, error: 'expired' };
 
-    // Reuse guard: a completed edge already present.
-    const existing = await this.readAttestation(this.selfPub(), payload.pub);
-    if (existing) return { ok: false, error: 'reused' };
+    if (this.isPairingConsumed(payload.requestId, now)) return { ok: false, error: 'reused' };
 
-    const att = await buildLinkAttestation({
-      selfPub: this.selfPub(),
-      peerPub: payload.pub,
-      secret: payload.secret,
-      crypto: this.crypto(),
-      now,
-    });
-    await this.publishAttestation(att);
+    // An interrupted attempt may already have written the canonical attestation.
+    // Accept only an exact, valid match so retry can finish the request inbox write.
+    const existing = await this.readAttestation(this.selfPub(), payload.pub);
+    const crypto = this.crypto();
+    const expectedHash = await crypto.hash(payload.secret);
+    if (
+      existing
+      && (!(await verifyLinkAttestation(existing, crypto)) || existing.secretHash !== expectedHash)
+    ) {
+      return { ok: false, error: 'reused' };
+    }
+
+    const att = existing ?? await buildLinkAttestation({
+        selfPub: this.selfPub(),
+        peerPub: payload.pub,
+        secret: payload.secret,
+        crypto,
+        now,
+      });
+    await Promise.all([
+      this.publishAttestation(att),
+      this.publishIncomingRequest(payload.pub, payload.requestId, att),
+    ]);
+    this.markPairingConsumed(payload.requestId, payload.expiresAt, now);
     return { ok: true, peerPub: payload.pub };
+  }
+
+  /** Device A: find the signed request matching the currently displayed code. */
+  async readIncomingLinkRequest(now: number = Date.now()): Promise<IncomingLinkRequest | null> {
+    const pending = this.getPendingOutgoing(now);
+    if (!pending) return null;
+    const raw = await this.gunService.get(this.requestPath(this.selfPub(), pending.requestId)).catch(() => null);
+    if (!raw || typeof raw !== 'object' || typeof raw.request !== 'string') return null;
+    let att: LinkAttestation;
+    try {
+      att = JSON.parse(raw.request) as LinkAttestation;
+    } catch {
+      return null;
+    }
+    const crypto = this.crypto();
+    const expectedHash = await crypto.hash(pending.secret);
+    if (
+      att.toPub !== this.selfPub()
+      || att.secretHash !== expectedHash
+      || att.issuedAt > pending.expiresAt
+      || !(await verifyLinkAttestation(att, crypto))
+    ) {
+      return null;
+    }
+    return { peerPub: att.fromPub, issuedAt: att.issuedAt, expiresAt: pending.expiresAt };
   }
 
   /**
@@ -120,22 +209,34 @@ export class WebIdentityLinkService {
    * complete the mutual link. Verifies B referenced the same pairing secret.
    */
   async confirmIncomingLink(peerPub: string, now: number = Date.now()): Promise<boolean> {
-    if (!this.pendingSecret) return false;
+    const pending = this.getPendingOutgoing(now);
+    if (!pending) return false;
+    const request = await this.readIncomingLinkRequest(now);
+    if (!request || request.peerPub !== peerPub) return false;
     const attFromPeer = await this.readAttestation(peerPub, this.selfPub());
     if (!attFromPeer) return false;
     const crypto = this.crypto();
-    const expectedHash = await crypto.hash(this.pendingSecret);
+    const expectedHash = await crypto.hash(pending.secret);
     if (attFromPeer.secretHash !== expectedHash) return false;
     const attSelf = await buildLinkAttestation({
       selfPub: this.selfPub(),
       peerPub,
-      secret: this.pendingSecret,
+      secret: pending.secret,
       crypto,
       now,
     });
     await this.publishAttestation(attSelf);
-    this.pendingSecret = null;
-    return true;
+    const verified = await linkVerified(attSelf, attFromPeer, crypto);
+    if (!verified) return false;
+    this.removeStorage(PENDING_OUTGOING_KEY);
+    this.upsertLocalRecord({
+      pub: peerPub,
+      stageName: 'Linked identity',
+      platform: 'unknown',
+      linkedAt: now,
+      state: 'linked',
+    });
+    return verified;
   }
 
   async unlink(peerPub: string, now: number = Date.now()): Promise<void> {
@@ -160,7 +261,7 @@ export class WebIdentityLinkService {
     });
   }
 
-  /** Are two identities in the same verified cluster? (used by cluster rendering) */
+  /** Do these two identities have a verified direct mutual link? */
   async isLinked(peerPub: string): Promise<boolean> {
     const [attSelf, attPeer] = await Promise.all([
       this.readAttestation(this.selfPub(), peerPub),
@@ -169,27 +270,39 @@ export class WebIdentityLinkService {
     return linkVerified(attSelf, attPeer, this.crypto());
   }
 
+  /** Re-resolve local candidate rows from signed graph state. */
+  async refreshLocalRecords(): Promise<LinkedDeviceRecord[]> {
+    const refreshed = await Promise.all(this.listLocalRecords().map(async (record) => {
+      const state = await this.linkStateWith(record.pub).catch(() => 'none' as LinkState);
+      const displayState: LinkedDeviceRecord['state'] = state === 'linked'
+        ? 'linked'
+        : state === 'pending'
+          ? 'waiting'
+          : state === 'revoked'
+            ? 'revocation-pending'
+            : 'invalid';
+      return { ...record, state: displayState };
+    }));
+    this.writeJson(LOCAL_LINKS_KEY, refreshed);
+    return refreshed;
+  }
+
   // --- local display model (list on the Linked devices page) --------------------
 
   listLocalRecords(): LinkedDeviceRecord[] {
-    try {
-      const raw = localStorage.getItem(LOCAL_LINKS_KEY);
-      const arr = raw ? (JSON.parse(raw) as LinkedDeviceRecord[]) : [];
-      return Array.isArray(arr) ? arr : [];
-    } catch {
-      return [];
-    }
+    const arr = this.readJson<LinkedDeviceRecord[]>(LOCAL_LINKS_KEY);
+    return Array.isArray(arr) ? arr : [];
   }
 
   upsertLocalRecord(record: LinkedDeviceRecord): void {
     const list = this.listLocalRecords().filter((r) => r.pub !== record.pub);
     list.push(record);
-    localStorage.setItem(LOCAL_LINKS_KEY, JSON.stringify(list));
+    this.writeJson(LOCAL_LINKS_KEY, list);
   }
 
   removeLocalRecord(pub: string): void {
     const list = this.listLocalRecords().filter((r) => r.pub !== pub);
-    localStorage.setItem(LOCAL_LINKS_KEY, JSON.stringify(list));
+    this.writeJson(LOCAL_LINKS_KEY, list);
   }
 
   // --- Gun read/write -----------------------------------------------------------
@@ -202,12 +315,32 @@ export class WebIdentityLinkService {
     return `${GUN_REVOKE_ROOT}/${encodeURIComponent(fromPub)}/${encodeURIComponent(toPub)}`;
   }
 
+  private requestPath(targetPub: string, requestId: string): string {
+    return `${GUN_REQUEST_ROOT}/${encodeURIComponent(targetPub)}/${encodeURIComponent(requestId)}`;
+  }
+
   private async publishAttestation(att: LinkAttestation): Promise<void> {
-    await this.gunService.putPublic(this.linkPath(att.fromPub, att.toPub), att as unknown as Record<string, unknown>);
+    // Attestations are self-authenticating signed records in the shared public
+    // graph. Keep writes on the same root that readAttestation uses; putPublic()
+    // would silently prefix the current user's namespace and make the mutual
+    // record undiscoverable at identity-links/<from>/<to>.
+    await this.gunService.put(this.linkPath(att.fromPub, att.toPub), att as unknown as Record<string, unknown>);
   }
 
   private async publishRevocation(rev: LinkRevocation): Promise<void> {
-    await this.gunService.putPublic(this.revokePath(rev.fromPub, rev.toPub), rev as unknown as Record<string, unknown>);
+    await this.gunService.put(this.revokePath(rev.fromPub, rev.toPub), rev as unknown as Record<string, unknown>);
+  }
+
+  private async publishIncomingRequest(
+    targetPub: string,
+    requestId: string,
+    attestation: LinkAttestation,
+  ): Promise<void> {
+    // The secret never enters the graph. The signed attestation contains only its
+    // hash; the target matches that against its short-lived local pending record.
+    await this.gunService.put(this.requestPath(targetPub, requestId), {
+      request: JSON.stringify(attestation),
+    });
   }
 
   private async readAttestation(fromPub: string, toPub: string): Promise<LinkAttestation | null> {
@@ -218,5 +351,49 @@ export class WebIdentityLinkService {
   private async readRevocation(fromPub: string, toPub: string): Promise<LinkRevocation | null> {
     const raw = await this.gunService.get(this.revokePath(fromPub, toPub)).catch(() => null);
     return raw && typeof raw === 'object' && raw.sig ? (raw as LinkRevocation) : null;
+  }
+
+  private readJson<T>(key: string): T | null {
+    try {
+      const raw = this.storage?.getItem(key);
+      return raw ? JSON.parse(raw) as T : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeJson(key: string, value: unknown): void {
+    try {
+      this.storage?.setItem(key, JSON.stringify(value));
+    } catch {
+      // Pairing remains unavailable rather than exposing secrets through a fallback store.
+    }
+  }
+
+  private removeStorage(key: string): void {
+    try {
+      this.storage?.removeItem(key);
+    } catch {
+      // Best-effort cleanup; expiry checks still fail the record closed.
+    }
+  }
+
+  private consumedPairings(now: number): ConsumedPairingV1[] {
+    const records = this.readJson<ConsumedPairingV1[]>(CONSUMED_PAIRINGS_KEY);
+    const live = Array.isArray(records)
+      ? records.filter((record) => record && record.expiresAt >= now)
+      : [];
+    if (records && live.length !== records.length) this.writeJson(CONSUMED_PAIRINGS_KEY, live);
+    return live;
+  }
+
+  private isPairingConsumed(requestId: string, now: number): boolean {
+    return this.consumedPairings(now).some((record) => record.requestId === requestId);
+  }
+
+  private markPairingConsumed(requestId: string, expiresAt: number, now: number): void {
+    const records = this.consumedPairings(now).filter((record) => record.requestId !== requestId);
+    records.push({ requestId, expiresAt });
+    this.writeJson(CONSUMED_PAIRINGS_KEY, records);
   }
 }

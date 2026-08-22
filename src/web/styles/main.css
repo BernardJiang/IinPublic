@@ -2315,6 +2315,48 @@ button.talk-icon-btn:hover {
   margin-top: 20px;
 }
 
+/* Identity & devices WP1: resilient card/row layout and a close control that
+   remains reachable while the full-screen page scrolls on small displays. */
+.identity-devices-page {
+  box-sizing: border-box;
+}
+
+.identity-devices-header {
+  position: sticky;
+  top: -30px;
+  z-index: 2;
+  margin: -30px -30px 16px;
+  padding: 20px 30px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.identity-linked-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.identity-linked-device-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.identity-current-device-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 /* ==========================================================================
    Popup responsive size classes (GUI redesign §8)
    Reference width matrix: 320 · 390 · 768 · 1024.
@@ -2374,6 +2416,33 @@ button.talk-icon-btn:hover {
     height: 100dvh;
     max-height: 100dvh;
     border-radius: 0;
+  }
+
+  .identity-devices-page.modal-fullscreen {
+    margin: 0;
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    padding: 16px;
+    border-radius: 0;
+  }
+
+  .identity-devices-header {
+    top: -16px;
+    margin: -16px -16px 12px;
+    padding: 14px 16px 10px;
+  }
+
+  .identity-linked-device-row,
+  .identity-current-device-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .identity-linked-device-row > .btn {
+    width: 100%;
+    min-height: 44px;
   }
 }
 
@@ -2634,6 +2703,12 @@ button.talk-icon-btn:hover {
   .modal-content {
     margin: 20px;
     width: auto;
+  }
+
+  /* This rule intentionally follows the generic mobile modal rule above so the
+     Identity & devices takeover cannot regain margins or shrink below 100vw. */
+  .identity-devices-page.modal-fullscreen {
+    margin: 0;
   }
 }
 

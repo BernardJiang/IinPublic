@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-08-14
+Last reconciled: 2026-08-21
 
 This file contains active work only. Completed implementation history is in
 `docs/completed.md`; product requirements and design decisions are authoritative in
@@ -34,9 +34,20 @@ checkpoint/prune offsets remain correct after the retained wire list loses its p
 
 ### I. Multi-device identity linking
 
-- [ ] Wire `WebIdentityLinkService` into `app.ts` with real signed attestations.
-- [ ] Merge linked identities in Contacts and show the identity-cluster line in peer detail.
-- [ ] Add a cluster-wide block option while preserving per-device SEA identities.
+- [x] Freeze v1 semantics: direct mutual `LINK_IDENTITY` edges between independent SEA identities;
+  no transitive cluster, implicit sync, merged authorship, or recovery authority. See
+  `docs/architecture/identity-v1-semantics.md`.
+- [x] Start the **Identity & devices** Settings shell with identity fingerprint/status, local
+  protection status, renameable privacy-minimized installation metadata, and linked identities.
+- [ ] Review and approve `docs/security/local-identity-password-custody-design.md` before changing
+  private-key custody or adding the optional local identity password.
+- [x] Wire `WebIdentityLinkService` into `app.ts`; entered codes now publish a real SEA-signed
+  one-sided attestation and display **Waiting for approval** until mutual confirmation exists.
+- [x] Complete the two-installation mutual approval path with a versioned expiring code, real QR,
+  optional camera scan, signed request discovery, graph-verified rows, replay rejection, and
+  revocation convergence. Covered by `stage2-two-user/73-identity-link-mutual.spec.ts`.
+- [ ] Show verified direct links in peer detail without merging Contacts, authorship, reputation,
+  blocks, or Q&A.
 - [ ] Wire URL-fragment, loopback, and clipboard same-device linking shortcuts.
 - [ ] Enable and pass X3 website↔app and X8 same-device linking E2E scenarios.
 
