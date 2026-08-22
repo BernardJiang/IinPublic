@@ -5,10 +5,11 @@
  * a brand-new auto-created identity with none of the previous person's data
  * reachable. Verifiable post-reload: localStorage/IndexedDB empty, new pub.
  *
- * Key custody (the SEA keypair) lives in localStorage under the custody record,
- * so clearing localStorage destroys it; IndexedDB/Gun radata and caches are
- * cleared too. The caller reloads to a fresh boot afterwards.
+ * Legacy key custody lives in localStorage; password-protected v2 custody lives
+ * in its dedicated IndexedDB database. Both, plus Gun radata and caches, are
+ * cleared before the caller reloads to a fresh boot.
  */
+import { IDENTITY_CUSTODY_DATABASE_NAME } from './identity-custody-store';
 
 export interface EraseHooks {
   /** Best-effort signed link revocations for any linked identities, while online. */
@@ -41,7 +42,9 @@ export async function eraseDeviceStorage(): Promise<void> {
         for (const d of dbs || []) if (d?.name) names.push(d.name);
       }
       // Known fixed names as a fallback when databases() is unavailable.
-      for (const n of ['radata', 'gun', 'iinpublic']) if (!names.includes(n)) names.push(n);
+      for (const n of ['radata', 'gun', 'iinpublic', IDENTITY_CUSTODY_DATABASE_NAME]) {
+        if (!names.includes(n)) names.push(n);
+      }
       await Promise.all(
         names.map(
           (name) =>

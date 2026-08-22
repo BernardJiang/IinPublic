@@ -10,7 +10,7 @@ import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterNav, afterSync, afterLoad } from '../../helpers/timing';
+import { afterNav, afterSync, afterLoad, waitForAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { decodePairingCode, encodePairingCode, PAIRING_TTL_MS } from '../../../../src/shared/identity-linking';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
@@ -163,5 +163,204 @@ test.describe('Identity & devices page', () => {
     await p.locator('[data-testid="link-a-device-btn"]').scrollIntoViewIfNeeded();
     await expect(p.locator('[data-testid="link-a-device-btn"]')).toBeVisible();
     await expect(p.locator('[data-testid="enter-link-code-btn"]')).toBeVisible();
+
+    await p.locator('[data-testid="set-identity-password-btn"]').scrollIntoViewIfNeeded();
+    await p.locator('[data-testid="set-identity-password-btn"]').click();
+    await expect(p.locator('[data-testid="set-identity-password-overlay"]')).toBeVisible();
+    const passwordDialogOverflow = await p.locator('[data-testid="set-identity-password-overlay"] .modal-content').evaluate(
+      (element) => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }),
+    );
+    expect(passwordDialogOverflow.scrollWidth).toBeLessThanOrEqual(passwordDialogOverflow.clientWidth);
+    await p.keyboard.press('Escape');
+    await expect(p.locator('[data-testid="set-identity-password-overlay"]')).toHaveCount(0);
+    await expect(p.locator('[data-testid="set-identity-password-btn"]')).toBeFocused();
+  });
+
+  test('password custody preserves identity and gates reload/change/lock lifecycle', async () => {
+    const p = page!;
+    const observedConsole: string[] = [];
+    const observedRequests: string[] = [];
+    p.on('console', (message) => observedConsole.push(message.text()));
+    p.on('request', (request) => {
+      observedRequests.push(`${request.url()}\n${request.postData() || ''}`);
+    });
+    const originalPub = await p.evaluate(
+      () => (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || '',
+    );
+    expect(originalPub).toContain('.');
+
+    await p.locator('[data-testid="settings-linked-devices-btn"]').click();
+    await expect(p.locator('[data-testid="set-identity-password-btn"]')).toBeVisible();
+    await p.locator('[data-testid="set-identity-password-btn"]').click();
+    await expect(p.locator('[data-testid="set-identity-password"]')).toBeFocused();
+    await expect(p.locator('[data-testid="set-identity-password-overlay"]')).toContainText(
+      'IinPublic does not store your password or identity on a recovery server',
+    );
+    await expect(p.locator('[data-testid="set-identity-password-submit"]')).toBeDisabled();
+    await p.fill('[data-testid="set-identity-password"]', 'correct horse battery staple');
+    await p.fill('[data-testid="confirm-identity-password"]', 'correct horse battery staple');
+    await expect(p.locator('[data-testid="set-identity-password-submit"]')).toBeDisabled();
+    await p.locator('[data-testid="identity-password-warning-ack"]').check();
+    await expect(p.locator('[data-testid="set-identity-password-submit"]')).toBeEnabled();
+    await p.locator('[data-testid="set-identity-password-submit"]').click();
+    await expect(p.locator('[data-testid="identity-protection-card"]')).toContainText(
+      'Identity password: Set',
+    );
+    const storageAfterSet = await p.evaluate((password) => ({
+      passwordFound: Object.values(localStorage).some((value) => String(value).includes(password)),
+      rawPair: localStorage.getItem('iinpublic_keypair'),
+      legacyCustody: localStorage.getItem('iinpublic_key_custody_v1'),
+      legacySecret: localStorage.getItem('iinpublic_key_custody_device_secret_v1'),
+    }), 'correct horse battery staple');
+    expect(storageAfterSet).toEqual({
+      passwordFound: false,
+      rawPair: null,
+      legacyCustody: null,
+      legacySecret: null,
+    });
+
+    // The unload boundary drops live identity/auth references synchronously before
+    // navigation. The encrypted v2 record remains available for the next unlock.
+    await p.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
+    await expect
+      .poll(() => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()))
+      .toBeNull();
+
+    await p.setViewportSize({ width: 320, height: 640 });
+    await p.reload();
+    await p.waitForLoadState('load');
+    await expect(p.locator('[data-testid="identity-unlock-overlay"]')).toBeVisible();
+    await expect(p.locator('[data-testid="identity-unlock-password"]')).toBeFocused();
+    const unlockDialogOverflow = await p.locator('[data-testid="identity-unlock-overlay"] .modal-content').evaluate(
+      (element) => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }),
+    );
+    expect(unlockDialogOverflow.scrollWidth).toBeLessThanOrEqual(unlockDialogOverflow.clientWidth);
+    await p.keyboard.press('Escape');
+    await expect(p.locator('[data-testid="identity-unlock-overlay"]')).toBeVisible();
+    await p.fill('[data-testid="identity-unlock-password"]', 'incorrect password value');
+    await p.locator('[data-testid="identity-unlock-submit"]').click();
+    await expect(p.locator('[data-testid="identity-unlock-error"]')).toContainText('Could not unlock');
+    await p.fill('[data-testid="identity-unlock-password"]', 'correct horse battery staple');
+    await p.locator('[data-testid="identity-unlock-submit"]').click();
+    await waitForAppReady(p);
+    await p.setViewportSize({ width: 1000, height: 1100 });
+    await expect
+      .poll(() => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''))
+      .toBe(originalPub);
+
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await openSettingsSection(p, SETTINGS_SECTION.linkedDevices);
+    await p.locator('[data-testid="settings-linked-devices-btn"]').click();
+    await p.locator('[data-testid="change-identity-password-btn"]').click();
+    await p.fill('[data-testid="current-identity-password"]', 'incorrect current password');
+    await p.fill('[data-testid="change-new-identity-password"]', 'another strong local password');
+    await p.fill('[data-testid="change-confirm-identity-password"]', 'another strong local password');
+    await p.locator('[data-testid="change-identity-password-submit"]').click();
+    await expect(p.locator('[data-testid="change-identity-password-error"]')).toContainText(
+      'Could not change the password',
+    );
+    await expect(p.locator('[data-testid="current-identity-password"]')).toHaveValue('');
+    await expect(p.locator('[data-testid="change-new-identity-password"]')).toHaveValue('');
+
+    await p.fill('[data-testid="current-identity-password"]', 'correct horse battery staple');
+    await p.fill('[data-testid="change-new-identity-password"]', 'another strong local password');
+    await p.fill('[data-testid="change-confirm-identity-password"]', 'another strong local password');
+    await p.locator('[data-testid="change-identity-password-submit"]').click();
+    await expect(p.locator('[data-testid="change-identity-password-overlay"]')).toHaveCount(0);
+
+    await Promise.all([
+      p.waitForEvent('load'),
+      p.locator('[data-testid="lock-identity-now-btn"]').click(),
+    ]);
+    await expect(p.locator('[data-testid="identity-unlock-overlay"]')).toBeVisible();
+    await p.fill('[data-testid="identity-unlock-password"]', 'correct horse battery staple');
+    await p.locator('[data-testid="identity-unlock-submit"]').click();
+    await expect(p.locator('[data-testid="identity-unlock-error"]')).toContainText('Could not unlock');
+    await p.fill('[data-testid="identity-unlock-password"]', 'another strong local password');
+    await p.locator('[data-testid="identity-unlock-submit"]').click();
+    await waitForAppReady(p);
+    await expect
+      .poll(() => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''))
+      .toBe(originalPub);
+
+    const persistedPasswordLeak = await p.evaluate(async (passwords) => {
+      const record = await new Promise<unknown>((resolve, reject) => {
+        const open = indexedDB.open('iinpublic-identity-custody-v2');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const database = open.result;
+          const request = database.transaction('custody', 'readonly').objectStore('custody').get('active');
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            database.close();
+            resolve(request.result);
+          };
+        };
+      });
+      const persisted = `${JSON.stringify(record)}\n${Object.values(localStorage).join('\n')}`;
+      return passwords.some((password) => persisted.includes(password));
+    }, ['correct horse battery staple', 'another strong local password']);
+    expect(persistedPasswordLeak).toBe(false);
+    expect(await p.locator('body').textContent()).not.toContain('correct horse battery staple');
+    expect(await p.locator('body').textContent()).not.toContain('another strong local password');
+    expect(observedConsole.join('\n')).not.toContain('correct horse battery staple');
+    expect(observedConsole.join('\n')).not.toContain('another strong local password');
+    expect(observedRequests.join('\n')).not.toContain('correct horse battery staple');
+    expect(observedRequests.join('\n')).not.toContain('another strong local password');
+
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await openSettingsSection(p, SETTINGS_SECTION.linkedDevices);
+    await p.locator('[data-testid="settings-linked-devices-btn"]').click();
+    await p.locator('[data-testid="remove-identity-password-btn"]').click();
+    await expect(p.locator('[data-testid="remove-identity-password-warning"]')).toContainText(
+      'Browser storage will contain everything needed to unlock it',
+    );
+    await expect(p.locator('[data-testid="remove-identity-password-submit"]')).toBeDisabled();
+    await p.fill('[data-testid="remove-current-identity-password"]', 'incorrect current password');
+    await p.locator('[data-testid="remove-identity-password-ack"]').check();
+    await p.locator('[data-testid="remove-identity-password-submit"]').click();
+    await expect(p.locator('[data-testid="remove-identity-password-error"]')).toContainText(
+      'Could not remove the password',
+    );
+    await expect(p.locator('[data-testid="identity-protection-card"]')).toContainText(
+      'Identity password: Set',
+    );
+
+    await p.fill('[data-testid="remove-current-identity-password"]', 'another strong local password');
+    await p.locator('[data-testid="remove-identity-password-submit"]').click();
+    await expect(p.locator('[data-testid="remove-identity-password-overlay"]')).toHaveCount(0);
+    await expect(p.locator('[data-testid="identity-protection-card"]')).toContainText(
+      'Identity password: Not set',
+    );
+    const downgradeStorage = await p.evaluate(async () => {
+      const active = await new Promise<unknown>((resolve, reject) => {
+        const open = indexedDB.open('iinpublic-identity-custody-v2');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const database = open.result;
+          const request = database.transaction('custody', 'readonly').objectStore('custody').get('active');
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            database.close();
+            resolve(request.result ?? null);
+          };
+        };
+      });
+      return {
+        active,
+        legacyRecord: localStorage.getItem('iinpublic_key_custody_v1'),
+        legacySecret: localStorage.getItem('iinpublic_key_custody_device_secret_v1'),
+      };
+    });
+    expect(downgradeStorage.active).toBeNull();
+    expect(downgradeStorage.legacyRecord).toContain('webcrypto-device-key-v1');
+    expect(downgradeStorage.legacySecret).not.toBeNull();
+
+    await p.reload();
+    await waitForAppReady(p);
+    await expect(p.locator('[data-testid="identity-unlock-overlay"]')).toHaveCount(0);
+    await expect
+      .poll(() => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''))
+      .toBe(originalPub);
   });
 });

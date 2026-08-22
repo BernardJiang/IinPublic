@@ -200,6 +200,28 @@ release may lock on reload and explicit logout rather than promise reliable
 mobile background timers. Later idle/background locking must be tested for
 interrupted writes and operating-system lifecycle events.
 
+### Initial lifecycle contract
+
+The staged browser implementation uses these deliberately narrow boundaries:
+
+- **Refresh, navigation, tab/window close, and process quit:** lock. The persisted v2 envelope is
+  the only restart source. The unload handler synchronously drops the service's private-pair and
+  direct Gun authentication references, then requests best-effort worker logout; correctness does
+  not depend on asynchronous unload work completing.
+- **Lock now and logout-equivalent identity replacement/deletion:** lock immediately, discard
+  queued private writes, leave authenticated Gun state, and reload when the UI initiated the lock.
+- **Browser tab hidden, mobile web background, native app background, and desktop minimize:** do
+  not automatically lock in the initial release. These signals are not reliable termination
+  boundaries, and locking during an interrupted private write has not passed the platform matrix.
+- **Idle:** no automatic idle timeout in the initial release. The UI makes **Lock now** available
+  when password protection is set.
+- **Native quit/termination:** the process boundary drops memory; native lifecycle adapters must
+  add and test an explicit cleanup callback before claiming stronger behavior.
+
+The app must not describe background, minimize, or idle as lock boundaries until those policies
+and interrupted-write tests are implemented for the relevant browser/native platform. JavaScript
+memory zeroization remains best-effort rather than guaranteed.
+
 ## Storage and atomic replacement
 
 V2 custody should sit behind a storage adapter with compare-and-swap replacement:
@@ -248,14 +270,24 @@ identity.
 ### Remove a password
 
 1. Decrypt and validate the v2 envelope with the current password.
-2. Create a fresh password-free device envelope using the reviewed v1 successor
-   format and secure random device secret.
-3. Atomically replace the active record and verify it before removing v2.
+2. Show an explicit warning that returning to automatic browser custody reduces
+   protection because browser storage contains everything needed to unlock the identity.
+3. Create a fresh v1 password-free device envelope with a new random device secret,
+   salt, and IV.
+4. While v2 remains authoritative, write v1, decrypt it, compare the complete private
+   pair, and verify the unchanged SEA public identity.
+5. Delete v2 and the password-removal marker atomically only after v1 verification.
 
 Removing a password does not delete the identity or data. It lowers local
-at-rest protection and must require explicit confirmation. If the password-free
-successor is not approved, removal must remain unavailable instead of silently
-falling back to a co-located `localStorage` secret.
+at-rest protection and requires the current password plus explicit confirmation. The
+approved staged behavior deliberately returns the user to the same v1 automatic-unlock
+baseline used before password setup; the UI must not describe v1 as equivalent to password
+protection. A later password-free v3 based on a reviewed non-extractable WebCrypto key or
+native OS keystore remains a hardening TODO and can replace v1 without changing removal UX.
+
+Concurrent tabs are serialized by an IndexedDB password-removal marker tied to the source
+v2 `custodyId`. On restart, a verified v1 candidate completes removal; a missing or invalid
+candidate is cleared and v2 remains authoritative.
 
 ### Interrupted migration recovery
 

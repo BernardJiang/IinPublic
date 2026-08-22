@@ -12,11 +12,15 @@ import {
 import type {
   IdentityCustodyMigrationMarker,
   IdentityCustodyStore,
+  PasswordToLegacyMigrationMarker,
 } from './identity-custody-store';
 
 export type LegacyIdentityCustody = {
   assertMatches(expected: SeaPublicIdentity): Promise<void>;
   removeIfMatches(expected: SeaPublicIdentity): Promise<void>;
+  writeAndVerify(pair: SeaPrivateIdentityMaterial): Promise<void>;
+  assertPairMatches(pair: SeaPrivateIdentityMaterial): Promise<void>;
+  clear(): Promise<void>;
 };
 
 export type IdentityPasswordProtectionStatus =
@@ -145,14 +149,36 @@ export class IdentityPasswordCustodyManager {
     const pair = await decryptPasswordKeyCustodyRecord(active, password, this.cryptoOptions());
     const migration = await this.store.readMigration();
     if (migration) {
-      if (
-        migration.targetCustodyId !== active.custodyId ||
-        !samePublicIdentity(migration.publicIdentity, active.publicIdentity)
-      ) {
-        throw new Error('Identity custody migration is inconsistent');
+      if (migration.kind === 'legacy-device-to-password-v2') {
+        if (
+          migration.targetCustodyId !== active.custodyId ||
+          !samePublicIdentity(migration.publicIdentity, active.publicIdentity)
+        ) {
+          throw new Error('Identity custody migration is inconsistent');
+        }
+        await this.legacyCustody.removeIfMatches(active.publicIdentity);
+        await this.store.completeMigration(active.custodyId);
+      } else {
+        if (
+          migration.sourceCustodyId !== active.custodyId ||
+          !samePublicIdentity(migration.publicIdentity, active.publicIdentity)
+        ) {
+          throw new Error('Identity custody migration is inconsistent');
+        }
+        try {
+          await this.legacyCustody.assertPairMatches(pair);
+          await this.store.completePasswordRemoval(active.custodyId);
+        } catch (error) {
+          const remaining = await this.store.readActive();
+          if (!remaining) return pair;
+          await this.legacyCustody.clear().catch(() => undefined);
+          await this.store.cancelPasswordRemoval(active.custodyId).catch(() => undefined);
+          if (error instanceof Error && error.message === 'Password-free identity custody mismatch') {
+            return pair;
+          }
+          throw error;
+        }
       }
-      await this.legacyCustody.removeIfMatches(active.publicIdentity);
-      await this.store.completeMigration(active.custodyId);
     }
     return pair;
   }
@@ -194,6 +220,35 @@ export class IdentityPasswordCustodyManager {
       return next;
     } catch (error) {
       await this.store.replaceActive(next.custodyId, current, null).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async removePassword(currentPassword: string): Promise<SeaPrivateIdentityMaterial> {
+    const pair = await this.unlock(currentPassword);
+    const current = await this.store.readActive();
+    // A prior interrupted removal may have been completed by unlock().
+    if (!current) return pair;
+    if (!samePublicIdentity(toPublicSeaIdentity(pair), current.publicIdentity)) {
+      throw new Error('Unable to unlock identity');
+    }
+    const marker: PasswordToLegacyMigrationMarker = {
+      version: 1,
+      kind: 'password-v2-to-legacy-device-v1',
+      sourceCustodyId: current.custodyId,
+      publicIdentity: current.publicIdentity,
+      createdAt: this.now().toISOString(),
+    };
+    await this.store.beginPasswordRemoval(current.custodyId, marker);
+    try {
+      await this.legacyCustody.writeAndVerify(pair);
+      await this.store.completePasswordRemoval(current.custodyId);
+      return pair;
+    } catch (error) {
+      const remaining = await this.store.readActive();
+      if (!remaining) return pair;
+      await this.legacyCustody.clear().catch(() => undefined);
+      await this.store.cancelPasswordRemoval(current.custodyId).catch(() => undefined);
       throw error;
     }
   }

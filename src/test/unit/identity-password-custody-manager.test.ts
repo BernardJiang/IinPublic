@@ -20,6 +20,7 @@ let databaseSequence = 0;
 class FakeLegacyCustody implements LegacyIdentityCustody {
   present = true;
   failRemoval = false;
+  failWriteAfterCommit = false;
 
   async assertMatches(expected: SeaPublicIdentity): Promise<void> {
     if (!this.present) throw new Error('Legacy custody is missing');
@@ -33,6 +34,30 @@ class FakeLegacyCustody implements LegacyIdentityCustody {
       throw new Error('Legacy custody identity mismatch');
     }
     if (this.failRemoval) throw new Error('Injected legacy removal failure');
+    this.present = false;
+  }
+
+  async writeAndVerify(expectedPair: SeaPrivateIdentityMaterial): Promise<void> {
+    if (expectedPair !== pair && JSON.stringify(expectedPair) !== JSON.stringify(pair)) {
+      throw new Error('Password-free identity custody mismatch');
+    }
+    this.present = true;
+    if (this.failWriteAfterCommit) throw new Error('Injected password-free verification failure');
+  }
+
+  async assertPairMatches(expectedPair: SeaPrivateIdentityMaterial): Promise<void> {
+    if (
+      !this.present ||
+      expectedPair.pub !== pair.pub ||
+      expectedPair.epub !== pair.epub ||
+      expectedPair.priv !== pair.priv ||
+      expectedPair.epriv !== pair.epriv
+    ) {
+      throw new Error('Password-free identity custody mismatch');
+    }
+  }
+
+  async clear(): Promise<void> {
     this.present = false;
   }
 }
@@ -142,6 +167,120 @@ describe('IdentityPasswordCustodyManager', () => {
 
     await expect(manager.setPassword(pair, password)).rejects.toThrow('already set');
     expect(legacy.present).toBe(true);
+    await store.close();
+  });
+
+  test('removes an unverified v2 commit and preserves legacy custody when set read-back fails', async () => {
+    const { store, legacy, manager } = setup();
+    const readActive = store.readActive.bind(store);
+    let reads = 0;
+    const readSpy = jest.spyOn(store, 'readActive').mockImplementation(async () => {
+      reads += 1;
+      if (reads === 2) throw new Error('Injected committed-record read failure');
+      return readActive();
+    });
+
+    await expect(manager.setPassword(pair, password)).rejects.toThrow(
+      'Injected committed-record read failure',
+    );
+    readSpy.mockRestore();
+
+    expect(legacy.present).toBe(true);
+    await expect(store.readActive()).resolves.toBeNull();
+    await expect(store.readMigration()).resolves.toBeNull();
+    await store.close();
+  });
+
+  test('rolls back to the old password record when changed-custody verification fails', async () => {
+    const { store, manager } = setup();
+    const original = await manager.setPassword(pair, password);
+    const readActive = store.readActive.bind(store);
+    let reads = 0;
+    const readSpy = jest.spyOn(store, 'readActive').mockImplementation(async () => {
+      reads += 1;
+      if (reads === 3) throw new Error('Injected changed-record read failure');
+      return readActive();
+    });
+
+    await expect(manager.changePassword(password, nextPassword)).rejects.toThrow(
+      'Injected changed-record read failure',
+    );
+    readSpy.mockRestore();
+
+    await expect(store.readActive()).resolves.toEqual(original);
+    await expect(manager.unlock(password)).resolves.toEqual(pair);
+    await expect(manager.unlock(nextPassword)).rejects.toThrow('Unable to unlock identity');
+    await store.close();
+  });
+
+  test('requires the current password and removes v2 only after verified password-free custody', async () => {
+    const { store, legacy, manager } = setup();
+    const original = await manager.setPassword(pair, password);
+
+    await expect(manager.removePassword('incorrect current password')).rejects.toThrow(
+      'Unable to unlock identity',
+    );
+    expect(legacy.present).toBe(false);
+    await expect(store.readActive()).resolves.toEqual(original);
+
+    await expect(manager.removePassword(password)).resolves.toEqual(pair);
+    expect(legacy.present).toBe(true);
+    await expect(store.readActive()).resolves.toBeNull();
+    await expect(store.readMigration()).resolves.toBeNull();
+    await expect(manager.getStatus()).resolves.toEqual({ state: 'not-set' });
+    await store.close();
+  });
+
+  test('finishes an interrupted verified password removal during the next unlock', async () => {
+    const { store, legacy, manager } = setup();
+    const original = await manager.setPassword(pair, password);
+    await store.beginPasswordRemoval(original.custodyId, {
+      version: 1,
+      kind: 'password-v2-to-legacy-device-v1',
+      sourceCustodyId: original.custodyId,
+      publicIdentity: original.publicIdentity,
+      createdAt: '2026-08-22T12:00:00.000Z',
+    });
+    await legacy.writeAndVerify(pair);
+
+    await expect(manager.unlock(password)).resolves.toEqual(pair);
+    expect(legacy.present).toBe(true);
+    await expect(store.readActive()).resolves.toBeNull();
+    await expect(store.readMigration()).resolves.toBeNull();
+    await store.close();
+  });
+
+  test('rolls back an incomplete password-removal candidate and keeps v2 authoritative', async () => {
+    const { store, legacy, manager } = setup();
+    const original = await manager.setPassword(pair, password);
+    await store.beginPasswordRemoval(original.custodyId, {
+      version: 1,
+      kind: 'password-v2-to-legacy-device-v1',
+      sourceCustodyId: original.custodyId,
+      publicIdentity: original.publicIdentity,
+      createdAt: '2026-08-22T12:00:00.000Z',
+    });
+    expect(legacy.present).toBe(false);
+
+    await expect(manager.unlock(password)).resolves.toEqual(pair);
+    expect(legacy.present).toBe(false);
+    await expect(store.readActive()).resolves.toEqual(original);
+    await expect(store.readMigration()).resolves.toBeNull();
+    await store.close();
+  });
+
+  test('clears a failed downgrade candidate and keeps the password record recoverable', async () => {
+    const { store, legacy, manager } = setup();
+    const original = await manager.setPassword(pair, password);
+    legacy.failWriteAfterCommit = true;
+
+    await expect(manager.removePassword(password)).rejects.toThrow(
+      'Injected password-free verification failure',
+    );
+    expect(legacy.present).toBe(false);
+    await expect(store.readActive()).resolves.toEqual(original);
+    await expect(store.readMigration()).resolves.toBeNull();
+    await expect(manager.unlock(password)).resolves.toEqual(pair);
     await store.close();
   });
 });

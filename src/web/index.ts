@@ -5,6 +5,7 @@ import { isDevStageZeroResolved, isDevTechSupportDriver, resolveDevStageSeed } f
 import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
+import { IDENTITY_CUSTODY_DATABASE_NAME } from './services/identity-custody-store';
 
 const STAGE_ZERO_BOOT_KEY = 'iinpublic_stage_zero_boot';
 
@@ -127,7 +128,12 @@ class WebApp {
         await Promise.all(
           dbs
             .map((db) => db.name || '')
-            .filter((name) => name.startsWith('gun') || name === 'gun-idb')
+            .filter(
+              (name) =>
+                name.startsWith('gun') ||
+                name === 'gun-idb' ||
+                name === IDENTITY_CUSTODY_DATABASE_NAME,
+            )
             .map((name) => new Promise<void>((resolve) => {
               const req = indexedDB.deleteDatabase(name);
               req.onsuccess = () => resolve();

@@ -77,6 +77,7 @@ import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-clie
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
+import { eraseDevice } from '../services/device-wipe';
 import { getOrCreateP2PSession } from '../services/p2p-webrtc-session';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
@@ -777,6 +778,30 @@ export class IinPublicApp {
       },
       unlink: (pub) => this.identityLinkService.unlink(pub),
     });
+    // The reviewed password-custody implementation is available to development/E2E
+    // builds for staged verification. Production can still unlock an existing v2
+    // record, but Settings mutation controls remain hidden until the security review's
+    // cross-platform release conditions are complete.
+    const identityPasswordSettingsEnabled = process.env.NODE_ENV !== 'production';
+    this.uiManager.setIdentityPasswordHooks({
+      getStatus: async () => {
+        const status = await this.gunService.getIdentityPasswordProtectionStatus();
+        return { state: status.state };
+      },
+      ...(identityPasswordSettingsEnabled
+        ? {
+            setPassword: (password: string) => this.gunService.setIdentityPassword(password),
+            changePassword: (currentPassword: string, newPassword: string) =>
+              this.gunService.changeIdentityPassword(currentPassword, newPassword),
+            removePassword: (currentPassword: string) =>
+              this.gunService.removeIdentityPassword(currentPassword),
+            lockNow: async () => {
+              await this.gunService.lockIdentityNow();
+              window.location.reload();
+            },
+          }
+        : {}),
+    });
     this.loadAttachmentShareSentIds();
   }
 
@@ -792,10 +817,24 @@ export class IinPublicApp {
     // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
     await this.gunService.initialize();
+    const passwordStatus = await this.gunService.getIdentityPasswordProtectionStatus();
+    if (passwordStatus.state === 'locked') {
+      await this.uiManager.showIdentityUnlock(
+        passwordStatus.publicIdentity.pub,
+        async (password) => {
+          await this.gunService.unlockIdentity(password);
+        },
+        async () => {
+          await this.gunService.lockIdentityNow();
+          await eraseDevice();
+        },
+      );
+    } else {
+      await this.gunService.ensureKeypairAndAuth();
+    }
     this.gunService.getGun().get('public').get('chatroom-hierarchy').on((raw: unknown) => {
       applyPublicChatroomHierarchy(raw);
     });
-    await this.gunService.ensureKeypairAndAuth();
     void this.identityLinkService.flushPendingRevocations().catch(() => {});
     const durableChatbotMemory = new GunChatbotMemoryRepository(this.gunService);
     const restoredChatbotMemory = await durableChatbotMemory.loadState().catch(() => null);
@@ -6156,6 +6195,11 @@ export class IinPublicApp {
 
     // Handle beforeunload to cleanup
     window.addEventListener('beforeunload', () => {
+      // A protected identity must not remain reachable from service references during a
+      // normal navigation/close boundary. JavaScript cannot await unload work reliably,
+      // but lockIdentityNow clears the pair and direct Gun authentication synchronously
+      // before its best-effort worker logout.
+      void this.gunService.lockIdentityNow();
       if (this.mailboxPollTimer) clearInterval(this.mailboxPollTimer);
       this.mailboxPollTimer = undefined;
       this.peerMeshService?.leaveRoom();

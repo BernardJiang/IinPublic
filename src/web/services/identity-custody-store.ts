@@ -5,6 +5,7 @@ const DATABASE_VERSION = 1;
 const CUSTODY_STORE = 'custody';
 const ACTIVE_KEY = 'active';
 const MIGRATION_KEY = 'migration';
+export const IDENTITY_CUSTODY_DATABASE_NAME = 'iinpublic-identity-custody-v2';
 
 type StoredActiveRecord = {
   key: typeof ACTIVE_KEY;
@@ -16,7 +17,7 @@ type StoredMigrationRecord = {
   marker: IdentityCustodyMigrationMarker;
 };
 
-export type IdentityCustodyMigrationMarker = {
+export type LegacyToPasswordMigrationMarker = {
   version: 1;
   kind: 'legacy-device-to-password-v2';
   targetCustodyId: string;
@@ -25,6 +26,18 @@ export type IdentityCustodyMigrationMarker = {
   legacySecretStorageKey: string;
   createdAt: string;
 };
+
+export type PasswordToLegacyMigrationMarker = {
+  version: 1;
+  kind: 'password-v2-to-legacy-device-v1';
+  sourceCustodyId: string;
+  publicIdentity: SeaPublicIdentity;
+  createdAt: string;
+};
+
+export type IdentityCustodyMigrationMarker =
+  | LegacyToPasswordMigrationMarker
+  | PasswordToLegacyMigrationMarker;
 
 export interface IdentityCustodyStore {
   readActive(): Promise<PasswordKeyCustodyRecordV2 | null>;
@@ -35,6 +48,12 @@ export interface IdentityCustodyStore {
     migration?: IdentityCustodyMigrationMarker | null,
   ): Promise<void>;
   completeMigration(expectedCustodyId: string): Promise<void>;
+  beginPasswordRemoval(
+    expectedCustodyId: string,
+    marker: PasswordToLegacyMigrationMarker,
+  ): Promise<void>;
+  completePasswordRemoval(expectedCustodyId: string): Promise<void>;
+  cancelPasswordRemoval(expectedCustodyId: string): Promise<void>;
   deleteActive(expectedCustodyId: string): Promise<void>;
 }
 
@@ -93,6 +112,29 @@ function isCanonicalTimestamp(value: unknown): value is string {
 function isMigrationMarker(value: unknown): value is IdentityCustodyMigrationMarker {
   if (!value || typeof value !== 'object') return false;
   const marker = value as Record<string, unknown>;
+  const commonValid =
+    marker.version === 1 &&
+    isCanonicalTimestamp(marker.createdAt) &&
+    !!marker.publicIdentity &&
+    typeof marker.publicIdentity === 'object';
+  if (!commonValid) return false;
+  const identity = marker.publicIdentity as Record<string, unknown>;
+  if (
+    !hasExactKeys(identity, ['pub', 'epub']) ||
+    typeof identity.pub !== 'string' ||
+    identity.pub.length === 0 ||
+    typeof identity.epub !== 'string' ||
+    identity.epub.length === 0
+  ) {
+    return false;
+  }
+  if (marker.kind === 'password-v2-to-legacy-device-v1') {
+    return (
+      hasExactKeys(marker, ['version', 'kind', 'sourceCustodyId', 'publicIdentity', 'createdAt']) &&
+      typeof marker.sourceCustodyId === 'string' &&
+      /^[A-Za-z0-9_-]{22}$/.test(marker.sourceCustodyId)
+    );
+  }
   if (
     !hasExactKeys(marker, [
       'version',
@@ -103,7 +145,6 @@ function isMigrationMarker(value: unknown): value is IdentityCustodyMigrationMar
       'legacySecretStorageKey',
       'createdAt',
     ]) ||
-    marker.version !== 1 ||
     marker.kind !== 'legacy-device-to-password-v2' ||
     typeof marker.targetCustodyId !== 'string' ||
     !/^[A-Za-z0-9_-]{22}$/.test(marker.targetCustodyId) ||
@@ -111,20 +152,11 @@ function isMigrationMarker(value: unknown): value is IdentityCustodyMigrationMar
     marker.legacyRecordStorageKey.length === 0 ||
     typeof marker.legacySecretStorageKey !== 'string' ||
     marker.legacySecretStorageKey.length === 0 ||
-    !isCanonicalTimestamp(marker.createdAt) ||
-    !marker.publicIdentity ||
-    typeof marker.publicIdentity !== 'object'
+    !isCanonicalTimestamp(marker.createdAt)
   ) {
     return false;
   }
-  const identity = marker.publicIdentity as Record<string, unknown>;
-  return (
-    hasExactKeys(identity, ['pub', 'epub']) &&
-    typeof identity.pub === 'string' &&
-    identity.pub.length > 0 &&
-    typeof identity.epub === 'string' &&
-    identity.epub.length > 0
-  );
+  return true;
 }
 
 function assertMigrationMatches(
@@ -133,6 +165,7 @@ function assertMigrationMatches(
 ): void {
   if (
     !isMigrationMarker(marker) ||
+    marker.kind !== 'legacy-device-to-password-v2' ||
     marker.targetCustodyId !== record.custodyId ||
     marker.publicIdentity.pub !== record.publicIdentity.pub ||
     marker.publicIdentity.epub !== record.publicIdentity.epub
@@ -150,7 +183,7 @@ export class BrowserIdentityCustodyStore implements IdentityCustodyStore {
     const factory = options.factory ?? (typeof indexedDB === 'undefined' ? null : indexedDB);
     if (!factory) throw new Error('IndexedDB is required for password custody');
     this.factory = factory;
-    this.databaseName = options.databaseName ?? 'iinpublic-identity-custody-v2';
+    this.databaseName = options.databaseName ?? IDENTITY_CUSTODY_DATABASE_NAME;
   }
 
   private open(): Promise<IDBDatabase> {
@@ -222,8 +255,21 @@ export class BrowserIdentityCustodyStore implements IdentityCustodyStore {
     try {
       const store = transaction.objectStore(CUSTODY_STORE);
       const current = (await requestResult(store.get(ACTIVE_KEY))) as StoredActiveRecord | undefined;
+      const storedMigration = (await requestResult(store.get(MIGRATION_KEY))) as
+        | StoredMigrationRecord
+        | undefined;
       if (current !== undefined && !isPasswordKeyCustodyRecordV2(current.record)) {
         throw new Error('Stored identity custody record is invalid');
+      }
+      if (storedMigration && !isMigrationMarker(storedMigration.marker)) {
+        throw new Error('Stored identity custody migration marker is invalid');
+      }
+      if (
+        storedMigration &&
+        isMigrationMarker(storedMigration.marker) &&
+        storedMigration.marker.kind === 'password-v2-to-legacy-device-v1'
+      ) {
+        throw new IdentityCustodyConflictError();
       }
       const currentCustodyId = current?.record.custodyId ?? null;
       if (currentCustodyId !== expectedCustodyId) throw new IdentityCustodyConflictError();
@@ -247,10 +293,119 @@ export class BrowserIdentityCustodyStore implements IdentityCustodyStore {
     try {
       const store = transaction.objectStore(CUSTODY_STORE);
       const current = (await requestResult(store.get(ACTIVE_KEY))) as StoredActiveRecord | undefined;
+      const storedMigration = (await requestResult(store.get(MIGRATION_KEY))) as
+        | StoredMigrationRecord
+        | undefined;
       if (!current || !isPasswordKeyCustodyRecordV2(current.record)) {
         throw new IdentityCustodyConflictError();
       }
-      if (current.record.custodyId !== expectedCustodyId) throw new IdentityCustodyConflictError();
+      if (
+        current.record.custodyId !== expectedCustodyId ||
+        !storedMigration ||
+        !isMigrationMarker(storedMigration.marker) ||
+        storedMigration.marker.kind !== 'legacy-device-to-password-v2' ||
+        storedMigration.marker.targetCustodyId !== expectedCustodyId
+      ) {
+        throw new IdentityCustodyConflictError();
+      }
+      store.delete(MIGRATION_KEY);
+      await completion;
+    } catch (error) {
+      abortTransaction(transaction);
+      await completion.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async beginPasswordRemoval(
+    expectedCustodyId: string,
+    marker: PasswordToLegacyMigrationMarker,
+  ): Promise<void> {
+    if (
+      !isMigrationMarker(marker) ||
+      marker.kind !== 'password-v2-to-legacy-device-v1' ||
+      marker.sourceCustodyId !== expectedCustodyId
+    ) {
+      throw new Error('Invalid password removal marker');
+    }
+    const database = await this.open();
+    const transaction = database.transaction(CUSTODY_STORE, 'readwrite');
+    const completion = transactionComplete(transaction);
+    try {
+      const store = transaction.objectStore(CUSTODY_STORE);
+      const current = (await requestResult(store.get(ACTIVE_KEY))) as StoredActiveRecord | undefined;
+      const existingMigration = await requestResult(store.get(MIGRATION_KEY));
+      if (
+        !current ||
+        !isPasswordKeyCustodyRecordV2(current.record) ||
+        current.record.custodyId !== expectedCustodyId ||
+        current.record.publicIdentity.pub !== marker.publicIdentity.pub ||
+        current.record.publicIdentity.epub !== marker.publicIdentity.epub ||
+        existingMigration !== undefined
+      ) {
+        throw new IdentityCustodyConflictError();
+      }
+      store.put({ key: MIGRATION_KEY, marker } satisfies StoredMigrationRecord);
+      await completion;
+    } catch (error) {
+      abortTransaction(transaction);
+      await completion.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async completePasswordRemoval(expectedCustodyId: string): Promise<void> {
+    const database = await this.open();
+    const transaction = database.transaction(CUSTODY_STORE, 'readwrite');
+    const completion = transactionComplete(transaction);
+    try {
+      const store = transaction.objectStore(CUSTODY_STORE);
+      const current = (await requestResult(store.get(ACTIVE_KEY))) as StoredActiveRecord | undefined;
+      const storedMigration = (await requestResult(store.get(MIGRATION_KEY))) as
+        | StoredMigrationRecord
+        | undefined;
+      if (
+        !current ||
+        !isPasswordKeyCustodyRecordV2(current.record) ||
+        current.record.custodyId !== expectedCustodyId ||
+        !storedMigration ||
+        !isMigrationMarker(storedMigration.marker) ||
+        storedMigration.marker.kind !== 'password-v2-to-legacy-device-v1' ||
+        storedMigration.marker.sourceCustodyId !== expectedCustodyId
+      ) {
+        throw new IdentityCustodyConflictError();
+      }
+      store.delete(ACTIVE_KEY);
+      store.delete(MIGRATION_KEY);
+      await completion;
+    } catch (error) {
+      abortTransaction(transaction);
+      await completion.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async cancelPasswordRemoval(expectedCustodyId: string): Promise<void> {
+    const database = await this.open();
+    const transaction = database.transaction(CUSTODY_STORE, 'readwrite');
+    const completion = transactionComplete(transaction);
+    try {
+      const store = transaction.objectStore(CUSTODY_STORE);
+      const current = (await requestResult(store.get(ACTIVE_KEY))) as StoredActiveRecord | undefined;
+      const storedMigration = (await requestResult(store.get(MIGRATION_KEY))) as
+        | StoredMigrationRecord
+        | undefined;
+      if (
+        !current ||
+        !isPasswordKeyCustodyRecordV2(current.record) ||
+        current.record.custodyId !== expectedCustodyId ||
+        !storedMigration ||
+        !isMigrationMarker(storedMigration.marker) ||
+        storedMigration.marker.kind !== 'password-v2-to-legacy-device-v1' ||
+        storedMigration.marker.sourceCustodyId !== expectedCustodyId
+      ) {
+        throw new IdentityCustodyConflictError();
+      }
       store.delete(MIGRATION_KEY);
       await completion;
     } catch (error) {

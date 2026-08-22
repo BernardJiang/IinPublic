@@ -21,6 +21,11 @@ import { avatarInnerHtml } from './profile-avatar';
 import { formatIdentityFingerprint, type LocalDeviceMetadata } from '../services/local-device-metadata';
 import { activateModalAccessibility } from './modal-accessibility';
 import { isQrCameraScanSupported, renderLinkCodeQr, startQrCameraScan } from './link-code-qr';
+import {
+  showChangeIdentityPasswordDialog,
+  showRemoveIdentityPasswordDialog,
+  showSetIdentityPasswordDialog,
+} from './identity-password-dialog';
 
 export interface LinkedDeviceRow {
   pub: string;
@@ -55,6 +60,12 @@ export interface LinkedDevicesDeps {
   device: () => LocalDeviceMetadata;
   /** Current app version/build label. */
   appVersion: string;
+  /** Local password protection state for this unlocked session. */
+  protection?: () => { state: 'not-set' | 'set' };
+  setIdentityPassword?: (password: string) => Promise<void>;
+  changeIdentityPassword?: (currentPassword: string, newPassword: string) => Promise<void>;
+  removeIdentityPassword?: (currentPassword: string) => Promise<void>;
+  lockIdentityNow?: () => Promise<void>;
   /** Persist a new local-only display name for this installation. */
   renameDevice: (name: string) => LocalDeviceMetadata;
   /** A fresh unguessable secret (SEA-backed when available). */
@@ -138,6 +149,7 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
   const render = (): void => {
     const identity = deps.identity;
     const device = deps.device();
+    const protection = deps.protection?.() ?? { state: 'not-set' as const };
     const identityFingerprint = formatIdentityFingerprint(identity.pub);
     const identityStatus = identity.status === 'locked'
       ? deps.text('identityStatusLocked', 'Locked')
@@ -169,9 +181,19 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
           </section>
           <section data-testid="identity-protection-card" style="padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
             <h3 style="margin:0 0 8px;font-size:1em;">${deps.text('identityProtectionTitle', 'Identity protection')}</h3>
-            <div style="font-weight:700;">${deps.text('identityPasswordNotSet', 'Identity password: Not set')}</div>
-            <div style="font-size:0.82em;color:var(--text-tertiary);margin-top:3px;">${deps.text('identityOpensAutomatically', 'IinPublic opens automatically on this device.')}</div>
-            <div style="font-size:0.78em;color:var(--text-tertiary);margin-top:6px;">${deps.text('identityPasswordPlanned', 'Optional password protection will be added after its custody design is security-reviewed.')}</div>
+            <div style="font-weight:700;">${protection.state === 'set'
+              ? deps.text('identityPasswordSet', 'Identity password: Set')
+              : deps.text('identityPasswordNotSet', 'Identity password: Not set')}</div>
+            <div style="font-size:0.82em;color:var(--text-tertiary);margin-top:3px;">${protection.state === 'set'
+              ? deps.text('identityUnlockedThisSession', 'Unlocked for this session. Reloading or locking requires the password again.')
+              : deps.text('identityOpensAutomatically', 'IinPublic opens automatically on this device.')}</div>
+            <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap;margin-top:10px;">
+              ${protection.state === 'set'
+                ? `${deps.changeIdentityPassword ? `<button type="button" class="btn" id="change-identity-password-btn" data-testid="change-identity-password-btn">${deps.text('changeIdentityPassword', 'Change identity password')}</button>` : ''}${deps.removeIdentityPassword ? `<button type="button" class="btn" id="remove-identity-password-btn" data-testid="remove-identity-password-btn">${deps.text('removeIdentityPassword', 'Remove identity password')}</button>` : ''}${deps.lockIdentityNow ? `<button type="button" class="btn" id="lock-identity-now-btn" data-testid="lock-identity-now-btn">${deps.text('lockIdentityNow', 'Lock now')}</button>` : ''}`
+                : deps.setIdentityPassword
+                  ? `<button type="button" class="btn primary-btn" id="set-identity-password-btn" data-testid="set-identity-password-btn">${deps.text('setIdentityPassword', 'Set identity password')}</button>`
+                  : ''}
+            </div>
           </section>
           <section data-testid="current-device-card" style="padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
             <h3 style="margin:0 0 8px;font-size:1em;">${deps.text('thisDeviceTitle', 'This device')}</h3>
@@ -180,7 +202,7 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
                 <div data-testid="current-device-name" style="font-weight:700;">${escapeHtml(device.name)}</div>
                 <div style="font-size:0.82em;color:var(--text-tertiary);">${escapeHtml(device.platform)} · IinPublic ${escapeHtml(deps.appVersion)}</div>
                 <div style="font-size:0.82em;color:var(--text-tertiary);">${deps.text('identityCreatedLabel', 'Identity created')} ${new Date(identity.createdAt || device.createdAt).toLocaleDateString()}</div>
-                <div style="font-size:0.82em;color:var(--text-tertiary);">${deps.text('deviceProtectionAutomatic', 'Protection: automatic')}</div>
+                <div style="font-size:0.82em;color:var(--text-tertiary);">${protection.state === 'set' ? deps.text('deviceProtectionPassword', 'Protection: identity password') : deps.text('deviceProtectionAutomatic', 'Protection: automatic')}</div>
               </div>
               <span style="font-size:0.76em;padding:3px 7px;border-radius:999px;background:var(--bg-subtle);">${deps.text('thisDeviceBadge', 'This device')}</span>
             </div>
@@ -228,6 +250,42 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
       }
     });
     overlay.querySelector('#rename-current-device')?.addEventListener('click', openRenameDeviceDialog);
+    overlay.querySelector('#set-identity-password-btn')?.addEventListener('click', async () => {
+      if (!deps.setIdentityPassword) return;
+      const changed = await showSetIdentityPasswordDialog({
+        text: deps.text,
+        onSet: deps.setIdentityPassword,
+      });
+      if (changed) {
+        render();
+        (overlay.querySelector('#change-identity-password-btn') as HTMLElement | null)?.focus();
+      }
+    });
+    overlay.querySelector('#change-identity-password-btn')?.addEventListener('click', async () => {
+      if (!deps.changeIdentityPassword) return;
+      const changed = await showChangeIdentityPasswordDialog({
+        text: deps.text,
+        onChange: deps.changeIdentityPassword,
+      });
+      if (changed) {
+        render();
+        (overlay.querySelector('#change-identity-password-btn') as HTMLElement | null)?.focus();
+      }
+    });
+    overlay.querySelector('#remove-identity-password-btn')?.addEventListener('click', async () => {
+      if (!deps.removeIdentityPassword) return;
+      const changed = await showRemoveIdentityPasswordDialog({
+        text: deps.text,
+        onRemove: deps.removeIdentityPassword,
+      });
+      if (changed) {
+        render();
+        (overlay.querySelector('#set-identity-password-btn') as HTMLElement | null)?.focus();
+      }
+    });
+    overlay.querySelector('#lock-identity-now-btn')?.addEventListener('click', async () => {
+      await deps.lockIdentityNow?.();
+    });
     overlay.querySelectorAll('.linked-device-unlink-btn').forEach((btn) => {
       btn.addEventListener('click', () => openUnlinkConfirm((btn as HTMLElement).dataset.pub || ''));
     });

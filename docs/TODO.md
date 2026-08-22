@@ -40,10 +40,14 @@ checkpoint/prune offsets remain correct after the retained wire list loses its p
 - [x] Start the **Identity & devices** Settings shell with identity fingerprint/status, local
   protection status, renameable privacy-minimized installation metadata, and linked identities.
 - [x] Review and approve `docs/security/local-identity-password-custody-design.md` for staged
-  implementation. The exact scrypt profile, authenticated v2 envelope, and IndexedDB
-  compare-and-swap foundation and crash-safe set/change coordinator are implemented;
-  startup/lifecycle/remove-password/UI release conditions remain in
-  `docs/security/local-identity-password-custody-review.md`.
+      implementation. The exact scrypt profile, authenticated v2 envelope, and IndexedDB
+      compare-and-swap foundation, crash-safe set/change coordinator, startup unlock, explicit
+      lock, atomic v1 migration, and staged set/change/remove UI are implemented. Password removal
+      requires the current password and explicitly warned, verified v2-to-v1 downgrade. Native
+      lifecycle adapters/benchmarks and the remaining production release conditions are in
+      `docs/security/local-identity-password-custody-review.md`.
+- [ ] Later harden password-free custody beyond v1 with a reviewed non-extractable WebCrypto-key
+      format for supported browsers and OS Keychain/Keystore adapters for native shells.
 - [x] Wire `WebIdentityLinkService` into `app.ts`; entered codes now publish a real SEA-signed
   one-sided attestation and display **Waiting for approval** until mutual confirmation exists.
 - [x] Complete the two-installation mutual approval path with a versioned expiring code, real QR,

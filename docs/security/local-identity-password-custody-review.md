@@ -6,6 +6,12 @@ Scope: WP2 design gate for browser-local password protection of the SEA private 
 
 Verdict: **approved for staged implementation with release conditions**
 
+Amendment, 2026-08-22: password removal may return to the existing v1 automatic-unlock
+custody only after current-password verification, an explicit protection-downgrade warning,
+full-pair v1 read-back verification, and an IndexedDB-serialized transition that retains v2
+until verification succeeds. This is a deliberate return to the pre-password baseline, not a
+claim that v1 equals password protection. A stronger password-free v3 remains later hardening.
+
 ## Review outcome
 
 The proposed envelope structure, AES-256-GCM use, authenticated metadata, identity

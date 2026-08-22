@@ -7,8 +7,10 @@ import type { User } from '../../shared/types';
 import {
   KEY_RECOVERY_WARNINGS,
   toPublicSeaIdentity,
+  type DeviceKeyCustodyRecordV1,
   type KeyCustodyRecord,
   type SeaPrivateIdentityMaterial,
+  type SeaPublicIdentity,
 } from '../../shared/p2p-runtime';
 import {
   migrateRecord,
@@ -16,6 +18,13 @@ import {
   type VersionedRecord,
 } from '../../shared/p2p-schema-migrations';
 import { assertTechSupportDmPair } from '../../shared/techsupport';
+import {
+  BrowserIdentityCustodyStore,
+} from './identity-custody-store';
+import {
+  IdentityPasswordCustodyManager,
+  type IdentityPasswordProtectionStatus,
+} from './identity-password-custody-manager';
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
 export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
@@ -116,6 +125,13 @@ export function deriveGunHubUrlFromLocation(protocol: string, hostname: string, 
 export const KEY_CUSTODY_DEVICE_SECRET_STORAGE = 'iinpublic_key_custody_device_secret_v1';
 const KEY_CUSTODY_ITERATIONS = 150_000;
 
+export class IdentityPasswordRequiredError extends Error {
+  constructor(public readonly publicIdentity: SeaPublicIdentity) {
+    super('Identity password is required');
+    this.name = 'IdentityPasswordRequiredError';
+  }
+}
+
 /**
  * WebGunService — dual-mode Gun service.
  *
@@ -137,6 +153,7 @@ export class WebGunService extends EventEmitter {
   private seaPair: GunPair | null = null;
   /** Serialize authenticated private-namespace writes; GUN/SEA can reject overlapping signs. */
   private privateWriteQueue: Promise<void> = Promise.resolve();
+  private identityPasswordManager: IdentityPasswordCustodyManager | null = null;
 
   constructor() {
     super();
@@ -153,6 +170,81 @@ export class WebGunService extends EventEmitter {
     const { hostname, port } = window.location;
     const webPort = Number(port);
     return isLocalHost(hostname) && Number.isFinite(webPort) && webPort > 0 && !isDevE2EWebPort(webPort);
+  }
+
+  private getIdentityPasswordManager(): IdentityPasswordCustodyManager | null {
+    if (typeof indexedDB === 'undefined') return null;
+    if (this.identityPasswordManager) return this.identityPasswordManager;
+    const store = new BrowserIdentityCustodyStore();
+    this.identityPasswordManager = new IdentityPasswordCustodyManager(store, {
+      assertMatches: async (expected) => {
+        const record = this.readCustodyRecord();
+        if (!record || record.version !== 1) throw new Error('Password-free identity custody is unavailable');
+        const pair = await this.unwrapKeypairFromStorage(record);
+        if (!pair) throw new Error('Password-free identity custody could not be verified');
+        const actual = toPublicSeaIdentity(pair as SeaPrivateIdentityMaterial);
+        if (actual.pub !== expected.pub || actual.epub !== expected.epub) {
+          throw new Error('Password-free identity custody does not match the active identity');
+        }
+      },
+      removeIfMatches: async (expected) => {
+        const record = this.readCustodyRecord();
+        if (!record) return;
+        if (
+          record.version !== 1 ||
+          record.publicIdentity.pub !== expected.pub ||
+          record.publicIdentity.epub !== expected.epub
+        ) {
+          throw new Error('Refusing to remove custody for a different identity');
+        }
+        const pair = await this.unwrapKeypairFromStorage(record);
+        if (pair) {
+          const actual = toPublicSeaIdentity(pair as SeaPrivateIdentityMaterial);
+          if (actual.pub !== expected.pub || actual.epub !== expected.epub) {
+            throw new Error('Refusing to remove custody for a different identity');
+          }
+        }
+        localStorage.removeItem(KEY_CUSTODY_STORAGE);
+        localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
+        localStorage.removeItem(KEYPAIR_STORAGE);
+      },
+      writeAndVerify: async (expectedPair) => {
+        localStorage.removeItem(KEY_CUSTODY_STORAGE);
+        localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
+        localStorage.removeItem(KEYPAIR_STORAGE);
+        await this.persistCustodyRecord(expectedPair as GunPair);
+        const committed = this.readCustodyRecord();
+        const actualPair = committed ? await this.unwrapKeypairFromStorage(committed) : null;
+        if (
+          !actualPair ||
+          actualPair.pub !== expectedPair.pub ||
+          actualPair.epub !== expectedPair.epub ||
+          actualPair.priv !== expectedPair.priv ||
+          actualPair.epriv !== expectedPair.epriv
+        ) {
+          throw new Error('Password-free identity custody mismatch');
+        }
+      },
+      assertPairMatches: async (expectedPair) => {
+        const record = this.readCustodyRecord();
+        const actualPair = record ? await this.unwrapKeypairFromStorage(record) : null;
+        if (
+          !actualPair ||
+          actualPair.pub !== expectedPair.pub ||
+          actualPair.epub !== expectedPair.epub ||
+          actualPair.priv !== expectedPair.priv ||
+          actualPair.epriv !== expectedPair.epriv
+        ) {
+          throw new Error('Password-free identity custody mismatch');
+        }
+      },
+      clear: async () => {
+        localStorage.removeItem(KEY_CUSTODY_STORAGE);
+        localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
+        localStorage.removeItem(KEYPAIR_STORAGE);
+      },
+    });
+    return this.identityPasswordManager;
   }
 
   /**
@@ -355,7 +447,10 @@ export class WebGunService extends EventEmitter {
     );
   }
 
-  private async wrapKeypairForStorage(pair: GunPair, existing?: KeyCustodyRecord | null): Promise<KeyCustodyRecord> {
+  private async wrapKeypairForStorage(
+    pair: GunPair,
+    existing?: KeyCustodyRecord | null,
+  ): Promise<DeviceKeyCustodyRecordV1> {
     const crypto = this.getBrowserCrypto();
     if (!crypto) {
       throw new Error('WebCrypto is required for encrypted SEA key custody');
@@ -698,6 +793,112 @@ export class WebGunService extends EventEmitter {
     return this.connected;
   }
 
+  async getIdentityPasswordProtectionStatus(): Promise<IdentityPasswordProtectionStatus> {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(TECHSUPPORT_KEYPAIR_STORAGE)) {
+      return { state: 'not-set' };
+    }
+    const manager = this.getIdentityPasswordManager();
+    return manager ? manager.getStatus() : { state: 'not-set' };
+  }
+
+  async setIdentityPassword(password: string): Promise<void> {
+    const pair = this.seaPair;
+    if (!pair) throw new Error('Identity must be unlocked before setting a password');
+    const manager = this.getIdentityPasswordManager();
+    if (!manager) throw new Error('Password protection is unavailable on this platform');
+    await manager.setPassword(pair as SeaPrivateIdentityMaterial, password);
+  }
+
+  async changeIdentityPassword(currentPassword: string, newPassword: string): Promise<void> {
+    if (!this.seaPair) throw new Error('Identity must be unlocked before changing its password');
+    const manager = this.getIdentityPasswordManager();
+    if (!manager) throw new Error('Password protection is unavailable on this platform');
+    const record = await manager.changePassword(currentPassword, newPassword);
+    const current = this.seaPair;
+    if (
+      !current ||
+      record.publicIdentity.pub !== current.pub ||
+      record.publicIdentity.epub !== current.epub
+    ) {
+      throw new Error('Password change returned a different identity');
+    }
+  }
+
+  async removeIdentityPassword(currentPassword: string): Promise<void> {
+    const current = this.seaPair;
+    if (!current) throw new Error('Identity must be unlocked before removing its password');
+    const manager = this.getIdentityPasswordManager();
+    if (!manager) throw new Error('Password protection is unavailable on this platform');
+    const pair = await manager.removePassword(currentPassword);
+    if (
+      pair.pub !== current.pub ||
+      pair.epub !== current.epub ||
+      pair.priv !== current.priv ||
+      pair.epriv !== current.epriv
+    ) {
+      throw new Error('Password removal returned a different identity');
+    }
+  }
+
+  async unlockIdentity(password: string): Promise<GunPair> {
+    const manager = this.getIdentityPasswordManager();
+    if (!manager) throw new Error('Password protection is unavailable on this platform');
+    const pair = await manager.unlock(password);
+    await this.authenticatePair(pair);
+    return pair;
+  }
+
+  async lockIdentityNow(): Promise<void> {
+    this.seaPair = null;
+    this.privateWriteQueue = Promise.resolve();
+    try {
+      this.gun?.user?.().leave?.();
+    } catch {
+      // The in-memory pair is already gone; Gun logout is best effort.
+    }
+    if (this.bridgeReady) {
+      await this.bridge.logout().catch(() => undefined);
+    }
+  }
+
+  private async authenticatePair(pair: GunPair): Promise<void> {
+    if (this.isEmbeddedLocalOrigin()) {
+      console.warn('⚠️ Skipping blocking Gun user auth during embedded-node startup; using local SEA pair');
+    } else {
+      const gun = this.gun;
+      console.log('🔐 Authenticating local SEA identity');
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          if (error) reject(error);
+          else resolve();
+        };
+        const timeout = setTimeout(() => {
+          console.warn('⚠️ Gun SEA auth ack timed out — continuing with in-memory SEA pair');
+          finish();
+        }, 5000);
+        gun.user().auth(pair, (ack: any) => {
+          if (ack && ack.err) finish(new Error(String(ack.err)));
+          else finish();
+        });
+      });
+    }
+
+    if (this.bridgeReady) {
+      try {
+        await this.bridge.login(pair);
+      } catch (error) {
+        console.warn('⚠️ Gun worker bridge login unavailable — private SEA helpers disabled:', error);
+      }
+    } else {
+      console.warn('⚠️ Skipping Gun worker bridge login because worker bridge is unavailable');
+    }
+    this.seaPair = pair;
+  }
+
   /**
    * Load or create a SEA keypair, persist as an encrypted custody record, and `gun.user().auth(pair)`.
    * Call after `initialize()`.
@@ -747,9 +948,14 @@ export class WebGunService extends EventEmitter {
     }
     let pair: GunPair;
     const custodyPair = existingCustody ? await this.unwrapKeypairFromStorage(existingCustody) : null;
+    const passwordStatus = techSupportPair
+      ? { state: 'not-set' as const }
+      : await this.getIdentityPasswordProtectionStatus();
     if (techSupportPair) {
       pair = techSupportPair;
       console.log('🔐 Loaded canonical TechSupport DM identity (K3 TechSupport-mode boot)');
+    } else if (passwordStatus.state === 'locked') {
+      throw new IdentityPasswordRequiredError(passwordStatus.publicIdentity);
     } else if (custodyPair) {
       pair = custodyPair;
       console.log('🔐 Loaded SEA identity from encrypted custody');
@@ -784,45 +990,7 @@ export class WebGunService extends EventEmitter {
       }
     }
 
-    if (this.isEmbeddedLocalOrigin()) {
-      console.warn('⚠️ Skipping blocking Gun user auth during embedded-node startup; using local SEA pair');
-    } else {
-      const gun = this.gun;
-      console.log('🔐 Authenticating local SEA identity');
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const finish = (error?: Error) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeout);
-          if (error) reject(error);
-          else resolve();
-        };
-        const timeout = setTimeout(() => {
-          console.warn('⚠️ Gun SEA auth ack timed out — continuing with in-memory SEA pair');
-          finish();
-        }, 5000);
-        gun.user().auth(pair, (ack: any) => {
-          if (ack && ack.err) {
-            finish(new Error(String(ack.err)));
-          } else {
-            finish();
-          }
-        });
-      });
-    }
-
-    if (this.bridgeReady) {
-      try {
-        await this.bridge.login(pair);
-      } catch (error) {
-        console.warn('⚠️ Gun worker bridge login unavailable — private SEA helpers disabled:', error);
-      }
-    } else {
-      console.warn('⚠️ Skipping Gun worker bridge login because worker bridge is unavailable');
-    }
-
-    this.seaPair = pair;
+    await this.authenticatePair(pair);
     // Diagnostic (2026-08-09 real-device investigation): confirm what ensureKeypairAndAuth
     // actually finalized — compare against the heartbeat's own [heartbeat-diag] log to see
     // whether the pair genuinely lacks epub/pub at this point, or getStoredPair() is somehow

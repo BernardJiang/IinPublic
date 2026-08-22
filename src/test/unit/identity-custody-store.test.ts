@@ -131,4 +131,50 @@ describe('BrowserIdentityCustodyStore', () => {
     await expect(store.readActive()).resolves.toBeNull();
     await store.close();
   });
+
+  test('serializes password removal and deletes v2 only with its matching marker', async () => {
+    const [firstTab, secondTab] = stores();
+    const active = record('AQIDBAUGBwgJCgsMDQ4PEA');
+    await firstTab.replaceActive(null, active);
+    const removal = {
+      version: 1 as const,
+      kind: 'password-v2-to-legacy-device-v1' as const,
+      sourceCustodyId: active.custodyId,
+      publicIdentity: active.publicIdentity,
+      createdAt: '2026-08-22T12:00:00.000Z',
+    };
+
+    await firstTab.beginPasswordRemoval(active.custodyId, removal);
+    await expect(secondTab.beginPasswordRemoval(active.custodyId, removal)).rejects.toBeInstanceOf(
+      IdentityCustodyConflictError,
+    );
+    await expect(secondTab.replaceActive(active.custodyId, record('ERITFBUWFxgZGhscHR4fIA'))).rejects
+      .toBeInstanceOf(IdentityCustodyConflictError);
+    await expect(firstTab.completePasswordRemoval('wrong-custody-id')).rejects.toBeInstanceOf(
+      IdentityCustodyConflictError,
+    );
+    await firstTab.completePasswordRemoval(active.custodyId);
+    await expect(firstTab.readActive()).resolves.toBeNull();
+    await expect(firstTab.readMigration()).resolves.toBeNull();
+    await firstTab.close();
+    await secondTab.close();
+  });
+
+  test('can cancel a matching password-removal marker without deleting v2', async () => {
+    const [store] = stores();
+    const active = record('AQIDBAUGBwgJCgsMDQ4PEA');
+    await store.replaceActive(null, active);
+    await store.beginPasswordRemoval(active.custodyId, {
+      version: 1,
+      kind: 'password-v2-to-legacy-device-v1',
+      sourceCustodyId: active.custodyId,
+      publicIdentity: active.publicIdentity,
+      createdAt: '2026-08-22T12:00:00.000Z',
+    });
+
+    await store.cancelPasswordRemoval(active.custodyId);
+    await expect(store.readActive()).resolves.toEqual(active);
+    await expect(store.readMigration()).resolves.toBeNull();
+    await store.close();
+  });
 });

@@ -2,9 +2,12 @@
 
 **Status:** implementation started 2026-08-21. WP0 semantics are accepted in
 `docs/architecture/identity-v1-semantics.md`; WP1, WP3, and WP4 are complete. WP2 passed its staged
-security-design gate on 2026-08-22 and its reviewed KDF, authenticated-envelope, transactional
-storage, and crash-safe set/change coordinator are implemented; production lifecycle integration,
-remove-password, and GUI work remain. Native/app
+security-design gate on 2026-08-22. Its reviewed KDF, authenticated envelope, transactional
+storage, atomic legacy migration, startup unlock, explicit lock, and set/change GUI are implemented
+behind the staged non-production release boundary. The initial lifecycle policy is now explicit;
+password removal now returns to v1 with an explicit downgrade warning and verified transactional
+handoff. Native lifecycle adapters/benchmarks and the remaining security release matrix remain.
+Native/app
 distribution extensions and WP5 onward remain. The architectural sections below describe the
 long-term direction; the final section, **Actionable Implementation Plan**, defines the
 dependency-ordered delivery plan.
@@ -1287,15 +1290,15 @@ remains automatic and local.
 
 An optional password is only a **local identity lock**:
 
-- [ ] It encrypts/protects the private identity material on this installation.
-- [ ] It is never a server login and is never sent to IinPublic, GUN peers, analytics, logs, or crash
+- [x] It encrypts/protects the private identity material on this installation.
+- [x] It is never a server login and is never sent to IinPublic, GUN peers, analytics, logs, or crash
       reports.
-- [ ] IinPublic stores neither the password nor a server-side reset secret.
+- [x] IinPublic stores neither the password nor a server-side reset secret.
 - [ ] Each installation has its own password setting; linking devices does not synchronize it.
 - [ ] A linked device cannot reveal or reset another device's password.
-- [ ] Setting, changing, or removing the password must not change the SEA public identity.
-- [ ] Changing or removing protection requires the current password.
-- [ ] A forgotten password has no reset flow. The only local fallback is to erase this installation
+- [x] Setting, changing, or removing the password must not change the SEA public identity.
+- [x] Changing or removing protection requires the current password.
+- [x] A forgotten password has no reset flow. The only local fallback is to erase this installation
       and create a new identity.
 - [ ] Recovery is not implied by a linked device, an email address, a stage name, or the public SEA
       key.
@@ -1804,21 +1807,35 @@ Likely implementation ownership:
 - [x] Choose a memory-hard password KDF where platform support and reviewed dependencies permit;
       otherwise document and benchmark the approved fallback and parameters.
 - [x] Define a versioned authenticated-encryption envelope and bind metadata as authenticated data.
-- [ ] Migrate from transparent device-secret custody to password custody atomically: decrypt old,
-      write and verify new, then remove old. Roll back safely on any failure. The isolated
-      coordinator and interruption recovery are implemented and unit-tested; startup/service
-      integration remains before this item can be marked complete.
-- [ ] Never persist the plaintext password or decrypted SEA private pair.
+- [x] Migrate from transparent device-secret custody to password custody atomically: decrypt old,
+      write and verify new, then remove old. Roll back safely on any failure. Coordinator recovery,
+      production-service integration, and a real-browser migration/reload proof are complete.
+- [x] Never persist the plaintext password or decrypted SEA private pair.
 - [ ] Keep decrypted private material in memory only while unlocked and clear references on lock,
-      logout-equivalent lifecycle events, or process exit as far as the runtime permits.
-- [ ] Add set, unlock, lock-now, change, and remove-password flows with the exact warning in B3.
-- [ ] Require the current password for change/removal.
-- [ ] Specify mobile background, desktop minimize/quit, browser refresh, and idle-lock behavior.
-- [ ] Ensure failed attempts never corrupt or erase the custody record.
-      Wrong-current-password and interrupted legacy-cleanup paths are covered at the coordinator
-      layer; service/UI failure injection remains.
+      logout-equivalent lifecycle events, or process exit as far as the runtime permits. Reload,
+      unload/process exit, and explicit lock are implemented. The initial policy deliberately does
+      not claim background, minimize, or idle locking; native cleanup adapters remain.
+- [x] Add set, unlock, lock-now, change, and remove-password flows with the exact warning in B3.
+      Removal includes a separate explicit warning that returning to v1 automatic custody lowers
+      local protection.
+- [x] Require the current password for change/removal.
+- [x] Specify mobile background, desktop minimize/quit, browser refresh, and idle-lock behavior.
+      The initial contract locks at unload/quit/reload and explicit lock boundaries, but not on
+      background, minimize, or idle signals until platform interruption tests exist.
+- [ ] Ensure failed attempts never corrupt or erase the custody record. Wrong unlock/change,
+      interrupted legacy cleanup, and record conflicts are covered. The real UI/service path now
+      proves a wrong current password leaves custody usable; committed-record read-back failures
+      during set/change also prove legacy preservation and v2 rollback. The remaining platform
+      fault matrix remains. Removal additionally covers wrong-password,
+      incomplete-candidate rollback, verified interruption recovery, and concurrent-tab exclusion.
 - [ ] Verify that public identity, Talks, reputation, and links remain unchanged after every custody
-      migration.
+      migration. Set/change preserve the SEA public key byte-for-byte in real-browser coverage;
+      removal now preserves it through a password-free reload. The broader Talks/reputation/links
+      application-state matrix remains.
+
+- [ ] Later replace the browser v1 password-removal target with a reviewed password-free v3 using
+      a non-extractable WebCrypto key where reliable and OS Keychain/Keystore custody in native
+      shells. Preserve the same warning semantics, identity, and transactional rollback guarantees.
 
 **Done when:** fresh installs still open without a password; protected installs require the correct
 password after a defined lock boundary; no reset mechanism exists; and setting/changing/removing a
@@ -2038,15 +2055,15 @@ auditable; and compromise of ordinary TechSupport messaging cannot take over an 
 
 ### Password protection
 
-- [ ] Set-password warning and acknowledgement are mandatory.
-- [ ] Correct password unlocks; incorrect password does not.
-- [ ] Restart at the defined lock boundary requires the password.
-- [ ] Change and remove require the current password.
-- [ ] Interrupted set/change/remove leaves one valid recoverable local custody record.
-- [ ] SEA public identity is unchanged across all successful operations.
+- [x] Set-password warning and acknowledgement are mandatory.
+- [x] Correct password unlocks; incorrect password does not.
+- [x] Restart at the defined lock boundary requires the password.
+- [x] Change and remove require the current password.
+- [x] Interrupted set/change/remove leaves one valid recoverable local custody record.
+- [x] SEA public identity is unchanged across all successful operations.
 - [ ] Logs, telemetry, DOM, clipboard, crash reports, and network captures contain no password or
       private key.
-- [ ] Forgotten-password help never implies that IinPublic support can reset it.
+- [x] Forgotten-password help never implies that IinPublic support can reset it.
 - [ ] Erase-and-start-over produces a different identity and does not claim recovery.
 
 ### Linking

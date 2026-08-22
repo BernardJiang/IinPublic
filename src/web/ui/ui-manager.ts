@@ -163,6 +163,7 @@ import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult 
 import { containsFinancialData } from '../../shared/financial-data-guard';
 import { CONFIG } from '../../shared/config';
 import { showLinkedDevicesDialog, type LinkedDeviceRow } from './linked-devices-dialog';
+import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { decodePairingCode, isPairingExpired, type PairingPayload } from '../../shared/identity-linking';
 import { showEraseDeviceDialog } from './erase-device-dialog';
 import { eraseDevice } from '../services/device-wipe';
@@ -4497,7 +4498,7 @@ export class UIManager extends EventEmitter {
    * service wired by the app. A one-sided attestation is shown as waiting, never as
    * a verified link.
    */
-  private openLinkedDevicesDialog(): void {
+  private async openLinkedDevicesDialog(): Promise<void> {
     const LOCAL_KEY = 'iinpublic_linked_devices';
     let graphStateResolved = false;
     const listRecords = (): LinkedDeviceRow[] => {
@@ -4536,6 +4537,9 @@ export class UIManager extends EventEmitter {
       createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
     });
     const identityPub = this.currentUser?.pub || '';
+    let protection = this.identityPasswordStatusReader
+      ? await this.identityPasswordStatusReader().catch(() => ({ state: 'not-set' as const }))
+      : { state: 'not-set' as const };
     showLinkedDevicesDialog({
       text: (key: string, fallback?: string) => {
         const value = this.t(key as any);
@@ -4551,6 +4555,25 @@ export class UIManager extends EventEmitter {
       },
       device: () => deviceMetadata,
       appVersion,
+      protection: () => ({ state: protection.state === 'locked' ? 'set' : 'not-set' }),
+      ...(this.identityPasswordSetter
+        ? { setIdentityPassword: async (password: string) => {
+          await this.identityPasswordSetter!(password);
+          protection = { state: 'locked' };
+        } }
+        : {}),
+      ...(this.identityPasswordChanger
+        ? { changeIdentityPassword: this.identityPasswordChanger }
+        : {}),
+      ...(this.identityPasswordRemover
+        ? { removeIdentityPassword: async (currentPassword: string) => {
+          await this.identityPasswordRemover!(currentPassword);
+          protection = { state: 'not-set' };
+        } }
+        : {}),
+      ...(this.identityPasswordLocker
+        ? { lockIdentityNow: this.identityPasswordLocker }
+        : {}),
       renameDevice: (name: string) => {
         deviceMetadata = renameLocalDevice(localStorage, deviceMetadata, name);
         return deviceMetadata;
@@ -4660,6 +4683,11 @@ export class UIManager extends EventEmitter {
   private identityLinkRefresher?: () => Promise<void>;
   private identityLinkCompleter?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>;
   private identityLinkUnlinker?: (pub: string) => Promise<'removed' | 'revocation-pending'>;
+  private identityPasswordStatusReader?: () => Promise<{ state: 'not-set' | 'locked' }>;
+  private identityPasswordSetter?: (password: string) => Promise<void>;
+  private identityPasswordChanger?: (currentPassword: string, newPassword: string) => Promise<void>;
+  private identityPasswordRemover?: (currentPassword: string) => Promise<void>;
+  private identityPasswordLocker?: () => Promise<void>;
   setIdentityLinkHooks(hooks: {
     createLinkCode?: (now: number) => { payload: PairingPayload; code: string };
     readIncomingRequest?: () => Promise<import('./linked-devices-dialog').IncomingLinkRequestSummary | null>;
@@ -4676,6 +4704,36 @@ export class UIManager extends EventEmitter {
     if (hooks.refreshRecords) this.identityLinkRefresher = hooks.refreshRecords;
     if (hooks.completeFromCode) this.identityLinkCompleter = hooks.completeFromCode;
     if (hooks.unlink) this.identityLinkUnlinker = hooks.unlink;
+  }
+
+  setIdentityPasswordHooks(hooks: {
+    getStatus: () => Promise<{ state: 'not-set' | 'locked' }>;
+    setPassword?: (password: string) => Promise<void>;
+    changePassword?: (currentPassword: string, newPassword: string) => Promise<void>;
+    removePassword?: (currentPassword: string) => Promise<void>;
+    lockNow?: () => Promise<void>;
+  }): void {
+    this.identityPasswordStatusReader = hooks.getStatus;
+    if (hooks.setPassword) this.identityPasswordSetter = hooks.setPassword;
+    if (hooks.changePassword) this.identityPasswordChanger = hooks.changePassword;
+    if (hooks.removePassword) this.identityPasswordRemover = hooks.removePassword;
+    if (hooks.lockNow) this.identityPasswordLocker = hooks.lockNow;
+  }
+
+  showIdentityUnlock(
+    publicIdentity: string,
+    onUnlock: (password: string) => Promise<void>,
+    onErase: () => Promise<void> | void,
+  ): Promise<void> {
+    return openIdentityUnlockDialog({
+      text: (key: string, fallback?: string) => {
+        const value = this.t(key as any);
+        return value && value !== key ? value : (fallback ?? key);
+      },
+      publicIdentity,
+      onUnlock,
+      onErase,
+    });
   }
 
   private bindSettingsControls(): void {
@@ -4827,7 +4885,9 @@ export class UIManager extends EventEmitter {
     });
     document.getElementById('settings-custom-blocked')?.addEventListener('input', sync);
     this.bindDirtyWordEditor(sync);
-    document.getElementById('settings-linked-devices-btn')?.addEventListener('click', () => this.openLinkedDevicesDialog());
+    document.getElementById('settings-linked-devices-btn')?.addEventListener('click', () => {
+      void this.openLinkedDevicesDialog();
+    });
     document.getElementById('settings-erase-device-btn')?.addEventListener('click', () => this.openEraseDeviceDialog());
     document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
       this.emit('setHomeChatroom', {
