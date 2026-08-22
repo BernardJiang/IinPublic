@@ -44,12 +44,6 @@ set -a; [ -f .env.local ] && . ./.env.local; set +a
 # workers by default (the same tuned default as test:e2e:parallel); explicit env vars
 # (PW_WORKERS, MASS_WORKERS, etc.) always win.
 #
-# Bumped 12→14 (2026-08-18): the suite is ~83% sync-wait, not compute, and every light
-# worker runs fully isolated servers on its own port pair — the old flake modes (shared-room
-# headcounts, contact replication) were CPU-contention driven and are not expected on a
-# same-count 14-core M4. Rollback per-run with PW_WORKERS=12 if flakes reappear; try 16 next
-# only after a clean 14-worker run.
-LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 14)}"
 detect_cores() {
   if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu >/dev/null 2>&1; then
     sysctl -n hw.ncpu
@@ -111,6 +105,17 @@ MESH_WORKERS="${PW_MESH_WORKERS:-$(scale_down_only 4)}"
 # PW_HEAVY_WORKERS=1 or =2 if the chatbot spec's 30s budget or the stage4 headcounts start
 # flaking again.
 HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale_down_only 4)}"
+
+# Base offset for every port band owned by this test:all invocation. Keep the relative phase
+# bands below (0/100/200/...) stable and set this per clone/machine in .env.local when another
+# checkout is already using the default ports. Example: TEST_ALL_PORT_OFFSET=1000 moves web
+# ports from 3001+ to 4001+ and Gun ports from 8080+ to 9080+.
+TEST_ALL_PORT_OFFSET="${TEST_ALL_PORT_OFFSET:-0}"
+if ! [[ "$TEST_ALL_PORT_OFFSET" =~ ^[0-9]+$ ]]; then
+  echo "[test:all] ABORT: TEST_ALL_PORT_OFFSET must be a non-negative integer (got '$TEST_ALL_PORT_OFFSET')."
+  exit 1
+fi
+TEST_ALL_PORT_OFFSET=$((10#$TEST_ALL_PORT_OFFSET))
 
 # Waves run their phases CONCURRENTLY by default (each phase on its own port band with its
 # own servers): sequential phases measured 36+ minutes wall clock on a 14-core machine while
@@ -197,12 +202,19 @@ preflight_ports() {
   local band0=$LIGHT_WORKERS
   [ "$MESH_WORKERS"  -gt "$band0" ] && band0=$MESH_WORKERS
   [ "$HEAVY_WORKERS" -gt "$band0" ] && band0=$HEAVY_WORKERS
-  local ports=() spec off n i
+  local ports=() spec relative_off off n i
   local bands=( "0:$band0" "100:$MASS_WORKERS" "200:$STAGE5_WORKERS" "300:1" "400:$HEAVY_WORKERS" )
   [ "$CROSS_BROWSER_PHASE" = "1" ] && bands+=( "500:1" )
   for spec in "${bands[@]}"; do
-    off="${spec%%:*}"; n="${spec##*:}"
-    for (( i=0; i<n; i++ )); do ports+=( $((8080+off+i)) $((3001+off+i)) ); done
+    relative_off="${spec%%:*}"; n="${spec##*:}"
+    off=$((TEST_ALL_PORT_OFFSET + relative_off))
+    for (( i=0; i<n; i++ )); do
+      if (( 8080 + off + i > 65535 )); then
+        echo "[test:all] ABORT: TEST_ALL_PORT_OFFSET=$TEST_ALL_PORT_OFFSET produces a port above 65535."
+        exit 1
+      fi
+      ports+=( $((8080+off+i)) $((3001+off+i)) )
+    done
   done
   local listeners busy=""
   listeners="$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null || true)"
@@ -227,6 +239,7 @@ preflight_ports
 LOG_DIR="$(mktemp -d)"
 echo "[test:all] run id: $E2E_RUN_ID"
 echo "[test:all] phase logs: $LOG_DIR"
+echo "[test:all] base port offset: $TEST_ALL_PORT_OFFSET"
 echo "[test:all] detected cores: $CORES (defaults scale from a 10-core tuning baseline; concurrent waves=$CONCURRENT_WAVES)"
 echo "[test:all] workers: light=$LIGHT_WORKERS mass=$MASS_WORKERS stage5=$STAGE5_WORKERS mesh=$MESH_WORKERS heavy=$HEAVY_WORKERS"
 # Old completed runs' blobs are dead weight; this run reads only $RUN_BLOB_DIR.
@@ -258,9 +271,9 @@ on_interrupt() {
 trap 'on_interrupt' INT TERM
 
 # Launch one phase in the background on its own port band. Records time + rc to $LOG_DIR.
-#   start_phase <name> <port_offset> <env-and-command...>
+#   start_phase <name> <relative_port_offset> <env-and-command...>
 start_phase() {
-  local name="$1" offset="$2"; shift 2
+  local name="$1" relative_offset="$2" offset=$((TEST_ALL_PORT_OFFSET + $2)); shift 2
   PHASE_ORDER+=("$name")
   echo "[test:all]   ▶ $name (offset $offset)"
   (

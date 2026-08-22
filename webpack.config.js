@@ -23,6 +23,7 @@ const devTlsEnabled =
 // bundle reused for a dev build).
 const BUNDLED_ENV_KEYS = [
   'DISABLE_HMR',
+  'TEST_ALL_PORT_OFFSET',
   'CHATROOM_MAX_CAPACITY',
   'CHATROOM_ENABLE_FIFO',
   'IINPUBLIC_STAGE_SEED',
@@ -118,6 +119,9 @@ module.exports = {
       ? [
           new webpack.DefinePlugin({
             'process.env.DISABLE_HMR': JSON.stringify('true'),
+            'process.env.TEST_ALL_PORT_OFFSET': JSON.stringify(
+              process.env.TEST_ALL_PORT_OFFSET || '',
+            ),
             'process.env.CHATROOM_MAX_CAPACITY': JSON.stringify(
               process.env.CHATROOM_MAX_CAPACITY || '50',
             ),
@@ -180,6 +184,7 @@ module.exports = {
             // Web client reads this in web-gun-service (AXE off for e2e only). Must be defined here
             // so the bundle does not reference bare `process` in the browser (webpack 5).
             DISABLE_HMR: process.env.DISABLE_HMR || 'false',
+            TEST_ALL_PORT_OFFSET: process.env.TEST_ALL_PORT_OFFSET || '',
             IINPUBLIC_STAGE_SEED: process.env.IINPUBLIC_STAGE_SEED || '',
             IINPUBLIC_STAGE_ZERO_MAX_GLOBAL: process.env.IINPUBLIC_STAGE_ZERO_MAX_GLOBAL || '',
             IINPUBLIC_PRESENCE_TTL_SECONDS: process.env.IINPUBLIC_PRESENCE_TTL_SECONDS || '',

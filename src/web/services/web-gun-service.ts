@@ -51,25 +51,28 @@ export const TECHSUPPORT_KEYPAIR_STORAGE = 'iinpublic_techsupport_keypair_v1';
  * chosen port outside that band) fall outside it.
  *
  * The band's upper bound MUST cover `scripts/run-test-all.sh`'s concurrent-wave port
- * scheme: web = 3001 + E2E_PORT_OFFSET + workerIndex, where E2E_PORT_OFFSET is 0/100/200/300
- * across phases (see tests/e2e/helpers/ports.ts) and workerIndex can itself run past 20 on a
- * many-core machine — so real e2e web ports legitimately reach ~3300+. An earlier, tighter
- * bound (3001-3100) cut that off mid-band: every phase using offset >=100 (mass, stage5,
- * find-similar, mesh-isolated) got routed into the same-origin branch below and silently
- * pointed at a Gun endpoint that doesn't exist on that port (web and Gun are always separate
- * processes/ports in dev/e2e — see playwright.config.ts webServers — never same-origin there),
- * which broke cross-page sync outright rather than just slowing it down. 4001 leaves ~10x
- * headroom over current usage while still excluding realistic embedded-node ports.
+ * scheme: web = 3001 + TEST_ALL_PORT_OFFSET + relativePhaseOffset + workerIndex. The runner
+ * reserves 1000 ports for its relative phase bands and workers, and TEST_ALL_PORT_OFFSET lets
+ * separate checkouts move that whole reservation without changing code. An earlier fixed
+ * bound cut off shifted phases and silently routed them into the same-origin branch below,
+ * pointing API/Gun requests at the static web server instead of the paired Gun server.
  */
 const DEV_E2E_WEB_PORT_RANGE_START = 3001;
-const DEV_E2E_WEB_PORT_RANGE_END = DEV_E2E_WEB_PORT_RANGE_START + 1000;
+const DEV_E2E_WEB_PORT_RANGE_SIZE = 1000;
 const DEV_E2E_GUN_PORT_RANGE_START = 8080;
 
+function configuredTestAllPortOffset(): number {
+  const offset = Number(process.env.TEST_ALL_PORT_OFFSET);
+  return Number.isFinite(offset) && offset >= 0 ? Math.floor(offset) : 0;
+}
+
 function isDevE2EWebPort(webPort: number): boolean {
+  const rangeEnd =
+    DEV_E2E_WEB_PORT_RANGE_START + configuredTestAllPortOffset() + DEV_E2E_WEB_PORT_RANGE_SIZE;
   return (
     Number.isFinite(webPort) &&
     webPort >= DEV_E2E_WEB_PORT_RANGE_START &&
-    webPort < DEV_E2E_WEB_PORT_RANGE_END
+    webPort < rangeEnd
   );
 }
 

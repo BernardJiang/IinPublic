@@ -4,6 +4,13 @@ import {
 } from '../../web/services/web-gun-service';
 
 describe('deriveGunHubUrlFromLocation', () => {
+  const originalTestAllPortOffset = process.env.TEST_ALL_PORT_OFFSET;
+
+  afterEach(() => {
+    if (originalTestAllPortOffset === undefined) delete process.env.TEST_ALL_PORT_OFFSET;
+    else process.env.TEST_ALL_PORT_OFFSET = originalTestAllPortOffset;
+  });
+
   it('applies the dev/e2e offset for web port 3001 (slot 0)', () => {
     expect(deriveGunHubUrlFromLocation('http:', '127.0.0.1', '3001')).toBe('http://127.0.0.1:8080/gun');
   });
@@ -52,6 +59,13 @@ describe('deriveGunHubUrlFromLocation', () => {
 
   it('applies the dev/e2e offset for find-similar phase ports (E2E_PORT_OFFSET=300)', () => {
     expect(deriveGunHubUrlFromLocation('http:', '127.0.0.1', '3301')).toBe('http://127.0.0.1:8380/gun');
+  });
+
+  it('moves the whole dev/e2e port range with TEST_ALL_PORT_OFFSET', () => {
+    process.env.TEST_ALL_PORT_OFFSET = '1000';
+    expect(deriveGunHubUrlFromLocation('http:', '127.0.0.1', '4001')).toBe('http://127.0.0.1:9080/gun');
+    expect(deriveGunHubUrlFromLocation('http:', '127.0.0.1', '4501')).toBe('http://127.0.0.1:9580/gun');
+    expect(deriveBackendApiBaseFromLocation('http:', '127.0.0.1', '4401')).toBe('http://127.0.0.1:9480');
   });
 
   it('falls back to :8080 for localhost with no port', () => {
