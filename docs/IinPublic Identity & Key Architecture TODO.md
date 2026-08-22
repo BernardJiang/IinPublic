@@ -1,11 +1,13 @@
 # IinPublic Identity & Key Architecture TODO
 
 **Status:** implementation started 2026-08-21. WP0 semantics are accepted in
-`docs/architecture/identity-v1-semantics.md`; WP1 is complete, WP2 is at its required security
-design gate, and WP3's browser-to-browser mutual-link protocol is implemented while native/app
-distribution extensions remain. WP4 signed revocation, durable offline retry, and lost-device
-convergence are in progress. The architectural sections below describe the long-term direction; the
-final section, **Actionable Implementation Plan**, defines the dependency-ordered delivery plan.
+`docs/architecture/identity-v1-semantics.md`; WP1, WP3, and WP4 are complete. WP2 passed its staged
+security-design gate on 2026-08-22 and its reviewed KDF, authenticated-envelope, transactional
+storage, and crash-safe set/change coordinator are implemented; production lifecycle integration,
+remove-password, and GUI work remain. Native/app
+distribution extensions and WP5 onward remain. The architectural sections below describe the
+long-term direction; the final section, **Actionable Implementation Plan**, defines the
+dependency-ordered delivery plan.
 
 ## Goal
 
@@ -1796,14 +1798,16 @@ Likely implementation ownership:
 - `src/shared/p2p-runtime.ts` — new custody-format types and invariants.
 - New focused Settings/unlock UI modules instead of adding more logic to `ui-manager.ts`.
 
-- [ ] Write a short cryptographic design note and obtain security review before implementation.
-      The proposed note is `docs/security/local-identity-password-custody-design.md`; review is
-      still required, so custody implementation remains gated.
-- [ ] Choose a memory-hard password KDF where platform support and reviewed dependencies permit;
+- [x] Write a short cryptographic design note and obtain security review before implementation.
+      The staged-implementation review and remaining release conditions are recorded in
+      `docs/security/local-identity-password-custody-review.md`.
+- [x] Choose a memory-hard password KDF where platform support and reviewed dependencies permit;
       otherwise document and benchmark the approved fallback and parameters.
-- [ ] Define a versioned authenticated-encryption envelope and bind metadata as authenticated data.
+- [x] Define a versioned authenticated-encryption envelope and bind metadata as authenticated data.
 - [ ] Migrate from transparent device-secret custody to password custody atomically: decrypt old,
-      write and verify new, then remove old. Roll back safely on any failure.
+      write and verify new, then remove old. Roll back safely on any failure. The isolated
+      coordinator and interruption recovery are implemented and unit-tested; startup/service
+      integration remains before this item can be marked complete.
 - [ ] Never persist the plaintext password or decrypted SEA private pair.
 - [ ] Keep decrypted private material in memory only while unlocked and clear references on lock,
       logout-equivalent lifecycle events, or process exit as far as the runtime permits.
@@ -1811,6 +1815,8 @@ Likely implementation ownership:
 - [ ] Require the current password for change/removal.
 - [ ] Specify mobile background, desktop minimize/quit, browser refresh, and idle-lock behavior.
 - [ ] Ensure failed attempts never corrupt or erase the custody record.
+      Wrong-current-password and interrupted legacy-cleanup paths are covered at the coordinator
+      layer; service/UI failure injection remains.
 - [ ] Verify that public identity, Talks, reputation, and links remain unchanged after every custody
       migration.
 

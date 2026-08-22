@@ -133,11 +133,15 @@ export type SeaPrivateIdentityMaterial = SeaPublicIdentity & {
   epriv: string;
 };
 
-export type KeyCustodyFormat = 'webcrypto-device-key-v1' | 'os-keychain-v1' | 'imported-recovery-package-v1';
+export type KeyCustodyFormat =
+  | 'webcrypto-device-key-v1'
+  | 'os-keychain-v1'
+  | 'imported-recovery-package-v1'
+  | 'password-aead-v2';
 
-export type KeyCustodyRecord = {
+export type DeviceKeyCustodyRecordV1 = {
   version: 1;
-  format: KeyCustodyFormat;
+  format: Exclude<KeyCustodyFormat, 'password-aead-v2'>;
   publicIdentity: SeaPublicIdentity;
   wrapping: {
     kdf: 'PBKDF2-SHA256';
@@ -149,6 +153,33 @@ export type KeyCustodyRecord = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type PasswordKeyCustodyRecordV2 = {
+  version: 2;
+  format: 'password-aead-v2';
+  protection: 'password';
+  custodyId: string;
+  publicIdentity: SeaPublicIdentity;
+  kdf: {
+    name: 'scrypt';
+    profile: 'scrypt-64m-p2-v1';
+    salt: string;
+    N: 65536;
+    r: 8;
+    p: 2;
+    outputBytes: 32;
+  };
+  aead: {
+    name: 'AES-256-GCM';
+    iv: string;
+    tagBits: 128;
+  };
+  ciphertext: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KeyCustodyRecord = DeviceKeyCustodyRecordV1 | PasswordKeyCustodyRecordV2;
 
 export type KeyRecoveryWarning = {
   severity: 'critical';

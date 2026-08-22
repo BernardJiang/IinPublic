@@ -1,6 +1,6 @@
 # Local Identity Password Custody Design
 
-Status: **Proposed — security review required before implementation**
+Status: **Approved for staged implementation — reviewed 2026-08-22**
 
 Scope: WP2, local password protection for an installation's SEA identity keypair
 
@@ -9,14 +9,20 @@ Last updated: 2026-08-21
 ## Decision summary
 
 IinPublic should continue to work without a password. When a user opts into local
-password protection, a reviewed Argon2id implementation should derive an
-encryption key from the password and a random salt. That key should protect the
-serialized SEA keypair with AES-256-GCM and authenticated metadata.
+password protection, the first browser implementation uses scrypt from the independently
+audited noble-hashes lineage, exactly pinned at `@noble/hashes@1.8.0`, to derive an
+encryption key from the password and a random salt. That key protects the serialized SEA
+keypair with AES-256-GCM and authenticated metadata.
 
-This proposal does not change identity-linking semantics, add account recovery,
-or make identities portable. Implementation must wait for security review of the
-KDF library, parameter profiles, storage adapter, migration procedure, and test
-vectors.
+Argon2id remains preferred when a browser implementation with an acceptable independent
+review and supply-chain posture is available. It is not used in v2 because the Argon2
+implementation in the otherwise-reviewed candidate library is explicitly outside that
+library's independent audit scope. The review record and staged-release conditions are
+in `local-identity-password-custody-review.md`.
+
+This design does not change identity-linking semantics, add account recovery, or make
+identities portable. Approval permits staged implementation and tests; production
+release remains contingent on the test and platform benchmark matrix below.
 
 ## Current state and limits
 
@@ -88,12 +94,12 @@ interface PasswordKeyCustodyRecordV2 {
   custodyId: string; // 128 random bits, base64url
   publicIdentity: string;
   kdf: {
-    name: 'Argon2id';
-    profile: string;
+    name: 'scrypt';
+    profile: 'scrypt-64m-p2-v1';
     salt: string; // 16 random bytes, base64
-    memoryKiB: number;
-    iterations: number;
-    parallelism: number;
+    N: 65536;
+    r: 8;
+    p: 2;
     outputBytes: 32;
   };
   aead: {
@@ -125,33 +131,44 @@ CPU use.
 
 ## KDF choice and parameter gate
 
-Argon2id is the proposed KDF. Web Crypto currently exposes PBKDF2 but not
-Argon2id, so this requires a pinned, reviewed implementation—likely a small
-WebAssembly adapter—and supply-chain review.
+The approved v2 profile is `scrypt-64m-p2-v1` implemented by exactly pinned
+`@noble/hashes@1.8.0`:
 
-Proposed bounds for review:
+- `N = 65,536`, `r = 8`, `p = 2` (about 64 MiB working memory);
+- 16-byte random salt and 32-byte derived key;
+- explicit maximum-memory allocation; and
+- asynchronous execution with progress yields so the browser can remain responsive.
 
-- minimum accepted profile: 19,456 KiB memory, 2 iterations, parallelism 1;
-- candidate shipping profile: 65,536 KiB memory, 3 iterations, parallelism 1,
-  increased to parallelism 4 only where the implementation genuinely supports it;
-- 16-byte random salt and 32-byte derived key; and
-- benchmark target of roughly 250–750 ms on supported platform classes, with no
-  automatic reduction below the reviewed minimum.
+This is one of OWASP's equivalent recommended scrypt profiles. Version 1.x of the
+library supports the project's Node 18 baseline, has zero runtime dependencies, and
+its scrypt implementation was inside the independent Cure53 review scope at v1.0. The
+relevant v1.0-to-v1.8 scrypt/PBKDF path diff was inspected and the selected output is
+locked by a deterministic end-to-end vector. The package is pinned rather than
+range-resolved. The review measured approximately 181–185 ms per
+derivation on the development Apple Silicon host; desktop, mobile-web, and native-shell
+benchmarks are still required before release.
 
-The exact library, artifact pinning, profiles, and upper bounds must be approved
-in security review. If Argon2id cannot initialize, the password feature must
-remain unavailable. There must be no silent downgrade to the existing
-150,000-iteration PBKDF2 format. Any PBKDF2 compatibility profile needs a
-separate decision and must meet current reviewed guidance.
+Records are accepted only when every KDF field exactly matches a supported named
+profile. This is intentionally stricter than broad numeric bounds: it prevents a
+modified record from requesting excessive allocation and ensures weaker parameters are
+never accepted. A future profile requires a new name, review, test vectors, and migration
+policy.
+
+If scrypt cannot initialize, the password feature remains unavailable. There is no
+silent downgrade to the existing 150,000-iteration PBKDF2 device envelope. Argon2id may
+replace scrypt in a future record version after its browser implementation and artifacts
+receive an acceptable independent review.
 
 ## Password handling
 
 - Accept paste and password-manager input and provide a temporary show/hide
   control.
-- Normalize the entered value with Unicode NFC, then encode it as UTF-8 for the
-  KDF. Do not trim, lowercase, or otherwise transform it.
+- Reject ill-formed UTF-16 (including lone surrogates), normalize the entered value with
+  Unicode NFC, then encode it as UTF-8 for the KDF. Do not trim, lowercase, or otherwise
+  transform it. Rejecting ill-formed input prevents distinct JavaScript strings from
+  collapsing to the same replacement-character encoding.
 - Permit at least 64 Unicode code points and reject only unreasonably large input
-  needed to protect the UI from resource abuse.
+  needed to protect the UI from resource abuse. V2 accepts 15–1,024 code points.
 - Do not impose character-class composition rules.
 - Show local strength guidance before creation. Minimum length and any local
   compromised-password blocklist are security-review decisions because this
@@ -278,19 +295,29 @@ user-facing recovery promise.
 
 ## Security-review checklist
 
-- Approve the Argon2id implementation, artifact pinning, and update policy.
-- Approve named KDF profiles, benchmark evidence, and parameter bounds.
-- Approve canonical encoding, AAD construction, and cryptographic test vectors.
-- Review IndexedDB/native transactional adapters and interrupted migration.
-- Decide password minimums, strength guidance, and local throttling behavior.
-- Decide lock lifecycle and the password-free successor envelope.
-- Confirm export/recovery remains out of scope and user copy is accurate.
-- Threat-model XSS and dependency compromise separately from at-rest custody.
+- [x] Select an implementation, artifact pinning, and update policy. V2 uses the
+      audit-covered noble-hashes scrypt lineage, exactly pinned at `@noble/hashes@1.8.0`;
+      Argon2id is deferred.
+- [x] Approve the named KDF profile and strict parameter acceptance. Cross-platform
+      benchmark evidence remains a release condition.
+- [x] Approve fixed-order UTF-8 JSON for plaintext and AAD. Published implementation
+      vectors are required before release.
+- [x] Approve IndexedDB compare-and-swap as the browser transaction boundary. Native
+      adapters require their own review.
+- [x] Set password input policy: 15–1,024 Unicode code points, no composition rules,
+      well-formed UTF-16, NFC normalization, paste/password-manager support.
+- [x] Lock on reload, explicit lock, identity deletion/replacement, and process exit for
+      the first release. Background/idle locking is not claimed yet.
+- [x] Keep export/recovery out of WP2 and preserve the exact no-reset warning.
+- [x] Treat XSS and dependency compromise as out-of-scope residual risks rather than
+      claims solved by at-rest password custody.
 
 ## References
 
 - [RFC 9106: Argon2 Memory-Hard Function](https://www.rfc-editor.org/rfc/rfc9106.html)
+- [RFC 7914: scrypt Password-Based Key Derivation Function](https://www.rfc-editor.org/rfc/rfc7914.html)
 - [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- [noble-hashes security and scrypt documentation](https://github.com/paulmillr/noble-hashes)
 - [W3C Web Cryptography API Level 2](https://www.w3.org/TR/webcrypto-2/)
 - [NIST SP 800-63B](https://pages.nist.gov/800-63-4/sp800-63b.html)
 - [OWASP HTML5 Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html)
