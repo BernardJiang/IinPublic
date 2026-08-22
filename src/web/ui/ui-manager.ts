@@ -9354,7 +9354,20 @@ export class UIManager extends EventEmitter {
     id: string;
     text: string;
     parentAnswer: { questionId: string; answerId: string } | null;
-    answers: Array<{ id: string; text: string; isMatch?: boolean; isIgnore?: boolean; isTerminal?: boolean }>;
+    answers: Array<{
+      id: string;
+      text: string;
+      isMatch?: boolean;
+      isIgnore?: boolean;
+      isTerminal?: boolean;
+      /**
+       * See `Answer.parallelMatchThreshold` (types.ts) — only meaningful once this answer has
+       * 2+ children (a fan-out). Undefined = require all of them; the editor's "+Child Q"/
+       * "+Parallel Q" button stays available past the first child (unlike the old one-child
+       * cap) so an author can build "iPhone" fanning out into Model/Condition/Price-range.
+       */
+      parallelMatchThreshold?: number;
+    }>;
     /**
      * §BB / spec §30.2: a typed comparison node (e.g. a per-item quantity/price question at
      * the leaf of one item's branch, docs/TODO.md §BB Phase 6). When set, `answers` is
@@ -9367,6 +9380,15 @@ export class UIManager extends EventEmitter {
     builtIn?: { kind: string; quantity?: number; priceRange?: { min: number; max: number }; timeFrame?: { start: number; end: number } };
     /** See `Question.reciprocalTagContext` (types.ts) — only meaningful with exactly 1 answer. */
     reciprocalTagContext?: boolean;
+    /**
+     * Tag-style self-match convenience: while false, the question's single non-Ignore answer
+     * text auto-mirrors this question's own text as it's typed (so typing "iphone" as the
+     * question needs no separate step to also make "iphone" the accepted answer — the same
+     * self-match default §LL gives `type:'tag'` talks, extended to route/flow questions). Flips
+     * to true the moment the author edits that answer's text directly, or on rehydrating an
+     * existing talk whose answer text was already explicitly authored.
+     */
+    matchAnswerDirty?: boolean;
   }> = [];
 
   /** Builds or re-hydrates the route-editor in-memory state and redraws it. */
@@ -9388,26 +9410,33 @@ export class UIManager extends EventEmitter {
             text: a.text,
             isMatch: !!a.isMatch,
             isIgnore: !!a.isIgnore,
-            // A linking answer (nextQuestionId set, per this session's Phase 6 fix) never
-            // carries isMatch/isIgnore/isTerminal — so the `!== false` default-to-terminal
-            // below, correct for the old match/ignore-only shape, would otherwise
-            // misclassify it as Terminal on reopen instead of Next question.
-            isTerminal: !a.nextQuestionId && a.isTerminal !== false,
+            // A linking answer (nextQuestionId, or a fan-out's nextQuestionIds, set per this
+            // session's Phase 6 fix / the fan-out generalization) never carries
+            // isMatch/isIgnore/isTerminal — so the `!== false` default-to-terminal below,
+            // correct for the old match/ignore-only shape, would otherwise misclassify it as
+            // Terminal on reopen instead of Next question.
+            isTerminal: !a.nextQuestionId && !(Array.isArray(a.nextQuestionIds) && a.nextQuestionIds.length > 0) && a.isTerminal !== false,
+            ...(typeof a.parallelMatchThreshold === 'number' ? { parallelMatchThreshold: a.parallelMatchThreshold } : {}),
           })),
           ...(q.builtIn ? { builtIn: q.builtIn } : {}),
           ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
+          // Already-authored text — don't let further question-text edits clobber it.
+          matchAnswerDirty: true,
         }));
       } else {
-        // Seed with a single root question.
+        // Seed with a single root question. The match answer starts blank (not
+        // matchAnswerDirty) so it mirrors the question text as soon as the author types it —
+        // "iphone" as the question needs no separate typing-out of "iphone" as the answer too.
         this.routeEditorQuestions = [
           {
             id: 'q_0',
             text: '',
             parentAnswer: null,
             answers: [
-              { id: 'a_0_match', text: this.t('editorRouteDefaultMatch'), isMatch: true, isTerminal: true },
+              { id: 'a_0_match', text: '', isMatch: true, isTerminal: true },
               { id: 'a_0_ignore', text: this.t('editorRouteDefaultIgnore'), isIgnore: true, isTerminal: true },
             ],
+            matchAnswerDirty: false,
           },
         ];
       }
@@ -9442,7 +9471,7 @@ export class UIManager extends EventEmitter {
       const builtInKind = q.builtIn?.kind || '';
       const builtInHtml = `
         <div class="route-builtin-controls" style="margin: 6px 0 6px 18px; display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
-          <label style="display:flex; align-items:center; gap:8px; font-size:0.85em; color:#555;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:0.85em; color:var(--text-secondary);">
             ${this.t('editorBuiltInKindLabel')}
             <select class="form-input route-builtin-kind" data-qid="${q.id}" style="flex:0 0 auto; width:auto; font-size:0.9em;">
               <option value="" ${builtInKind === '' ? 'selected' : ''}>${this.t('editorBuiltInKindNone')}</option>
@@ -9470,7 +9499,7 @@ export class UIManager extends EventEmitter {
             <label style="font-size:0.85em;">${this.t('editorBuiltInTimeEndLabel')}
               <input type="date" class="form-input route-builtin-timeframe-end" data-qid="${q.id}" value="${q.builtIn?.timeFrame ? new Date(q.builtIn.timeFrame.end).toISOString().slice(0, 10) : ''}" style="display:inline-block;">
             </label>` : ''}
-          ${builtInKind === 'location' ? `<span style="font-size:0.8em; color:#666;">${this.t('editorBuiltInLocationNote')}</span>` : ''}
+          ${builtInKind === 'location' ? `<span style="font-size:0.8em; color:var(--text-secondary);">${this.t('editorBuiltInLocationNote')}</span>` : ''}
         </div>
       `;
       const answersHtml = q.builtIn ? '' : q.answers
@@ -9483,19 +9512,33 @@ export class UIManager extends EventEmitter {
               : a.isTerminal
                 ? this.t('editorRouteKindTerminal')
                 : this.t('editorRouteKindLink');
+          // Fan-out (types.ts's Answer.nextQuestionIds): once an answer has its first child,
+          // the button adds a PARALLEL sibling instead of extending a single chain — e.g. an
+          // "iPhone" answer fanning out into Model/Condition/Price-range, each side answerable
+          // in either order. No cap on the number of children (the old one-child limit only
+          // ever reflected a UI gate, not a real data-model constraint for 2+).
+          const addChildLabel = childIds.length === 0 ? this.t('editorRouteAddChild') : this.t('editorRouteAddParallel');
+          const thresholdHtml = childIds.length >= 2 ? `
+            <label style="display:flex; align-items:center; gap:6px; margin:4px 0 4px 18px; font-size:0.8em; color:var(--text-secondary);">
+              ${this.t('editorRouteParallelThresholdLabel').replace('{count}', String(childIds.length))}
+              <input type="number" class="form-input route-parallel-threshold" data-qid="${q.id}" data-aid="${a.id}"
+                min="1" max="${childIds.length}" placeholder="${this.t('editorRouteParallelThresholdAll')}"
+                value="${a.parallelMatchThreshold ?? ''}" style="width:70px; display:inline-block;">
+            </label>` : '';
           return `
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
-              <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:#eef; color:#334;">${kind}</span>
+              <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text);">${kind}</span>
               <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${this.t('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
-              ${childIds.length === 0 ? `<button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${this.t('editorRouteAddChild')}</button>` : ''}
+              <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${addChildLabel}</button>
               <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">×</button>
             </div>
+            ${thresholdHtml}
             ${childIds.map((c) => renderNode(c, depth + 1)).join('')}
           `;
         })
         .join('');
       return `
-        <div class="route-node" data-qid="${q.id}" style="border:1px solid #ddd; border-radius:6px; padding:8px; margin:6px 0; ${indent} background:var(--bg-subtle);">
+        <div class="route-node" data-qid="${q.id}" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin:6px 0; ${indent} background:var(--bg-subtle);">
           <div style="display:flex; align-items:center; gap:8px;">
             <strong style="color:var(--accent);">${this.t('editorRouteQuestionPrefix')}</strong>
             <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="${this.t('editorRouteQuestionPlaceholder')}" data-qid="${q.id}" style="flex:1;">
@@ -9503,7 +9546,7 @@ export class UIManager extends EventEmitter {
             ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">${this.t('editorRouteRemoveQuestion')}</button>` : ''}
           </div>
           ${q.builtIn ? '' : `
-          <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:#555;">
+          <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:var(--text-secondary);">
             <input type="checkbox" class="route-question-reciprocal-tag" data-qid="${q.id}" ${q.reciprocalTagContext ? 'checked' : ''}>
             ${this.t('editorReciprocalTagLabel')}
           </label>`}
@@ -9518,7 +9561,21 @@ export class UIManager extends EventEmitter {
     host.querySelectorAll<HTMLInputElement>('.route-question-text').forEach((inp) => {
       inp.addEventListener('input', () => {
         const q = byId.get(inp.dataset.qid!);
-        if (q) q.text = inp.value;
+        if (!q) return;
+        q.text = inp.value;
+        // Tag-style self-match: mirror the question text onto its one real answer until the
+        // author edits that answer directly (matchAnswerDirty), same convenience §LL gives
+        // type:'tag' talks. Ambiguous with 2+ non-Ignore answers, so skip those.
+        if (!q.matchAnswerDirty) {
+          const real = q.answers.filter((a) => !a.isIgnore);
+          if (real.length === 1) {
+            real[0].text = inp.value;
+            const answerInput = host.querySelector<HTMLInputElement>(
+              `.route-answer-text[data-qid="${q.id}"][data-aid="${real[0].id}"]`,
+            );
+            if (answerInput) answerInput.value = inp.value;
+          }
+        }
       });
     });
     host.querySelectorAll<HTMLInputElement>('.route-question-reciprocal-tag').forEach((cb) => {
@@ -9582,6 +9639,22 @@ export class UIManager extends EventEmitter {
         if (!q) return;
         const a = q.answers.find((x) => x.id === inp.dataset.aid);
         if (a) a.text = inp.value;
+        // Editing the answer directly opts out of the question-text auto-mirror above.
+        q.matchAnswerDirty = true;
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-parallel-threshold').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (!q) return;
+        const a = q.answers.find((x) => x.id === inp.dataset.aid);
+        if (!a) return;
+        const n = Number(inp.value);
+        if (inp.value.trim() && Number.isInteger(n) && n > 0) {
+          a.parallelMatchThreshold = n;
+        } else {
+          delete a.parallelMatchThreshold;
+        }
       });
     });
     host.querySelectorAll<HTMLButtonElement>('.route-add-answer-btn').forEach((btn) => {
@@ -9633,9 +9706,10 @@ export class UIManager extends EventEmitter {
           text: '',
           parentAnswer: { questionId: parentQid, answerId: parentAid },
           answers: [
-            { id: `${newId}_match`, text: this.t('editorRouteDefaultMatch'), isMatch: true, isTerminal: true },
+            { id: `${newId}_match`, text: '', isMatch: true, isTerminal: true },
             { id: `${newId}_ignore`, text: this.t('editorRouteDefaultIgnore'), isIgnore: true, isTerminal: true },
           ],
+          matchAnswerDirty: false,
         });
         this.renderRouteEditor();
       });
@@ -9699,10 +9773,13 @@ export class UIManager extends EventEmitter {
    * one per branch off the root (docs/TODO.md §KK zero-click follow-up).
    */
   private buildRouteSelfAnswers(matchThreshold?: number): { questionId: string; answerId: string }[] {
-    const childQuestionIdByParentAnswerKey = new Map<string, string>();
+    const childQuestionIdsByParentAnswerKey = new Map<string, string[]>();
     for (const q of this.routeEditorQuestions) {
       if (q.parentAnswer) {
-        childQuestionIdByParentAnswerKey.set(`${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`, q.id);
+        const key = `${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`;
+        const arr = childQuestionIdsByParentAnswerKey.get(key) ?? [];
+        arr.push(q.id);
+        childQuestionIdsByParentAnswerKey.set(key, arr);
       }
     }
     const byId = new Map(this.routeEditorQuestions.map((q) => [q.id, q]));
@@ -9711,22 +9788,30 @@ export class UIManager extends EventEmitter {
 
     if (matchThreshold != null && root) {
       for (const answer of root.answers) {
-        const childId = childQuestionIdByParentAnswerKey.get(`${root.id}::${answer.id}`);
-        const child = childId ? byId.get(childId) : undefined;
-        if (!child || child.builtIn || child.answers.length === 0) continue;
-        selfAnswers.push({ questionId: child.id, answerId: child.answers[0].id });
+        const childIds = childQuestionIdsByParentAnswerKey.get(`${root.id}::${answer.id}`) ?? [];
+        for (const childId of childIds) {
+          const child = byId.get(childId);
+          if (!child || child.builtIn || child.answers.length === 0) continue;
+          selfAnswers.push({ questionId: child.id, answerId: child.answers[0].id });
+        }
       }
       return selfAnswers;
     }
 
-    let current = root;
-    while (current) {
-      if (current.builtIn || current.answers.length === 0) break;
-      const firstAnswer = current.answers[0];
-      selfAnswers.push({ questionId: current.id, answerId: firstAnswer.id });
-      const nextId = childQuestionIdByParentAnswerKey.get(`${current.id}::${firstAnswer.id}`);
-      current = nextId ? byId.get(nextId) : undefined;
-    }
+    // Fan-out (Answer.nextQuestionIds, the any-node generalization of the root-only
+    // matchThreshold case above): the author's own self-answer walk must descend into EVERY
+    // parallel spec, not just one chosen path, since the author would need to answer all of
+    // them too (e.g. Model, Condition, AND Price-range under their own "iPhone" branch).
+    const visit = (question: typeof this.routeEditorQuestions[number] | undefined): void => {
+      if (!question || question.builtIn || question.answers.length === 0) return;
+      const firstAnswer = question.answers[0];
+      selfAnswers.push({ questionId: question.id, answerId: firstAnswer.id });
+      const childIds = childQuestionIdsByParentAnswerKey.get(`${question.id}::${firstAnswer.id}`) ?? [];
+      for (const childId of childIds) {
+        visit(byId.get(childId));
+      }
+    };
+    visit(root);
     return selfAnswers;
   }
 
@@ -9734,13 +9819,15 @@ export class UIManager extends EventEmitter {
    * Converts the route-editor model into the validator-ready Question[] shape.
    * Sets each question's contextPath by walking up its parent chain.
    *
-   * Also derives each linking answer's `nextQuestionId` from the editor model's own
-   * `parentAnswer` linkage — a real pre-existing gap: the route editor only ever tracked
-   * `contextPath`/`parentAnswer` bookkeeping, never wrote `nextQuestionId` itself, so a route
-   * talk saved through the editor could never navigate past its first question
-   * (`talk-response-dialog.ts` reads `answer.nextQuestionId` directly to advance). One child per
-   * answer, matching §BB's "one answer = one branch" model — `renderRouteEditor`'s "add child"
-   * button is hidden once an answer already has a child, so this is never ambiguous.
+   * Also derives each linking answer's `nextQuestionId`/`nextQuestionIds` from the editor
+   * model's own `parentAnswer` linkage — a real pre-existing gap: the route editor only ever
+   * tracked `contextPath`/`parentAnswer` bookkeeping, never wrote `nextQuestionId` itself, so a
+   * route talk saved through the editor could never navigate past its first question
+   * (`talk-response-dialog.ts` reads `answer.nextQuestionId` directly to advance). An answer
+   * with exactly one child emits the singular `nextQuestionId` (unchanged shape); 2+ children
+   * (`renderRouteEditor`'s "+Parallel Q") emit the `nextQuestionIds` array plus whatever
+   * per-answer `parallelMatchThreshold` the author set — the any-node fan-out generalization
+   * of the old root-only `Talk.matchThreshold` (see `evaluateRouteFanOutMatch`, talk-engine.ts).
    *
    * §BB / spec §30.2, docs/TODO.md §BB Phase 6: a builtIn node emits `answers: []` (TalkAutofix
    * generates the synthetic pair) and its typed value is validated here — the same early-return
@@ -9759,10 +9846,16 @@ export class UIManager extends EventEmitter {
       }
       return path;
     };
-    const childQuestionIdByParentAnswerKey = new Map<string, string>();
+    // Answer.nextQuestionIds (types.ts) generalizes the old one-child-per-answer model to a
+    // fan-out: an array of child ids, not a single value, so a second (third, ...) sibling
+    // added via renderRouteEditor's "+Parallel Q" button isn't silently dropped here.
+    const childQuestionIdsByParentAnswerKey = new Map<string, string[]>();
     for (const q of this.routeEditorQuestions) {
       if (q.parentAnswer) {
-        childQuestionIdByParentAnswerKey.set(`${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`, q.id);
+        const key = `${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`;
+        const arr = childQuestionIdsByParentAnswerKey.get(key) ?? [];
+        arr.push(q.id);
+        childQuestionIdsByParentAnswerKey.set(key, arr);
       }
     }
     const errors: string[] = [];
@@ -9798,9 +9891,14 @@ export class UIManager extends EventEmitter {
         contextPath,
         answers: q.answers.map((a) => {
           const obj: any = { id: a.id, text: a.text.trim() };
-          const nextQuestionId = childQuestionIdByParentAnswerKey.get(`${q.id}::${a.id}`);
-          if (nextQuestionId) {
-            obj.nextQuestionId = nextQuestionId;
+          const childIds = childQuestionIdsByParentAnswerKey.get(`${q.id}::${a.id}`) ?? [];
+          if (childIds.length === 1) {
+            obj.nextQuestionId = childIds[0];
+          } else if (childIds.length > 1) {
+            obj.nextQuestionIds = childIds;
+            if (typeof a.parallelMatchThreshold === 'number') {
+              obj.parallelMatchThreshold = a.parallelMatchThreshold;
+            }
           } else {
             if (a.isMatch) obj.isMatch = true;
             if (a.isIgnore) obj.isIgnore = true;

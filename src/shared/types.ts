@@ -382,6 +382,27 @@ export interface Answer {
    * for non-survey talks. Initialised to 0 when a survey is created.
    */
   counter?: number;
+  /**
+   * Route talks only — generalizes `Talk.matchThreshold` (previously root-only) to any
+   * answer in the tree: this answer fans out into N independent, order-free specs instead
+   * of one linear `nextQuestionId`. Lets a route both expand vertically (ordinary chained
+   * questions) and horizontally at any node — e.g. an "iPhone" answer fanning out into
+   * Model/Condition/Price-range, each answerable in either order by both sides and still
+   * matching. Mutually exclusive with `nextQuestionId`: when exactly one child exists the
+   * editor still emits the singular field (zero behavior change for every existing route
+   * talk); this array is only populated once an author adds a 2nd+ child under one answer.
+   * See `evaluateRouteFanOut`/`checkIfMatch` (talk-engine.ts) for how the recursive score is
+   * computed, and `parallelMatchThreshold` below for the pass/fail rule at this node.
+   */
+  nextQuestionIds?: string[];
+  /**
+   * Only meaningful alongside `nextQuestionIds`. How many of those specs must resolve
+   * isMatch for this fan-out node itself to count as "passed." Omitted/undefined defaults
+   * to requiring ALL of them — the strictest, most intuitive reading of "these attributes
+   * together define compatibility" — mirroring `Talk.matchThreshold`'s existing
+   * blank-means-strictest-default convention at the (now legacy, root-only) talk level.
+   */
+  parallelMatchThreshold?: number;
 }
 
 export interface BranchLogic {

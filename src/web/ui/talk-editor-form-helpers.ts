@@ -76,7 +76,7 @@ export function appendIgnoreRow(container: HTMLElement, qIndex: number, options?
   row.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 6px; margin-bottom: 8px;';
   row.innerHTML = `
     <input type="radio" name="self-answer-q_${qIndex}" value="ignore" class="self-answer-radio" checked title="${options ? text(options, 'editorMyAnswer', 'My answer') : 'My answer'}">
-    <span style="font-size: 0.9em; color: #666;">${options ? text(options, 'editorIgnore', 'Ignore') : 'Ignore'}</span>
+    <span style="font-size: 0.9em; color: var(--text-secondary);">${options ? text(options, 'editorIgnore', 'Ignore') : 'Ignore'}</span>
   `;
   container.appendChild(row);
 }
@@ -113,7 +113,7 @@ export function addAnswerToQuestion(container: HTMLElement, index: number, optio
       required
       style="flex: 1;"
     >
-    <span style="font-size: 0.9em; color: #666;">→</span>
+    <span style="font-size: 0.9em; color: var(--text-secondary);">→</span>
     <select class="form-input answer-next" style="flex: 0 0 180px; font-size: 0.9em;">
       <option value="ignore">${text(options, 'editorIgnoreFilter', 'Ignore (filter out)')}</option>
       <option value="noticed">${text(options, 'editorNoticed', 'Noticed (match)')}</option>
@@ -170,18 +170,18 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
       required
       style="margin-bottom: 10px;"
     >
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
       ${text(options, 'editorAnswerSelectionModeLabel', 'Respondent may select:')}
       <select class="form-input answer-selection-mode" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
         <option value="single">${text(options, 'editorAnswerSelectionModeSingle', 'One (multiple choice)')}</option>
         <option value="multiple">${text(options, 'editorAnswerSelectionModeMultiple', 'Any that apply (checkboxes)')}</option>
       </select>
     </label>
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
       <input type="checkbox" class="question-reciprocal-tag">
       ${text(options, 'editorReciprocalTagLabel', 'Define buy/sell context here for later questions (needs exactly 1 real answer, besides Ignore)')}
     </label>
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
       ${text(options, 'editorBuiltInKindLabel', 'Compare using:')}
       <select class="form-input builtin-kind" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
         <option value="">${text(options, 'editorBuiltInKindNone', 'Ordinary answer choices')}</option>
@@ -213,7 +213,7 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
           <input type="date" class="form-input builtin-timeframe-end" style="display: inline-block;">
         </label>
       </div>
-      <div class="builtin-kind-fields" data-builtin-kind="location" style="display: none; font-size: 0.85em; color: #666;">
+      <div class="builtin-kind-fields" data-builtin-kind="location" style="display: none; font-size: 0.85em; color: var(--text-secondary);">
         ${text(options, 'editorBuiltInLocationNote', "Uses this talk's own location and radius (set below).")}
       </div>
     </div>

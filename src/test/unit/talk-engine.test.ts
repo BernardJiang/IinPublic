@@ -1,5 +1,5 @@
 import { TalkValidator, TalkAutofix, matchScore, checkIfMatch, checkIfIgnore, computeRouteMatchScore, type SubmittedAnswer } from '../../shared/talk-engine';
-import { Talk } from '../../shared/types';
+import { Talk, Answer } from '../../shared/types';
 
 describe('matchScore', () => {
   it('counts shared tags when combine returns one', () => {
@@ -607,6 +607,213 @@ describe('checkIfMatch — route matchThreshold scoring (independent specs, orde
   it('a talk with matchThreshold set but no recognizable root/children falls back to null (never throws)', () => {
     const malformed: Talk = { ...specRouteTalk, questions: [] };
     expect(computeRouteMatchScore(malformed, specAnswers('yes', 'yes', 'yes'))).toBeNull();
+  });
+});
+
+describe('checkIfMatch — Answer.nextQuestionIds fan-out (any-node generalization of matchThreshold)', () => {
+  // "Buy or sell?" -> "iPhone or iPad?" -> the "iPhone" answer fans out into 3 parallel
+  // attribute specs (Model, Condition, Price range) — this is the shape matchThreshold could
+  // never express (it only ever scored the ROOT's own direct children). Neither router
+  // question ("buy/sell", "iphone/ipad") is itself scored — only followed.
+  const fanOutRouteTalk: Talk = {
+    id: 'buy-sell-iphone-ipad-route',
+    title: 'Buy or Sell iPhone/iPad',
+    authorId: 'adam',
+    type: 'route',
+    isAdult: false,
+    language: 'en',
+    tags: [],
+    questions: [
+      {
+        id: 'q_root',
+        text: 'Buy or sell?',
+        contextPath: [],
+        answers: [
+          { id: 'a_root_buy', text: 'Buy', nextQuestionId: 'q_product' },
+          { id: 'a_root_sell', text: 'Sell', nextQuestionId: 'q_product' },
+        ],
+      },
+      {
+        id: 'q_product',
+        text: 'iPhone or iPad?',
+        contextPath: [{ questionId: 'q_root', answerId: 'a_root_buy' }],
+        answers: [
+          {
+            id: 'a_product_iphone',
+            text: 'iPhone',
+            nextQuestionIds: ['q_model', 'q_condition', 'q_price'],
+            parallelMatchThreshold: 2,
+          },
+          { id: 'a_product_ipad', text: 'iPad', isIgnore: true, isTerminal: true },
+        ],
+      },
+      {
+        id: 'q_model',
+        text: 'What model?',
+        contextPath: [{ questionId: 'q_product', answerId: 'a_product_iphone' }],
+        answers: [
+          { id: 'a_model_yes', text: '16 Pro', isMatch: true, isTerminal: true },
+          { id: 'a_model_no', text: 'Some other model', isIgnore: true, isTerminal: true },
+        ],
+      },
+      {
+        id: 'q_condition',
+        text: 'What condition?',
+        contextPath: [{ questionId: 'q_product', answerId: 'a_product_iphone' }],
+        answers: [
+          { id: 'a_condition_yes', text: 'Used, good', isMatch: true, isTerminal: true },
+          { id: 'a_condition_no', text: 'Used, poor', isIgnore: true, isTerminal: true },
+        ],
+      },
+      {
+        id: 'q_price',
+        text: 'What price range?',
+        contextPath: [{ questionId: 'q_product', answerId: 'a_product_iphone' }],
+        answers: [
+          { id: 'a_price_yes', text: '$500-$700', isMatch: true, isTerminal: true },
+          { id: 'a_price_no', text: 'Under $500', isIgnore: true, isTerminal: true },
+        ],
+      },
+    ],
+    createdAt: new Date(),
+    isTemplate: false,
+    usageCount: 0,
+  };
+
+  const fanOutAnswers = (model: 'yes' | 'no', condition: 'yes' | 'no', price: 'yes' | 'no'): SubmittedAnswer[] => [
+    { questionId: 'q_root', answerId: 'a_root_buy' },
+    { questionId: 'q_product', answerId: 'a_product_iphone' },
+    { questionId: 'q_model', answerId: `a_model_${model}` },
+    { questionId: 'q_condition', answerId: `a_condition_${condition}` },
+    { questionId: 'q_price', answerId: `a_price_${price}` },
+  ];
+
+  it('matches a 3-of-3 response (threshold 2)', () => {
+    expect(checkIfMatch(fanOutRouteTalk, fanOutAnswers('yes', 'yes', 'yes'))).toBe(true);
+  });
+
+  it('matches a 2-of-3 response — at the threshold boundary (>=, not >)', () => {
+    expect(checkIfMatch(fanOutRouteTalk, fanOutAnswers('yes', 'yes', 'no'))).toBe(true);
+  });
+
+  it('does not match a 1-of-3 response — below threshold 2', () => {
+    expect(checkIfMatch(fanOutRouteTalk, fanOutAnswers('yes', 'no', 'no'))).toBe(false);
+  });
+
+  it('is order-independent — specs submitted in a different order produce the identical result', () => {
+    const inOrder = fanOutAnswers('yes', 'yes', 'no');
+    const reordered = [inOrder[0], inOrder[2], inOrder[4], inOrder[1], inOrder[3]];
+    expect(checkIfMatch(fanOutRouteTalk, reordered)).toBe(checkIfMatch(fanOutRouteTalk, inOrder));
+  });
+
+  it('an unanswered spec counts as not-passed rather than throwing', () => {
+    const answers = fanOutAnswers('yes', 'yes', 'yes').filter((a) => a.questionId !== 'q_price');
+    expect(checkIfMatch(fanOutRouteTalk, answers)).toBe(true); // still 2-of-3 answered-and-matching
+  });
+
+  it('blank parallelMatchThreshold defaults to requiring ALL children', () => {
+    const allRequired: Talk = {
+      ...fanOutRouteTalk,
+      questions: fanOutRouteTalk.questions.map((q) =>
+        q.id === 'q_product'
+          ? {
+              ...q,
+              answers: q.answers.map((a) => {
+                if (a.id !== 'a_product_iphone') return a;
+                const { parallelMatchThreshold: _drop, ...rest } = a;
+                return rest;
+              }),
+            }
+          : q,
+      ),
+    };
+    expect(checkIfMatch(allRequired, fanOutAnswers('yes', 'yes', 'no'))).toBe(false); // 2-of-3, but default requires 3
+    expect(checkIfMatch(allRequired, fanOutAnswers('yes', 'yes', 'yes'))).toBe(true);
+  });
+
+  it('picking "iPad" (the plain Ignore leaf) never reaches the fan-out at all', () => {
+    const answers: SubmittedAnswer[] = [
+      { questionId: 'q_root', answerId: 'a_root_buy' },
+      { questionId: 'q_product', answerId: 'a_product_ipad' },
+    ];
+    expect(checkIfMatch(fanOutRouteTalk, answers)).toBe(false);
+  });
+
+  it('an ordinary route talk with no nextQuestionIds anywhere is unaffected (falls through to null)', () => {
+    expect(computeRouteMatchScore(fanOutRouteTalk, fanOutAnswers('yes', 'yes', 'yes'))).toBeNull(); // legacy path never engages
+  });
+});
+
+describe('TalkValidator — Answer.nextQuestionIds fan-out validation', () => {
+  const baseQuestions = (productAnswerOverrides: Partial<Answer>): Talk['questions'] => [
+    {
+      id: 'q_root',
+      text: 'iPhone?',
+      contextPath: [],
+      answers: [
+        { id: 'a_root_yes', text: 'Yes', nextQuestionIds: ['q_model', 'q_condition'], parallelMatchThreshold: 1, ...productAnswerOverrides },
+        { id: 'a_root_no', text: 'No', isIgnore: true, isTerminal: true },
+      ],
+    },
+    {
+      id: 'q_model',
+      text: 'Model?',
+      contextPath: [{ questionId: 'q_root', answerId: 'a_root_yes' }],
+      answers: [
+        { id: 'a_model_yes', text: '16 Pro', isMatch: true, isTerminal: true },
+        { id: 'a_model_no', text: 'Other', isIgnore: true, isTerminal: true },
+      ],
+    },
+    {
+      id: 'q_condition',
+      text: 'Condition?',
+      contextPath: [{ questionId: 'q_root', answerId: 'a_root_yes' }],
+      answers: [
+        { id: 'a_condition_yes', text: 'Good', isMatch: true, isTerminal: true },
+        { id: 'a_condition_no', text: 'Poor', isIgnore: true, isTerminal: true },
+      ],
+    },
+  ];
+  const baseTalk = (productAnswerOverrides: Partial<Answer> = {}): Talk => ({
+    id: 'fanout-validation',
+    title: 'Fan-out validation',
+    authorId: 'adam',
+    type: 'route',
+    isAdult: false,
+    language: 'en',
+    tags: [],
+    questions: baseQuestions(productAnswerOverrides),
+    createdAt: new Date(),
+    isTemplate: false,
+    usageCount: 0,
+  });
+
+  it('accepts a valid fan-out with an in-range parallelMatchThreshold', () => {
+    expect(() => TalkValidator.validateTalk(baseTalk())).not.toThrow();
+  });
+
+  it('rejects an answer setting both nextQuestionId and nextQuestionIds', () => {
+    expect(() => TalkValidator.validateTalk(baseTalk({ nextQuestionId: 'q_model' }))).toThrow(/cannot set both/);
+  });
+
+  it('rejects nextQuestionIds referencing an unknown question', () => {
+    expect(() => TalkValidator.validateTalk(baseTalk({ nextQuestionIds: ['q_model', 'q_missing'] }))).toThrow(/unknown question/);
+  });
+
+  it('rejects a parallelMatchThreshold of 0', () => {
+    expect(() => TalkValidator.validateTalk(baseTalk({ parallelMatchThreshold: 0 }))).toThrow(/invalid parallelMatchThreshold/);
+  });
+
+  it('rejects a parallelMatchThreshold exceeding the number of children', () => {
+    expect(() => TalkValidator.validateTalk(baseTalk({ parallelMatchThreshold: 3 }))).toThrow(/invalid parallelMatchThreshold/);
+  });
+
+  it('detects a cycle introduced purely through nextQuestionIds', () => {
+    const cyclic = baseTalk();
+    // Make q_model point back to q_root — a cycle only reachable via the fan-out edge.
+    const { isMatch: _isMatch, isTerminal: _isTerminal, ...rest } = cyclic.questions[1].answers[0];
+    cyclic.questions[1].answers[0] = { ...rest, nextQuestionId: 'q_root' };
+    expect(() => TalkValidator.validateDAGStructure(cyclic)).toThrow(/loop/);
   });
 });
 

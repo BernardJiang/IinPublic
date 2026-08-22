@@ -553,6 +553,43 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
     completeAndClose(checkIfMatch(talk, answers) ? 'match' : 'mismatch');
   };
 
+  /**
+   * Fan-out (Answer.nextQuestionIds/parallelMatchThreshold, types.ts): the any-node
+   * generalization of the matchThreshold-only mechanism above. Unlike `routeChildIds`
+   * (seeded once, root-only, before the first question even renders), a fan-out can appear
+   * at ANY point mid-walk — e.g. after choosing "iPhone", that answer's own `nextQuestionIds`
+   * only becomes known once "iPhone" is actually picked. `pendingSpecQueue` accumulates every
+   * spec id from every fan-out seen so far in this walk (including nested ones — a spec that
+   * itself fans out further just appends more ids to the same flat queue), and every
+   * answer-recording site below calls this right after pushing to `answers`, whether or not
+   * that particular answer itself introduced a new fan-out — an earlier fan-out's still-queued
+   * siblings must still be walked even when the current answer is an ordinary leaf.
+   */
+  const pendingSpecQueue: string[] = [];
+  const advanceAfterFanOutAnswer = (chosenAnswer: any): boolean => {
+    if (Array.isArray(chosenAnswer?.nextQuestionIds)) {
+      for (const id of chosenAnswer.nextQuestionIds) {
+        if (!pendingSpecQueue.includes(id)) pendingSpecQueue.push(id);
+      }
+    }
+    if (pendingSpecQueue.length === 0) return false;
+    const answeredIds = new Set(answers.map((a) => a.questionId));
+    const nextSpecId = pendingSpecQueue.find((id) => !answeredIds.has(id));
+    if (nextSpecId) {
+      const nextQuestion = talk.questions.find((q: any) => q.id === nextSpecId);
+      if (nextQuestion) {
+        currentQuestion = nextQuestion;
+        saveResponseDraft(talk, currentQuestion.id, answers);
+        renderQuestion();
+        return true;
+      }
+    }
+    // Every queued spec answered — the outcome is the recursive fan-out evaluation
+    // (`evaluateRouteFanOutMatch` via `checkIfMatch`), never this particular leaf's own flags.
+    completeAndClose(checkIfMatch(talk, answers) ? 'match' : 'mismatch');
+    return true;
+  };
+
   const renderQuestion = (): void => {
     if (!currentQuestion) {
       if (routeChildIds) {
@@ -610,6 +647,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           completeRouteWalk();
           return;
         }
+        if (advanceAfterFanOutAnswer(undefined)) return;
         if (checkIfMatch(talk, answers)) {
           clearResponseDraft(talk);
           options.completeTalk(talk, answers, 'match');
@@ -635,6 +673,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           completeRouteWalk();
           return;
         }
+        if (advanceAfterFanOutAnswer(answer)) return;
         if (talk.type === 'survey') {
           // A valid (asker-provided) answer always advances; only the last question ends
           // the response (see applyChoice's identical rule for the manual path).
@@ -861,6 +900,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         completeRouteWalk();
         return;
       }
+      if (advanceAfterFanOutAnswer(currentQuestion.answers.find((a: any) => a.id === answerId))) return;
 
       if (talk.type === 'survey') {
         // Any valid (asker-provided) answer — regardless of its own isIgnore/isMatch/
@@ -937,6 +977,9 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         completeRouteWalk();
         return;
       }
+      // Multi-select is always chain-terminal (§30.8) — no nextQuestionIds of its own to
+      // enqueue — but an earlier fan-out's still-queued siblings must still be walked.
+      if (advanceAfterFanOutAnswer(undefined)) return;
 
       // A multi-select question is always chain-terminal (§30.8, see the editor's own
       // restriction to Ignore/Noticed-only options) — determine the outcome via the

@@ -191,6 +191,60 @@ export function computeRouteMatchScore(
   return { score, total: childIds.length };
 }
 
+/**
+ * Generalizes `computeRouteMatchScore`/`Talk.matchThreshold` (root-only, one level deep)
+ * to a fan-out at ANY node: `Answer.nextQuestionIds`/`parallelMatchThreshold` (types.ts).
+ * Lets a route talk expand both vertically (ordinary chained `nextQuestionId` questions —
+ * ordinary router steps like "buy vs sell" or "iPhone vs iPad" are never scored themselves,
+ * only followed) and horizontally at any branch point (e.g. an "iPhone" answer fanning out
+ * into Model/Condition/Price-range, each side answerable in either order — lookup is by
+ * questionId, not submission order, so order never affects the result).
+ *
+ * Returns `null` when this talk doesn't use the mechanism at all (no answer anywhere sets
+ * `nextQuestionIds`) — callers fall through to the older, unaffected rules unchanged. This
+ * is a separate, additive mechanism from the legacy root-only `Talk.matchThreshold` — a
+ * talk using that one is scored by `computeRouteMatchScore` first, taking priority; this
+ * only engages for a route that never used the legacy field at all.
+ */
+export function evaluateRouteFanOutMatch(talkData: Talk | any, answers: SubmittedAnswer[]): boolean | null {
+  if (talkData?.type !== 'route') return null;
+  const questions: any[] = Array.isArray(talkData.questions) ? talkData.questions : [];
+  const usesFanOut = questions.some((q) => (q.answers || []).some((a: any) => Array.isArray(a.nextQuestionIds) && a.nextQuestionIds.length > 0));
+  if (!usesFanOut) return null;
+
+  const questionsById = new Map(questions.map((q) => [q.id, q]));
+  const root = questions.find((q) => Array.isArray(q.contextPath) && q.contextPath.length === 0);
+  if (!root) return null;
+  const answersByQid = new Map(answers.map((a) => [a.questionId, a]));
+
+  const evaluateQuestion = (question: any, visiting: Set<string>): boolean => {
+    // A route talk is validated as a DAG (TalkValidator.validateDAGStructure) — this guard
+    // is only a defensive backstop against malformed/unvalidated data reaching this code.
+    if (visiting.has(question.id)) return false;
+    const submitted = answersByQid.get(question.id);
+    if (!submitted) return false;
+    const selectedIds = selectedAnswerIds(submitted);
+    const chosen = (question.answers || []).find((a: any) => selectedIds.includes(a.id));
+    if (!chosen) return false;
+
+    if (Array.isArray(chosen.nextQuestionIds) && chosen.nextQuestionIds.length > 0) {
+      const nextVisiting = new Set(visiting).add(question.id);
+      const children = chosen.nextQuestionIds.map((id: string) => questionsById.get(id)).filter(Boolean);
+      const passCount = children.filter((child: any) => evaluateQuestion(child, nextVisiting)).length;
+      const threshold = chosen.parallelMatchThreshold ?? children.length;
+      return passCount >= threshold;
+    }
+    if (chosen.nextQuestionId) {
+      const next = questionsById.get(chosen.nextQuestionId);
+      if (!next) return !!chosen.isMatch;
+      return evaluateQuestion(next, new Set(visiting).add(question.id));
+    }
+    return !!chosen.isMatch;
+  };
+
+  return evaluateQuestion(root, new Set());
+}
+
 export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], responderSelfTag?: string): boolean {
   if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
     return false;
@@ -205,6 +259,9 @@ export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], r
   }
   const routeScore = computeRouteMatchScore(talkData, answers);
   if (routeScore) return routeScore.score >= talkData.matchThreshold;
+
+  const fanOutResult = evaluateRouteFanOutMatch(talkData, answers);
+  if (fanOutResult !== null) return fanOutResult;
 
   const lastAnswer = answers[answers.length - 1];
   if (!lastAnswer) return false;
@@ -292,8 +349,13 @@ export class TalkValidator {
       if (answer.nextQuestionId) {
         nextIds.push(answer.nextQuestionId);
       }
+      // Fan-out (types.ts's Answer.nextQuestionIds) — every spec is itself a graph edge,
+      // same as an ordinary nextQuestionId, so cycle detection must walk these too.
+      if (answer.nextQuestionIds) {
+        nextIds.push(...answer.nextQuestionIds);
+      }
     }
-    
+
     return nextIds;
   }
   
@@ -582,6 +644,34 @@ export class TalkValidator {
 
       if (question.answers.length === 0) {
         throw new ValidationError(`Question must have at least one answer: ${question.id}`);
+      }
+
+      // Fan-out answers (Answer.nextQuestionIds/parallelMatchThreshold, types.ts) — the
+      // generalized, any-node version of the old root-only Talk.matchThreshold.
+      for (const answer of question.answers) {
+        if (!answer.nextQuestionIds) continue;
+        if (answer.nextQuestionId) {
+          throw new ValidationError(
+            `Answer "${answer.id}" on question ${question.id} cannot set both nextQuestionId and nextQuestionIds.`
+          );
+        }
+        for (const childId of answer.nextQuestionIds) {
+          if (!questionIds.has(childId)) {
+            throw new ValidationError(
+              `Answer "${answer.id}" on question ${question.id} has nextQuestionIds referencing unknown question "${childId}".`
+            );
+          }
+        }
+        if (
+          answer.parallelMatchThreshold !== undefined &&
+          (!Number.isInteger(answer.parallelMatchThreshold) ||
+            answer.parallelMatchThreshold < 1 ||
+            answer.parallelMatchThreshold > answer.nextQuestionIds.length)
+        ) {
+          throw new ValidationError(
+            `Answer "${answer.id}" on question ${question.id} has an invalid parallelMatchThreshold (must be an integer between 1 and ${answer.nextQuestionIds.length}).`
+          );
+        }
       }
 
       // contextPath is mandatory on route questions ([] for root questions)
