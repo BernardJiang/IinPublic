@@ -74,6 +74,7 @@ type TalkEditorDialogOptions = {
   addAnswerToQuestion: (container: HTMLElement, index: number) => void;
   appendIgnoreRow: (container: HTMLElement, qIndex: number) => void;
   applyBuiltInKindToQuestion: (questionItem: HTMLElement, kind: string) => void;
+  applyTagKindVisibilityToQuestion: (questionItem: HTMLElement) => void;
   updateAllAnswerDropdowns: () => void;
   refreshFlowAnswerConstraints: (type: string) => void;
   ensureRouteEditorRendered: (existingTalk?: any) => void;
@@ -311,6 +312,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             if (q.tagKind === 'simple') {
               const simpleCheckbox = questionItem.querySelector('.question-simple-tag') as HTMLInputElement | null;
               if (simpleCheckbox) simpleCheckbox.checked = true;
+            }
+            if (q.reciprocalTagContext || q.tagKind === 'simple') {
+              options.applyTagKindVisibilityToQuestion(questionItem as HTMLElement);
             }
             // §BB / spec §30.2: rehydrate the builtIn kind selector + its typed value so
             // reopening the editor for a saved builtIn question doesn't silently reset to

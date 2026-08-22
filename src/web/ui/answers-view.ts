@@ -73,6 +73,8 @@ type AnswerVariant = {
   talkId: string;
   talkTitle: string;
   talkType: string;
+  /** docs/TODO.md §LL.2 follow-up — see `FlatAnswerHistoryItem.booleanTag` (answer-history-storage.ts). */
+  booleanTag?: boolean;
   choice: string;
   answerId: string;
   mode?: string;
@@ -140,6 +142,14 @@ function formatContextPathFromTalk(talk: any, contextPath: any[]): string[] {
 
 function normalizeContextLabel(rawValue: unknown): string {
   return String(rawValue || '').trim();
+}
+
+/** docs/TODO.md §LL.2 follow-up — the Me-tab-local grouping-identity normalization for tag-kind
+ *  entries (see `buildQuestionGroups`'s `pushVariant`). Deliberately not imported from
+ *  `talk-engine.ts`'s private `normalizeTagKey` — same trim/lowercase/collapse-whitespace shape,
+ *  kept local to avoid a shared/web cross-import for 3 lines. */
+function normalizeTagText(rawValue: unknown): string {
+  return String(rawValue ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function deriveContextLabelFromFlatRecord(
@@ -222,11 +232,17 @@ export function buildAnswerItemModels(
     const answer = Array.isArray(question?.answers)
       ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
       : null;
-    const isTag = talkType === 'tag';
+    // docs/TODO.md §LL.2 follow-up: see the identical computation's doc comment in
+    // ui-manager.ts's saveFlatAnswerHistoryRecord (the primary write path this legacy fallback
+    // mirrors for talks answered before flat history existed).
+    const isTag = talkType === 'tag' || question?.tagKind === 'simple' || !!question?.reciprocalTagContext;
+    const booleanTag = isTag && !question?.reciprocalTagContext;
     const choice = isTag
-      ? answer?.isMatch
-        ? 'Checked'
-        : 'Unchecked'
+      ? booleanTag
+        ? answer?.isMatch
+          ? 'Checked'
+          : 'Unchecked'
+        : String(answer?.text || '').trim() || 'Ignored'
       : getAnswerDisplayText(talk, entry);
     const answerId = makeAnswerId(choice);
     const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
@@ -250,6 +266,7 @@ export function buildAnswerItemModels(
       talkId,
       talkTitle,
       talkType,
+      ...(isTag ? { booleanTag } : {}),
       choice,
       answerId: entry.answerId,
       ...(entry.mode ? { mode: entry.mode } : {}),
@@ -282,15 +299,25 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
   const groups = new Map<string, AnswerQuestionGroup>();
 
   const pushVariant = (kind: 'tag' | 'question', prompt: string, variant: AnswerVariant): void => {
-    // Merge strictly on the spec-defined content id. An answer recorded before
-    // `questionContentId` existed (or whose source talk was never re-stamped) has
-    // nothing safe to merge on — falling back to a heuristic like text-matching would
-    // silently reintroduce the exact bug this is fixing (two different questions
-    // merging because they look similar). Such answers each get their own row instead,
-    // keyed uniquely per talk+question so they never collide with one another either.
-    const key = variant.questionContentId
-      ? `${kind}::cid:${variant.questionContentId}`
-      : `${kind}::nocid:${variant.talkId}:${variant.questionId}`;
+    // docs/TODO.md §LL.2 follow-up: a tag's identity IS its keyword — the accepted answer is a
+    // per-context value, not part of what makes it "the same tag" (deliberately deviating from
+    // §20.3's `questionId = CIDv1({text, answers})`, which is right for ordinary questions but
+    // wrong here: a Simple tag "buy" and a Pair tag "buy" accepting "sell" have different answer
+    // sets and therefore different `cidId`s, yet must merge into one group with two context-
+    // tagged answer variants — the whole point of embedding a Pair tag mid-route). Grouping by
+    // normalized text instead of content id.
+    //
+    // For an ordinary question, merge strictly on the spec-defined content id. An answer
+    // recorded before `questionContentId` existed (or whose source talk was never re-stamped) has
+    // nothing safe to merge on — falling back to a heuristic like text-matching would silently
+    // reintroduce the exact bug this is fixing (two different questions merging because they look
+    // similar). Such answers each get their own row instead, keyed uniquely per talk+question so
+    // they never collide with one another either.
+    const key = kind === 'tag'
+      ? `tag::text:${normalizeTagText(prompt)}`
+      : variant.questionContentId
+        ? `${kind}::cid:${variant.questionContentId}`
+        : `${kind}::nocid:${variant.talkId}:${variant.questionId}`;
     let group = groups.get(key);
     if (!group) {
       group = { questionId: variant.questionId, kind, prompt, variants: [] };
@@ -327,6 +354,7 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
           talkId: record.talkId,
           talkTitle: record.title,
           talkType: String(record.type || 'flow').toLowerCase(),
+          ...(item.kind === 'tag' ? { booleanTag: item.booleanTag } : {}),
           choice: item.choice,
           answerId: item.answerId,
           ...(item.mode ? { mode: item.mode } : {}),
@@ -462,6 +490,21 @@ function buildSearchText(group: AnswerQuestionGroup, deps: Pick<AnswersViewDeps,
   ].join(' ').toLowerCase();
 }
 
+/** docs/TODO.md §LL.2 follow-up: `isTag` is a GROUP-level fact (groups are homogeneous by
+ *  `kind` — the grouping key in `buildQuestionGroups` includes `kind` as a prefix, so a
+ *  `kind:'tag'` group never mixes in an ordinary question) and must gate this on its own: a
+ *  `kind:'question'` variant's `choice` might coincidentally BE the literal string "Checked"
+ *  (a real answer worded that way) and must never be translated. Within a tag group specifically,
+ *  `variant.booleanTag` is the finer per-VARIANT decision (a merged group can mix a boolean
+ *  Simple-tag variant with a real-text Pair-tag one) — absent (older stored history, predating
+ *  this field) defaults to boolean, since every pre-existing `kind:'tag'` record was a literal
+ *  type:'tag' talk using the old Checked/Unchecked convention. */
+function formatChoiceForDisplay(variant: AnswerVariant, isTag: boolean, deps: Pick<AnswersViewDeps, 'text'>): string {
+  return isTag && variant.booleanTag !== false
+    ? deps.text(variant.choice === 'Checked' ? 'meChecked' : 'meUnchecked')
+    : variant.choice;
+}
+
 function renderVariantDetail(
   variant: AnswerVariant,
   questionId: string,
@@ -474,9 +517,7 @@ function renderVariantDetail(
       (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
       deps.text(key),
     );
-  const displayChoice = isTag
-    ? deps.text(variant.choice === 'Checked' ? 'meChecked' : 'meUnchecked')
-    : variant.choice;
+  const displayChoice = formatChoiceForDisplay(variant, isTag, deps);
   return `
     <div class="answer-variant" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-outcome="${deps.escapeHtml(variant.outcome)}" style="padding:10px 12px;border-radius:10px;background:var(--bg-subtle);border:1px solid var(--border);margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
@@ -674,6 +715,11 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
 
     const renderQaRow = (group: AnswerQuestionGroup): string => {
       const primary = group.variants[0];
+      // docs/TODO.md §LL.2 follow-up: a tag group containing any real Pair-tag (text-valued)
+      // variant routes through this Q&A-line style instead of the checkbox pill (row dispatch
+      // below) — it can still contain boolean Simple-tag variants mixed in, so `formatChoiceForDisplay`
+      // needs to know this group IS tag-flavored to translate those correctly.
+      const isTag = group.kind === 'tag';
       const contextKeys = distinctContextKeys(group);
       const isContextual = contextKeys.length > 0;
       const talkTypes = Array.from(new Set(group.variants.map((v) => v.talkType)));
@@ -689,14 +735,14 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           ? `${format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount })} · ${format('meMostRecently', { date: deps.formatDate(new Date(primary.answeredAt)) })}`
           : deps.formatDate(new Date(primary.answeredAt)));
       const detailVariants = isContextual
-        ? contextVariantsFor(group).map((v) => renderVariantDetail(v, group.questionId, deps, true, false)).join('')
-        : group.variants.map((v) => renderVariantDetail(v, group.questionId, deps, false, false)).join('');
+        ? contextVariantsFor(group).map((v) => renderVariantDetail(v, group.questionId, deps, true, isTag)).join('')
+        : group.variants.map((v) => renderVariantDetail(v, group.questionId, deps, false, isTag)).join('');
       return `
         <div class="answer-question-item answer-talk-item answer-qa-item ${isContextual ? 'answer-qa-contextual' : 'answer-qa-universal'} ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${contextKeys.length}">
           <div class="qa-line">
             <span class="qa-question">${deps.escapeHtml(group.prompt)}</span>
             <span class="qa-arrow">→</span>
-            <span class="qa-answer">${deps.escapeHtml(primary.choice)}</span>
+            <span class="qa-answer">${deps.escapeHtml(formatChoiceForDisplay(primary, isTag, deps))}</span>
             ${contextBadge}
             <span class="qa-chevron" aria-hidden="true">›</span>
           </div>
@@ -718,7 +764,12 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       if (!sectionListEl) return;
       renderListProgressively(sectionListEl, section.groups, {
         firstChunkSize: ANSWERS_FIRST_CHUNK_SIZE,
-        renderRow: (group) => (group.kind === 'tag' ? renderTagRow(group) : renderQaRow(group)),
+        // docs/TODO.md §LL.2 follow-up: a tag group containing any real Pair-tag (text-valued)
+        // variant renders as Q&A context lines instead of the checkbox pill — a pure Simple-tag
+        // group (every variant boolean, or predating this field) keeps the pill.
+        renderRow: (group) => (group.kind === 'tag' && group.variants.every((v) => v.booleanTag !== false)
+          ? renderTagRow(group)
+          : renderQaRow(group)),
         isStale: () => renderSeq !== answersRenderSeq,
         ...(onRowsRendered
           ? { onFirstChunkRendered: onRowsRendered, onRemainderRendered: onRowsRendered }

@@ -264,10 +264,53 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
   const reciprocalTagCheckbox = questionDiv.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
   simpleTagCheckbox?.addEventListener('change', () => {
     if (simpleTagCheckbox.checked && reciprocalTagCheckbox) reciprocalTagCheckbox.checked = false;
+    applyTagKindVisibilityToQuestion(questionDiv);
   });
   reciprocalTagCheckbox?.addEventListener('change', () => {
     if (reciprocalTagCheckbox.checked && simpleTagCheckbox) simpleTagCheckbox.checked = false;
+    applyTagKindVisibilityToQuestion(questionDiv);
   });
+
+  // docs/TODO.md §LL.2 follow-up: while Simple tag is checked, the one visible answer is frozen
+  // read-only and mirrors the question text as the author types it (self-match) — the same
+  // convenience the route editor's matchAnswerDirty mechanism already gives route questions.
+  const questionTextInput = questionDiv.querySelector('.question-text') as HTMLInputElement | null;
+  questionTextInput?.addEventListener('input', () => {
+    if (!simpleTagCheckbox?.checked) return;
+    const firstAnswerText = questionDiv.querySelector('.answer-item[data-answer-index="0"] .answer-text') as HTMLInputElement | null;
+    if (firstAnswerText) firstAnswerText.value = questionTextInput.value;
+  });
+}
+
+/**
+ * docs/TODO.md §LL.2 follow-up: a Simple/Pair tag question is structurally fixed to exactly one
+ * non-ignore answer (TalkValidator.validateTagKindFields) — hides every answer row beyond the
+ * first so the editor doesn't show multi-answer chrome the data model can never actually use.
+ * Simple tag additionally freezes that one answer read-only, seeded from the question's own text
+ * (self-match); Pair tag leaves it editable since the whole point is a divergent accepted answer.
+ * Non-destructive: only visibility/readonly changes, no answer rows or their text are removed, so
+ * unchecking either box restores everything exactly as it was.
+ */
+export function applyTagKindVisibilityToQuestion(questionItem: HTMLElement): void {
+  const simpleCheckbox = questionItem.querySelector('.question-simple-tag') as HTMLInputElement | null;
+  const reciprocalCheckbox = questionItem.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
+  const isTagKind = !!(simpleCheckbox?.checked || reciprocalCheckbox?.checked);
+  questionItem.querySelectorAll<HTMLElement>('.answer-item').forEach((item) => {
+    const idx = parseInt(item.getAttribute('data-answer-index') ?? '0', 10);
+    item.style.display = isTagKind && idx > 0 ? 'none' : '';
+  });
+  const addAnswerBtn = questionItem.querySelector('.btn-add-answer') as HTMLElement | null;
+  if (addAnswerBtn) addAnswerBtn.style.display = isTagKind ? 'none' : '';
+  const firstAnswerText = questionItem.querySelector('.answer-item[data-answer-index="0"] .answer-text') as HTMLInputElement | null;
+  if (firstAnswerText) {
+    const frozen = !!simpleCheckbox?.checked;
+    firstAnswerText.readOnly = frozen;
+    firstAnswerText.style.background = frozen ? 'var(--bg-subtle)' : '';
+    if (frozen) {
+      const questionText = questionItem.querySelector('.question-text') as HTMLInputElement | null;
+      if (questionText) firstAnswerText.value = questionText.value;
+    }
+  }
 }
 
 /**

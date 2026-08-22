@@ -135,6 +135,7 @@ import {
   addQuestionToForm as addTalkEditorQuestionToForm,
   appendIgnoreRow as appendTalkEditorIgnoreRow,
   applyBuiltInKindToQuestion,
+  applyTagKindVisibilityToQuestion,
   readBuiltInSpecFromQuestion,
   setupTalkFormHandlers as setupTalkEditorFormHandlers,
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
@@ -7604,13 +7605,23 @@ export class UIManager extends EventEmitter {
       const answer = Array.isArray(question?.answers)
         ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
         : null;
-      const isTag = talkType === 'tag';
+      // docs/TODO.md §LL.2 follow-up: an embedded tag/Pair-tag question (tagKind/
+      // reciprocalTagContext, not just a literal type:'tag' talk) dissolves into the Me tab as a
+      // tag too. `booleanTag` distinguishes the two sub-kinds within `kind:'tag'` — a self-match
+      // tag has no meaningful answer text of its own (Checked/Unchecked), while a Pair tag's
+      // accepted-answer text ("sell") is the whole point and must be shown, not hidden behind a
+      // boolean. See `findTagPairAncestor`'s doc comment (talk-engine.ts) for what
+      // reciprocalTagContext actually encodes.
+      const isTag = talkType === 'tag' || question?.tagKind === 'simple' || !!question?.reciprocalTagContext;
+      const booleanTag = isTag && !question?.reciprocalTagContext;
       const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
       const rawChoice = String(entry.answerText || '').trim();
       const choice = isTag
-        ? answer?.isMatch
-          ? 'Checked'
-          : 'Unchecked'
+        ? booleanTag
+          ? answer?.isMatch
+            ? 'Checked'
+            : 'Unchecked'
+          : String(answer?.text || '').trim() || 'Ignored'
         : rawChoice && rawChoice.toLowerCase() !== 'ignore'
           ? rawChoice
           : String(answer?.text || '').trim() || 'Ignored';
@@ -7658,6 +7669,7 @@ export class UIManager extends EventEmitter {
         prompt,
         choice,
         kind: isTag ? 'tag' : 'question',
+        ...(isTag ? { booleanTag } : {}),
         contextPath,
         contextLabel,
         ...(entry.mode ? { mode: entry.mode } : {}),
@@ -8924,6 +8936,7 @@ export class UIManager extends EventEmitter {
         text: this.t.bind(this),
       }),
       applyBuiltInKindToQuestion,
+      applyTagKindVisibilityToQuestion,
       updateAllAnswerDropdowns: this.updateAllAnswerDropdowns.bind(this),
       refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
       ensureRouteEditorRendered: this.ensureRouteEditorRendered.bind(this),
@@ -9510,7 +9523,14 @@ export class UIManager extends EventEmitter {
           ${builtInKind === 'location' ? `<span style="font-size:0.8em; color:var(--text-secondary);">${this.t('editorBuiltInLocationNote')}</span>` : ''}
         </div>
       `;
-      const answersHtml = q.builtIn ? '' : q.answers
+      // docs/TODO.md §LL.2 follow-up: a Simple/Pair tag question is structurally fixed to exactly
+      // one non-ignore answer (TalkValidator.validateTagKindFields) — the editor now reflects
+      // that instead of showing free-form multi-answer chrome the data model can never actually
+      // use. Non-destructive: only the RENDER is filtered, `q.answers` itself is untouched, so
+      // unchecking either box later restores every previously-hidden answer exactly as it was.
+      const isTagKind = !q.builtIn && (q.tagKind === 'simple' || !!q.reciprocalTagContext);
+      const visibleAnswers = isTagKind ? q.answers.filter((a) => !a.isIgnore).slice(0, 1) : q.answers;
+      const answersHtml = q.builtIn ? '' : visibleAnswers
         .map((a) => {
           const childIds = childrenOf.get(`${q.id}::${a.id}`) ?? [];
           const kind = a.isMatch
@@ -9533,10 +9553,14 @@ export class UIManager extends EventEmitter {
                 min="1" max="${childIds.length}" placeholder="${this.t('editorRouteParallelThresholdAll')}"
                 value="${a.parallelMatchThreshold ?? ''}" style="width:70px; display:inline-block;">
             </label>` : '';
+          // Simple tag (self-match): frozen — matches the answer text to the question, mirroring
+          // TalkAutofix's already-enforced invariant. Pair tag keeps this editable (the whole
+          // point is a divergent accepted answer).
+          const frozen = isTagKind && q.tagKind === 'simple';
           return `
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
               <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text);">${kind}</span>
-              <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${this.t('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
+              <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${this.t('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" ${frozen ? 'readonly' : ''} style="flex:1; ${frozen ? 'background:var(--bg-subtle);' : ''}">
               <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${addChildLabel}</button>
               <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">×</button>
             </div>
@@ -9550,7 +9574,7 @@ export class UIManager extends EventEmitter {
           <div style="display:flex; align-items:center; gap:8px;">
             <strong style="color:var(--accent);">${this.t('editorRouteQuestionPrefix')}</strong>
             <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="${this.t('editorRouteQuestionPlaceholder')}" data-qid="${q.id}" style="flex:1;">
-            ${q.builtIn ? '' : `<button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>`}
+            ${q.builtIn || isTagKind ? '' : `<button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>`}
             ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">${this.t('editorRouteRemoveQuestion')}</button>` : ''}
           </div>
           ${q.builtIn ? '' : `
@@ -9596,12 +9620,10 @@ export class UIManager extends EventEmitter {
         if (!q) return;
         q.reciprocalTagContext = cb.checked;
         // docs/TODO.md §LL follow-up: mutually exclusive with "Simple tag" — see the flow/survey
-        // editor's identical exclusion (talk-editor-form-helpers.ts).
-        if (cb.checked) {
-          delete q.tagKind;
-          const simpleCb = host.querySelector<HTMLInputElement>(`.route-question-simple-tag[data-qid="${q.id}"]`);
-          if (simpleCb) simpleCb.checked = false;
-        }
+        // editor's identical exclusion (talk-editor-form-helpers.ts). A full re-render (not just
+        // a DOM patch) picks up the answer-row freeze/hide rules that now depend on this state.
+        if (cb.checked) delete q.tagKind;
+        this.renderRouteEditor();
       });
     });
     host.querySelectorAll<HTMLInputElement>('.route-question-simple-tag').forEach((cb) => {
@@ -9611,11 +9633,10 @@ export class UIManager extends EventEmitter {
         if (cb.checked) {
           q.tagKind = 'simple';
           q.reciprocalTagContext = false;
-          const reciprocalCb = host.querySelector<HTMLInputElement>(`.route-question-reciprocal-tag[data-qid="${q.id}"]`);
-          if (reciprocalCb) reciprocalCb.checked = false;
         } else {
           delete q.tagKind;
         }
+        this.renderRouteEditor();
       });
     });
     host.querySelectorAll<HTMLSelectElement>('.route-builtin-kind').forEach((sel) => {
