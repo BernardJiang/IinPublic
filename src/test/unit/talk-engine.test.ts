@@ -251,7 +251,60 @@ describe('TalkValidator', () => {
             id: 'q_0',
             text: 'Coffee',
             answers: [
-              { id: 'a_0_match', text: 'Match.', isMatch: true, isTerminal: true },
+              { id: 'a_0_match', text: 'Coffee', isMatch: true, isTerminal: true },
+              { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+            ],
+          },
+        ],
+        createdAt: new Date(),
+        isTemplate: false,
+        usageCount: 0,
+      };
+      expect(() => TalkValidator.validateTalk(tag)).not.toThrow();
+    });
+
+    it('rejects a plain (non-Pair) tag whose accepted answer diverges from the question text', () => {
+      const tag: Talk = {
+        id: 'tag-2',
+        title: 'Coffee',
+        authorId: 'user-1',
+        type: 'tag',
+        isAdult: false,
+        language: 'en',
+        tags: [],
+        questions: [
+          {
+            id: 'q_0',
+            text: 'Coffee',
+            answers: [
+              { id: 'a_0_match', text: 'Tea', isMatch: true, isTerminal: true },
+              { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+            ],
+          },
+        ],
+        createdAt: new Date(),
+        isTemplate: false,
+        usageCount: 0,
+      };
+      expect(() => TalkValidator.validateTalk(tag)).toThrow();
+    });
+
+    it('accepts a Pair tag whose accepted answer diverges from the question text', () => {
+      const tag: Talk = {
+        id: 'tag-3',
+        title: 'sell',
+        authorId: 'user-1',
+        type: 'tag',
+        isAdult: false,
+        language: 'en',
+        tags: [],
+        questions: [
+          {
+            id: 'q_0',
+            text: 'sell',
+            reciprocalTagContext: true,
+            answers: [
+              { id: 'a_0_match', text: 'buy', isMatch: true, isTerminal: true },
               { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
             ],
           },
@@ -939,6 +992,256 @@ describe('checkIfMatch — preference-set veto, spec §30.2 (generalizes the old
   });
 });
 
+describe('TalkValidator — Question.tagKind / reciprocalTagContext shape rules (docs/TODO.md §LL follow-up)', () => {
+  const flowTalkWithQ0 = (q0: any): Talk =>
+    ({
+      id: 't1',
+      title: 'Sell iPhone',
+      type: 'flow',
+      questions: [
+        q0,
+        {
+          id: 'q_1',
+          text: 'Model?',
+          answers: [
+            { id: 'a_1_match', text: '16 Pro', isMatch: true, isTerminal: true },
+            { id: 'a_1_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    }) as any;
+
+  it('accepts a simple-tag question whose one answer matches its own text', () => {
+    const talk = flowTalkWithQ0({
+      id: 'q_0',
+      text: 'iPhone',
+      tagKind: 'simple',
+      answers: [
+        { id: 'a_0_match', text: 'iPhone', nextQuestionId: 'q_1' },
+        { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+      ],
+    });
+    expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
+  });
+
+  it('rejects a simple-tag question whose one answer diverges from its own text', () => {
+    const talk = flowTalkWithQ0({
+      id: 'q_0',
+      text: 'iPhone',
+      tagKind: 'simple',
+      answers: [
+        { id: 'a_0_match', text: 'Android', nextQuestionId: 'q_1' },
+        { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+      ],
+    });
+    expect(() => TalkValidator.validateTalk(talk)).toThrow();
+  });
+
+  it('rejects a simple-tag question with more than one non-ignore answer', () => {
+    const talk = flowTalkWithQ0({
+      id: 'q_0',
+      text: 'iPhone',
+      tagKind: 'simple',
+      answers: [
+        { id: 'a_0_a', text: 'iPhone', nextQuestionId: 'q_1' },
+        { id: 'a_0_b', text: 'iPhone', isTerminal: true },
+        { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+      ],
+    });
+    expect(() => TalkValidator.validateTalk(talk)).toThrow();
+  });
+
+  it('rejects a reciprocalTagContext question with more than one non-ignore answer (previously unenforced)', () => {
+    const talk = flowTalkWithQ0({
+      id: 'q_0',
+      text: 'sell',
+      reciprocalTagContext: true,
+      answers: [
+        { id: 'a_0_a', text: 'buy', nextQuestionId: 'q_1' },
+        { id: 'a_0_b', text: 'trade', isTerminal: true },
+        { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+      ],
+    });
+    expect(() => TalkValidator.validateTalk(talk)).toThrow();
+  });
+
+  it('rejects a question that is both tagKind: "simple" and reciprocalTagContext at once', () => {
+    const talk = flowTalkWithQ0({
+      id: 'q_0',
+      text: 'iPhone',
+      tagKind: 'simple',
+      reciprocalTagContext: true,
+      answers: [
+        { id: 'a_0_match', text: 'iPhone', nextQuestionId: 'q_1' },
+        { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+      ],
+    });
+    expect(() => TalkValidator.validateTalk(talk)).toThrow();
+  });
+
+  it('accepts a reciprocalTagContext question whose one answer diverges (the whole point of a Pair tag)', () => {
+    const talk = flowTalkWithQ0({
+      id: 'q_0',
+      text: 'sell',
+      reciprocalTagContext: true,
+      answers: [
+        { id: 'a_0_match', text: 'buy', nextQuestionId: 'q_1' },
+        { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+      ],
+    });
+    expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
+  });
+
+  it('applies the same simple-tag/reciprocalTagContext shape rules to route questions (own inline checks, not validateQuestion)', () => {
+    const routeTalk: Talk = {
+      id: 'r1',
+      title: 'Route',
+      type: 'route',
+      questions: [
+        {
+          id: 'q_root',
+          text: 'iPhone',
+          contextPath: [],
+          tagKind: 'simple',
+          answers: [
+            { id: 'a_root_a', text: 'iPhone', isTerminal: true },
+            { id: 'a_root_b', text: 'iPhone', isTerminal: true },
+          ],
+        },
+      ],
+    } as any;
+    expect(() => TalkValidator.validateTalk(routeTalk)).toThrow();
+  });
+});
+
+describe('checkIfMatch — ancestor-aware reciprocalTagContext veto (docs/TODO.md §LL follow-up, generalizes the root-only preferenceSet veto to any node)', () => {
+  it('a mid-tree reciprocalTagContext ancestor gates a match on a flow talk\'s later question', () => {
+    const talk: Talk = {
+      id: 't1',
+      title: 'Sell iPhone',
+      type: 'flow',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'sell',
+          reciprocalTagContext: true,
+          answers: [
+            { id: 'a_0_buy', text: 'buy', nextQuestionId: 'q_1' },
+            { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true },
+          ],
+        },
+        {
+          id: 'q_1',
+          text: 'Model?',
+          answers: [
+            { id: 'a_1_match', text: '16 Pro', isMatch: true, isTerminal: true },
+            { id: 'a_1_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    } as any;
+    const answers: SubmittedAnswer[] = [
+      { questionId: 'q_0', answerId: 'a_0_buy' },
+      { questionId: 'q_1', answerId: 'a_1_match' },
+    ];
+
+    expect(checkIfMatch(talk, answers, 'buy')).toBe(true);
+    expect(checkIfMatch(talk, answers, 'sell')).toBe(false);
+    expect(checkIfMatch(talk, answers, undefined)).toBe(true);
+  });
+
+  it('the mid-tree ancestor wins over an unrelated talk-root preferenceSet', () => {
+    const talk: Talk = {
+      id: 't1',
+      title: 'Sell iPhone',
+      type: 'flow',
+      preferenceSet: ['someOtherTag'],
+      questions: [
+        {
+          id: 'q_0',
+          text: 'sell',
+          reciprocalTagContext: true,
+          answers: [
+            { id: 'a_0_buy', text: 'buy', nextQuestionId: 'q_1' },
+            { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true },
+          ],
+        },
+        {
+          id: 'q_1',
+          text: 'Model?',
+          answers: [
+            { id: 'a_1_match', text: '16 Pro', isMatch: true, isTerminal: true },
+            { id: 'a_1_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    } as any;
+    const answers: SubmittedAnswer[] = [
+      { questionId: 'q_0', answerId: 'a_0_buy' },
+      { questionId: 'q_1', answerId: 'a_1_match' },
+    ];
+
+    // 'buy' isn't in the root preferenceSet, but the ancestor's own accepted tag wins.
+    expect(checkIfMatch(talk, answers, 'buy')).toBe(true);
+  });
+
+  it('walks a route talk\'s contextPath to find the ancestor, not array position', () => {
+    const routeTalk: Talk = {
+      id: 'r1',
+      title: 'Sell iPhone',
+      type: 'route',
+      questions: [
+        {
+          id: 'q_root',
+          text: 'sell',
+          contextPath: [],
+          reciprocalTagContext: true,
+          answers: [{ id: 'a_root_buy', text: 'buy', nextQuestionId: 'q_model' }],
+        },
+        {
+          id: 'q_model',
+          text: 'Model?',
+          contextPath: [{ questionId: 'q_root', answerId: 'a_root_buy' }],
+          answers: [
+            { id: 'a_model_match', text: '16 Pro', isMatch: true, isTerminal: true },
+            { id: 'a_model_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    } as any;
+    const answers: SubmittedAnswer[] = [
+      { questionId: 'q_root', answerId: 'a_root_buy' },
+      { questionId: 'q_model', answerId: 'a_model_match' },
+    ];
+
+    expect(checkIfMatch(routeTalk, answers, 'buy')).toBe(true);
+    expect(checkIfMatch(routeTalk, answers, 'sell')).toBe(false);
+  });
+
+  it('falls back to the root-only preferenceSet veto exactly as before when no ancestor exists', () => {
+    const talk: Talk = {
+      id: 't1',
+      title: 'Buy Notebook',
+      type: 'tag',
+      selfTag: 'buy',
+      preferenceSet: ['sell'],
+      questions: [
+        {
+          id: 'q_0',
+          text: 'Do you sell this?',
+          answers: [
+            { id: 'a_yes', text: 'Yes', isMatch: true },
+            { id: 'a_no', text: 'No', isIgnore: true },
+          ],
+        },
+      ],
+    } as any;
+    const answers: SubmittedAnswer[] = [{ questionId: 'q_0', answerId: 'a_yes' }];
+    expect(checkIfMatch(talk, answers, 'buy')).toBe(false);
+    expect(checkIfMatch(talk, answers, 'sell')).toBe(true);
+  });
+});
+
 describe('TalkAutofix.fix — answerSelectionMode: "multiple" bypasses the single-answer collapse', () => {
   // Regression found via e2e: TalkAutofix's flow-question step "every non-first answer is
   // implicitly ignore" silently stripped isMatch from every checked-multiple option but the
@@ -1022,6 +1325,63 @@ describe('TalkAutofix.fix — answerSelectionMode: "multiple" bypasses the singl
     expect(fixed.questions[0].answers[0].isMatch).toBe(true);
     expect(fixed.questions[0].answers[1].isMatch).toBeFalsy();
     expect(fixed.questions[0].answers[1].isIgnore).toBe(true);
+  });
+});
+
+describe('TalkAutofix.fix — tagKind: "simple" forces the answer to match its question text', () => {
+  it('overwrites a mismatched answer to equal the question text', () => {
+    const talk = {
+      id: 't1',
+      title: 'Sell iPhone',
+      type: 'flow',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'iPhone',
+          tagKind: 'simple',
+          answers: [
+            { id: 'a_0_a', text: 'Android', nextQuestionId: 'q_1' },
+            { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true },
+          ],
+        },
+        {
+          id: 'q_1',
+          text: 'Model?',
+          answers: [
+            { id: 'a_1_match', text: '16 Pro', isMatch: true },
+            { id: 'a_1_ignore', text: 'Ignore.', isIgnore: true },
+          ],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed, fixes } = TalkAutofix.fix(talk);
+    expect(fixed.questions[0].answers[0].text).toBe('iPhone');
+    expect(fixes.some((f) => f.includes('simple tag'))).toBe(true);
+    expect(() => TalkValidator.validateTalk(fixed)).not.toThrow();
+  });
+
+  it('leaves an already-matching answer untouched (no spurious fix entry)', () => {
+    const talk = {
+      id: 't1',
+      title: 'iPhone',
+      type: 'tag',
+      questions: [
+        {
+          id: 'q_0',
+          text: 'iPhone',
+          tagKind: 'simple',
+          answers: [
+            { id: 'a_0_match', text: 'iPhone', isMatch: true, isTerminal: true },
+            { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    } as any;
+
+    const { talk: fixed, fixes } = TalkAutofix.fix(talk);
+    expect(fixed.questions[0].answers[0].text).toBe('iPhone');
+    expect(fixes.some((f) => f.includes('simple tag'))).toBe(false);
   });
 });
 

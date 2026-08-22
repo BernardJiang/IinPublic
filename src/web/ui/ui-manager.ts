@@ -21,7 +21,7 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
-import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, getRouteRootChildQuestionIds } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, getRouteRootChildQuestionIds, singleNonIgnoreAnswer, findTagPairAncestor } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
@@ -7697,27 +7697,14 @@ export class UIManager extends EventEmitter {
    * or undefined if there isn't exactly one.
    */
   private singleNonIgnoreAnswer(question: { answers?: any[] } | undefined): any | undefined {
-    const real = (question?.answers || []).filter((a: any) => !a?.isIgnore);
-    return real.length === 1 ? real[0] : undefined;
+    return singleNonIgnoreAnswer(question);
   }
 
   private findReciprocalTagAncestor(
     talk: any,
     currentQuestion: { id: string; contextPath?: Array<{ questionId: string; answerId: string }> },
   ): { questionText: string; answerText: string } | undefined {
-    const questions: any[] = Array.isArray(talk?.questions) ? talk.questions : [];
-    const ancestorIds: string[] =
-      talk?.type === 'route' && Array.isArray(currentQuestion?.contextPath)
-        ? currentQuestion.contextPath.map((step) => step.questionId)
-        : questions.slice(0, questions.findIndex((q) => q.id === currentQuestion?.id)).map((q) => q.id);
-    for (let i = ancestorIds.length - 1; i >= 0; i--) {
-      const q = questions.find((qq) => qq.id === ancestorIds[i]);
-      if (q?.reciprocalTagContext) {
-        const only = this.singleNonIgnoreAnswer(q);
-        if (only) return { questionText: q.text, answerText: only.text };
-      }
-    }
-    return undefined;
+    return findTagPairAncestor(talk, currentQuestion);
   }
 
   /**
@@ -7856,6 +7843,16 @@ export class UIManager extends EventEmitter {
     const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
     const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
+    // docs/TODO.md §LL follow-up: findAutoAnswer/findAutoAnswerMultiple run their own
+    // independent PREFERENCE_CONFLICT veto (exact-chatbot-memory.ts), separate from
+    // checkIfMatch's (talk-engine.ts, now ancestor-aware too). A nearer reciprocalTagContext
+    // ancestor on THIS branch wins over the talk-root preferenceSet — same precedence
+    // checkIfMatch and myEffectiveTagContext already use — so the chatbot can't auto-answer past
+    // a mid-tree pair-tag conflict that manual answering would now correctly veto.
+    const tagPairAncestor = findTagPairAncestor(talk, currentQuestion);
+    const effectivePreferenceSet: string[] | undefined = tagPairAncestor
+      ? [tagPairAncestor.answerText]
+      : talk?.preferenceSet;
 
     // §KK: context-aware flattened lookup, tried BEFORE exact-chatbot-memory (was the reverse —
     // exact-chatbot-memory is keyed by question text alone, no context, so it used to win on any
@@ -7916,7 +7913,7 @@ export class UIManager extends EventEmitter {
         currentOptions,
         undefined,
         languageContext,
-        talk?.preferenceSet,
+        effectivePreferenceSet,
       );
       setExactChatbotMemory(exactMemory);
       if (exact.action === 'ASK_USER' && exact.reason === 'PREFERENCE_CONFLICT') {
@@ -7977,7 +7974,7 @@ export class UIManager extends EventEmitter {
         currentOptions,
         undefined,
         languageContext,
-        talk?.preferenceSet,
+        effectivePreferenceSet,
       );
       setExactChatbotMemory(exactMemory);
       // A preference-set conflict is an absolute veto — do not fall through to the weaker
@@ -9037,23 +9034,24 @@ export class UIManager extends EventEmitter {
         this.showTalkValidationError([this.t('editorTagRequired')]);
         return false;
       }
-      // docs/TODO.md §LL: a tag IS a single-question talk — the question text is the keyword
-      // (unchanged), and the match answer's text is the accepted counterpart word from
-      // `#talk-answer` (talk-editor-dialog.ts), defaulting to the SAME word as the keyword
-      // (self-match: "Tennis" matches anyone else tagged "Tennis") when left untouched. No
-      // selfTag/preferenceSet here — a tag is just 1 question/1 answer, so that pair (an
-      // ordinary Talk.questions entry) IS the whole declaration; a separate talk-level veto
-      // would only duplicate it. Matching (manual or chatbot) is the SAME plain question/answer
-      // mechanism every other question already uses — the chatbot has no concept of "opposite",
-      // only "what did I answer for this exact question before" (exact-chatbot-memory.ts);
-      // "buy"->"buy" self-match and "buy"->"sell" opposite-pair both just fall out of whatever
-      // question/answer text the two authors independently chose.
-      const answerInputValue = (document.getElementById('talk-answer') as HTMLInputElement | null)?.value.trim() || '';
+      // docs/TODO.md §LL follow-up: a tag IS a single-question talk — the question text is the
+      // keyword (unchanged). By default it's a "simple tag" (tagKind: 'simple') — the match
+      // answer's text IS the keyword, self-match only ("Tennis" matches "Tennis"), enforced by
+      // TalkValidator.validateTagTalk. Only when the author checks "Pair tag"
+      // (`#tag-pair-checkbox`, talk-editor-dialog.ts) does the accepted answer come from
+      // `#talk-answer` and get to diverge (e.g. "sell" accepting "buy") — that's
+      // reciprocalTagContext:true, the same asymmetric-pair primitive usable anywhere in
+      // flow/survey/route (see Question.tagKind/reciprocalTagContext, types.ts).
+      const isPairTag = (document.getElementById('tag-pair-checkbox') as HTMLInputElement | null)?.checked === true;
+      const answerInputValue = isPairTag
+        ? (document.getElementById('talk-answer') as HTMLInputElement | null)?.value.trim() || ''
+        : '';
       const answerWord = answerInputValue || keyword;
       questions = [
         {
           id: 'q_0',
           text: keyword,
+          ...(isPairTag ? { reciprocalTagContext: true } : { tagKind: 'simple' as const }),
           answers: [
             { id: 'a_0_match', text: answerWord, isMatch: true, isTerminal: true },
             { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
@@ -9150,6 +9148,13 @@ export class UIManager extends EventEmitter {
         const reciprocalTagCheckbox = item.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
         if (reciprocalTagCheckbox?.checked) {
           questionObj.reciprocalTagContext = true;
+        }
+        // docs/TODO.md §LL follow-up: "Simple tag" (tagKind: 'simple') — the mutually exclusive
+        // sibling of the Pair tag checkbox above (talk-editor-form-helpers.ts wires the
+        // exclusion in the DOM). Applies to flow and survey alike, same shared branch.
+        const simpleTagCheckbox = item.querySelector('.question-simple-tag') as HTMLInputElement | null;
+        if (simpleTagCheckbox?.checked) {
+          questionObj.tagKind = 'simple';
         }
         if (type === 'survey') {
           questionObj.isAggregatable = true;
@@ -9380,6 +9385,8 @@ export class UIManager extends EventEmitter {
     builtIn?: { kind: string; quantity?: number; priceRange?: { min: number; max: number }; timeFrame?: { start: number; end: number } };
     /** See `Question.reciprocalTagContext` (types.ts) — only meaningful with exactly 1 answer. */
     reciprocalTagContext?: boolean;
+    /** See `Question.tagKind` (types.ts) — mutually exclusive with `reciprocalTagContext`. */
+    tagKind?: 'simple';
     /**
      * Tag-style self-match convenience: while false, the question's single non-Ignore answer
      * text auto-mirrors this question's own text as it's typed (so typing "iphone" as the
@@ -9420,6 +9427,7 @@ export class UIManager extends EventEmitter {
           })),
           ...(q.builtIn ? { builtIn: q.builtIn } : {}),
           ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
+          ...(q.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
           // Already-authored text — don't let further question-text edits clobber it.
           matchAnswerDirty: true,
         }));
@@ -9547,6 +9555,10 @@ export class UIManager extends EventEmitter {
           </div>
           ${q.builtIn ? '' : `
           <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:var(--text-secondary);">
+            <input type="checkbox" class="route-question-simple-tag" data-qid="${q.id}" ${q.tagKind === 'simple' ? 'checked' : ''}>
+            ${this.t('editorSimpleTagLabel')}
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:var(--text-secondary);">
             <input type="checkbox" class="route-question-reciprocal-tag" data-qid="${q.id}" ${q.reciprocalTagContext ? 'checked' : ''}>
             ${this.t('editorReciprocalTagLabel')}
           </label>`}
@@ -9581,7 +9593,29 @@ export class UIManager extends EventEmitter {
     host.querySelectorAll<HTMLInputElement>('.route-question-reciprocal-tag').forEach((cb) => {
       cb.addEventListener('change', () => {
         const q = byId.get(cb.dataset.qid!);
-        if (q) q.reciprocalTagContext = cb.checked;
+        if (!q) return;
+        q.reciprocalTagContext = cb.checked;
+        // docs/TODO.md §LL follow-up: mutually exclusive with "Simple tag" — see the flow/survey
+        // editor's identical exclusion (talk-editor-form-helpers.ts).
+        if (cb.checked) {
+          delete q.tagKind;
+          const simpleCb = host.querySelector<HTMLInputElement>(`.route-question-simple-tag[data-qid="${q.id}"]`);
+          if (simpleCb) simpleCb.checked = false;
+        }
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-question-simple-tag').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const q = byId.get(cb.dataset.qid!);
+        if (!q) return;
+        if (cb.checked) {
+          q.tagKind = 'simple';
+          q.reciprocalTagContext = false;
+          const reciprocalCb = host.querySelector<HTMLInputElement>(`.route-question-reciprocal-tag[data-qid="${q.id}"]`);
+          if (reciprocalCb) reciprocalCb.checked = false;
+        } else {
+          delete q.tagKind;
+        }
       });
     });
     host.querySelectorAll<HTMLSelectElement>('.route-builtin-kind').forEach((sel) => {
@@ -9883,6 +9917,7 @@ export class UIManager extends EventEmitter {
           answers: [],
           builtIn: q.builtIn,
           ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
+          ...(q.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
         };
       }
       return {
@@ -9907,6 +9942,7 @@ export class UIManager extends EventEmitter {
           return obj;
         }),
         ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
+        ...(q.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
       };
     });
     return { questions, errors };

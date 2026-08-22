@@ -330,6 +330,52 @@ New coverage: `90-reciprocal-tag-context-non-root-question.spec.ts` — a "buy" 
 "sell" flow talk, each declaring their tag via an ordinary Q1 (not talk-level metadata), zero-click
 auto-match on a shared downstream "Is it an iPhone?" question.
 
+### LL.2 Explicit `Question.tagKind: 'simple'` + ancestor-aware match veto (Bernard, 2026-08-21; landed same day)
+
+§LL/§LL.1 left two tags conflated under one boolean: a `type:'tag'` talk's own answer could still
+diverge from its keyword with no explicit marker for *why*, and `reciprocalTagContext` (the
+asymmetric "Pair tag" — question text = my declared tag, its one real answer = the accepted
+counterpart) never actually gated a match anywhere but the talk root — it only ever fed chatbot
+auto-fill context for downstream questions.
+
+This adds `Question.tagKind?: 'simple'` (types.ts) as the explicit, mutually-exclusive counterpart
+to `reciprocalTagContext`: a "simple tag" is self-match by definition — its one non-`ignore` answer
+MUST equal the question's own text — usable on any question in any talk type (tag/flow/survey/route),
+the same atomic building block `reciprocalTagContext` already was. `TalkValidator` enforces both
+shapes now: a literal `type:'tag'` talk defaults to simple-tag text-equality unless
+`reciprocalTagContext` is set (scoped to `talk.type === 'tag'` only — `validateTalk`'s "tag by
+structure" heuristic also routes non-tag-type single-question/two-answer talks, e.g. a flow talk
+with one `builtIn` comparison question, through the same validator and must stay permissive); a
+`reciprocalTagContext` question's "exactly one non-ignore answer" rule — previously only gracefully
+skipped at read time by `findReciprocalTagAncestor`, never actually enforced at save time — is now a
+hard validation error too, via a shared `validateTagKindFields` helper (`validateQuestion` for
+flow/survey, and route's own inline per-question loop, since route never routed through
+`validateQuestion`). `TalkAutofix.fix` silently force-corrects a `tagKind:'simple'` question's
+answer text to match its question, one shared step ahead of every type-specific branch.
+
+The real generalization: `findReciprocalTagAncestor`'s ancestor-walk logic moved from
+`ui-manager.ts` (web-only) into `talk-engine.ts` as an exported `findTagPairAncestor`, so
+`checkIfMatch`'s own preference veto can consult it directly — a mid-tree `reciprocalTagContext`
+ancestor now wins over the talk-root `preferenceSet` and actually vetoes a mismatched
+`responderSelfTag`, the same precedence the chatbot-context derivation already used. `ui-manager.ts`
+now delegates to the shared function instead of keeping its own copy.
+`exact-chatbot-memory.ts`'s independent `PREFERENCE_CONFLICT` gate (`findAutoAnswer`/
+`findAutoAnswerMultiple`, fed by a flat `incomingTalkPreferenceSet`) got the same treatment at its
+caller (`resolveAnswerPreferenceForTalkQuestion`) — otherwise the chatbot could auto-answer past a
+mid-tree conflict manual answering would now correctly refuse.
+
+Editor UI: the tag-talk form gets an explicit "Pair tag" checkbox (`#tag-pair-checkbox`,
+unchecked/simple by default, hides `#talk-answer` entirely until checked — no more silent
+divergence). The flow/survey shared question template (`addQuestionToForm`) gets a sibling "Simple
+tag" checkbox next to the existing "Pair tag" one, mutually exclusive; the route editor gets the
+identical pair. Product-facing term for what internal code still calls `reciprocalTagContext`:
+**"Pair tag."**
+
+Explicitly out of scope, deferred to a separate design pass: an actual drag-and-drop node/graph
+canvas editor for route (the generic per-question form is extended everywhere in this pass, not
+replaced); decoupling "seeds context for later questions" from the pair-tag match itself (kept
+coupled, as before).
+
 ## Priority 5 — TechSupport productionization
 
 ### K7. Delegated TechSupport answers

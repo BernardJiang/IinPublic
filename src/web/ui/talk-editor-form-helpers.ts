@@ -178,8 +178,12 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
       </select>
     </label>
     <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
+      <input type="checkbox" class="question-simple-tag">
+      ${text(options, 'editorSimpleTagLabel', 'Simple tag (answer must match the question itself — needs exactly 1 real answer, besides Ignore)')}
+    </label>
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
       <input type="checkbox" class="question-reciprocal-tag">
-      ${text(options, 'editorReciprocalTagLabel', 'Define buy/sell context here for later questions (needs exactly 1 real answer, besides Ignore)')}
+      ${text(options, 'editorReciprocalTagLabel', 'Pair tag — define buy/sell context here for later questions (needs exactly 1 real answer, besides Ignore)')}
     </label>
     <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
       ${text(options, 'editorBuiltInKindLabel', 'Compare using:')}
@@ -251,6 +255,18 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
   const builtInKindSelect = questionDiv.querySelector('.builtin-kind') as HTMLSelectElement | null;
   builtInKindSelect?.addEventListener('change', () => {
     applyBuiltInKindToQuestion(questionDiv, builtInKindSelect.value);
+  });
+
+  // docs/TODO.md §LL follow-up: "Simple tag" (tagKind: 'simple') and "Pair tag"
+  // (reciprocalTagContext) are mutually exclusive ways to mark this question as a tag — checking
+  // one clears the other.
+  const simpleTagCheckbox = questionDiv.querySelector('.question-simple-tag') as HTMLInputElement | null;
+  const reciprocalTagCheckbox = questionDiv.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
+  simpleTagCheckbox?.addEventListener('change', () => {
+    if (simpleTagCheckbox.checked && reciprocalTagCheckbox) reciprocalTagCheckbox.checked = false;
+  });
+  reciprocalTagCheckbox?.addEventListener('change', () => {
+    if (reciprocalTagCheckbox.checked && simpleTagCheckbox) simpleTagCheckbox.checked = false;
   });
 }
 

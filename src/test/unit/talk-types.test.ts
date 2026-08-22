@@ -46,7 +46,7 @@ describe('Talk type: tag', () => {
           id: 'q_tennis',
           text: 'Tennis',
           answers: [
-            { id: 'a_match', text: 'Interested.', isMatch: true, isTerminal: true },
+            { id: 'a_match', text: 'Tennis', isMatch: true, isTerminal: true },
             { id: 'a_ignore', text: 'Not interested.', isIgnore: true, isTerminal: true },
           ],
         },
@@ -64,7 +64,7 @@ describe('Talk type: tag', () => {
           id: 'q_tag',
           text: 'Looking for tennis partner',
           answers: [
-            { id: 'a_match', text: 'Match.', isMatch: true, isTerminal: true },
+            { id: 'a_match', text: 'Looking for tennis partner', isMatch: true, isTerminal: true },
             { id: 'a_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
           ],
         },

@@ -354,6 +354,14 @@ export interface Question {
    * talk-level fields.
    */
   reciprocalTagContext?: boolean;
+  /**
+   * Marks this question as a "simple tag": exactly one non-ignore answer, whose text MUST equal
+   * the question's own text (self-match — "Tennis" matches "Tennis"). Mutually exclusive with
+   * `reciprocalTagContext` (that's the asymmetric "Pair tag" case, where the answer is free to
+   * differ — see that field's own doc comment). Usable on any question in any talk type
+   * (tag/flow/survey/route) — the same atomic unit, not a talk-level-only concept.
+   */
+  tagKind?: 'simple';
 }
 
 /** See `Question.builtIn`. */
