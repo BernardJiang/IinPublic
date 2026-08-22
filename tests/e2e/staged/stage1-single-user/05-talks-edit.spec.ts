@@ -140,15 +140,12 @@ test.describe('Talks: create and edit', () => {
 
     await page.click('.nav-btn[data-view="me"]');
     await afterSync();
-    // TODO §M3/Me-tab-merge: tapping a Me-tab row now opens its details popup first (there's
-    // no dedicated details button anymore); "View talk" inside that popup is what reaches
-    // the talk/response dialog.
-    const answerItem = page.locator('.answer-talk-item').filter({ hasText: 'Self Answer Test' }).first();
+    // docs/TODO.md §LL.2 follow-up: the Me tab no longer shows talk titles or an expand-in-
+    // place popup — the row is found by its question prompt, and clicking its answer reaches
+    // the talk/response dialog directly.
+    const answerItem = page.locator('.answer-talk-item').filter({ hasText: 'Do you like tea?' }).first();
     await expect(answerItem).toBeVisible({ timeout: 15000 });
-    await answerItem.click();
-    const popup = page.locator('#item-details-popup');
-    await expect(popup).toBeVisible({ timeout: 10_000 });
-    await popup.locator('.answer-view-talk-btn').click();
+    await answerItem.locator('.answer-context-jump').click();
     await expect(page.locator('#talk-response-modal')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('#talk-editor-modal')).toHaveCount(0);
   });

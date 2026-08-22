@@ -202,24 +202,19 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
       .toBeGreaterThanOrEqual(1);
 
     // 8) Tom's Answer tab: Coffee = Match, Cat = Mismatch
-    // Rows are merged by question; the Match/Mismatch outcome lives in each row's
-    // collapsed details, revealed via the tap-to-open-details popup (answers-view.ts
-    // TODO §M-merge) — same pattern as 09-four-types-chatbot.spec.ts /
-    // 02-two-talks-status-answers.spec.ts.
+    // docs/TODO.md §LL.2 follow-up: rows are merged by question text; the Match/Mismatch
+    // outcome is carried on the row's own data-outcome attribute, no expand-in-place popup
+    // anymore — same pattern as 09-four-types-chatbot.spec.ts / 02-two-talks-status-answers.spec.ts.
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterSync();
     const tomContent = pageTom.locator('#answers-content');
     const coffeeRow = tomContent.locator('.answer-talk-item').filter({ hasText: TAG_COFFEE }).first();
     await expect(coffeeRow).toBeVisible({ timeout: 10000 });
-    await coffeeRow.click();
-    await expect(pageTom.locator('#item-details-popup').getByText(/Match/).first()).toBeVisible({ timeout: 10000 });
-    await pageTom.click('#close-item-details-popup');
+    await expect(coffeeRow).toHaveAttribute('data-outcome', 'match');
 
     const catRow = tomContent.locator('.answer-talk-item').filter({ hasText: TAG_CAT }).first();
     await expect(catRow).toBeVisible({ timeout: 10000 });
-    await catRow.click();
-    await expect(pageTom.locator('#item-details-popup').getByText(/Mismatch/).first()).toBeVisible({ timeout: 10000 });
-    await pageTom.click('#close-item-details-popup');
+    await expect(catRow).toHaveAttribute('data-outcome', 'mismatch');
 
     console.log('✅ Tag flow verified: Alice created Coffee + Cat; Tom matched Coffee, ignored Cat; Alice received one match.');
   });

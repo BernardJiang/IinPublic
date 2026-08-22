@@ -3801,10 +3801,11 @@ export class UIManager extends EventEmitter {
       // types — matches if ANY contributing type is active, rather than requiring one exact type.
       const talkTypes = String(item.dataset.talkType || 'flow').toLowerCase().split(' ').filter(Boolean);
       const tagState = String(item.dataset.tagState || '');
-      // Whether the row *itself* renders as a checkbox tag row — not merely whether one of
-      // its contributing talks happens to be talk-type "tag" (a "tag" talk can still answer
-      // a plain question, e.g. its item.kind is "question" — that row is data-tag-state="").
-      const isTagRow = item.classList.contains('answer-tag-item');
+      // docs/TODO.md §LL.2 follow-up: rows no longer have a distinct checkbox-pill CSS class —
+      // whether this row's most-recent variant is a boolean (Checked/Unchecked) tag is now
+      // carried directly in data-tag-state itself (non-empty only for that case; see
+      // renderQuestionRow, answers-view.ts).
+      const isTagRow = tagState !== '';
       const matchesType = activeTypes.length === 0 ? false : talkTypes.some((type) => activeTypes.includes(type));
       const matchesTagState = !isTagRow || allowedTagStates.includes(tagState);
       const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
@@ -3833,15 +3834,11 @@ export class UIManager extends EventEmitter {
         if (sort === 'chatbot-count') return -Number(item.dataset.chatbotUseCount || 0);
         return -Number(item.dataset.answeredAt || 0);
       };
-      // Spec §13.7.1: rows live inside per-section containers (`.answer-section .answers-list`),
-      // not directly under `#answers-list` (now the outer wrapper around the section
-      // `<details>` elements) — sort each section's own rows independently, never move a row
-      // out of its section. `#answers-list` itself only still holds the empty-state placeholder.
-      document.querySelectorAll<HTMLElement>('.answer-section .answers-list').forEach((sectionList) => {
-        Array.from(sectionList.querySelectorAll<HTMLElement>('.answer-talk-item'))
-          .sort((a, b) => rank(a) - rank(b))
-          .forEach((row) => sectionList.appendChild(row));
-      });
+      // docs/TODO.md §LL.2 follow-up: rows live directly under the single flat `#answers-list`
+      // now (no more per-talk section containers) — sort them all together.
+      Array.from(list.querySelectorAll<HTMLElement>('.answer-talk-item'))
+        .sort((a, b) => rank(a) - rank(b))
+        .forEach((row) => list.appendChild(row));
     }
     if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
   }

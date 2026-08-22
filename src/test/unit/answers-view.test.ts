@@ -79,7 +79,7 @@ describe('answers view models', () => {
     expect(variants[0].contextLabel).toBe('Need coffee?→Yes, please');
   });
 
-  it('merges route branches with the same prompt into one row, keeping each context distinct in the detail popup', () => {
+  it('merges route branches with the same prompt into one row, keeping each context distinct as its own sub-line', () => {
     document.body.innerHTML = '<div id="answers-content"></div>';
     const baseRecord = {
       id: 'route-history',
@@ -133,7 +133,7 @@ describe('answers view models', () => {
     expect(document.querySelectorAll('.answer-question-item').length).toBe(1);
     const row = document.querySelector<HTMLElement>('.answer-question-item')!;
     expect(row.dataset.contextCount).toBe('2');
-    expect(row.querySelector('.context-indicator .count')?.textContent).toBe('2');
+    expect(row.querySelectorAll('.answer-context-jump').length).toBe(2);
 
     const content = document.getElementById('answers-content')?.textContent || '';
     expect(content).toContain('Tennis? -> Yes');
@@ -323,11 +323,11 @@ describe('answers view models', () => {
     expect(variants[0].autoUseCount).toBe(0);
   });
 
-  it('folds the same question (by spec content id) asked via different talks/languages into one row, keeping each variant distinguishable in detail', () => {
+  it('folds the same question text asked via different talks/languages into one row', () => {
     document.body.innerHTML = '<div id="answers-content"></div>';
-    // Both records' item carries the SAME questionContentId (Question.cidId) — the spec-
-    // defined content hash — even though their talk-local questionId ('q_0') is also
-    // coincidentally identical here; the merge must key off questionContentId, not questionId.
+    // docs/TODO.md §LL.2 follow-up: grouping is text-based now (not questionContentId) — both
+    // records share the prompt "Tea?", so they merge regardless of their (here, coincidentally
+    // matching) cidId/questionId.
     const baseRecord = {
       title: 'Tea',
       type: 'flow',
@@ -362,13 +362,13 @@ describe('answers view models', () => {
       formatLanguage: (code) => (code === 'zh' ? 'Chinese' : 'English'),
     });
 
-    // Same questionContentId from two different talks merges into one row...
+    // Same prompt text from two different talks merges into one row...
     expect(document.querySelectorAll('.answer-question-item').length).toBe(1);
-    // ...but both contributing instances still show up, each with its own language, once
-    // the row's detail is expanded.
-    const badges = Array.from(document.querySelectorAll<HTMLElement>('.answer-language-badge'));
-    expect(badges.map((badge) => badge.dataset.language).sort()).toEqual(['en', 'zh']);
-    expect(badges.map((badge) => badge.textContent).sort()).toEqual(['Chinese', 'English']);
+    // ...and both contributing talks are still tracked on the merged row (aggregate
+    // data-talk-ids), even though this is a context-free question — only the most recent
+    // instance's answer is shown, no per-language sub-lines.
+    const row = document.querySelector<HTMLElement>('.answer-question-item')!;
+    expect(row.dataset.talkIds?.split(' ').sort()).toEqual(['talk_en', 'talk_zh']);
   });
 
   it('does NOT merge two different questions that coincidentally share the same talk-local questionId but have no matching content id', () => {
@@ -464,7 +464,10 @@ describe('answers view models', () => {
     const content = document.getElementById('answers-content')?.textContent || '';
     expect(content).not.toContain('Welcome to IinPublic');
     expect(content).toContain('Need assistance?');
-    expect(content).toContain('TechSupport check-in');
+    // docs/TODO.md §LL.2 follow-up: talk titles are no longer shown on this page at all — the
+    // answered TechSupport talk is still retained (not filtered out like the support message
+    // record), verified via its talk id reaching the rendered row's jump target instead.
+    expect(document.querySelector<HTMLElement>('.answer-context-jump')?.dataset.talkId).toBe('answered_talk');
   });
 
   it('matches answer history search queries against normalized rendered text', () => {
@@ -562,32 +565,24 @@ describe('answers view models', () => {
       expect(onRowsRendered).toHaveBeenCalledTimes(2);
     });
 
-    it('a deferred-remainder row is fully interactive: copy button, view-talk button, and row click all reach the current deps', async () => {
-      const copyAnsweredTalkToTalks = jest.fn();
-      const showItemDetailsPopup = jest.fn();
+    it('a deferred-remainder row is fully interactive: clicking its answer jumps to the current deps\' showTalkDetail', async () => {
       const showTalkDetail = jest.fn();
-      displayAnswersList(baseDeps(40, { copyAnsweredTalkToTalks, showItemDetailsPopup, showTalkDetail }) as any);
+      displayAnswersList(baseDeps(40, { showTalkDetail }) as any);
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       // A second render (fresh deps object, matching how ui-manager.ts rebuilds deps
       // every call) — the delegated listener must read this new one, not the first.
-      const copyAnsweredTalkToTalks2 = jest.fn();
-      const showItemDetailsPopup2 = jest.fn();
-      displayAnswersList(baseDeps(40, { copyAnsweredTalkToTalks: copyAnsweredTalkToTalks2, showItemDetailsPopup: showItemDetailsPopup2 }) as any);
+      const showTalkDetail2 = jest.fn();
+      displayAnswersList(baseDeps(40, { showTalkDetail: showTalkDetail2 }) as any);
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       const remainderRow = document.querySelector<HTMLElement>('.answer-talk-item[data-question-id="q-answer-039"]');
       expect(remainderRow).toBeTruthy();
 
-      const copyBtn = remainderRow!.querySelector<HTMLElement>('.answer-copy-talk-btn');
-      copyBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      expect(copyAnsweredTalkToTalks2).toHaveBeenCalledWith('talk-answer-039');
-      expect(copyAnsweredTalkToTalks).not.toHaveBeenCalled();
-
-      // Row click (not on a button) opens the details popup via the current deps.
-      remainderRow!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      expect(showItemDetailsPopup2).toHaveBeenCalled();
-      expect(showItemDetailsPopup).not.toHaveBeenCalled();
+      const jumpEl = remainderRow!.querySelector<HTMLElement>('.answer-context-jump');
+      jumpEl!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(showTalkDetail2).toHaveBeenCalledWith('talk-answer-039', 'q-answer-039');
+      expect(showTalkDetail).not.toHaveBeenCalled();
     });
 
     it('preferences button works from the empty state too, exactly once', () => {
@@ -670,18 +665,15 @@ describe('answers view models', () => {
       expect(document.querySelector('[data-testid="me-identity-header"]')).toBeNull();
     });
 
-    it('puts context-free answers in "General" and context-bearing answers in their own talk-titled section', () => {
+    it('lists every distinct question once in a flat list, with no per-talk sections', () => {
       displayAnswersList(
         baseDeps({
           getFlatAnswerHistory: () => ({
-            // Context-free (tag): lands in General.
             tag1: {
               id: 'tag1', talkId: 'talk-tag', title: 'Hobby Tag', type: 'tag', language: 'en', outcome: 'match',
               answeredAt: new Date(2026, 0, 1).toISOString(), senderIds: [],
               items: [{ questionId: 'q0', answerId: 'a0', prompt: 'Tennis', choice: 'Checked', kind: 'tag', contextPath: [], contextHash: '' }],
             },
-            // Flow with 2 questions: the second question's context is derived from the first,
-            // so it's context-bearing and sections under its own talk.
             flow1: {
               id: 'flow1', talkId: 'talk-notebook', title: 'Sell Used Notebook', type: 'flow', language: 'en', outcome: 'match',
               answeredAt: new Date(2026, 0, 2).toISOString(), senderIds: [],
@@ -694,22 +686,17 @@ describe('answers view models', () => {
         }) as any,
       );
 
-      const sections = Array.from(document.querySelectorAll<HTMLElement>('.answer-section'));
-      const titles = sections.map((s) => s.querySelector('summary')?.textContent);
-      expect(titles).toContain('General');
-      expect(titles).toContain('Sell Used Notebook');
+      // docs/TODO.md §LL.2 follow-up: no more "General"/talk-titled sections — one flat list.
+      expect(document.querySelectorAll('.answer-section').length).toBe(0);
+      expect(document.querySelectorAll('.answer-question-item').length).toBe(3);
 
-      const generalSection = sections.find((s) => s.querySelector('summary')?.textContent === 'General')!;
-      expect(generalSection.querySelector('.answer-question-item')).toBeTruthy();
-      expect(generalSection.textContent).toContain('Tennis');
-      expect(generalSection.textContent).not.toContain('What model?');
-
-      const notebookSection = sections.find((s) => s.querySelector('summary')?.textContent === 'Sell Used Notebook')!;
-      expect(notebookSection.textContent).toContain('What model?');
-      expect(notebookSection.textContent).not.toContain('Tennis');
+      const content = document.getElementById('answers-content')?.textContent || '';
+      expect(content).toContain('Tennis');
+      expect(content).toContain('Are you selling?');
+      expect(content).toContain('What model?');
     });
 
-    it('two different talks in the same category get two separate sections, never merged', () => {
+    it('merges the same question text asked by two different talks into one row with a sub-line per context', () => {
       displayAnswersList(
         baseDeps({
           getFlatAnswerHistory: () => ({
@@ -718,7 +705,7 @@ describe('answers view models', () => {
               answeredAt: new Date(2026, 0, 2).toISOString(), senderIds: [],
               items: [
                 { questionId: 'qa0', answerId: 'aa0', prompt: 'Are you selling?', choice: 'Yes', kind: 'question', contextPath: [], contextHash: '' },
-                { questionId: 'qa1', answerId: 'aa1', prompt: 'What model?', choice: 'ModelX', kind: 'question', contextPath: [], contextHash: '' },
+                { questionId: 'qa1', answerId: 'aa1', prompt: 'What model?', choice: 'ModelX', kind: 'question', contextPath: [], contextHash: 'hash_notebook', contextLabel: 'Notebook' },
               ],
             },
             flowB: {
@@ -726,24 +713,23 @@ describe('answers view models', () => {
               answeredAt: new Date(2026, 0, 3).toISOString(), senderIds: [],
               items: [
                 { questionId: 'qb0', answerId: 'ab0', prompt: 'Are you selling a bike?', choice: 'Yes', kind: 'question', contextPath: [], contextHash: '' },
-                { questionId: 'qb1', answerId: 'ab1', prompt: 'What brand?', choice: 'BrandY', kind: 'question', contextPath: [], contextHash: '' },
+                { questionId: 'qb1', answerId: 'ab1', prompt: 'What model?', choice: 'BrandY', kind: 'question', contextPath: [], contextHash: 'hash_bike', contextLabel: 'Bike' },
               ],
             },
           }),
         }) as any,
       );
 
-      // Each flow's first question has no preceding context (contextKey='') and lands in
-      // General; each flow's second question IS context-bearing and gets its own section —
-      // three sections total, and critically the two sell-listings' context-bearing questions
-      // never share a section with each other.
-      const sections = Array.from(document.querySelectorAll<HTMLElement>('.answer-section'));
-      const byTitle = new Map(sections.map((s) => [s.querySelector('summary')?.textContent, s]));
-      expect(sections).toHaveLength(3);
-      expect(byTitle.get('Sell Used Notebook')?.textContent).toContain('What model?');
-      expect(byTitle.get('Sell Used Notebook')?.textContent).not.toContain('What brand?');
-      expect(byTitle.get('Sell Used Bike')?.textContent).toContain('What brand?');
-      expect(byTitle.get('Sell Used Bike')?.textContent).not.toContain('What model?');
+      // "Are you selling?" and "Are you selling a bike?" are different text — stay separate.
+      // Both talks' "What model?" question — identical text — merges into ONE row with 2
+      // context-tagged answer sub-lines, not two separate rows under two talks.
+      expect(document.querySelectorAll('.answer-question-item').length).toBe(3);
+      const modelRows = Array.from(document.querySelectorAll<HTMLElement>('.answer-question-item'))
+        .filter((row) => row.textContent?.includes('What model?'));
+      expect(modelRows).toHaveLength(1);
+      expect(modelRows[0].querySelectorAll('.answer-context-jump').length).toBe(2);
+      expect(modelRows[0].textContent).toContain('ModelX');
+      expect(modelRows[0].textContent).toContain('BrandY');
     });
   });
 });
