@@ -63,24 +63,27 @@ test.describe('Me tab — answer history and dialogs (merged)', () => {
     await afterNav();
     const p = page!;
     await expect(p.locator('#answers-list')).toBeVisible({ timeout: 10000 });
-    await expect(p.locator('#answers-list')).toContainText('Coffee Meetup');
+    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt, not the
+    // talk title — "Coffee Meetup" is still searchable (buildSearchText includes talkTitle,
+    // answers-view.ts, unaffected by the redesign), just no longer shown as text.
+    await expect(p.locator('#answers-list')).toContainText('Do you like coffee?');
 
-    // Matching search keeps it.
+    // Matching search (by talk title, still indexed even though not displayed) keeps it.
     await p.fill('#answers-search-input', 'Coffee');
     await afterSync();
-    await expect(p.locator('#answers-list')).toContainText('Coffee Meetup');
+    await expect(p.locator('#answers-list')).toContainText('Do you like coffee?');
 
     // Non-matching search empties the visible rows. (textContent keeps hidden
     // rows, so assert on the rendered text via useInnerText.)
     await p.fill('#answers-search-input', 'zzz-no-match');
     await afterSync();
-    await expect(p.locator('#answers-list')).not.toContainText('Coffee Meetup', { useInnerText: true });
-    await expect(p.locator('#answers-list .answer-talk-item', { hasText: 'Coffee Meetup' }).first()).toBeHidden();
+    await expect(p.locator('#answers-list')).not.toContainText('Do you like coffee?', { useInnerText: true });
+    await expect(p.locator('#answers-list .answer-talk-item', { hasText: 'Do you like coffee?' }).first()).toBeHidden();
 
     // Clearing restores it.
     await p.fill('#answers-search-input', '');
     await afterSync();
-    await expect(p.locator('#answers-list')).toContainText('Coffee Meetup');
+    await expect(p.locator('#answers-list')).toContainText('Do you like coffee?');
   });
 
   test('My Talks dialog opens and closes', async () => {

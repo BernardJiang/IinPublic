@@ -139,14 +139,13 @@ test.describe('Talk lifecycle — survey multi-responder matrix (D4)', () => {
     expect(matchBadgeText ?? '').not.toMatch(/1\s*match/i);
 
     // --- Jerry's Me/Answers tab shows survey as answered ---
-    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk
-    // title — `.filter({ hasText })` matches hidden descendant text too, so it still
-    // locates the row by title.
+    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt
+    // ("Rate our service", makeSurveyTalk), not the talk title.
     await pageJerry.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageJerry, 'me');
     await afterSync();
     await expect(
-      pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: SURVEY_TITLE }).first(),
+      pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: 'Rate our service' }).first(),
     ).toBeVisible({ timeout: 30_000 });
 
     // --- Bob's Me/Answers tab shows survey as answered ---
@@ -154,7 +153,7 @@ test.describe('Talk lifecycle — survey multi-responder matrix (D4)', () => {
     await waitForTabActive(pageBob, 'me');
     await afterSync();
     await expect(
-      pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: SURVEY_TITLE }).first(),
+      pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: 'Rate our service' }).first(),
     ).toBeVisible({ timeout: 30_000 });
 
     await afterAction();

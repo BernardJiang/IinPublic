@@ -143,18 +143,12 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await waitForStatusBarMatchCountAtLeast(pageTom, 2, 90_000);
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
-    // Rows are merged by question (spec-defined questionId); the talk title lives in each
-    // row's collapsed details, revealed only via the tap-to-open-details popup — see
-    // TODO §M-merge in answers-view.ts. data-search-text carries the (lowercased) title
-    // even while the row is collapsed, so it's a stable way to locate the right row.
+    // docs/TODO.md §LL.2 follow-up: rows are merged by question text now, not talk title — no
+    // popup anymore. data-search-text still carries the (lowercased) talk title (buildSearchText,
+    // answers-view.ts, unaffected by the redesign), so it's still a stable way to locate the row.
     for (const title of [TITLE_TENNIS, TITLE_COFFEE]) {
       const row = pageJerry.locator(`.answer-talk-item[data-search-text*="${title.toLowerCase()}"]`).first();
       await expect(row).toBeVisible({ timeout: 15000 });
-      await row.click();
-      await expect(pageJerry.locator('#item-details-popup').getByText(title).first()).toBeVisible({
-        timeout: 15000,
-      });
-      await pageJerry.click('#close-item-details-popup');
     }
   });
 });

@@ -465,6 +465,14 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         return;
       }
 
+      const copyJumpEl = target.closest('.answer-copy-talk-jump') as HTMLElement | null;
+      if (copyJumpEl) {
+        e.stopPropagation();
+        const talkId = copyJumpEl.dataset.talkId;
+        if (talkId) currentDeps.copyAnsweredTalkToTalks(talkId);
+        return;
+      }
+
       // Every context/answer line jumps straight to its source talk at that specific question —
       // no expand-in-place detail step anymore (see renderQuestionRow). "No senders" (a talk I
       // authored myself) opens that talk's Talks-tab responses list instead, same as the
@@ -537,17 +545,20 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         ? ` <span style="color:var(--text-tertiary);font-size:0.85em;">(${deps.escapeHtml(variant.contextLabel.replace(/→/g, ' -> '))})</span>`
         : '';
       // docs/TODO.md §LL.2 follow-up: "trace back to who sent this, from which talk" — the
-      // answer text itself jumps to the source talk; a separate small link, only shown when
-      // this variant actually has a sender, jumps straight to that sender's Contacts detail.
-      // Two independent, non-nested click targets, so clicking one never also fires the other.
+      // answer text itself jumps to the source talk; two small sibling links, non-nested so
+      // clicking one never fires another: "view sender" (only when this variant has a sender)
+      // jumps to that sender's Contacts detail; "copy" re-saves that specific contributing
+      // talk into My Talks, unconditional (mirrors the pre-redesign popup's always-shown copy
+      // button).
       const contactLink = hasSenders
         ? ` · <span class="answer-view-contact-jump" data-sender-id="${deps.escapeHtml(variant.senderIds[0])}" style="cursor:pointer;color:var(--accent-text);font-size:0.85em;">${deps.escapeHtml(deps.text('meViewContact'))}</span>`
         : '';
+      const copyLink = ` · <span class="answer-copy-talk-jump" data-talk-id="${deps.escapeHtml(variant.talkId)}" title="${deps.escapeHtml(deps.text('copy'))}" style="cursor:pointer;color:var(--accent-text);font-size:0.85em;">📋 ${deps.escapeHtml(deps.text('copy'))}</span>`;
       return `
         <span style="${indent ? 'display:block;padding:2px 0;' : 'display:inline;'}">
           <span class="answer-context-jump" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-talk-title="${deps.escapeHtml(variant.talkTitle)}" data-question-id="${deps.escapeHtml(variant.questionId)}" data-has-senders="${hasSenders ? '1' : '0'}" style="cursor:pointer;">
             → ${deps.escapeHtml(formatChoiceForDisplay(variant, deps))}${contextSuffix}
-          </span>${contactLink}
+          </span>${contactLink}${copyLink}
         </span>
       `;
     };
@@ -573,7 +584,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           </div>
         `;
       return `
-        <div class="answer-question-item answer-talk-item ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" style="display:flex;flex-direction:column;gap:2px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+        <div class="answer-question-item answer-talk-item ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" style="display: flex;flex-direction:column;gap:2px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
           ${bodyHtml}
         </div>
       `;

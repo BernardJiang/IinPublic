@@ -101,9 +101,11 @@ test.describe('Talk -> Me-tab Q&A reverse edge', () => {
 
       await expect(pageJerry.locator('#talk-response-modal')).toHaveCount(0);
       await expect(pageJerry.locator('.nav-btn[data-view="me"]')).toHaveClass(/active/);
+      // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt, not
+      // the talk title.
       const highlighted = pageJerry.locator('.answer-talk-item.answer-item-highlighted');
       await expect(highlighted).toBeVisible({ timeout: 10_000 });
-      await expect(highlighted).toContainText('Reverse Edge Talk');
+      await expect(highlighted).toContainText('Reverse edge smoke?');
     } finally {
       await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
       await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});

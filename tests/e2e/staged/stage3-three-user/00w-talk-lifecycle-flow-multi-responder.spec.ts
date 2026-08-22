@@ -151,22 +151,23 @@ test.describe('Talk lifecycle — flow multi-responder matrix (D4)', () => {
     await expect(jerryContact).toContainText(/Stranger/i);
     await expect(bobContact).toBeVisible({ timeout: 60_000 });
 
-    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk
-    // title, and the Match/Mismatch outcome lives in the row's hidden details popup —
-    // `.filter({ hasText })` matches hidden descendant text too, so it still locates rows.
+    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt
+    // ("Would you like to discuss ${title}?"), which still contains FLOW_TITLE as a substring
+    // so the row lookup is unaffected; the Match/Mismatch outcome is now carried on the row's
+    // own data-outcome attribute, no popup anymore.
     await pageJerry.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageJerry, 'me');
     await afterSync();
     const jerryRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: FLOW_TITLE }).first();
     await expect(jerryRow).toBeVisible({ timeout: 30_000 });
-    await expect(jerryRow.filter({ hasText: /Match/i })).toHaveCount(1, { timeout: 15_000 });
+    await expect(jerryRow).toHaveAttribute('data-outcome', 'match');
 
     await pageBob.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageBob, 'me');
     await afterSync();
     const bobRow = pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: FLOW_TITLE }).first();
     await expect(bobRow).toBeVisible({ timeout: 30_000 });
-    await expect(bobRow.filter({ hasText: /Mismatch/i })).toHaveCount(1, { timeout: 15_000 });
+    await expect(bobRow).toHaveAttribute('data-outcome', 'mismatch');
 
     await afterAction();
   });

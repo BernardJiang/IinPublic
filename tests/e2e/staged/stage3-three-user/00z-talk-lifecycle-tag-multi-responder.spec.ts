@@ -112,22 +112,22 @@ test.describe('Talk lifecycle — tag multi-responder matrix (D4)', () => {
 
     await waitForStatusBarMatchCountAtLeast(pageTom, 1, 120_000);
 
-    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk
-    // title, and the Match/Mismatch outcome lives in the row's hidden details popup —
-    // `.filter({ hasText })` matches hidden descendant text too, so it still locates rows.
+    // docs/TODO.md §LL.2 follow-up: a tag talk's question text IS its title (TAG_TITLE), so the
+    // row is still found by title; the Match/Mismatch outcome is carried on the row's own
+    // data-outcome attribute now, no popup anymore.
     await pageJerry.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageJerry, 'me');
     await afterSync();
     const jerryTagRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: TAG_TITLE }).first();
     await expect(jerryTagRow).toBeVisible({ timeout: 30_000 });
-    await expect(jerryTagRow.filter({ hasText: /Match/i })).toHaveCount(1, { timeout: 15_000 });
+    await expect(jerryTagRow).toHaveAttribute('data-outcome', 'match');
 
     await pageBob.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageBob, 'me');
     await afterSync();
     const bobTagRow = pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: TAG_TITLE }).first();
     await expect(bobTagRow).toBeVisible({ timeout: 30_000 });
-    await expect(bobTagRow.filter({ hasText: /Mismatch/i })).toHaveCount(1, { timeout: 15_000 });
+    await expect(bobTagRow).toHaveAttribute('data-outcome', 'mismatch');
     await afterAction();
   });
 });

@@ -126,11 +126,12 @@ test.describe('Talks matching — answered incoming remains in IN history', () =
     await expect(pageJerry.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: 'E2E Ignore Then Match Tennis' })).toHaveCount(1);
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
-    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk title —
-    // `.filter({ hasText })` still locates the row by title since it matches hidden text too.
-    const answerRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: 'E2E Ignore Then Match Tennis' }).first();
+    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt, not the
+    // talk title — "Available Sundays?" is the terminal (ignore) question Jerry answered; the
+    // outcome is carried on the row's own data-outcome attribute, no popup anymore.
+    const answerRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: 'Available Sundays?' }).first();
     await expect(answerRow).toBeVisible({ timeout: 15000 });
-    await expect(answerRow.filter({ hasText: /Mismatch/i })).toHaveCount(1);
+    await expect(answerRow).toHaveAttribute('data-outcome', 'mismatch');
     await waitForTabActive(pageTom, 'chatrooms');
   });
 });
