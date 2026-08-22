@@ -8,7 +8,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { backToSettingsMenu, openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function openIdentityDevices(page: Page): Promise<void> {
   await page.locator('.nav-btn[data-view="settings"]').click();
@@ -38,7 +38,7 @@ test.describe('mutual direct identity linking', () => {
     await clearGunForStage2Spec();
   });
 
-  test('requires both signatures, rejects replay, and converges after revocation', async ({ browser }) => {
+  test('requires both signatures, rejects replay, and converges when a lost device returns', async ({ browser }) => {
     test.setTimeout(90_000);
     const a = await bootstrapDevice(browser);
     const b = await bootstrapDevice(browser);
@@ -95,17 +95,54 @@ test.describe('mutual direct identity linking', () => {
       await expect(b.page.locator('[data-testid="enter-link-code-error"]')).toContainText('already linked');
       await b.page.locator('#enter-link-code-cancel').click();
 
-      // A revokes locally; B resolves the signed revocation rather than claiming
-      // that A or B's remote data was erased.
+      // B disappears before revocation, modeling a lost/offline installation.
+      await b.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
+      await b.page.close();
+
+      // A denies local trust immediately and publishes a unilateral signed
+      // revocation without claiming that B's local data was erased.
       await a.page.locator('[data-testid="linked-device-unlink-btn"]').click();
       await a.page.locator('[data-testid="unlink-confirm-btn"]').click();
-      await expect(a.page.locator('[data-testid="linked-device-row"]')).toHaveCount(0);
+      await expect(a.page.locator('[data-testid="linked-device-row"]')).toContainText('Removed');
+      await expect(a.page.locator('[data-testid="linked-device-unlink-btn"]')).toHaveCount(0);
       await afterSync();
-      await b.page.locator('[data-testid="refresh-linked-devices"]').click();
+
+      // When B returns with its original local identity, it independently
+      // verifies A's revocation and converges to Removed.
+      b.page = await b.context.newPage();
+      await gotoWebApp(b.page, webBaseURL());
+      await afterLoad();
+      await openIdentityDevices(b.page);
       await expect(b.page.locator('[data-testid="linked-device-row"]')).toContainText(
-        'Revocation pending',
+        'Removed',
         { timeout: 20_000 },
       );
+
+      // Device-sale path: B erases the retired installation. A Removed row is
+      // historical, not a sync target, and the fresh boot gets unrelated keys.
+      const retiredPub = await b.page.evaluate(
+        () => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.pub || '',
+      );
+      expect(retiredPub).not.toBe('');
+      await b.page.locator('[data-testid="linked-devices-close"]').click();
+      await backToSettingsMenu(b.page);
+      await openSettingsSection(b.page, SETTINGS_SECTION.eraseDevice);
+      await b.page.locator('[data-testid="settings-erase-device-btn"]').click();
+      await expect(b.page.locator('[data-testid="erase-device-modal"]')).toContainText(
+        'No linked device is online',
+      );
+      await b.page.locator('[data-testid="erase-confirm-input"]').fill('ERASE');
+      await b.page.locator('[data-testid="erase-device-btn"]').click();
+      await b.page.waitForLoadState('load');
+      await afterLoad();
+      await expect.poll(
+        () => b.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.pub || ''),
+        { timeout: 30_000 },
+      ).not.toBe('');
+      const replacementPub = await b.page.evaluate(
+        () => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.pub || '',
+      );
+      expect(replacementPub).not.toBe(retiredPub);
     } finally {
       await Promise.all([
         a.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {}),

@@ -796,6 +796,7 @@ export class IinPublicApp {
       applyPublicChatroomHierarchy(raw);
     });
     await this.gunService.ensureKeypairAndAuth();
+    void this.identityLinkService.flushPendingRevocations().catch(() => {});
     const durableChatbotMemory = new GunChatbotMemoryRepository(this.gunService);
     const restoredChatbotMemory = await durableChatbotMemory.loadState().catch(() => null);
     if (restoredChatbotMemory) setExactChatbotMemory(restoredChatbotMemory);

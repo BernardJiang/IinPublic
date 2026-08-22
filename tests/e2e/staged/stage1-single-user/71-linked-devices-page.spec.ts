@@ -129,14 +129,15 @@ test.describe('Identity & devices page', () => {
     await expect(p.locator('[data-testid="linked-device-row"]')).toHaveCount(1);
     await expect(p.locator('[data-testid="linked-device-row"]')).toContainText('Waiting for approval');
 
-    // Unlink via confirm.
+    // Unlink via confirm. The historical row remains honestly marked Removed;
+    // it is no longer an active link and cannot be unlinked again.
     await p.locator('[data-testid="linked-device-unlink-btn"]').first().click();
     await afterNav();
     await expect(p.locator('[data-testid="unlink-device-confirm"]')).toBeVisible();
     await p.locator('[data-testid="unlink-confirm-btn"]').click();
     await afterSync();
-    await expect(p.locator('[data-testid="linked-device-row"]')).toHaveCount(0);
-    await expect(p.locator('[data-testid="linked-devices-empty"]')).toBeVisible();
+    await expect(p.locator('[data-testid="linked-device-row"]')).toContainText('Removed');
+    await expect(p.locator('[data-testid="linked-device-unlink-btn"]')).toHaveCount(0);
 
     // Escape closes the page and returns focus to its Settings opener.
     await p.keyboard.press('Escape');

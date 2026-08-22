@@ -30,7 +30,7 @@ test.describe('Sync before erase', () => {
       try {
         localStorage.setItem(
           'iinpublic_linked_devices',
-          JSON.stringify([{ pub: 'phone-pub', stageName: 'My Phone', platform: 'ios', linkedAt: Date.now() }]),
+          JSON.stringify([{ pub: 'phone-pub', stageName: 'My Phone', platform: 'ios', linkedAt: Date.now(), state: 'linked' }]),
         );
       } catch {
         /* ignore */

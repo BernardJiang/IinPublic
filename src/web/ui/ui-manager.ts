@@ -4600,8 +4600,11 @@ export class UIManager extends EventEmitter {
         return null;
       },
       unlink: async (pub: string) => {
-        if (this.identityLinkUnlinker) await this.identityLinkUnlinker(pub);
-        saveRecords(listRecords().filter((r) => r.pub !== pub));
+        const state = this.identityLinkUnlinker
+          ? await this.identityLinkUnlinker(pub)
+          : 'revocation-pending';
+        saveRecords(listRecords().map((row) => row.pub === pub ? { ...row, state } : row));
+        return state;
       },
     });
   }
@@ -4615,7 +4618,11 @@ export class UIManager extends EventEmitter {
     let linked: LinkedDeviceRow[] = [];
     try {
       const arr = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
-      linked = Array.isArray(arr) ? arr : [];
+      // Only graph-verified active links are eligible sync/revocation targets.
+      // Historical Removed/Invalid rows must not imply a receiver is available.
+      linked = Array.isArray(arr)
+        ? arr.filter((row: LinkedDeviceRow) => row.state === 'linked')
+        : [];
     } catch {
       linked = [];
     }
@@ -4652,7 +4659,7 @@ export class UIManager extends EventEmitter {
   private identityLinkPendingCanceler?: (requestId: string) => void;
   private identityLinkRefresher?: () => Promise<void>;
   private identityLinkCompleter?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>;
-  private identityLinkUnlinker?: (pub: string) => Promise<void>;
+  private identityLinkUnlinker?: (pub: string) => Promise<'removed' | 'revocation-pending'>;
   setIdentityLinkHooks(hooks: {
     createLinkCode?: (now: number) => { payload: PairingPayload; code: string };
     readIncomingRequest?: () => Promise<import('./linked-devices-dialog').IncomingLinkRequestSummary | null>;
@@ -4660,7 +4667,7 @@ export class UIManager extends EventEmitter {
     cancelPendingRequest?: (requestId: string) => void;
     refreshRecords?: () => Promise<void>;
     completeFromCode?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>;
-    unlink?: (pub: string) => Promise<void>;
+    unlink?: (pub: string) => Promise<'removed' | 'revocation-pending'>;
   }): void {
     if (hooks.createLinkCode) this.identityLinkCodeCreator = hooks.createLinkCode;
     if (hooks.readIncomingRequest) this.identityLinkRequestReader = hooks.readIncomingRequest;

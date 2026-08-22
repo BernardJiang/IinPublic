@@ -4789,6 +4789,14 @@ of one physical/legal person. See `docs/architecture/identity-v1-semantics.md`.
 3. Either identity can **Remove link**. `UNLINK_IDENTITY` supersedes the direct attestation for
    future decisions. Expired, reused, malformed, and self-link codes fail safely.
 
+Revocation is unilateral and local-first. Before attempting a graph write, the removing device
+signs and persists a versioned revocation outbox entry and immediately stops treating the edge as
+linked. A successful graph acknowledgement changes the row to `Removed`; a failed write remains
+`Revocation pending` and retries on startup and Settings refresh. The remote device verifies the
+signature when it next reconnects. Invalid signatures show `Invalid`; a newer post-revocation
+attestation that cannot be reconciled automatically shows `Conflicted`. Revocation records use a
+separate graph root, so the earlier attestations remain available for historical verification.
+
 ##### 10.2 v1 semantics of a link
 
 - **Public effect:** each identity may show its directly and mutually verified linked identities.

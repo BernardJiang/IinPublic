@@ -13,8 +13,8 @@ import {
   buildLinkAttestation,
   buildRevocation,
   linkVerified,
-  resolveLinkState,
   verifyLinkAttestation,
+  verifyRevocation,
 } from '../../shared/identity-linking';
 
 /** A linked-device record as displayed on the Linked devices page. */
@@ -23,7 +23,7 @@ export interface LinkedDeviceRecord {
   stageName: string;
   platform: string;
   linkedAt: number;
-  state: 'waiting' | 'linked' | 'revocation-pending' | 'removed' | 'invalid';
+  state: 'waiting' | 'linked' | 'revocation-pending' | 'removed' | 'invalid' | 'conflicted';
 }
 
 export interface IncomingLinkRequest {
@@ -43,9 +43,21 @@ interface ConsumedPairingV1 {
   expiresAt: number;
 }
 
+interface PendingRevocationV1 {
+  version: 1;
+  revocation: LinkRevocation;
+  queuedAt: number;
+  lastAttemptAt: number;
+  attempts: number;
+}
+
+export type ResolvedLinkState = LinkState | 'invalid' | 'conflicted';
+export type UnlinkResult = 'removed' | 'revocation-pending';
+
 const LOCAL_LINKS_KEY = 'iinpublic_linked_devices';
 const PENDING_OUTGOING_KEY = 'iinpublic_identity_link_pending_outgoing_v1';
 const CONSUMED_PAIRINGS_KEY = 'iinpublic_identity_link_consumed_v1';
+const PENDING_REVOCATIONS_KEY = 'iinpublic_identity_link_pending_revocations_v1';
 const GUN_LINK_ROOT = 'identity-links';
 const GUN_REVOKE_ROOT = 'identity-link-revocations';
 const GUN_REQUEST_ROOT = 'identity-link-requests';
@@ -209,6 +221,7 @@ export class WebIdentityLinkService {
    * complete the mutual link. Verifies B referenced the same pairing secret.
    */
   async confirmIncomingLink(peerPub: string, now: number = Date.now()): Promise<boolean> {
+    if (this.hasPendingRevocation(peerPub)) return false;
     const pending = this.getPendingOutgoing(now);
     if (!pending) return false;
     const request = await this.readIncomingLinkRequest(now);
@@ -239,48 +252,122 @@ export class WebIdentityLinkService {
     return verified;
   }
 
-  async unlink(peerPub: string, now: number = Date.now()): Promise<void> {
-    const rev = await buildRevocation({ selfPub: this.selfPub(), peerPub, crypto: this.crypto(), now });
-    await this.publishRevocation(rev);
-    this.removeLocalRecord(peerPub);
+  async unlink(peerPub: string, now: number = Date.now()): Promise<UnlinkResult> {
+    const existing = this.pendingRevocations().find((record) => record.revocation.toPub === peerPub);
+    if (!existing) {
+      const revocation = await buildRevocation({
+        selfPub: this.selfPub(),
+        peerPub,
+        crypto: this.crypto(),
+        now,
+      });
+      this.queueRevocation({
+        version: 1,
+        revocation,
+        queuedAt: now,
+        lastAttemptAt: 0,
+        attempts: 0,
+      });
+    }
+
+    // Deny local trust before touching the network. Failed publication remains
+    // visible and retryable instead of silently restoring the link.
+    this.setLocalRecordState(peerPub, 'revocation-pending', now);
+    await this.flushPendingRevocations(now, peerPub);
+    return this.hasPendingRevocation(peerPub) ? 'revocation-pending' : 'removed';
+  }
+
+  /** Retry signed revocations queued while the graph was unavailable. */
+  async flushPendingRevocations(now: number = Date.now(), onlyPeerPub?: string): Promise<void> {
+    const crypto = this.crypto();
+    const pending = this.pendingRevocations();
+    const remaining: PendingRevocationV1[] = [];
+    for (const record of pending) {
+      if (onlyPeerPub && record.revocation.toPub !== onlyPeerPub) {
+        remaining.push(record);
+        continue;
+      }
+      const edgeIsLocal = record.revocation.fromPub === this.selfPub()
+        && record.revocation.toPub !== this.selfPub();
+      if (!edgeIsLocal || !(await verifyRevocation(record.revocation, crypto))) {
+        this.setLocalRecordState(record.revocation.toPub, 'invalid', now);
+        continue;
+      }
+      try {
+        await this.publishRevocation(record.revocation);
+        this.setLocalRecordState(record.revocation.toPub, 'removed', now);
+      } catch {
+        remaining.push({
+          ...record,
+          lastAttemptAt: now,
+          attempts: record.attempts + 1,
+        });
+        this.setLocalRecordState(record.revocation.toPub, 'revocation-pending', now);
+      }
+    }
+    this.writeJson(PENDING_REVOCATIONS_KEY, remaining);
   }
 
   /** Resolve the current state of a link with `peerPub` from the graph. */
-  async linkStateWith(peerPub: string): Promise<LinkState> {
+  async linkStateWith(peerPub: string): Promise<ResolvedLinkState> {
+    if (this.hasPendingRevocation(peerPub)) return 'revoked';
     const [attSelf, attPeer, revSelf, revPeer] = await Promise.all([
       this.readAttestation(this.selfPub(), peerPub),
       this.readAttestation(peerPub, this.selfPub()),
       this.readRevocation(this.selfPub(), peerPub),
       this.readRevocation(peerPub, this.selfPub()),
     ]);
-    return resolveLinkState({
-      attFromSelf: attSelf,
-      attFromPeer: attPeer,
-      revocation: revSelf || revPeer,
-      crypto: this.crypto(),
-    });
+    const crypto = this.crypto();
+    for (const attestation of [attSelf, attPeer]) {
+      if (attestation && !(await verifyLinkAttestation(attestation, crypto))) return 'invalid';
+    }
+    if (attSelf && attPeer && attSelf.secretHash !== attPeer.secretHash) return 'conflicted';
+
+    const revocations = [revSelf, revPeer].filter((value): value is LinkRevocation => !!value);
+    for (const revocation of revocations) {
+      const sameEdge = (
+        revocation.fromPub === this.selfPub() && revocation.toPub === peerPub
+      ) || (
+        revocation.fromPub === peerPub && revocation.toPub === this.selfPub()
+      );
+      if (!sameEdge || !(await verifyRevocation(revocation, crypto))) return 'invalid';
+    }
+    if (revocations.length > 0) {
+      const latestRevocationAt = Math.max(...revocations.map((revocation) => revocation.revokedAt));
+      const latestAttestationAt = Math.max(
+        attSelf?.issuedAt ?? Number.NEGATIVE_INFINITY,
+        attPeer?.issuedAt ?? Number.NEGATIVE_INFINITY,
+      );
+      return latestAttestationAt > latestRevocationAt ? 'conflicted' : 'revoked';
+    }
+
+    if (attSelf && attPeer) return (await linkVerified(attSelf, attPeer, crypto)) ? 'linked' : 'invalid';
+    if (attSelf || attPeer) return 'pending';
+    return 'none';
   }
 
   /** Do these two identities have a verified direct mutual link? */
   async isLinked(peerPub: string): Promise<boolean> {
-    const [attSelf, attPeer] = await Promise.all([
-      this.readAttestation(this.selfPub(), peerPub),
-      this.readAttestation(peerPub, this.selfPub()),
-    ]);
-    return linkVerified(attSelf, attPeer, this.crypto());
+    return (await this.linkStateWith(peerPub)) === 'linked';
   }
 
   /** Re-resolve local candidate rows from signed graph state. */
   async refreshLocalRecords(): Promise<LinkedDeviceRecord[]> {
+    await this.flushPendingRevocations();
     const refreshed = await Promise.all(this.listLocalRecords().map(async (record) => {
-      const state = await this.linkStateWith(record.pub).catch(() => 'none' as LinkState);
-      const displayState: LinkedDeviceRecord['state'] = state === 'linked'
+      const locallyPending = this.hasPendingRevocation(record.pub);
+      const state = await this.linkStateWith(record.pub).catch(() => 'none' as ResolvedLinkState);
+      const displayState: LinkedDeviceRecord['state'] = locallyPending
+        ? 'revocation-pending'
+        : state === 'linked'
         ? 'linked'
         : state === 'pending'
           ? 'waiting'
           : state === 'revoked'
-            ? 'revocation-pending'
-            : 'invalid';
+            ? 'removed'
+            : state === 'conflicted'
+              ? 'conflicted'
+              : 'invalid';
       return { ...record, state: displayState };
     }));
     this.writeJson(LOCAL_LINKS_KEY, refreshed);
@@ -303,6 +390,21 @@ export class WebIdentityLinkService {
   removeLocalRecord(pub: string): void {
     const list = this.listLocalRecords().filter((r) => r.pub !== pub);
     this.writeJson(LOCAL_LINKS_KEY, list);
+  }
+
+  private setLocalRecordState(
+    pub: string,
+    state: LinkedDeviceRecord['state'],
+    now: number,
+  ): void {
+    const existing = this.listLocalRecords().find((record) => record.pub === pub);
+    this.upsertLocalRecord({
+      pub,
+      stageName: existing?.stageName || 'Linked identity',
+      platform: existing?.platform || 'unknown',
+      linkedAt: existing?.linkedAt || now,
+      state,
+    });
   }
 
   // --- Gun read/write -----------------------------------------------------------
@@ -350,7 +452,7 @@ export class WebIdentityLinkService {
 
   private async readRevocation(fromPub: string, toPub: string): Promise<LinkRevocation | null> {
     const raw = await this.gunService.get(this.revokePath(fromPub, toPub)).catch(() => null);
-    return raw && typeof raw === 'object' && raw.sig ? (raw as LinkRevocation) : null;
+    return raw && typeof raw === 'object' ? (raw as LinkRevocation) : null;
   }
 
   private readJson<T>(key: string): T | null {
@@ -395,5 +497,32 @@ export class WebIdentityLinkService {
     const records = this.consumedPairings(now).filter((record) => record.requestId !== requestId);
     records.push({ requestId, expiresAt });
     this.writeJson(CONSUMED_PAIRINGS_KEY, records);
+  }
+
+  private pendingRevocations(): PendingRevocationV1[] {
+    const records = this.readJson<PendingRevocationV1[]>(PENDING_REVOCATIONS_KEY);
+    return Array.isArray(records)
+      ? records.filter((record) => (
+          record?.version === 1
+          && typeof record.revocation?.fromPub === 'string'
+          && !!record.revocation.fromPub
+          && typeof record.revocation?.toPub === 'string'
+          && !!record.revocation.toPub
+          && Number.isFinite(record.revocation?.revokedAt)
+          && typeof record.revocation?.sig === 'string'
+          && !!record.revocation.sig
+        ))
+      : [];
+  }
+
+  private hasPendingRevocation(peerPub: string): boolean {
+    return this.pendingRevocations().some((record) => record.revocation.toPub === peerPub);
+  }
+
+  private queueRevocation(record: PendingRevocationV1): void {
+    const records = this.pendingRevocations()
+      .filter((existing) => existing.revocation.toPub !== record.revocation.toPub);
+    records.push(record);
+    this.writeJson(PENDING_REVOCATIONS_KEY, records);
   }
 }

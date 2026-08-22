@@ -3,8 +3,9 @@
 **Status:** implementation started 2026-08-21. WP0 semantics are accepted in
 `docs/architecture/identity-v1-semantics.md`; WP1 is complete, WP2 is at its required security
 design gate, and WP3's browser-to-browser mutual-link protocol is implemented while native/app
-distribution extensions remain. The architectural sections below describe the long-term direction;
-the final section, **Actionable Implementation Plan**, defines the dependency-ordered delivery plan.
+distribution extensions remain. WP4 signed revocation, durable offline retry, and lost-device
+convergence are in progress. The architectural sections below describe the long-term direction; the
+final section, **Actionable Implementation Plan**, defines the dependency-ordered delivery plan.
 
 ## Goal
 
@@ -1479,7 +1480,8 @@ Each directly linked row shows:
 - User-chosen device name or stage name.
 - Coarse platform glyph (`phone`, `desktop app`, `browser`) without unnecessary fingerprinting.
 - Short SEA fingerprint.
-- Link state: `Waiting for approval`, `Linked`, `Revocation pending`, `Removed`, or `Invalid`.
+- Link state: `Waiting for approval`, `Linked`, `Revocation pending`, `Removed`, `Conflicted`, or
+  `Invalid`.
 - Linked date and, only if privacy-reviewed, coarse last-seen status.
 - Overflow actions: **View identity ID**, **Rename locally**, **Remove link**, and **Report lost or
   stolen**.
@@ -1848,13 +1850,14 @@ verify the relationship; a third party cannot forge it; and no private key moves
 **Outcome:** removing a link has defined local and network effects, including offline behavior.
 
 - [x] Publish and verify signed unlink/revocation events.
-- [ ] Deny new sync/authorization immediately after local removal.
-- [ ] Represent pending, acknowledged, conflicted, and invalid revocation states.
-- [ ] Converge correctly after either device was offline.
-- [ ] Preserve pre-revocation signed history.
+- [x] Deny new link trust immediately after local removal; no sync authorization exists yet to
+      consume the link.
+- [x] Represent pending, graph-acknowledged (`Removed`), conflicted, and invalid revocation states.
+- [x] Converge correctly when the remote device was offline and later returns.
+- [x] Preserve pre-revocation signed history by publishing revocation at a separate graph root.
 - [x] Keep the historical-link privacy warning in the confirmation flow.
-- [ ] Test device sale: revoke old link, erase old installation, create unrelated new keys.
-- [ ] Test lost device: surviving device revokes, lost device stays offline, then later reconnects.
+- [x] Test device sale: revoke old link, erase old installation, create unrelated new keys.
+- [x] Test lost device: surviving device revokes, lost device stays offline, then later reconnects.
 
 **Done when:** the UI never claims that another device was erased; all peers reject future uses that
 the approved v1 semantics say are revoked; and valid historical content remains verifiable.

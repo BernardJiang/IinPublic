@@ -46,6 +46,9 @@ checkpoint/prune offsets remain correct after the retained wire list loses its p
 - [x] Complete the two-installation mutual approval path with a versioned expiring code, real QR,
   optional camera scan, signed request discovery, graph-verified rows, replay rejection, and
   revocation convergence. Covered by `stage2-two-user/73-identity-link-mutual.spec.ts`.
+- [x] Make removal local-first with a durable signed revocation outbox, immediate trust denial,
+  startup/Settings retry, pending/removed/conflicted/invalid states, and lost-device reconnection
+  coverage in `stage2/73`.
 - [ ] Show verified direct links in peer detail without merging Contacts, authorship, reputation,
   blocks, or Q&A.
 - [ ] Wire URL-fragment, loopback, and clipboard same-device linking shortcuts.

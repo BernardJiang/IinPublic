@@ -27,7 +27,7 @@ export interface LinkedDeviceRow {
   stageName: string;
   platform: string;
   linkedAt: number;
-  state?: 'waiting' | 'linked' | 'revocation-pending' | 'removed' | 'invalid';
+  state?: 'waiting' | 'linked' | 'revocation-pending' | 'removed' | 'invalid' | 'conflicted';
 }
 
 export interface IdentityDeviceSummary {
@@ -74,7 +74,7 @@ export interface LinkedDevicesDeps {
   /** Complete a link from a typed code; returns an error key or null on success. */
   completeFromCode: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>;
   /** Remove a link (publishes a revocation when a service is wired). */
-  unlink: (pub: string) => Promise<void> | void;
+  unlink: (pub: string) => Promise<'removed' | 'revocation-pending'>;
   now?: () => number;
 }
 
@@ -94,6 +94,7 @@ const stateTextKey = (state: LinkedDeviceRow['state']): string =>
     'revocation-pending': 'linkedDeviceStateRevocationPending',
     removed: 'linkedDeviceStateRemoved',
     invalid: 'linkedDeviceStateInvalid',
+    conflicted: 'linkedDeviceStateConflicted',
   })[state || 'linked'];
 
 export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
@@ -126,7 +127,9 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
               <div style="font-size:0.8em;color:var(--text-tertiary);">${deps.text(stateTextKey(r.state), 'Linked')} · ${new Date(r.linkedAt).toLocaleDateString()}</div>
             </div>
           </div>
-          <button type="button" class="btn linked-device-unlink-btn" data-testid="linked-device-unlink-btn" data-pub="${escapeAttr(r.pub)}">${deps.text('unlink', 'Unlink')}</button>
+          ${r.state === 'removed' || r.state === 'invalid'
+            ? ''
+            : `<button type="button" class="btn linked-device-unlink-btn" data-testid="linked-device-unlink-btn" data-pub="${escapeAttr(r.pub)}">${r.state === 'revocation-pending' ? deps.text('retryRevocation', 'Retry revocation') : deps.text('unlink', 'Unlink')}</button>`}
         </div>`,
       )
       .join('');

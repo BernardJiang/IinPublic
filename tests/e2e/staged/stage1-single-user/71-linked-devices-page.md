@@ -11,5 +11,6 @@ code + live countdown. The Enter-code dialog offers capability-gated camera scan
 fallback, previews the peer fingerprint/privacy warning, rejects invalid and expired codes inline,
 and accepts a valid code,
 publishing a one-sided signed attestation and adding a **Waiting for approval**
-row; Unlink removes the row via a confirm dialog. Mutual confirmation remains
+row; Unlink publishes a signed revocation and retains a non-actionable **Removed** historical row.
+Mutual confirmation remains
 covered by `cross-platform/x3` (nightly).
