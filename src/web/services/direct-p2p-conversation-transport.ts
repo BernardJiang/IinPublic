@@ -191,9 +191,25 @@ export class DirectP2PConversationTransport implements ConversationTransport {
   }
 
   private pushLiveMessage(conversationId: string, message: Message): void {
+    this.mergeLiveMessages(conversationId, [message]);
+  }
+
+  /**
+   * Merge an eventually-consistent Gun snapshot into messages already observed live.
+   * A subscription can emit its initial (older) snapshot after a local echo or WebRTC
+   * delivery. Treating that snapshot as a replacement makes the accepted message briefly—or
+   * permanently under load—disappear from consumers. Conversation messages are immutable, so
+   * a monotonic id-based merge is the correct model for the active session.
+   */
+  private mergeLiveMessages(conversationId: string, messages: Message[]): void {
     const bucket = this.liveMessagesByConversation.get(conversationId) || [];
-    if (!bucket.some((existing) => existing.id === message.id)) {
+    const knownIds = new Set(bucket.map((existing) => existing.id));
+    for (const message of messages) {
+      if (knownIds.has(message.id)) continue;
       bucket.push(message);
+      knownIds.add(message.id);
+    }
+    if (messages.length > 0) {
       // Same (timestamp, id) ordering as GunMessageStore's decrypt path: without the id
       // tie-break, two peers sending within the same millisecond sort in peer-local
       // ARRIVAL order (stable sort keeps insertion order on ties), so the two sides'
@@ -201,8 +217,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       bucket.sort(
         (a, b) => a.timestamp.getTime() - b.timestamp.getTime() || String(a.id).localeCompare(String(b.id)),
       );
-      this.liveMessagesByConversation.set(conversationId, bucket);
     }
+    this.liveMessagesByConversation.set(conversationId, bucket);
     const snapshot = [...(this.liveMessagesByConversation.get(conversationId) || [])];
     for (const listener of this.listenersByConversation.get(conversationId) || []) {
       listener(snapshot);
@@ -383,11 +399,22 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       : this.resolveOtherUserId(conversationId, myUserId))
       .then((otherUserId) => {
         if (disposed) return;
-        unsubscribeGun = this.gunStore.subscribeToMessages(conversationId, callback, myUserId, otherUserId);
+        unsubscribeGun = this.gunStore.subscribeToMessages(
+          conversationId,
+          (messages) => this.mergeLiveMessages(conversationId, messages),
+          myUserId,
+          otherUserId,
+        );
       })
       .catch((err) => {
         console.warn(`Direct P2P message subscription setup failed for ${conversationId}:`, err);
-        if (!disposed) unsubscribeGun = this.gunStore.subscribeToMessages(conversationId, callback, myUserId);
+        if (!disposed) {
+          unsubscribeGun = this.gunStore.subscribeToMessages(
+            conversationId,
+            (messages) => this.mergeLiveMessages(conversationId, messages),
+            myUserId,
+          );
+        }
       });
 
     return () => {

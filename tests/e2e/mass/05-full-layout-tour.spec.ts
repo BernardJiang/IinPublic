@@ -354,20 +354,6 @@ test.describe('M5 full-layout screenshot tour', () => {
         await afterAction();
       }
 
-      await openSettingsSection(page, SETTINGS_SECTION.linkedDevices);
-      const linkedDevicesBtn = page.locator('#settings-linked-devices-btn');
-      if (await linkedDevicesBtn.count().then((c) => c > 0)) {
-        await linkedDevicesBtn.click();
-        const overlay = page.locator('#linked-devices-overlay');
-        if (await overlay.isVisible({ timeout: 5_000 }).catch(() => false)) {
-          await shot(page, 'Settings', 'settings-linked-devices', 'Linked devices overlay.');
-          await page.locator('#linked-devices-close').click();
-          await afterAction();
-        }
-      }
-      await backToSettingsMenu(page);
-      await afterAction();
-
       await openSettingsSection(page, SETTINGS_SECTION.eraseDevice);
       const eraseBtn = page.locator('#settings-erase-device-btn');
       if (await eraseBtn.count().then((c) => c > 0)) {
@@ -378,6 +364,23 @@ test.describe('M5 full-layout screenshot tour', () => {
           // IMPORTANT: cancel only — never click the actual erase button in this tour.
           await page.locator('#erase-cancel-btn').click();
           await afterAction();
+        }
+      }
+      await backToSettingsMenu(page);
+      await afterAction();
+
+      // Keep this async, data-refreshing overlay last in the visual tour. Its close-button and
+      // Settings return behavior are covered by 77-settings-section-wrapper; no later tour
+      // navigation should depend on background identity-link refresh work settling.
+      await openSettingsSection(page, SETTINGS_SECTION.linkedDevices);
+      const linkedDevicesBtn = page.locator('#settings-linked-devices-btn');
+      if (await linkedDevicesBtn.count().then((c) => c > 0)) {
+        await linkedDevicesBtn.click();
+        const overlay = page.locator('#linked-devices-overlay');
+        if (await overlay.isVisible({ timeout: 5_000 }).catch(() => false)) {
+          await shot(page, 'Settings', 'settings-linked-devices', 'Linked devices overlay.');
+          await page.locator('#linked-devices-close').click();
+          if (await overlay.isVisible().catch(() => false)) await page.keyboard.press('Escape');
         }
       }
 

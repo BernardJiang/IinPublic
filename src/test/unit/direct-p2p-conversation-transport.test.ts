@@ -149,7 +149,40 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     for (let i = 0; i < 5 && subSpy.mock.calls.length === 0; i++) {
       await Promise.resolve();
     }
-    expect(subSpy).toHaveBeenCalledWith('conv1', cb, 'alice');
+    expect(subSpy).toHaveBeenCalledWith('conv1', expect.any(Function), 'alice');
+    subSpy.mockRestore();
+  });
+
+  it('does not let an older Gun snapshot erase a message already echoed locally', async () => {
+    let emitGunSnapshot: ((messages: any[]) => void) | undefined;
+    const subSpy = jest
+      .spyOn(GunMessageStore.prototype, 'subscribeToMessages')
+      .mockImplementation((_conversationId, callback) => {
+        emitGunSnapshot = callback;
+        return () => undefined;
+      });
+    const buildSpy = jest
+      .spyOn(GunMessageStore.prototype, 'buildAndPersistMessage')
+      .mockResolvedValue(wire);
+
+    const transport = new DirectP2PConversationTransport(mockGun);
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+      ensureConnected: jest.fn(async () => undefined),
+      sendDm: jest.fn(async () => undefined),
+      setLedgerHooks: jest.fn(),
+      setOnRemoteDm: jest.fn(),
+    });
+    const cb = jest.fn();
+    transport.subscribeToMessages('conv1', cb, 'alice', 'bob');
+    for (let i = 0; i < 5 && !emitGunSnapshot; i++) await Promise.resolve();
+
+    await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' });
+    expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ id: wire.id, text: 'hello' })]);
+
+    emitGunSnapshot?.([]);
+    expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ id: wire.id, text: 'hello' })]);
+
+    buildSpy.mockRestore();
     subSpy.mockRestore();
   });
 });

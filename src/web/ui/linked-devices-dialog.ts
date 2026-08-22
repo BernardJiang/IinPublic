@@ -229,6 +229,12 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
     overlay.remove();
   };
 
+  const bindUnlinkButtons = (root: ParentNode): void => {
+    root.querySelectorAll('.linked-device-unlink-btn').forEach((btn) => {
+      btn.addEventListener('click', () => openUnlinkConfirm((btn as HTMLElement).dataset.pub || ''));
+    });
+  };
+
   const bind = (): void => {
     overlay.querySelector('#linked-devices-close')?.addEventListener('click', close);
     overlay.querySelector('#link-a-device-btn')?.addEventListener('click', openLinkStartConfirm);
@@ -286,9 +292,7 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
     overlay.querySelector('#lock-identity-now-btn')?.addEventListener('click', async () => {
       await deps.lockIdentityNow?.();
     });
-    overlay.querySelectorAll('.linked-device-unlink-btn').forEach((btn) => {
-      btn.addEventListener('click', () => openUnlinkConfirm((btn as HTMLElement).dataset.pub || ''));
-    });
+    bindUnlinkButtons(overlay);
   };
 
   function openRenameDeviceDialog(): void {
@@ -649,8 +653,14 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
   if (deps.refreshRecords) {
     void deps.refreshRecords().then(() => {
       if (!overlay.isConnected) return;
-      render();
-      (overlay.querySelector('#linked-devices-close') as HTMLElement | null)?.focus();
+      // Refreshing graph state only changes linked-device rows. Replacing the entire dialog
+      // here can swap the Close button between pointer-down and pointer-up, suppressing its
+      // click event. Keep the header stable and update the list in place instead.
+      const list = overlay.querySelector('#linked-devices-list');
+      if (list) {
+        list.innerHTML = renderList();
+        bindUnlinkButtons(list);
+      }
     });
   }
 }
