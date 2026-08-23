@@ -77,6 +77,13 @@ describe('production/development topology contract', () => {
       'https://iinpublic-network.onrender.com',
     ]);
 
+    // This assertion is specifically about the HTTPS-required (non-plaintext-test) branch of
+    // `buildAllowedOrigin()`, so it must control both env vars that select the plaintext branch
+    // itself rather than assume they're unset ambiently — `npm run test:all` runs this suite
+    // with `E2E_GUN_MEMORY_ONLY=1` already exported for the E2E phases, which otherwise flips
+    // this to the http:// regex and fails the https:// assertions below.
+    delete process.env.E2E_GUN_MEMORY_ONLY;
+    delete process.env.TLS_DISABLE;
     process.env.NODE_ENV = 'test';
     const devOrigin = buildAllowedOrigin();
     expect(devOrigin).toBeInstanceOf(RegExp);

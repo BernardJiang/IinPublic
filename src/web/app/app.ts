@@ -5209,23 +5209,6 @@ export class IinPublicApp {
     });
 
     this.uiManager.on(
-      'sendTalk',
-      async (data: { talkId: string; targetScope: any; maxRecipients: number }) => {
-        try {
-          await this.talkService.sendBulkTalk(
-            data.talkId,
-            this.currentUser!.id,
-            data.targetScope,
-            data.maxRecipients,
-          );
-          this.uiManager.showNotification(this.uiManager.formatTalkSendSuccess(), 'success');
-        } catch (error) {
-          this.uiManager.showNotification(this.uiManager.formatTalkSendFailed((error as Error).message), 'error');
-        }
-      },
-    );
-
-    this.uiManager.on(
       'createTalk',
       async (
         talkData: Partial<Talk> & {

@@ -84,4 +84,34 @@ test.describe('Talk editor: tag-pair picker (§BB)', () => {
     await expect(page.locator('#talk-tag-preview')).toContainText('sell');
     await page.locator('#cancel-talk-btn').click();
   });
+
+  test('a custom (unseeded) tag pair the author types once persists and auto-fills in a later, separate talk', async () => {
+    // Not in the 3 hardcoded seed pairs (buy/sell, hiring/jobseeking, male/female) — proves
+    // this isn't just the seeded registry already knowing the pair.
+    const customTag = `borrow-${Date.now()}`;
+    const customOpposite = `lend-${Date.now()}`;
+
+    await page.click('#create-talk-btn');
+    await page.waitForSelector('#talk-editor-form');
+    await page.selectOption('#talk-type', 'flow');
+    await page.fill('#talk-tag', customTag);
+    // Unrecognized so far: self-match default, not the custom opposite yet.
+    await expect(page.locator('#talk-tag-preview')).toContainText(`Matches anyone also tagged '${customTag}'`);
+
+    // Author types their own divergent answer, then blurs — this is the persistence trigger.
+    await page.fill('#talk-preference-set', customOpposite);
+    await page.locator('#talk-title').focus();
+    await expect(page.locator('#talk-tag-preview')).toContainText(customOpposite);
+    await page.locator('#cancel-talk-btn').click();
+    await page.waitForSelector('#talk-editor-modal', { state: 'detached' });
+
+    // A brand-new talk editor instance, same tag: the custom pair auto-fills without retyping.
+    await page.click('#create-talk-btn');
+    await page.waitForSelector('#talk-editor-form');
+    await page.selectOption('#talk-type', 'flow');
+    await page.fill('#talk-tag', customTag);
+    await expect(page.locator('#talk-preference-set')).toHaveValue(customOpposite);
+    await expect(page.locator('#talk-tag-preview')).toContainText(customOpposite);
+    await page.locator('#cancel-talk-btn').click();
+  });
 });

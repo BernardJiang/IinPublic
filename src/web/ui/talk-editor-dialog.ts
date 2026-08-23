@@ -3,8 +3,13 @@ import {
   createSeededTagOppositePairRegistryState,
   getOppositeTagName,
   questionTemplateForTag,
+  registerOppositeTagPair,
   type TagOppositePairRegistryState,
 } from '../../shared/tag-opposite-pairs';
+import {
+  getTagOppositePairRegistryState,
+  setTagOppositePairRegistryState,
+} from './answer-preferences-storage';
 
 // docs/TODO.md §LL: shared auto-fill/lock/preview behavior for a tag-word input and its
 // accepted-answer counterpart — used by both `#talk-tag`/`#talk-preference-set` (flow/route
@@ -23,6 +28,11 @@ function wireTagAnswerAutoFill(config: {
   initiallyLocked: boolean;
   selfMatchPreviewText: (tag: string) => string;
   oppositePreviewText: (answer: string) => string;
+  /** docs/TODO.md §BB — fired when the author finishes typing (blurs) a genuinely divergent
+   *  answer they typed themselves (an opposite pair, not a self-match), so the caller can
+   *  persist it for future autofill. Never fired for a self-match — that's already the
+   *  default fallback, no new pair to learn. */
+  onCustomPairConfirmed?: (tagName: string, oppositeTagName: string) => void;
 }): void {
   let locked = config.initiallyLocked;
 
@@ -52,6 +62,13 @@ function wireTagAnswerAutoFill(config: {
   config.answerInput?.addEventListener('input', () => {
     locked = true;
     renderPreview();
+  });
+  config.answerInput?.addEventListener('blur', () => {
+    const sourceValue = config.sourceInput?.value.trim() || '';
+    const answerValue = config.answerInput?.value.trim() || '';
+    if (sourceValue && answerValue && answerValue !== sourceValue) {
+      config.onCustomPairConfirmed?.(sourceValue, answerValue);
+    }
   });
   onSourceInput();
 }
@@ -533,7 +550,19 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     // identical auto-fill/lock/preview behavior — seeded opposite (buy → sell) if known, else
     // the SAME word (self-match, "Tennis" matches "Tennis") — wired once via
     // `wireTagAnswerAutoFill` below rather than duplicated per field.
-    const tagRegistry = createSeededTagOppositePairRegistryState();
+    // docs/TODO.md §BB: seeded app-predefined pairs merged with whatever this author has
+    // previously typed themselves (persisted separately, `answer-preferences-storage.ts`) —
+    // so a custom pair the author declares once (e.g. "borrow"/"lend") auto-fills again on
+    // the next talk without needing the 3 hardcoded seed pairs to know about it.
+    let userTagRegistry = getTagOppositePairRegistryState();
+    const tagRegistry: TagOppositePairRegistryState = {
+      pairs: { ...createSeededTagOppositePairRegistryState().pairs, ...userTagRegistry.pairs },
+    };
+    const persistCustomTagPair = (tagName: string, oppositeTagName: string): void => {
+      userTagRegistry = registerOppositeTagPair(userTagRegistry, tagName, oppositeTagName);
+      setTagOppositePairRegistryState(userTagRegistry);
+      tagRegistry.pairs = { ...createSeededTagOppositePairRegistryState().pairs, ...userTagRegistry.pairs };
+    };
     const preferenceSetAlreadyLocked = !!(existingTalk?.preferenceSet && existingTalk.preferenceSet.length > 0);
 
     const talkTagInput = document.getElementById('talk-tag') as HTMLInputElement | null;
@@ -545,6 +574,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       initiallyLocked: preferenceSetAlreadyLocked,
       selfMatchPreviewText: (tag) => format('editorTagPairNoOpposite', "Matches anyone also tagged '{tag}'.", { tag }),
       oppositePreviewText: (answer) => `${text('editorTagPairOppositeLabel', 'Shown to people tagged:')} ${answer}`,
+      onCustomPairConfirmed: persistCustomTagPair,
     });
 
     // Auto-suggest the first question's wording from `#talk-tag` — a separate concern from the
@@ -571,6 +601,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       initiallyLocked: preferenceSetAlreadyLocked,
       selfMatchPreviewText: (tag) => format('editorTagPairNoOpposite', "Matches anyone also tagged '{tag}'.", { tag }),
       oppositePreviewText: (answer) => `${text('editorTagPairOppositeLabel', 'Shown to people tagged:')} ${answer}`,
+      onCustomPairConfirmed: persistCustomTagPair,
     });
 
     options.setupTalkFormHandlers(modal);

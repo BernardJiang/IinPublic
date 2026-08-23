@@ -56,7 +56,12 @@ Guide QA, developers, and release owners on:
 
 **Invariants (see `CLAUDE.md`, `tests/e2e/README.md`):**
 - Match logic only in `src/shared/talk-engine.ts`
-- Server `incomingTalksMap` authoritative; browser uses `GET /api/incoming-talks`
+- Incoming-talk clusters are client-side only: mesh-delivered straight into the receiver's own
+  local Gun graph (`ownerIncomingTalkIndex/<userId>/<identityKey>`) and mirrored on-device
+  (`client-incoming-talk-mirror.ts`). There is no server-side authoritative map and no
+  `GET /api/incoming-talks` endpoint — both were removed with the star-delivery model (the
+  server's old `incomingTalksMap` is documented only as legacy/deprecated context in the
+  technical specification, §19.13/§19.14)
 - `E2E_GUN_MEMORY_ONLY=1` — in-memory Gun; `clearGunDatabases()` between suites
 - Prefer durable assertions (`#status-bar-text`, `.conversation-list-item`) over ephemeral toasts
 

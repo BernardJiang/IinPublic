@@ -1,8 +1,9 @@
 # IinPublic TODO
 
-Last reconciled: 2026-08-22 (S1/S2 moved to docs/completed.md, Priority 1 clear; §I peer-detail
-badge, §I same-device shortcuts, and §J encrypted handoff transfer landed — Priority 2's
-remaining open items are all blocked on native-shell CI runners not yet connected, Priority 3)
+Last reconciled: 2026-08-23 (Smaller-independent-work batch landed — see docs/completed.md;
+S1/S2 moved 2026-08-22, Priority 1 clear; §I peer-detail badge, §I same-device shortcuts, and
+§J encrypted handoff transfer landed — Priority 2's remaining open items are all blocked on
+native-shell CI runners not yet connected, Priority 3)
 
 This file contains active work only. Completed implementation history is in
 `docs/completed.md`; product requirements and design decisions are authoritative in
@@ -141,17 +142,58 @@ match.spec.ts`) — a `type: 'route'` talk turned out unnecessary for that case;
 `type: 'flow'` talk with one `builtIn` question already covers it.
 
 - [ ] Design a privacy-safe source for the responder's blurred location/radius, then wire location
-  auto-resolution using the existing mutual-containment comparison.
-- [ ] Persist user-created opposite-tag pairs; seeded pairs already work.
-- [ ] Support talk-level shared time/location questions before route item branches.
-- [ ] Add E2E cases for location outside either radius, missing preference falling to the human
-  inbox, and real cross-browser route (not flow) matching.
+  auto-resolution using the existing mutual-containment comparison. **Research note
+  (2026-08-23), not yet implemented — genuinely needs a design decision, not just wiring:**
+  `Question.builtIn`'s own doc comment (types.ts) already states the intended shape — "location
+  has no nested lat/long/radius fields: it reuses the talk's own `authorLocation`/
+  `locationRadiusMiles`... both sides of a comparison read their own talk's fields" — i.e.
+  unlike quantity/priceRange/timeFrame (a separately-typed value saved into
+  `typedPreferenceState` per scope), location is deliberately excluded from that store (see the
+  `if (!q.builtIn || q.builtIn.kind === 'location') continue;` guard in `ui-manager.ts`'s
+  self-preference-save loop) because it should instead reuse whatever the RESPONDER'S OWN
+  authored talk of matching scope already carries as its ordinary location-radius setting — no
+  separate typed input needed. What's actually missing: (1) a scope-keyed lookup for "my own
+  most-recent talk sharing this incoming talk's (selfTag, title) that also declares a `location`
+  builtIn question," to source side "b" of `locationsMutuallyContained` (built-in-comparisons.ts,
+  already implemented and unit-tested) from that talk's own `authorLocation`/
+  `locationRadiusMiles`; (2) threading that lookup into `resolveBuiltInQuestion`
+  (built-in-question-resolution.ts, currently hardcoded `if (builtIn.kind === 'location') return
+  { action: 'ASK_USER' };`) and its caller (`resolveAnswerPreferenceForTalkQuestion`,
+  ui-manager.ts). Left unimplemented this session deliberately — geolocation flowing into an
+  automated match decision is exactly the kind of privacy-sensitive design choice worth a
+  deliberate look rather than a rushed pass, and the "no stored comparison at all" case already
+  falls back safely to the human inbox today (§30.4's documented behavior), so nothing is broken
+  by leaving this open.
+- [x] Persist user-created opposite-tag pairs; seeded pairs already work. **Landed 2026-08-23** —
+  see `docs/completed.md`.
+- [x] Support talk-level shared time/location questions before route item branches. **Landed
+  2026-08-23** — see `docs/completed.md`.
+- [ ] Add E2E cases for location outside either radius and missing preference falling to the
+  human inbox. (Real cross-browser route matching is now covered —
+  `stage2-two-user/92-route-shared-builtin-root-branches.spec.ts` — though not yet the
+  location-specific edge cases.)
 
 ### DD. Generalized dating matching
 
-Design is specified in technical specification §30.6; implementation has not started.
+Design is specified in technical specification §30.6; implementation has not started beyond the
+pure comparison primitives below. The remaining bullets each carry real product/safety judgment
+calls (dating-category detection and enforcement, photo-delivery consent/safety copy, mandatory
+adult-lock UX) — deliberately left for a dedicated pass rather than rushed alongside the pure-math
+primitives, which carry no such risk.
 
-- [ ] Implement mutual preference-set membership and the age point-in-range primitive.
+- [x] Implement mutual preference-set membership and the age point-in-range primitive. **Landed
+  2026-08-23** — `mutualPreferenceSetMembership`/`ageRangeMutuallyAcceptable`
+  (`src/shared/built-in-comparisons.ts`), 9 new unit tests. Pure functions only, matching the
+  file's existing `intervalsOverlap`/`quantitySufficient`/`locationsMutuallyContained` style —
+  `mutualPreferenceSetMembership` generalizes `checkIfMatch`'s existing one-directional
+  `preferenceSet` veto to a real two-sided check (both sides' own selfTag/preferenceSet
+  supplied), matching that veto's exact permissive default for a missing counterpart selfTag.
+  Neither is wired into `checkIfMatch`, a `BuiltInQuestionKind`, or any editor UI yet — `ageRange`
+  isn't yet a recognized `builtIn.kind` (`types.ts`'s `BuiltInQuestionKind` union), and
+  `mutualPreferenceSetMembership` has no caller since nothing today supplies "the responder's own
+  (selfTag, preferenceSet) pair" as an input to the match engine. Wiring either requires the
+  dating-specific product decisions this section's other bullets are about, so left as
+  ready-to-use primitives, not yet load-bearing.
 - [ ] Force and lock `isAdult` for dating-category talks.
 - [ ] Add optional author-selected talk photo delivery after a successful match and safety notice.
 - [ ] Add unit and E2E coverage, including unverified-recipient intake blocking.
@@ -159,8 +201,25 @@ Design is specified in technical specification §30.6; implementation has not st
 ### EE. Me/profile completion
 
 - [ ] Store typed built-in declarations as `AnswerRecord` values rather than profile fields.
-- [ ] Add typed-value round-trip and section-isolation E2E coverage.
-- [ ] Update the technical-specification implementation matrix.
+  **Research note (2026-08-23), not yet implemented:** no separate "profile field" was ever
+  actually written for these (Bernard's original correction — completed.md, 2026-08-11 EE
+  entry — headed that off before implementation: profile holds only StageName + headshot).
+  What's actually true today: a typed built-in value (quantity/priceRange/timeFrame the author
+  enters on their OWN question) is saved ONLY into `typedPreferenceState` (chatbot-only,
+  invisible to the author) — `applyBuiltInKindToQuestion`/route's `answersHtml = q.builtIn ? ''`
+  both hide the ordinary self-answer radio for a builtIn question, so no self-answer is ever
+  recorded through the normal mechanism either. Net effect: the author's own typed declaration
+  never appears anywhere in their own Me-tab Answers list today — arguably the same "invisible
+  side value" problem the profile-field framing was trying to avoid, just realized via a
+  different store. `answers-view.ts`'s "Answers" list is scoped to talks with
+  `role === 'answered' || 'copied'` (things I responded to), not self-authored declarations, so
+  the fix isn't a small display tweak — it needs a real decision on where a self-authored
+  builtIn declaration should surface. Left open rather than guessing at that shape.
+- [ ] Add typed-value round-trip and section-isolation E2E coverage. Blocked on the above.
+- [x] Update the technical-specification implementation matrix. **Landed 2026-08-23** — Appendix
+  18's stale "opposite-attribute preference-sets + typed built-ins... not yet implemented" row
+  split to accurately reflect that §BB has substantially shipped, with `location` auto-resolution
+  and §DD (dating) called out as the remaining not-implemented pieces.
 
 ### II. User-defined tag compatibility, generalized beyond symmetric opposites
 
@@ -463,15 +522,8 @@ coupled, as before).
 
 ## Smaller independent work
 
-- [ ] R4: apply progressive rendering to large chatroom member lists.
-- [ ] R5: apply progressive rendering to conversations/support inbox only when measurements show a
-  first-render problem.
-- [ ] Z: review and normalize the six applicable long-press popup variants.
-- [ ] CC: add E2E coverage for the once-per-day financial safety toast.
-- [ ] FF: replace very large flat checkbox lists with searchable chips when option counts warrant it.
-- [ ] Decide whether dead `sendBulkTalk`/`BulkSendJob` surfaces should be implemented or removed.
-- [ ] Resolve metadata-only talk-edit authorship semantics.
-- [ ] Refresh stale architecture prose concerning routing and incoming-talk delivery.
+(2026-08-23 batch — R4/R5/FF measured, no action needed at current scale; Z/CC/sendBulkTalk/
+authorship/architecture-prose landed. See `docs/completed.md`.)
 
 ## Deferred product decisions
 

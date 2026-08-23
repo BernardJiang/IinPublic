@@ -1,6 +1,8 @@
 import {
+  ageRangeMutuallyAcceptable,
   intervalsOverlap,
   locationsMutuallyContained,
+  mutualPreferenceSetMembership,
   quantitySufficient,
 } from '../../shared/built-in-comparisons';
 import { haversineMilesBetween } from '../../shared/talk-intake-filters';
@@ -105,5 +107,72 @@ describe('locationsMutuallyContained', () => {
   it('is not contained (fails closed) when either side is missing a radius', () => {
     expect(locationsMutuallyContained({ authorLocation: near }, { authorLocation: nearNeighbor, locationRadiusMiles: 5 })).toBe(false);
     expect(locationsMutuallyContained({ authorLocation: near, locationRadiusMiles: 5 }, { authorLocation: nearNeighbor })).toBe(false);
+  });
+});
+
+describe('ageRangeMutuallyAcceptable', () => {
+  it('accepts when each side\'s age falls within the other\'s acceptable range', () => {
+    const a = { age: 30, acceptableRange: { min: 25, max: 35 } };
+    const b = { age: 28, acceptableRange: { min: 20, max: 40 } };
+    expect(ageRangeMutuallyAcceptable(a, b)).toBe(true);
+  });
+
+  it('rejects when only one direction is acceptable', () => {
+    // a accepts b's age (28 in [25,35]), but b does not accept a's age (30 not in [20,27]).
+    const a = { age: 30, acceptableRange: { min: 25, max: 35 } };
+    const b = { age: 28, acceptableRange: { min: 20, max: 27 } };
+    expect(ageRangeMutuallyAcceptable(a, b)).toBe(false);
+  });
+
+  it('rejects when neither direction is acceptable', () => {
+    const a = { age: 50, acceptableRange: { min: 45, max: 55 } };
+    const b = { age: 22, acceptableRange: { min: 20, max: 25 } };
+    expect(ageRangeMutuallyAcceptable(a, b)).toBe(false);
+  });
+
+  it('treats the acceptable range as inclusive (boundary ages accepted)', () => {
+    const a = { age: 25, acceptableRange: { min: 20, max: 30 } };
+    const b = { age: 30, acceptableRange: { min: 25, max: 25 } };
+    expect(ageRangeMutuallyAcceptable(a, b)).toBe(true);
+  });
+
+  it('is symmetric — order of arguments does not change the result', () => {
+    const a = { age: 30, acceptableRange: { min: 25, max: 35 } };
+    const b = { age: 28, acceptableRange: { min: 20, max: 40 } };
+    expect(ageRangeMutuallyAcceptable(a, b)).toBe(ageRangeMutuallyAcceptable(b, a));
+  });
+});
+
+describe('mutualPreferenceSetMembership', () => {
+  it('accepts when each side\'s preferenceSet includes the other\'s selfTag', () => {
+    const a = { selfTag: 'buy', preferenceSet: ['sell'] };
+    const b = { selfTag: 'sell', preferenceSet: ['buy'] };
+    expect(mutualPreferenceSetMembership(a, b)).toBe(true);
+  });
+
+  it('rejects when only one direction is accepted', () => {
+    const a = { selfTag: 'buy', preferenceSet: ['sell'] };
+    const b = { selfTag: 'rent', preferenceSet: ['buy'] };
+    expect(mutualPreferenceSetMembership(a, b)).toBe(false);
+  });
+
+  it('an empty/absent preferenceSet means "accepts anyone," not "accepts no one"', () => {
+    const noPreference = { selfTag: 'buy', preferenceSet: [] };
+    const other = { selfTag: 'anything', preferenceSet: ['buy'] };
+    expect(mutualPreferenceSetMembership(noPreference, other)).toBe(true);
+    expect(mutualPreferenceSetMembership({ selfTag: 'buy' }, other)).toBe(true);
+  });
+
+  it('matches the existing one-directional veto\'s permissive default: a missing counterpart selfTag passes, even when this side declares a preference', () => {
+    const a = { selfTag: 'buy', preferenceSet: ['sell'] };
+    const bNoSelfTag = { preferenceSet: [] };
+    expect(mutualPreferenceSetMembership(a, bNoSelfTag)).toBe(true);
+  });
+
+  it('rejects only the direction that actually excludes, not both, when preferences differ in strictness', () => {
+    // b has no preference (accepts anyone); a excludes b's tag.
+    const a = { selfTag: 'buy', preferenceSet: ['sell'] };
+    const b = { selfTag: 'rent', preferenceSet: [] };
+    expect(mutualPreferenceSetMembership(a, b)).toBe(false);
   });
 });

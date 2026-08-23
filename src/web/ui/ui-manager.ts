@@ -3007,6 +3007,11 @@ export class UIManager extends EventEmitter {
                   const disabled = !!talk.disabled;
                   const expText = this.formatTalkExpiration(talk.expiresAt);
                   const locText = this.formatTalkLocation(talk.locationRadiusMiles);
+                  // TODO §Z popup-variant review: match the IN details popup's tone-colored
+                  // expiry chip (formatTalkExpiryTone) instead of OUT's own plain, uncolored
+                  // text — my own sent talks approaching expiry deserve the same at-a-glance
+                  // urgency cue an incoming talk's expiry already gets.
+                  const expiryTone = this.formatTalkExpiryTone(talk.expiresAt);
                   // Icon-only badges, not text: direction/copy-state and type are already
                   // conveyed by shape (this icon) and color (typeAccent border) — a text
                   // label alongside both would just repeat the same fact in words. The
@@ -3068,8 +3073,9 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-meta">
               <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(talk.lastInteraction || 0))}</span>
             </div>
-            <div class="talk-item-meta" style="font-size: 0.85em; color: #666;">
-              ${this.tf('talksExpiration', { value: expText })} · ${this.tf('talksLocation', { value: locText })}
+            <div class="talk-info-chips">
+              <span class="talk-info-chip talk-expiry-${expiryTone}">${escapeHtml(this.tf('talksExpiration', { value: expText }))}</span>
+              <span class="talk-info-chip">${escapeHtml(this.tf('talksLocation', { value: locText }))}</span>
             </div>
             <div class="talk-item-stats" style="font-size: 0.85em; color: #666; margin-top: 6px;">
               ${statsLine}
@@ -4403,13 +4409,13 @@ export class UIManager extends EventEmitter {
   /** T1 (spec §7.4 FR-FIN-1): before a talk is sent/broadcast, at most once per day. */
   private maybeShowPreSendSafetyToast(): void {
     if (!shouldShowCooldownToast(SAFETY_TOAST_T1_KEY)) return;
-    this.showNotification(this.t('safetyToastPreSend'), 'warning');
+    this.showNotification(this.t('safetyToastPreSend'), 'warning', { safetyToast: 'pre-send' });
   }
 
   /** T2 (spec §7.4 FR-FIN-1): immediately after a match is found, at most once per day. */
   maybeShowMatchSafetyToast(): void {
     if (!shouldShowCooldownToast(SAFETY_TOAST_T2_KEY)) return;
-    this.showNotification(this.t('safetyToastPostMatch'), 'warning');
+    this.showNotification(this.t('safetyToastPostMatch'), 'warning', { safetyToast: 'post-match' });
   }
 
   /**
@@ -6244,14 +6250,6 @@ export class UIManager extends EventEmitter {
 
   public formatChatroomDeleted(): string {
     return this.t('chatroomDeleted');
-  }
-
-  public formatTalkSendSuccess(): string {
-    return this.t('talksSendSuccess');
-  }
-
-  public formatTalkSendFailed(reason: string): string {
-    return this.tf('talksSendFailed', { reason });
   }
 
   public formatTalkCreateSyncSlow(): string {
@@ -8856,7 +8854,7 @@ export class UIManager extends EventEmitter {
   showNotification(
     message: string,
     type: 'success' | 'error' | 'info' | 'warning' = 'info',
-    options?: { persistent?: boolean; conversationId?: string; contentFilter?: string; peerId?: string; peerName?: string; retry?: () => void },
+    options?: { persistent?: boolean; conversationId?: string; contentFilter?: string; peerId?: string; peerName?: string; retry?: () => void; safetyToast?: 'pre-send' | 'post-match' },
   ): void {
     if (this.notificationsSuppressedForE2e) return;
 
@@ -8867,6 +8865,11 @@ export class UIManager extends EventEmitter {
     // send/receive block without matching on translated text.
     if (options?.contentFilter) {
       notification.dataset.contentFilterNotification = options.contentFilter;
+    }
+    // FR-FIN-1 safety-reminder toasts (TODO §CC): marker so E2E can assert the
+    // once-per-day cooldown without matching on translated text.
+    if (options?.safetyToast) {
+      notification.dataset.safetyToast = options.safetyToast;
     }
 
     // Match! notices keep their marker attribute (E2E asserts on it) but are no longer
@@ -9695,10 +9698,19 @@ export class UIManager extends EventEmitter {
       const q = byId.get(qid);
       if (!q) return '';
       const indent = `margin-left:${depth * 20}px;`;
-      // §BB / spec §30.2, docs/TODO.md §BB Phase 6: a builtIn node has no authored answers at
-      // all (TalkAutofix.fix generates the synthetic pair) — always a leaf, since the route
-      // editor has no affordance to add a child to a builtIn node's single implicit outcome.
+      // §BB / spec §30.5: a builtIn node has no AUTHORED answers (TalkAutofix.fix / this
+      // editor's own `collectRouteEditorQuestions` generate the synthetic "Compatible"/"Not
+      // compatible" pair) but its one implicit "compatible" outcome CAN still fork further —
+      // this is exactly the "shared timeFrame/location asked once at the root, then the route
+      // branches" pattern spec §30.5 describes. The synthetic compatible answer's fixed id
+      // (`${q.id}_compatible`, matching TalkAutofix's own naming) is the parent-answer key a
+      // child links against, kept in sync with `collectRouteEditorQuestions` below.
       const builtInKind = q.builtIn?.kind || '';
+      const builtInCompatibleAid = `${q.id}_compatible`;
+      const builtInChildIds = q.builtIn ? (childrenOf.get(`${q.id}::${builtInCompatibleAid}`) ?? []) : [];
+      const builtInAddChildLabel = builtInChildIds.length === 0
+        ? this.t('editorRouteAddChild')
+        : this.t('editorRouteAddParallel');
       const builtInHtml = `
         <div class="route-builtin-controls" style="margin: 6px 0 6px 18px; display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
           <label style="display:flex; align-items:center; gap:8px; font-size:0.85em; color:var(--text-secondary);">
@@ -9732,6 +9744,17 @@ export class UIManager extends EventEmitter {
           ${builtInKind === 'location' ? `<span style="font-size:0.8em; color:var(--text-secondary);">${this.t('editorBuiltInLocationNote')}</span>` : ''}
         </div>
       `;
+      // Reuses the exact same `.route-add-child-btn`/`.route-parallel-threshold` handlers an
+      // ordinary answer row already wires (they key off data-qid/data-aid alone, not on
+      // whether `parentQ.answers` actually contains that id — a builtIn node's synthetic
+      // answer never lives in the live editor's `q.answers`, only in what gets emitted at
+      // save time, exactly like TalkAutofix already treats it for the leaf-only case).
+      const builtInChildHtml = builtInKind ? `
+        <div style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
+          <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${builtInCompatibleAid}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${builtInAddChildLabel}</button>
+        </div>
+        ${builtInChildIds.map((c) => renderNode(c, depth + 1)).join('')}
+      ` : '';
       // docs/TODO.md §LL.2 follow-up: a Simple/Pair tag question is structurally fixed to exactly
       // one non-ignore answer (TalkValidator.validateTagKindFields) — the editor now reflects
       // that instead of showing free-form multi-answer chrome the data model can never actually
@@ -9796,6 +9819,7 @@ export class UIManager extends EventEmitter {
             ${this.t('editorReciprocalTagLabel')}
           </label>`}
           ${builtInHtml}
+          ${builtInChildHtml}
           ${answersHtml}
         </div>
       `;
@@ -10067,7 +10091,17 @@ export class UIManager extends EventEmitter {
     // parallel spec, not just one chosen path, since the author would need to answer all of
     // them too (e.g. Model, Condition, AND Price-range under their own "iPhone" branch).
     const visit = (question: typeof this.routeEditorQuestions[number] | undefined): void => {
-      if (!question || question.builtIn || question.answers.length === 0) return;
+      if (!question) return;
+      // §BB / spec §30.5: a builtIn node itself gets no self-answer (its typed-preference save
+      // covers that separately, `processTalkForm` below) — but the walk MUST still continue
+      // into whatever it forks into, since a shared timeFrame/location root is now allowed to
+      // branch into real item questions the author does need self-answers for.
+      if (question.builtIn) {
+        const childIds = childQuestionIdsByParentAnswerKey.get(`${question.id}::${question.id}_compatible`) ?? [];
+        for (const childId of childIds) visit(byId.get(childId));
+        return;
+      }
+      if (question.answers.length === 0) return;
       const firstAnswer = question.answers[0];
       selfAnswers.push({ questionId: question.id, answerId: firstAnswer.id });
       const childIds = childQuestionIdsByParentAnswerKey.get(`${question.id}::${firstAnswer.id}`) ?? [];
@@ -10140,11 +10174,32 @@ export class UIManager extends EventEmitter {
             errors.push(this.t('editorBuiltInTimeFrameRequired'));
           }
         }
+        // §BB / spec §30.5: emit the synthetic "Compatible"/"Not compatible" pair here (not
+        // left to TalkAutofix) so a child attached via the editor's builtIn "+Add Child"
+        // button (renderRouteEditor above) actually survives to the saved talk — the fixed
+        // `${q.id}_compatible` id is the SAME key that button's parentAnswer link uses.
+        // TalkAutofix's own synthesis (talk-engine.ts) still applies unconditionally for
+        // route talks built outside this editor (no `nextQuestionId` possible there), so it's
+        // left untouched as that fallback.
+        const compatibleId = `${q.id}_compatible`;
+        const childIds = childQuestionIdsByParentAnswerKey.get(`${q.id}::${compatibleId}`) ?? [];
+        const compatibleAnswer: any = { id: compatibleId, text: 'Compatible' };
+        if (childIds.length === 1) {
+          compatibleAnswer.nextQuestionId = childIds[0];
+        } else if (childIds.length > 1) {
+          compatibleAnswer.nextQuestionIds = childIds;
+        } else {
+          compatibleAnswer.isMatch = true;
+          compatibleAnswer.isTerminal = true;
+        }
         return {
           id: q.id,
           text: q.text.trim(),
           contextPath,
-          answers: [],
+          answers: [
+            compatibleAnswer,
+            { id: `${q.id}_incompatible`, text: 'Not compatible', isIgnore: true, isTerminal: true },
+          ],
           builtIn: q.builtIn,
           ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
           ...(q.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),

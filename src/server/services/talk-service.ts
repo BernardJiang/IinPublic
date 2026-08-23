@@ -1,4 +1,4 @@
-import { Talk, BulkSendJob, TargetScope, Survey, Message, Match } from '../../shared/types';
+import { Talk, Survey, Message, Match } from '../../shared/types';
 import { TalkValidator } from '../../shared/talk-engine';
 import { GunService } from './gun-service';
 import { ReputationService } from './reputation-service';
@@ -33,35 +33,6 @@ export class TalkService {
 
     await this.gunService.put(`talks/${talk.id}`, talk);
     return talk;
-  }
-
-  async sendBulkTalk(
-    talkId: string,
-    senderId: string,
-    targetScope: TargetScope,
-    maxRecipients: number
-  ): Promise<BulkSendJob> {
-    const job: BulkSendJob = {
-      id: uuidv4(),
-      talkId,
-      senderId,
-      targetScope,
-      maxRecipients,
-      sentCount: 0,
-      inProgressCount: 0,
-      matchedCount: 0,
-      ignoredCount: 0,
-      expiredCount: 0,
-      status: 'pending',
-      createdAt: new Date()
-    };
-
-    await this.gunService.put(`bulkJobs/${job.id}`, job);
-    
-    // Update reputation
-    await this.reputationService.updateUserReputation(senderId, 'talk_sent');
-    
-    return job;
   }
 
   async getSurveyResults(surveyId: string): Promise<Survey> {

@@ -18,6 +18,10 @@ import {
   createEmptyTypedPreferenceState,
   type TypedPreferenceState,
 } from '../../shared/typed-preference-store';
+import {
+  createEmptyTagOppositePairRegistryState,
+  type TagOppositePairRegistryState,
+} from '../../shared/tag-opposite-pairs';
 
 export type AnswerPreferenceMap = Record<string, AnswerPreferenceEntry>;
 
@@ -72,6 +76,7 @@ export function clearAnswerPreferences(): void {
   localStorage.removeItem('flattenedAnswerPreferences');
   localStorage.removeItem('exactChatbotMemory');
   localStorage.removeItem('typedPreferenceState');
+  localStorage.removeItem('tagOppositePairRegistry');
 }
 
 export function getExactChatbotMemory(): ExactChatbotMemoryState {
@@ -108,6 +113,26 @@ export function getTypedPreferenceState(): TypedPreferenceState {
 
 export function setTypedPreferenceState(value: TypedPreferenceState): void {
   localStorage.setItem('typedPreferenceState', JSON.stringify(value));
+}
+
+/** docs/TODO.md §BB — local persistence for user-created opposite-tag pairs, mirroring
+ *  `getTypedPreferenceState`/`setTypedPreferenceState` above. Holds only pairs the author
+ *  themselves typed (diverging from the app-predefined seed registry in
+ *  `tag-opposite-pairs.ts`), never the seed pairs themselves — callers merge the two at
+ *  read time, keeping storage limited to genuinely user-created deltas. */
+export function getTagOppositePairRegistryState(): TagOppositePairRegistryState {
+  try {
+    const raw = localStorage.getItem('tagOppositePairRegistry');
+    if (!raw) return createEmptyTagOppositePairRegistryState();
+    const parsed = JSON.parse(raw) as Partial<TagOppositePairRegistryState>;
+    return { pairs: parsed.pairs && typeof parsed.pairs === 'object' ? parsed.pairs : {} };
+  } catch {
+    return createEmptyTagOppositePairRegistryState();
+  }
+}
+
+export function setTagOppositePairRegistryState(value: TagOppositePairRegistryState): void {
+  localStorage.setItem('tagOppositePairRegistry', JSON.stringify(value));
 }
 
 export function getMyQuestionAnswers(): Record<string, MyQuestionAnswerEntry> {

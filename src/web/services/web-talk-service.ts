@@ -1,7 +1,6 @@
-import { Talk, BulkSendJob, TargetScope, type IpfsAttachment, type Question } from '../../shared/types';
+import { Talk, type IpfsAttachment, type Question } from '../../shared/types';
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
-import { v4 as uuidv4 } from 'uuid';
 import { computeTalkCIDv1, computeCIDv1, normalizeIdentityText } from '../../shared/cid';
 import { GunTalkRepository } from './gun-talk-repository';
 
@@ -375,6 +374,18 @@ export class WebTalkService {
     return null;
   }
 
+  /**
+   * TODO §V follow-up, resolved: in-place edit of a talk I already own — `authorId`/
+   * `createdAt`/`authorLocation` are ALWAYS preserved from `existing`, regardless of whether
+   * `talkData` only touches metadata (tags/expiry/locationRadiusMiles) or also touches
+   * content fields (questions/type/language). This is deliberate, not an oversight: the only
+   * mechanism in this codebase that ever reassigns authorship is minting a NEW talk id
+   * (`buildRevisedTalkDraft`, used when editing a copied-but-not-yet-owned talk) — this
+   * function never changes `talkId`, so there is no id-transfer event to hang a reassignment
+   * on. Consistent with the separately-settled "title edits don't count as authorship"
+   * precedent, generalized: no in-place edit of an already-owned talk reassigns authorship,
+   * whatever fields it touches.
+   */
   async updateTalk(talkId: string, talkData: Partial<Talk>): Promise<Talk> {
     const existing = await this.getTalk(talkId);
     if (!existing) {
@@ -413,31 +424,6 @@ export class WebTalkService {
     if (this.repositoryEnabled()) await this.talkRepository.putAuthored(ownerSeaPub, updated);
     saveAuthoredTalk(talkId, updated);
     return updated;
-  }
-
-  async sendBulkTalk(
-    talkId: string,
-    senderId: string,
-    targetScope: TargetScope,
-    maxRecipients: number,
-  ): Promise<BulkSendJob> {
-    const job: BulkSendJob = {
-      id: uuidv4(),
-      talkId: talkId,
-      senderId: senderId,
-      targetScope: targetScope,
-      maxRecipients: maxRecipients,
-      sentCount: 0,
-      inProgressCount: 0,
-      matchedCount: 0,
-      ignoredCount: 0,
-      expiredCount: 0,
-      status: 'pending',
-      createdAt: new Date(),
-    };
-
-    await this.gunService.put(`bulkJobs/${job.id}`, job);
-    return job;
   }
 
   async processAnswer(

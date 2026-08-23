@@ -554,33 +554,6 @@ export interface Filter {
   };
 }
 
-export interface BulkSendJob {
-  id: string;
-  talkId: string;
-  senderId: string;
-  targetScope: TargetScope;
-  maxRecipients: number;
-  sentCount: number;
-  inProgressCount: number;
-  matchedCount: number;
-  ignoredCount: number;
-  expiredCount: number;
-  status: 'pending' | 'sending' | 'completed' | 'failed';
-  createdAt: Date;
-  completedAt?: Date;
-}
-
-export interface TargetScope {
-  chatroomIds: string[];
-  tags: string[];
-  location?: {
-    latitude: number;
-    longitude: number;
-    radius: number;
-  };
-  excludeUserIds: string[];
-}
-
 // Event types for Gun.js real-time updates
 export interface UserEvent {
   type: 'user.updated' | 'user.status' | 'user.location';

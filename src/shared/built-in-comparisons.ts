@@ -51,3 +51,49 @@ export function locationsMutuallyContained(a: LocationForContainment, b: Locatio
   const distance = haversineMilesBetween(a.authorLocation, b.authorLocation);
   return distance <= a.locationRadiusMiles && distance <= b.locationRadiusMiles;
 }
+
+/**
+ * §DD / spec §30.3, §30.6: `ageRange`'s comparison is a THIRD primitive, distinct from
+ * `intervalsOverlap` — one side of the comparison is a single fact (an actual declared age),
+ * not a range either side is offering. Each side states their own age and their own acceptable
+ * partner-age range; a match requires each side's age to fall within the OTHER side's
+ * acceptable range, checked in both directions (mutual, same precedence spec §30.7 gives
+ * gender/race). `min`/`max` are treated as an inclusive closed range, same convention
+ * `intervalsOverlap` already uses for price/time.
+ */
+export interface AgeAndAcceptableRange {
+  age: number;
+  acceptableRange: NumericInterval;
+}
+
+export function ageRangeMutuallyAcceptable(a: AgeAndAcceptableRange, b: AgeAndAcceptableRange): boolean {
+  const aAcceptsB = b.age >= a.acceptableRange.min && b.age <= a.acceptableRange.max;
+  const bAcceptsA = a.age >= b.acceptableRange.min && a.age <= b.acceptableRange.max;
+  return aAcceptsB && bAcceptsA;
+}
+
+/**
+ * §DD / spec §30.2, §30.7: mutual preference-set membership — generalizes `checkIfMatch`'s
+ * existing one-directional `preferenceSet` veto (talk-engine.ts, checked only from the talk
+ * author's side against the responder's `selfTag`) to a real two-sided check, needed once a
+ * comparison has BOTH parties' own declared (selfTag, preferenceSet) pairs available (e.g. a
+ * dating talk's mutual gender/race preference, spec §30.6 — "kept symmetric with every other
+ * hard criterion," §30.7). An empty/absent `preferenceSet` means "no preference — accepts
+ * anyone" (the established default posture, spec §30.2/§30.6), not "accepts no one." Matches
+ * the existing one-directional veto's exact permissive default for a missing counterpart
+ * `selfTag` too — `checkIfMatch`'s own check only vetoes when `responderSelfTag` is present
+ * AND excluded, so "the other side declared no self-tag at all" already passes today and must
+ * keep passing here, in either direction.
+ */
+export interface SelfTagAndPreferenceSet {
+  selfTag?: string;
+  preferenceSet?: string[];
+}
+
+export function mutualPreferenceSetMembership(a: SelfTagAndPreferenceSet, b: SelfTagAndPreferenceSet): boolean {
+  const aAcceptsB =
+    !a.preferenceSet || a.preferenceSet.length === 0 || !b.selfTag || a.preferenceSet.includes(b.selfTag);
+  const bAcceptsA =
+    !b.preferenceSet || b.preferenceSet.length === 0 || !a.selfTag || b.preferenceSet.includes(a.selfTag);
+  return aAcceptsB && bAcceptsA;
+}

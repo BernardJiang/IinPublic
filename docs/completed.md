@@ -1,6 +1,173 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
+
+## 2026-08-23 — §EE (partial) + §DD (primitives only)
+
+Moved from `docs/TODO.md` §EE and §DD.
+
+- **§EE: technical-specification implementation matrix updated.** Appendix 18's cross-reference
+  row for §30.1–§30.7 was stale (claimed "not yet implemented" for the whole opposite-attribute/
+  typed-built-in/dating area even though §BB has substantially shipped since — preference sets,
+  seeded + persisted tag pairs, quantity/priceRange/timeFrame comparisons, route DAG branching
+  past a shared builtIn root). Split into an accurate "shipped" row plus a clearly-scoped
+  "not yet implemented" remainder (location auto-resolution's privacy-safe source, §DD's dating
+  profile).
+- **§EE: "store typed built-ins as `AnswerRecord` values" — researched, not implemented.**
+  `docs/TODO.md`'s own note has the details: no profile field was ever actually written (headed
+  off before implementation on 2026-08-11), but a typed builtIn value the author declares on
+  their own talk today lives ONLY in `typedPreferenceState` (chatbot-only) — the ordinary
+  self-answer UI is deliberately hidden for a builtIn question in both the flow and route
+  editors, and `answers-view.ts`'s Me-tab "Answers" list is scoped to `role === 'answered' |
+  'copied'` talks (things I responded to), not self-authored declarations. Fixing this needs a
+  real decision about where a self-authored declaration should surface, not a display tweak —
+  left open rather than guessing.
+- **§DD: the two pure comparison primitives implemented, nothing else.** Spec §30.6 (dating)
+  needs `mutualPreferenceSetMembership` (two-sided preference-set check — today's `checkIfMatch`
+  veto is one-directional, talk-author-vs-responder only) and `ageRangeMutuallyAcceptable` (the
+  "point-in-mutual-range" primitive §30.3 explicitly calls out as distinct from interval-overlap:
+  one side of the comparison is a single declared age, not a range). Both added to
+  `built-in-comparisons.ts` alongside the existing `intervalsOverlap`/`quantitySufficient`/
+  `locationsMutuallyContained`, same style, 9 new unit tests (26/26 in the file). Deliberately
+  NOT wired anywhere — `ageRange` isn't a recognized `BuiltInQuestionKind` yet, and nothing
+  supplies a responder's own (selfTag, preferenceSet) as match-engine input — since doing so
+  requires the dating-category detection/enforcement and safety-copy decisions this section's
+  remaining bullets are about.
+
+## 2026-08-23 — §BB: persisted user tag pairs + shared builtIn route root branching
+
+Moved from `docs/TODO.md` §BB.
+
+- **Persist user-created opposite-tag pairs.** `tag-opposite-pairs.ts` already had the full
+  registry machinery (`TagOppositePairRegistryState`, `registerOppositeTagPair`,
+  `getOppositeTagName`) — only persistence and a save-trigger were missing, so a custom pair an
+  author typed once (e.g. "borrow"/"lend", not one of the 3 hardcoded seed pairs) had to be
+  retyped on every new talk. Added `getTagOppositePairRegistryState`/
+  `setTagOppositePairRegistryState` (`answer-preferences-storage.ts`, mirroring the existing
+  `getTypedPreferenceState` pattern) storing only the author's own confirmed deltas, never the
+  seed pairs themselves. `wireTagAnswerAutoFill` (`talk-editor-dialog.ts`) gained an
+  `onCustomPairConfirmed` callback fired on the answer field's `blur` (not every keystroke) when
+  the author's typed answer genuinely diverges from the tag (a real opposite pair, not a
+  self-match); both call sites (`#talk-tag`/`#talk-preference-set` and `#talk-title`/
+  `#talk-answer`) build one merged seeded+persisted registry per editor session and persist
+  through the same callback. New E2E case in `stage1-single-user/83-tag-pair-picker.spec.ts`:
+  a custom pair typed in one talk auto-fills in a brand-new, separate talk-editor instance.
+- **Support talk-level shared time/location questions before route item branches (spec
+  §30.5).** Real gap, not just missing UI: a route talk's builtIn (typed-comparison) node —
+  quantity/priceRange/timeFrame/location — could only ever be a branch's own terminal leaf,
+  since the route editor had no affordance to attach a child to a builtIn node's single
+  implicit "Compatible" outcome, and `collectRouteEditorQuestions` unconditionally emitted
+  `answers: []` for any builtIn node regardless of whether a child existed. Fixed in
+  `ui-manager.ts`: `renderRouteEditor` now renders a "+Add Child"/"+Add Parallel" button (reusing
+  the existing `.route-add-child-btn` handler verbatim — it keys off `data-qid`/`data-aid` alone)
+  on a builtIn node's fixed synthetic answer id (`${q.id}_compatible`, matching TalkAutofix's own
+  naming) and renders that answer's children; `collectRouteEditorQuestions` now emits the real
+  compatible/incompatible answer pair for a builtIn node with a proper `nextQuestionId`/
+  `nextQuestionIds` when a child was attached (previously always `[]`, silently dropping any
+  such link); `buildRouteSelfAnswers`'s self-answer walk now continues past a builtIn node into
+  its children instead of stopping dead (a builtIn node itself still gets no self-answer — its
+  typed-preference save covers that separately). No changes needed to the actual matching
+  engine, `talk-response-dialog.ts`, or the chatbot auto-resolution path — all three already
+  treat a builtIn question's resolved answer as an ordinary `Answer` object and follow
+  `nextQuestionId` generically, confirming spec §30.5's own claim ("reuses route's existing
+  DAG/contextHash machinery unchanged; the branch point is an ordinary route fork, not a new
+  construct"). New `stage2-two-user/92-route-shared-builtin-root-branches.spec.ts`: a route talk
+  with a shared `timeFrame` root branching into an ordinary "Which item?" choice, each item
+  ending in its own `quantity` builtIn leaf — verifies the editor round-trip (child link
+  survives save/reopen) and a real second-browser responder manually walking the whole DAG
+  (root → item choice → leaf) to a real match. Regression-verified against
+  `82-route-editor-multi-item-builtin.spec.ts`, `88-asymmetric-exact-match-with-attachment.spec.ts`,
+  `89-buy-sell-chatbot-cross-talk-match.spec.ts`, `90-reciprocal-tag-context-non-root-
+  question.spec.ts`, and `stage3-three-user/80-route-multi-spec-match-percent.spec.ts` (all
+  pass unmodified) plus the full unit suite (152/152 suites).
+
+## 2026-08-23 — Smaller independent work batch (R4, R5, Z, CC, FF, sendBulkTalk, authorship, docs)
+
+Moved from `docs/TODO.md` "Smaller independent work". Each item measured or reviewed before
+acting, per the file's own conditional wording and the repo's anti-overengineering convention.
+
+- **R4 (chatroom member-list progressive rendering) — measured, no action needed.** Every
+  chatroom (including Global) is FIFO-capacity-capped at `CONFIG.CHATROOM_CAPACITY`
+  (`src/shared/config.ts`; production default 3, e2e/local-loopback default 50) — overflow
+  moves the oldest member DOWN the hierarchy to a child chatroom
+  (`enforceCapacityLimitAfterJoin`, `web-chatroom-service.ts`), so no single room instance can
+  ever hold more members than the cap. "Large chatroom member lists" cannot occur in
+  production; the existing non-blocking-enrich pattern (`renderMemberList` renders
+  synchronously, `loadMemberStats` fills in stats afterward) is already sufficient. No code
+  change — chunked rendering here would be pure speculative engineering.
+- **R5 (conversations/support-inbox progressive rendering) — measured, no action needed.**
+  `displayConversationsList` (`conversations-view.ts`) has no async enrichment chain (unlike
+  the Contacts case R1 fixed) — it's a single synchronous string-join. Measured directly
+  (throwaway jsdom timing test, not committed): 500 conversations render in ~81ms, 2000 in
+  ~277ms — both comfortably under the 500ms first-row bound this repo already uses elsewhere
+  (R1). No first-render problem exists at any realistic or even generous scale.
+- **FF (searchable chips for large flat checkbox lists) — measured, no action needed.**
+  Surveyed every checkbox-list rendering site in `src/web/ui/*.ts`: language filters (7
+  options, `LANGUAGE_OPTIONS`), relationship labels (6), talk-type filters (4), tag-kind
+  toggles (2-3). All already render as compact pill/chip-styled checkboxes. None come close to
+  a count that would benefit from search-to-filter. No current instance of the "very large
+  flat list" this item anticipates.
+- **Z (long-press popup-variant review) — reviewed, one real inconsistency found and fixed.**
+  The popup shell itself (`showDetailsPopupFor`, ui-manager.ts) was already fully unified by
+  the earlier M2/M3 work; the review here covered its two live content variants (OUT-row
+  `.talk-item-details` and IN-row `.talk-item-details`, both reparented into the one shared
+  popup) plus the Answers-tab `.answer-item-details` variant. Found: the IN-row popup renders
+  its expiry as a tone-colored chip (`formatTalkExpiryTone` → `talk-expiry-{green,amber,red}`,
+  giving at-a-glance urgency), while the OUT-row popup rendered the identical
+  `formatTalkExpiration` value as plain uncolored text — an unjustified asymmetry, since my own
+  sent talks expire on the same clock and deserve the same cue. Fixed: OUT-row's combined
+  expiration+location text line converted into the same two-chip structure (`.talk-info-chips`)
+  IN already uses, with the same tone class. Verified via
+  `stage1-single-user/37-compact-talk-rows-out.spec.ts`,
+  `stage1-single-user/05-talks-edit.spec.ts`, `stage2-two-user/80-talk-co-exchangers.spec.ts`
+  (all pass unmodified).
+- **CC (once-per-day financial-safety-toast E2E coverage) — landed.** No E2E coverage existed
+  for FR-FIN-1's T1 (pre-send)/T2 (post-match) cooldown toasts at all (only an unrelated unit
+  test for the content-filter guard). Added `data-safety-toast="pre-send"|"post-match"` markers
+  to `showNotification` (ui-manager.ts), matching the existing `data-content-filter-notification`
+  convention. New `stage2-two-user/91-safety-toast-once-per-day.spec.ts`: drives the real
+  `#broadcast-talk-btn` click and a real match, proves each toast fires once, is suppressed on
+  an immediate repeat within the 24h cooldown, and returns once the cooldown's own `localStorage`
+  timestamp is time-travelled forward a day. **Found and worked around a real test-infra trap**:
+  the shared `clickBroadcastUntilBulkAck` helper's direct-talk-delivery-e2e branch calls
+  `deliverBroadcastViaAppPath` (an E2E-only shortcut into `app.deliverPendingBroadcastTalksForE2e`)
+  *without* ever clicking `#broadcast-talk-btn` — exactly the click that fires the T1 toast — so
+  this spec clicks the button directly instead. T1's three-cycle cooldown proof runs fully
+  through real repeated broadcasts; T2's cooldown arithmetic (after its wiring into one real
+  match is proven) is exercised through the same production method
+  (`maybeShowMatchSafetyToast`) a second real match would call, to avoid re-proving mesh
+  delivery reliability already covered elsewhere. Stable across repeated runs.
+- **`sendBulkTalk`/`BulkSendJob` — decided: remove.** Confirmed genuinely dead: no UI ever
+  emitted the `'sendTalk'` event that reached it, and both the server (`TalkService.sendBulkTalk`)
+  and client (`WebTalkService.sendBulkTalk`) implementations were no-op stubs that only wrote a
+  job record to `bulkJobs/<id>` and never actually delivered anything — a vestige of a
+  server-authoritative bulk-send design superseded by real mesh/broadcast delivery
+  (`PeerMeshService`, §U's contact-group broadcast). Removed both service methods, the
+  `'sendTalk'` app.ts handler, the now-orphaned `formatTalkSendSuccess`/`formatTalkSendFailed`
+  (ui-manager.ts) and their translation strings, and the `BulkSendJob`/`TargetScope` types
+  (only ever referenced by this dead path). `TalkService`'s reputation side-effect
+  (`updateUserReputation(senderId, 'talk_sent')`) had no other caller either and was removed
+  with it. Full unit suite green (151/151 suites) after removal.
+- **Metadata-only talk-edit authorship semantics — resolved.** `WebTalkService.updateTalk`
+  already unconditionally preserves `authorId`/`createdAt`/`authorLocation` from the existing
+  talk regardless of whether the edit is metadata-only (tags/expiry/locationRadiusMiles) or also
+  touches content fields (questions/type/language) — this was undocumented, untested behavior
+  rather than a decided design. Resolution: this is correct by construction, not just
+  incidentally — the only mechanism anywhere in this codebase that reassigns authorship is
+  minting a new talk id (`buildRevisedTalkDraft`, used only when editing a copied-but-not-yet-
+  owned talk), and `updateTalk` never changes the id. Consistent with the separately-settled
+  "title edits don't count as authorship" precedent, generalized: no in-place edit of an
+  already-owned talk reassigns authorship, whatever fields it touches. Documented via a doc
+  comment on `updateTalk` itself and locked in with 2 new unit tests
+  (`web-talk-service-update-authorship.test.ts`) covering both the metadata-only and the
+  content-touching case.
+- **Stale architecture prose (routing / incoming-talk delivery) — refreshed.**
+  `docs/testing/testplan.md`'s own "Invariants" section still asserted "Server `incomingTalksMap`
+  authoritative; browser uses `GET /api/incoming-talks`" as current fact — both were removed
+  with the star-delivery model (per `CLAUDE.md` and the technical specification's own
+  "Deprecated for production" framing of the same mechanism). Corrected to describe the actual
+  current model: client-side-only incoming-talk clusters mesh-delivered into the receiver's own
+  local Gun graph, no server map, no such endpoint.
 
 ## 2026-08-22 — S2: retention caps derived from a shared storage budget
 
