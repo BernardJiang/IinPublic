@@ -12,6 +12,10 @@ Archived material includes:
 - `merged-source/` — source notes that have already been merged into the technical specification
 - `reference/` — legacy README files from merged source projects
 - `imported/` — imported `.docx` files
+- `examples/` — the legacy Gun + React proof-of-concept demos (`gun-react`, `opencodedemo`) moved
+  out of `src/` on 2026-08-22 when the unused React dependency graph was removed. These were never
+  part of any build or test pipeline (excluded by `webpack.config.js` and `jest.config.js`) and are
+  not installable as written (they import packages that are no longer declared). Kept for history only.
 
 Imported document files moved here during cleanup:
 
