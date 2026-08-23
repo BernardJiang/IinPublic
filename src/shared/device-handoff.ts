@@ -1,5 +1,5 @@
 /**
- * Encrypted handoff archive for public-device exit (GUI redesign §11.2, item J).
+ * Legacy handoff archive for public-device exit (GUI redesign §11.2, item J).
  *
  * When a public-PC identity is erased, its private data can first be packaged
  * into a handoff archive, encrypted to a linked personal device's pub, and
@@ -9,6 +9,9 @@
  * pair-threads belong to the erased identity).
  *
  * This module is pure (no Gun/DOM/crypto) so build + merge are unit-testable.
+ * It is not, by itself, an encrypted or acknowledged cross-device transfer.
+ * New WP5 work must wrap/migrate its records through device-sync-contract.ts
+ * before treating a receiver as verified or enabling a destructive follow-up.
  */
 
 export const HANDOFF_ARCHIVE_VERSION = 1 as const;

@@ -7,8 +7,11 @@ storage, atomic legacy migration, startup unlock, explicit lock, and set/change 
 behind the staged non-production release boundary. The initial lifecycle policy is now explicit;
 password removal now returns to v1 with an explicit downgrade warning and verified transactional
 handoff. Native lifecycle adapters/benchmarks and the remaining security release matrix remain.
-Native/app
-distribution extensions and WP5 onward remain. The architectural sections below describe the
+WP5's browser-portable foundation now has a frozen data inventory, signed/encrypted manifests,
+verified receiver acknowledgements, receiving-device re-custody, resumable imports, and idempotent
+convergence/conflict detection. Data transfer additionally requires matching category-scoped
+authorization signatures from both installations, with unilateral signed revocation. Native/app distribution extensions and the remaining WP5 work
+onward remain. The architectural sections below describe the
 long-term direction; the final section, **Actionable Implementation Plan**, defines the
 dependency-ordered delivery plan.
 
@@ -1710,9 +1713,9 @@ monotonic sequence or predecessor hash, and signature over the canonical payload
 - [ ] `UNLINK_IDENTITY` revocation that supersedes an earlier attestation.
 - [ ] Local device metadata record containing only privacy-reviewed display fields.
 - [ ] Local password-protection metadata that reveals no password verifier to the network.
-- [ ] Separate mutual `AUTHORIZE_DATA_SYNC` / `REVOKE_DATA_SYNC` consent or equivalent scoped
+- [x] Separate mutual `AUTHORIZE_DATA_SYNC` / `REVOKE_DATA_SYNC` consent or equivalent scoped
       authorization; an identity link alone is insufficient.
-- [ ] Versioned encrypted sync manifest with source/target device keys, selected data classes,
+- [x] Versioned encrypted sync manifest with source/target device keys, selected data classes,
       snapshot/checkpoint ID, item counts, content hashes, and acknowledgement signatures.
 - [ ] Per-record origin/provenance plus update and tombstone events for convergence.
 - [ ] Versioned `OfficialBuildCredential` schema, canonical serialization, verifier-key registry,
@@ -1900,16 +1903,16 @@ Likely implementation ownership:
 - Existing encrypted handoff/archive work — reuse only after its portability and integrity are
   verified; do not assume the current custody export is cross-device recovery.
 
-- [ ] Inventory every supported data category and define whether it is immutable-union,
+- [x] Inventory every supported data category and define whether it is immutable-union,
       mutable-versioned, tombstoned, or device-local.
-- [ ] Build a versioned export manifest over all locally available selected records.
-- [ ] Encrypt snapshot and delta payloads specifically for the receiving device.
-- [ ] Verify sender, receiver, record signatures, per-item hashes, category counts, and final
+- [x] Build a versioned export manifest over all locally available selected records.
+- [x] Encrypt snapshot and delta payloads specifically for the receiving device.
+- [x] Verify sender, receiver, record signatures, per-item hashes, category counts, and final
       manifest before acknowledging success.
-- [ ] Re-encrypt imported private data under the receiving device's local custody.
-- [ ] Preserve author identity and provenance; never rewrite history as newly authored.
-- [ ] Resume safely after app termination, route failure, low battery, or insufficient storage.
-- [ ] Make repeated imports idempotent and prevent duplicate Talks/messages/attachments.
+- [x] Re-encrypt imported private data under the receiving device's local custody.
+- [x] Preserve author identity and provenance; never rewrite history as newly authored.
+- [x] Resume safely after app termination, route failure, low battery, or insufficient storage.
+- [x] Make repeated imports idempotent and prevent duplicate Talks/messages/attachments.
 - [ ] After the initial snapshot, exchange ordered deltas until both checkpoints agree.
 - [ ] Queue offline changes locally and synchronize when both authenticated devices become
       reachable; do not require plaintext or durable private storage on a relay.
