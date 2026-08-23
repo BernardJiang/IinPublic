@@ -1917,7 +1917,7 @@ Likely implementation ownership:
 - [x] After the initial snapshot, exchange ordered deltas until both checkpoints agree.
 - [x] Queue offline changes locally and synchronize when both authenticated devices become
       reachable; do not require plaintext or durable private storage on a relay.
-- [ ] Add deterministic merge behavior and a user conflict screen for ambiguous concurrent edits.
+- [x] Add deterministic merge behavior and a user conflict screen for ambiguous concurrent edits.
 - [ ] Rotate sync authorization/key material after stop-sync, unlink, or device revocation.
 - [ ] Keep already received data on each phone unless its local user explicitly deletes it; never
       promise remote deletion.

@@ -15,6 +15,7 @@ export interface EncryptedDeviceSyncEnvelope {
   kind: 'iinpublic-device-sync-envelope';
   source: DeviceSyncEndpoint;
   targetDevicePub: string;
+  authorizationId: string;
   ciphertext: string;
 }
 
@@ -61,15 +62,22 @@ export async function encryptDeviceSyncBundle(
   }
   const targetEpub = bundle.manifest.target.deviceEpub;
   if (!targetEpub) throw new Error('sync manifest target requires epub');
-  const secret = await sea().secret(targetEpub, senderPair);
-  if (!secret) throw new Error('SEA failed to derive device sync secret');
-  const ciphertext = await sea().encrypt(JSON.stringify(bundle), secret);
+  const sharedSecret = await sea().secret(targetEpub, senderPair);
+  if (!sharedSecret) throw new Error('SEA failed to derive device sync secret');
+  const scopedSecret = await deriveAuthorizationScopedSecret(
+    String(sharedSecret),
+    bundle.manifest.authorizationId,
+    bundle.manifest.source.devicePub,
+    bundle.manifest.target.devicePub,
+  );
+  const ciphertext = await sea().encrypt(JSON.stringify(bundle), scopedSecret);
   if (typeof ciphertext !== 'string' || !ciphertext) throw new Error('SEA failed to encrypt device sync bundle');
   return {
     version: DEVICE_SYNC_ENVELOPE_VERSION,
     kind: 'iinpublic-device-sync-envelope',
     source: bundle.manifest.source,
     targetDevicePub: bundle.manifest.target.devicePub,
+    authorizationId: bundle.manifest.authorizationId,
     ciphertext,
   };
 }
@@ -84,10 +92,16 @@ export async function decryptDeviceSyncEnvelope(
   }
   const recipientPub = String(recipientPair.pub || '');
   if (!recipientPub || recipientPub !== envelope.targetDevicePub) throw new Error('device sync envelope is addressed to another device');
-  if (!envelope.source?.deviceEpub || !envelope.ciphertext) throw new Error('device sync envelope is incomplete');
-  const secret = await sea().secret(envelope.source.deviceEpub, recipientPair);
-  if (!secret) throw new Error('SEA failed to derive device sync secret');
-  const decrypted = await sea().decrypt(envelope.ciphertext, secret);
+  if (!envelope.source?.deviceEpub || !envelope.authorizationId || !envelope.ciphertext) throw new Error('device sync envelope is incomplete');
+  const sharedSecret = await sea().secret(envelope.source.deviceEpub, recipientPair);
+  if (!sharedSecret) throw new Error('SEA failed to derive device sync secret');
+  const scopedSecret = await deriveAuthorizationScopedSecret(
+    String(sharedSecret),
+    envelope.authorizationId,
+    envelope.source.devicePub,
+    recipientPub,
+  );
+  const decrypted = await sea().decrypt(envelope.ciphertext, scopedSecret);
   if (!decrypted) throw new Error('device sync envelope decryption failed');
   let bundle: DeviceSyncBundle;
   try {
@@ -100,6 +114,26 @@ export async function decryptDeviceSyncEnvelope(
     || bundle?.manifest?.source?.deviceEpub !== envelope.source.deviceEpub
     || bundle?.manifest?.target?.devicePub !== envelope.targetDevicePub
     || bundle?.manifest?.target?.devicePub !== recipientPub
+    || bundle?.manifest?.authorizationId !== envelope.authorizationId
   ) throw new Error('device sync envelope endpoint binding mismatch');
   return bundle;
+}
+
+async function deriveAuthorizationScopedSecret(
+  sharedSecret: string,
+  authorizationId: string,
+  sourceDevicePub: string,
+  targetDevicePub: string,
+): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error('WebCrypto HKDF is unavailable for device sync');
+  const encoder = new TextEncoder();
+  const key = await subtle.importKey('raw', encoder.encode(sharedSecret), 'HKDF', false, ['deriveBits']);
+  const bits = await subtle.deriveBits({
+    name: 'HKDF',
+    hash: 'SHA-256',
+    salt: encoder.encode(`iinpublic-sync-auth-v1|${authorizationId}`),
+    info: encoder.encode(`${sourceDevicePub}|${targetDevicePub}`),
+  }, key, 256);
+  return Array.from(new Uint8Array(bits)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }

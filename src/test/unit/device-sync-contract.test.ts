@@ -224,6 +224,13 @@ describe('device sync contract', () => {
     const original = await bundle();
     const envelope = await encryptDeviceSyncBundle(original, alice);
     const rebound = { ...envelope, source: { ...envelope.source, devicePub: mallory.pub } };
-    await expect(decryptDeviceSyncEnvelope(rebound, bob)).rejects.toThrow('endpoint binding mismatch');
+    await expect(decryptDeviceSyncEnvelope(rebound, bob)).rejects.toThrow('decryption failed');
+  });
+
+  it('derives a distinct encryption context for each sync authorization', async () => {
+    const original = await bundle();
+    const envelope = await encryptDeviceSyncBundle(original, alice);
+    const staleAuthorization = { ...envelope, authorizationId: 'replacement-authorization-456' };
+    await expect(decryptDeviceSyncEnvelope(staleAuthorization, bob)).rejects.toThrow('decryption failed');
   });
 });

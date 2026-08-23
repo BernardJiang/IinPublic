@@ -75,3 +75,16 @@ that point the sender's last acknowledged checkpoint equals the receiver's impor
 Repeated mutable updates to one record within a batch collapse to the latest sequence; later
 batches still follow the normal convergence and conflict rules. A valid sync revocation stops the
 flush before sealing or delivery and does not delete either installation's received/local data.
+
+Transfer encryption is authorization-scoped. The SEA ECDH shared secret is fed through WebCrypto
+HKDF-SHA-256 with the random authorization ID as salt and the ordered source/target device pubs as
+context. Replacing a stopped or revoked authorization therefore derives different sync key
+material even when the two installations retain the same long-lived v1 SEA keys. The envelope
+binds the visible authorization ID back to the signed encrypted manifest and fails decryption if
+that routing context is changed.
+
+Ambiguous same-version edits and immutable ID collisions never choose a silent winner. Import
+persists the conflict and withholds acknowledgement. The conflict dialog shows category, stable ID,
+versions, and timestamps without rendering private payloads; no choice is preselected, every item
+must be decided, and the choices are persisted under receiving-device custody. A resumed import
+rechecks those decisions and acknowledges only after the chosen records are durable.

@@ -33,6 +33,8 @@ export interface DeviceSyncImportProgress {
   appliedCount: number;
   retainedLocalCount: number;
   conflicts: DeviceSyncImportConflict[];
+  /** User-approved local winners for otherwise ambiguous incoming records. */
+  keptLocalConflictKeys: string[];
   updatedAt: string;
   lastError?: string;
 }
@@ -58,6 +60,51 @@ export type DeviceSyncImportResult =
   | { ok: false; status: 'rejected'; reason: string }
   | { ok: false; status: 'interrupted'; reason: string; progress: DeviceSyncImportProgress }
   | { ok: false; status: 'conflicted'; conflicts: DeviceSyncImportConflict[]; progress: DeviceSyncImportProgress };
+
+export interface DeviceSyncConflictDecision {
+  category: DeviceSyncCategory;
+  recordId: string;
+  resolution: 'keep-local' | 'use-incoming';
+}
+
+/** Persist explicit user choices, then call the authorized importer again to finish and acknowledge. */
+export async function resolveDeviceSyncImportConflicts(input: {
+  store: DeviceSyncCustodyStore;
+  checkpointId: string;
+  decisions: readonly DeviceSyncConflictDecision[];
+  now?: () => Date;
+}): Promise<DeviceSyncImportProgress> {
+  const progress = await input.store.readProgress(input.checkpointId);
+  if (!progress || progress.status !== 'conflicted' || progress.conflicts.length === 0) throw new Error('no unresolved sync conflicts for checkpoint');
+  const decisions = new Map(input.decisions.map((decision) => [recordKey(decision), decision]));
+  if (decisions.size !== input.decisions.length) throw new Error('duplicate sync conflict decision');
+  if (decisions.size !== progress.conflicts.length) throw new Error('every sync conflict requires a decision');
+  const processed = new Set(progress.processedRecordKeys);
+  const keptLocal = new Set(progress.keptLocalConflictKeys ?? []);
+  for (const conflict of progress.conflicts) {
+    const key = recordKey(conflict);
+    const decision = decisions.get(key);
+    if (!decision) throw new Error(`missing sync conflict decision: ${conflict.category}/${conflict.recordId}`);
+    if (decision.resolution === 'use-incoming') {
+      await input.store.writeRecord(conflict.incoming);
+      progress.appliedCount += 1;
+      keptLocal.delete(key);
+    } else {
+      progress.retainedLocalCount += 1;
+      keptLocal.add(key);
+    }
+    processed.add(key);
+  }
+  const resolved = withTimestamp({
+    ...progress,
+    status: 'importing',
+    conflicts: [],
+    processedRecordKeys: [...processed].sort(),
+    keptLocalConflictKeys: [...keptLocal].sort(),
+  }, input.now);
+  await input.store.writeProgress(resolved);
+  return resolved;
+}
 
 /** Public receiver entry point: data import is unavailable without separate mutual consent. */
 export async function importAuthorizedDeviceSyncBundle(input: {
@@ -151,6 +198,7 @@ export async function importDeviceSyncBundle(input: {
       const local = await input.store.readRecord(incoming.category, incoming.recordId);
       const decision = chooseConvergedRecord(local, incoming);
       if (processed.has(key) && decision.kind === 'retain-local') continue;
+      if (processed.has(key) && decision.kind === 'conflict' && (progress.keptLocalConflictKeys ?? []).includes(key)) continue;
       processed.delete(key);
       if (decision.kind === 'conflict') {
         progress.conflicts = replaceConflict(progress.conflicts, decision.conflict);
@@ -238,6 +286,7 @@ function newProgress(checkpointId: string, now?: () => Date): DeviceSyncImportPr
     appliedCount: 0,
     retainedLocalCount: 0,
     conflicts: [],
+    keptLocalConflictKeys: [],
   }, now);
 }
 

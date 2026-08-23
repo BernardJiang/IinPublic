@@ -10,6 +10,7 @@ import {
   chooseConvergedRecord,
   importAuthorizedDeviceSyncBundle,
   importDeviceSyncBundle,
+  resolveDeviceSyncImportConflicts,
   type DeviceSyncCustodyStore,
   type DeviceSyncImportProgress,
 } from '../../shared/device-sync-importer';
@@ -297,6 +298,45 @@ describe('device sync resumable importer', () => {
     });
     expect(result).toMatchObject({ ok: false, status: 'conflicted', conflicts: [{ reason: 'immutable-id-collision' }] });
     expect(store.acknowledgements.size).toBe(0);
+  });
+
+  it('persists an explicit conflict choice and resumes to a verified acknowledgement', async () => {
+    const store = new MemoryCustodyStore();
+    const local = record('message-1', { category: 'messages', payload: { text: 'local' } });
+    store.records.set('messages\u0000message-1', local);
+    const incoming = record('message-1', { category: 'messages', payload: { text: 'incoming' } });
+    const bundle = await makeBundle([incoming]);
+    const conflicted = await importDeviceSyncBundle({ bundle, targetDevicePub: bob.pub, targetCrypto: createSeaDeviceSyncCrypto(bob), store });
+    expect(conflicted.status).toBe('conflicted');
+
+    await resolveDeviceSyncImportConflicts({
+      store,
+      checkpointId: bundle.manifest.checkpointId,
+      decisions: [{ category: 'messages', recordId: 'message-1', resolution: 'keep-local' }],
+    });
+    await expect(importDeviceSyncBundle({
+      bundle,
+      targetDevicePub: bob.pub,
+      targetCrypto: createSeaDeviceSyncCrypto(bob),
+      store,
+    })).resolves.toMatchObject({ ok: true, status: 'complete' });
+    expect(store.records.get('messages\u0000message-1')).toEqual(local);
+
+    const secondStore = new MemoryCustodyStore();
+    secondStore.records.set('messages\u0000message-1', local);
+    await importDeviceSyncBundle({ bundle, targetDevicePub: bob.pub, targetCrypto: createSeaDeviceSyncCrypto(bob), store: secondStore });
+    await resolveDeviceSyncImportConflicts({
+      store: secondStore,
+      checkpointId: bundle.manifest.checkpointId,
+      decisions: [{ category: 'messages', recordId: 'message-1', resolution: 'use-incoming' }],
+    });
+    await expect(importDeviceSyncBundle({
+      bundle,
+      targetDevicePub: bob.pub,
+      targetCrypto: createSeaDeviceSyncCrypto(bob),
+      store: secondStore,
+    })).resolves.toMatchObject({ ok: true, status: 'complete' });
+    expect(secondStore.records.get('messages\u0000message-1')).toEqual(incoming);
   });
 
   it('re-encrypts imported records under the receiving pair in browser storage', async () => {
