@@ -54,6 +54,24 @@ record, count, endpoint, checkpoint, or signature fails closed.
 The companion importer persists progress after each item, resumes across a fresh importer instance,
 deduplicates repeated imports, enforces ordered delta predecessors, re-encrypts records under the
 receiving installation's local custody, and withholds acknowledgement for ambiguous conflicts.
-It does not yet exchange live deltas, queue offline outbound changes, present the conflict UI, or
-wire the legacy erase dialog to a real peer transfer. Hardware lifecycle and real-phone coverage
-are explicitly outside this browser-portable contract.
+The portable core now prepares and drains live deltas from an offline-capable outbox, but it does
+not yet wire an actual peer route, present the conflict UI, or connect the legacy erase dialog to a
+verified transfer. Hardware lifecycle and real-phone coverage are explicitly outside this
+browser-portable contract.
+
+## Continuous delta outbox
+
+After an acknowledged initial snapshot, each direction keeps an independently encrypted local
+outbox. Every local change receives a monotonic sequence. A flush persists the exact signed delta
+bundle and its high-water sequence before attempting transport; the transport sees only a sealed
+payload. Route failure leaves that bundle in flight. If the receiver imported it but its
+acknowledgement was lost, the sender retries the identical checkpoint and the receiver returns its
+stored acknowledgement without duplicating records.
+
+On acknowledgement, the sender reloads its outbox before committing so changes queued during the
+network call are retained. It removes only entries through the acknowledged high-water mark, uses
+that checkpoint as the predecessor for the next delta, and repeats until the queue is empty. At
+that point the sender's last acknowledged checkpoint equals the receiver's imported source head.
+Repeated mutable updates to one record within a batch collapse to the latest sequence; later
+batches still follow the normal convergence and conflict rules. A valid sync revocation stops the
+flush before sealing or delivery and does not delete either installation's received/local data.

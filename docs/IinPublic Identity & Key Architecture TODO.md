@@ -11,7 +11,8 @@ WP5's browser-portable foundation now has a frozen data inventory, signed/encryp
 verified receiver acknowledgements, receiving-device re-custody, resumable imports, and idempotent
 convergence/conflict detection. Data transfer additionally requires matching category-scoped
 authorization signatures from both installations, with unilateral signed revocation. Native/app distribution extensions and the remaining WP5 work
-onward remain. The architectural sections below describe the
+onward remain. An encrypted local outbox now queues offline edits and retries identical in-flight
+checkpoints until ordered deltas and receiver acknowledgements converge. The architectural sections below describe the
 long-term direction; the final section, **Actionable Implementation Plan**, defines the
 dependency-ordered delivery plan.
 
@@ -1913,8 +1914,8 @@ Likely implementation ownership:
 - [x] Preserve author identity and provenance; never rewrite history as newly authored.
 - [x] Resume safely after app termination, route failure, low battery, or insufficient storage.
 - [x] Make repeated imports idempotent and prevent duplicate Talks/messages/attachments.
-- [ ] After the initial snapshot, exchange ordered deltas until both checkpoints agree.
-- [ ] Queue offline changes locally and synchronize when both authenticated devices become
+- [x] After the initial snapshot, exchange ordered deltas until both checkpoints agree.
+- [x] Queue offline changes locally and synchronize when both authenticated devices become
       reachable; do not require plaintext or durable private storage on a relay.
 - [ ] Add deterministic merge behavior and a user conflict screen for ambiguous concurrent edits.
 - [ ] Rotate sync authorization/key material after stop-sync, unlink, or device revocation.
