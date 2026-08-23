@@ -14,7 +14,22 @@ const CLEAR_POST_INITIAL_BACKOFF_MS = 80;
 /** Poll until the Gun/API process for this worker answers /health (Playwright webServer startup). */
 const HEALTH_POLL_INTERVAL_MS = 100;
 
-const HEALTH_POLL_MAX_WAIT_MS = 25_000;
+/**
+ * Playwright's own `webServer.port` readiness gate already allows up to 120s for the
+ * server process to bind its port before any test runs — this poll is a separate,
+ * tighter backstop layered on top, checking that /health actually *responds* (not just
+ * that the port is listening) before a destructive clear runs. The original 25s ceiling
+ * was tight enough to fail under the exact "many concurrent test:all phases sharing one
+ * machine" contention `00-platform-smoke.spec.ts`'s own comment on `gotoWebApp` already
+ * documents and budgets 30s for — seen failing this way in a real `test:all` run
+ * (`waitForGunApiReady: http://127.0.0.1:<port>/health not reachable after 25000ms`) even
+ * though the identical spec passes cleanly in isolation, confirming a genuinely-healthy
+ * server was just slow to answer its first request under CPU/memory contention, not
+ * actually broken. Raised to give real startup delay the same order-of-magnitude margin
+ * Playwright's own gate already allows; a healthy server still responds in milliseconds,
+ * so this only changes how long a *definitely* dead server takes to be reported as such.
+ */
+const HEALTH_POLL_MAX_WAIT_MS = 45_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

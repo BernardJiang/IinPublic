@@ -36,22 +36,49 @@ import {
   type TalkAnsweredContent,
   type TalkWithdrawnContent,
 } from '../../shared/types';
+import { deriveRetentionCap, representativeLedgerEventBytes } from '../../shared/graph-size-report';
 import type { WebGunService } from './web-gun-service';
 import { getSEA } from '../sea-gun';
 
 // (no extra interface needed — LedgerState = Record<string, number>)
 
 /**
- * Safe env read for browser bundles: `IINPUBLIC_E2E_LEDGER_*` are only ever defined by
- * webpack's DISABLE_HMR=true DefinePlugin branch (webpack.config.js), so a normal
- * `npm run dev` bundle (EnvironmentPlugin branch, no `process` global at all) hit
- * "process is not defined" at module load — before this file even finished importing —
- * the moment this was a bare `process.env.X` read. Every other browser-side env read in
- * this codebase guards with `typeof process !== 'undefined'` for exactly this reason
- * (src/shared/config.ts's own getEnv, web-chatroom-service.ts, p2p-webrtc-session.ts, …).
+ * Safe env read for browser bundles: `IINPUBLIC_E2E_LEDGER_*` are baked in by webpack
+ * (DefinePlugin in the DISABLE_HMR=true branch, EnvironmentPlugin in the ordinary `npm run
+ * dev` branch — both list these exact keys, webpack.config.js) as literal string
+ * replacements of the static expression `process.env.IINPUBLIC_E2E_LEDGER_*`.
+ *
+ * TODO §S Item 7 bugfix (found while diagnosing docs/TODO.md §S1 — seq 1 never actually
+ * got pruned in the real-browser E2E run), two compounding bugs:
+ *
+ * 1. This used to be one generic `readE2eEnvInt(key)` helper doing `process.env[key]` — a
+ *    *dynamic* bracket-notation lookup. Webpack's DefinePlugin/EnvironmentPlugin only do
+ *    textual replacement of literal *static* member expressions (e.g.
+ *    `process.env.IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL`); neither can see through a
+ *    variable key, so `process.env[key]` was never rewritten and reached the browser as-is.
+ * 2. Fixing (1) alone (giving each constant its own reader with the key written out as a
+ *    literal) still wasn't enough: the reader also wrapped the access in a
+ *    `typeof process !== 'undefined' && process.env` runtime guard — copied from
+ *    `src/shared/config.ts`'s own `getEnv`, which needs it because it *does* take a dynamic
+ *    key. But webpack never defines a bare `process` global in *either* build branch (no
+ *    `ProvidePlugin` for it here) — only specific literal `process.env.KEY` expressions get
+ *    replaced, and replacement removes the `process` identifier from that call site
+ *    entirely. A *separate*, untargeted `typeof process` check has no such literal to be
+ *    replaced with, so it stays a real runtime lookup against a global that's never
+ *    defined — always `'undefined'`, always false, discarding the correctly-substituted
+ *    literal on the other side of the `&&`. Both constants below silently fell back to
+ *    their production defaults (100/500) in every real browser, no matter what the E2E env
+ *    vars were set to. Fixed by dropping the guard entirely: since webpack.config.js now
+ *    lists these keys in *both* branches (with a `''` fallback when unset), the static
+ *    `process.env.KEY` expression is always fully replaced at build time — the compiled
+ *    code never references a real `process` identifier here, so no guard is needed (the
+ *    same reasoning `app.ts`'s `isLedgerDisabledForRun` already relies on for
+ *    `process.env.DISABLE_HMR`).
  */
-const readE2eEnvInt = (key: string): string | undefined =>
-  typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
+const readLedgerCheckpointIntervalEnv = (): string | undefined =>
+  process.env.IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL || undefined;
+const readLedgerRetentionWindowEnv = (): string | undefined =>
+  process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW || undefined;
 
 /**
  * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 1/5): every
@@ -61,16 +88,25 @@ const readE2eEnvInt = (key: string): string | undefined =>
  *
  * TODO §S Item 7: overridable via env (parsed once at module load, same pattern
  * webpack.config.js already uses for CHATROOM_MAX_CAPACITY etc.) — real sequential Gun
- * round trips at the production scale (100/500) take several seconds each, so driving
- * 600+ of them in a real-browser E2E test is impractically slow. The E2E spec sets these
- * to a small value to prove the checkpoint/prune mechanism fires correctly without
- * grinding through production-scale event counts; unset, these are exactly the
- * production defaults.
+ * round trips at the production scale take several seconds each, so driving hundreds of
+ * them in a real-browser E2E test is impractically slow. The E2E spec sets these to a
+ * small value to prove the checkpoint/prune mechanism fires correctly without grinding
+ * through production-scale event counts; unset, these are the production defaults.
+ *
+ * TODO §S2: `LEDGER_RETENTION_WINDOW`'s unset fallback is no longer a flat guess — it's
+ * `deriveRetentionCap`'s `floor(categoryShare / measuredAverageBytes)` against a real
+ * measured ledger-event sample and the shared 8 MiB local-storage budget
+ * (`graph-size-report.ts`), so retention scales with how much a ledger event actually
+ * costs to store rather than an arbitrary round number. `web-ledger-service.test.ts` pins
+ * this back to the previous flat 500 via `IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW`
+ * (`src/test/setup.ts`) so its own small, specific-boundary test scenarios don't need to
+ * scale up to the new (much larger) derived cap.
  */
 export const LEDGER_CHECKPOINT_INTERVAL =
-  parseInt(readE2eEnvInt('IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL') || '', 10) || 100;
+  parseInt(readLedgerCheckpointIntervalEnv() || '', 10) || 100;
 export const LEDGER_RETENTION_WINDOW =
-  parseInt(readE2eEnvInt('IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW') || '', 10) || 500;
+  parseInt(readLedgerRetentionWindowEnv() || '', 10) ||
+  deriveRetentionCap(representativeLedgerEventBytes(), 500);
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 

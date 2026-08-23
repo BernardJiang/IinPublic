@@ -21,6 +21,8 @@ import { avatarInnerHtml } from './profile-avatar';
 import { formatIdentityFingerprint, type LocalDeviceMetadata } from '../services/local-device-metadata';
 import { activateModalAccessibility } from './modal-accessibility';
 import { isQrCameraScanSupported, renderLinkCodeQr, startQrCameraScan } from './link-code-qr';
+import { buildLinkFragmentUrl } from '../services/identity-link-fragment';
+import { loopbackLinkUrl, probeLoopbackNode } from '../services/loopback-probe';
 import {
   showChangeIdentityPasswordDialog,
   showRemoveIdentityPasswordDialog,
@@ -87,6 +89,15 @@ export interface LinkedDevicesDeps {
   /** Remove a link (publishes a revocation when a service is wired). */
   unlink: (pub: string) => Promise<'removed' | 'revocation-pending'>;
   now?: () => number;
+  /**
+   * TODO §J — an encrypted handoff archive from a verified-linked device, already
+   * decrypted and verified, waiting for the user's explicit review before anything is
+   * merged into local data (spec §11.2's "importable item"). Display-only: the archive's
+   * own contents never pass through this dialog, only the trigger.
+   */
+  incomingHandoff?: { fromPub: string; fromName: string } | null;
+  /** Merge the incoming archive and publish the signed ack the sender is waiting on. */
+  importHandoff?: () => Promise<void>;
 }
 
 const glyphFor = (platform: string): string =>
@@ -108,7 +119,10 @@ const stateTextKey = (state: LinkedDeviceRow['state']): string =>
     conflicted: 'linkedDeviceStateConflicted',
   })[state || 'linked'];
 
-export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
+export function showLinkedDevicesDialog(
+  deps: LinkedDevicesDeps,
+  opts?: { prefillLinkCode?: string },
+): void {
   document.getElementById('linked-devices-overlay')?.remove();
   const now = () => (deps.now ? deps.now() : Date.now());
   const pageOpener = document.activeElement as HTMLElement | null;
@@ -208,6 +222,15 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
             </div>
             <button type="button" class="btn" id="rename-current-device" data-testid="rename-current-device" style="margin-top:10px;">${deps.text('renameDevice', 'Rename device')}</button>
           </section>
+          ${deps.incomingHandoff ? `
+          <section data-testid="incoming-handoff-card" style="padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+            <h3 style="margin:0 0 8px;font-size:1em;">${deps.text('incomingHandoffTitle', 'Data available to import')}</h3>
+            <p style="font-size:0.85em;color:var(--text-secondary);">${deps.text('incomingHandoffDescription', 'has saved data to this device before erasing.').replace('{device}', escapeHtml(deps.incomingHandoff.fromName || deps.text('eraseLinkedDevice', 'Your other device')))}</p>
+            <div id="incoming-handoff-status" role="status" style="font-size:0.82em;color:var(--text-tertiary);min-height:1em;"></div>
+            <div class="modal-actions" style="justify-content:flex-start;">
+              <button type="button" class="btn primary-btn" id="import-handoff-btn" data-testid="import-handoff-btn">${deps.text('importHandoff', 'Import')}</button>
+            </div>
+          </section>` : ''}
           <section data-testid="linked-devices-card" style="padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
             <h3 style="margin:0 0 8px;font-size:1em;">${deps.text('linkedDevicesTitle', 'Linked devices')}</h3>
             <p style="font-size:0.8em;color:var(--text-tertiary);margin:0 0 8px;">${deps.text('linkedDevicesNoTransfer', 'A direct link does not authorize data transfer, synchronization, recovery, or merged authorship.')}</p>
@@ -238,7 +261,21 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
   const bind = (): void => {
     overlay.querySelector('#linked-devices-close')?.addEventListener('click', close);
     overlay.querySelector('#link-a-device-btn')?.addEventListener('click', openLinkStartConfirm);
-    overlay.querySelector('#enter-link-code-btn')?.addEventListener('click', openEnterCodeDialog);
+    overlay.querySelector('#enter-link-code-btn')?.addEventListener('click', () => openEnterCodeDialog());
+    overlay.querySelector('#import-handoff-btn')?.addEventListener('click', async () => {
+      const btn = overlay.querySelector('#import-handoff-btn') as HTMLButtonElement | null;
+      const status = overlay.querySelector('#incoming-handoff-status') as HTMLElement | null;
+      if (!deps.importHandoff) return;
+      if (btn) btn.disabled = true;
+      try {
+        await deps.importHandoff();
+        if (status) status.textContent = deps.text('importHandoffComplete', 'Imported.');
+        overlay.querySelector('[data-testid="incoming-handoff-card"]')?.remove();
+      } catch {
+        if (status) status.textContent = deps.text('importHandoffFailed', 'Could not import. Try again.');
+        if (btn) btn.disabled = false;
+      }
+    });
     overlay.querySelector('#refresh-linked-devices')?.addEventListener('click', async () => {
       const button = overlay.querySelector('#refresh-linked-devices') as HTMLButtonElement | null;
       if (button) button.disabled = true;
@@ -403,13 +440,28 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
         </div>
         <div data-testid="link-device-countdown" id="link-device-countdown" role="timer" aria-label="${deps.text('linkCodeTimeRemaining', 'Link code time remaining')}" style="text-align:center;font-size:0.85em;color:var(--text-secondary);"></div>
         <div id="link-device-request-status" data-testid="link-device-request-status" role="status" aria-live="polite" style="font-size:0.84em;color:var(--text-secondary);min-height:1.4em;margin-top:8px;word-break:break-word;">${deps.text('linkWaitingForOtherDevice', 'Waiting for the other device to enter this code.')}</div>
+        <button type="button" class="btn primary-btn" id="link-device-loopback" data-testid="link-device-loopback" hidden style="width:100%;margin-top:8px;">${deps.text('linkWithAppOnThisComputer', 'Link with the app on this computer')}</button>
         <div class="modal-actions">
           <button type="button" class="btn" data-testid="link-device-copy" id="link-device-copy">${deps.text('copy', 'Copy')}</button>
+          <button type="button" class="btn" data-testid="link-device-copy-link" id="link-device-copy-link">${deps.text('copyLink', 'Copy link')}</button>
           <button type="button" class="btn primary-btn" data-testid="link-device-check-request" id="link-device-check-request">${deps.text('checkForLinkRequest', 'Check for request')}</button>
           <button type="button" class="btn primary-btn" id="link-device-done">${deps.text('done', 'Done')}</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
+
+    // TODO §I — loopback same-device shortcut: the "app on this computer" is the same
+    // codebase running in embedded-node mode on 127.0.0.1 (see loopback-probe.ts's own
+    // doc comment). A silent reachability probe decides whether to surface the one-click
+    // affordance at all; failure just means the button stays hidden, never an error.
+    const loopbackBtn = modal.querySelector('#link-device-loopback') as HTMLButtonElement | null;
+    void probeLoopbackNode().then((reachable) => {
+      if (!reachable || !modal.isConnected || !loopbackBtn) return;
+      loopbackBtn.hidden = false;
+      loopbackBtn.addEventListener('click', () => {
+        window.open(loopbackLinkUrl(code), '_blank', 'noopener');
+      });
+    });
 
     const qrCanvas = modal.querySelector('#link-device-qr-canvas') as HTMLCanvasElement;
     void renderLinkCodeQr(qrCanvas, code).catch(() => {
@@ -436,6 +488,9 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
 
     modal.querySelector('#link-device-copy')?.addEventListener('click', () => {
       navigator.clipboard?.writeText(code).catch(() => {});
+    });
+    modal.querySelector('#link-device-copy-link')?.addEventListener('click', () => {
+      navigator.clipboard?.writeText(buildLinkFragmentUrl(code)).catch(() => {});
     });
     const closeCode = (cancelPending = true): void => {
       window.clearInterval(timer);
@@ -489,8 +544,13 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
   }
 
   // --- Enter link code dialog (size S) ----------------------------------------
-  function openEnterCodeDialog(): void {
+  // TODO §I — `prefillCode` is the URL-fragment same-device shortcut's entry point
+  // (showLinkedDevicesDialog's `opts.prefillLinkCode`): skips manual typing/scanning
+  // entirely, landing straight on the peer preview.
+  function openEnterCodeDialog(prefillCode?: string): void {
     const opener = document.activeElement as HTMLElement | null;
+    const canPasteFromClipboard = typeof navigator !== 'undefined'
+      && !!navigator.clipboard && typeof navigator.clipboard.readText === 'function';
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.id = 'enter-link-code-modal';
@@ -499,7 +559,10 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
       <div class="modal-content size-s" role="dialog" aria-modal="true" aria-labelledby="enter-link-code-title">
         <div class="modal-header"><h3 class="modal-title" id="enter-link-code-title">${deps.text('enterLinkCode', 'Enter link code')}</h3></div>
         <label for="enter-link-code-input" class="visually-hidden">${deps.text('linkCodeInputLabel', 'Link code')}</label>
-        <input type="text" class="form-input" id="enter-link-code-input" data-testid="enter-link-code-input" aria-describedby="enter-link-code-error" placeholder="${deps.text('linkCodePlaceholder', 'Paste link code')}" autocomplete="off" style="width:100%;">
+        <div style="display:flex;gap:6px;align-items:flex-start;">
+          <input type="text" class="form-input" id="enter-link-code-input" data-testid="enter-link-code-input" aria-describedby="enter-link-code-error" placeholder="${deps.text('linkCodePlaceholder', 'Paste link code')}" autocomplete="off" style="flex:1;min-width:0;">
+          ${canPasteFromClipboard ? `<button type="button" class="btn" id="paste-link-code" data-testid="paste-link-code" style="flex:none;">${deps.text('pasteFromClipboard', 'Paste')}</button>` : ''}
+        </div>
         <div id="enter-link-peer-preview" data-testid="enter-link-peer-preview" hidden style="font-size:0.84em;color:var(--text-secondary);margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:8px;"></div>
         <div id="enter-link-code-error" data-testid="enter-link-code-error" role="alert" aria-live="assertive" style="color:var(--danger);font-size:0.82em;min-height:1em;margin-top:6px;"></div>
         <video id="link-code-camera-preview" data-testid="link-code-camera-preview" hidden style="width:100%;max-height:240px;border-radius:8px;background:#000;object-fit:cover;margin-top:8px;"></video>
@@ -570,6 +633,18 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
 
     modal.querySelector('#enter-link-code-submit')?.addEventListener('click', () => void submit());
     input.addEventListener('input', renderPeerPreview);
+    modal.querySelector('#paste-link-code')?.addEventListener('click', async () => {
+      try {
+        const text = (await navigator.clipboard.readText()).trim();
+        if (!text) return;
+        input.value = text;
+        renderPeerPreview();
+        (modal.querySelector('#enter-link-code-submit') as HTMLElement | null)?.focus();
+      } catch {
+        // Clipboard permission denied/unavailable — the user can still paste manually
+        // with the normal OS keyboard shortcut, so this is silent, not an error state.
+      }
+    });
     modal.querySelector('#scan-link-code')?.addEventListener('click', async () => {
       const scanButton = modal.querySelector('#scan-link-code') as HTMLButtonElement | null;
       if (scanButton) scanButton.disabled = true;
@@ -597,8 +672,16 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) cancel();
     });
+    if (prefillCode) {
+      input.value = prefillCode;
+      renderPeerPreview();
+    }
     deactivate = activateModalAccessibility(modal, {
-      initialFocus: input,
+      // A prefilled code has nothing left to type — send focus straight to the action
+      // the URL-fragment shortcut exists to make one click instead of a manual paste.
+      initialFocus: prefillCode
+        ? (modal.querySelector('#enter-link-code-submit') as HTMLElement | null)
+        : input,
       restoreFocusTo: opener,
       onEscape: cancel,
     });
@@ -650,6 +733,10 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
     restoreFocusTo: pageOpener,
     onEscape: close,
   });
+  // TODO §I — URL-fragment same-device shortcut: a `#link=<code>` fragment already
+  // decoded and cleared by the caller lands here, going straight to the Enter-code
+  // dialog pre-filled, skipping the "Enter or scan a code" button entirely.
+  if (opts?.prefillLinkCode) openEnterCodeDialog(opts.prefillLinkCode);
   if (deps.refreshRecords) {
     void deps.refreshRecords().then(() => {
       if (!overlay.isConnected) return;

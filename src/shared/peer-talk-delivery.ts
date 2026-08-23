@@ -1,4 +1,5 @@
 import { buildTalkIdentityKey } from './cid';
+import { deriveRetentionCap, representativeIncomingTalkClusterBytes } from './graph-size-report';
 
 /** Owner-scoped mesh IN index. */
 export const OWNER_INCOMING_TALK_INDEX_ROOT = 'ownerIncomingTalkIndex';
@@ -29,8 +30,13 @@ export type IncomingTalkClusterWire = {
  * into first: a cluster's own Q&A record already lives independently in the Me tab's answer
  * history (Bernard, 2026-08-01, closing the tombstone half of this item), so a pruned cluster
  * has nothing that needs preserving. Delete outright.
+ *
+ * TODO §S2: no longer a flat guess — `deriveRetentionCap`'s
+ * `floor(categoryShare / measuredAverageBytes)` against a real measured incoming-talk-cluster
+ * sample and the shared 8 MiB local-storage budget (`graph-size-report.ts`).
  */
-export const DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS = 500;
+export const DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS =
+  deriveRetentionCap(representativeIncomingTalkClusterBytes(), 500);
 
 export type IncomingTalkClusterPrunePlan = {
   /** Clusters to delete, oldest `updatedAt` first — empty when nothing needs pruning yet. */

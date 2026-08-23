@@ -343,7 +343,21 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
     // The checkpoint pass is serialized and coalesces messages arriving while it is in
     // flight. Deletes are acknowledged before prunedThroughCount advances, so this checks
     // the durable graph rather than trusting the in-memory bookkeeping counter.
-    expect(messageKeyFor('0')).toBeUndefined();
+    //
+    // TODO §S1 bugfix: a pruned message's *soul key* is never actually absent from this
+    // dump — Gun's graph is append-only (confirmed against the server's own raw
+    // `gun._.graph`, which `/api/test/export-snapshot` returns unfiltered): once a soul is
+    // created, it is a permanent key forever, and no write can remove it, only clear its
+    // fields. `deleteMessageRecord` (gun-message-store.ts) was fixed to null the message's
+    // own content fields (mirroring the ledger's field-nulling fix for the identical class
+    // of bug) rather than asserting a key can vanish outright — matching how the ledger's
+    // own analogous check (`isLedgerRawEventPresentForE2e`/`getEventBySeq`) already checks
+    // content presence, not raw key presence. "Pruned" therefore means: the key is still
+    // here, but its ciphertext is gone.
+    const prunedKey = messageKeyFor('0');
+    expect(prunedKey).toBeTruthy();
+    const prunedRaw = graph[prunedKey as string] as any;
+    expect(prunedRaw?.text).toBeFalsy();
 
     // The very last fill message is always within the retained tail — must survive with
     // real ciphertext.

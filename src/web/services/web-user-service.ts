@@ -901,6 +901,28 @@ export class WebUserService {
     });
   }
 
+  /**
+   * TODO §J — apply an imported device-handoff archive's already-merged contacts/talk
+   * filters (`mergeHandoffArchive`, shared/device-handoff.ts) in one locked write. The
+   * caller has already resolved conflicts (local wins); this just persists the result —
+   * mirrors updateTalkFilters's own public-path write since talk filters must stay
+   * visible for delivery-time filtering.
+   */
+  async importHandoffData(
+    userId: string,
+    merge: { knownPeople?: KnownPerson[]; talkFilters?: TalkIntakeFilters },
+  ): Promise<void> {
+    await this.withPrivateDataLock(async () => {
+      const user = await this.getUser(userId);
+      if (merge.talkFilters) await this.putPublicTalkFilters(userId, merge.talkFilters);
+      await this.putPrivateUserData({
+        ...user,
+        ...(merge.knownPeople ? { knownPeople: merge.knownPeople } : {}),
+        ...(merge.talkFilters ? { talkFilters: merge.talkFilters } : {}),
+      });
+    });
+  }
+
   async updateReputationVisibility(userId: string, isHidden: boolean): Promise<void> {
     const user = await this.getUser(userId);
     await this.gunService.put(`users/${userId}/reputation`, {

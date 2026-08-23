@@ -195,18 +195,29 @@ describe('GunMessageStore Gun wiring (TODO §S Item 4)', () => {
     return root.get('pairConversations').get(pairId(senderId, otherUserId)).get(conversationId);
   }
 
-  // Poll helper: wait until a node's .once() callback returns a truthy value (or falsy with invert=true).
-  // Under heavy parallel load the fire-and-forget checkpoint chain can be delayed by the event loop,
-  // so blind setTimeout is fragile — polling guarantees we only proceed once the data is actually there.
+  // Poll helper: wait until a node's .once() callback returns a truthy value (or falsy with invert=true),
+  // or until a custom `predicate` is satisfied. Under heavy parallel load the fire-and-forget checkpoint
+  // chain can be delayed by the event loop, so blind setTimeout is fragile — polling guarantees we only
+  // proceed once the data is actually there.
+  //
+  // TODO §S1 bugfix: `invert` alone can no longer express "this message was pruned" — deleteMessageRecord
+  // (gun-message-store.ts) now nulls the message's own content fields instead of nulling the whole node
+  // (matching the ledger's field-nulling fix for the identical class of bug: a real Gun soul is a
+  // permanent graph key once created, so `.get(child).put(null)` only unlinks the *parent's* edge to it,
+  // never the child's own content — confirmed against the server's raw `gun._.graph` via the
+  // 30-ledger-message-pruning-e2e spec). A "pruned" node's `.once()` value is therefore still a truthy
+  // object (all fields null), so callers that mean "pruned" now pass a `predicate` checking `.text`.
   async function waitForNodeValue(
     node: FakeGunNode,
-    { invert = false, timeoutMs = 10_000 }: { invert?: boolean; timeoutMs?: number },
+    { invert = false, timeoutMs = 10_000, predicate }:
+      { invert?: boolean; timeoutMs?: number; predicate?: (value: any) => boolean } = {},
   ): Promise<any> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       let value: any;
       node.once((data) => { value = data; });
-      if (invert ? !value : value) return value;
+      const ready = predicate ? predicate(value) : (invert ? !value : value);
+      if (ready) return value;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     throw new Error(`Node did not reach expected state within ${timeoutMs}ms`);
@@ -300,14 +311,16 @@ describe('GunMessageStore Gun wiring (TODO §S Item 4)', () => {
 
     const deletableThrough = total - MESSAGE_RETENTION_WINDOW;
 
+    // A pruned message's soul key stays a truthy node forever (Gun's graph is append-only —
+    // see waitForNodeValue's own doc comment); "pruned" means its content fields are null.
     let firstMessage: any;
     messagesNode().get('msg-0000').once((data) => { firstMessage = data; });
-    expect(firstMessage).toBeFalsy();
+    expect(firstMessage?.text).toBeFalsy();
 
     const lastDeletedId = `msg-${String(deletableThrough - 1).padStart(4, '0')}`;
     let lastDeleted: any;
     messagesNode().get(lastDeletedId).once((data) => { lastDeleted = data; });
-    expect(lastDeleted).toBeFalsy();
+    expect(lastDeleted?.text).toBeFalsy();
 
     const firstSurvivingId = `msg-${String(deletableThrough).padStart(4, '0')}`;
     let firstSurviving: any;
@@ -338,7 +351,7 @@ describe('GunMessageStore Gun wiring (TODO §S Item 4)', () => {
     );
     await waitForNodeValue(
       conversationNode(root).get('messages').get('msg-0000'),
-      { invert: true, timeoutMs: 20_000 },
+      { timeoutMs: 20_000, predicate: (v) => !v?.text },
     );
     let state: any;
     const deadline = Date.now() + 20_000;

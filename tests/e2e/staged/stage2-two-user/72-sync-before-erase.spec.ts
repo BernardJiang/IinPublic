@@ -3,10 +3,20 @@
  *
  * With a linked personal device recorded, the Erase dialog leads with "Save to
  * ⟨device⟩ first"; that opens the Sync-progress dialog, which reports per-category
- * progress and, on completion, enables the erase button (erase stays disabled
- * while the sync is in flight). The true cross-device receiver-merge + revocation
- * visibility is exercised by `cross-platform/x7` once the P2P handoff transfer is
- * wired; here we verify the local flow and gating.
+ * progress as the archive is built locally. §J's encrypted P2P handoff transfer is now
+ * wired for real (web-device-handoff-service.ts) — the real two-device send→ack→import
+ * round trip is `stage2-two-user/74-device-handoff-transfer.spec.ts`.
+ *
+ * This spec seeds a *fake* linked-device row (`phone-pub`) that was never a real SEA
+ * identity and never published an epub — deliberately, to prove the safety invariant
+ * spec §11.3 requires: "erase stays disabled until the archive is acknowledged by the
+ * receiving device." A send to an unreachable/non-existent receiver must fail loudly
+ * (an error shown, Done staying disabled), never silently succeed just because the local
+ * archive-build step completed. Before §J's real wiring landed, this test asserted the
+ * OPPOSITE (Done enabling on a fake device) — that was the intentionally-stubbed
+ * placeholder behavior of a promise that always resolved locally; now that sending is
+ * real, that old assertion would itself have been the safety-invariant violation it
+ * exists to catch.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -46,7 +56,7 @@ test.describe('Sync before erase', () => {
     await clearGunForStage2Spec();
   });
 
-  test('sync offer → progress → done enables erase; erase gated during sync', async () => {
+  test('sync offer → progress → a send to an unreachable device fails and keeps erase disabled', async () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
@@ -63,14 +73,19 @@ test.describe('Sync before erase', () => {
     await p.locator('[data-testid="erase-sync-first-btn"]').click();
     await afterNav();
     await expect(p.locator('[data-testid="erase-sync-progress-modal"]')).toBeVisible();
-    // Categories are rendered.
+    // Categories are rendered — the local archive build itself always completes.
     await expect(p.locator('.erase-sync-category')).toHaveCount(6);
-    // Default progress completes and enables Done.
-    await expect(p.locator('[data-testid="erase-sync-done"]')).toBeEnabled({ timeout: 8000 });
-    await p.locator('[data-testid="erase-sync-done"]').click();
+
+    // `phone-pub` is not a real identity and never published an epub, so the real
+    // encrypted send correctly fails (no-epub) — the safety invariant under test.
+    await expect(p.locator('[data-testid="erase-sync-error"]')).not.toHaveText('', { timeout: 8000 });
+    await expect(p.locator('[data-testid="erase-sync-done"]')).toBeDisabled();
+
+    // Cancel out of the failed sync attempt; erase remains reachable but ungated by a
+    // sync that never actually happened.
+    await p.locator('#erase-sync-cancel').click();
     await afterSync();
 
-    // Back on the erase dialog: type-to-confirm still gates the erase button.
     await expect(p.locator('[data-testid="erase-device-btn"]')).toBeDisabled();
     await p.fill('[data-testid="erase-confirm-input"]', 'ERASE');
     await expect(p.locator('[data-testid="erase-device-btn"]')).toBeEnabled();

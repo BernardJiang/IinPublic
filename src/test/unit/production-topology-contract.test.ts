@@ -122,6 +122,7 @@ describe('production/development topology contract', () => {
       'src/web/index.ts',
       'src/web/services/direct-p2p-conversation-transport.ts',
       'src/web/services/gun-bridge.ts',
+      'src/web/services/loopback-probe.ts',
       'src/web/services/p2p-local-node-bridge-client.ts',
       'src/web/services/web-chatroom-service.ts',
       'src/web/services/web-gun-service.ts',

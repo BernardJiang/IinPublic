@@ -55,6 +55,15 @@ export type UserDetailViewDeps = {
   getPublicProfileFoundation?: (userId: string) => Promise<PublicProfileFoundation | null>;
   /** Resolves the peer's CURRENT stage name from the live graph (self-heals stale records). */
   resolvePeerStageName?: (userId: string) => Promise<string | null>;
+  /**
+   * TODO §I — does the viewer have a verified, mutual `LINK_IDENTITY` edge to this peer's
+   * SEA identity (i.e. this "peer" is actually one of the viewer's own linked
+   * devices/installations)? v1 semantics (docs/architecture/identity-v1-semantics.md):
+   * direct mutual links only, no transitive cluster or merged data — this is purely
+   * informational display, never a signal to combine Contacts, blocks, reputation,
+   * conversations, or Q&A across the two identities.
+   */
+  isLinkedIdentity?: (peerId: string) => Promise<boolean>;
   knownPerson?: KnownPerson;
 };
 
@@ -211,6 +220,28 @@ export function openPeerDetailView(
   if (contextEl) {
     contextEl.innerHTML = '';
     deps.renderPeerContext?.(contextEl, peerId, peerName);
+  }
+
+  // TODO §I — verified-link badge, informational only (see UserDetailViewDeps.isLinkedIdentity's
+  // own doc comment). Reset first so a stale badge never survives a switch to a different peer;
+  // async-checked and guarded against a stale response landing after the overlay moved on,
+  // matching resolvePeerStageName's own pattern above.
+  const linkedIdentityEl = document.getElementById('peer-linked-identity-section');
+  if (linkedIdentityEl) linkedIdentityEl.innerHTML = '';
+  if (deps.isLinkedIdentity) {
+    void deps.isLinkedIdentity(peerId).then((linked) => {
+      if (!linked) return;
+      if (!currentState || currentState.peerId !== peerId) return;
+      const el = document.getElementById('peer-linked-identity-section');
+      if (!el) return;
+      el.innerHTML = `
+        <div class="peer-linked-identity-badge" data-testid="peer-linked-identity-badge"
+             style="margin:8px 16px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg-subtle);">
+          <div style="font-weight:700;">${escapeHtml(deps.text('peerLinkedIdentityBadge'))}</div>
+          <div style="font-size:0.85em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(deps.text('peerLinkedIdentityNote'))}</div>
+        </div>
+      `;
+    }).catch(() => { /* best effort — never block peer detail on this */ });
   }
 
   overlay.style.display = 'flex';

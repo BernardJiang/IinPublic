@@ -46,6 +46,10 @@ const BUNDLED_ENV_KEYS = [
   'IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW',
   'IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL',
   'IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW',
+  // TODO §J: how long the sender waits for a device-handoff ack before giving up
+  // (app.ts's handoffAckTimeoutMs) — shrunk for E2E so a real send→ack round trip
+  // doesn't wait the full production timeout.
+  'IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS',
 ];
 
 module.exports = {
@@ -175,6 +179,9 @@ module.exports = {
             'process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW': JSON.stringify(
               process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || '',
             ),
+            'process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS': JSON.stringify(
+              process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS || '',
+            ),
           }),
         ]
       : [
@@ -193,6 +200,20 @@ module.exports = {
             RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB || '0',
             IINPUBLIC_P2P_BOOTSTRAP_PEERS: process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS || '',
             IINPUBLIC_MESH_SYNC_MODE: process.env.IINPUBLIC_MESH_SYNC_MODE || 'auto',
+            // TODO §S1 bugfix: web-ledger-service.ts/gun-message-store.ts read these four
+            // directly (`process.env.IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL` etc., no
+            // dynamic key) at module load, unconditionally — not just in the DISABLE_HMR=true
+            // DefinePlugin branch above. Missing them here left the raw `process.env.X`
+            // expression unresolved in an ordinary `npm run dev` bundle, which would throw
+            // "process is not defined" the moment the module loaded (no `process` global
+            // exists in either browser bundle) — same failure mode the DefinePlugin branch's
+            // own copy of these keys was already written to avoid.
+            IINPUBLIC_E2E_ENABLE_LEDGER: process.env.IINPUBLIC_E2E_ENABLE_LEDGER || '',
+            IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL: process.env.IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL || '',
+            IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW: process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW || '',
+            IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL: process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || '',
+            IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW: process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || '',
+            IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS: process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS || '',
           }),
         ]),
     // Ignore Gun.js dynamic requires that are Node.js-only and must not be
