@@ -1346,6 +1346,7 @@ export class UIManager extends EventEmitter {
               </div>
               <div class="peer-detail-body">
                 <div id="peer-context-section"></div>
+                <div id="peer-linked-identity-section"></div>
                 <div id="peer-stats-section"></div>
                 <div class="peer-messaging-section" id="peer-messaging-section">
                   <div class="peer-section-title" id="peer-messaging-title" style="font-weight:700;padding:12px 16px 4px;">Messages</div>
@@ -4496,7 +4497,7 @@ export class UIManager extends EventEmitter {
    * service wired by the app. A one-sided attestation is shown as waiting, never as
    * a verified link.
    */
-  private async openLinkedDevicesDialog(): Promise<void> {
+  private async openLinkedDevicesDialog(prefillLinkCode?: string): Promise<void> {
     const LOCAL_KEY = 'iinpublic_linked_devices';
     let graphStateResolved = false;
     const listRecords = (): LinkedDeviceRow[] => {
@@ -4538,6 +4539,9 @@ export class UIManager extends EventEmitter {
     let protection = this.identityPasswordStatusReader
       ? await this.identityPasswordStatusReader().catch(() => ({ state: 'not-set' as const }))
       : { state: 'not-set' as const };
+    let incomingHandoff = this.deviceHandoffCheckIncoming
+      ? await this.deviceHandoffCheckIncoming().catch(() => null)
+      : null;
     showLinkedDevicesDialog({
       text: (key: string, fallback?: string) => {
         const value = this.t(key as any);
@@ -4627,7 +4631,26 @@ export class UIManager extends EventEmitter {
         saveRecords(listRecords().map((row) => row.pub === pub ? { ...row, state } : row));
         return state;
       },
-    });
+      ...(incomingHandoff
+        ? {
+            incomingHandoff: { fromPub: incomingHandoff.fromPub, fromName: incomingHandoff.fromName },
+            importHandoff: async () => {
+              if (!incomingHandoff || !this.deviceHandoffImport) return;
+              await this.deviceHandoffImport(incomingHandoff.fromPub, incomingHandoff.archive);
+              incomingHandoff = null;
+            },
+          }
+        : {}),
+    }, prefillLinkCode ? { prefillLinkCode } : undefined);
+  }
+
+  /**
+   * TODO §I — URL-fragment same-device linking shortcut's entry point from `app.ts`:
+   * a `#link=<code>` fragment decoded and cleared at boot lands here, opening the
+   * Identity & devices overlay straight to the Enter-code dialog, pre-filled.
+   */
+  openLinkedDevicesWithCode(code: string): void {
+    void this.openLinkedDevicesDialog(code);
   }
 
   /**
@@ -4663,14 +4686,48 @@ export class UIManager extends EventEmitter {
           },
         });
       },
-      ...(this.deviceHandoffSync ? { onSyncFirst: this.deviceHandoffSync } : {}),
+      ...(this.deviceHandoffSync && linked[0]?.pub
+        ? { onSyncFirst: (progress: (category: import('../../shared/device-handoff').HandoffCategory) => void) =>
+            this.deviceHandoffSync!(linked[0].pub, progress) }
+        : {}),
     });
   }
 
   /** Optional handoff-sync hook the app wires for §11.2 (encrypted archive transfer). */
-  private deviceHandoffSync?: (progress: (category: import('../../shared/device-handoff').HandoffCategory) => void) => Promise<void>;
-  setDeviceHandoffSync(fn: (progress: (category: import('../../shared/device-handoff').HandoffCategory) => void) => Promise<void>): void {
+  private deviceHandoffSync?: (
+    toPub: string,
+    progress: (category: import('../../shared/device-handoff').HandoffCategory) => void,
+  ) => Promise<void>;
+  setDeviceHandoffSync(fn: (
+    toPub: string,
+    progress: (category: import('../../shared/device-handoff').HandoffCategory) => void,
+  ) => Promise<void>): void {
     this.deviceHandoffSync = fn;
+  }
+
+  /** Optional receiver-side handoff hooks the app wires for §11.2 (import + ack). */
+  private deviceHandoffCheckIncoming?: () => Promise<{
+    fromPub: string;
+    fromName: string;
+    archive: import('../../shared/device-handoff').HandoffArchive;
+  } | null>;
+  private deviceHandoffImport?: (
+    fromPub: string,
+    archive: import('../../shared/device-handoff').HandoffArchive,
+  ) => Promise<void>;
+  setDeviceHandoffReceive(hooks: {
+    checkIncoming: () => Promise<{
+      fromPub: string;
+      fromName: string;
+      archive: import('../../shared/device-handoff').HandoffArchive;
+    } | null>;
+    importArchive: (
+      fromPub: string,
+      archive: import('../../shared/device-handoff').HandoffArchive,
+    ) => Promise<void>;
+  }): void {
+    this.deviceHandoffCheckIncoming = hooks.checkIncoming;
+    this.deviceHandoffImport = hooks.importArchive;
   }
 
   /** Optional hooks the app wires to publish real signed attestations/revocations (§10). */
@@ -4681,6 +4738,8 @@ export class UIManager extends EventEmitter {
   private identityLinkRefresher?: () => Promise<void>;
   private identityLinkCompleter?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>;
   private identityLinkUnlinker?: (pub: string) => Promise<'removed' | 'revocation-pending'>;
+  /** TODO §I — resolves whether `pub` has a verified, mutual link to the viewer's own identity. */
+  private identityLinkChecker?: (pub: string) => Promise<boolean>;
   private identityPasswordStatusReader?: () => Promise<{ state: 'not-set' | 'locked' }>;
   private identityPasswordSetter?: (password: string) => Promise<void>;
   private identityPasswordChanger?: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -4694,6 +4753,7 @@ export class UIManager extends EventEmitter {
     refreshRecords?: () => Promise<void>;
     completeFromCode?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>;
     unlink?: (pub: string) => Promise<'removed' | 'revocation-pending'>;
+    isLinked?: (pub: string) => Promise<boolean>;
   }): void {
     if (hooks.createLinkCode) this.identityLinkCodeCreator = hooks.createLinkCode;
     if (hooks.readIncomingRequest) this.identityLinkRequestReader = hooks.readIncomingRequest;
@@ -4702,6 +4762,7 @@ export class UIManager extends EventEmitter {
     if (hooks.refreshRecords) this.identityLinkRefresher = hooks.refreshRecords;
     if (hooks.completeFromCode) this.identityLinkCompleter = hooks.completeFromCode;
     if (hooks.unlink) this.identityLinkUnlinker = hooks.unlink;
+    if (hooks.isLinked) this.identityLinkChecker = hooks.isLinked;
   }
 
   setIdentityPasswordHooks(hooks: {
@@ -10316,6 +10377,7 @@ export class UIManager extends EventEmitter {
         this.renderPeerContextSection(container, peerId, peerName);
       },
       resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
+      isLinkedIdentity: this.isLinkedIdentityLive.bind(this),
       ...(knownPerson ? { knownPerson } : {}),
     };
     openPeerDetailView(userId, stageName, deps);
@@ -10511,6 +10573,28 @@ export class UIManager extends EventEmitter {
       return name;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * TODO §I — resolves the peer's SEA pubkey live (same `getPublicUser` read as
+   * `resolvePeerStageNameLive`), then asks `WebIdentityLinkService` (via
+   * `identityLinkChecker`, wired by `setIdentityLinkHooks`) whether the viewer holds a
+   * verified, mutual link to that pubkey. `linkStateWith`/`isLinked` are self-scoped (they
+   * resolve the edge between the viewer's OWN identity and `pub`), so this only ever
+   * answers "is this peer one of MY OWN linked identities" — never a general "does this
+   * peer have any links to anyone."
+   */
+  private async isLinkedIdentityLive(peerId: string): Promise<boolean> {
+    if (!this.identityLinkChecker) return false;
+    try {
+      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+      const user = await app?.gunService?.getPublicUser?.(peerId);
+      const pub = String(user?.pub || '').trim();
+      if (!pub) return false;
+      return await this.identityLinkChecker(pub);
+    } catch {
+      return false;
     }
   }
 

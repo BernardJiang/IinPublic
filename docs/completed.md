@@ -1,6 +1,141 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-14
+Last updated: 2026-08-22
+
+## 2026-08-22 — S2: retention caps derived from a shared storage budget
+
+Moved from `docs/TODO.md` §S2 (Priority 1). `graph-size-report.ts` measures serialized byte
+size per Gun-graph category and derives ledger/message/incoming-talk-cluster retention caps
+from an adjustable total local-storage budget, replacing three previously-independent flat
+guesses (500/200/500).
+
+- Added `serializedByteSize(value)` (UTF-8 byte count of the JSON the value actually writes to
+  Gun as) and `totalBytes`/`avgBytes` fields on every `GraphSizeReport` category — always
+  computed, not just for the 3 categories this item cares about, since the report's own stated
+  purpose ("argue a retention policy from real numbers") applies equally to any category.
+- Added two matchers `buildGraphSizeReport` was missing entirely (both silently fell into
+  `unclassifiedCount` before): `ledger-events` (`ledger/<userId>/events/<seq>`) and
+  `pair-conversation-messages` (`pairConversations/<pairId>/<convId>/messages/<messageId>` —
+  the *actual* path direct-p2p DM bodies live at per CLAUDE.md's "Direct P2P conversation
+  transport" section; the pre-existing `conversation-messages` matcher only covers the
+  legacy/star-relay path, effectively empty in the ordinary case). Measuring
+  `conversation-messages` alone would have derived a cap from the wrong, near-empty category.
+- `deriveRetentionCap(avgBytes, fallbackCap, totalBudgetBytes?, categoryCount?)`: the
+  `floor(categoryShare / measuredAverageBytes)` formula for one category, with
+  `TOTAL_LOCAL_RETENTION_BUDGET_BYTES` (8 MiB) and `RETENTION_BUDGET_CATEGORY_COUNT` (3,
+  evenly split — a usage-weighted split is a future refinement, not this item) as the
+  adjustable defaults. Falls back to the caller's own previous flat constant on a bad
+  measurement (zero/negative avgBytes, or a cap that floors to 0) rather than producing
+  `maxSlots: 0`.
+- Per the user's own choice among three proposed approaches (representative sample vs.
+  live-measured async init vs. measurement-only-no-wiring): each of the 3 categories gets a
+  synchronous, deterministic representative sample built from its real wire shape
+  (`WebLedgerService.writeEventToGun`'s `contentJson` shape, `GunMessageStore.putMessageRecord`'s
+  record shape, `IncomingTalkClusterWire`'s shape) with realistic-*length* placeholder
+  CID/pubkey/signature/ciphertext strings — genuinely measured via `serializedByteSize`, not
+  guessed, but not live per-user data either. Chosen specifically because the 3 target
+  constants are synchronous module-load exports read by many call sites; an async
+  live-measurement architecture would have required converting all of them to a
+  refreshable/gettable value and touching every call site, a materially bigger change than
+  this item scoped.
+- Wired into the 3 real constants: `LEDGER_RETENTION_WINDOW` (web-ledger-service.ts,
+  `deriveRetentionCap(representativeLedgerEventBytes(), 500)`), `MESSAGE_RETENTION_WINDOW`
+  (gun-message-store.ts, fallback 200), `DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS`
+  (peer-talk-delivery.ts, fallback 500) — each only as the *unset* fallback, so the ledger/
+  message E2E spec's own `IINPUBLIC_E2E_*` overrides (§S1) still take priority untouched.
+  Measured real derived caps (~354–889 bytes/record against the 8 MiB/3 budget): ledger
+  events → ~4017 slots, pair-conversation messages → ~7898, incoming-talk clusters → ~3145 —
+  all substantially larger than the old flat defaults, meaning local storage now keeps more
+  history within a fixed byte ceiling rather than a conservative round-number guess.
+- `web-ledger-service.test.ts`/`gun-message-store.test.ts` intentionally drive a small,
+  specific number of events/messages past the retention boundary to prove pruning fires;
+  scaling that up ~15-40x to match the new derived caps would have made them dramatically
+  slower for no added coverage. Pinned back to the suites' own long-established flat values
+  (500/200) via `src/test/setup.ts` setting `IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW`/
+  `IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW` globally for the Jest environment only — the exact
+  same override mechanism the real-browser E2E spec already uses, just pinned at the test
+  suite level instead of per-spec. Production (unset) is unaffected.
+- Real bug found and fixed along the way, unrelated to any of the above: referencing an
+  *imported* TS enum's member (`InteractionKind.TALK_ANSWERED`) at a shared module's own top
+  level (outside any function) breaks under Playwright's Node-side esbuild-based test-file
+  transform — the imported binding reads as `undefined` at that module's own evaluation time,
+  reproduced in total isolation (a two-line probe spec, zero other imports, zero cycles).
+  `graph-size-report.ts` is reached directly by `30-ledger-message-pruning-e2e.spec.ts`'s own
+  top-level import of `web-ledger-service.ts`, so it has to survive Playwright's transform, not
+  just webpack's and ts-jest's. Fixed by using the literal string `'TALK_ANSWERED'` (the enum
+  member's own string value) instead of importing `InteractionKind` as a value at all.
+
+**Verification:** new `graph-size-report.test.ts` coverage (32/32, including boundary cases:
+zero/negative/NaN avgBytes, an avgBytes that would floor the cap to 0, non-positive
+budget/categoryCount, UTF-8 multi-byte byte counting); `peer-talk-delivery.test.ts` (still
+4/4, scale-invariant since it references the constant by name rather than a hardcoded
+literal); `web-ledger-service.test.ts`/`gun-message-store.test.ts` unaffected in count or
+timing after the `src/test/setup.ts` pin; full `npx jest src/test` (135/140 suites — the other
+5 fail for the same pre-existing, unrelated `qrcode` module-resolution gap noted in §S1, not
+touched by this work); `npm run test:type`, `npx eslint` on every changed file;
+`30-ledger-message-pruning-e2e.spec.ts` green on a real-browser run with the new wiring in
+place; a real-browser `09-messaging.spec.ts` smoke run (unrelated ordinary two-user
+messaging, no env overrides) green, confirming normal app boot with the new module-load
+computations in place.
+
+## 2026-08-22 — S1: real-browser ledger + message pruning spec fixed and green
+
+Moved from `docs/TODO.md` §S1. `stage2-two-user/30-ledger-message-pruning-e2e.spec.ts` was
+stuck at its very first assertion (ledger seq 1 never actually pruned) since 2026-08-14. Root
+cause was NOT the ledger/message pruning logic itself (already unit-verified) — it was that the
+E2E-only `IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL`/`_RETENTION_WINDOW`/`IINPUBLIC_E2E_MESSAGE_*`
+env overrides never actually reached the browser bundle, so both services silently ran at their
+production scale (100/500 and 50/200) no matter what the spec set — the fill counts the spec
+computed for the small env-overridden scale were never enough to cross a checkpoint/retention
+boundary at production scale.
+
+Two compounding bugs in the env-read helpers (`web-ledger-service.ts`, `gun-message-store.ts`):
+1. Both used one generic `readE2eEnvInt(key)` helper doing `process.env[key]` — a *dynamic*
+   bracket-notation lookup. Webpack's `DefinePlugin`/`EnvironmentPlugin` only replace literal
+   *static* member expressions (`process.env.SOME_KEY`); neither can see through a variable key,
+   so the expression reached the browser completely unrewritten.
+2. Giving each constant its own reader with the key written out as a literal still wasn't
+   enough: the reader also wrapped the access in a `typeof process !== 'undefined' &&
+   process.env` runtime guard (copied from `config.ts`'s `getEnv`, which needs it because it
+   *does* take a dynamic key). Webpack never defines a bare `process` global in either build
+   branch (no `ProvidePlugin` here) — only specific literal `process.env.KEY` expressions get
+   replaced, which removes the `process` identifier from that call site entirely. The guard's
+   own bare `process` reference has no literal to be replaced with, so it stayed a real runtime
+   lookup against a global that's never defined — always `'undefined'`, always false, discarding
+   the correctly-substituted literal on the other side of the `&&`.
+
+Fixed by giving each constant a dedicated reader with a literal static `process.env.KEY` access
+and no runtime guard (`web-ledger-service.ts`, `gun-message-store.ts`), and by adding the same
+four keys (`IINPUBLIC_E2E_ENABLE_LEDGER`/`_LEDGER_CHECKPOINT_INTERVAL`/`_LEDGER_RETENTION_WINDOW`/
+`_MESSAGE_CHECKPOINT_INTERVAL`/`_MESSAGE_RETENTION_WINDOW`) to webpack.config.js's
+`EnvironmentPlugin` block (ordinary `npm run dev`, not just the DISABLE_HMR=true `DefinePlugin`
+branch) — the same reasoning `app.ts`'s `isLedgerDisabledForRun` already relied on for
+`process.env.DISABLE_HMR`, which is why that one check happened to already work.
+
+With the ledger portion fixed, the spec advanced into genuinely new territory (the message-side
+half of the scenario had never run to completion in a real browser before) and surfaced a second,
+unrelated real bug: `deleteMessageRecord` called `.get(wireId).put(null)` on the message's own
+nested Gun edge, which only nulls the *parent* (`messages`) node's pointer to the child — it does
+not touch the child soul's own content. Gun's graph is append-only (confirmed against the
+server's raw `gun._.graph`, which `/api/test/export-snapshot` dumps unfiltered): a soul, once
+materialized, is a permanent key forever; no write can make it vanish, only clear its fields.
+Unlinking the parent edge was enough to make the record invisible to ordinary app traversal, but
+left the full plaintext/ciphertext of every "pruned" message sitting in the durable graph
+forever — which would have made §S2's storage-budget derivation meaningless, since deletion
+wouldn't actually free any bytes. Fixed by nulling the child node's own fields directly
+(mirroring the ledger's own `putRawGunFieldsNulled` fix for the identical class of bug), and
+updated both the E2E spec's assertion and the unit test's analogous check to verify content
+absence (`.text` falsy) rather than raw graph-key absence, matching how the ledger's own
+`isLedgerRawEventPresentForE2e`/`getEventBySeq` already check content, not key presence.
+
+**Verification:** `stage2-two-user/30-ledger-message-pruning-e2e.spec.ts` green on two
+consecutive real-browser runs; `gun-message-store.test.ts` (13/13, including the two tests
+updated for the new content-nulling semantics) and `web-ledger-service.test.ts` (9/9); full
+`npx jest src/test` (135/140 suites passing — the other 5 fail for a pre-existing, unrelated
+`qrcode` module-resolution gap, confirmed via `git stash`/baseline diff, not touched by this
+work); `npm run test:type`, `npx eslint` on every changed file; a plain `npx webpack` dev-mode
+build (the non-E2E `EnvironmentPlugin` branch touched by this fix) still compiles clean with no
+unresolved `process` reference in the bundle.
 
 ## 2026-08-12 — BB Phase 5 follow-up: tag-pair picker wired into the talk editor
 

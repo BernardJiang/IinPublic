@@ -6,18 +6,41 @@ import { boundRecentWires, DEFAULT_RECONCILE_WINDOW, type ReconcileMessage } fro
 import type { SendMessageOptions } from './web-conversation-service';
 import { WebGunService } from './web-gun-service';
 import { computeMerkleRoot, sha256Hex } from '../../shared/merkle-checkpoint';
+import { deriveRetentionCap, representativePairConversationMessageBytes } from '../../shared/graph-size-report';
 
 /**
- * Safe env read for browser bundles: `IINPUBLIC_E2E_MESSAGE_*` are only ever defined by
- * webpack's DISABLE_HMR=true DefinePlugin branch (webpack.config.js), so a normal
- * `npm run dev` bundle (EnvironmentPlugin branch, no `process` global at all) hit
- * "process is not defined" at module load — before this file even finished importing —
- * the moment this was a bare `process.env.X` read. Every other browser-side env read in
- * this codebase guards with `typeof process !== 'undefined'` for exactly this reason
- * (src/shared/config.ts's own getEnv, web-chatroom-service.ts, p2p-webrtc-session.ts, …).
+ * Safe env read for browser bundles: `IINPUBLIC_E2E_MESSAGE_*` are baked in by webpack
+ * (DefinePlugin in the DISABLE_HMR=true branch, EnvironmentPlugin in the ordinary `npm run
+ * dev` branch — both list these exact keys, webpack.config.js) as literal string
+ * replacements of the static expression `process.env.IINPUBLIC_E2E_MESSAGE_*`.
+ *
+ * TODO §S Item 7 bugfix (found while diagnosing docs/TODO.md §S1's ledger prune failure —
+ * the sibling `WebLedgerService` had the identical bug, see its own doc comment for the
+ * full story), two compounding bugs:
+ *
+ * 1. This used to be one generic `readE2eEnvInt(key)` helper doing `process.env[key]` — a
+ *    *dynamic* bracket-notation lookup that neither DefinePlugin nor EnvironmentPlugin can
+ *    see through (both only replace literal *static* member expressions), so the
+ *    expression reached the browser unrewritten.
+ * 2. Fixing (1) alone still wasn't enough: the reader also wrapped the access in a
+ *    `typeof process !== 'undefined' && process.env` runtime guard. Webpack never defines
+ *    a bare `process` global in *either* build branch (no `ProvidePlugin` for it here) —
+ *    only the specific literal `process.env.KEY` expressions get replaced, removing the
+ *    `process` identifier from that call site entirely. The *separate*, untargeted `typeof
+ *    process` check has no literal to be replaced with, so it stays a real runtime lookup
+ *    against a global that's never defined — always `'undefined'`, always false,
+ *    discarding the correctly-substituted literal on the other side of the `&&`. Both
+ *    constants below always fell back to their production defaults (50/200) in every real
+ *    browser, no matter what the E2E env vars were set to. Fixed by dropping the guard
+ *    entirely: since webpack.config.js now lists these keys in *both* branches (with a
+ *    `''` fallback when unset), the static `process.env.KEY` expression is always fully
+ *    replaced at build time — no guard needed (the same reasoning `app.ts`'s
+ *    `isLedgerDisabledForRun` already relies on for `process.env.DISABLE_HMR`).
  */
-const readE2eEnvInt = (key: string): string | undefined =>
-  typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
+const readMessageCheckpointIntervalEnv = (): string | undefined =>
+  process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || undefined;
+const readMessageRetentionWindowEnv = (): string | undefined =>
+  process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || undefined;
 
 /**
  * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 4): every
@@ -27,14 +50,23 @@ const readE2eEnvInt = (key: string): string | undefined =>
  * decision) are a one-line edit later.
  *
  * TODO §S Item 7: overridable via env, same rationale as LEDGER_CHECKPOINT_INTERVAL in
- * web-ledger-service.ts — real sequential Gun-backed sends at production scale (50/200)
- * are too slow to drive hundreds of times in a real-browser E2E test. Unset, these are
- * exactly the production defaults.
+ * web-ledger-service.ts — real sequential Gun-backed sends at production scale are too
+ * slow to drive hundreds of times in a real-browser E2E test. Unset, these are the
+ * production defaults.
+ *
+ * TODO §S2: `MESSAGE_RETENTION_WINDOW`'s unset fallback is no longer a flat guess — it's
+ * `deriveRetentionCap`'s `floor(categoryShare / measuredAverageBytes)` against a real
+ * measured pair-conversation-message sample and the shared 8 MiB local-storage budget
+ * (`graph-size-report.ts`). `gun-message-store.test.ts` pins this back to the previous
+ * flat 200 via `IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW` (`src/test/setup.ts`) so its own
+ * small, specific-boundary test scenarios don't need to scale up to the new (much larger)
+ * derived cap.
  */
 export const MESSAGE_CHECKPOINT_INTERVAL =
-  parseInt(readE2eEnvInt('IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL') || '', 10) || 50;
+  parseInt(readMessageCheckpointIntervalEnv() || '', 10) || 50;
 export const MESSAGE_RETENTION_WINDOW =
-  parseInt(readE2eEnvInt('IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW') || '', 10) || 200;
+  parseInt(readMessageRetentionWindowEnv() || '', 10) ||
+  deriveRetentionCap(representativePairConversationMessageBytes(), 200);
 
 /**
  * SRS §28.9.4: leaves commit to both ordering and ciphertext integrity without
@@ -624,7 +656,27 @@ export class GunMessageStore {
     await this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
   }
 
-  /** TODO §S Item 4: same `.get(id).put(null)` deletion pattern putMessageRecord writes through. */
+  /**
+   * TODO §S Item 4/S1 bugfix (found via the real-browser 30-ledger-message-pruning-e2e
+   * spec — never caught by unit tests against fakes): this used to call `.get(wireId).put(null)`
+   * on the message's own nested edge chain, which only nulls the *parent* (`messages`) node's
+   * field pointing at the child — it does not touch the child soul's own content. Gun's graph
+   * is append-only; a soul, once materialized, is a permanent key in `gun._.graph` (confirmed
+   * against the server's own `/api/test/export-snapshot`, which dumps that raw graph
+   * unfiltered) — no write can make the key vanish, only clear its fields. Unlinking the
+   * parent edge is enough to make the record invisible to ordinary app traversal
+   * (`.map()`-based reads correctly stop yielding it, and `listLocalWires`'s own `!record.text`
+   * guard already treats a content-empty record as absent), but it leaves the *full plaintext/
+   * ciphertext* of every "pruned" message sitting in the durable graph forever — which defeats
+   * the entire point of retention (§S2's storage-budget derivation only means anything if
+   * deletion actually frees bytes). Fixed by nulling the child node's own fields directly
+   * (mirroring the ledger's `putRawGunFieldsNulled` fix for the identical class of bug,
+   * `pruneLedgerEvents`'s own doc comment) instead of nulling the parent's edge — this reaches
+   * the raw Gun API via `putWithAck`, bypassing `WebGunService.serializeDates`, which strips
+   * `null`-valued properties before handing data to Gun (an all-fields-null object would
+   * otherwise serialize to `{}`, a no-op merge — the same trap the ledger fix already
+   * documented).
+   */
   private deleteMessageRecord(
     conversationId: string,
     wireId: string,
@@ -633,15 +685,36 @@ export class GunMessageStore {
     otherUserId?: string,
   ): Promise<void> {
     const gun = this.gunService.getGun();
+    const nulledFields: Record<string, null> = {
+      id: null,
+      senderId: null,
+      text: null,
+      timestamp: null,
+      channel: null,
+      transport: null,
+      encryption: null,
+      prevSeen: null,
+      isFromChatbot: null,
+      talkId: null,
+      greetingLocale: null,
+      greetingSignature: null,
+      greetingAuthorPub: null,
+      faqQuestionKey: null,
+      faqAuthorPub: null,
+      faqSignature: null,
+      ackLocale: null,
+      ackSignature: null,
+      ackAuthorPub: null,
+    };
     if (transport === 'direct-p2p' && otherUserId) {
       return this.putWithAck(gun
         .get('pairConversations')
         .get(this.pairIdForUsers(senderId, otherUserId))
         .get(conversationId)
         .get('messages')
-        .get(wireId), null);
+        .get(wireId), nulledFields);
     }
-    return this.putWithAck(gun.get(`conversations/${conversationId}`).get('messages').get(wireId), null);
+    return this.putWithAck(gun.get(`conversations/${conversationId}`).get('messages').get(wireId), nulledFields);
   }
 
   /**

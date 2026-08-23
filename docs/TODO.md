@@ -1,34 +1,12 @@
 # IinPublic TODO
 
-Last reconciled: 2026-08-22
+Last reconciled: 2026-08-22 (S1/S2 moved to docs/completed.md, Priority 1 clear; §I peer-detail
+badge, §I same-device shortcuts, and §J encrypted handoff transfer landed — Priority 2's
+remaining open items are all blocked on native-shell CI runners not yet connected, Priority 3)
 
 This file contains active work only. Completed implementation history is in
 `docs/completed.md`; product requirements and design decisions are authoritative in
 `docs/specs/iinpublic-technical-specifications.md`.
-
-## Priority 1 — storage correctness
-
-### S1. Finish real-browser verification of ledger and message pruning
-
-- [ ] Diagnose the ledger prerequisite failure in
-  `stage2-two-user/30-ledger-message-pruning-e2e.spec.ts`: sequence 1 remained present in the
-  durable Gun graph on 2026-08-14, so the combined scenario stopped before its message assertion.
-- [ ] Re-run the scenario and prove both ledger deletion and the restored oldest-message deletion
-  assertion are green repeatedly.
-
-Message-pruning implementation status: fixed and unit-verified 2026-08-14. The pass is now
-serialized/coalesced, Gun mutations are acknowledged before counters advance, and absolute
-checkpoint/prune offsets remain correct after the retained wire list loses its pruned prefix.
-
-### S2. Derive retention caps from a shared storage budget
-
-- [ ] Extend `graph-size-report.ts` to measure average serialized bytes per ledger event,
-  conversation message, and incoming-talk cluster.
-- [ ] Add one adjustable `TOTAL_LOCAL_RETENTION_BUDGET_BYTES` default (start with 8 MiB).
-- [ ] Divide the budget evenly by category and derive each slot cap as
-  `floor(categoryShare / measuredAverageBytes)`.
-- [ ] Replace flat ledger/message/incoming-talk retention constants with derived caps and add
-  boundary/unit tests.
 
 ## Priority 2 — identity linking and public-device handoff
 
@@ -56,15 +34,90 @@ checkpoint/prune offsets remain correct after the retained wire list loses its p
 - [x] Make removal local-first with a durable signed revocation outbox, immediate trust denial,
   startup/Settings retry, pending/removed/conflicted/invalid states, and lost-device reconnection
   coverage in `stage2/73`.
-- [ ] Show verified direct links in peer detail without merging Contacts, authorship, reputation,
-  blocks, or Q&A.
-- [ ] Wire URL-fragment, loopback, and clipboard same-device linking shortcuts.
-- [ ] Enable and pass X3 website↔app and X8 same-device linking E2E scenarios.
+- [x] Show verified direct links in peer detail without merging Contacts, authorship, reputation,
+  blocks, or Q&A. `WebIdentityLinkService.isLinked(peerPub)` is self-scoped (resolves the edge
+  between the viewer's own identity and a given pubkey), so this shows "this peer is one of MY
+  OWN verified-linked identities" — the only relationship v1's direct-mutual-only, no-transitive-
+  cluster semantics actually define; there is no general "does this peer have any links to
+  anyone" index. New `#peer-linked-identity-section` in the peer-detail overlay
+  (`ui-manager.ts`), populated by `user-detail-view.ts`'s `openPeerDetailView` via a new
+  `UserDetailViewDeps.isLinkedIdentity(peerId)` dep — async, guarded against a stale resolution
+  landing after the user has navigated to a different peer (same pattern `resolvePeerStageName`
+  already used). Wired end to end: `ui-manager.ts`'s `isLinkedIdentityLive` resolves the peer's
+  pub via `gunService.getPublicUser`, then calls a new `identityLinkChecker` hook
+  (`setIdentityLinkHooks({ isLinked })`) backed by `WebIdentityLinkService.isLinked` in `app.ts`.
+  Purely informational (a small badge + note) — no data is aggregated or merged across the two
+  identities. Covered by `user-detail-view.test.ts` (5 tests: renders/doesn't render, clears on
+  peer switch, discards a stale resolution for an abandoned peer).
+- [x] Wire URL-fragment, loopback, and clipboard same-device linking shortcuts (spec §10.3).
+  New `identity-link-fragment.ts` (`buildLinkFragmentUrl`/`parseLinkFragmentPayload`/
+  `clearLinkFragmentFromUrl`) and `loopback-probe.ts` (`probeLoopbackNode`/`loopbackLinkUrl`).
+  URL-fragment: "Copy link" in the code dialog copies `<origin><path>#link=<code>`; on boot,
+  `app.ts`'s `checkForPendingIdentityLinkFragment` decodes and clears a `#link=` fragment
+  entirely client-side (never reaches a server) and opens the Enter-code dialog pre-filled,
+  skipping typing. Clipboard: a "Paste" button (`navigator.clipboard.readText`, feature-detected)
+  in the Enter-code dialog; Copy/Copy-link already existed. Loopback: the "app on this computer"
+  is this same codebase in embedded-node mode on `127.0.0.1:<port>` (`embedded-node-config.ts`) —
+  a silent `/health` reachability probe (no new endpoint, no new CORS/security surface) decides
+  whether to show a one-click "Link with the app on this computer" button, which composes with
+  the URL-fragment mechanism (`window.open(loopbackLinkUrl(code))`) rather than inventing a
+  separate secret-carrying protocol. **Known gap:** the reverse "Open in app to link" direction
+  (browser → native app via a custom URL scheme) needs native-shell deep-link registration not
+  buildable/testable without a real Electron/mobile shell (Priority 3, not yet connected to CI).
+  Side effect: found `qrcode` (a real `package.json` dependency `link-code-qr.ts` already used)
+  was missing from `node_modules` — `npm ci` restored it, which also fixed 6 previously-broken
+  test suites (`linked-devices-dialog.test.ts`, `link-code-qr.test.ts`,
+  `ui-startup-chatrooms.test.ts`, `identity-password-custody-manager.test.ts`,
+  `identity-custody-store.test.ts`, `production-topology-contract.test.ts`) that had nothing to
+  do with this change. Covered by `identity-link-fragment.test.ts` (10 tests), `loopback-probe.test.ts`
+  (8 tests), and new cases in `linked-devices-dialog.test.ts` (prefill, paste, copy-link,
+  loopback-button visibility).
+- [ ] Enable and pass X3 website↔app and X8 same-device linking E2E scenarios. X8's loopback
+  half is now real (not a stub) but unverified end-to-end — needs two same-machine instances
+  (a normal browser context + an embedded-node instance) driven together in one spec.
 
 ### J. Sync-then-erase
 
-- [ ] Wire encrypted P2P handoff transfer and receiver import.
-- [ ] Enable and pass X7, including verification that erase cannot precede confirmed import.
+- [x] Wire encrypted P2P handoff transfer and receiver import (spec §11.2). New
+  `shared/handoff-protocol.ts` (pure, mirrors `identity-linking.ts`'s own signed-record
+  shape: `EpubAnnouncement`, `HandoffEnvelope`, `HandoffAck`, all pipe-delimited signing
+  inputs to avoid `SEA.verify`'s JSON-auto-parse trap) and
+  `web-device-handoff-service.ts` (SEA/Gun wiring). Linked devices are known only by
+  their signing `pub` (v1 never resolves userId), but encrypting requires the
+  recipient's separate `epub` — every identity now publishes a signed `pub→epub` binding
+  on boot (`identity-epub/<pub>`) so a linked device can find it without needing a
+  userId. Sender: build archive → encrypt to receiver's verified epub → publish signed
+  envelope (`handoff/<toPub>/<fromPub>`) → poll for the receiver's signed ack
+  (`handoff-ack/<senderPub>/<receiverPub>`); `erase-device-dialog.ts` now shows an error
+  and keeps Done disabled on any failure (no epub, ack timeout, verify/decrypt failure)
+  instead of the old stub's silent local-only success. Receiver: `readIncomingHandoff`
+  checked only against pubs the device already knows it's linked to (never a general
+  discovery scan), surfaced as an explicit "Data available to import" card in Identity &
+  devices (`linked-devices-dialog.ts`) — nothing merges until the user presses Import,
+  which calls the existing `mergeHandoffArchive` and a new
+  `WebUserService.importHandoffData` for the persisted fields, then publishes the ack.
+  All flat/exact-key Gun paths (never `.map()` discovery) since both sides always
+  already know both pubs before they need to read anything — see
+  `web-device-handoff-service.ts`'s own doc comment. Found and fixed a real bug via the
+  E2E run: `SEA.decrypt` auto-JSON-parses a JSON-shaped plaintext back into an object
+  (the same class of quirk already documented for `SEA.verify` in
+  `web-ledger-service.ts`), so a bare `String(dec)` produced the literal text
+  `"[object Object]"` instead of the archive JSON — fixed by re-stringifying a non-string
+  result. `stage2-two-user/72-sync-before-erase.spec.ts` was rewritten from its old stub
+  assumption (any sync always locally "succeeds") to its now-correct one: a send to an
+  unreachable device must fail loudly and never enable Done. Unit coverage:
+  `handoff-protocol.test.ts` (14 tests, including forged-signature/wrong-recipient/
+  cross-binding attacks), `web-device-handoff-service.test.ts` (10 tests, full two-
+  instance send→read→decrypt and ack round trips over a shared fake Gun store),
+  `erase-device-dialog.test.ts` (3 tests for the new error path).
+- [x] Enable and pass a real send→ack→import round trip:
+  `stage2-two-user/74-device-handoff-transfer.spec.ts` — two real linked browser
+  installations, a real encrypted transfer, a real receiver Import click, and an
+  assertion that the transferred data actually lands on the receiver. **Known gap:** the
+  official `cross-platform/x7-sync-then-erase.spec.ts` stays `test.skip` — it
+  specifically wants a hosted *website* linked to a native *webapp* (Electron/
+  embedded-node), which needs a real native-shell CI runner not yet connected
+  (Priority 3), not a mechanism gap; see that spec's own updated doc comment.
 
 ## Priority 3 — native and cross-platform verification
 

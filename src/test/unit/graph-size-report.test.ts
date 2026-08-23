@@ -2,6 +2,13 @@ import {
   buildGraphSizeReport,
   classifySoul,
   unboundedGrowthCategories,
+  serializedByteSize,
+  deriveRetentionCap,
+  representativeLedgerEventBytes,
+  representativePairConversationMessageBytes,
+  representativeIncomingTalkClusterBytes,
+  TOTAL_LOCAL_RETENTION_BUDGET_BYTES,
+  RETENTION_BUDGET_CATEGORY_COUNT,
 } from '../../shared/graph-size-report';
 
 /** docs/TODO.md L2 — measure before reaping. */
@@ -23,6 +30,10 @@ describe('classifySoul', () => {
     // docs/TODO.md §Y2 — the real path (ownerIncomingTalkIndex), not the stale
     // incomingTalksByUser name from CLAUDE.md's outdated description.
     expect(classifySoul('ownerIncomingTalkIndex/u1/ik_abc')?.key).toBe('incoming-talks');
+    // docs/TODO.md §S2 — ledger events and pair-private (direct-p2p) messages, previously
+    // both silently unclassified.
+    expect(classifySoul('ledger/u1/events/42')?.key).toBe('ledger-events');
+    expect(classifySoul('pairConversations/u1__u2/conv_1/messages/m1')?.key).toBe('pair-conversation-messages');
   });
 
   it('no longer recognizes the stale incomingTalksByUser path name (§Y2)', () => {
@@ -268,5 +279,99 @@ describe('buildGraphSizeReport — location/user/age breakdowns', () => {
       { id: 'u2', nodeCount: 1 },
     ]);
     expect(subgraph.topLocations).toBeUndefined();
+  });
+
+  it('measures total and average serialized bytes per category (§S2)', () => {
+    const report = buildGraphSizeReport({
+      'ledger/u1/events/1': { id: 'e1', text: 'ab' }, // 20 bytes
+      'ledger/u1/events/2': { id: 'e2', text: 'cd' }, // 20 bytes
+      'users/u1': { id: 'u1' }, // 10 bytes
+    });
+    const ledger = category(report, 'ledger-events');
+    expect(ledger.totalBytes).toBe(serializedByteSize({ id: 'e1', text: 'ab' }) + serializedByteSize({ id: 'e2', text: 'cd' }));
+    expect(ledger.avgBytes).toBe(ledger.totalBytes / 2);
+  });
+
+  it('avgBytes is 0 for an empty (never-hit) category rather than NaN', () => {
+    const report = buildGraphSizeReport(graphOf(['users/u1']));
+    // No category with 0 nodes is ever present (categories with no nodes are omitted —
+    // see 'omits categories with no nodes' above), so this only guards the formula itself:
+    // avgBytes must never divide by a zero nodeCount for a category that IS present.
+    const users = category(report, 'users');
+    expect(users.nodeCount).toBeGreaterThan(0);
+    expect(Number.isFinite(users.avgBytes)).toBe(true);
+  });
+});
+
+describe('serializedByteSize (§S2)', () => {
+  it('counts UTF-8 bytes, not JS string length, for multi-byte characters', () => {
+    // '喜' is one UTF-16 code unit but 3 UTF-8 bytes; JSON-quoted it's `"喜"` — 2 quote
+    // bytes + 3 content bytes = 5, not the 3 a naive `.length` on the JSON string would give.
+    expect(serializedByteSize('喜')).toBe(5);
+  });
+
+  it('measures a plain object as its JSON-serialized byte length', () => {
+    const value = { a: 1, b: 'two' };
+    expect(serializedByteSize(value)).toBe(new TextEncoder().encode(JSON.stringify(value)).length);
+  });
+
+  it('returns 0 for undefined (does not serialize to a string)', () => {
+    expect(serializedByteSize(undefined)).toBe(0);
+  });
+});
+
+describe('deriveRetentionCap (§S2)', () => {
+  it('computes floor(categoryShare / measuredAverageBytes)', () => {
+    const totalBudgetBytes = 300;
+    const categoryCount = 3; // categoryShare = 100
+    expect(deriveRetentionCap(10, /* fallback */ 999, totalBudgetBytes, categoryCount)).toBe(10); // floor(100/10)
+    expect(deriveRetentionCap(7, 999, totalBudgetBytes, categoryCount)).toBe(14); // floor(100/7) = 14
+  });
+
+  it('falls back when avgBytes is zero, negative, NaN, or missing', () => {
+    for (const bad of [0, -5, NaN]) {
+      expect(deriveRetentionCap(bad, 500)).toBe(500);
+    }
+  });
+
+  it('falls back rather than deriving a 0 cap when avgBytes exceeds the category share', () => {
+    // categoryShare = TOTAL_LOCAL_RETENTION_BUDGET_BYTES / RETENTION_BUDGET_CATEGORY_COUNT;
+    // an avgBytes larger than that would floor to 0 — must degrade to the prior fallback
+    // instead of retaining nothing.
+    const categoryShare = TOTAL_LOCAL_RETENTION_BUDGET_BYTES / RETENTION_BUDGET_CATEGORY_COUNT;
+    expect(deriveRetentionCap(categoryShare * 2, 500)).toBe(500);
+  });
+
+  it('falls back when totalBudgetBytes or categoryCount is non-positive', () => {
+    expect(deriveRetentionCap(10, 500, 0, 3)).toBe(500);
+    expect(deriveRetentionCap(10, 500, 300, 0)).toBe(500);
+  });
+
+  it('divides the real 8 MiB budget evenly across the 3 named categories by default', () => {
+    expect(RETENTION_BUDGET_CATEGORY_COUNT).toBe(3);
+    expect(TOTAL_LOCAL_RETENTION_BUDGET_BYTES).toBe(8 * 1024 * 1024);
+    // A 1 KiB average record should derive a cap in the low thousands, not near 500 or 200,
+    // proving the derivation is actually budget-driven rather than coincidentally matching
+    // the old flat constants it replaces.
+    const cap = deriveRetentionCap(1024, 500);
+    expect(cap).toBeGreaterThan(1000);
+  });
+});
+
+describe('representative retention byte measurements (§S2)', () => {
+  it('produce plausible positive byte counts for each category', () => {
+    expect(representativeLedgerEventBytes()).toBeGreaterThan(0);
+    expect(representativePairConversationMessageBytes()).toBeGreaterThan(0);
+    expect(representativeIncomingTalkClusterBytes()).toBeGreaterThan(0);
+  });
+
+  it('derive sane retention caps from the real 8 MiB budget (not 0, not absurdly huge)', () => {
+    const ledgerCap = deriveRetentionCap(representativeLedgerEventBytes(), 500);
+    const messageCap = deriveRetentionCap(representativePairConversationMessageBytes(), 200);
+    const incomingTalkCap = deriveRetentionCap(representativeIncomingTalkClusterBytes(), 500);
+    for (const cap of [ledgerCap, messageCap, incomingTalkCap]) {
+      expect(cap).toBeGreaterThan(0);
+      expect(cap).toBeLessThan(1_000_000); // sanity bound — not literally unbounded
+    }
   });
 });

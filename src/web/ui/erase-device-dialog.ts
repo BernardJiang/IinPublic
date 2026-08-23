@@ -108,6 +108,7 @@ export function showSyncProgressDialog(deps: EraseDeviceDeps): Promise<void> {
             (c) => `<div class="erase-sync-category" data-category="${c}" style="display:flex;justify-content:space-between;font-size:0.86em;"><span>${c}</span><span class="erase-sync-status" data-status="pending">…</span></div>`,
           ).join('')}
         </div>
+        <div id="erase-sync-error" data-testid="erase-sync-error" role="alert" style="color:var(--danger);font-size:0.82em;min-height:1em;margin-top:8px;"></div>
         <div class="modal-actions" style="flex-direction:column;gap:8px;">
           <button type="button" class="btn" id="erase-sync-cancel">${deps.text('cancel', 'Cancel')}</button>
           <button type="button" class="btn primary-btn" id="erase-sync-done" data-testid="erase-sync-done" disabled style="opacity:0.5;">${deps.text('eraseSyncDone', 'Done')}</button>
@@ -123,6 +124,7 @@ export function showSyncProgressDialog(deps: EraseDeviceDeps): Promise<void> {
       }
     };
     const doneBtn = modal.querySelector('#erase-sync-done') as HTMLButtonElement;
+    const errorEl = modal.querySelector('#erase-sync-error') as HTMLElement;
     const finish = (): void => {
       doneBtn.disabled = false;
       doneBtn.style.opacity = '1';
@@ -144,9 +146,25 @@ export function showSyncProgressDialog(deps: EraseDeviceDeps): Promise<void> {
       : (async () => {
           for (const c of HANDOFF_CATEGORIES) markDone(c);
         })();
-    Promise.resolve(run).then(() => {
-      if (!cancelled) finish();
-    });
+    // §J safety invariant (spec §11.3): "erase stays disabled until the archive is
+    // acknowledged by the receiving device." A rejected onSyncFirst (no receiver epub
+    // published, the receiver never acknowledged within its timeout, an encrypt/verify
+    // failure) must NEVER silently enable Done — only a genuinely resolved promise does.
+    // Cancel remains available so the user can back out and retry from the erase dialog.
+    Promise.resolve(run).then(
+      () => {
+        if (!cancelled) finish();
+      },
+      (err) => {
+        if (cancelled) return;
+        errorEl.textContent = deps.text(
+          'eraseSyncFailed',
+          'Could not confirm the save. Make sure the other device is online, then try again.',
+        );
+        // eslint-disable-next-line no-console
+        console.warn('[erase-device-dialog] sync-before-erase failed', err);
+      },
+    );
   });
 }
 

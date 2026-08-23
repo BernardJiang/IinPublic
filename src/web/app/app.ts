@@ -7,6 +7,7 @@ import {
 } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebIdentityLinkService } from '../services/web-identity-link-service';
+import { WebDeviceHandoffService } from '../services/web-device-handoff-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
@@ -78,6 +79,7 @@ import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import { eraseDevice } from '../services/device-wipe';
+import { parseLinkFragmentPayload, clearLinkFragmentFromUrl } from '../services/identity-link-fragment';
 import { getOrCreateP2PSession } from '../services/p2p-webrtc-session';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
@@ -176,6 +178,7 @@ export class IinPublicApp {
   private conversationService: WebConversationService;
   private contentNodeService: WebContentNodeService;
   private identityLinkService: WebIdentityLinkService;
+  private deviceHandoffService: WebDeviceHandoffService;
   /** Interaction ledger (Phase E). Initialized lazily after SEA keypair is ready. */
   private ledgerService: WebLedgerService | null = null;
   private uiManager: UIManager;
@@ -311,6 +314,19 @@ export class IinPublicApp {
    */
   private isLedgerDisabledForRun(): boolean {
     return process.env.DISABLE_HMR === 'true' && process.env.IINPUBLIC_E2E_ENABLE_LEDGER !== '1';
+  }
+
+  /**
+   * TODO §J — how long the sender waits for the receiver's handoff acknowledgement
+   * before giving up (erase-device-dialog.ts then shows an error, never enables Done —
+   * see setDeviceHandoffSync's own doc comment). Overridable so an E2E spec proving a
+   * real send→ack round trip isn't forced to wait the full production timeout; unset,
+   * this is the production default. Static `process.env.KEY` access, no runtime guard —
+   * see web-ledger-service.ts's own doc comment for why a guard would silently defeat
+   * webpack's DefinePlugin/EnvironmentPlugin substitution here.
+   */
+  private handoffAckTimeoutMs(): number {
+    return parseInt(process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS || '', 10) || 60_000;
   }
 
   /** Wire P2P transport fallback UI + WebRTC LEDGER_STATE hooks (REQ-LEDGER-06). */
@@ -763,6 +779,7 @@ export class IinPublicApp {
     this.conversationService = new WebConversationService(this.gunService);
     this.contentNodeService = new WebContentNodeService();
     this.identityLinkService = new WebIdentityLinkService(this.gunService);
+    this.deviceHandoffService = new WebDeviceHandoffService(this.gunService);
     this.uiManager = new UIManager();
     this.uiManager.setIdentityLinkHooks({
       createLinkCode: (now) => this.identityLinkService.createLinkCode(now),
@@ -777,6 +794,7 @@ export class IinPublicApp {
         return result.ok ? null : result.error;
       },
       unlink: (pub) => this.identityLinkService.unlink(pub),
+      isLinked: (pub) => this.identityLinkService.isLinked(pub),
     });
     // The reviewed password-custody implementation is available to development/E2E
     // builds for staged verification. Production can still unlock an existing v2
@@ -892,11 +910,15 @@ export class IinPublicApp {
       }
       return url;
     });
-    // Sync-before-erase (redesign §11.2, item J): build the handoff archive from
-    // local sources, reporting per-category progress. The encrypt-to-pub P2P
-    // transfer to the linked device is the remaining X7 wiring; the archive is
-    // staged locally so the receiver import can pick it up.
-    this.uiManager.setDeviceHandoffSync(async (progress) => {
+    // Sync-before-erase (redesign §11.2, item J): build the handoff archive from local
+    // sources, encrypt it to the linked device's pub, publish it, then wait for the
+    // receiver's signed acknowledgement. §11.3's safety invariant — "erase stays disabled
+    // until the archive is acknowledged by the receiving device" — depends entirely on
+    // this promise only resolving on a REAL verified ack; `sendHandoffArchive`'s
+    // non-'sent' results and `waitForHandoffAck`'s timeout both throw/return false here,
+    // which erase-device-dialog.ts's own doc comment treats as "show an error, never
+    // silently enable Done."
+    this.uiManager.setDeviceHandoffSync(async (toPub, progress) => {
       const { buildHandoffArchive } = await import('../../shared/device-handoff');
       const read = (key: string): any => {
         try {
@@ -938,11 +960,75 @@ export class IinPublicApp {
         progress(category);
       }
       const archive = buildHandoffArchive(sources);
-      try {
-        sessionStorage.setItem('iinpublic_pending_handoff_archive', JSON.stringify(archive));
-      } catch {
-        /* best effort staging */
+      const result = await this.deviceHandoffService.sendHandoffArchive(toPub, archive);
+      if (result !== 'sent') {
+        throw new Error(`handoff send failed: ${result}`);
       }
+      const acked = await this.deviceHandoffService.waitForHandoffAck(toPub, this.handoffAckTimeoutMs());
+      if (!acked) {
+        throw new Error('handoff not acknowledged within the timeout');
+      }
+    });
+    // TODO §J receiver side: check for an archive from any of THIS device's own
+    // verified-linked pubs (never a general "who sent me something" discovery — see
+    // web-device-handoff-service.ts's own doc comment on why no `.map()` is needed) and,
+    // on explicit user Import, merge it and publish the signed ack the sender is waiting
+    // on. Import is never automatic — the archive only becomes real local data once the
+    // receiving user has reviewed and pressed Import (spec §11.2's "importable item").
+    this.uiManager.setDeviceHandoffReceive({
+      checkIncoming: async () => {
+        let linked: Array<{ pub: string; stageName: string }> = [];
+        try {
+          const arr = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
+          linked = Array.isArray(arr) ? arr.filter((r: any) => r?.state === 'linked') : [];
+        } catch {
+          linked = [];
+        }
+        for (const row of linked) {
+          const archive = await this.deviceHandoffService.readIncomingHandoff(row.pub).catch(() => null);
+          if (archive) return { fromPub: row.pub, fromName: row.stageName || '', archive };
+        }
+        return null;
+      },
+      importArchive: async (fromPub, archive) => {
+        if (!this.currentUser) return;
+        const { mergeHandoffArchive } = await import('../../shared/device-handoff');
+        const read = (key: string): any => {
+          try {
+            return JSON.parse(localStorage.getItem(key) || 'null') ?? undefined;
+          } catch {
+            return undefined;
+          }
+        };
+        const write = (key: string, value: unknown): void => {
+          try {
+            localStorage.setItem(key, JSON.stringify(value));
+          } catch {
+            /* best effort */
+          }
+        };
+        const merged = mergeHandoffArchive(archive as any, {
+          contacts: (this.currentUser.knownPeople as any) || [],
+          talkFilters: this.currentUser.talkFilters as any,
+          answerPreferences: read('exactChatbotMemory') || {},
+          myTalks: read('myTalks') || {},
+        });
+        this.currentUser.knownPeople = merged.contacts as any;
+        this.currentUser.talkFilters = merged.talkFilters as any;
+        await this.userService.importHandoffData(this.currentUser.id, {
+          knownPeople: merged.contacts as any,
+          talkFilters: merged.talkFilters as any,
+        });
+        write('exactChatbotMemory', merged.answerPreferences);
+        write('myTalks', merged.myTalks);
+        // Imported thread history is read-only (spec §11.2) — never merged into the
+        // live conversation store, kept under its own key, additive across imports
+        // rather than clobbering a prior import from a different linked device.
+        const importedKey = 'importedHandoffConversations';
+        const existingImported = read(importedKey) || {};
+        write(importedKey, { ...existingImported, ...merged.readOnlyConversations });
+        await this.deviceHandoffService.acknowledgeHandoff(fromPub);
+      },
     });
     this.uiManager.setPeerLocationReader(async (peerId: string) => {
       const data = await new Promise<unknown>((resolve) => {
@@ -969,6 +1055,12 @@ export class IinPublicApp {
 
     // Show main interface
     this.uiManager.showMainInterface(this.currentUser!);
+    this.checkForPendingIdentityLinkFragment();
+    // TODO §J — publish this identity's signed pub→epub binding on every boot so a
+    // linked device can encrypt a handoff *to* this identity without needing to already
+    // know its app-level userId (see web-device-handoff-service.ts's own doc comment).
+    // Best-effort, never a boot blocker.
+    void this.deviceHandoffService.publishEpub().catch(() => {});
     this.subscribeToPublicAnnouncements();
     this.showLocationRoomSuggestion();
 
@@ -983,6 +1075,27 @@ export class IinPublicApp {
       this.startStageZeroHeadcountWatchdog();
     }
     this.initialized = true;
+  }
+
+  /**
+   * TODO §I — URL-fragment same-device linking shortcut (spec §10.3): a `#link=<code>`
+   * fragment opened on this device (e.g. from "Link this device's browser"/"Open in app
+   * to link", or a loopback affordance's `window.open`) never reaches any server — it's
+   * consumed entirely client-side. Structurally validated before popping any UI, so an
+   * unrelated/garbage `#...` hash on the page is silently ignored rather than surfacing a
+   * confusing linking prompt. The fragment is cleared immediately either way: it carries
+   * a one-time secret that must not linger in the URL bar, browser history, or survive a
+   * reload (a stale fragment must not re-trigger the prompt on every refresh).
+   */
+  private checkForPendingIdentityLinkFragment(): void {
+    try {
+      const parsed = parseLinkFragmentPayload(window.location.hash || '');
+      if (!parsed) return;
+      clearLinkFragmentFromUrl();
+      this.uiManager.openLinkedDevicesWithCode(parsed.code);
+    } catch {
+      /* non-fatal — same-device shortcut is a convenience, never a boot blocker */
+    }
   }
 
   private subscribeToPublicAnnouncements(): void {
