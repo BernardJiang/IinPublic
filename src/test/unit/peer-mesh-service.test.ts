@@ -986,7 +986,7 @@ describe('PeerMeshService', () => {
       title: 'Fallback Talk',
       type: 'tag',
       questions: [],
-    }, { roomBroadcast: true });
+    }, { roomBroadcast: true, recipientUserIds: ['alice', 'bob'] });
 
     // Mailbox fallback must have fired (replaces Gun rendezvous path).
     expect(mailboxCallsA.length).toBeGreaterThanOrEqual(1);
@@ -1034,7 +1034,7 @@ describe('PeerMeshService', () => {
       title: 'Prime',
       type: 'tag',
       questions: [],
-    }, { roomBroadcast: true });
+    }, { roomBroadcast: true, recipientUserIds: ['alice', 'bob'] });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     // After the first successful send, alice's neighbor is connected.
@@ -1048,7 +1048,7 @@ describe('PeerMeshService', () => {
       title: 'Primary Path',
       type: 'tag',
       questions: [],
-    }, { roomBroadcast: true });
+    }, { roomBroadcast: true, recipientUserIds: ['alice', 'bob'] });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     // No mailbox fallback must have fired — primary mesh path was used.
