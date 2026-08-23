@@ -1,6 +1,6 @@
 # TODO — UI God-Object Refactor & Unused React Dependency Cleanup
 
-**Status:** Proposed work order (not started). No code has been changed.
+**Status:** Issue #2 (React dep graph) ✅ **DONE** — commit `2f0b7355` on `refactor/ui-decompose-and-deps-clean` (2026-08-22). Issue #1 (ui-manager god-object) **not started**. No code has been changed for #1.
 **Written:** 2026-08-18 by Hermes Agent (from an architecture study of the repo).
 **Intended executor:** Claude Code.
 **Branch:** Create a fresh branch off `dev` when this work begins.
@@ -78,39 +78,46 @@ as of `package.json` 2026-08-18):
 > Order rationale: #2 is low-risk and independently verifiable, and it de-risks the bundle/manifest
 > before the larger #1 refactor. Keep the two on separate commits.
 
-- [ ] **2.1 Freeze the evidence.** Re-run and record:
+- [x] **2.1 Freeze the evidence.** ✅ (2026-08-22) `find src -name '*.tsx'` → `0`; no react/ReactDOM imports outside the examples; no `react` in `.eslintrc`; no `@testing-library/react` usage. Confirmed. Also found `cytoscape-dagre` is dead too (missing from the table) — removed it as well.
       - `find src -name '*.tsx' | wc -l`  → expect `0`
       - `grep -rn "from ['\"]react\|require(['\"]react\|ReactDOM" src/test src/web src/server src/shared` (excl. `examples`) → expect empty
       - `grep -rn "react" .eslintrc` → expect empty
       Confirm none of the table in the Evidence section is imported outside `src/examples/`.
-- [ ] **2.2 Decide disposition of `src/examples/`** (ask the owner if unsure):
+- [x] **2.2 Decide disposition of `src/examples/`** ✅ owner chose **archive + drop deps**: moved to `docs/archive/examples/` via `git mv` (88 files, git history preserved); note added to `docs/archive/README.md`.
       - Recommended: move `src/examples/gun-react/` and `src/examples/opencodedemo/` into
         `docs/archive/` (or a top-level `archive/`) so they are clearly historical and out of the
         active source tree; this makes the dependency removal unambiguous and future-proofs the
         "examples look like live code" confusion.
       - If the owner prefers to keep the demos in-tree, then keep the deps and **stop** — do not
         remove them. Do not do both.
-- [ ] **2.3 Remove the dead `devDependencies`** from `package.json` (only if 2.2 = move/archive):
+- [x] **2.3 Remove the dead `devDependencies`** from `package.json` (2.2 = archive) ✅ dropped: `react`, `react-dom`, `react-cytoscapejs`, `cytoscape`, `@testing-library/react`, `@babel/preset-react`, and **`cytoscape-dagre`** (extra vs table).
       `react`, `react-dom`, `react-cytoscapejs`, `cytoscape`, `@testing-library/react`,
       `@babel/preset-react`.
-- [ ] **2.4 Remove `@babel/preset-react`** from `babel.config.js` (line 1). Keep `@babel/env` and
+- [x] **2.4 Remove `@babel/preset-react`** from `babel.config.js` (line 1) ✅ kept `@babel/env` + the transform plugins.
       the three transform plugins.
-- [ ] **2.5 Clean stale React hooks:**
+- [x] **2.5 Clean stale React hooks:**
       - `webpack.config.prod.js:10` — remove the `styled-components` `ProvidePlugin` entry (or the
         whole ProvidePlugin if it becomes empty). It references a package that isn't a dependency.
       - Verify no other `webpack.*` / `jest` / `.eslintrc` / `tsconfig*` React-specific config
         (`jsx`, `jsxFactory`, `jsxImportSource`, `emotion`/`styled-components` globals) remains.
-- [ ] **2.6 Reinstall to sync the lockfile:** `rm -rf node_modules package-lock.json && npm install`
+        ✅ **DEVIATION (verified-irrelevant):** `webpack.config.prod.js` is a fully **orphaned**
+        legacy config — referenced by NO build/test script (every webpack invocation uses
+        `webpack.config.js`), and its `styled-components` reference sits in `externals` of an
+        unrelated "ReactSimpleChatbot" UMD build, **not** a `ProvidePlugin`. It is already dead
+        and out of every pipeline, so it was left untouched rather than force an edit describing
+        a mechanism the file doesn't have. tsconfig/jest `src/examples/**` exclusions now resolve
+        to nothing (harmless future-proof guard).
+- [x] **2.6 Reinstall to sync the lockfile:** ✅ did `npm install` (deviation: lighter than the full `rm -rf` wipe, same lockfile result — npm removed 21 packages: the 7 + transitive react-dom/cytoscape tree). Also regenerated `docs/dependency-sbom.json` via `npm run sbom`.
       (this is a devDependency-only change; do **not** `npm prune --production` before any build).
-- [ ] **2.7 Verify:** `npm run type` (or `npm run test:type`) + `npm run lint` +
+- [x] **2.7 Verify:** ✅ all green (2026-08-22): `test:type` RC0, `lint` RC0, `test:unit` 1478/1478, `build:web` (bundle.js 1.3M > 500KB), `build:server` OK, live boot HTTPS :8080 serving SPA at `/` + `/health` → 200.
       `npm run test:unit` all green. Then `npm run build:web` and `npm run build:server` succeed.
       Confirm the produced `dist/web/bundle.js` is still > 500 KB and the app boots
       (`npm run dev` → health check 200).
-- [ ] **2.8 Commit** with a message like:
+- [x] **2.8 Commit** — done as `2f0b7355` on branch `refactor/ui-decompose-and-deps-clean`.
       `chore: remove unused React 19 dependency graph (framework-free TS UI; examples archived)`.
 
 **Definition of done #2:** `package.json` no longer lists any React artifact; `npm ls react react-dom`
-returns "empty" / not-found; the app builds and boots identically; all unit tests + type check green.
+returns "empty" / not-found; the app builds and boots identically; all unit tests + type check green. ✅ **Met.** (Caveat: `npm ls react` is *not* empty — `react` survives as a react-native transitive via `helia → @libp2p/webrtc`, part of the native client, correct to keep. All *direct* React artifacts are gone; `npm ls react-dom` and each other return not-found.)
 
 ---
 
