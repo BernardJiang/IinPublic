@@ -76,7 +76,7 @@ export function appendIgnoreRow(container: HTMLElement, qIndex: number, options?
   row.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 6px; margin-bottom: 8px;';
   row.innerHTML = `
     <input type="radio" name="self-answer-q_${qIndex}" value="ignore" class="self-answer-radio" checked title="${options ? text(options, 'editorMyAnswer', 'My answer') : 'My answer'}">
-    <span style="font-size: 0.9em; color: #666;">${options ? text(options, 'editorIgnore', 'Ignore') : 'Ignore'}</span>
+    <span style="font-size: 0.9em; color: var(--text-secondary);">${options ? text(options, 'editorIgnore', 'Ignore') : 'Ignore'}</span>
   `;
   container.appendChild(row);
 }
@@ -113,7 +113,7 @@ export function addAnswerToQuestion(container: HTMLElement, index: number, optio
       required
       style="flex: 1;"
     >
-    <span style="font-size: 0.9em; color: #666;">→</span>
+    <span style="font-size: 0.9em; color: var(--text-secondary);">→</span>
     <select class="form-input answer-next" style="flex: 0 0 180px; font-size: 0.9em;">
       <option value="ignore">${text(options, 'editorIgnoreFilter', 'Ignore (filter out)')}</option>
       <option value="noticed">${text(options, 'editorNoticed', 'Noticed (match)')}</option>
@@ -170,18 +170,22 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
       required
       style="margin-bottom: 10px;"
     >
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
       ${text(options, 'editorAnswerSelectionModeLabel', 'Respondent may select:')}
       <select class="form-input answer-selection-mode" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
         <option value="single">${text(options, 'editorAnswerSelectionModeSingle', 'One (multiple choice)')}</option>
         <option value="multiple">${text(options, 'editorAnswerSelectionModeMultiple', 'Any that apply (checkboxes)')}</option>
       </select>
     </label>
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
-      <input type="checkbox" class="question-reciprocal-tag">
-      ${text(options, 'editorReciprocalTagLabel', 'Define buy/sell context here for later questions (needs exactly 1 real answer, besides Ignore)')}
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
+      <input type="checkbox" class="question-simple-tag">
+      ${text(options, 'editorSimpleTagLabel', 'Simple tag (answer must match the question itself — needs exactly 1 real answer, besides Ignore)')}
     </label>
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: #555;">
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
+      <input type="checkbox" class="question-reciprocal-tag">
+      ${text(options, 'editorReciprocalTagLabel', 'Pair tag — define buy/sell context here for later questions (needs exactly 1 real answer, besides Ignore)')}
+    </label>
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
       ${text(options, 'editorBuiltInKindLabel', 'Compare using:')}
       <select class="form-input builtin-kind" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
         <option value="">${text(options, 'editorBuiltInKindNone', 'Ordinary answer choices')}</option>
@@ -213,7 +217,7 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
           <input type="date" class="form-input builtin-timeframe-end" style="display: inline-block;">
         </label>
       </div>
-      <div class="builtin-kind-fields" data-builtin-kind="location" style="display: none; font-size: 0.85em; color: #666;">
+      <div class="builtin-kind-fields" data-builtin-kind="location" style="display: none; font-size: 0.85em; color: var(--text-secondary);">
         ${text(options, 'editorBuiltInLocationNote', "Uses this talk's own location and radius (set below).")}
       </div>
     </div>
@@ -252,6 +256,61 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
   builtInKindSelect?.addEventListener('change', () => {
     applyBuiltInKindToQuestion(questionDiv, builtInKindSelect.value);
   });
+
+  // docs/TODO.md §LL follow-up: "Simple tag" (tagKind: 'simple') and "Pair tag"
+  // (reciprocalTagContext) are mutually exclusive ways to mark this question as a tag — checking
+  // one clears the other.
+  const simpleTagCheckbox = questionDiv.querySelector('.question-simple-tag') as HTMLInputElement | null;
+  const reciprocalTagCheckbox = questionDiv.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
+  simpleTagCheckbox?.addEventListener('change', () => {
+    if (simpleTagCheckbox.checked && reciprocalTagCheckbox) reciprocalTagCheckbox.checked = false;
+    applyTagKindVisibilityToQuestion(questionDiv);
+  });
+  reciprocalTagCheckbox?.addEventListener('change', () => {
+    if (reciprocalTagCheckbox.checked && simpleTagCheckbox) simpleTagCheckbox.checked = false;
+    applyTagKindVisibilityToQuestion(questionDiv);
+  });
+
+  // docs/TODO.md §LL.2 follow-up: while Simple tag is checked, the one visible answer is frozen
+  // read-only and mirrors the question text as the author types it (self-match) — the same
+  // convenience the route editor's matchAnswerDirty mechanism already gives route questions.
+  const questionTextInput = questionDiv.querySelector('.question-text') as HTMLInputElement | null;
+  questionTextInput?.addEventListener('input', () => {
+    if (!simpleTagCheckbox?.checked) return;
+    const firstAnswerText = questionDiv.querySelector('.answer-item[data-answer-index="0"] .answer-text') as HTMLInputElement | null;
+    if (firstAnswerText) firstAnswerText.value = questionTextInput.value;
+  });
+}
+
+/**
+ * docs/TODO.md §LL.2 follow-up: a Simple/Pair tag question is structurally fixed to exactly one
+ * non-ignore answer (TalkValidator.validateTagKindFields) — hides every answer row beyond the
+ * first so the editor doesn't show multi-answer chrome the data model can never actually use.
+ * Simple tag additionally freezes that one answer read-only, seeded from the question's own text
+ * (self-match); Pair tag leaves it editable since the whole point is a divergent accepted answer.
+ * Non-destructive: only visibility/readonly changes, no answer rows or their text are removed, so
+ * unchecking either box restores everything exactly as it was.
+ */
+export function applyTagKindVisibilityToQuestion(questionItem: HTMLElement): void {
+  const simpleCheckbox = questionItem.querySelector('.question-simple-tag') as HTMLInputElement | null;
+  const reciprocalCheckbox = questionItem.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
+  const isTagKind = !!(simpleCheckbox?.checked || reciprocalCheckbox?.checked);
+  questionItem.querySelectorAll<HTMLElement>('.answer-item').forEach((item) => {
+    const idx = parseInt(item.getAttribute('data-answer-index') ?? '0', 10);
+    item.style.display = isTagKind && idx > 0 ? 'none' : '';
+  });
+  const addAnswerBtn = questionItem.querySelector('.btn-add-answer') as HTMLElement | null;
+  if (addAnswerBtn) addAnswerBtn.style.display = isTagKind ? 'none' : '';
+  const firstAnswerText = questionItem.querySelector('.answer-item[data-answer-index="0"] .answer-text') as HTMLInputElement | null;
+  if (firstAnswerText) {
+    const frozen = !!simpleCheckbox?.checked;
+    firstAnswerText.readOnly = frozen;
+    firstAnswerText.style.background = frozen ? 'var(--bg-subtle)' : '';
+    if (frozen) {
+      const questionText = questionItem.querySelector('.question-text') as HTMLInputElement | null;
+      if (questionText) firstAnswerText.value = questionText.value;
+    }
+  }
 }
 
 /**

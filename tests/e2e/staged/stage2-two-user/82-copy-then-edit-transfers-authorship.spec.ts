@@ -117,17 +117,12 @@ test.describe('Copy then edit transfers authorship', () => {
 
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterNav();
-    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk title —
-    // `.filter({ hasText })` still locates the row by title since it matches hidden text too.
-    // Copy-to-talks is a per-variant action inside the row's details popup.
-    const answerRow = pageTom.locator('.answer-talk-item').filter({ hasText: talkTitle }).first();
+    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt
+    // ("Original question text?"), not the talk title; "copy" is now a small independent
+    // link on the answer line itself, no expand-in-place popup anymore.
+    const answerRow = pageTom.locator('.answer-talk-item').filter({ hasText: 'Original question text?' }).first();
     await expect(answerRow).toBeVisible({ timeout: 15000 });
-    await answerRow.click();
-    const copyPopup = pageTom.locator('#item-details-popup');
-    await expect(copyPopup).toBeVisible({ timeout: 10_000 });
-    await copyPopup.locator('.answer-copy-talk-btn').click();
-    await copyPopup.locator('#close-item-details-popup').click();
-    await expect(copyPopup).toHaveCount(0);
+    await answerRow.locator('.answer-copy-talk-jump').click();
     await afterNav();
 
     await pageTom.click('.nav-btn[data-view="talks"]');

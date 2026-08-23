@@ -122,18 +122,14 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterNav();
     await expect(pageTom.locator('#answers-content').getByText(copyTalkTitle).first()).toBeVisible({ timeout: 15000 });
-    // Copy-to-talks is now a per-variant action inside the row's details popup — tap the
-    // row to open it first.
+    // docs/TODO.md §LL.2 follow-up: "copy" is now a small independent link on the answer line
+    // itself, no expand-in-place popup anymore.
     await pageTom
       .locator('.answer-talk-item')
       .filter({ hasText: copyTalkTitle })
       .first()
+      .locator('.answer-copy-talk-jump')
       .click();
-    const copyPopup = pageTom.locator('#item-details-popup');
-    await expect(copyPopup).toBeVisible({ timeout: 10_000 });
-    await copyPopup.locator('.answer-copy-talk-btn').click();
-    await copyPopup.locator('#close-item-details-popup').click();
-    await expect(copyPopup).toHaveCount(0);
     await afterNav();
 
     await pageTom.click('.nav-btn[data-view="talks"]');

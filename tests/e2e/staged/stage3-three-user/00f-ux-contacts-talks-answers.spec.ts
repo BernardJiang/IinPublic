@@ -161,19 +161,11 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
     const answersContent = pageJerry.locator('#answers-content');
-    // TODO §M3/Me-tab-merge: the row's own visible content is the question, not the source
-    // talk's title — the title text (and outcome, and per-variant prompt/answer detail) now
-    // live in the entry's hidden .answer-item-details, opened by tapping the row into the
-    // shared M2 popup. `.filter({ hasText })` matches hidden descendant text too, so it can
-    // still locate the row by title; the row *container* itself is what must be visible.
-    const answerRow = answersContent.locator('.answer-talk-item').filter({ hasText: 'Tom Out Talk' }).first();
+    // docs/TODO.md §LL.2 follow-up: the Me tab shows the question and answer directly, not the
+    // source talk's title or outcome — locate the row by its prompt text instead.
+    const answerRow = answersContent.locator('.answer-talk-item').filter({ hasText: 'Do you want to join Tom?' }).first();
     await expect(answerRow).toBeVisible({ timeout: 15000 });
-    await expect(answerRow.filter({ hasText: /Mismatch/i })).toHaveCount(1);
-    await answerRow.click();
-    const popup = pageJerry.locator('#item-details-popup');
-    await expect(popup).toBeVisible({ timeout: 10_000 });
-    await expect(popup.getByText('Do you want to join Tom?').first()).toBeVisible({ timeout: 10000 });
-    await expect(popup.getByText('No thanks.').first()).toBeVisible({ timeout: 10000 });
-    await expect(popup.getByText(/answered 1 time/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(answerRow).toHaveAttribute('data-outcome', 'mismatch');
+    await expect(answerRow.getByText('No thanks.').first()).toBeVisible({ timeout: 10000 });
   });
 });

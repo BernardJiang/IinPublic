@@ -21,7 +21,7 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
-import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, getRouteRootChildQuestionIds } from '../../shared/talk-engine';
+import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, getRouteRootChildQuestionIds, singleNonIgnoreAnswer, findTagPairAncestor } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
@@ -135,6 +135,7 @@ import {
   addQuestionToForm as addTalkEditorQuestionToForm,
   appendIgnoreRow as appendTalkEditorIgnoreRow,
   applyBuiltInKindToQuestion,
+  applyTagKindVisibilityToQuestion,
   readBuiltInSpecFromQuestion,
   setupTalkFormHandlers as setupTalkEditorFormHandlers,
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
@@ -3806,10 +3807,11 @@ export class UIManager extends EventEmitter {
       // types — matches if ANY contributing type is active, rather than requiring one exact type.
       const talkTypes = String(item.dataset.talkType || 'flow').toLowerCase().split(' ').filter(Boolean);
       const tagState = String(item.dataset.tagState || '');
-      // Whether the row *itself* renders as a checkbox tag row — not merely whether one of
-      // its contributing talks happens to be talk-type "tag" (a "tag" talk can still answer
-      // a plain question, e.g. its item.kind is "question" — that row is data-tag-state="").
-      const isTagRow = item.classList.contains('answer-tag-item');
+      // docs/TODO.md §LL.2 follow-up: rows no longer have a distinct checkbox-pill CSS class —
+      // whether this row's most-recent variant is a boolean (Checked/Unchecked) tag is now
+      // carried directly in data-tag-state itself (non-empty only for that case; see
+      // renderQuestionRow, answers-view.ts).
+      const isTagRow = tagState !== '';
       const matchesType = activeTypes.length === 0 ? false : talkTypes.some((type) => activeTypes.includes(type));
       const matchesTagState = !isTagRow || allowedTagStates.includes(tagState);
       const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
@@ -3838,15 +3840,11 @@ export class UIManager extends EventEmitter {
         if (sort === 'chatbot-count') return -Number(item.dataset.chatbotUseCount || 0);
         return -Number(item.dataset.answeredAt || 0);
       };
-      // Spec §13.7.1: rows live inside per-section containers (`.answer-section .answers-list`),
-      // not directly under `#answers-list` (now the outer wrapper around the section
-      // `<details>` elements) — sort each section's own rows independently, never move a row
-      // out of its section. `#answers-list` itself only still holds the empty-state placeholder.
-      document.querySelectorAll<HTMLElement>('.answer-section .answers-list').forEach((sectionList) => {
-        Array.from(sectionList.querySelectorAll<HTMLElement>('.answer-talk-item'))
-          .sort((a, b) => rank(a) - rank(b))
-          .forEach((row) => sectionList.appendChild(row));
-      });
+      // docs/TODO.md §LL.2 follow-up: rows live directly under the single flat `#answers-list`
+      // now (no more per-talk section containers) — sort them all together.
+      Array.from(list.querySelectorAll<HTMLElement>('.answer-talk-item'))
+        .sort((a, b) => rank(a) - rank(b))
+        .forEach((row) => list.appendChild(row));
     }
     if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
   }
@@ -7755,13 +7753,23 @@ export class UIManager extends EventEmitter {
       const answer = Array.isArray(question?.answers)
         ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
         : null;
-      const isTag = talkType === 'tag';
+      // docs/TODO.md §LL.2 follow-up: an embedded tag/Pair-tag question (tagKind/
+      // reciprocalTagContext, not just a literal type:'tag' talk) dissolves into the Me tab as a
+      // tag too. `booleanTag` distinguishes the two sub-kinds within `kind:'tag'` — a self-match
+      // tag has no meaningful answer text of its own (Checked/Unchecked), while a Pair tag's
+      // accepted-answer text ("sell") is the whole point and must be shown, not hidden behind a
+      // boolean. See `findTagPairAncestor`'s doc comment (talk-engine.ts) for what
+      // reciprocalTagContext actually encodes.
+      const isTag = talkType === 'tag' || question?.tagKind === 'simple' || !!question?.reciprocalTagContext;
+      const booleanTag = isTag && !question?.reciprocalTagContext;
       const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
       const rawChoice = String(entry.answerText || '').trim();
       const choice = isTag
-        ? answer?.isMatch
-          ? 'Checked'
-          : 'Unchecked'
+        ? booleanTag
+          ? answer?.isMatch
+            ? 'Checked'
+            : 'Unchecked'
+          : String(answer?.text || '').trim() || 'Ignored'
         : rawChoice && rawChoice.toLowerCase() !== 'ignore'
           ? rawChoice
           : String(answer?.text || '').trim() || 'Ignored';
@@ -7809,6 +7817,7 @@ export class UIManager extends EventEmitter {
         prompt,
         choice,
         kind: isTag ? 'tag' : 'question',
+        ...(isTag ? { booleanTag } : {}),
         contextPath,
         contextLabel,
         ...(entry.mode ? { mode: entry.mode } : {}),
@@ -7848,27 +7857,14 @@ export class UIManager extends EventEmitter {
    * or undefined if there isn't exactly one.
    */
   private singleNonIgnoreAnswer(question: { answers?: any[] } | undefined): any | undefined {
-    const real = (question?.answers || []).filter((a: any) => !a?.isIgnore);
-    return real.length === 1 ? real[0] : undefined;
+    return singleNonIgnoreAnswer(question);
   }
 
   private findReciprocalTagAncestor(
     talk: any,
     currentQuestion: { id: string; contextPath?: Array<{ questionId: string; answerId: string }> },
   ): { questionText: string; answerText: string } | undefined {
-    const questions: any[] = Array.isArray(talk?.questions) ? talk.questions : [];
-    const ancestorIds: string[] =
-      talk?.type === 'route' && Array.isArray(currentQuestion?.contextPath)
-        ? currentQuestion.contextPath.map((step) => step.questionId)
-        : questions.slice(0, questions.findIndex((q) => q.id === currentQuestion?.id)).map((q) => q.id);
-    for (let i = ancestorIds.length - 1; i >= 0; i--) {
-      const q = questions.find((qq) => qq.id === ancestorIds[i]);
-      if (q?.reciprocalTagContext) {
-        const only = this.singleNonIgnoreAnswer(q);
-        if (only) return { questionText: q.text, answerText: only.text };
-      }
-    }
-    return undefined;
+    return findTagPairAncestor(talk, currentQuestion);
   }
 
   /**
@@ -8007,6 +8003,16 @@ export class UIManager extends EventEmitter {
     const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
     const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
+    // docs/TODO.md §LL follow-up: findAutoAnswer/findAutoAnswerMultiple run their own
+    // independent PREFERENCE_CONFLICT veto (exact-chatbot-memory.ts), separate from
+    // checkIfMatch's (talk-engine.ts, now ancestor-aware too). A nearer reciprocalTagContext
+    // ancestor on THIS branch wins over the talk-root preferenceSet — same precedence
+    // checkIfMatch and myEffectiveTagContext already use — so the chatbot can't auto-answer past
+    // a mid-tree pair-tag conflict that manual answering would now correctly veto.
+    const tagPairAncestor = findTagPairAncestor(talk, currentQuestion);
+    const effectivePreferenceSet: string[] | undefined = tagPairAncestor
+      ? [tagPairAncestor.answerText]
+      : talk?.preferenceSet;
 
     // §KK: context-aware flattened lookup, tried BEFORE exact-chatbot-memory (was the reverse —
     // exact-chatbot-memory is keyed by question text alone, no context, so it used to win on any
@@ -8067,7 +8073,7 @@ export class UIManager extends EventEmitter {
         currentOptions,
         undefined,
         languageContext,
-        talk?.preferenceSet,
+        effectivePreferenceSet,
       );
       setExactChatbotMemory(exactMemory);
       if (exact.action === 'ASK_USER' && exact.reason === 'PREFERENCE_CONFLICT') {
@@ -8128,7 +8134,7 @@ export class UIManager extends EventEmitter {
         currentOptions,
         undefined,
         languageContext,
-        talk?.preferenceSet,
+        effectivePreferenceSet,
       );
       setExactChatbotMemory(exactMemory);
       // A preference-set conflict is an absolute veto — do not fall through to the weaker
@@ -9078,6 +9084,7 @@ export class UIManager extends EventEmitter {
         text: this.t.bind(this),
       }),
       applyBuiltInKindToQuestion,
+      applyTagKindVisibilityToQuestion,
       updateAllAnswerDropdowns: this.updateAllAnswerDropdowns.bind(this),
       refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
       ensureRouteEditorRendered: this.ensureRouteEditorRendered.bind(this),
@@ -9188,23 +9195,24 @@ export class UIManager extends EventEmitter {
         this.showTalkValidationError([this.t('editorTagRequired')]);
         return false;
       }
-      // docs/TODO.md §LL: a tag IS a single-question talk — the question text is the keyword
-      // (unchanged), and the match answer's text is the accepted counterpart word from
-      // `#talk-answer` (talk-editor-dialog.ts), defaulting to the SAME word as the keyword
-      // (self-match: "Tennis" matches anyone else tagged "Tennis") when left untouched. No
-      // selfTag/preferenceSet here — a tag is just 1 question/1 answer, so that pair (an
-      // ordinary Talk.questions entry) IS the whole declaration; a separate talk-level veto
-      // would only duplicate it. Matching (manual or chatbot) is the SAME plain question/answer
-      // mechanism every other question already uses — the chatbot has no concept of "opposite",
-      // only "what did I answer for this exact question before" (exact-chatbot-memory.ts);
-      // "buy"->"buy" self-match and "buy"->"sell" opposite-pair both just fall out of whatever
-      // question/answer text the two authors independently chose.
-      const answerInputValue = (document.getElementById('talk-answer') as HTMLInputElement | null)?.value.trim() || '';
+      // docs/TODO.md §LL follow-up: a tag IS a single-question talk — the question text is the
+      // keyword (unchanged). By default it's a "simple tag" (tagKind: 'simple') — the match
+      // answer's text IS the keyword, self-match only ("Tennis" matches "Tennis"), enforced by
+      // TalkValidator.validateTagTalk. Only when the author checks "Pair tag"
+      // (`#tag-pair-checkbox`, talk-editor-dialog.ts) does the accepted answer come from
+      // `#talk-answer` and get to diverge (e.g. "sell" accepting "buy") — that's
+      // reciprocalTagContext:true, the same asymmetric-pair primitive usable anywhere in
+      // flow/survey/route (see Question.tagKind/reciprocalTagContext, types.ts).
+      const isPairTag = (document.getElementById('tag-pair-checkbox') as HTMLInputElement | null)?.checked === true;
+      const answerInputValue = isPairTag
+        ? (document.getElementById('talk-answer') as HTMLInputElement | null)?.value.trim() || ''
+        : '';
       const answerWord = answerInputValue || keyword;
       questions = [
         {
           id: 'q_0',
           text: keyword,
+          ...(isPairTag ? { reciprocalTagContext: true } : { tagKind: 'simple' as const }),
           answers: [
             { id: 'a_0_match', text: answerWord, isMatch: true, isTerminal: true },
             { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
@@ -9301,6 +9309,13 @@ export class UIManager extends EventEmitter {
         const reciprocalTagCheckbox = item.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
         if (reciprocalTagCheckbox?.checked) {
           questionObj.reciprocalTagContext = true;
+        }
+        // docs/TODO.md §LL follow-up: "Simple tag" (tagKind: 'simple') — the mutually exclusive
+        // sibling of the Pair tag checkbox above (talk-editor-form-helpers.ts wires the
+        // exclusion in the DOM). Applies to flow and survey alike, same shared branch.
+        const simpleTagCheckbox = item.querySelector('.question-simple-tag') as HTMLInputElement | null;
+        if (simpleTagCheckbox?.checked) {
+          questionObj.tagKind = 'simple';
         }
         if (type === 'survey') {
           questionObj.isAggregatable = true;
@@ -9505,7 +9520,20 @@ export class UIManager extends EventEmitter {
     id: string;
     text: string;
     parentAnswer: { questionId: string; answerId: string } | null;
-    answers: Array<{ id: string; text: string; isMatch?: boolean; isIgnore?: boolean; isTerminal?: boolean }>;
+    answers: Array<{
+      id: string;
+      text: string;
+      isMatch?: boolean;
+      isIgnore?: boolean;
+      isTerminal?: boolean;
+      /**
+       * See `Answer.parallelMatchThreshold` (types.ts) — only meaningful once this answer has
+       * 2+ children (a fan-out). Undefined = require all of them; the editor's "+Child Q"/
+       * "+Parallel Q" button stays available past the first child (unlike the old one-child
+       * cap) so an author can build "iPhone" fanning out into Model/Condition/Price-range.
+       */
+      parallelMatchThreshold?: number;
+    }>;
     /**
      * §BB / spec §30.2: a typed comparison node (e.g. a per-item quantity/price question at
      * the leaf of one item's branch, docs/TODO.md §BB Phase 6). When set, `answers` is
@@ -9518,6 +9546,17 @@ export class UIManager extends EventEmitter {
     builtIn?: { kind: string; quantity?: number; priceRange?: { min: number; max: number }; timeFrame?: { start: number; end: number } };
     /** See `Question.reciprocalTagContext` (types.ts) — only meaningful with exactly 1 answer. */
     reciprocalTagContext?: boolean;
+    /** See `Question.tagKind` (types.ts) — mutually exclusive with `reciprocalTagContext`. */
+    tagKind?: 'simple';
+    /**
+     * Tag-style self-match convenience: while false, the question's single non-Ignore answer
+     * text auto-mirrors this question's own text as it's typed (so typing "iphone" as the
+     * question needs no separate step to also make "iphone" the accepted answer — the same
+     * self-match default §LL gives `type:'tag'` talks, extended to route/flow questions). Flips
+     * to true the moment the author edits that answer's text directly, or on rehydrating an
+     * existing talk whose answer text was already explicitly authored.
+     */
+    matchAnswerDirty?: boolean;
   }> = [];
 
   /** Builds or re-hydrates the route-editor in-memory state and redraws it. */
@@ -9539,26 +9578,34 @@ export class UIManager extends EventEmitter {
             text: a.text,
             isMatch: !!a.isMatch,
             isIgnore: !!a.isIgnore,
-            // A linking answer (nextQuestionId set, per this session's Phase 6 fix) never
-            // carries isMatch/isIgnore/isTerminal — so the `!== false` default-to-terminal
-            // below, correct for the old match/ignore-only shape, would otherwise
-            // misclassify it as Terminal on reopen instead of Next question.
-            isTerminal: !a.nextQuestionId && a.isTerminal !== false,
+            // A linking answer (nextQuestionId, or a fan-out's nextQuestionIds, set per this
+            // session's Phase 6 fix / the fan-out generalization) never carries
+            // isMatch/isIgnore/isTerminal — so the `!== false` default-to-terminal below,
+            // correct for the old match/ignore-only shape, would otherwise misclassify it as
+            // Terminal on reopen instead of Next question.
+            isTerminal: !a.nextQuestionId && !(Array.isArray(a.nextQuestionIds) && a.nextQuestionIds.length > 0) && a.isTerminal !== false,
+            ...(typeof a.parallelMatchThreshold === 'number' ? { parallelMatchThreshold: a.parallelMatchThreshold } : {}),
           })),
           ...(q.builtIn ? { builtIn: q.builtIn } : {}),
           ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
+          ...(q.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
+          // Already-authored text — don't let further question-text edits clobber it.
+          matchAnswerDirty: true,
         }));
       } else {
-        // Seed with a single root question.
+        // Seed with a single root question. The match answer starts blank (not
+        // matchAnswerDirty) so it mirrors the question text as soon as the author types it —
+        // "iphone" as the question needs no separate typing-out of "iphone" as the answer too.
         this.routeEditorQuestions = [
           {
             id: 'q_0',
             text: '',
             parentAnswer: null,
             answers: [
-              { id: 'a_0_match', text: this.t('editorRouteDefaultMatch'), isMatch: true, isTerminal: true },
+              { id: 'a_0_match', text: '', isMatch: true, isTerminal: true },
               { id: 'a_0_ignore', text: this.t('editorRouteDefaultIgnore'), isIgnore: true, isTerminal: true },
             ],
+            matchAnswerDirty: false,
           },
         ];
       }
@@ -9593,7 +9640,7 @@ export class UIManager extends EventEmitter {
       const builtInKind = q.builtIn?.kind || '';
       const builtInHtml = `
         <div class="route-builtin-controls" style="margin: 6px 0 6px 18px; display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
-          <label style="display:flex; align-items:center; gap:8px; font-size:0.85em; color:#555;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:0.85em; color:var(--text-secondary);">
             ${this.t('editorBuiltInKindLabel')}
             <select class="form-input route-builtin-kind" data-qid="${q.id}" style="flex:0 0 auto; width:auto; font-size:0.9em;">
               <option value="" ${builtInKind === '' ? 'selected' : ''}>${this.t('editorBuiltInKindNone')}</option>
@@ -9621,10 +9668,17 @@ export class UIManager extends EventEmitter {
             <label style="font-size:0.85em;">${this.t('editorBuiltInTimeEndLabel')}
               <input type="date" class="form-input route-builtin-timeframe-end" data-qid="${q.id}" value="${q.builtIn?.timeFrame ? new Date(q.builtIn.timeFrame.end).toISOString().slice(0, 10) : ''}" style="display:inline-block;">
             </label>` : ''}
-          ${builtInKind === 'location' ? `<span style="font-size:0.8em; color:#666;">${this.t('editorBuiltInLocationNote')}</span>` : ''}
+          ${builtInKind === 'location' ? `<span style="font-size:0.8em; color:var(--text-secondary);">${this.t('editorBuiltInLocationNote')}</span>` : ''}
         </div>
       `;
-      const answersHtml = q.builtIn ? '' : q.answers
+      // docs/TODO.md §LL.2 follow-up: a Simple/Pair tag question is structurally fixed to exactly
+      // one non-ignore answer (TalkValidator.validateTagKindFields) — the editor now reflects
+      // that instead of showing free-form multi-answer chrome the data model can never actually
+      // use. Non-destructive: only the RENDER is filtered, `q.answers` itself is untouched, so
+      // unchecking either box later restores every previously-hidden answer exactly as it was.
+      const isTagKind = !q.builtIn && (q.tagKind === 'simple' || !!q.reciprocalTagContext);
+      const visibleAnswers = isTagKind ? q.answers.filter((a) => !a.isIgnore).slice(0, 1) : q.answers;
+      const answersHtml = q.builtIn ? '' : visibleAnswers
         .map((a) => {
           const childIds = childrenOf.get(`${q.id}::${a.id}`) ?? [];
           const kind = a.isMatch
@@ -9634,27 +9688,49 @@ export class UIManager extends EventEmitter {
               : a.isTerminal
                 ? this.t('editorRouteKindTerminal')
                 : this.t('editorRouteKindLink');
+          // Fan-out (types.ts's Answer.nextQuestionIds): once an answer has its first child,
+          // the button adds a PARALLEL sibling instead of extending a single chain — e.g. an
+          // "iPhone" answer fanning out into Model/Condition/Price-range, each side answerable
+          // in either order. No cap on the number of children (the old one-child limit only
+          // ever reflected a UI gate, not a real data-model constraint for 2+).
+          const addChildLabel = childIds.length === 0 ? this.t('editorRouteAddChild') : this.t('editorRouteAddParallel');
+          const thresholdHtml = childIds.length >= 2 ? `
+            <label style="display:flex; align-items:center; gap:6px; margin:4px 0 4px 18px; font-size:0.8em; color:var(--text-secondary);">
+              ${this.t('editorRouteParallelThresholdLabel').replace('{count}', String(childIds.length))}
+              <input type="number" class="form-input route-parallel-threshold" data-qid="${q.id}" data-aid="${a.id}"
+                min="1" max="${childIds.length}" placeholder="${this.t('editorRouteParallelThresholdAll')}"
+                value="${a.parallelMatchThreshold ?? ''}" style="width:70px; display:inline-block;">
+            </label>` : '';
+          // Simple tag (self-match): frozen — matches the answer text to the question, mirroring
+          // TalkAutofix's already-enforced invariant. Pair tag keeps this editable (the whole
+          // point is a divergent accepted answer).
+          const frozen = isTagKind && q.tagKind === 'simple';
           return `
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
-              <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:#eef; color:#334;">${kind}</span>
-              <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${this.t('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
-              ${childIds.length === 0 ? `<button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${this.t('editorRouteAddChild')}</button>` : ''}
+              <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text);">${kind}</span>
+              <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${this.t('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" ${frozen ? 'readonly' : ''} style="flex:1; ${frozen ? 'background:var(--bg-subtle);' : ''}">
+              <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${addChildLabel}</button>
               <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">×</button>
             </div>
+            ${thresholdHtml}
             ${childIds.map((c) => renderNode(c, depth + 1)).join('')}
           `;
         })
         .join('');
       return `
-        <div class="route-node" data-qid="${q.id}" style="border:1px solid #ddd; border-radius:6px; padding:8px; margin:6px 0; ${indent} background:var(--bg-subtle);">
+        <div class="route-node" data-qid="${q.id}" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin:6px 0; ${indent} background:var(--bg-subtle);">
           <div style="display:flex; align-items:center; gap:8px;">
             <strong style="color:var(--accent);">${this.t('editorRouteQuestionPrefix')}</strong>
             <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="${this.t('editorRouteQuestionPlaceholder')}" data-qid="${q.id}" style="flex:1;">
-            ${q.builtIn ? '' : `<button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>`}
+            ${q.builtIn || isTagKind ? '' : `<button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>`}
             ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">${this.t('editorRouteRemoveQuestion')}</button>` : ''}
           </div>
           ${q.builtIn ? '' : `
-          <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:#555;">
+          <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:var(--text-secondary);">
+            <input type="checkbox" class="route-question-simple-tag" data-qid="${q.id}" ${q.tagKind === 'simple' ? 'checked' : ''}>
+            ${this.t('editorSimpleTagLabel')}
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:var(--text-secondary);">
             <input type="checkbox" class="route-question-reciprocal-tag" data-qid="${q.id}" ${q.reciprocalTagContext ? 'checked' : ''}>
             ${this.t('editorReciprocalTagLabel')}
           </label>`}
@@ -9669,13 +9745,46 @@ export class UIManager extends EventEmitter {
     host.querySelectorAll<HTMLInputElement>('.route-question-text').forEach((inp) => {
       inp.addEventListener('input', () => {
         const q = byId.get(inp.dataset.qid!);
-        if (q) q.text = inp.value;
+        if (!q) return;
+        q.text = inp.value;
+        // Tag-style self-match: mirror the question text onto its one real answer until the
+        // author edits that answer directly (matchAnswerDirty), same convenience §LL gives
+        // type:'tag' talks. Ambiguous with 2+ non-Ignore answers, so skip those.
+        if (!q.matchAnswerDirty) {
+          const real = q.answers.filter((a) => !a.isIgnore);
+          if (real.length === 1) {
+            real[0].text = inp.value;
+            const answerInput = host.querySelector<HTMLInputElement>(
+              `.route-answer-text[data-qid="${q.id}"][data-aid="${real[0].id}"]`,
+            );
+            if (answerInput) answerInput.value = inp.value;
+          }
+        }
       });
     });
     host.querySelectorAll<HTMLInputElement>('.route-question-reciprocal-tag').forEach((cb) => {
       cb.addEventListener('change', () => {
         const q = byId.get(cb.dataset.qid!);
-        if (q) q.reciprocalTagContext = cb.checked;
+        if (!q) return;
+        q.reciprocalTagContext = cb.checked;
+        // docs/TODO.md §LL follow-up: mutually exclusive with "Simple tag" — see the flow/survey
+        // editor's identical exclusion (talk-editor-form-helpers.ts). A full re-render (not just
+        // a DOM patch) picks up the answer-row freeze/hide rules that now depend on this state.
+        if (cb.checked) delete q.tagKind;
+        this.renderRouteEditor();
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-question-simple-tag').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const q = byId.get(cb.dataset.qid!);
+        if (!q) return;
+        if (cb.checked) {
+          q.tagKind = 'simple';
+          q.reciprocalTagContext = false;
+        } else {
+          delete q.tagKind;
+        }
+        this.renderRouteEditor();
       });
     });
     host.querySelectorAll<HTMLSelectElement>('.route-builtin-kind').forEach((sel) => {
@@ -9733,6 +9842,22 @@ export class UIManager extends EventEmitter {
         if (!q) return;
         const a = q.answers.find((x) => x.id === inp.dataset.aid);
         if (a) a.text = inp.value;
+        // Editing the answer directly opts out of the question-text auto-mirror above.
+        q.matchAnswerDirty = true;
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-parallel-threshold').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (!q) return;
+        const a = q.answers.find((x) => x.id === inp.dataset.aid);
+        if (!a) return;
+        const n = Number(inp.value);
+        if (inp.value.trim() && Number.isInteger(n) && n > 0) {
+          a.parallelMatchThreshold = n;
+        } else {
+          delete a.parallelMatchThreshold;
+        }
       });
     });
     host.querySelectorAll<HTMLButtonElement>('.route-add-answer-btn').forEach((btn) => {
@@ -9784,9 +9909,10 @@ export class UIManager extends EventEmitter {
           text: '',
           parentAnswer: { questionId: parentQid, answerId: parentAid },
           answers: [
-            { id: `${newId}_match`, text: this.t('editorRouteDefaultMatch'), isMatch: true, isTerminal: true },
+            { id: `${newId}_match`, text: '', isMatch: true, isTerminal: true },
             { id: `${newId}_ignore`, text: this.t('editorRouteDefaultIgnore'), isIgnore: true, isTerminal: true },
           ],
+          matchAnswerDirty: false,
         });
         this.renderRouteEditor();
       });
@@ -9850,10 +9976,13 @@ export class UIManager extends EventEmitter {
    * one per branch off the root (docs/TODO.md §KK zero-click follow-up).
    */
   private buildRouteSelfAnswers(matchThreshold?: number): { questionId: string; answerId: string }[] {
-    const childQuestionIdByParentAnswerKey = new Map<string, string>();
+    const childQuestionIdsByParentAnswerKey = new Map<string, string[]>();
     for (const q of this.routeEditorQuestions) {
       if (q.parentAnswer) {
-        childQuestionIdByParentAnswerKey.set(`${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`, q.id);
+        const key = `${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`;
+        const arr = childQuestionIdsByParentAnswerKey.get(key) ?? [];
+        arr.push(q.id);
+        childQuestionIdsByParentAnswerKey.set(key, arr);
       }
     }
     const byId = new Map(this.routeEditorQuestions.map((q) => [q.id, q]));
@@ -9862,22 +9991,30 @@ export class UIManager extends EventEmitter {
 
     if (matchThreshold != null && root) {
       for (const answer of root.answers) {
-        const childId = childQuestionIdByParentAnswerKey.get(`${root.id}::${answer.id}`);
-        const child = childId ? byId.get(childId) : undefined;
-        if (!child || child.builtIn || child.answers.length === 0) continue;
-        selfAnswers.push({ questionId: child.id, answerId: child.answers[0].id });
+        const childIds = childQuestionIdsByParentAnswerKey.get(`${root.id}::${answer.id}`) ?? [];
+        for (const childId of childIds) {
+          const child = byId.get(childId);
+          if (!child || child.builtIn || child.answers.length === 0) continue;
+          selfAnswers.push({ questionId: child.id, answerId: child.answers[0].id });
+        }
       }
       return selfAnswers;
     }
 
-    let current = root;
-    while (current) {
-      if (current.builtIn || current.answers.length === 0) break;
-      const firstAnswer = current.answers[0];
-      selfAnswers.push({ questionId: current.id, answerId: firstAnswer.id });
-      const nextId = childQuestionIdByParentAnswerKey.get(`${current.id}::${firstAnswer.id}`);
-      current = nextId ? byId.get(nextId) : undefined;
-    }
+    // Fan-out (Answer.nextQuestionIds, the any-node generalization of the root-only
+    // matchThreshold case above): the author's own self-answer walk must descend into EVERY
+    // parallel spec, not just one chosen path, since the author would need to answer all of
+    // them too (e.g. Model, Condition, AND Price-range under their own "iPhone" branch).
+    const visit = (question: typeof this.routeEditorQuestions[number] | undefined): void => {
+      if (!question || question.builtIn || question.answers.length === 0) return;
+      const firstAnswer = question.answers[0];
+      selfAnswers.push({ questionId: question.id, answerId: firstAnswer.id });
+      const childIds = childQuestionIdsByParentAnswerKey.get(`${question.id}::${firstAnswer.id}`) ?? [];
+      for (const childId of childIds) {
+        visit(byId.get(childId));
+      }
+    };
+    visit(root);
     return selfAnswers;
   }
 
@@ -9885,13 +10022,15 @@ export class UIManager extends EventEmitter {
    * Converts the route-editor model into the validator-ready Question[] shape.
    * Sets each question's contextPath by walking up its parent chain.
    *
-   * Also derives each linking answer's `nextQuestionId` from the editor model's own
-   * `parentAnswer` linkage — a real pre-existing gap: the route editor only ever tracked
-   * `contextPath`/`parentAnswer` bookkeeping, never wrote `nextQuestionId` itself, so a route
-   * talk saved through the editor could never navigate past its first question
-   * (`talk-response-dialog.ts` reads `answer.nextQuestionId` directly to advance). One child per
-   * answer, matching §BB's "one answer = one branch" model — `renderRouteEditor`'s "add child"
-   * button is hidden once an answer already has a child, so this is never ambiguous.
+   * Also derives each linking answer's `nextQuestionId`/`nextQuestionIds` from the editor
+   * model's own `parentAnswer` linkage — a real pre-existing gap: the route editor only ever
+   * tracked `contextPath`/`parentAnswer` bookkeeping, never wrote `nextQuestionId` itself, so a
+   * route talk saved through the editor could never navigate past its first question
+   * (`talk-response-dialog.ts` reads `answer.nextQuestionId` directly to advance). An answer
+   * with exactly one child emits the singular `nextQuestionId` (unchanged shape); 2+ children
+   * (`renderRouteEditor`'s "+Parallel Q") emit the `nextQuestionIds` array plus whatever
+   * per-answer `parallelMatchThreshold` the author set — the any-node fan-out generalization
+   * of the old root-only `Talk.matchThreshold` (see `evaluateRouteFanOutMatch`, talk-engine.ts).
    *
    * §BB / spec §30.2, docs/TODO.md §BB Phase 6: a builtIn node emits `answers: []` (TalkAutofix
    * generates the synthetic pair) and its typed value is validated here — the same early-return
@@ -9910,10 +10049,16 @@ export class UIManager extends EventEmitter {
       }
       return path;
     };
-    const childQuestionIdByParentAnswerKey = new Map<string, string>();
+    // Answer.nextQuestionIds (types.ts) generalizes the old one-child-per-answer model to a
+    // fan-out: an array of child ids, not a single value, so a second (third, ...) sibling
+    // added via renderRouteEditor's "+Parallel Q" button isn't silently dropped here.
+    const childQuestionIdsByParentAnswerKey = new Map<string, string[]>();
     for (const q of this.routeEditorQuestions) {
       if (q.parentAnswer) {
-        childQuestionIdByParentAnswerKey.set(`${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`, q.id);
+        const key = `${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`;
+        const arr = childQuestionIdsByParentAnswerKey.get(key) ?? [];
+        arr.push(q.id);
+        childQuestionIdsByParentAnswerKey.set(key, arr);
       }
     }
     const errors: string[] = [];
@@ -9941,6 +10086,7 @@ export class UIManager extends EventEmitter {
           answers: [],
           builtIn: q.builtIn,
           ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
+          ...(q.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
         };
       }
       return {
@@ -9949,9 +10095,14 @@ export class UIManager extends EventEmitter {
         contextPath,
         answers: q.answers.map((a) => {
           const obj: any = { id: a.id, text: a.text.trim() };
-          const nextQuestionId = childQuestionIdByParentAnswerKey.get(`${q.id}::${a.id}`);
-          if (nextQuestionId) {
-            obj.nextQuestionId = nextQuestionId;
+          const childIds = childQuestionIdsByParentAnswerKey.get(`${q.id}::${a.id}`) ?? [];
+          if (childIds.length === 1) {
+            obj.nextQuestionId = childIds[0];
+          } else if (childIds.length > 1) {
+            obj.nextQuestionIds = childIds;
+            if (typeof a.parallelMatchThreshold === 'number') {
+              obj.parallelMatchThreshold = a.parallelMatchThreshold;
+            }
           } else {
             if (a.isMatch) obj.isMatch = true;
             if (a.isIgnore) obj.isIgnore = true;
@@ -9960,6 +10111,7 @@ export class UIManager extends EventEmitter {
           return obj;
         }),
         ...(q.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
+        ...(q.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
       };
     });
     return { questions, errors };

@@ -136,23 +136,24 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
       .toBeGreaterThanOrEqual(2);
 
     // --- Jerry's Me tab: shows route as answered with Match outcome ---
-    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk
-    // title, and the Match/Mismatch outcome lives in the row's hidden details popup —
-    // `.filter({ hasText })` matches hidden descendant text too, so it still locates rows.
+    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt, not the
+    // talk title — Jerry's terminal question on the match path is "Engineer?"; the outcome is
+    // carried on the row's own data-outcome attribute, no popup anymore.
     await pageJerry.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageJerry, 'me');
     await afterSync();
-    const jerryRouteRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: ROUTE_TITLE }).first();
+    const jerryRouteRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: 'Engineer?' }).first();
     await expect(jerryRouteRow).toBeVisible({ timeout: 30_000 });
-    await expect(jerryRouteRow.filter({ hasText: /Match/i })).toHaveCount(1, { timeout: 15_000 });
+    await expect(jerryRouteRow).toHaveAttribute('data-outcome', 'match');
 
     // --- Bob's Me tab: shows route as answered with Mismatch outcome ---
+    // Bob's mismatch path only ever answers the root question "Looking for a job?".
     await pageBob.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageBob, 'me');
     await afterSync();
-    const bobRouteRow = pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: ROUTE_TITLE }).first();
+    const bobRouteRow = pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: 'Looking for a job?' }).first();
     await expect(bobRouteRow).toBeVisible({ timeout: 30_000 });
-    await expect(bobRouteRow.filter({ hasText: /Mismatch/i })).toHaveCount(1, { timeout: 15_000 });
+    await expect(bobRouteRow).toHaveAttribute('data-outcome', 'mismatch');
 
     await afterAction();
   });

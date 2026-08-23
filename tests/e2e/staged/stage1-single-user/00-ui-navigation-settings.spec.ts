@@ -489,11 +489,13 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.route-answer-kind').nth(1)).toHaveText('忽略');
     await expect(p.locator('.route-question-text').first()).toHaveAttribute('placeholder', '问题（以 ? 结尾）');
     await expect(p.locator('.route-answer-text').first()).toHaveAttribute('placeholder', '答案内容（例如：是。）');
-    await expect(p.locator('.route-answer-text').first()).toHaveValue('匹配。');
+    // The match answer starts blank and mirrors the question text as the author types it
+    // (matchAnswerDirty convenience) — no typed question here yet, so it stays empty.
+    await expect(p.locator('.route-answer-text').first()).toHaveValue('');
     await expect(p.locator('.route-add-child-btn').first()).toHaveText('+ 子问题');
     await p.locator('.route-add-child-btn').first().click();
     await expect(p.locator('.route-remove-question-btn')).toHaveText('移除问题');
-    await expect(p.locator('.route-node[data-qid="q_1"] .route-answer-text').first()).toHaveValue('匹配。');
+    await expect(p.locator('.route-node[data-qid="q_1"] .route-answer-text').first()).toHaveValue('');
     await p.locator('#cancel-talk-btn').click();
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkCompletion('localized', 'match'));
     await expect(p.locator('.notification').filter({ hasText: '话题完成结果：匹配' })).toBeVisible();
@@ -604,6 +606,7 @@ test.describe('UI navigation and settings shell', () => {
             prompt: 'Coffee',
             choice: 'Checked',
             kind: 'tag',
+            booleanTag: true,
             contextPath: [],
             mode: 'manual',
           }],
@@ -632,12 +635,11 @@ test.describe('UI navigation and settings shell', () => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       ui?.displayAnswersList();
     });
-    await expect(p.locator('#answers-content')).toContainText('来自 1 位发送者');
-    await expect(p.locator('#answers-content')).toContainText('5 英里以内');
+    // docs/TODO.md §LL.2 follow-up: no talk metadata (senders/location/mode/type/language
+    // badges) is shown on the Me tab anymore — the row shows the tag prompt and its
+    // translated Checked/Unchecked choice only.
+    await expect(p.locator('#answers-content')).toContainText('Coffee');
     await expect(p.locator('#answers-content')).toContainText('已勾选');
-    await expect(p.locator('#answers-content')).toContainText('手动');
-    await expect(p.locator('#answers-content')).toContainText('标签');
-    await expect(p.locator('#answers-content .answer-language-badge')).toHaveText('英语');
     await expect(p.locator('#answers-content')).not.toContainText('Welcome to IinPublic');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showPreferencesDialog());
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');
@@ -955,21 +957,24 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
+    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt, not the
+    // talk title (data-outcome/data-answer-text/data-search-text/data-answered-at, which the
+    // filter bar reads, are unaffected by the redesign).
     await expect(p.locator('#answers-list .answer-talk-item')).toHaveCount(2);
     await p.locator('#me-outcome-filter').selectOption('match');
     await expect(p.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
-    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('Newest match');
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('New question?');
     await p.locator('#me-outcome-filter').selectOption('all');
     await p.locator('#me-answer-sort').selectOption('answered-asc');
-    await expect(p.locator('#answers-list .answer-talk-item').first()).toContainText('Older mismatch');
+    await expect(p.locator('#answers-list .answer-talk-item').first()).toContainText('Old question?');
     await p.locator('#me-answer-filter').fill('yes');
     await expect(p.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
-    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('Newest match');
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('New question?');
     await p.locator('#me-answer-filter').fill('');
     await p.locator('#me-answer-date-from').fill('2026-01-01');
     await p.locator('#me-answer-date-to').fill('2026-01-31');
     await expect(p.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
-    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('Older mismatch');
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('Old question?');
     await p.locator('#me-clear-filters').click();
     await expect(p.locator('#answers-list .answer-talk-item:visible')).toHaveCount(2);
     await expect(p.locator('#me-answer-sort')).toHaveValue('answered-desc');

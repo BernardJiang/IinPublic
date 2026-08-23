@@ -6,6 +6,11 @@ export type FlatAnswerHistoryItem = {
   prompt: string;
   choice: string;
   kind: 'tag' | 'question';
+  /** docs/TODO.md §LL.2 follow-up: only meaningful when `kind === 'tag'`. True for a self-match
+   *  tag (Simple tag, or a literal `type:'tag'` talk with no `reciprocalTagContext`) — `choice`
+   *  is the boolean "Checked"/"Unchecked". False for a Pair tag (`reciprocalTagContext`) — `choice`
+   *  is the real accepted-answer text (e.g. "sell"), same shape as an ordinary question's answer. */
+  booleanTag?: boolean;
   contextPath: string[];
   contextLabel?: string;
   mode?: string;

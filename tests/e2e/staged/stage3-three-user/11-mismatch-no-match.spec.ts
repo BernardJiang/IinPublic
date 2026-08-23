@@ -111,10 +111,10 @@ test.describe('Talks matching — mismatch path yields no match', () => {
     // Jerry's Answers tab: talk listed with Mismatch label
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
-    // TODO §M3/Me-tab-merge: the row's visible content is the question, not the talk title —
-    // `.filter({ hasText })` still locates the row by title since it matches hidden text too.
-    const answerRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: TALK_TITLE }).first();
+    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt, not the
+    // talk title; the outcome is carried on the row's own data-outcome attribute now.
+    const answerRow = pageJerry.locator('#answers-content .answer-talk-item').filter({ hasText: 'Want to play tennis?' }).first();
     await expect(answerRow).toBeVisible({ timeout: 15000 });
-    await expect(answerRow.filter({ hasText: /Mismatch/i })).toHaveCount(1);
+    await expect(answerRow).toHaveAttribute('data-outcome', 'mismatch');
   });
 });

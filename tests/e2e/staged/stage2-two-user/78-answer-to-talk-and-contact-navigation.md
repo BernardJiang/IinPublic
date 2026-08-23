@@ -2,12 +2,13 @@
 
 Extends the Contacts/Talks cross-navigation pattern to the Me tab's Answers list.
 
-Each answer's detail popup (opened by tapping the row) already had a "View talk" button;
-added "View contact" alongside it, only rendered when the answer has a sender (i.e. it's a
-talk someone else sent me, not one I authored myself) — jumps to that sender's Contacts
+docs/TODO.md §LL.2 follow-up: the Me tab dropped its expand-in-place detail popup entirely —
+each answered question/context line now carries two independent, non-nested click targets:
+the answer text itself (`.answer-context-jump`) and, only when the answer has a sender, a
+small "view sender" link (`.answer-view-contact-jump`) that jumps to that sender's Contacts
 detail via the same `navigateToGraphNode` dispatcher other cross-navigation uses.
 
-"View talk" itself now forks: for an answer with a sender (this spec's case), it's
+Clicking the answer itself forks: for an answer with a sender (this spec's case), it's
 unchanged — opens the single-talk response view. For a self-authored answer (no sender),
 it instead opens that talk's Talks-tab responses list (`showCreatorRepliesForTalk`),
 mirroring the ⟨User⟩ layout's peer-history-item title-link behavior from
@@ -17,4 +18,4 @@ but it's a simple boolean gate already exercised via the same `showCreatorReplie
 call the Talks-tab spec covers directly.
 
 Setup: Tom creates "Trivia Night" and broadcasts it; Jerry answers as a match. Jerry's
-Answers-tab entry for it has one sender (Tom), so "View contact" is offered.
+Answers-tab entry for it has one sender (Tom), so "view sender" is offered.

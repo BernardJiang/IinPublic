@@ -313,12 +313,10 @@ test.describe('M5 full-layout screenshot tour', () => {
       await expect.poll(() => page!.locator('#answers-content .answer-talk-item').count(), { timeout: 15_000 }).toBeGreaterThan(0);
       await shot(page, 'Me', 'me-answers-list', 'Answered questions merged by spec-defined question identity — one row per question regardless of which talk asked it.');
 
+      // docs/TODO.md §LL.2 follow-up: no more expand-in-place popup — clicking an answer line
+      // now navigates straight to its source talk, so there's no in-place detail to screenshot.
       const answerRow = page.locator('#answers-content .answer-talk-item').first();
-      await answerRow.click();
-      await expect(page.locator('#item-details-popup')).toBeVisible({ timeout: 10_000 });
-      await shot(page, 'Me', 'me-answer-details-popup', 'Answer details popup — per-variant breakdown: talk, outcome, language, mode.');
-      await page.locator('#close-item-details-popup').click();
-      await afterAction();
+      await expect(answerRow).toBeVisible({ timeout: 10_000 });
 
       const answersSearch = page.locator('#answers-search-input');
       if (await answersSearch.count().then((c) => c > 0)) {

@@ -191,26 +191,130 @@ export function computeRouteMatchScore(
   return { score, total: childIds.length };
 }
 
+/**
+ * Generalizes `computeRouteMatchScore`/`Talk.matchThreshold` (root-only, one level deep)
+ * to a fan-out at ANY node: `Answer.nextQuestionIds`/`parallelMatchThreshold` (types.ts).
+ * Lets a route talk expand both vertically (ordinary chained `nextQuestionId` questions —
+ * ordinary router steps like "buy vs sell" or "iPhone vs iPad" are never scored themselves,
+ * only followed) and horizontally at any branch point (e.g. an "iPhone" answer fanning out
+ * into Model/Condition/Price-range, each side answerable in either order — lookup is by
+ * questionId, not submission order, so order never affects the result).
+ *
+ * Returns `null` when this talk doesn't use the mechanism at all (no answer anywhere sets
+ * `nextQuestionIds`) — callers fall through to the older, unaffected rules unchanged. This
+ * is a separate, additive mechanism from the legacy root-only `Talk.matchThreshold` — a
+ * talk using that one is scored by `computeRouteMatchScore` first, taking priority; this
+ * only engages for a route that never used the legacy field at all.
+ */
+export function evaluateRouteFanOutMatch(talkData: Talk | any, answers: SubmittedAnswer[]): boolean | null {
+  if (talkData?.type !== 'route') return null;
+  const questions: any[] = Array.isArray(talkData.questions) ? talkData.questions : [];
+  const usesFanOut = questions.some((q) => (q.answers || []).some((a: any) => Array.isArray(a.nextQuestionIds) && a.nextQuestionIds.length > 0));
+  if (!usesFanOut) return null;
+
+  const questionsById = new Map(questions.map((q) => [q.id, q]));
+  const root = questions.find((q) => Array.isArray(q.contextPath) && q.contextPath.length === 0);
+  if (!root) return null;
+  const answersByQid = new Map(answers.map((a) => [a.questionId, a]));
+
+  const evaluateQuestion = (question: any, visiting: Set<string>): boolean => {
+    // A route talk is validated as a DAG (TalkValidator.validateDAGStructure) — this guard
+    // is only a defensive backstop against malformed/unvalidated data reaching this code.
+    if (visiting.has(question.id)) return false;
+    const submitted = answersByQid.get(question.id);
+    if (!submitted) return false;
+    const selectedIds = selectedAnswerIds(submitted);
+    const chosen = (question.answers || []).find((a: any) => selectedIds.includes(a.id));
+    if (!chosen) return false;
+
+    if (Array.isArray(chosen.nextQuestionIds) && chosen.nextQuestionIds.length > 0) {
+      const nextVisiting = new Set(visiting).add(question.id);
+      const children = chosen.nextQuestionIds.map((id: string) => questionsById.get(id)).filter(Boolean);
+      const passCount = children.filter((child: any) => evaluateQuestion(child, nextVisiting)).length;
+      const threshold = chosen.parallelMatchThreshold ?? children.length;
+      return passCount >= threshold;
+    }
+    if (chosen.nextQuestionId) {
+      const next = questionsById.get(chosen.nextQuestionId);
+      if (!next) return !!chosen.isMatch;
+      return evaluateQuestion(next, new Set(visiting).add(question.id));
+    }
+    return !!chosen.isMatch;
+  };
+
+  return evaluateQuestion(root, new Set());
+}
+
+/**
+ * See `Question.reciprocalTagContext`/`tagKind` (types.ts). A question with either flag needs
+ * exactly one non-ignore answer — that answer, together with the question's own text, IS the
+ * declared tag. Returns that one real answer, or undefined if there isn't exactly one.
+ */
+export function singleNonIgnoreAnswer(question: { answers?: any[] } | undefined): any | undefined {
+  const real = (question?.answers || []).filter((a: any) => !a?.isIgnore);
+  return real.length === 1 ? real[0] : undefined;
+}
+
+/**
+ * Walks backward from `currentQuestion` (via `contextPath` for route, array position for flow)
+ * to find the nearest ancestor question with `reciprocalTagContext: true` — the "Pair tag" that
+ * declares (myTag, acceptsTag) context for every question after it on this branch (docs/TODO.md
+ * §LL follow-up). Shared so `checkIfMatch` below can gate on it directly, not just the chatbot's
+ * context-derivation-only use in `ui-manager.ts` (which now delegates to this function too).
+ */
+export function findTagPairAncestor(
+  talkData: Talk | any,
+  currentQuestion: { id: string; contextPath?: Array<{ questionId: string; answerId: string }> },
+): { questionText: string; answerText: string } | undefined {
+  const questions: any[] = Array.isArray(talkData?.questions) ? talkData.questions : [];
+  const ancestorIds: string[] =
+    talkData?.type === 'route' && Array.isArray(currentQuestion?.contextPath)
+      ? currentQuestion.contextPath.map((step) => step.questionId)
+      : questions.slice(0, questions.findIndex((q) => q.id === currentQuestion?.id)).map((q) => q.id);
+  for (let i = ancestorIds.length - 1; i >= 0; i--) {
+    const q = questions.find((qq) => qq.id === ancestorIds[i]);
+    if (q?.reciprocalTagContext) {
+      const only = singleNonIgnoreAnswer(q);
+      if (only) return { questionText: q.text, answerText: only.text };
+    }
+  }
+  return undefined;
+}
+
 export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], responderSelfTag?: string): boolean {
   if (talkData.type !== 'flow' && talkData.type !== 'tag' && talkData.type !== 'route') {
     return false;
   }
-  // Preference-set veto (spec §30.2): a talk that declares a non-empty preferenceSet (e.g.
-  // "buy" accepted by "sell") must never match a responder whose own selfTag isn't a member
-  // of it — only a responder with no selfTag at all, or one within the set, is legitimate.
-  // This runs before the isMatch check so it overrides whatever answer was picked, whether by
-  // a human or the chatbot's exact-text auto-reply (src/shared/exact-chatbot-memory.ts).
-  if (talkData.preferenceSet?.length && responderSelfTag && !talkData.preferenceSet.includes(responderSelfTag)) {
+  const lastAnswer = answers[answers.length - 1];
+  const lastQuestion = lastAnswer ? talkData.questions?.find((q: any) => q.id === lastAnswer.questionId) : undefined;
+
+  // Preference-set veto (spec §30.2): a talk that declares a compatibility requirement (e.g.
+  // "buy" accepted by "sell") must never match a responder whose own tag isn't within it —
+  // only a responder with no tag at all, or one that's within it, is legitimate. This runs
+  // before the isMatch check so it overrides whatever answer was picked, whether by a human or
+  // the chatbot's exact-text auto-reply (src/shared/exact-chatbot-memory.ts).
+  //
+  // docs/TODO.md §LL follow-up: a mid-tree `reciprocalTagContext` ancestor (`findTagPairAncestor`
+  // above) is nearer-scoped and wins over the talk-root `preferenceSet` — same precedence
+  // `ui-manager.ts`'s chatbot-context derivation already uses. Only when no such ancestor exists
+  // does the root-level check apply, so every existing root-only talk is unaffected.
+  const tagPairAncestor = lastQuestion ? findTagPairAncestor(talkData, lastQuestion) : undefined;
+  if (tagPairAncestor) {
+    if (responderSelfTag && responderSelfTag !== tagPairAncestor.answerText) {
+      return false;
+    }
+  } else if (talkData.preferenceSet?.length && responderSelfTag && !talkData.preferenceSet.includes(responderSelfTag)) {
     return false;
   }
+
   const routeScore = computeRouteMatchScore(talkData, answers);
   if (routeScore) return routeScore.score >= talkData.matchThreshold;
 
-  const lastAnswer = answers[answers.length - 1];
-  if (!lastAnswer) return false;
-  const question = talkData.questions?.find((q: any) => q.id === lastAnswer.questionId);
-  if (!question) return false;
-  return anySelectedIsMatch(question, selectedAnswerIds(lastAnswer));
+  const fanOutResult = evaluateRouteFanOutMatch(talkData, answers);
+  if (fanOutResult !== null) return fanOutResult;
+
+  if (!lastAnswer || !lastQuestion) return false;
+  return anySelectedIsMatch(lastQuestion, selectedAnswerIds(lastAnswer));
 }
 
 export function checkIfIgnore(talkData: Talk | any, answers: SubmittedAnswer[]): boolean {
@@ -292,8 +396,13 @@ export class TalkValidator {
       if (answer.nextQuestionId) {
         nextIds.push(answer.nextQuestionId);
       }
+      // Fan-out (types.ts's Answer.nextQuestionIds) — every spec is itself a graph edge,
+      // same as an ordinary nextQuestionId, so cycle detection must walk these too.
+      if (answer.nextQuestionIds) {
+        nextIds.push(...answer.nextQuestionIds);
+      }
     }
-    
+
     return nextIds;
   }
   
@@ -454,13 +563,55 @@ export class TalkValidator {
     if (q.answers.length !== 2) {
       throw new ValidationError('Tag must have exactly two answers (match and ignore)');
     }
-    const hasMatch = q.answers.some(a => a.isMatch);
+    const matchAnswer = q.answers.find(a => a.isMatch);
     const hasIgnore = q.answers.some(a => a.isIgnore);
-    if (!hasMatch || !hasIgnore) {
+    if (!matchAnswer || !hasIgnore) {
       throw new ValidationError('Tag must have one match and one ignore answer');
     }
+    // docs/TODO.md §LL follow-up: a LITERAL `type: 'tag'` talk's one question defaults to
+    // "simple tag" semantics (self-match — question identical to answer) unless it explicitly
+    // declares itself a Pair tag via `reciprocalTagContext`. Scoped to `talk.type === 'tag'`
+    // only — this function is also reached via "tag by structure" (`validateTalk`'s dispatch:
+    // ANY 1-question/2-answer talk, e.g. a flow talk with a single builtIn comparison question),
+    // which must stay permissive; those aren't tags the author declared, just structurally
+    // identical. See `Question.tagKind`'s doc comment for the general, embeddable form of this
+    // same rule (`validateTagKindFields`, used by flow/survey/route).
+    if (talk.type === 'tag' && !q.reciprocalTagContext && normalizeTagKey(matchAnswer.text) !== normalizeTagKey(q.text)) {
+      throw new ValidationError(
+        `Tag "${q.text}": the accepted answer "${matchAnswer.text}" must match the tag word, or check "Pair tag" to declare a different accepted counterpart.`,
+      );
+    }
   }
-  
+
+  /**
+   * Shared by `validateQuestion` (flow/survey) and `validateRouteTalk`'s own per-question loop
+   * (route doesn't route through `validateQuestion` — it has its own inline checks): enforces
+   * the single-real-answer shape both `tagKind: 'simple'` and `reciprocalTagContext` require,
+   * and that a `tagKind: 'simple'` question's one answer is textually identical to the question
+   * (self-match). The two flags are mutually exclusive.
+   */
+  private static validateTagKindFields(question: Question): void {
+    if (question.tagKind === 'simple' && question.reciprocalTagContext) {
+      throw new ValidationError(
+        `Question "${question.id}" cannot be both a simple tag (tagKind) and a Pair tag (reciprocalTagContext).`,
+      );
+    }
+    if (question.tagKind === 'simple') {
+      const only = singleNonIgnoreAnswer(question);
+      if (!only) {
+        throw new ValidationError(`Simple tag question "${question.id}" must have exactly one non-ignore answer.`);
+      }
+      if (normalizeTagKey(only.text) !== normalizeTagKey(question.text)) {
+        throw new ValidationError(
+          `Simple tag question "${question.id}": answer "${only.text}" must match the question text "${question.text}".`,
+        );
+      }
+    }
+    if (question.reciprocalTagContext && !singleNonIgnoreAnswer(question)) {
+      throw new ValidationError(`Pair tag question "${question.id}" must have exactly one non-ignore answer.`);
+    }
+  }
+
   private static validateQuestion(question: Question): void {
     if (!question.text?.trim()) {
       throw new ValidationError(`Question text is required for question ${question.id}`);
@@ -484,6 +635,8 @@ export class TalkValidator {
     if (!hasIgnore) {
       throw new ValidationError(`Question must have an "Ignore" option: ${question.id}`);
     }
+
+    this.validateTagKindFields(question);
 
     // Validate each answer
     for (const answer of question.answers) {
@@ -582,6 +735,38 @@ export class TalkValidator {
 
       if (question.answers.length === 0) {
         throw new ValidationError(`Question must have at least one answer: ${question.id}`);
+      }
+
+      // Route doesn't route through `validateQuestion` (its own inline checks above/below
+      // instead) — so the tagKind/reciprocalTagContext shape rules need their own call here.
+      this.validateTagKindFields(question);
+
+      // Fan-out answers (Answer.nextQuestionIds/parallelMatchThreshold, types.ts) — the
+      // generalized, any-node version of the old root-only Talk.matchThreshold.
+      for (const answer of question.answers) {
+        if (!answer.nextQuestionIds) continue;
+        if (answer.nextQuestionId) {
+          throw new ValidationError(
+            `Answer "${answer.id}" on question ${question.id} cannot set both nextQuestionId and nextQuestionIds.`
+          );
+        }
+        for (const childId of answer.nextQuestionIds) {
+          if (!questionIds.has(childId)) {
+            throw new ValidationError(
+              `Answer "${answer.id}" on question ${question.id} has nextQuestionIds referencing unknown question "${childId}".`
+            );
+          }
+        }
+        if (
+          answer.parallelMatchThreshold !== undefined &&
+          (!Number.isInteger(answer.parallelMatchThreshold) ||
+            answer.parallelMatchThreshold < 1 ||
+            answer.parallelMatchThreshold > answer.nextQuestionIds.length)
+        ) {
+          throw new ValidationError(
+            `Answer "${answer.id}" on question ${question.id} has an invalid parallelMatchThreshold (must be an integer between 1 and ${answer.nextQuestionIds.length}).`
+          );
+        }
       }
 
       // contextPath is mandatory on route questions ([] for root questions)
@@ -692,6 +877,20 @@ export class TalkAutofix {
         if (typeof a.text === 'string' && a.text !== a.text.trim()) {
           a.text = a.text.trim();
         }
+      }
+    }
+
+    // Shared across every type (tag/flow/survey/route): a `tagKind: 'simple'` question's one
+    // non-ignore answer is forced to match its own question text (self-match — see
+    // `Question.tagKind`'s doc comment). Single source of truth instead of duplicating this in
+    // every editor read-out site; `TalkValidator` re-checks the same invariant as a backstop for
+    // anything constructed without going through autofix first (e.g. tests).
+    for (const q of talk.questions ?? []) {
+      if (q.tagKind !== 'simple') continue;
+      const only = singleNonIgnoreAnswer(q);
+      if (only && only.text !== q.text) {
+        only.text = q.text;
+        fixes.push(`Set simple tag "${q.id}"'s answer to match its question text ("${q.text}").`);
       }
     }
 

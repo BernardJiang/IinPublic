@@ -458,10 +458,29 @@ export async function createFlowOrSurveyTalkViaEditor(
     for (let aIndex = 0; aIndex < qSpec.answers.length; aIndex++) {
       const aSpec = qSpec.answers[aIndex];
       const aItem = qItem.locator(`.answer-item[data-answer-index="${aIndex}"]`);
-      await aItem.locator('.answer-text').fill(aSpec.text);
+      const answerTextInput = aItem.locator('.answer-text');
       const nextValue =
         aSpec.outcome === 'ignore' ? 'ignore' : isLastQuestion ? 'noticed' : `q_${qIndex + 1}`;
-      await aItem.locator('.answer-next').selectOption(nextValue);
+      // docs/TODO.md §LL.2 follow-up: a Simple/Pair tag question hides every answer row beyond
+      // the first (talk-editor-form-helpers.ts's applyTagKindVisibilityToQuestion) — neither
+      // .fill() nor .selectOption() can reach a hidden row, so set both directly via the DOM.
+      if (await answerTextInput.isVisible()) {
+        await answerTextInput.fill(aSpec.text);
+        await aItem.locator('.answer-next').selectOption(nextValue);
+      } else {
+        await aItem.evaluate((item: HTMLElement, args: { text: string; next: string }) => {
+          const textInput = item.querySelector('.answer-text') as HTMLInputElement | null;
+          if (textInput) {
+            textInput.value = args.text;
+            textInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          const nextSelect = item.querySelector('.answer-next') as HTMLSelectElement | null;
+          if (nextSelect) {
+            nextSelect.value = args.next;
+            nextSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }, { text: aSpec.text, next: nextValue });
+      }
     }
     // Second pass, after every `.answer-next` is settled: selecting "Noticed (match)" for an
     // answer auto-checks that SAME answer's own self-answer radio as a convenience default

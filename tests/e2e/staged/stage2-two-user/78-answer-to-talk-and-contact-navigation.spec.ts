@@ -1,19 +1,19 @@
 /**
- * Me tab (Answers): each answer's detail popup now links to both the source talk and the
- * sender's Contacts detail, mirroring the same cross-navigation just built between the
- * Contacts and Talks tabs.
+ * Me tab (Answers): docs/TODO.md §LL.2 follow-up — each answered question/context line links
+ * to both the source talk and the sender's Contacts detail, two independent click targets on
+ * the same line (no expand-in-place popup anymore).
  *
- * "View talk" behavior forks on whether the answer has a sender: a talk someone else sent
- * me (senderIds.length > 0, this scenario) still opens the single-talk detail/response
- * view unchanged; a talk I authored myself (no senders) instead opens the Talks-tab
- * responses list for that talk (showCreatorRepliesForTalk) — not covered here since it
- * needs a self-authored-and-self-answered talk, an unusual flow to construct in e2e; the
- * branch itself is a simple boolean gate covered at the type level and by the existing
- * Contacts/Talks responses-list spec (09-contacts-talks-cross-navigation.spec.ts) this
- * reuses showCreatorRepliesForTalk from.
+ * Clicking the answer itself forks on whether it has a sender: a talk someone else sent me
+ * (senderIds.length > 0, this scenario) opens the single-talk detail/response view unchanged;
+ * a talk I authored myself (no senders) instead opens the Talks-tab responses list for that
+ * talk (showCreatorRepliesForTalk) — not covered here since it needs a self-authored-and-
+ * self-answered talk, an unusual flow to construct in e2e; the branch itself is a simple
+ * boolean gate covered at the type level and by the existing Contacts/Talks responses-list
+ * spec (09-contacts-talks-cross-navigation.spec.ts) this reuses showCreatorRepliesForTalk from.
  *
- * "View contact" is new: only rendered when senderIds.length > 0, jumps to the sender's
- * Contacts detail via the same navigateToGraphNode dispatcher other cross-navigation uses.
+ * "View sender" (`.answer-view-contact-jump`): only rendered when senderIds.length > 0, jumps
+ * to the sender's Contacts detail via the same navigateToGraphNode dispatcher other
+ * cross-navigation uses.
  *
  * Companion doc: tests/e2e/staged/stage2-two-user/78-answer-to-talk-and-contact-navigation.md
  */
@@ -97,23 +97,24 @@ test.describe('Me tab: an answer links to its talk and to the sender\'s contact'
       await pageJerry.click('.nav-btn[data-view="me"]');
       await waitForTabActive(pageJerry, 'me');
       await afterSync();
-      const answerRow = pageJerry.locator('.answer-talk-item').filter({ hasText: 'Trivia Night' }).first();
+      // docs/TODO.md §LL.2 follow-up: the Me tab no longer shows talk titles or an expand-in-
+      // place popup — the row is found by its question prompt; the answer jump and the
+      // "view sender" link are independent, non-nested click targets on the same line.
+      const answerRow = pageJerry.locator('.answer-talk-item').filter({ hasText: 'Coming to trivia night?' }).first();
       await expect(answerRow).toBeVisible({ timeout: 15_000 });
-      await answerRow.click();
-      await expect(pageJerry.locator('#item-details-popup')).toBeVisible({ timeout: 10_000 });
 
-      // A talk someone else (Tom) sent me: "View contact" is offered.
-      const viewContactBtn = pageJerry.locator('#item-details-popup .answer-view-contact-btn');
-      await expect(viewContactBtn).toBeVisible({ timeout: 10_000 });
+      // A talk someone else (Tom) sent me: the "view sender" link is offered.
+      const viewContactLink = answerRow.locator('.answer-view-contact-jump');
+      await expect(viewContactLink).toBeVisible({ timeout: 10_000 });
 
-      // "View talk" is unchanged for this case: opens the single-talk response view.
-      await pageJerry.locator('#item-details-popup .answer-view-talk-btn').click();
+      // Clicking the answer itself is unchanged for this case: opens the single-talk response view.
+      await answerRow.locator('.answer-context-jump').click();
       await expect(pageJerry.locator('#talk-response-modal')).toBeVisible({ timeout: 10_000 });
       await pageJerry.locator('#talk-response-modal .response-close-button, #talk-response-modal .close-button').first().click().catch(() => {});
       await pageJerry.evaluate(() => document.getElementById('talk-response-modal')?.remove());
 
-      // Reopen the popup (closing the talk modal did not close it) and click "View contact".
-      await pageJerry.locator('#item-details-popup .answer-view-contact-btn').click();
+      // Clicking "view sender" jumps to the Contacts detail.
+      await viewContactLink.click();
       await afterNav();
       await waitForContactDetailReady(pageJerry, 20_000);
       await expect(pageJerry.locator('.peer-history-item').filter({ hasText: 'Trivia Night' })).toBeVisible({ timeout: 10_000 });

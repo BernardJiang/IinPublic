@@ -9,8 +9,6 @@ import type { FlatAnswerHistoryRecord } from './answer-history-storage';
 import type { UiTranslationKey } from './ui-translations';
 import { renderListProgressively } from './render-list-progressively';
 import { avatarInnerHtml } from './profile-avatar';
-import { INTEREST_CATEGORY_LABELS } from '../../shared/interest-catalog';
-import type { TagCategory } from '../../shared/types';
 
 /** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
 const ANSWERS_FIRST_CHUNK_SIZE = 25;
@@ -73,6 +71,8 @@ type AnswerVariant = {
   talkId: string;
   talkTitle: string;
   talkType: string;
+  /** docs/TODO.md §LL.2 follow-up — see `FlatAnswerHistoryItem.booleanTag` (answer-history-storage.ts). */
+  booleanTag?: boolean;
   choice: string;
   answerId: string;
   mode?: string;
@@ -87,25 +87,23 @@ type AnswerVariant = {
   latestAutoUseAt?: number;
 };
 
-/** One merged row: every answer ever given to this question, across every talk type and
- *  every talk that ever asked it, folded into one entry — FR-QA-14/§20.3's per-question
- *  canonical model (`questionId = CIDv1({ text, type, options })`, content-addressed,
- *  independent of which talk asks it), applied at render time over today's
- *  per-completion-event history log (see docs/TODO.md's Me-tab-redesign entry for the
- *  storage-model follow-up this defers).
+/** One merged row: every answer ever given to this question TEXT, across every talk, talk type,
+ *  and context that ever asked it, folded into one entry.
  *
- *  Grouped by `AnswerVariant.questionContentId` — `Question.cidId`, stamped by
- *  `WebTalkService.stampQuestionCids` at talk create/update time, i.e. the actual spec-
- *  defined content id, not a heuristic. The talk-scoped `questionId` field (e.g. `q_0`,
- *  positional) is carried forward from the most recent contributing variant purely for
- *  deep-linking (data-question-id → that specific talk's response dialog) — it is never
- *  the grouping key, since two unrelated talks' first questions are both `q_0` by the
- *  editor's own positional-id convention (that collision is what caused a real bug: two
- *  different questions merging into one row — see the pushVariant fallback below for how
- *  answers that predate `cidId` avoid repeating it). */
+ *  docs/TODO.md §LL.2 follow-up: grouped by normalized question text (`pushVariant`'s `key`,
+ *  below) — a deliberate departure from the earlier CID-based identity
+ *  (`questionId = CIDv1({text, answers})`, FR-QA-14/§20.3), which treated the answer set as part
+ *  of a question's identity and would keep e.g. a Simple tag "buy" and a Pair tag "buy" (whose
+ *  answers differ) as separate rows. For the Me tab specifically, the question being asked IS
+ *  its text; the answer (and everything before it) is a per-context variant, not part of what
+ *  makes two askings "the same question" — so "model" asked inside three different route
+ *  branches merges into one row with three context-tagged answers, and a bare self-match tag
+ *  "buy" merges with a Pair tag also worded "buy". The talk-scoped `questionId` field (e.g.
+ *  `q_0`, positional) is carried forward from the most recent contributing variant purely for
+ *  deep-linking (data-question-id → that specific talk's response dialog) — it is never the
+ *  grouping key. */
 type AnswerQuestionGroup = {
   questionId: string;
-  kind: 'tag' | 'question';
   prompt: string;
   /** Newest first. */
   variants: AnswerVariant[];
@@ -140,6 +138,14 @@ function formatContextPathFromTalk(talk: any, contextPath: any[]): string[] {
 
 function normalizeContextLabel(rawValue: unknown): string {
   return String(rawValue || '').trim();
+}
+
+/** docs/TODO.md §LL.2 follow-up — the Me-tab-local grouping-identity normalization for tag-kind
+ *  entries (see `buildQuestionGroups`'s `pushVariant`). Deliberately not imported from
+ *  `talk-engine.ts`'s private `normalizeTagKey` — same trim/lowercase/collapse-whitespace shape,
+ *  kept local to avoid a shared/web cross-import for 3 lines. */
+function normalizeTagText(rawValue: unknown): string {
+  return String(rawValue ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function deriveContextLabelFromFlatRecord(
@@ -222,11 +228,17 @@ export function buildAnswerItemModels(
     const answer = Array.isArray(question?.answers)
       ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
       : null;
-    const isTag = talkType === 'tag';
+    // docs/TODO.md §LL.2 follow-up: see the identical computation's doc comment in
+    // ui-manager.ts's saveFlatAnswerHistoryRecord (the primary write path this legacy fallback
+    // mirrors for talks answered before flat history existed).
+    const isTag = talkType === 'tag' || question?.tagKind === 'simple' || !!question?.reciprocalTagContext;
+    const booleanTag = isTag && !question?.reciprocalTagContext;
     const choice = isTag
-      ? answer?.isMatch
-        ? 'Checked'
-        : 'Unchecked'
+      ? booleanTag
+        ? answer?.isMatch
+          ? 'Checked'
+          : 'Unchecked'
+        : String(answer?.text || '').trim() || 'Ignored'
       : getAnswerDisplayText(talk, entry);
     const answerId = makeAnswerId(choice);
     const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
@@ -250,6 +262,7 @@ export function buildAnswerItemModels(
       talkId,
       talkTitle,
       talkType,
+      ...(isTag ? { booleanTag } : {}),
       choice,
       answerId: entry.answerId,
       ...(entry.mode ? { mode: entry.mode } : {}),
@@ -281,19 +294,11 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
   const exactMemory = deps.getExactChatbotMemory?.();
   const groups = new Map<string, AnswerQuestionGroup>();
 
-  const pushVariant = (kind: 'tag' | 'question', prompt: string, variant: AnswerVariant): void => {
-    // Merge strictly on the spec-defined content id. An answer recorded before
-    // `questionContentId` existed (or whose source talk was never re-stamped) has
-    // nothing safe to merge on — falling back to a heuristic like text-matching would
-    // silently reintroduce the exact bug this is fixing (two different questions
-    // merging because they look similar). Such answers each get their own row instead,
-    // keyed uniquely per talk+question so they never collide with one another either.
-    const key = variant.questionContentId
-      ? `${kind}::cid:${variant.questionContentId}`
-      : `${kind}::nocid:${variant.talkId}:${variant.questionId}`;
+  const pushVariant = (prompt: string, variant: AnswerVariant): void => {
+    const key = normalizeTagText(prompt);
     let group = groups.get(key);
     if (!group) {
-      group = { questionId: variant.questionId, kind, prompt, variants: [] };
+      group = { questionId: variant.questionId, prompt, variants: [] };
       groups.set(key, group);
     }
     group.variants.push(variant);
@@ -319,7 +324,7 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
         }, undefined);
         const contextLabel = deriveContextLabelFromFlatRecord(record, item, itemIndex, myTalks);
         const contextKey = item.contextHash || contextLabel || '';
-        pushVariant(item.kind, item.prompt, {
+        pushVariant(item.prompt, {
           questionId: item.questionId,
           ...(item.questionContentId ? { questionContentId: item.questionContentId } : {}),
           contextKey,
@@ -327,6 +332,7 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
           talkId: record.talkId,
           talkTitle: record.title,
           talkType: String(record.type || 'flow').toLowerCase(),
+          ...(item.booleanTag !== undefined ? { booleanTag: item.booleanTag } : {}),
           choice: item.choice,
           answerId: item.answerId,
           ...(item.mode ? { mode: item.mode } : {}),
@@ -361,8 +367,7 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
         );
         variants.forEach((variant, index) => {
           const question = (talk.fullTalk?.questions || [])[index];
-          const kind = String(talk.fullTalk?.type || talk.type || 'flow').toLowerCase() === 'tag' ? 'tag' : 'question';
-          pushVariant(kind, String(question?.text || talk.title), variant);
+          pushVariant(String(question?.text || talk.title), variant);
         });
       });
   }
@@ -376,57 +381,6 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
   });
   result.sort((a, b) => b.variants[0].answeredAt - a.variants[0].answeredAt);
   return result;
-}
-
-/** Spec §13.7.1: one section per context-cluster (talk), titled by that talk's own tag
- *  category when populated (FR-TG-2's Craigslist-style catalog — "For Sale," "Personals," etc.)
- *  else the talk's own title. Category tags aren't wired into the talk editor yet (every talk's
- *  `tags` is currently `[]` in practice), so the category prefix is a forward-compatible
- *  no-op today — sectioning itself is fully populated regardless, since any flow/route talk's
- *  non-root question already carries a non-empty `contextKey`. */
-type AnswerSection = { key: string; title: string; groups: AnswerQuestionGroup[]; mostRecentAt: number };
-
-function buildAnswerSections(groups: AnswerQuestionGroup[], myTalks: Record<string, any>): AnswerSection[] {
-  const general: AnswerQuestionGroup[] = [];
-  const byTalk = new Map<string, { title: string; groups: AnswerQuestionGroup[]; mostRecentAt: number }>();
-
-  groups.forEach((group) => {
-    const contextualVariants = group.variants.filter((v) => v.contextKey);
-    if (contextualVariants.length === 0) {
-      general.push(group);
-      return;
-    }
-    // A group can (rarely) carry contextual variants from more than one talk if the same
-    // question/context was somehow answered under two different listings — it sections under
-    // whichever talk contributed its most recent contextual variant; the row's own detail view
-    // still shows every variant's true source, so this is a display simplification only.
-    const primary = contextualVariants.reduce((a, b) => (b.answeredAt > a.answeredAt ? b : a));
-    let bucket = byTalk.get(primary.talkId);
-    if (!bucket) {
-      const sourceTalk = myTalks?.[primary.talkId]?.fullTalk;
-      const category = sourceTalk?.tags?.[0]?.category as TagCategory | undefined;
-      const categoryLabel = category ? INTEREST_CATEGORY_LABELS[category] : undefined;
-      const title = categoryLabel ? `${categoryLabel} — ${primary.talkTitle}` : primary.talkTitle || 'Untitled';
-      bucket = { title, groups: [], mostRecentAt: 0 };
-      byTalk.set(primary.talkId, bucket);
-    }
-    bucket.groups.push(group);
-    bucket.mostRecentAt = Math.max(bucket.mostRecentAt, group.variants[0].answeredAt);
-  });
-
-  const sections: AnswerSection[] = [];
-  if (general.length > 0) {
-    sections.push({ key: 'general', title: 'General', groups: general, mostRecentAt: 0 });
-  }
-  const talkSections: AnswerSection[] = Array.from(byTalk.entries()).map(([talkId, bucket]) => ({
-    key: talkId,
-    title: bucket.title,
-    groups: bucket.groups,
-    mostRecentAt: bucket.mostRecentAt,
-  }));
-  talkSections.sort((a, b) => b.mostRecentAt - a.mostRecentAt);
-  sections.push(...talkSections);
-  return sections;
 }
 
 function distinctContextKeys(group: AnswerQuestionGroup): string[] {
@@ -462,77 +416,35 @@ function buildSearchText(group: AnswerQuestionGroup, deps: Pick<AnswersViewDeps,
   ].join(' ').toLowerCase();
 }
 
-function renderVariantDetail(
-  variant: AnswerVariant,
-  questionId: string,
-  deps: Pick<AnswersViewDeps, 'escapeHtml' | 'text' | 'formatDate' | 'formatType' | 'formatLanguage'>,
-  showContextLabel: boolean,
-  isTag: boolean,
-): string {
-  const format = (key: UiTranslationKey, values: Record<string, string | number>): string =>
-    Object.entries(values).reduce(
-      (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
-      deps.text(key),
-    );
-  const displayChoice = isTag
+/** docs/TODO.md §LL.2 follow-up: groups no longer partition by `kind` (question identity is
+ *  text-only now — see `AnswerQuestionGroup`'s doc comment), so a group can mix an ordinary
+ *  question variant with a boolean tag variant. `variant.booleanTag === true` is therefore the
+ *  sole, per-variant signal for the Checked/Unchecked translation — an ordinary question's
+ *  `choice` might coincidentally BE the literal string "Checked" and must never be translated,
+ *  and `booleanTag` is only ever set `true`/`false` for an actual tag-kind answer (see
+ *  `saveFlatAnswerHistoryRecord`, ui-manager.ts). Absent (an ordinary question, or history
+ *  predating this field) always means "show the raw text," never "assume boolean." */
+function formatChoiceForDisplay(variant: AnswerVariant, deps: Pick<AnswersViewDeps, 'text'>): string {
+  return variant.booleanTag === true
     ? deps.text(variant.choice === 'Checked' ? 'meChecked' : 'meUnchecked')
     : variant.choice;
-  return `
-    <div class="answer-variant" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-outcome="${deps.escapeHtml(variant.outcome)}" style="padding:10px 12px;border-radius:10px;background:var(--bg-subtle);border:1px solid var(--border);margin-bottom:8px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-        <span style="font-size:0.78em;color:var(--text-tertiary);">${deps.escapeHtml(format('meAnsweredVia', { type: deps.formatType(variant.talkType) }))} · ${deps.escapeHtml(variant.talkTitle)}</span>
-        <span style="font-size:0.78em;color:var(--text-tertiary);">${deps.escapeHtml(deps.formatDate(new Date(variant.answeredAt)))}</span>
-      </div>
-      <div style="margin-top:4px;font-size:0.82em;font-weight:600;color:${variant.outcome === 'match' ? 'var(--success-hover)' : 'var(--warning-text)'};">
-        ${variant.outcome === 'match' ? `✓ ${deps.escapeHtml(deps.text('match'))}` : `✗ ${deps.escapeHtml(deps.text('mismatch'))}`}
-      </div>
-      ${showContextLabel && variant.contextLabel
-        ? `<div style="margin-top:6px;font-size:0.82em;color:#92400e;">${deps.text('meContextPath')} ${deps.escapeHtml(variant.contextLabel.replace(/→/g, ' -> '))}</div>`
-        : ''}
-      <div style="margin-top:6px;font-weight:600;color:var(--accent-text);">→ ${deps.escapeHtml(displayChoice)}</div>
-      <div style="margin-top:6px;font-size:0.82em;color:var(--text-secondary);">
-        ${variant.senderIds.length > 0
-          ? deps.escapeHtml(format(variant.senderIds.length === 1 ? 'meFromSender' : 'meFromSenders', { count: variant.senderIds.length }))
-          : ''}
-        ${variant.senderIds.length > 0 ? ' · ' : ''}${variant.locationRadiusMiles != null
-          ? deps.escapeHtml(format(variant.locationRadiusMiles === 1 ? 'meWithinMile' : 'meWithinMiles', { count: variant.locationRadiusMiles }))
-          : deps.escapeHtml(deps.text('meAnywhere'))}
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:0.78em;color:var(--text-secondary);">
-        <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(variant.language)}">${deps.escapeHtml(deps.formatLanguage(variant.language))}</span>
-        ${variant.mode ? `<span style="padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);">${deps.escapeHtml(deps.text(variant.mode === 'auto' ? 'meChatbotGenerated' : variant.mode === 'permanent' ? 'mePermanent' : 'meManual'))}</span>` : ''}
-        ${variant.autoUseCount > 0 ? `<span style="padding:2px 8px;border-radius:999px;background:var(--success-soft);color:var(--success-hover);">${deps.escapeHtml(format(variant.autoUseCount === 1 ? 'meAutoUsedCount' : 'meAutoUsedCounts', { count: variant.autoUseCount }))}</span>` : ''}
-        ${typeof variant.answerCounter === 'number' ? `<span>${deps.escapeHtml(format('meChoiceCount', { count: variant.answerCounter }))}</span>` : ''}
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-        <button type="button" class="btn answer-view-talk-btn" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-talk-title="${deps.escapeHtml(variant.talkTitle)}" data-question-id="${deps.escapeHtml(questionId)}" data-has-senders="${variant.senderIds.length > 0 ? '1' : '0'}">${deps.escapeHtml(deps.text('meViewTalk'))}</button>
-        ${variant.senderIds.length > 0
-          ? `<button type="button" class="btn answer-view-contact-btn" data-sender-id="${deps.escapeHtml(variant.senderIds[0])}">${deps.escapeHtml(deps.text('meViewContact'))}</button>`
-          : ''}
-        <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(variant.talkId)}" title="${deps.escapeHtml(deps.text('copy'))}">📋 ${deps.escapeHtml(deps.text('copy'))}</button>
-      </div>
-    </div>
-  `;
 }
+
 
 export function displayAnswersList(deps: AnswersViewDeps): void {
   const container = document.getElementById('answers-content');
   if (!container) return;
   const renderSeq = ++answersRenderSeq;
 
-  // TODO §R3/M-merge: delegated (bound once on document.body rather than the
-  // #answers-content container itself, since a row's .answer-item-details gets *relocated*
-  // — not cloned — into #item-details-popup once opened, which lives outside #answers-content
-  // as a direct child of document.body; a container-scoped listener would never see clicks on
-  // the popup's "View talk"/"Copy" buttons once that reparenting happens. `deps` is stashed on
-  // the container (not body) and read at click time rather than closed over at bind time,
-  // since a later render passes a freshly-built `deps` object.
+  // docs/TODO.md §LL.2 follow-up: delegated on document.body (not #answers-content) so `deps`
+  // stashed on the container and read at click time (not closed over at bind time) always
+  // reflects whichever render pass most recently ran.
   (container as unknown as { __answersDeps?: AnswersViewDeps }).__answersDeps = deps;
   if (document.body.dataset.answersClickBound !== '1') {
     document.body.dataset.answersClickBound = '1';
     document.body.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
-      if (!target.closest('#answers-content') && !target.closest('#item-details-popup')) return;
+      if (!target.closest('#answers-content')) return;
       const liveContainer = document.getElementById('answers-content');
       const currentDeps = (liveContainer as unknown as { __answersDeps?: AnswersViewDeps } | null)?.__answersDeps;
       if (!currentDeps) return;
@@ -542,56 +454,43 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         return;
       }
 
-      // Inside an already-open details popup: "View talk" jumps to the source talk — or,
-      // for a talk I authored myself (no senders), to that talk's Talks-tab responses list
-      // instead, mirroring the ⟨User⟩ layout's peer-history-item title-link behavior.
-      // "View contact" jumps to the sender's Contacts detail. "Copy" re-saves that specific
-      // contributing talk into Talks. None re-trigger the row's own tap-to-open-details.
-      const viewTalkBtn = target.closest('.answer-view-talk-btn') as HTMLElement | null;
-      if (viewTalkBtn) {
+      // docs/TODO.md §LL.2 follow-up: "trace back to who sent this, from which talk" — a small
+      // sibling link next to any answer that has a sender, independent of the answer-jump target
+      // below. Checked first since it's a non-nested sibling, not an ancestor of the jump target.
+      const contactJumpEl = target.closest('.answer-view-contact-jump') as HTMLElement | null;
+      if (contactJumpEl) {
         e.stopPropagation();
-        const talkId = viewTalkBtn.dataset.talkId;
-        const questionId = viewTalkBtn.dataset.questionId || undefined;
-        const talkTitle = viewTalkBtn.dataset.talkTitle || '';
-        const hasSenders = viewTalkBtn.dataset.hasSenders === '1';
+        const senderId = contactJumpEl.dataset.senderId;
+        if (senderId) currentDeps.viewContact?.(senderId);
+        return;
+      }
+
+      const copyJumpEl = target.closest('.answer-copy-talk-jump') as HTMLElement | null;
+      if (copyJumpEl) {
+        e.stopPropagation();
+        const talkId = copyJumpEl.dataset.talkId;
+        if (talkId) currentDeps.copyAnsweredTalkToTalks(talkId);
+        return;
+      }
+
+      // Every context/answer line jumps straight to its source talk at that specific question —
+      // no expand-in-place detail step anymore (see renderQuestionRow). "No senders" (a talk I
+      // authored myself) opens that talk's Talks-tab responses list instead, same as the
+      // previous popup's "View talk" button did.
+      const jumpEl = target.closest('.answer-context-jump') as HTMLElement | null;
+      if (jumpEl) {
+        const talkId = jumpEl.dataset.talkId;
+        const questionId = jumpEl.dataset.questionId || undefined;
+        const talkTitle = jumpEl.dataset.talkTitle || '';
+        const hasSenders = jumpEl.dataset.hasSenders === '1';
         if (talkId && !hasSenders && currentDeps.openTalkResponses) {
           currentDeps.openTalkResponses(talkId, talkTitle);
         } else if (talkId) {
           currentDeps.showTalkDetail(talkId, questionId);
         }
-        return;
       }
-      const viewContactBtn = target.closest('.answer-view-contact-btn') as HTMLElement | null;
-      if (viewContactBtn) {
-        e.stopPropagation();
-        const senderId = viewContactBtn.dataset.senderId;
-        if (senderId) currentDeps.viewContact?.(senderId);
-        return;
-      }
-      const copyBtn = target.closest('.answer-copy-talk-btn') as HTMLElement | null;
-      if (copyBtn) {
-        e.stopPropagation();
-        const talkId = copyBtn.dataset.talkId;
-        if (talkId) currentDeps.copyAnsweredTalkToTalks(talkId);
-        return;
-      }
-      if (target.closest('.answer-item-details')) return;
-
-      // Tapping the row itself opens the details popup — there's no separate answer/edit
-      // action on an already-answered question, so tap-to-open-details is the sole
-      // affordance (same "one primary action" simplification the Talks tab redesign used).
-      const item = target.closest('.answer-talk-item') as HTMLElement | null;
-      if (!item) return;
-      const details = item.querySelector('.answer-item-details') as HTMLElement | null;
-      if (details) currentDeps.showItemDetailsPopup(details, item);
     });
   }
-
-  const format = (key: UiTranslationKey, values: Record<string, string | number>): string =>
-    Object.entries(values).reduce(
-      (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
-      deps.text(key),
-    );
 
   // Spec §3.1 FR-UM-9 / §13.7.1: pinned identity header — StageName + headshot, not part of
   // the scrolling/sectioned answer list below it, same component data the profile editor shows.
@@ -621,110 +520,88 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     return;
   }
 
-  const sections = buildAnswerSections(groups, deps.getMyTalks());
-
+  // docs/TODO.md §LL.2 follow-up: one flat list, no per-talk sections — every distinct question
+  // (by text) is listed exactly once, newest-first (groups is already sorted that way).
   container.innerHTML = `
     ${identityHeaderHtml}
     <div class="answers-view-inner" style="padding: 16px; max-width: min(980px, 96%); margin: 0 auto;">
-      <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')} Each answered question is listed separately.</p>
+      <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')} Every distinct question is listed once, with each context's answer below it.</p>
       <input id="answers-search-input" class="form-input" type="search" placeholder="${deps.text('meSearchAnswers')}" style="width:100%; margin-bottom:12px;">
-      <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 14px;">
-        ${sections
-          .map((section, sectionIndex) => {
-            const isGeneral = section.key === 'general';
-            const openAttr = isGeneral || sectionIndex === (sections[0]?.key === 'general' ? 1 : 0) ? ' open' : '';
-            return `
-              <details class="answer-section" data-section-key="${deps.escapeHtml(section.key)}"${openAttr} style="border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-                <summary style="cursor:pointer;padding:10px 14px;font-weight:600;background:var(--bg-subtle);list-style:none;">${deps.escapeHtml(section.title)}</summary>
-                <div id="answers-list-${deps.escapeHtml(section.key)}" class="answers-list" style="display: flex; flex-direction: column; gap: 10px; padding: 10px 14px;"></div>
-              </details>
-            `;
-          })
-          .join('')}
-      </div>
+      <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
       <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
     </div>
   `;
 
   {
-    const renderTagRow = (group: AnswerQuestionGroup): string => {
-      const primary = group.variants[0];
-      const checked = primary.choice === 'Checked';
-      const talkTypes = Array.from(new Set(group.variants.map((v) => v.talkType)));
-      const talkIds = Array.from(new Set(group.variants.map((v) => v.talkId)));
-      const answeredCount = group.variants.length;
-      const searchText = buildSearchText(group, deps);
-      const metaLine = answeredCount > 1
-        ? `${format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount })} · ${format('meMostRecently', { date: deps.formatDate(new Date(primary.answeredAt)) })}`
-        : deps.formatDate(new Date(primary.answeredAt));
-      const detailVariants = group.variants.map((v) => renderVariantDetail(v, group.questionId, deps, false, true)).join('');
-      return `
-        <div class="answer-question-item answer-talk-item answer-tag-item ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${checked ? 'checked' : 'unchecked'}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="0" style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;cursor:pointer;background:${checked ? '#f5f3ff' : '#fff'};border:1px solid ${checked ? '#ddd6fe' : '#e9d5ff'};">
-          <input type="checkbox" class="answer-tag-checkbox" ${checked ? 'checked' : ''} disabled style="width:18px;height:18px;accent-color:#7c3aed;flex-shrink:0;">
-          <div class="answer-item-title" style="font-weight:600;flex:1 1 auto;">${deps.escapeHtml(group.prompt)}</div>
-          <div style="font-size:0.78em;color:var(--text-tertiary);flex-shrink:0;">${deps.escapeHtml(metaLine)}</div>
-          <div class="answer-item-details" style="display:none;">
-            <h4 style="margin:0 0 4px;">${deps.escapeHtml(deps.text('meTag'))}</h4>
-            <div style="font-size:0.82em;color:var(--text-tertiary);margin-bottom:8px;">${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</div>
-            ${detailVariants}
-          </div>
-        </div>
-      `;
-    };
-
-    const renderQaRow = (group: AnswerQuestionGroup): string => {
-      const primary = group.variants[0];
-      const contextKeys = distinctContextKeys(group);
-      const isContextual = contextKeys.length > 0;
-      const talkTypes = Array.from(new Set(group.variants.map((v) => v.talkType)));
-      const talkIds = Array.from(new Set(group.variants.map((v) => v.talkId)));
-      const answeredCount = group.variants.length;
-      const searchText = buildSearchText(group, deps);
-      const contextBadge = isContextual
-        ? `<span class="context-indicator" title="${deps.escapeHtml(format('meContextIndicatorTitle', { count: contextKeys.length }))}">🔗 <span class="count">${contextKeys.length}</span></span>`
+    // docs/TODO.md §LL.2 follow-up: one uniform row per question — no more checkbox-pill vs
+    // Q&A-line split, no expand-in-place metadata card. A context-free question shows its one
+    // most-recent answer inline; a question with 2+ distinct contexts shows the prompt once with
+    // an indented, independently-clickable line per context. Clicking any answer jumps straight
+    // to its source talk at that question (the click handler above) — no talk metadata (date,
+    // outcome, senders, language, chatbot use) is shown on this page at all.
+    const renderAnswerLine = (variant: AnswerVariant, indent: boolean): string => {
+      const hasSenders = variant.senderIds.length > 0;
+      const contextSuffix = variant.contextLabel
+        ? ` <span style="color:var(--text-tertiary);font-size:0.85em;">(${deps.escapeHtml(variant.contextLabel.replace(/→/g, ' -> '))})</span>`
         : '';
-      const statsLine = isContextual
-        ? (contextKeys.length > 1 ? format(contextKeys.length === 1 ? 'meContextCount' : 'meContextCounts', { count: contextKeys.length }) : '')
-        : (answeredCount > 1
-          ? `${format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount })} · ${format('meMostRecently', { date: deps.formatDate(new Date(primary.answeredAt)) })}`
-          : deps.formatDate(new Date(primary.answeredAt)));
-      const detailVariants = isContextual
-        ? contextVariantsFor(group).map((v) => renderVariantDetail(v, group.questionId, deps, true, false)).join('')
-        : group.variants.map((v) => renderVariantDetail(v, group.questionId, deps, false, false)).join('');
+      // docs/TODO.md §LL.2 follow-up: "trace back to who sent this, from which talk" — the
+      // answer text itself jumps to the source talk; two small sibling links, non-nested so
+      // clicking one never fires another: "view sender" (only when this variant has a sender)
+      // jumps to that sender's Contacts detail; "copy" re-saves that specific contributing
+      // talk into My Talks, unconditional (mirrors the pre-redesign popup's always-shown copy
+      // button).
+      const contactLink = hasSenders
+        ? ` · <span class="answer-view-contact-jump" data-sender-id="${deps.escapeHtml(variant.senderIds[0])}" style="cursor:pointer;color:var(--accent-text);font-size:0.85em;">${deps.escapeHtml(deps.text('meViewContact'))}</span>`
+        : '';
+      const copyLink = ` · <span class="answer-copy-talk-jump" data-talk-id="${deps.escapeHtml(variant.talkId)}" title="${deps.escapeHtml(deps.text('copy'))}" style="cursor:pointer;color:var(--accent-text);font-size:0.85em;">📋 ${deps.escapeHtml(deps.text('copy'))}</span>`;
       return `
-        <div class="answer-question-item answer-talk-item answer-qa-item ${isContextual ? 'answer-qa-contextual' : 'answer-qa-universal'} ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${contextKeys.length}">
-          <div class="qa-line">
-            <span class="qa-question">${deps.escapeHtml(group.prompt)}</span>
-            <span class="qa-arrow">→</span>
-            <span class="qa-answer">${deps.escapeHtml(primary.choice)}</span>
-            ${contextBadge}
-            <span class="qa-chevron" aria-hidden="true">›</span>
+        <span style="${indent ? 'display:block;padding:2px 0;' : 'display:inline;'}">
+          <span class="answer-context-jump" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-talk-title="${deps.escapeHtml(variant.talkTitle)}" data-question-id="${deps.escapeHtml(variant.questionId)}" data-has-senders="${hasSenders ? '1' : '0'}" style="cursor:pointer;">
+            → ${deps.escapeHtml(formatChoiceForDisplay(variant, deps))}${contextSuffix}
+          </span>${contactLink}${copyLink}
+        </span>
+      `;
+    };
+
+    const renderQuestionRow = (group: AnswerQuestionGroup): string => {
+      const primary = group.variants[0];
+      const rowVariants = distinctContextKeys(group).length > 0 ? contextVariantsFor(group) : [primary];
+      const talkTypes = Array.from(new Set(group.variants.map((v) => v.talkType)));
+      const talkIds = Array.from(new Set(group.variants.map((v) => v.talkId)));
+      const searchText = buildSearchText(group, deps);
+      // Preserved for the top filter bar (ui-manager.ts's applyMeAnswerFilter) — computed from
+      // the most-recent variant, same rule renderTagRow used to apply.
+      const tagState = primary.booleanTag === true ? (primary.choice === 'Checked' ? 'checked' : 'unchecked') : '';
+      const bodyHtml = rowVariants.length === 1
+        ? `<div class="qa-line" style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">
+            <span class="qa-question" style="font-weight:600;">${deps.escapeHtml(group.prompt)}</span>
+            ${renderAnswerLine(rowVariants[0], false)}
+          </div>`
+        : `
+          <div class="qa-question" style="font-weight:600;">${deps.escapeHtml(group.prompt)}</div>
+          <div class="qa-context-list" style="margin-left:14px;">
+            ${rowVariants.map((v) => renderAnswerLine(v, true)).join('')}
           </div>
-          ${statsLine ? `<div class="qa-stats">${deps.escapeHtml(statsLine)}</div>` : ''}
-          <div class="answer-item-details" style="display:none;">
-            <h4 style="margin:0 0 4px;">${deps.escapeHtml(group.prompt)}</h4>
-            <div style="font-size:0.82em;color:var(--text-tertiary);margin-bottom:8px;">${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</div>
-            ${detailVariants}
-          </div>
+        `;
+      return `
+        <div class="answer-question-item answer-talk-item ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" style="display: flex;flex-direction:column;gap:2px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+          ${bodyHtml}
         </div>
       `;
     };
 
-    // One progressive render pass per section — each section owns its own container, so a
-    // section's first-chunk/remainder split never touches another section's DOM.
+    const listEl = document.getElementById('answers-list');
     const onRowsRendered = deps.onRowsRendered;
-    sections.forEach((section) => {
-      const sectionListEl = document.getElementById(`answers-list-${deps.escapeHtml(section.key)}`);
-      if (!sectionListEl) return;
-      renderListProgressively(sectionListEl, section.groups, {
+    if (listEl) {
+      renderListProgressively(listEl, groups, {
         firstChunkSize: ANSWERS_FIRST_CHUNK_SIZE,
-        renderRow: (group) => (group.kind === 'tag' ? renderTagRow(group) : renderQaRow(group)),
+        renderRow: renderQuestionRow,
         isStale: () => renderSeq !== answersRenderSeq,
         ...(onRowsRendered
           ? { onFirstChunkRendered: onRowsRendered, onRemainderRendered: onRowsRendered }
           : {}),
       });
-    });
+    }
   }
 
   const searchInput = document.getElementById('answers-search-input') as HTMLInputElement | null;

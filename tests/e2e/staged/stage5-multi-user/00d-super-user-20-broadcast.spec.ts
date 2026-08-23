@@ -251,10 +251,9 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     await expect
       .poll(async () => answersContent.locator('.answer-talk-item').count(), { timeout: 15_000 })
       .toBeGreaterThanOrEqual(20);
-    // The outcome badge ("✓ Match") lives inside the row's hidden details popup content —
-    // `.filter({ hasText })` matches hidden descendant text too, so it can locate a matched
-    // row; the row *container* itself is what must be visible.
-    await expect(answersContent.locator('.answer-talk-item').filter({ hasText: /Match/ }).first()).toBeVisible({ timeout: 3000 });
+    // docs/TODO.md §LL.2 follow-up: the outcome is carried on the row's own data-outcome
+    // attribute now, no popup content to match against.
+    await expect(answersContent.locator('.answer-talk-item[data-outcome="match"]').first()).toBeVisible({ timeout: 3000 });
 
     console.log('✅ Super user test complete: TechSupport created 20, Tom completed 20, both verified 20 at end.');
   });

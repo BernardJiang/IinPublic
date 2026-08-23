@@ -102,7 +102,7 @@ test.describe('Talks matching — tag answer retained in IN history', () => {
     const tagRow = pageTom.locator('#answers-content .answer-talk-item').filter({ hasText: TAG_TITLE }).first();
     await expect(tagRow).toBeVisible({ timeout: 15000 });
     await expect(tagRow).toHaveAttribute('data-tag-state', 'unchecked');
-    await expect(tagRow.filter({ hasText: /Mismatch/i })).toHaveCount(1);
+    await expect(tagRow).toHaveAttribute('data-outcome', 'mismatch');
 
     // Answered incoming tags are retained in IN as read-only history.
     await pageTom.click('.nav-btn[data-view="talks"]');

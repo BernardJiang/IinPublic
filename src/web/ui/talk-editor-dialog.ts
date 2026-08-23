@@ -74,6 +74,7 @@ type TalkEditorDialogOptions = {
   addAnswerToQuestion: (container: HTMLElement, index: number) => void;
   appendIgnoreRow: (container: HTMLElement, qIndex: number) => void;
   applyBuiltInKindToQuestion: (questionItem: HTMLElement, kind: string) => void;
+  applyTagKindVisibilityToQuestion: (questionItem: HTMLElement) => void;
   updateAllAnswerDropdowns: () => void;
   refreshFlowAnswerConstraints: (type: string) => void;
   ensureRouteEditorRendered: (existingTalk?: any) => void;
@@ -142,13 +143,20 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             </label>
           </div>
 
+          <div class="form-group" id="tag-pair-group" style="display: none;">
+            <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+              <input type="checkbox" id="tag-pair-checkbox" ${existingTalk?.type === 'tag' && existingTalk?.questions?.[0]?.reciprocalTagContext ? 'checked' : ''} aria-label="${text('editorTagPairCheckboxLabel' as UiTranslationKey, 'Pair tag (accepted answer differs, e.g. buy/sell)')}">
+              <span>${text('editorTagPairCheckboxLabel' as UiTranslationKey, 'Pair tag (accepted answer differs, e.g. buy/sell)')}</span>
+            </label>
+          </div>
+
           <div class="form-group" id="tag-answer-group" style="display: none;">
             <label class="form-label" for="talk-answer">${text('editorTagAnswerLabel' as UiTranslationKey, "Accepted answer (optional — defaults to the tag word itself)")}</label>
             <input
               type="text"
               class="form-input"
               id="talk-answer"
-              value="${options.escapeHtml(existingTalk?.preferenceSet?.[0] || '')}"
+              value="${options.escapeHtml(existingTalk?.questions?.[0]?.answers?.find((a: any) => a.isMatch)?.text || '')}"
               placeholder="${text('editorTagAnswerPlaceholder' as UiTranslationKey, "e.g. sell — or leave as the same word to match fellow buy people")}"
             >
             <p id="talk-answer-preview" style="margin: 6px 0 0 0; font-size: 0.85em; color: #666;"></p>
@@ -301,6 +309,13 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               const reciprocalCheckbox = questionItem.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
               if (reciprocalCheckbox) reciprocalCheckbox.checked = true;
             }
+            if (q.tagKind === 'simple') {
+              const simpleCheckbox = questionItem.querySelector('.question-simple-tag') as HTMLInputElement | null;
+              if (simpleCheckbox) simpleCheckbox.checked = true;
+            }
+            if (q.reciprocalTagContext || q.tagKind === 'simple') {
+              options.applyTagKindVisibilityToQuestion(questionItem as HTMLElement);
+            }
             // §BB / spec §30.2: rehydrate the builtIn kind selector + its typed value so
             // reopening the editor for a saved builtIn question doesn't silently reset to
             // "ordinary answer choices" (the answer-selection-mode toggle has this same gap
@@ -402,6 +417,8 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     const talkTagGroup = document.getElementById('talk-tag-group');
     const tagLikeGroup = document.getElementById('tag-like-group');
     const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
+    const tagPairGroup = document.getElementById('tag-pair-group');
+    const tagPairCheckbox = document.getElementById('tag-pair-checkbox') as HTMLInputElement | null;
     const tagAnswerGroup = document.getElementById('tag-answer-group');
     const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement | null;
     const questionsFormGroup = document.getElementById('questions-form-group');
@@ -416,6 +433,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       if (questionsFormGroup) questionsFormGroup.style.display = 'none';
       if (routeFormGroup) routeFormGroup.style.display = 'none';
       if (tagLikeGroup) tagLikeGroup.style.display = 'none';
+      if (tagPairGroup) tagPairGroup.style.display = 'none';
       if (tagAnswerGroup) tagAnswerGroup.style.display = 'none';
       if (talkOptionsGroup) talkOptionsGroup.style.display = 'none';
       if (talkLocationGroup) talkLocationGroup.style.display = 'none';
@@ -435,7 +453,12 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         // different concept and would just be visual clutter here; the tag's own keyword lives
         // in the title field, and its accepted answer lives in `#talk-answer` instead.
         if (talkTagGroup) talkTagGroup.style.display = 'none';
-        if (tagAnswerGroup) tagAnswerGroup.style.display = 'block';
+        if (tagPairGroup) tagPairGroup.style.display = 'block';
+        // docs/TODO.md §LL follow-up: the accepted-answer field only matters once the author
+        // opts into a Pair tag (divergent accepted answer, e.g. buy/sell) — a plain tag defaults
+        // to self-match and hides this entirely, so `#talk-answer`'s value is never read at
+        // submit time (ui-manager.ts) unless the checkbox is checked.
+        if (tagAnswerGroup) tagAnswerGroup.style.display = tagPairCheckbox?.checked ? 'block' : 'none';
         if (titleInput) {
           titleInput.placeholder = text('editorTagPlaceholder', 'e.g., Coffee, Tennis, Jobs');
           titleInput.setAttribute('aria-label', text('editorTagKeyword', 'Tag keyword'));
@@ -499,6 +522,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       talkTypeSelect.addEventListener('change', updateFormForType);
       updateFormForType();
     }
+    tagPairCheckbox?.addEventListener('change', updateFormForType);
 
     // Spec §30.2 Phase 5 / docs/TODO.md §LL: `#talk-tag`'s value doubles as this talk's
     // `selfTag` (a plain self-declaration — "buy", "sell", ...), replacing the old separate

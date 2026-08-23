@@ -110,12 +110,14 @@ test.describe('Me tab: progressive render for long answer lists (R3)', () => {
     expect(ids).toHaveLength(ANSWER_COUNT);
     expect(new Set(ids).size).toBe(ANSWER_COUNT);
 
-    // A row well past ANSWERS_FIRST_CHUNK_SIZE (25) — from the deferred remainder — has
-    // its row-tap-to-open-popup fully wired via the delegated listener.
+    // A row well past ANSWERS_FIRST_CHUNK_SIZE (25) — from the deferred remainder — shows its
+    // answer directly (no popup needed) and has its answer-jump target fully wired via the
+    // delegated listener: these seeded records have no senders, so clicking routes to
+    // openTalkResponses, which switches to the Talks tab and opens the creator-replies panel.
     const remainderRow = page.locator('.answer-talk-item[data-question-id="q-progressive-answer-039"]');
     await expect(remainderRow).toBeVisible();
-    await remainderRow.click();
-    await expect(page.locator('#item-details-popup')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#item-details-popup')).toContainText('Answer 39');
+    await expect(remainderRow).toContainText('Answer 39');
+    await remainderRow.locator('.answer-context-jump').click();
+    await expect(page.locator('#creator-replies-panel')).toBeVisible({ timeout: 10_000 });
   });
 });
