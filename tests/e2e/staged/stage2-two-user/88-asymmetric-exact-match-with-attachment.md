@@ -29,6 +29,6 @@ of Eve's separate detailed listing, which he never opens and which never factors
   first leaves her talk enabled and her deal status reads "waiting for the other side." Only once
   Adam also confirms does either side see "Deal confirmed."
 - **Deal confirmation is scoped by dealEligible, not blanket.** Eve's simple talk (which declares
-  `selfTag`/`preferenceSet`, making it deal-eligible) disables once the deal is mutually confirmed.
-  Her detailed route talk — which never declared a `selfTag` — was never deal-eligible in the
+  a Pair-tag question, making it deal-eligible) disables once the deal is mutually confirmed.
+  Her detailed route talk — which declares no Pair-tag question — was never deal-eligible in the
   first place, so it's untouched and stays open for other buyers.

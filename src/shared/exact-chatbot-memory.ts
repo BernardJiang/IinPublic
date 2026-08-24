@@ -34,12 +34,12 @@ export interface ChatbotQuestionSummary {
   latestTemporaryAnswerText: string | null;
   updatedAt: number;
   /**
-   * The self-tag (see `Talk.selfTag`, spec §30.2) the user was holding when this answer was
-   * recorded — e.g. "buy" if it came from their own buy-talk (or from answering someone
-   * else's sell-talk). Undefined for answers with no self-tag context. `findAutoAnswer`
-   * refuses to auto-answer when this ISN'T a member of the INCOMING talk's own
-   * `preferenceSet` (e.g. two buyers), even if the question/answer text otherwise matches
-   * exactly.
+   * The self-tag the user was holding when this answer was recorded — e.g. "buy" if it came
+   * from their own buy-talk (or from answering someone else's sell-talk), derived from the
+   * nearest Pair-tag ancestor (`Question.reciprocalTagContext`, spec §30.2/§LL follow-up) in
+   * play at the time. Undefined for answers with no tag context. `findAutoAnswer` refuses to
+   * auto-answer when this ISN'T a member of the caller-supplied `incomingTalkPreferenceSet`
+   * (e.g. two buyers), even if the question/answer text otherwise matches exactly.
    */
   selfTag?: string;
 }
@@ -321,12 +321,13 @@ export function findAutoAnswer(
     return { action: 'ASK_USER', reason: 'NO_HISTORY' };
   }
 
-  // Preference-set veto (see Talk.preferenceSet, spec §30.2): this stored answer came from
-  // the user's own self-tag in some other talk — if the talk currently asking declares a
-  // preferenceSet that doesn't include this self-tag (e.g. this memory came from being a
-  // buyer, and the incoming talk only accepts sellers), refuse to auto-answer no matter how
-  // exactly the question/answer text lines up. No declared preferenceSet, or no self-tag on
-  // either side, is unaffected.
+  // Preference-set veto (spec §30.2): this stored answer came from the user's own self-tag in
+  // some other talk — if the caller-supplied `incomingTalkPreferenceSet` (derived by the caller
+  // from the incoming talk's nearest Pair-tag ancestor, see `myEffectiveTagContext`/
+  // `findTagPairAncestor` in ui-manager.ts/talk-engine.ts) doesn't include this self-tag (e.g.
+  // this memory came from being a buyer, and the incoming talk only accepts sellers), refuse to
+  // auto-answer no matter how exactly the question/answer text lines up. No preference set, or
+  // no self-tag on either side, is unaffected.
   if (
     incomingTalkPreferenceSet?.length &&
     memory.summary.selfTag &&
@@ -504,12 +505,12 @@ export function findAutoAnswerMultiple(
 }
 
 /**
- * The self-tag (see `Talk.selfTag`, spec §30.2) recorded alongside the user's own stored
- * answer for this exact question text, if any — used by `checkIfMatch` (talk-engine.ts)
- * callers to veto a preference-set mismatch on the manual answering path, the same way
- * `findAutoAnswer` already does for the chatbot's automatic path. Mirrors `findAutoAnswer`'s
- * own question-id resolution (including the legacy pre-language-scoping fallback) so both
- * paths agree on which memory entry is "the" one for a given question.
+ * The self-tag recorded alongside the user's own stored answer for this exact question text,
+ * if any — used by `checkIfMatch` (talk-engine.ts) callers to veto a Pair-tag mismatch on the
+ * manual answering path, the same way `findAutoAnswer` already does for the chatbot's automatic
+ * path. Mirrors `findAutoAnswer`'s own question-id resolution (including the legacy
+ * pre-language-scoping fallback) so both paths agree on which memory entry is "the" one for a
+ * given question.
  */
 export function getSelfTagForQuestionText(
   state: ExactChatbotMemoryState,

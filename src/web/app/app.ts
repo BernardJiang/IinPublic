@@ -2743,14 +2743,16 @@ export class IinPublicApp {
     this.uiManager.setMemberMatched(payload.responderId);
   }
 
-  /** A talk that declares a self-tag/preference-set pair (spec §30.2 — taxi/dealmaker/buy-sell
-   *  style deals) is deal-eligible: matches against it aren't unique on their own (several
-   *  compatible responders can each form a conversation), so the conversation view offers an
-   *  explicit "Confirm Deal" step, and confirming on both sides is what finally closes the
-   *  listing. Plain talks with no declared preferenceSet (surveys, generic flows) never show
-   *  deal UI and can match repeatedly with no finalization step, same as before this existed. */
+  /** A talk that declares a Pair-tag question anywhere in its questions (spec §30.2 — taxi/
+   *  dealmaker/buy-sell style deals, `Question.reciprocalTagContext`) is deal-eligible: matches
+   *  against it aren't unique on their own (several compatible responders can each form a
+   *  conversation), so the conversation view offers an explicit "Confirm Deal" step, and
+   *  confirming on both sides is what finally closes the listing. Plain talks with no Pair-tag
+   *  question (surveys, generic flows) never show deal UI and can match repeatedly with no
+   *  finalization step, same as before this existed. */
   private isDealEligibleTalk(talkData: any): boolean {
-    return !!talkData?.selfTag && Array.isArray(talkData?.preferenceSet) && talkData.preferenceSet.length > 0;
+    const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
+    return questions.some((q: any) => q?.reciprocalTagContext === true);
   }
 
   /** Route `matchThreshold` scoring result (spec §30.2) for a confirmed match, if applicable —
@@ -4400,10 +4402,10 @@ export class IinPublicApp {
   /**
    * My own self-tag for the last question of a would-be match, if I've ever recorded one for
    * this exact question text (see ui-manager.ts's getMySelfTagForQuestionText /
-   * exact-chatbot-memory.ts) — passed into checkIfMatch's preference-set veto so a manual
+   * exact-chatbot-memory.ts) — passed into checkIfMatch's Pair-tag-ancestor veto so a manual
    * answer gets the same protection the chatbot's auto-reply already has via findAutoAnswer.
-   * Undefined (no veto) if I have no self-tag history for this question or the talk itself
-   * declares no preferenceSet.
+   * Undefined (no veto) if I have no self-tag history for this question or the talk declares no
+   * qualifying Pair-tag ancestor.
    */
   private resolveResponderSelfTagForAnswers(talkData: any, answers: any[]): string | undefined {
     const lastAnswer = answers?.[answers.length - 1];
@@ -5020,7 +5022,7 @@ export class IinPublicApp {
       void this.refreshConversationPresence();
     });
 
-    // Spec §30.2 deal confirmation: a match on a selfTag/preferenceSet talk isn't exclusive
+    // Spec §30.2 deal confirmation: a match on a deal-eligible (Pair-tag) talk isn't exclusive
     // on its own (several compatible candidates can each hold an open conversation) — the
     // talk only disables, and other open candidates get marked "no longer available" on this
     // device, once BOTH participants have confirmed here.
@@ -5251,8 +5253,6 @@ export class IinPublicApp {
                 ...(talkFields.isAdult !== undefined ? { isAdult: talkFields.isAdult } : {}),
                 ...(talkFields.expiresAt !== undefined ? { expiresAt: talkFields.expiresAt } : {}),
                 ...(talkFields.locationRadiusMiles !== undefined ? { locationRadiusMiles: talkFields.locationRadiusMiles } : {}),
-                ...(talkFields.selfTag !== undefined ? { selfTag: talkFields.selfTag } : {}),
-                ...(talkFields.preferenceSet !== undefined ? { preferenceSet: talkFields.preferenceSet } : {}),
                 ...(talkFields.matchThreshold !== undefined ? { matchThreshold: talkFields.matchThreshold } : {}),
               }),
               ...(ipfsAttachments ? { ipfsAttachments } : {}),

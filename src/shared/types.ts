@@ -261,16 +261,6 @@ export interface Talk {
    */
   supersedesTalkId?: string;
   /**
-   * Spec §30.2: generalizes the old fixed 'offer'/'request' role binary. `selfTag` is what
-   * the author IS for this attribute (e.g. "buy", "sell"); `preferenceSet` is which self-tags
-   * of a respondent the author will accept (e.g. `["sell"]`, or several — "buy" accepted by
-   * "sell" OR "offer" OR "free"). A talk declaring a non-empty `preferenceSet` must never be
-   * treated as a match against a responder whose own `selfTag` isn't a member of it. See
-   * talk-engine.ts's checkIfMatch and exact-chatbot-memory.ts's findAutoAnswer.
-   */
-  selfTag?: string;
-  preferenceSet?: string[];
-  /**
    * Route talks only. When set, switches `checkIfMatch` from the default "check only the
    * terminal answer" rule to a score-threshold rule: every direct child of the route's root is
    * treated as an independent spec (order the author declared them in doesn't matter — see
@@ -345,13 +335,12 @@ export interface Question {
    * docs/TODO.md §LL follow-up: when true (only meaningful if this question ends up with
    * exactly one NON-ignore answer — every question needs an Ignore option regardless,
    * `TalkValidator.validateQuestion`), this question's own (text, that one answer's text) pair
-   * defines the buy/sell-style tag context for every question after it in this branch — a
-   * nearer-scoped override of the talk-level `Talk.selfTag`/`preferenceSet` root fields (spec
-   * §30.2 Phase 5), usable anywhere in a flow/route instead of only at the root. Read
+   * defines the buy/sell-style tag context ("Pair tag") for every question after it in this
+   * branch — the sole mechanism for declaring this now, usable anywhere in a flow/route (the
+   * old talk-level `selfTag`/`preferenceSet` root fields have been removed entirely). Read
    * "reversed" (answer text acts as my own tag, question text as the counterpart) when a
    * responder — not this talk's own author — is the one walking through it; see
-   * `myEffectiveTagContext` (ui-manager.ts), which already swaps direction the same way for the
-   * talk-level fields.
+   * `myEffectiveTagContext` (ui-manager.ts).
    */
   reciprocalTagContext?: boolean;
   /**
@@ -450,17 +439,18 @@ export interface Conversation {
   isSurvey: boolean;
   /**
    * Spec §30.2 deal confirmation: participant ids who've explicitly confirmed this deal is
-   * final. Only meaningful when the conversation's talk declares `selfTag`/`preferenceSet` —
-   * a match there isn't exclusive on its own (several compatible candidates can each hold an
-   * open conversation), so the talk only disables once BOTH participants appear here.
+   * final. Only meaningful when the conversation's talk is deal-eligible (declares a Pair-tag
+   * question, `isDealEligibleTalk`, app.ts) — a match there isn't exclusive on its own (several
+   * compatible candidates can each hold an open conversation), so the talk only disables once
+   * BOTH participants appear here.
    */
   dealConfirmedBy?: string[];
   /**
-   * Spec §30.2: whether the talk this conversation formed from declares
-   * `selfTag`/`preferenceSet` — written directly onto the conversation record at match time
-   * (rather than re-derived per-side from local talk caches, which may not have a matching
-   * entry for whichever direction's exchange happened to fire) so the deal-confirmation UI can
-   * read it unambiguously from either participant's device.
+   * Spec §30.2: whether the talk this conversation formed from is deal-eligible (declares a
+   * Pair-tag question somewhere in its questions) — written directly onto the conversation
+   * record at match time (rather than re-derived per-side from local talk caches, which may not
+   * have a matching entry for whichever direction's exchange happened to fire) so the
+   * deal-confirmation UI can read it unambiguously from either participant's device.
    */
   dealEligible?: boolean;
   /**

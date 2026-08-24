@@ -284,8 +284,9 @@ test.describe('Messaging semantics — concurrent order, read state, history ord
     // only navigation, share-media, deal-confirmation and send controls, and message rows
     // expose no action buttons. Media-gallery tab buttons carry no id, so they are identified
     // by their data-media-tab value. `conversation-confirm-deal-btn` (spec §30.2) is always in
-    // the DOM but `display:none` unless the conversation's talk declares selfTag/preferenceSet
-    // — this plain messaging conversation never shows it, but the button element still exists.
+    // the DOM but `display:none` unless the conversation's talk declares a Pair-tag question
+    // (`isDealEligibleTalk`, app.ts) — this plain messaging conversation never shows it, but the
+    // button element still exists.
     const overlayButtonIds = await pageA
       .locator('#conversation-detail-overlay button')
       .evaluateAll((buttons) => buttons

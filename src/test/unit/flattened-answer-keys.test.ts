@@ -89,9 +89,11 @@ describe('flattened-answer-keys', () => {
     // Adam's buy-iPhone talk and Eve's sell-iPhone talk are different objects with different
     // content hashes, but once each side's tagContext resolves symmetrically (Adam: mySelfTag
     // 'buy' answering his own talk; Eve: mySelfTag 'buy' derived as the opposite of her own
-    // 'sell' when SHE looks up an incoming 'buy' talk) the bucket must line up.
-    const adamTalk = { ...multiTalkA, selfTag: 'buy', preferenceSet: ['sell'] };
-    const eveTalk = { ...multiTalkB, selfTag: 'sell', preferenceSet: ['buy'] };
+    // 'sell' when SHE looks up an incoming 'buy' talk) the bucket must line up. Each side's own
+    // buy/sell tag now lives in a Pair-tag question's text (`reciprocalTagContext`), not on the
+    // talk object itself — irrelevant at this layer, since `tagContext` is passed in explicitly.
+    const adamTalk = { ...multiTalkA };
+    const eveTalk = { ...multiTalkB };
     const path: { questionText: string; answerText: string }[] = [
       { questionText: 'Item?', answerText: 'iPhone' },
     ];
@@ -113,15 +115,11 @@ describe('flattened-answer-keys', () => {
     );
     // These deliberately do NOT match each other — each party's own bucket is scoped to their
     // own mySelfTag/counterpartTag pair; a real cross-talk lookup mirrors mySelfTag via the
-    // seeded opposite registry (myEffectiveTagContext, ui-manager.ts), not tested at this layer.
+    // nearest Pair-tag ancestor (myEffectiveTagContext, ui-manager.ts), not tested at this layer.
     expect(adamSavesUnderHisOwnTalk).not.toBe(eveLooksUpFromHerIncomingTalk);
-    // Confirm the actual symmetric case: Eve's LOOKUP for Adam's answer uses mySelfTag derived
-    // as the opposite of the incoming ('buy') talk's own tag, i.e. 'sell' — matching what Adam's
-    // OWN talk (selfTag 'sell'... no: Eve is the seller, so when EVE resolves an incoming 'buy'
-    // talk, her mySelfTag is 'sell' and counterpartTag is 'buy' — exactly Adam's own save-side
-    // shape when Adam saves under HIS OWN 'buy'-tagged talk with preferenceSet including 'sell'
-    // is {mySelfTag:'buy', counterpartTag:'sell'}, and Adam's LOOKUP of Eve's incoming 'sell'
-    // talk uses {mySelfTag: opposite('sell')='buy', counterpartTag:'sell'} — the same shape.
+    // Confirm the actual symmetric case: when Adam looks up Eve's incoming 'sell' talk, his own
+    // resolved tagContext is {mySelfTag: 'buy', counterpartTag: 'sell'} — the same shape Adam's
+    // own save-side used above — so the two buckets must line up.
     const adamLooksUpEvesIncomingSellTalk = buildAnswerPreferenceLookupKey(
       eveTalk,
       computeTalkIdFromTalkData(eveTalk),

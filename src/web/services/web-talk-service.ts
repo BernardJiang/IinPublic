@@ -223,8 +223,6 @@ export class WebTalkService {
     if (talkData.originalCreatedAt != null) talk.originalCreatedAt = talkData.originalCreatedAt;
     if (talkData.originalAuthorLocation != null) talk.originalAuthorLocation = talkData.originalAuthorLocation;
     if (talkData.supersedesTalkId != null) talk.supersedesTalkId = talkData.supersedesTalkId;
-    if (talkData.selfTag != null) talk.selfTag = talkData.selfTag;
-    if (talkData.preferenceSet != null) talk.preferenceSet = talkData.preferenceSet;
     if (talkData.matchThreshold != null) talk.matchThreshold = talkData.matchThreshold;
 
     // Stamp each question with a CIDv1 content hash (excludes routing fields)

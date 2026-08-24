@@ -163,7 +163,17 @@ export async function clickBroadcastUntilBulkAck(
   const { waitForTabActive } = await import('./talks-matching-flow');
   await page.click('.nav-btn[data-view="chatrooms"]');
   await waitForTabActive(page, 'chatrooms');
-  const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
+  // A single synchronous isVisible() read right after the tab click can catch a transient
+  // render gap (the detail view briefly unmounts/remounts on tab-switch) even when the caller
+  // already navigated into a non-Global room and is genuinely still there — misfiring this
+  // fallback silently reroutes the caller into Global instead, corrupting every delivery/accept
+  // check that follows for a room-scoped test. Poll briefly for the detail view to (re)settle
+  // before concluding "not in a room" and falling back.
+  const inDetail = await page
+    .locator('#chatroom-members-list')
+    .waitFor({ state: 'visible', timeout: 2_000 })
+    .then(() => true)
+    .catch(() => false);
   if (!inDetail) {
     await page.locator('.chatroom-item:has-text("Global")').first().click();
     await afterSync();
@@ -358,6 +368,43 @@ export async function readCreatedTalkFromMyTalks(
   }, title);
 }
 
+/**
+ * Fills question index `qIndex` (already present in the DOM, e.g. via `#add-question-btn`) as a
+ * Pair-tag declaration — docs/TODO.md §LL follow-up, `Question.reciprocalTagContext` — the
+ * per-question mechanism that replaced the removed root-level `#talk-tag`/`#talk-preference-set`
+ * fields. Checks `.question-reciprocal-tag` and sets the one meaningful answer to
+ * `counterpartWord` (the word this talk's own Pair-tag question accepts), chaining to
+ * `matchNext` (`'noticed'` if terminal, else `q_${n}`). The 2nd ("Not interested"/ignore) answer
+ * row is hidden once the checkbox is checked (`applyTagKindVisibilityToQuestion`,
+ * talk-editor-form-helpers.ts) — neither `.fill()` nor `.selectOption()` can reach a hidden row,
+ * so it's set directly via the DOM, same fallback `createFlowOrSurveyTalkViaEditor` below uses.
+ */
+export async function fillPairTagQuestion(
+  page: Page,
+  qIndex: number,
+  ownWord: string,
+  counterpartWord: string,
+  matchNext: string,
+): Promise<void> {
+  const q = page.locator(`.question-item[data-question-index="${qIndex}"]`);
+  await q.locator('.question-text').fill(ownWord);
+  await q.locator('.question-reciprocal-tag').setChecked(true, { force: true });
+  await q.locator('.answer-item[data-answer-index="0"] .answer-text').fill(counterpartWord);
+  await q.locator('.answer-item[data-answer-index="0"] .answer-next').selectOption(matchNext);
+  await q.locator('.answer-item[data-answer-index="1"]').evaluate((item) => {
+    const textInput = item.querySelector('.answer-text') as HTMLInputElement | null;
+    if (textInput) {
+      textInput.value = 'Not interested';
+      textInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    const nextSelect = item.querySelector('.answer-next') as HTMLSelectElement | null;
+    if (nextSelect) {
+      nextSelect.value = 'ignore';
+      nextSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+}
+
 export type UiTalkAnswerSpec = {
   text: string;
   /** 'match' -> Noticed (match), 'ignore' -> Ignore (filter out), 'next' -> chain to the
@@ -384,12 +431,6 @@ export type CreateFlowOrSurveyTalkViaEditorOpts = {
   title: string;
   type: 'flow' | 'survey';
   questions: UiTalkQuestionSpec[];
-  /** selfTag — hidden/irrelevant for survey (the real editor hides this field for that type). */
-  tag?: string;
-  /** Explicit counterpart-tag list (docs/TODO.md §II) — overrides the seeded single-opposite
-   *  auto-fill `tag` alone would produce. Can include `tag`'s own value ("match fellow buy
-   *  people" buddy-style talks) or several tags at once; irrelevant/hidden for survey. */
-  preferenceSet?: string[];
   expiresOption?: '' | '1d' | '1w' | '1M' | '1y';
   locationRadiusMiles?: '' | '10' | '100' | '1000';
   isAdult?: boolean;
@@ -423,13 +464,6 @@ export async function createFlowOrSurveyTalkViaEditor(
 
   await page.fill('#talk-title', opts.title);
   await selectTalkEditorType(page, opts.type);
-  if (opts.tag) await page.fill('#talk-tag', opts.tag);
-  // Filled AFTER `#talk-tag` on purpose: `#talk-tag`'s own input event may have already
-  // auto-filled the seeded single-opposite default (talk-editor-dialog.ts) — this explicit
-  // fill overwrites that default and locks the field so no later edit clobbers it.
-  if (opts.preferenceSet && opts.preferenceSet.length > 0) {
-    await page.fill('#talk-preference-set', opts.preferenceSet.join(', '));
-  }
 
   // One question is pre-seeded; add the rest up front so `.answer-next`'s "Go to Question N"
   // options are already correct (they're recomputed from the live total question count) by the
@@ -596,7 +630,6 @@ export type UiRouteNodeSpec = {
 export type CreateRouteTalkViaEditorOpts = {
   title: string;
   root: UiRouteNodeSpec;
-  tag?: string;
   matchThreshold?: number;
   expiresOption?: '' | '1d' | '1w' | '1M' | '1y';
   locationRadiusMiles?: '' | '10' | '100' | '1000';
@@ -631,7 +664,6 @@ export async function createRouteTalkViaEditor(
   await page.fill('#talk-title', opts.title);
   await selectTalkEditorType(page, 'route');
   await expect(page.locator('#route-editor')).toBeVisible();
-  if (opts.tag) await page.fill('#talk-tag', opts.tag);
 
   const addChildAndGetId = async (qid: string, aid: string): Promise<string> => {
     const before = await page

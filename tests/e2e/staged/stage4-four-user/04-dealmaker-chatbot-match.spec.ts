@@ -3,11 +3,12 @@
  * deal before ever meeting, then broadcast into Global — matching happens entirely via the
  * chatbot's exact-question-text auto-reply, with no manual answer clicks anywhere.
  *
- * Talks also declare a self-tag + preference-set pair (spec §30.2 — 'buy' = buyer, 'sell' =
- * seller) — see talk-engine.ts's checkIfMatch and exact-chatbot-memory.ts's findAutoAnswer.
- * Without this, matching is pure text-equality: two BUYERS with identical wording would
- * "match" each other just as readily as a buyer and a seller. The second test below proves
- * that specific case is now vetoed.
+ * Each talk's own Q1 is a Pair-tag declaration (docs/TODO.md §LL follow-up,
+ * `Question.reciprocalTagContext` — 'buy' = buyer, 'sell' = seller), chaining into the criteria
+ * chain below it — see talk-engine.ts's checkIfMatch/findTagPairAncestor and
+ * exact-chatbot-memory.ts's findAutoAnswer. Without this, matching is pure text-equality: two
+ * BUYERS with identical wording would "match" each other just as readily as a buyer and a
+ * seller. The second test below proves that specific case is now vetoed.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -15,7 +16,7 @@ import { clearGunForStage4Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, delay, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 type DealQuestion = { text: string; matchAnswerText: string; otherAnswerText: string };
@@ -69,24 +70,29 @@ async function createDealTalk(
   questions: DealQuestion[],
   tag: 'buy' | 'sell',
 ): Promise<void> {
+  const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  await page.fill('#talk-tag', tag);
 
-  for (let i = 1; i < questions.length; i++) {
+  // Q1 (index 0) is a Pair-tag declaration of `tag` (docs/TODO.md §LL follow-up), chaining into
+  // the criteria chain — every criteria question below shifts one slot later (index i+1).
+  const totalQuestions = 1 + questions.length;
+  for (let i = 1; i < totalQuestions; i++) {
     await page.click('#add-question-btn');
     await afterAction();
   }
 
+  await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
+
   for (let i = 0; i < questions.length; i++) {
     const { text, matchAnswerText, otherAnswerText } = questions[i];
     const isLast = i === questions.length - 1;
-    const q = page.locator('.question-item').nth(i);
+    const q = page.locator('.question-item').nth(i + 1);
     await q.locator('.question-text').fill(text);
     await q.locator('.answer-item').nth(0).locator('.answer-text').fill(matchAnswerText);
-    await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption(isLast ? 'noticed' : `q_${i + 1}`);
+    await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption(isLast ? 'noticed' : `q_${i + 2}`);
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill(otherAnswerText);
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
   }
@@ -268,13 +274,13 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
     expect(await conversationPartnerIds(pageAlice!)).toEqual([]);
   });
 
-  test('two buyers with byte-identical criteria do NOT match — same self-tag is vetoed even when text matches exactly', async () => {
-    // Regression for the bug this whole preference-set feature exists to fix: before
-    // Talk.selfTag/preferenceSet existed (as Talk.role), two talks with identical
-    // question/answer wording matched regardless of who was on which side of the deal — the
-    // chatbot's exact-text memory can't tell "buyer" from "seller" on its own. Reuses the SAME
-    // wording as the positive test above (ADAM_EVE_QUESTIONS), but both sides declare 'buy' —
-    // proving that text equality alone is no longer enough to produce a match.
+  test('two buyers with byte-identical criteria do NOT match — same Pair-tag word is vetoed even when text matches exactly', async () => {
+    // Regression for the bug this whole Pair-tag mechanism exists to fix: with no tag context at
+    // all, two talks with identical question/answer wording matched regardless of who was on
+    // which side of the deal — the chatbot's exact-text memory can't tell "buyer" from "seller"
+    // on its own. Reuses the SAME wording as the positive test above (ADAM_EVE_QUESTIONS), but
+    // both sides declare 'buy' — proving that text equality alone is no longer enough to
+    // produce a match.
     await clearGunForStage4Spec();
     const buyer1 = await bootstrapUser(browsers.adam, 'Buyer1', 'Buyer1');
     const buyer2 = await bootstrapUser(browsers.bob, 'Buyer2', 'Buyer2');

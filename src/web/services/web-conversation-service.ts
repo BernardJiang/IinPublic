@@ -245,11 +245,11 @@ export class WebConversationService {
     respondedByBotForUser1?: boolean;
     respondedByBotForUser2?: boolean;
     /**
-     * Spec §30.2: whether the talk this conversation formed from declares a
-     * selfTag/preferenceSet pair — written directly onto the conversation record (rather than
-     * left for each side to re-derive from their own local talk cache, which may not have a
-     * matching entry for whichever specific talkId this particular exchange ended up keyed to)
-     * so the deal-confirmation UI can read it with zero ambiguity from either side.
+     * Spec §30.2: whether the talk this conversation formed from is deal-eligible (declares a
+     * Pair-tag question) — written directly onto the conversation record (rather than left for
+     * each side to re-derive from their own local talk cache, which may not have a matching
+     * entry for whichever specific talkId this particular exchange ended up keyed to) so the
+     * deal-confirmation UI can read it with zero ambiguity from either side.
      */
     dealEligible?: boolean;
     /**
@@ -332,8 +332,8 @@ export class WebConversationService {
 
   /**
    * Bidirectional deal confirmation: appends `userId` to the conversation's `dealConfirmedBy`
-   * list, idempotently. Only meaningful for a conversation whose talk declares
-   * `selfTag`/`preferenceSet` (spec §30.2) — a match isn't exclusive on its own when several
+   * list, idempotently. Only meaningful for a conversation whose talk is deal-eligible (spec
+   * §30.2 — declares a Pair-tag question) — a match isn't exclusive on its own when several
    * compatible buyers/sellers exist, so a deal is only "done" once BOTH participants have
    * confirmed here. Returns the updated list so the caller can check for both-confirmed
    * without a second read.

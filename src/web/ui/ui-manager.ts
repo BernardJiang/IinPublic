@@ -85,7 +85,6 @@ import {
 } from './answer-preferences-storage';
 import { pickBuiltInAnswer, resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
 import { makeTypedPreferenceScopeKey, saveTypedPreference } from '../../shared/typed-preference-store';
-import { makeTagId, getOppositeTagName, createSeededTagOppositePairRegistryState } from '../../shared/tag-opposite-pairs';
 import {
   findAutoAnswer,
   findAutoAnswerMultiple,
@@ -181,16 +180,6 @@ function resolveExpiresAtMs(value: unknown): number {
   if (typeof value === 'string' && value.trim()) return new Date(value).getTime();
   return Number.NaN;
 }
-
-/** Best-effort category guess for the tag-pair picker's 3 seeded deal pairs (talk-editor-
- *  dialog.ts) — any other tag (including a user-typed one with no known opposite) falls back
- *  to 'other', matching how ordinary free-form tags have no category guidance today either. */
-const DEAL_TAG_CATEGORY_BY_NAME: Partial<Record<string, TagCategory>> = {
-  buy: 'for-sale',
-  sell: 'for-sale',
-  hiring: 'jobs',
-  jobseeking: 'jobs',
-};
 
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
 // Settings → Appearance: decorative swatch + label per scheme, matching the
@@ -513,33 +502,31 @@ export class UIManager extends EventEmitter {
 
   // docs/TODO.md §LL: "buy?sell" notation — a small muted suffix showing the accepted answer
   // word when it differs from the tag word itself (opposite-pair). Self-match talks (answer ===
-  // question, e.g. "Tennis") render no suffix — the plain word already says everything. A
-  // `type: 'tag'` talk carries no selfTag/preferenceSet (§LL: a tag is just 1 question/1
-  // answer, matched via the plain Q&A text like anything else) — its own question/answer text
-  // IS the whole declaration, read directly here. Flow/route talks still declare the
-  // flow/route-only `#talk-tag`/`#talk-preference-set` pair (unrelated to tag-type matching),
-  // so that's checked first and wins when present.
+  // question, e.g. "Tennis") render no suffix — the plain word already says everything.
+  // Two sources, checked in order: a root Pair-tag question (Q1 with `reciprocalTagContext` and
+  // exactly one real answer — same shape the old root-level `selfTag`/`preferenceSet` fields
+  // used to carry, now expressed as an ordinary question instead of talk-level metadata), else a
+  // `type: 'tag'` talk's own (title, match-answer) pair (§LL: a tag is just 1 question/1 answer).
   private tagAnswerSuffix(talk: {
     title?: string;
-    selfTag?: string;
-    preferenceSet?: string[];
-    questions?: Array<{ answers?: Array<{ text?: string; isMatch?: boolean }> }>;
+    questions?: Array<{ text?: string; reciprocalTagContext?: boolean; answers?: Array<{ text?: string; isMatch?: boolean; isIgnore?: boolean }> }>;
     fullTalk?: {
       title?: string;
-      selfTag?: string;
-      preferenceSet?: string[];
-      questions?: Array<{ answers?: Array<{ text?: string; isMatch?: boolean }> }>;
+      questions?: Array<{ text?: string; reciprocalTagContext?: boolean; answers?: Array<{ text?: string; isMatch?: boolean; isIgnore?: boolean }> }>;
     };
   }): string {
-    const selfTag = talk?.selfTag ?? talk?.fullTalk?.selfTag;
-    const preferenceSet = talk?.preferenceSet ?? talk?.fullTalk?.preferenceSet;
-    const declaredAnswer = Array.isArray(preferenceSet) ? preferenceSet[0] : undefined;
-    if (selfTag && declaredAnswer) {
-      return declaredAnswer === selfTag ? '' : this.renderTagAnswerSuffixHtml(declaredAnswer);
+    const questions = talk?.questions ?? talk?.fullTalk?.questions;
+    const rootQuestion = Array.isArray(questions) ? questions[0] : undefined;
+    if (rootQuestion?.reciprocalTagContext) {
+      const only = singleNonIgnoreAnswer(rootQuestion);
+      const declaredAnswer = only?.text;
+      const keyword = rootQuestion.text;
+      if (keyword && declaredAnswer) {
+        return declaredAnswer === keyword ? '' : this.renderTagAnswerSuffixHtml(declaredAnswer);
+      }
     }
     const keyword = talk?.title ?? talk?.fullTalk?.title;
-    const questions = talk?.questions ?? talk?.fullTalk?.questions;
-    const matchAnswerText = Array.isArray(questions) ? questions[0]?.answers?.find((a) => a?.isMatch)?.text : undefined;
+    const matchAnswerText = rootQuestion?.answers?.find((a) => a?.isMatch)?.text;
     if (!keyword || !matchAnswerText || matchAnswerText === keyword) return '';
     return this.renderTagAnswerSuffixHtml(matchAnswerText);
   }
@@ -6413,9 +6400,9 @@ export class UIManager extends EventEmitter {
       }
     }
 
-    // Spec §30.2 deal confirmation: only shown when the thread's own talk declares
-    // selfTag/preferenceSet — a match there isn't exclusive on its own, so both sides must
-    // explicitly confirm before the talk disables. Plain talks show no deal bar.
+    // Spec §30.2 deal confirmation: only shown when the thread's own talk declares a Pair-tag
+    // question (`isDealEligibleTalk`, app.ts) — a match there isn't exclusive on its own, so both
+    // sides must explicitly confirm before the talk disables. Plain talks show no deal bar.
     const dealBar = document.getElementById('conversation-deal-bar');
     const dealStatusEl = document.getElementById('conversation-deal-status');
     const dealBtn = document.getElementById('conversation-confirm-deal-btn') as HTMLButtonElement | null;
@@ -7900,13 +7887,14 @@ export class UIManager extends EventEmitter {
 
   /**
    * docs/TODO.md §LL follow-up: finds the nearest ancestor of `currentQuestion` (within the same
-   * branch) that's marked `reciprocalTagContext` and ends up with exactly one answer — the
-   * per-question generalization of the talk-level `selfTag`/`preferenceSet` root fields, usable
-   * anywhere in a flow/route instead of only at the root. Branch-aware for route talks (walks
-   * `currentQuestion.contextPath`, root-first, so two sibling branches with unrelated reciprocal
-   * markers never bleed into each other); a plain linear array-position scan for flow talks
-   * (no `contextPath` — not route type — array order IS branch order there). Nearest wins when
-   * more than one qualifying ancestor exists on the path.
+   * branch) that's marked `reciprocalTagContext` and ends up with exactly one answer — the sole
+   * remaining source of tag/preference context for matching (the old talk-level `selfTag`/
+   * `preferenceSet` root fields have been removed entirely), usable anywhere in a flow/route
+   * instead of only at the root. Branch-aware for route talks (walks `currentQuestion.contextPath`,
+   * root-first, so two sibling branches with unrelated reciprocal markers never bleed into each
+   * other); a plain linear array-position scan for flow talks (no `contextPath` — not route type —
+   * array order IS branch order there). Nearest wins when more than one qualifying ancestor exists
+   * on the path.
    */
   /**
    * Every question must carry an "Ignore" answer (`TalkValidator.validateQuestion`,
@@ -7930,31 +7918,13 @@ export class UIManager extends EventEmitter {
    * docs/TODO.md §KK: the single derived "my own effective tag" for this exchange, plus every
    * counterpart tag context that could apply, for `buildAnswerPreferenceLookupKey`'s `tagContext`.
    *
-   * When `currentQuestion` is given and `findReciprocalTagAncestor` finds a qualifying nearer
-   * question, that WINS over the talk-level fields below (docs/TODO.md §LL follow-up) — the
-   * literal "reversed question and answer" the per-question checkbox asks for: `isMine` (I
-   * authored/self-answered this talk) uses the ancestor's own (question, answer) unreversed,
-   * same as authoring; answering someone else's talk swaps them, my own tag becomes the answer
-   * text and the counterpart becomes the question text — exactly the same swap direction as the
-   * talk-level fallback below, just one level down at the per-question scope.
-   *
-   * `mySelfTag` mirrors the derivation `saveAnswerPreference` already used (kept here so both
-   * the read and write sides compute it identically): my own talk's declared `selfTag` when
-   * `talk` is mine. When answering someone else's talk, docs/TODO.md §LL: my own tag is
-   * whichever tag THIS talk actually declares it'll accept (`talk.preferenceSet[0]`) — correct
-   * for both an opposite-pair talk (accepts "sell") and a self-match/buddy talk (accepts "buy"
-   * again, same as its own `selfTag`), which the OLD registry-opposite-only derivation got wrong
-   * for the buddy case (there is no seeded "opposite" of "buy" that equals "buy"). Falls back to
-   * the seeded-opposite registry only for old talks stored before `preferenceSet` was always set
-   * (docs/TODO.md §LL's migration note — no data rewrite, only new saves changed).
-   *
-   * `counterpartCandidates` is what's new: when `talk` is my own, it's every member of my own
-   * `preferenceSet` (the set of counterpart tags I declared compatible) — a talk with
-   * `preferenceSet: ['sell', 'free']` fans out to 2 candidates, so the SAME answer gets saved
-   * under 2 buckets (bounded by however many tags that one talk declares, not combinatorial
-   * across the whole question chain — see docs/TODO.md §KK). When `talk` is someone else's,
-   * there is exactly one relevant tag: their own single `selfTag` — no fan-out needed on lookup,
-   * since an incoming talk only ever declares one tag for itself.
+   * Sourced entirely from the nearest Pair-tag ancestor (`findReciprocalTagAncestor` —
+   * `Question.reciprocalTagContext`, docs/TODO.md §LL follow-up), the per-question generalization
+   * that replaced the old talk-level `selfTag`/`preferenceSet` root fields: `isMine` (I
+   * authored/self-answered this talk) uses the ancestor's own (question, answer) unreversed, same
+   * as authoring; answering someone else's talk swaps them, my own tag becomes the answer text and
+   * the counterpart becomes the question text. No ancestor found means no tag context applies at
+   * all — `undefined` on both, same as a talk that never declares one.
    */
   private myEffectiveTagContext(
     talk: any,
@@ -7967,15 +7937,7 @@ export class UIManager extends EventEmitter {
         ? { mySelfTag: ancestor.questionText, counterpartCandidates: [ancestor.answerText] }
         : { mySelfTag: ancestor.answerText, counterpartCandidates: [ancestor.questionText] };
     }
-    const mySelfTag: string | undefined = isMine
-      ? talk?.selfTag
-      : (Array.isArray(talk?.preferenceSet) && talk.preferenceSet.length > 0
-          ? talk.preferenceSet[0]
-          : getOppositeTagName(createSeededTagOppositePairRegistryState(), talk?.selfTag || ''));
-    const counterpartCandidates: Array<string | undefined> = isMine
-      ? (Array.isArray(talk?.preferenceSet) && talk.preferenceSet.length > 0 ? talk.preferenceSet : [undefined])
-      : [talk?.selfTag || undefined];
-    return { mySelfTag, counterpartCandidates };
+    return { mySelfTag: undefined, counterpartCandidates: [undefined] };
   }
 
   /**
@@ -8015,8 +7977,12 @@ export class UIManager extends EventEmitter {
     // reuse via string equality. Must run BEFORE the multi-select/single-select branches so a
     // builtIn question never falls through to exact-text lookup by mistake.
     if (currentQuestion.builtIn) {
+      // Same Pair-tag-ancestor derivation every other tag-context consumer uses (§LL follow-up)
+      // — mySelfTag is MY OWN declared side, counterpartCandidates[0] is the incoming talk's own
+      // declared side (needed for the quantity want/have direction).
+      const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk, currentQuestion);
       const resolution = resolveBuiltInQuestion(
-        { selfTag: talk?.selfTag, title: talk?.title },
+        { myTag: mySelfTag, theirTag: counterpartCandidates[0], title: talk?.title },
         { builtIn: currentQuestion.builtIn, text: currentQuestion.text || '' },
         getTypedPreferenceState(),
         LOCAL_EXACT_CHATBOT_USER_ID,
@@ -8064,14 +8030,13 @@ export class UIManager extends EventEmitter {
     const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
     // docs/TODO.md §LL follow-up: findAutoAnswer/findAutoAnswerMultiple run their own
     // independent PREFERENCE_CONFLICT veto (exact-chatbot-memory.ts), separate from
-    // checkIfMatch's (talk-engine.ts, now ancestor-aware too). A nearer reciprocalTagContext
-    // ancestor on THIS branch wins over the talk-root preferenceSet — same precedence
-    // checkIfMatch and myEffectiveTagContext already use — so the chatbot can't auto-answer past
-    // a mid-tree pair-tag conflict that manual answering would now correctly veto.
+    // checkIfMatch's (talk-engine.ts). Only a Pair-tag ancestor on THIS branch ever supplies a
+    // preference set now (the old talk-root `preferenceSet` fallback is gone) — so the chatbot
+    // can't auto-answer past a mid-tree pair-tag conflict that manual answering would veto.
     const tagPairAncestor = findTagPairAncestor(talk, currentQuestion);
     const effectivePreferenceSet: string[] | undefined = tagPairAncestor
       ? [tagPairAncestor.answerText]
-      : talk?.preferenceSet;
+      : undefined;
 
     // §KK: context-aware flattened lookup, tried BEFORE exact-chatbot-memory (was the reverse —
     // exact-chatbot-memory is keyed by question text alone, no context, so it used to win on any
@@ -8249,13 +8214,11 @@ export class UIManager extends EventEmitter {
   ): void {
     const exactMemory = getExactChatbotMemory();
     const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
-    // The selfTag to persist alongside this answer is always MY OWN self-tag for this deal —
-    // not necessarily the talk's own `selfTag` field. See `myEffectiveTagContext`'s own
-    // docstring for the exact derivation (talk-level selfTag/preferenceSet, or a nearer
-    // reciprocalTagContext-marked question when one applies, §LL follow-up) — this lets
-    // findAutoAnswer/getSelfTagForQuestionText later veto a preference-set mismatch without
-    // every call site here having to know or pass that distinction explicitly. §KK: also
-    // drives the flattened-store write below.
+    // The selfTag to persist alongside this answer is always MY OWN effective tag for this
+    // deal, derived from the nearest Pair-tag ancestor (`myEffectiveTagContext`, §LL follow-up)
+    // — this lets findAutoAnswer/getSelfTagForQuestionText later veto a preference mismatch
+    // without every call site here having to know or pass that distinction explicitly. §KK:
+    // also drives the flattened-store write below.
     const { mySelfTag, counterpartCandidates } = this.myEffectiveTagContext(talk, currentQuestion);
     if (currentQuestion.text) {
       if (mode === 'suppressed') {
@@ -8282,10 +8245,10 @@ export class UIManager extends EventEmitter {
       ? []
       : sessionAnswersToQAPairs(talk, fullSessionAnswersIncludingCurrent.slice(0, -1));
 
-    // §KK: write the same answer under one flattened-key bucket per counterpart-tag candidate —
-    // e.g. a "buy iPhone" talk with `preferenceSet: ['sell', 'free']` fans out to 2 buckets, so
-    // a lookup from either a single 'sell' or a single 'free' incoming talk finds it. Bounded by
-    // how many tags THIS ONE talk declares, not combinatorial across the question chain.
+    // §KK: write the same answer under one flattened-key bucket per counterpart-tag candidate
+    // `myEffectiveTagContext` returns — today that's always at most one (the nearest Pair-tag
+    // ancestor's own counterpart), but the fan-out shape is kept in case a future context source
+    // ever yields more than one candidate.
     const primaryFlatKey = buildAnswerPreferenceLookupKey(
       talk,
       talkContentHash,
@@ -8402,10 +8365,16 @@ export class UIManager extends EventEmitter {
           answerText: pref.answerText,
           mode: 'auto',
         });
-        pairs.push({
-          questionText: (q.text || '').trim(),
-          answerText: (pref.answerText || '').trim(),
-        });
+        // docs/TODO.md §LL follow-up: mirrors `sessionAnswersToQAPairs`'s own exclusion — a
+        // Pair-tag question's (text, answer) differs by construction between independently-
+        // authored talks, so it's kept out of the path every later question's flattened lookup
+        // key is built from (see that function's doc comment for the full reasoning).
+        if (!q.reciprocalTagContext) {
+          pairs.push({
+            questionText: (q.text || '').trim(),
+            answerText: (pref.answerText || '').trim(),
+          });
+        }
         continue;
       }
       const ans = q.answers?.find((a: { id: string }) => a.id === pref.answerId);
@@ -8416,10 +8385,12 @@ export class UIManager extends EventEmitter {
         answerText: pref.answerText,
         mode: 'auto',
       });
-      pairs.push({
-        questionText: (q.text || '').trim(),
-        answerText: (pref.answerText || '').trim(),
-      });
+      if (!q.reciprocalTagContext) {
+        pairs.push({
+          questionText: (q.text || '').trim(),
+          answerText: (pref.answerText || '').trim(),
+        });
+      }
     }
     return out;
   }
@@ -8714,10 +8685,11 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * My own self-tag (see `Talk.selfTag`, spec §30.2) recorded for this exact question text,
-   * if any — lets app.ts resolve `responderSelfTag` for `checkIfMatch`'s preference-set veto
-   * on the manual answering path (the chatbot's own auto-reply path already vetoes internally
-   * via findAutoAnswer, see resolveAnswerPreferenceForTalkQuestion above).
+   * My own self-tag (see `ChatbotQuestionSummary.selfTag`, exact-chatbot-memory.ts) recorded
+   * for this exact question text, if any — lets app.ts resolve `responderSelfTag` for
+   * `checkIfMatch`'s Pair-tag-ancestor veto on the manual answering path (the chatbot's own
+   * auto-reply path already vetoes internally via findAutoAnswer, see
+   * resolveAnswerPreferenceForTalkQuestion above).
    */
   getMySelfTagForQuestionText(questionText: string, language?: string): string | undefined {
     if (!questionText) return undefined;
@@ -9185,46 +9157,12 @@ export class UIManager extends EventEmitter {
     const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
     const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
     const sendToChatroomCheck = document.getElementById('talk-send-to-chatroom') as HTMLInputElement;
-    // §BB / spec §30.2 Phase 5: the tag-pair picker's (talk-editor-dialog.ts) `#talk-tag`
-    // value doubles as this talk's selfTag. docs/TODO.md §LL: `#talk-preference-set` is the
-    // explicit, author-editable single counterpart — when the author typed a value there
-    // (including their OWN tag again, for "match fellow buy people" buddy-style talks), that
-    // wins outright. Only when it's untouched/empty does preferenceSet fall back to the seeded
-    // opposite-tag registry lookup (buy→sell) the editor's live preview also auto-fills as a
-    // convenience default, and — when even THAT'S unknown — to the tag's own word (self-match:
-    // "Tennis" matches anyone else tagged "Tennis"). "Matches anyone, tag ignored" is no longer
-    // a distinct fallback state; a talk with a tag always matches by that tag, one way or
-    // another. Single value only (§LL rejected multi-value: a bare second word like "free" is
-    // ambiguous without its own question — give or receive?); several accepted answers belong
-    // on an ordinary multi-answer question, not a comma-separated list here.
-    // `#talk-tag`/`#talk-preference-set` are flow/route-only inputs, hidden entirely from the
-    // tag form (talk-editor-dialog.ts) — docs/TODO.md §LL: a `type: 'tag'` talk carries no
-    // selfTag/preferenceSet at all (matching is plain question/answer text, see the tag branch
-    // below), so `tagInputValue` is always empty for a tag submission and these stay undefined.
-    const tagInputValue = (document.getElementById('talk-tag') as HTMLInputElement | null)?.value.trim() || '';
-    const selfTag = tagInputValue || undefined;
-    const preferenceSetInputValue =
-      (document.getElementById('talk-preference-set') as HTMLInputElement | null)?.value.trim() || '';
-    const oppositeTag = tagInputValue
-      ? getOppositeTagName(createSeededTagOppositePairRegistryState(), tagInputValue)
-      : undefined;
-    const preferenceSet: string[] | undefined = preferenceSetInputValue
-      ? [preferenceSetInputValue]
-      : (oppositeTag ? [oppositeTag] : (tagInputValue ? [tagInputValue] : undefined));
-    // §BB / spec §30.2: the tag-pair picker (talk-editor-dialog.ts) stores a real Tag on the
-    // talk — not just UI chrome. Category is a light best-effort guess for the 3 seeded deal
-    // pairs; everything else (including any user-typed tag with no known opposite) falls back
-    // to 'other', matching how ordinary free-form tags have no category guidance today either.
-    const tags: Tag[] = tagInputValue
-      ? [
-          {
-            id: makeTagId(tagInputValue),
-            name: tagInputValue.toLowerCase(),
-            category: DEAL_TAG_CATEGORY_BY_NAME[tagInputValue.toLowerCase()] || 'other',
-            popularity: 0,
-          },
-        ]
-      : [];
+    // docs/TODO.md §LL follow-up: the root-level `#talk-tag`/`#talk-preference-set` fields (and
+    // the talk-level `selfTag`/`preferenceSet` they wrote) were removed entirely — tag/preference
+    // context is now declared exclusively per-question via a Pair-tag question's own
+    // `reciprocalTagContext` flag (`Question.reciprocalTagContext`), read at match/resolution
+    // time by `findTagPairAncestor`/`myEffectiveTagContext`, not authored here.
+    const tags: Tag[] = [];
     const expiresVal = expiresSelect?.value || '';
     const oneDay = 24 * 60 * 60 * 1000;
     let expiresAt: number | null = null;
@@ -9459,16 +9397,17 @@ export class UIManager extends EventEmitter {
 
     // §BB / spec §30.2: the value I just declared on my OWN builtIn question is also my own
     // typed preference for future auto-resolution when I respond to someone ELSE'S talk of the
-    // same shape — save it into the same store `resolveBuiltInQuestion` (Phase 5) reads,
-    // scoped the same way (talk.selfTag + talk.title + this question's own text — the text
-    // component is required so a talk with MORE THAN ONE builtIn question, e.g. priceRange AND
-    // timeFrame in the same talk (§HH), doesn't have the second overwrite the first at an
-    // otherwise-identical scope key). 'location' is excluded: it has no stored preference, see
-    // Question.builtIn's doc comment.
+    // same shape — save it into the same store `resolveBuiltInQuestion` (Phase 5) reads, scoped
+    // the same way (my own tag, from this question's nearest Pair-tag ancestor if any + this
+    // talk's title + this question's own text — the text component is required so a talk with
+    // MORE THAN ONE builtIn question, e.g. priceRange AND timeFrame in the same talk (§HH),
+    // doesn't have the second overwrite the first at an otherwise-identical scope key).
+    // 'location' is excluded: it has no stored preference, see Question.builtIn's doc comment.
     for (const q of questions) {
       if (!q.builtIn || q.builtIn.kind === 'location') continue;
       const preferenceState = getTypedPreferenceState();
-      const scopeKey = makeTypedPreferenceScopeKey(String(selfTag || 'general'), title, q.text);
+      const myTag = findTagPairAncestor({ type, questions }, q)?.questionText;
+      const scopeKey = makeTypedPreferenceScopeKey(String(myTag || 'general'), title, q.text);
       saveTypedPreference(preferenceState, LOCAL_EXACT_CHATBOT_USER_ID, scopeKey, {
         kind: q.builtIn.kind,
         ...(q.builtIn.quantity !== undefined ? { quantity: q.builtIn.quantity } : {}),
@@ -9499,8 +9438,6 @@ export class UIManager extends EventEmitter {
         tags,
         expiresAt,
         locationRadiusMiles,
-        selfTag,
-        preferenceSet,
         matchThreshold,
       });
     } else {
@@ -9529,8 +9466,6 @@ export class UIManager extends EventEmitter {
         sendToChatroom,
         expiresAt,
         locationRadiusMiles,
-        selfTag,
-        preferenceSet,
         matchThreshold,
         selfAnswers,
         ...(mediaFile ? { mediaFile } : {}),

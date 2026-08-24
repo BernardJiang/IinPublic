@@ -2,7 +2,6 @@ import type { UiTranslationKey } from './ui-translations';
 import {
   createSeededTagOppositePairRegistryState,
   getOppositeTagName,
-  questionTemplateForTag,
   registerOppositeTagPair,
   type TagOppositePairRegistryState,
 } from '../../shared/tag-opposite-pairs';
@@ -11,15 +10,13 @@ import {
   setTagOppositePairRegistryState,
 } from './answer-preferences-storage';
 
-// docs/TODO.md §LL: shared auto-fill/lock/preview behavior for a tag-word input and its
-// accepted-answer counterpart — used by both `#talk-tag`/`#talk-preference-set` (flow/route
-// selfTag + preferenceSet) and `#talk-title`/`#talk-answer` (tag-type keyword + answer). Typing
-// into the source keeps auto-driving the answer field with the seeded opposite tag (buy → sell,
-// live) until the author gives the answer field a value of their own — either by typing into it
-// directly, or by opening the editor on an existing talk that already carries an explicit
-// `preferenceSet`. With no known opposite, the answer defaults to the SAME word as the source
-// (self-match — "Tennis" matches anyone else tagged "Tennis"), not a blank "matches anyone"
-// state; §LL retired that as a distinct concept.
+// docs/TODO.md §LL: shared auto-fill/lock/preview behavior for a `type: 'tag'` talk's tag-word
+// input (`#talk-title`) and its accepted-answer counterpart (`#talk-answer`). Typing into the
+// source keeps auto-driving the answer field with the seeded opposite tag (buy → sell, live)
+// until the author gives the answer field a value of their own — either by typing into it
+// directly, or by opening the editor on an existing Pair-tag talk. With no known opposite, the
+// answer defaults to the SAME word as the source (self-match — "Tennis" matches anyone else
+// tagged "Tennis"), not a blank "matches anyone" state; §LL retired that as a distinct concept.
 function wireTagAnswerAutoFill(config: {
   sourceInput: HTMLInputElement | null;
   answerInput: HTMLInputElement | null;
@@ -205,33 +202,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               <option value="survey">Survey</option>
               <option value="route">Route</option>
             </select>
-          </div>
-
-          <div class="form-group" id="talk-tag-group">
-            <label class="form-label" for="talk-tag">${text('editorTagPairLabel', 'What is this? (optional)')}</label>
-            <input
-              type="text"
-              class="form-input"
-              id="talk-tag"
-              value="${options.escapeHtml(existingTalk?.tags?.[0]?.name || '')}"
-              placeholder="${text('editorTagPairPlaceholder', 'e.g. buy, sell, hiring, jobseeking')}"
-              list="talk-tag-suggestions"
-            >
-            <datalist id="talk-tag-suggestions">
-              <option value="buy"></option>
-              <option value="sell"></option>
-              <option value="hiring"></option>
-              <option value="jobseeking"></option>
-            </datalist>
-            <label class="form-label" for="talk-preference-set" style="margin-top: 10px; display: block;">${text('editorPreferenceSetLabel' as UiTranslationKey, 'Who can respond? (optional — leave blank to auto-fill the opposite tag)')}</label>
-            <input
-              type="text"
-              class="form-input"
-              id="talk-preference-set"
-              value="${options.escapeHtml((existingTalk?.preferenceSet || []).join(', '))}"
-              placeholder="${text('editorPreferenceSetPlaceholder' as UiTranslationKey, 'e.g. sell, offer, free — or type your own tag again to match fellow buy people')}"
-            >
-            <p id="talk-tag-preview" style="margin: 6px 0 0 0; font-size: 0.85em; color: #666;"></p>
           </div>
 
           <div class="form-group" id="questions-form-group">
@@ -431,7 +401,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     const talkOptionsGroup = document.getElementById('talk-options-group');
     const talkLocationGroup = document.getElementById('talk-location-group');
     const talkSendChatroomGroup = document.getElementById('talk-send-chatroom-group');
-    const talkTagGroup = document.getElementById('talk-tag-group');
     const tagLikeGroup = document.getElementById('tag-like-group');
     const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
     const tagPairGroup = document.getElementById('tag-pair-group');
@@ -455,7 +424,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       if (talkOptionsGroup) talkOptionsGroup.style.display = 'none';
       if (talkLocationGroup) talkLocationGroup.style.display = 'none';
       if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = 'none';
-      if (talkTagGroup) talkTagGroup.style.display = 'block';
       if (questionsFormGroup) {
         questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
           (el as HTMLInputElement).disabled = true;
@@ -465,11 +433,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       if (type === 'tag') {
         if (tagLikeGroup) tagLikeGroup.style.display = 'block';
         if (tagLikeCheckbox && !isEdit && tagLikeCheckbox.checked === false) tagLikeCheckbox.checked = true;
-        // docs/TODO.md §LL: a tag IS a single-question talk — `#talk-tag`/`#talk-preference-set`
-        // (the flow/route selfTag+counterpart picker below) is a different field pair for a
-        // different concept and would just be visual clutter here; the tag's own keyword lives
-        // in the title field, and its accepted answer lives in `#talk-answer` instead.
-        if (talkTagGroup) talkTagGroup.style.display = 'none';
         if (tagPairGroup) tagPairGroup.style.display = 'block';
         // docs/TODO.md §LL follow-up: the accepted-answer field only matters once the author
         // opts into a Pair tag (divergent accepted answer, e.g. buy/sell) — a plain tag defaults
@@ -506,9 +469,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         });
       }
       if (type === 'survey') {
-        // Surveys never have a match/ignore outcome (checkIfMatch always returns false for
-        // them) — a self-tag/preference-set picker would be meaningless here.
-        if (talkTagGroup) talkTagGroup.style.display = 'none';
         if (questionsFormLabel) questionsFormLabel.textContent = text('editorSurveyQuestions', 'Questions (independent)');
         if (questionsTypeHint) {
           questionsTypeHint.textContent = text('editorSurveyHint', 'Survey: questions are independent - no branching. Every answer has a counter used for aggregate statistics.');
@@ -541,15 +501,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     }
     tagPairCheckbox?.addEventListener('change', updateFormForType);
 
-    // Spec §30.2 Phase 5 / docs/TODO.md §LL: `#talk-tag`'s value doubles as this talk's
-    // `selfTag` (a plain self-declaration — "buy", "sell", ...), replacing the old separate
-    // role picker; `#talk-preference-set` is the explicit, editable accepted-answer field
-    // (the underlying `preferenceSet: string[]` field always holds exactly one entry now — see
-    // §LL's single-answer rule). §LL reframed `type: 'tag'` talks the same way: the tag word
-    // (from `#talk-title`) is the question, `#talk-answer` is the answer. Both pairs share
-    // identical auto-fill/lock/preview behavior — seeded opposite (buy → sell) if known, else
-    // the SAME word (self-match, "Tennis" matches "Tennis") — wired once via
-    // `wireTagAnswerAutoFill` below rather than duplicated per field.
+    // docs/TODO.md §LL: `type: 'tag'` talks reframe the tag word (from `#talk-title`) as the
+    // question and `#talk-answer` as the answer — auto-fill/lock/preview behavior (seeded
+    // opposite if known, else the same word for self-match) wired via `wireTagAnswerAutoFill`.
     // docs/TODO.md §BB: seeded app-predefined pairs merged with whatever this author has
     // previously typed themselves (persisted separately, `answer-preferences-storage.ts`) —
     // so a custom pair the author declares once (e.g. "borrow"/"lend") auto-fills again on
@@ -563,42 +517,16 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       setTagOppositePairRegistryState(userTagRegistry);
       tagRegistry.pairs = { ...createSeededTagOppositePairRegistryState().pairs, ...userTagRegistry.pairs };
     };
-    const preferenceSetAlreadyLocked = !!(existingTalk?.preferenceSet && existingTalk.preferenceSet.length > 0);
-
-    const talkTagInput = document.getElementById('talk-tag') as HTMLInputElement | null;
-    wireTagAnswerAutoFill({
-      sourceInput: talkTagInput,
-      answerInput: document.getElementById('talk-preference-set') as HTMLInputElement | null,
-      previewEl: document.getElementById('talk-tag-preview'),
-      registry: tagRegistry,
-      initiallyLocked: preferenceSetAlreadyLocked,
-      selfMatchPreviewText: (tag) => format('editorTagPairNoOpposite', "Matches anyone also tagged '{tag}'.", { tag }),
-      oppositePreviewText: (answer) => `${text('editorTagPairOppositeLabel', 'Shown to people tagged:')} ${answer}`,
-      onCustomPairConfirmed: persistCustomTagPair,
-    });
-
-    // Auto-suggest the first question's wording from `#talk-tag` — a separate concern from the
-    // answer auto-fill above (only meaningful for flow/route, which have a real first question),
-    // only when the author hasn't typed anything there yet, so this never clobbers a real edit.
-    talkTagInput?.addEventListener('input', () => {
-      const tagValue = talkTagInput.value.trim();
-      if (!tagValue) return;
-      const titleInput = document.getElementById('talk-title') as HTMLInputElement | null;
-      const template = questionTemplateForTag(tagValue, titleInput?.value || '');
-      if (template) {
-        const flowQ1Text = document.querySelector('.question-item[data-question-index="0"] .question-text') as HTMLInputElement | null;
-        if (flowQ1Text && !flowQ1Text.value.trim()) flowQ1Text.value = template;
-        const routeQ1Text = document.querySelector('.route-question-text[data-qid="q_0"]') as HTMLInputElement | null;
-        if (routeQ1Text && !routeQ1Text.value.trim()) routeQ1Text.value = template;
-      }
-    });
+    // Mirrors the `#tag-pair-checkbox` initial-checked condition above: an existing tag-type
+    // talk whose Pair tag was already set shouldn't have this auto-fill clobber the answer.
+    const tagAnswerAlreadyLocked = existingTalk?.type === 'tag' && !!existingTalk?.questions?.[0]?.reciprocalTagContext;
 
     wireTagAnswerAutoFill({
       sourceInput: document.getElementById('talk-title') as HTMLInputElement | null,
       answerInput: document.getElementById('talk-answer') as HTMLInputElement | null,
       previewEl: document.getElementById('talk-answer-preview'),
       registry: tagRegistry,
-      initiallyLocked: preferenceSetAlreadyLocked,
+      initiallyLocked: tagAnswerAlreadyLocked,
       selfMatchPreviewText: (tag) => format('editorTagPairNoOpposite', "Matches anyone also tagged '{tag}'.", { tag }),
       oppositePreviewText: (answer) => `${text('editorTagPairOppositeLabel', 'Shown to people tagged:')} ${answer}`,
       onCustomPairConfirmed: persistCustomTagPair,

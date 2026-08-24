@@ -73,17 +73,16 @@ export function ageRangeMutuallyAcceptable(a: AgeAndAcceptableRange, b: AgeAndAc
 }
 
 /**
- * §DD / spec §30.2, §30.7: mutual preference-set membership — generalizes `checkIfMatch`'s
- * existing one-directional `preferenceSet` veto (talk-engine.ts, checked only from the talk
- * author's side against the responder's `selfTag`) to a real two-sided check, needed once a
- * comparison has BOTH parties' own declared (selfTag, preferenceSet) pairs available (e.g. a
- * dating talk's mutual gender/race preference, spec §30.6 — "kept symmetric with every other
- * hard criterion," §30.7). An empty/absent `preferenceSet` means "no preference — accepts
- * anyone" (the established default posture, spec §30.2/§30.6), not "accepts no one." Matches
- * the existing one-directional veto's exact permissive default for a missing counterpart
- * `selfTag` too — `checkIfMatch`'s own check only vetoes when `responderSelfTag` is present
- * AND excluded, so "the other side declared no self-tag at all" already passes today and must
- * keep passing here, in either direction.
+ * §DD / spec §30.2, §30.7: mutual preference-set membership — a real two-sided (selfTag,
+ * preferenceSet) check, needed once a comparison has BOTH parties' own declared pairs available
+ * (e.g. a dating talk's mutual gender/race preference, spec §30.6 — "kept symmetric with every
+ * other hard criterion," §30.7). Unlike `checkIfMatch`'s ordinary match veto (talk-engine.ts,
+ * one-directional — a Pair-tag ancestor's declared accepted tag vs. the responder's own), this
+ * is a standalone primitive for contexts where both sides' own (selfTag, preferenceSet) pairs
+ * are supplied directly rather than derived from a shared question tree. An empty/absent
+ * `preferenceSet` means "no preference — accepts anyone" (the established default posture, spec
+ * §30.2/§30.6), not "accepts no one"; a missing counterpart `selfTag` is likewise permissive
+ * (nothing to veto against), the same posture `checkIfMatch`'s own veto takes.
  */
 export interface SelfTagAndPreferenceSet {
   selfTag?: string;

@@ -19,11 +19,12 @@
  * conversation channel. A "deal" is a SEPARATE, bidirectional step layered on top: the match
  * alone isn't exclusive or final (spec §30.2 replaced the old automatic busy-guard) — both Adam
  * and Eve must independently click "Confirm Deal" before Eve's matched talk disables. Eve's
- * separate detailed route talk is untouched by this: it never declared `selfTag`/`preferenceSet`,
- * so it isn't deal-eligible and stays enabled after the simple talk's deal is confirmed — a real,
- * documented gap in `maybeFinalizeConfirmedDeal` (app.ts) that happens to give the right answer
- * here (it disables every deal-eligible talk the confirming user owns, not just the one that
- * matched; the detailed talk simply never qualifies).
+ * separate detailed route talk is untouched by this: it declares no Pair-tag question
+ * (docs/TODO.md §LL follow-up, `Question.reciprocalTagContext`), so it isn't deal-eligible
+ * (`isDealEligibleTalk`, app.ts) and stays enabled after the simple talk's deal is confirmed — a
+ * real, documented gap in `maybeFinalizeConfirmedDeal` (app.ts) that happens to give the right
+ * answer here (it disables every deal-eligible talk the confirming user owns, not just the one
+ * that matched; the detailed talk simply never qualifies).
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -48,7 +49,7 @@ const ATTACHMENT_NAME = 'iphone.jpg';
 const ATTACHMENT_BYTES_TEXT = `E2E fake iPhone photo bytes ${RUN_ID}`;
 
 /** The picky-buyer path (§30.2 matchThreshold route) — exists purely to prove Adam never has to
- *  touch it. No `selfTag`/`preferenceSet`, so it is also never deal-eligible. */
+ *  touch it. Declares no Pair-tag question, so it is also never deal-eligible. */
 function buildDetailedRouteTalkPayload(): Record<string, unknown> {
   return {
     id: `demo-detailed-iphone-${RUN_ID}`,
@@ -188,14 +189,27 @@ test.describe('Asymmetric exact match (buyer wants "any iPhone") + IPFS photo au
     // --- Eve authors the simple talk with a real photo attached through the editor's own file
     // input — the same `publishMediaFileToIpfs` path a real user's file picker selection
     // triggers (app.ts); no separate content-node bypass needed. ---
+    // Q1 is a Pair-tag declaration (docs/TODO.md §LL follow-up, `Question.reciprocalTagContext`
+    // — replaces the removed root-level `#talk-tag` field) so this talk stays deal-eligible
+    // (`isDealEligibleTalk`, app.ts) for the mutual "Confirm Deal" step exercised below; Adam
+    // answers it ('buy', the one non-ignore choice) before reaching the real question.
     const simpleTalk = await createFlowOrSurveyTalkViaEditor(pageEve, {
       title: SIMPLE_TITLE,
       type: 'flow',
-      tag: 'sell',
-      questions: [{
-        text: 'Want to buy an iPhone (any condition)?',
-        answers: [{ text: 'Yes, any condition works', outcome: 'match' }, { text: 'No thanks', outcome: 'ignore' }],
-      }],
+      questions: [
+        {
+          text: 'sell',
+          reciprocalTagContext: true,
+          answers: [
+            { text: 'buy', outcome: 'next', self: true },
+            { text: 'Not interested', outcome: 'ignore' },
+          ],
+        },
+        {
+          text: 'Want to buy an iPhone (any condition)?',
+          answers: [{ text: 'Yes, any condition works', outcome: 'match' }, { text: 'No thanks', outcome: 'ignore' }],
+        },
+      ],
       attachment: { name: ATTACHMENT_NAME, mimeType: 'image/jpeg', buffer: Buffer.from(ATTACHMENT_BYTES_TEXT) },
     });
     const attachment = simpleTalk.talkData.ipfsAttachments?.[0];
@@ -213,8 +227,9 @@ test.describe('Asymmetric exact match (buyer wants "any iPhone") + IPFS photo au
     await waitForDistinctGunPeersExcludingSelf(pageEve, 1, 120_000);
     await clickBroadcastUntilBulkAck(pageEve);
 
-    // --- Adam responds ONLY to the simple talk — exact, unidirectional match ---
-    await answerSurveyByAnswerIds(pageAdam, SIMPLE_TITLE, ['a_0_0'], simpleTalk.talkId);
+    // --- Adam responds ONLY to the simple talk — exact, unidirectional match. Two answers now:
+    // the Pair-tag Q1 ('buy', the one non-ignore choice) then the real Q2 match answer. ---
+    await answerSurveyByAnswerIds(pageAdam, SIMPLE_TITLE, ['a_0_0', 'a_1_0'], simpleTalk.talkId);
 
     await expect
       .poll(() => getConversationIdForPeer(pageAdam!, eveId), { timeout: 30_000, message: 'Adam: match conversation with Eve missing' })

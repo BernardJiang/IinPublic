@@ -8,8 +8,13 @@
  * question with 3 independent SIBLING specs (Model / Condition / Capacity) branching directly
  * off it, not a linear chain — the "parallel, sharing the same [root] context" shape, scored
  * like `80-route-multi-spec-match-percent.spec.ts` (2 of 3 matched specs still counts, ranked
- * lower). Adam declares `selfTag: 'buy'` (auto preferenceSet `['sell']`), Eve declares
- * `selfTag: 'sell'` (auto preferenceSet `['buy']`).
+ * lower). No buy/sell tag declaration here (the root's own 3-way branch structurally can't also
+ * be a Pair-tag question — `Question.reciprocalTagContext` needs exactly one non-ignore answer —
+ * and neither `getRouteRootChildQuestionIds` nor `tryBuildChatbotAnswersFromFlattened`, the
+ * zero-click auto-resolution path this test depends on, recognize a Pair-tag-fed general
+ * fan-out; composing the two would need an engine change, out of scope here, docs/TODO.md §LL
+ * follow-up). Adam and Eve match purely on shared exact question wording between two different
+ * senders, which is enough for this test's own assertions.
  *
  * Matching is fully automatic — neither side ever opens the other's incoming-talk modal.
  * Closing this gap required three production fixes (all in ui-manager.ts unless noted),
@@ -41,15 +46,12 @@
  * route talk created in the same session inherited the first one's leftover DAG state instead
  * of starting fresh (`showTalkEditorDialog`, ui-manager.ts).
  *
- * Second test (§KK collision regression) needed one more real gap closed to go fully UI-driven:
- * "Buy Buddies iPhone" declares `preferenceSet: ['buy']` — the SAME tag as its own `selfTag`
- * ("match fellow buy people," not the opposite tag) — which the editor's `#talk-tag` picker had
- * no way to express; it only ever auto-derived the single seeded opposite (buy→sell). Added
- * `#talk-preference-set` (talk-editor-dialog.ts, docs/TODO.md §II "generalized beyond symmetric
- * opposites"): an explicit, editable counterpart-tag field that keeps auto-tracking the seeded
- * opposite live until the author types their own value there (or opens an existing talk that
- * already has one) — at which point that value wins outright, including a same-tag declaration.
- * `processTalkForm` (ui-manager.ts) now reads whichever of the two ended up with content.
+ * Second test (§KK collision regression) is built on the Pair-tag mechanism (docs/TODO.md §LL
+ * follow-up, `Question.reciprocalTagContext`) that replaced the removed root-level `#talk-tag`/
+ * `#talk-preference-set` fields: "Buy Buddies iPhone" declares a Q1 Pair-tag of 'buy' whose one
+ * accepted answer is ALSO 'buy' ("match fellow buy people," not the opposite tag) — no separate
+ * counterpart-tag field needed, since Pair-tag never assumed opposites in the first place; it
+ * only ever encodes whatever single word the author puts in that one answer.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -78,6 +80,22 @@ const RUN_ID = 890100;
  * context" and "resolved from the wrong one," not just two differently-worded but equally-valid
  * answers.
  */
+/** A Pair-tag Q1 (docs/TODO.md §LL follow-up, `Question.reciprocalTagContext`) declaring
+ *  `ownWord`, chaining into whatever questions follow — replaces the removed root-level
+ *  `#talk-tag`/`#talk-preference-set` fields. `counterpartWord` can equal `ownWord` itself
+ *  ("match fellow buy people" buddy-style talks), same generality the old explicit
+ *  `#talk-preference-set` field gave beyond the seeded single-opposite auto-fill. */
+function pairTagQuestion(ownWord: string, counterpartWord: string): UiTalkQuestionSpec {
+  return {
+    text: ownWord,
+    reciprocalTagContext: true,
+    answers: [
+      { text: counterpartWord, outcome: 'next', self: true },
+      { text: 'Not interested', outcome: 'ignore' },
+    ],
+  };
+}
+
 function iphoneQuestions(opts: { modelSelfIndex: 0 | 1; capacitySelfIndex: 0 | 1 }): UiTalkQuestionSpec[] {
   return [
     {
@@ -115,7 +133,6 @@ async function enableChatbot(page: Page): Promise<void> {
 
 type MultiSpecRouteTalkOpts = {
   title: string;
-  tag: 'buy' | 'sell';
   /** e.g. "Is the model 16 Pro?" */
   modelQuestion: string;
   /** e.g. "Is the capacity 128GB?" */
@@ -146,7 +163,6 @@ async function createMultiSpecRouteTalk(page: Page, opts: MultiSpecRouteTalkOpts
   await page.fill('#talk-title', opts.title);
   await page.selectOption('#talk-type', 'route');
   await expect(page.locator('#route-editor')).toBeVisible();
-  await page.fill('#talk-tag', opts.tag);
 
   // Root: 3 independent specs (Model / Condition / Capacity), each its own sibling branch —
   // not chained to one another. Seeded with 2 answers; add a 3rd for the 3rd spec.
@@ -259,7 +275,6 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     // a 3-spec (Model/Condition/Capacity) matchThreshold talk. ---
     await createMultiSpecRouteTalk(pageAdam, {
       title: iphoneTitle,
-      tag: 'buy',
       modelQuestion: 'Is the model 16 Pro?',
       capacityQuestion: 'Is the capacity 128GB?',
       expiresOption: '1w',
@@ -267,7 +282,6 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     });
     await createMultiSpecRouteTalk(pageAdam, {
       title: ipadTitle,
-      tag: 'buy',
       modelQuestion: 'Is the model 3rd generation?',
       capacityQuestion: 'Is the capacity 64GB?',
       expiresOption: '1w',
@@ -279,7 +293,6 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     // filters gate distance, not the talk's own radius). ---
     await createMultiSpecRouteTalk(pageEve, {
       title: iphoneTitle,
-      tag: 'sell',
       modelQuestion: 'Is the model 16 Pro?',
       capacityQuestion: 'Is the capacity 128GB?',
       expiresOption: '1M',
@@ -287,7 +300,6 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     });
     await createMultiSpecRouteTalk(pageEve, {
       title: ipadTitle,
-      tag: 'sell',
       modelQuestion: 'Is the model 3rd generation?',
       capacityQuestion: 'Is the capacity 64GB?',
       expiresOption: '1M',
@@ -352,27 +364,23 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
 
     const [adamId, eveId] = await Promise.all([getCurrentUserId(pageAdam), getCurrentUserId(pageEve)]);
 
-    // "Buy iPhone Seller" wants a seller: tag 'buy' auto-fills preferenceSet ['sell'] (the
-    // seeded opposite) — untouched, so the live auto-fill default is exactly what's wanted here.
+    // "Buy iPhone Seller" wants a seller: Q1 Pair-tag 'buy' accepting 'sell'.
     await createFlowOrSurveyTalkViaEditor(pageAdam, {
       title: `Buy iPhone Seller ${RUN_ID}`,
       type: 'flow',
-      tag: 'buy',
-      questions: iphoneQuestions({ modelSelfIndex: 0, capacitySelfIndex: 0 }),
+      questions: [pairTagQuestion('buy', 'sell'), ...iphoneQuestions({ modelSelfIndex: 0, capacitySelfIndex: 0 })],
     });
-    // "Buy Buddies iPhone" wants fellow buyers, not a seller — preferenceSet ['buy'], the SAME
-    // tag as its own selfTag, which only an explicit `#talk-preference-set` value can produce
-    // (the auto-derived opposite would give 'sell', wrong for a buddy-matching talk). Saved
-    // SECOND, so it's the "latest" entry in context-free exact-chatbot-memory — the buggy path
-    // this test would catch if it won. Same question wording as the seller talk's Model/Capacity
-    // options (so exact-chatbot-memory's validity filter can't reject them outright), and
-    // deliberately the "wrong" (ignore-flagged) capacity for a real seller exchange.
+    // "Buy Buddies iPhone" wants fellow buyers, not a seller — Q1 Pair-tag 'buy' accepting
+    // 'buy', the SAME word as its own declaration (Pair-tag doesn't require opposites — this
+    // "match fellow buy people" buddy shape falls straight out of the mechanism). Saved SECOND,
+    // so it's the "latest" entry in context-free exact-chatbot-memory — the buggy path this test
+    // would catch if it won. Same question wording as the seller talk's Model/Capacity options
+    // (so exact-chatbot-memory's validity filter can't reject them outright), and deliberately
+    // the "wrong" (ignore-flagged) capacity for a real seller exchange.
     await createFlowOrSurveyTalkViaEditor(pageAdam, {
       title: `Buy Buddies iPhone ${RUN_ID}`,
       type: 'flow',
-      tag: 'buy',
-      preferenceSet: ['buy'],
-      questions: iphoneQuestions({ modelSelfIndex: 1, capacitySelfIndex: 1 }),
+      questions: [pairTagQuestion('buy', 'buy'), ...iphoneQuestions({ modelSelfIndex: 1, capacitySelfIndex: 1 })],
     });
 
     // Eve's sell-talk: same wording, 16 Pro / 128GB(match) / 256GB(ignore) — matches ONLY if
@@ -380,8 +388,7 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     const eveTalk = await createFlowOrSurveyTalkViaEditor(pageEve, {
       title: `Sell iPhone ${RUN_ID}`,
       type: 'flow',
-      tag: 'sell',
-      questions: iphoneQuestions({ modelSelfIndex: 0, capacitySelfIndex: 0 }),
+      questions: [pairTagQuestion('sell', 'buy'), ...iphoneQuestions({ modelSelfIndex: 0, capacitySelfIndex: 0 })],
     });
     expect(eveTalk).toBeTruthy();
 

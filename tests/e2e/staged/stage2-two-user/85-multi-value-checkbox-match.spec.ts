@@ -24,7 +24,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, openIncomingTalkModal, waitForResponseModalClosed, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 /** `noticedModels` get "Noticed (match)" (auto-checks that option as this author's own
@@ -45,20 +45,25 @@ async function createChecklistTalk(
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
+
+  let checklistQuestionIndex = 0;
   if (tag) {
-    // Talk.selfTag/preferenceSet (checkIfMatch's preference-set veto, talk-engine.ts) also
-    // happens to be the existing fix for a real content-identity collision:
-    // buildIdentityPayloadFromTalk (cid.ts) hashes question/answer TEXT only, never
-    // isMatch/isIgnore flags — so a buyer's and a seller's talk sharing byte-identical
-    // question/option wording (required for the chatbot's exact-text memory to connect them)
-    // compute the SAME qa_ identityKey despite opposite match semantics, and the
-    // delivery-dedup ledger silently drops the second broadcast as "already exchanged."
-    // selfTag is included in the identity hash specifically to prevent this — set it
-    // whenever two sides share wording, same as the dealmaker spec.
-    await page.fill('#talk-tag', tag);
+    // A Pair-tag Q1 declaring `tag` ('buy' or 'sell', docs/TODO.md §LL follow-up,
+    // `Question.reciprocalTagContext`) also happens to be the fix for a real content-identity
+    // collision: buildIdentityPayloadFromTalk (cid.ts) hashes question/answer TEXT only, never
+    // isMatch/isIgnore flags — so a buyer's and a seller's talk sharing byte-identical checklist
+    // wording (required for the chatbot's exact-text memory to connect them) would otherwise
+    // compute the SAME qa_ identityKey despite opposite match semantics, and the delivery-dedup
+    // ledger would silently drop the second broadcast as "already exchanged." Q1's own text
+    // ('buy' vs 'sell') is itself part of the hashed `questions` array, so it naturally
+    // differentiates the two sides' talks — no separate selfTag field needed.
+    const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
+    await page.click('#add-question-btn');
+    await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
+    checklistQuestionIndex = 1;
   }
 
-  const q = page.locator('.question-item').first();
+  const q = page.locator(`.question-item[data-question-index="${checklistQuestionIndex}"]`);
   // Unique question text per test run (not just a unique title): the talk's content-hash
   // identity (buildIdentityPayloadFromTalk, cid.ts) doesn't always include title, so two runs
   // asking byte-identical questions can collide on the sender's own already-delivered ledger

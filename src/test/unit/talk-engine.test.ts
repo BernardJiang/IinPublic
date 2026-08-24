@@ -947,50 +947,6 @@ describe('checkIfMatch / checkIfIgnore — multi-value ("pick any that apply") q
   });
 });
 
-describe('checkIfMatch — preference-set veto, spec §30.2 (generalizes the old Talk.role binary)', () => {
-  const dealTalk: Talk = {
-    id: 'talk-buy-iphone',
-    title: 'Buy Notebook',
-    type: 'tag',
-    selfTag: 'buy',
-    preferenceSet: ['sell'],
-    questions: [
-      {
-        id: 'q_0',
-        text: 'Do you sell this?',
-        answers: [
-          { id: 'a_yes', text: 'Yes', isMatch: true },
-          { id: 'a_no', text: 'No', isIgnore: true },
-        ],
-      },
-    ],
-  } as any;
-  const matchAnswers: SubmittedAnswer[] = [{ questionId: 'q_0', answerId: 'a_yes' }];
-
-  it('vetoes a match when the responder\'s own selfTag is NOT in the declared preferenceSet (two buyers)', () => {
-    expect(checkIfMatch(dealTalk, matchAnswers, 'buy')).toBe(false);
-  });
-
-  it('matches when the responder\'s own selfTag IS in the declared preferenceSet', () => {
-    expect(checkIfMatch(dealTalk, matchAnswers, 'sell')).toBe(true);
-  });
-
-  it('does not veto when the responder has no recorded selfTag at all — same permissive fallback role had', () => {
-    expect(checkIfMatch(dealTalk, matchAnswers, undefined)).toBe(true);
-  });
-
-  it('does not veto when the talk itself declares no preferenceSet, regardless of responder selfTag', () => {
-    const plainTalk: Talk = { ...dealTalk, selfTag: undefined, preferenceSet: undefined } as any;
-    expect(checkIfMatch(plainTalk, matchAnswers, 'buy')).toBe(true);
-  });
-
-  it('accepts several counterpart tags in one preferenceSet — "buy" satisfied by "sell" OR "offer" OR "free"', () => {
-    const broadTalk: Talk = { ...dealTalk, preferenceSet: ['sell', 'offer', 'free'] } as any;
-    expect(checkIfMatch(broadTalk, matchAnswers, 'offer')).toBe(true);
-    expect(checkIfMatch(broadTalk, matchAnswers, 'free')).toBe(true);
-    expect(checkIfMatch(broadTalk, matchAnswers, 'buy')).toBe(false);
-  });
-});
 
 describe('TalkValidator — Question.tagKind / reciprocalTagContext shape rules (docs/TODO.md §LL follow-up)', () => {
   const flowTalkWithQ0 = (q0: any): Talk =>
@@ -1114,7 +1070,7 @@ describe('TalkValidator — Question.tagKind / reciprocalTagContext shape rules 
   });
 });
 
-describe('checkIfMatch — ancestor-aware reciprocalTagContext veto (docs/TODO.md §LL follow-up, generalizes the root-only preferenceSet veto to any node)', () => {
+describe('checkIfMatch — ancestor-aware reciprocalTagContext (Pair-tag) veto (docs/TODO.md §LL follow-up — the sole tag/preference veto mechanism, usable at any node)', () => {
   it('a mid-tree reciprocalTagContext ancestor gates a match on a flow talk\'s later question', () => {
     const talk: Talk = {
       id: 't1',
@@ -1150,41 +1106,6 @@ describe('checkIfMatch — ancestor-aware reciprocalTagContext veto (docs/TODO.m
     expect(checkIfMatch(talk, answers, undefined)).toBe(true);
   });
 
-  it('the mid-tree ancestor wins over an unrelated talk-root preferenceSet', () => {
-    const talk: Talk = {
-      id: 't1',
-      title: 'Sell iPhone',
-      type: 'flow',
-      preferenceSet: ['someOtherTag'],
-      questions: [
-        {
-          id: 'q_0',
-          text: 'sell',
-          reciprocalTagContext: true,
-          answers: [
-            { id: 'a_0_buy', text: 'buy', nextQuestionId: 'q_1' },
-            { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true },
-          ],
-        },
-        {
-          id: 'q_1',
-          text: 'Model?',
-          answers: [
-            { id: 'a_1_match', text: '16 Pro', isMatch: true, isTerminal: true },
-            { id: 'a_1_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
-          ],
-        },
-      ],
-    } as any;
-    const answers: SubmittedAnswer[] = [
-      { questionId: 'q_0', answerId: 'a_0_buy' },
-      { questionId: 'q_1', answerId: 'a_1_match' },
-    ];
-
-    // 'buy' isn't in the root preferenceSet, but the ancestor's own accepted tag wins.
-    expect(checkIfMatch(talk, answers, 'buy')).toBe(true);
-  });
-
   it('walks a route talk\'s contextPath to find the ancestor, not array position', () => {
     const routeTalk: Talk = {
       id: 'r1',
@@ -1218,13 +1139,11 @@ describe('checkIfMatch — ancestor-aware reciprocalTagContext veto (docs/TODO.m
     expect(checkIfMatch(routeTalk, answers, 'sell')).toBe(false);
   });
 
-  it('falls back to the root-only preferenceSet veto exactly as before when no ancestor exists', () => {
+  it('vetoes nothing when the talk declares no Pair-tag question at all — no context, no veto', () => {
     const talk: Talk = {
       id: 't1',
       title: 'Buy Notebook',
       type: 'tag',
-      selfTag: 'buy',
-      preferenceSet: ['sell'],
       questions: [
         {
           id: 'q_0',
@@ -1237,7 +1156,7 @@ describe('checkIfMatch — ancestor-aware reciprocalTagContext veto (docs/TODO.m
       ],
     } as any;
     const answers: SubmittedAnswer[] = [{ questionId: 'q_0', answerId: 'a_yes' }];
-    expect(checkIfMatch(talk, answers, 'buy')).toBe(false);
+    expect(checkIfMatch(talk, answers, 'buy')).toBe(true);
     expect(checkIfMatch(talk, answers, 'sell')).toBe(true);
   });
 });

@@ -2,9 +2,10 @@
  * Typed built-in comparison questions — spec §30.2, docs/TODO.md §BB.
  *
  * A "quantity" builtIn question compares typed numeric values instead of matching text: a
- * buyer's talk (selfTag 'buy') declares how many they want, a seller's talk (selfTag 'sell')
- * declares how many they have, and `resolveBuiltInQuestion` (built-in-question-resolution.ts)
- * auto-resolves the deal — no manual answer picking, no exact-text chatbot memory involved.
+ * buyer's talk (Q1 Pair-tag 'buy', docs/TODO.md §LL follow-up) declares how many they want, a
+ * seller's talk (Q1 Pair-tag 'sell') declares how many they have, and `resolveBuiltInQuestion`
+ * (built-in-question-resolution.ts) auto-resolves the deal — no manual answer picking, no
+ * exact-text chatbot memory involved.
  *
  * This exercises §BB phases 1-5 end to end through real UI: the talk editor's "Compare using:"
  * kind selector + typed quantity input (talk-editor-form-helpers.ts), TalkAutofix's synthetic
@@ -23,10 +24,11 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
-/** Creates (but does not broadcast) a flow talk with a single "quantity" builtIn question. */
+/** Creates (but does not broadcast) a 2-question flow talk: Q1 is a Pair-tag declaration of
+ *  `tag` (own word), chaining to Q2, a terminal "quantity" builtIn question. */
 async function createQuantityTalk(
   page: Page,
   title: string,
@@ -34,19 +36,21 @@ async function createQuantityTalk(
   quantity: number,
   tag: 'buy' | 'sell',
 ): Promise<void> {
+  const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  await page.fill('#talk-tag', tag);
 
-  const q = page.locator('.question-item').first();
-  await q.locator('.question-text').fill(questionText);
-  await q.locator('.builtin-kind').selectOption('quantity');
+  await page.click('#add-question-btn');
+  await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
+  const q2 = page.locator('.question-item[data-question-index="1"]');
+  await q2.locator('.question-text').fill(questionText);
+  await q2.locator('.builtin-kind').selectOption('quantity');
   await afterAction();
-  await q.locator('.builtin-quantity-input').fill(String(quantity));
+  await q2.locator('.builtin-quantity-input').fill(String(quantity));
 
   // "Send to Chatroom" defaults checked, which would auto-broadcast right here — before the
   // other side has recorded their own typed preference. Delivery is owned entirely by the
@@ -116,9 +120,9 @@ test.describe('Typed built-in "quantity" comparison questions (§BB)', () => {
     pageSeller = seller.page;
 
     // Scope-key alignment (built-in-question-resolution.ts): my own typed preference is saved
-    // under (my own talk's selfTag, my own talk's title) at creation time, and looked up under
-    // (my own seeded-opposite tag, the INCOMING talk's title) when auto-resolving — so both
-    // sides must share the same title, not just the same question text.
+    // under (my own Q1 Pair-tag word, my own talk's title) at creation time, and looked up under
+    // the same (mySelfTag, title) pair when auto-resolving an incoming talk — so both sides must
+    // share the same title, not just the same question text.
     const title = `Notebook Deal Qty ${Date.now()}`;
     const questionText = `How many notebooks? (compatible case, ${Date.now()})`;
 

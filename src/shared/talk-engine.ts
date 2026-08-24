@@ -288,22 +288,15 @@ export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], r
   const lastAnswer = answers[answers.length - 1];
   const lastQuestion = lastAnswer ? talkData.questions?.find((q: any) => q.id === lastAnswer.questionId) : undefined;
 
-  // Preference-set veto (spec §30.2): a talk that declares a compatibility requirement (e.g.
-  // "buy" accepted by "sell") must never match a responder whose own tag isn't within it —
-  // only a responder with no tag at all, or one that's within it, is legitimate. This runs
-  // before the isMatch check so it overrides whatever answer was picked, whether by a human or
-  // the chatbot's exact-text auto-reply (src/shared/exact-chatbot-memory.ts).
-  //
-  // docs/TODO.md §LL follow-up: a mid-tree `reciprocalTagContext` ancestor (`findTagPairAncestor`
-  // above) is nearer-scoped and wins over the talk-root `preferenceSet` — same precedence
-  // `ui-manager.ts`'s chatbot-context derivation already uses. Only when no such ancestor exists
-  // does the root-level check apply, so every existing root-only talk is unaffected.
+  // Pair-tag veto (spec §30.2, docs/TODO.md §LL follow-up): a talk that declares a
+  // compatibility requirement via a `reciprocalTagContext` question (e.g. "buy" accepted by
+  // "sell") must never match a responder whose own tag isn't the accepted one — only a
+  // responder with no tag at all, or one that matches, is legitimate. This runs before the
+  // isMatch check so it overrides whatever answer was picked, whether by a human or the
+  // chatbot's exact-text auto-reply (src/shared/exact-chatbot-memory.ts). No ancestor found
+  // means the talk declares no tag/preference context at all — nothing to veto.
   const tagPairAncestor = lastQuestion ? findTagPairAncestor(talkData, lastQuestion) : undefined;
-  if (tagPairAncestor) {
-    if (responderSelfTag && responderSelfTag !== tagPairAncestor.answerText) {
-      return false;
-    }
-  } else if (talkData.preferenceSet?.length && responderSelfTag && !talkData.preferenceSet.includes(responderSelfTag)) {
+  if (tagPairAncestor && responderSelfTag && responderSelfTag !== tagPairAncestor.answerText) {
     return false;
   }
 
@@ -1331,8 +1324,6 @@ export function buildRevisedTalkDraft(
       | 'isAdult'
       | 'expiresAt'
       | 'locationRadiusMiles'
-      | 'selfTag'
-      | 'preferenceSet'
       | 'matchThreshold'
     >
   > = {},
@@ -1361,12 +1352,6 @@ export function buildRevisedTalkDraft(
   const locationRadiusMiles =
     overrides.locationRadiusMiles !== undefined ? overrides.locationRadiusMiles : oldTalk.locationRadiusMiles;
   if (locationRadiusMiles != null) draft.locationRadiusMiles = locationRadiusMiles;
-
-  const selfTag = overrides.selfTag !== undefined ? overrides.selfTag : oldTalk.selfTag;
-  if (selfTag != null) draft.selfTag = selfTag;
-
-  const preferenceSet = overrides.preferenceSet !== undefined ? overrides.preferenceSet : oldTalk.preferenceSet;
-  if (preferenceSet != null) draft.preferenceSet = preferenceSet;
 
   const matchThreshold = overrides.matchThreshold !== undefined ? overrides.matchThreshold : oldTalk.matchThreshold;
   if (matchThreshold != null) draft.matchThreshold = matchThreshold;

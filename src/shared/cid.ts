@@ -209,17 +209,6 @@ export type TalkIdentityPayload = {
   authorId?: string;
   createdAt?: string;
   location?: { latitude: number; longitude: number };
-  /**
-   * Talk.selfTag / Talk.preferenceSet (see types.ts, spec §30.2) — always included when set,
-   * same as type/language/questions, not gated behind an options flag. Two talks can
-   * otherwise ask byte-identical questions (this is the whole point of preference-set
-   * matching — see talk-engine.ts's checkIfMatch) while representing two DIFFERENT deals (a
-   * buy and a sell); without this they'd hash to the same identity key and get incorrectly
-   * clustered as one talk by any third party who receives both (ownerIncomingTalkIndex merges
-   * same-identityKey announcements from different senders into a single cluster).
-   */
-  selfTag?: string;
-  preferenceSet?: string;
 };
 
 /**
@@ -246,15 +235,6 @@ export function buildIdentityPayloadFromTalk(
 
   if (type === 'tag' && talkData?.title) {
     payload.title = normalizeIdentityText(talkData.title);
-  }
-  if (talkData?.selfTag) {
-    payload.selfTag = normalizeIdentityText(talkData.selfTag);
-  }
-  if (Array.isArray(talkData?.preferenceSet) && talkData.preferenceSet.length > 0) {
-    payload.preferenceSet = talkData.preferenceSet
-      .map((tag: any) => normalizeIdentityText(tag))
-      .sort()
-      .join(',');
   }
   if (o.includeAuthorId && talkData?.authorId) {
     payload.authorId = normalizeIdentityText(talkData.authorId);

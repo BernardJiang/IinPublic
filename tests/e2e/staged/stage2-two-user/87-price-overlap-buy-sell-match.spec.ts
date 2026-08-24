@@ -13,12 +13,14 @@
  * `intervalsOverlap` (built-in-comparisons.ts) as a real numeric comparison, not exact-text
  * matching wearing a numeric disguise (identical ranges wouldn't tell the two apart).
  *
- * Each of Adam's talks declares a selfTag ('buy' or 'sell'); Eve's complementary talks
- * auto-derive their `preferenceSet` from the same seeded tag-opposite-pairs.ts registry the
- * talk editor's tag-pair preview already uses (buy⇄sell). Only Adam broadcasts — Eve's two
- * talks exist purely to seed her own typed-preference store (the "have $X" / "want $Y" value
- * her chatbot needs to resolve Adam's incoming builtIn questions), mirroring how 04-dealmaker
- * and 05-taxi's strangers each create their own talk before ever broadcasting or meeting.
+ * Each of Adam's talks declares its own buy/sell context via a Pair-tag first question
+ * (docs/TODO.md §LL follow-up, `Question.reciprocalTagContext` — the root-level `#talk-tag`/
+ * `#talk-preference-set` fields this used to rely on were removed entirely); Eve's complementary
+ * talks declare the opposite word as their own Q1, chaining to the same builtIn priceRange
+ * question as Q2. Only Adam broadcasts — Eve's two talks exist purely to seed her own
+ * typed-preference store (the "have $X" / "want $Y" value her chatbot needs to resolve Adam's
+ * incoming builtIn questions), mirroring how 04-dealmaker and 05-taxi's strangers each create
+ * their own talk before ever broadcasting or meeting.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -26,11 +28,12 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
-/** Creates (but does not broadcast) a single-question flow talk: one terminal builtIn
- *  `priceRange` question, title+question text already naming the item unambiguously. */
+/** Creates (but does not broadcast) a 2-question flow talk: Q1 is a Pair-tag declaration of
+ *  `tag` (own word), chaining to Q2, a terminal builtIn `priceRange` question — title+question
+ *  text already naming the item unambiguously. */
 async function createDealTalk(
   page: Page,
   title: string,
@@ -39,20 +42,22 @@ async function createDealTalk(
   priceMax: number,
   tag: 'buy' | 'sell',
 ): Promise<void> {
+  const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  await page.fill('#talk-tag', tag);
 
-  const q = page.locator('.question-item').first();
-  await q.locator('.question-text').fill(priceQuestionText);
-  await q.locator('.builtin-kind').selectOption('priceRange');
+  await page.click('#add-question-btn');
+  await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
+  const q2 = page.locator('.question-item[data-question-index="1"]');
+  await q2.locator('.question-text').fill(priceQuestionText);
+  await q2.locator('.builtin-kind').selectOption('priceRange');
   await afterAction();
-  await q.locator('.builtin-pricerange-min').fill(String(priceMin));
-  await q.locator('.builtin-pricerange-max').fill(String(priceMax));
+  await q2.locator('.builtin-pricerange-min').fill(String(priceMin));
+  await q2.locator('.builtin-pricerange-max').fill(String(priceMax));
 
   // "Send to Chatroom" defaults checked, which would auto-broadcast right here — before Eve has
   // had a chance to record her own typed preference. Delivery is owned entirely by the explicit

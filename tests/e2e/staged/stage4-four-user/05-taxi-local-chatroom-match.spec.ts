@@ -1,8 +1,9 @@
 /**
  * Taxi driver ↔ passenger matching in a LOCAL (city-level) chatroom — docs/TODO.md §GG.
  *
- * Adam and Eve are both taxi drivers (selfTag 'sell'); Bob and Alice are both passengers
- * (selfTag 'buy'). All four join the same city-level chatroom (San Diego) instead of Global, then
+ * Adam and Eve are both taxi drivers (Q1 Pair-tag 'sell', docs/TODO.md §LL follow-up); Bob and
+ * Alice are both passengers (Q1 Pair-tag 'buy'). All four join the same city-level chatroom (San
+ * Diego) instead of Global, then
  * broadcast talks they already created — matching happens entirely via the chatbot's
  * exact-question-text auto-reply (src/shared/exact-chatbot-memory.ts), same mechanic as
  * 04-dealmaker-chatbot-match.spec.ts, just with taxi wording and a driver/passenger pairing
@@ -35,7 +36,7 @@ import { clearGunForStage4Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, delay, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { clickBroadcastUntilBulkAck, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 
@@ -77,24 +78,31 @@ async function createRideTalk(
   questions: RideQuestion[],
   tag: 'buy' | 'sell',
 ): Promise<void> {
+  const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  await page.fill('#talk-tag', tag);
 
-  for (let i = 1; i < questions.length; i++) {
+  // Q1 (index 0) is a Pair-tag declaration of `tag` (docs/TODO.md §LL follow-up) — replaces the
+  // removed root-level `#talk-tag` field and keeps this talk deal-eligible (`isDealEligibleTalk`,
+  // app.ts) for the "Confirm Deal" step the two-driver test below exercises. Every criteria
+  // question shifts one slot later (index i+1).
+  const totalQuestions = 1 + questions.length;
+  for (let i = 1; i < totalQuestions; i++) {
     await page.click('#add-question-btn');
     await afterAction();
   }
 
+  await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
+
   for (let i = 0; i < questions.length; i++) {
     const { text, matchAnswerText, otherAnswerText } = questions[i];
     const isLast = i === questions.length - 1;
-    const q = page.locator('.question-item').nth(i);
+    const q = page.locator('.question-item').nth(i + 1);
     await q.locator('.question-text').fill(text);
     await q.locator('.answer-item').nth(0).locator('.answer-text').fill(matchAnswerText);
-    await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption(isLast ? 'noticed' : `q_${i + 1}`);
+    await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption(isLast ? 'noticed' : `q_${i + 2}`);
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill(otherAnswerText);
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
   }
@@ -481,8 +489,8 @@ test.describe('Taxi: two drivers reach the same passenger; a confirmed deal (not
  * matching engine as the flow-based tests above with zero additional code, since `checkIfMatch`
  * (talk-engine.ts) is talk-type-agnostic — it just checks whether the selected/remembered
  * answer for this exact question is the match one, not on question count or structure. Matching
- * stays exact-text throughout (no fuzzy/approximate matching, no selfTag/preferenceSet
- * involved for tag-type — docs/TODO.md §LL); deal-confirmation finalizing a match is already
+ * stays exact-text throughout (no fuzzy/approximate matching, no Pair-tag question involved for
+ * tag-type — docs/TODO.md §LL); deal-confirmation finalizing a match is already
  * covered by the two-driver test above — this test's own job is only to confirm the SIMPLEST
  * possible talk (single tag question) is sufficient, end to end, for two strangers to match
  * with zero manual clicks.
@@ -519,7 +527,7 @@ test.describe('Taxi: simplest form — a single-question tag talk per side (§GG
 
   /**
    * One question, two answers — "am I available?" is all a driver or passenger has to say.
-   * docs/TODO.md §LL: a `type: 'tag'` talk carries no selfTag/preferenceSet — its question text
+   * docs/TODO.md §LL: a `type: 'tag'` talk declares no Pair-tag question — its question text
    * is the keyword (the title, unchanged) and its match-answer text is whatever `#talk-answer`
    * says, defaulting to the SAME word when left untouched. Driver and passenger sharing the
    * SAME title both ask "Available for a ride - Downtown" and both self-answer "yes" (the
@@ -568,10 +576,10 @@ test.describe('Taxi: simplest form — a single-question tag talk per side (§GG
 
     await expect.poll(() => hasConversationWith(pagePassenger!, driverId), { timeout: 60_000 }).toBe(true);
     expect(await conversationPartnerIds(pagePassenger!)).toEqual([driverId]);
-    // docs/TODO.md §LL: a `type: 'tag'` talk carries no selfTag/preferenceSet, so
+    // docs/TODO.md §LL: a `type: 'tag'` talk declares no Pair-tag question, so
     // isDealEligibleTalk (app.ts) is false for it — deal confirmation (spec §30.2) only applies
-    // to talks that declare selfTag/preferenceSet, so a tag-talk match never shows a "Confirm
-    // Deal" step and the talk simply never auto-disables, exactly like a plain flow/survey talk.
+    // to talks that declare one, so a tag-talk match never shows a "Confirm Deal" step and the
+    // talk simply never auto-disables, exactly like a plain flow/survey talk.
     expect(await isOwnTalkDisabled(pageDriver!, TITLE)).toBe(false);
     expect(await isOwnTalkDisabled(pagePassenger!, TITLE)).toBe(false);
   });

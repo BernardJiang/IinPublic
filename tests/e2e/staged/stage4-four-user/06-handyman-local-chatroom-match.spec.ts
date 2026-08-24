@@ -2,9 +2,10 @@
  * Handyman ↔ customer matching in a local chatroom with detailed (typed) criteria —
  * docs/TODO.md §HH.
  *
- * Adam and Eve are both handymen (selfTag 'sell'), advertising their service; Bob and Alice are
- * both customers (selfTag 'buy'), looking for a handyman. All four join the same local
- * (San Diego) chatroom and broadcast talks they already created. Only Adam+Alice auto-match;
+ * Adam and Eve are both handymen (Q1 Pair-tag 'sell', docs/TODO.md §LL follow-up), advertising
+ * their service; Bob and Alice are both customers (Q1 Pair-tag 'buy'), looking for a handyman.
+ * All four join the same local (San Diego) chatroom and broadcast talks they already created.
+ * Only Adam+Alice auto-match;
  * Eve and Bob never match anyone.
  *
  * Unlike 05-taxi-local-chatroom-match.spec.ts (which differentiates purely via reworded
@@ -30,7 +31,7 @@ import { clearGunForStage4Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, delay, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { clickBroadcastUntilBulkAck, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 const LOCAL_ROOM_ID = 'san-diego';
@@ -61,32 +62,36 @@ async function createHandymanTalk(
   service: ServiceSpec,
   tag: 'buy' | 'sell',
 ): Promise<void> {
+  const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
-  await page.fill('#talk-tag', tag);
 
-  // 3 questions total: price range -> time frame -> service category.
+  // 4 questions total: Q1 Pair-tag declaration (docs/TODO.md §LL follow-up, replaces the
+  // removed root-level `#talk-tag` field) -> price range -> time frame -> service category.
+  await page.click('#add-question-btn');
   await page.click('#add-question-btn');
   await page.click('#add-question-btn');
   await afterAction();
 
-  const q1 = page.locator('.question-item').nth(0);
+  await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
+
+  const q1 = page.locator('.question-item').nth(1);
   await q1.locator('.question-text').fill(price.questionText);
   await q1.locator('.builtin-kind').selectOption('priceRange');
   await afterAction();
   await q1.locator('.builtin-pricerange-min').fill(String(price.min));
   await q1.locator('.builtin-pricerange-max').fill(String(price.max));
 
-  const q2 = page.locator('.question-item').nth(1);
+  const q2 = page.locator('.question-item').nth(2);
   await q2.locator('.question-text').fill(time.questionText);
   await q2.locator('.builtin-kind').selectOption('timeFrame');
   await afterAction();
   await q2.locator('.builtin-timeframe-start').fill(time.start);
   await q2.locator('.builtin-timeframe-end').fill(time.end);
 
-  const q3 = page.locator('.question-item').nth(2);
+  const q3 = page.locator('.question-item').nth(3);
   await q3.locator('.question-text').fill(service.questionText);
   await q3.locator('.answer-selection-mode').selectOption('multiple');
   await afterAction();
@@ -121,6 +126,13 @@ async function ensureInLocalRoom(page: Page): Promise<void> {
     await afterSync();
   }
   await page.locator(`.chatroom-item[data-chatroom-id="${LOCAL_ROOM_ID}"]`).first().click();
+  // A fixed afterSync() delay isn't a reliable signal that the detail view has actually
+  // rendered under heavier load (this talk's Pair-tag + builtIn + multi-select setup takes
+  // longer to author than the taxi spec's plain-text criteria) — without this explicit wait,
+  // clickBroadcastUntilBulkAck's own "not already in room detail" fallback (hardcoded to
+  // Global) can misfire and silently reroute this page's own currentChatroomId back to Global
+  // right before it broadcasts/receives, rejecting every San Diego delivery as a room mismatch.
+  await expect(page.locator('#chatroom-members-list')).toBeVisible({ timeout: 15_000 });
   await afterSync();
 }
 
@@ -237,9 +249,16 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
     // genuinely overlapping (not identical) price ranges and time frames, and an intersecting
     // (not identical) service set — real interval/set math, not exact-text luck.
     const sharedTitle = `Home Repair Help ${runId}`;
-    const priceQuestionText = `What is the hourly rate range? (${runId})`;
-    const timeQuestionText = `When is the work needed? (${runId})`;
-    const serviceQuestionText = `Which services are involved? (${runId})`;
+    // The run id lives BEFORE the "?", not after: `ContentFilter.assessGrammar`
+    // (reputation.ts) splits on [.!?] and penalizes any resulting fragment under 2 words — a
+    // trailing " (<runId>)" after the "?" would be its own unterminated 1-word fragment. With a
+    // 4-question talk (Pair-tag Q1 + 3 criteria, docs/TODO.md §LL follow-up) that penalty
+    // compounds enough to drop the intake grammar score below CONFIG.GRAMMAR_THRESHOLD (0.7),
+    // silently rejecting the whole talk at delivery — a real bug this test's own restructuring
+    // surfaced, not a matching-engine issue.
+    const priceQuestionText = `What is the hourly rate range (${runId})?`;
+    const timeQuestionText = `When is the work needed (${runId})?`;
+    const serviceQuestionText = `Which services are involved (${runId})?`;
 
     const adam = await bootstrapUser(browsers.adam, 'Adam', 'Adam');
     contextAdam = adam.context;
@@ -278,9 +297,9 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
     await createHandymanTalk(
       pageEve,
       `Handyman Services - Eastside ${runId}`,
-      { questionText: `What's your rate per hour? (${runId})`, min: 200, max: 300 },
-      { questionText: `What dates work for you? (${runId})`, start: '2026-11-01', end: '2026-11-15' },
-      { questionText: `What kind of work do you do? (${runId})`, options: ['Painting', 'Roofing', 'Landscaping'], matchOptions: ['Painting'] },
+      { questionText: `What's your rate per hour (${runId})?`, min: 200, max: 300 },
+      { questionText: `What dates work for you (${runId})?`, start: '2026-11-01', end: '2026-11-15' },
+      { questionText: `What kind of work do you do (${runId})?`, options: ['Painting', 'Roofing', 'Landscaping'], matchOptions: ['Painting'] },
       'sell',
     );
 
@@ -291,9 +310,9 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
     await createHandymanTalk(
       pageBob,
       `Need a Handyman - Uptown ${runId}`,
-      { questionText: `What rate are you willing to pay? (${runId})`, min: 60, max: 90 },
-      { questionText: `When do you need this done? (${runId})`, start: '2026-09-05', end: '2026-09-10' },
-      { questionText: `What type of help do you need? (${runId})`, options: ['Painting', 'Roofing', 'Landscaping'], matchOptions: ['Roofing'] },
+      { questionText: `What rate are you willing to pay (${runId})?`, min: 60, max: 90 },
+      { questionText: `When do you need this done (${runId})?`, start: '2026-09-05', end: '2026-09-10' },
+      { questionText: `What type of help do you need (${runId})?`, options: ['Painting', 'Roofing', 'Landscaping'], matchOptions: ['Roofing'] },
       'buy',
     );
 
@@ -318,6 +337,19 @@ test.describe('Handyman ↔ customer matching in a local chatroom with detailed 
     // auto-disable-on-first-match mechanism), so there's no ordering hazard to avoid here.
     const handymanPages = [pageAdam, pageEve, pageBob, pageAlice];
     await Promise.all(handymanPages.map((page) => prepareLocalBroadcastForHandyman(page)));
+    // Explicit barrier: confirm EVERY page is showing SAN DIEGO's own detail view (not just
+    // *a* room's — #chatroom-members-list/#current-chatroom-title are shared ids reused for
+    // whichever room happens to be open, including Global) before ANY of them broadcasts. The
+    // sender's delivery ledger marks a (peer, identityKey) pair "already exchanged" the moment
+    // it sends, regardless of whether the recipient's own accept-check actually took it (see
+    // deliverTalkToReceiversOverMesh's own §W Gap 2 comment, app.ts) — so a retry-after-the-fact
+    // can never recover a delivery that raced a peer still sitting in the wrong room; the only
+    // reliable fix is making sure nobody broadcasts until everyone is confirmed in San Diego.
+    await Promise.all(
+      handymanPages.map((page) =>
+        expect(page.locator('#current-chatroom-title')).toContainText('San Diego', { timeout: 15_000 }),
+      ),
+    );
     await Promise.all(
       handymanPages.map((page) =>
         clickBroadcastUntilBulkAck(page).catch(() => {
