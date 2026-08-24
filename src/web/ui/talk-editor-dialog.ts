@@ -93,8 +93,6 @@ type TalkEditorDialogOptions = {
   refreshFlowAnswerConstraints: (type: string) => void;
   ensureRouteEditorRendered: (existingTalk?: any) => void;
   setupTalkFormHandlers: (modal: HTMLElement) => void;
-  defaultLanguage?: string;
-  languageOptions?: Array<{ code: string; label: string }>;
   text?: (key: UiTranslationKey) => string;
 };
 
@@ -119,16 +117,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
 
   const renderForm = (): void => {
     const isEdit = !!(existingTalk && existingTalk.id);
-    const languageOptions = options.languageOptions || [
-      { code: 'en', label: 'English' },
-      { code: 'zh', label: 'Chinese' },
-      { code: 'es', label: 'Spanish' },
-      { code: 'fr', label: 'French' },
-      { code: 'de', label: 'German' },
-      { code: 'ja', label: 'Japanese' },
-      { code: 'ko', label: 'Korean' },
-    ];
-    const selectedLanguage = String(existingTalk?.language || options.defaultLanguage || 'en').toLowerCase();
     modal.innerHTML = `
       <div class="modal-content size-xl modal-fullscreen" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
@@ -139,15 +127,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           <div class="form-group">
             <label class="form-label">${text('editorTalkTitle', 'Talk Title')}</label>
             <input type="text" class="form-input" id="talk-title" placeholder="${text('editorTitlePlaceholder', 'e.g., Coffee Meetup, Quick Survey')}" required value="${existingTalk ? options.escapeHtml(existingTalk.title) : ''}">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">${text('editorLanguage', 'Language')}</label>
-            <select class="form-input" id="talk-language" aria-label="Talk language">
-              ${languageOptions
-                .map((lang) => `<option value="${lang.code}" ${lang.code === selectedLanguage ? 'selected' : ''}>${lang.label}</option>`)
-                .join('')}
-            </select>
           </div>
 
           <div class="form-group" id="tag-like-group" style="display: none;">
@@ -173,7 +152,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               value="${options.escapeHtml(existingTalk?.questions?.[0]?.answers?.find((a: any) => a.isMatch)?.text || '')}"
               placeholder="${text('editorTagAnswerPlaceholder' as UiTranslationKey, "e.g. sell — or leave as the same word to match fellow buy people")}"
             >
-            <p id="talk-answer-preview" style="margin: 6px 0 0 0; font-size: 0.85em; color: #666;"></p>
+            <p id="talk-answer-preview" style="margin: 6px 0 0 0; font-size: 0.85em; color: var(--text-secondary);"></p>
           </div>
 
           <div class="form-group">
@@ -206,19 +185,19 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
 
           <div class="form-group" id="questions-form-group">
             <label class="form-label" id="questions-form-label">${text('editorQuestions', 'Questions & Branching')}</label>
-            <p class="talk-editor-type-hint" id="talk-editor-type-hint" style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;"></p>
+            <p class="talk-editor-type-hint" id="talk-editor-type-hint" style="margin: 0 0 10px 0; font-size: 0.9em; color: var(--text-secondary);"></p>
             <div id="questions-container"></div>
             <button type="button" id="add-question-btn" class="btn" style="margin-top: 10px; background: var(--accent); color: white;">${text('editorAddQuestion', '+ Add Question')}</button>
           </div>
 
           <div class="form-group" id="route-form-group" style="display: none;">
             <label class="form-label">${text('editorRouteTitle', 'Route (DAG editor)')}</label>
-            <p style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;">
+            <p style="margin: 0 0 10px 0; font-size: 0.9em; color: var(--text-secondary);">
               ${text('editorRouteHelp', 'Build a branching tree. Each answer can lead to a follow-up question. On any path from root to leaf, the same question cannot appear twice; it may appear in separate branches with separate context ids.')}
             </p>
             <div id="route-editor"></div>
             <label class="form-label" for="talk-match-threshold" style="margin-top: 14px; display: block;">${text('editorMatchThresholdLabel' as UiTranslationKey, 'Match threshold (optional)')}</label>
-            <p style="margin: 0 0 8px 0; font-size: 0.85em; color: #666;">
+            <p style="margin: 0 0 8px 0; font-size: 0.85em; color: var(--text-secondary);">
               ${text('editorMatchThresholdHelp' as UiTranslationKey, 'Treats every direct branch off the root as an independent spec, answerable in any order. A responder matches once at least this many specs match — a partial match still counts. Leave blank for the default: only the terminal answer on the path taken decides.')}
             </p>
             <input
@@ -275,7 +254,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             <div id="talk-attachment-name" style="margin-top: 6px; font-size: 0.85em; color: var(--text-tertiary);"></div>
           </div>
           <div class="modal-actions">
-            <button type="button" class="btn" id="cancel-talk-btn" style="background: #ccc; color: #333;">${text('editorCancel', 'Cancel')}</button>
+            <button type="button" class="btn btn-secondary" id="cancel-talk-btn">${text('editorCancel', 'Cancel')}</button>
             <button type="submit" class="btn" id="talk-submit-btn">${isEdit ? text('editorSave', 'Save changes') : text('editorCreate', 'Create')}</button>
           </div>
         </form>

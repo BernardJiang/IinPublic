@@ -62,7 +62,6 @@ test.describe('Talks tab: filter by query', () => {
     await page.click('#create-talk-btn');
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', title);
-    await page.selectOption('#talk-language', 'en');
     await page.selectOption('#talk-type', 'flow');
     const q = page.locator('.question-item').first();
     await q.locator('.question-text').fill(questionText);
