@@ -22,13 +22,16 @@ import {
 } from '../../helpers/talks-matching-browsers';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
-async function createLanguageTalk(page: Page, title: string, language: string): Promise<void> {
+// Language is no longer a manual per-talk field — it's auto-detected from the title
+// (`detectTalkLanguage` in ui-manager.ts). Callers must pass a title that detects as
+// `language` (e.g. Chinese characters for 'zh'), falling back to the author's Settings >
+// Languages > Default Talk Language preference when detection is inconclusive.
+async function createLanguageTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
-  await page.selectOption('#talk-language', language);
   await page.selectOption('#talk-type', 'flow');
   const question = page.locator('.question-item').first();
   await question.locator('.question-text').fill(`Would you like to discuss ${title}?`);

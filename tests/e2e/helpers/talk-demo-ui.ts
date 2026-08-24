@@ -615,7 +615,12 @@ export function buildPositionalAnswerIdMap(originalQuestions: any[]): Record<str
 
 export type UiRouteAnswerSpec =
   | { text: string; outcome: 'match' | 'ignore' }
-  | { text: string; child: UiRouteNodeSpec };
+  | { text: string; child: UiRouteNodeSpec }
+  /** Fans one answer out into 2+ parallel sibling questions (the editor's own "+Parallel Q" —
+   *  clicking "+Add Child" again on an answer that already has a child, ui-manager.ts's
+   *  `renderRouteEditor`), each independently answerable. `parallelThreshold` maps to the
+   *  node's "Match at least ___ of N" input; omit for the default (all must match). */
+  | { text: string; children: UiRouteNodeSpec[]; parallelThreshold?: number };
 
 export type UiRouteNodeSpec = {
   text: string;
@@ -625,6 +630,12 @@ export type UiRouteNodeSpec = {
    *  answer, i.e. a single `{child}` or `{outcome:'match'}` answer alongside the seeded
    *  `{outcome:'ignore'}` default; no special answer count needed. */
   reciprocalTagContext?: boolean;
+  /** Checks the editor's per-question `.route-question-simple-tag` checkbox — mutually
+   *  exclusive with `reciprocalTagContext`. Freezes the node's one real answer to mirror the
+   *  question text itself (self-match), same "iPhone" question -> "iPhone" answer convenience
+   *  a `type:'tag'` talk's root gets. Applied last, after this node's own answers/children are
+   *  filled, since the answer text input becomes read-only once checked. */
+  simpleTag?: boolean;
 };
 
 export type CreateRouteTalkViaEditorOpts = {
@@ -709,7 +720,23 @@ export async function createRouteTalkViaEditor(
       if ('child' in spec) {
         const childId = await addChildAndGetId(qid, aid);
         await fillNode(childId, spec.child);
+      } else if ('children' in spec) {
+        // Each call fans the SAME answer out to one more parallel sibling — the editor's own
+        // "+Add Child" -> "+Parallel Q" progression once the answer already has one child.
+        for (const childSpec of spec.children) {
+          const childId = await addChildAndGetId(qid, aid);
+          await fillNode(childId, childSpec);
+        }
+        if (spec.parallelThreshold != null) {
+          await page
+            .locator(`.route-parallel-threshold[data-qid="${qid}"][data-aid="${aid}"]`)
+            .fill(String(spec.parallelThreshold));
+        }
       }
+    }
+    // Applied last: the answer text input(s) above become read-only once this is checked.
+    if (node.simpleTag) {
+      await page.locator(`.route-question-simple-tag[data-qid="${qid}"]`).setChecked(true, { force: true });
     }
   };
   await fillNode('q_0', opts.root);

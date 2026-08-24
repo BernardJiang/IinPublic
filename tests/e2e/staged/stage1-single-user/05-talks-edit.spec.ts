@@ -15,8 +15,12 @@ test.describe('Talks: create and edit', () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
-  const TALK_TITLE = 'Coffee Meetup';
-  const TALK_TITLE_EDITED = 'Coffee Meetup (Edited)';
+  // Language is no longer a manual per-talk field — it's auto-detected from the title
+  // (`detectTalkLanguage` in ui-manager.ts), so these titles are chosen to exercise that:
+  // Chinese characters detect as 'zh', an English sentence with a recognizable stopword
+  // detects as 'en'.
+  const TALK_TITLE = '咖啡聚会';
+  const TALK_TITLE_EDITED = 'Hello, is this the coffee meetup?';
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage1Spec();
@@ -60,7 +64,6 @@ test.describe('Talks: create and edit', () => {
     await page.click('#create-talk-btn');
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', TALK_TITLE);
-    await page.selectOption('#talk-language', 'zh');
     await page.selectOption('#talk-type', 'flow');
     const q = page.locator('.question-item').first();
     await q.locator('.question-text').fill('Do you drink coffee?');
@@ -88,18 +91,19 @@ test.describe('Talks: create and edit', () => {
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue(TALK_TITLE);
     await expect(page.locator('#talk-type')).toHaveValue('flow');
-    await expect(page.locator('#talk-language')).toHaveValue('zh');
+    // No manual language picker in the editor (removed — language is auto-detected from
+    // the title on every save, see `detectTalkLanguage` in ui-manager.ts).
+    await expect(page.locator('#talk-language')).toHaveCount(0);
     await page.fill('#talk-title', TALK_TITLE_EDITED);
-    await page.selectOption('#talk-language', 'es');
     await page.click('#talk-editor-form button[type="submit"]');
     await afterSync();
     const editedTalkItem = page.locator('.talk-list-item').filter({ hasText: TALK_TITLE_EDITED }).first();
     await expect(editedTalkItem).toBeVisible({ timeout: 15000 });
-    await expect(editedTalkItem.locator('.talk-badge-language')).toHaveAttribute('data-language', 'es');
+    await expect(editedTalkItem.locator('.talk-badge-language')).toHaveAttribute('data-language', 'en');
 
     await editedTalkItem.click();
     await page.waitForSelector('#talk-editor-modal');
-    await expect(page.locator('#talk-language')).toHaveValue('es');
+    await expect(page.locator('#talk-title')).toHaveValue(TALK_TITLE_EDITED);
   });
 
   // TODO §P/§Q build-order item 4: a self-answered own-created talk kept role:'created' in myTalks,

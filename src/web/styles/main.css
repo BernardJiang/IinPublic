@@ -2173,6 +2173,8 @@ button.talk-icon-btn:hover {
 .form-input {
   width: 100%;
   padding: 10px 15px;
+  background: var(--surface);
+  color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   outline: none;
@@ -2256,7 +2258,8 @@ button.talk-icon-btn:hover {
 }
 
 .modal-content {
-  background: white;
+  background: var(--surface);
+  color: var(--text-primary);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: 30px;

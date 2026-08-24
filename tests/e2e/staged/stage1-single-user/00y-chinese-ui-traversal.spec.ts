@@ -66,7 +66,10 @@ test.describe('Chinese UI localization traversal (D2)', () => {
     await expect(p.locator('#reply-filter-language option[value="zh"]')).toHaveText('中文');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkEditorDialog());
     await expect(p.locator('#talk-editor-modal')).toContainText('创建话题');
-    await expect(p.locator('#talk-language option[value="zh"]')).toHaveText('中文');
+    // No manual per-talk language picker anymore — language is auto-detected from the
+    // title (`detectTalkLanguage` in ui-manager.ts); assert the Cancel button's own
+    // localization instead so Chinese-locale coverage of the editor isn't lost.
+    await expect(p.locator('#cancel-talk-btn')).toHaveText('取消');
     await p.locator('#cancel-talk-btn').click();
 
     await p.locator('.nav-btn[data-view="me"]').click();

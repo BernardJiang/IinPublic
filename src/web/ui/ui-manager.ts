@@ -207,6 +207,25 @@ const LANGUAGE_OPTIONS = [
   { code: 'ko', label: 'Korean' },
 ];
 
+/**
+ * Best-effort language auto-detect for a talk's title/question text, so the author never has
+ * to pick a language per-talk (that's now a one-time setting: Settings > Languages > Default
+ * Talk Language, `getDefaultTalkLanguagePreference`). Short, keyword-only titles ("buy",
+ * "iPhone") rarely carry enough signal to detect from — those fall through to `fallback`.
+ */
+function detectTalkLanguage(text: string, fallback: string): string {
+  const normalized = text.normalize('NFKC');
+  if (/[぀-ヿ]/.test(normalized)) return 'ja'; // Hiragana/Katakana
+  if (/[가-힯]/.test(normalized)) return 'ko'; // Hangul
+  if (/[一-鿿]/.test(normalized)) return 'zh'; // CJK ideographs, no kana/hangul present
+  const lower = normalized.toLowerCase();
+  if (/[àâçéèêëîïôûùüÿœæ]/.test(lower) || /\b(le|la|les|et|ou|mais|est|sont|bonjour|merci)\b/.test(lower)) return 'fr';
+  if (/[äöüß]/.test(lower) || /\b(der|die|das|und|oder|aber|ist|sind|danke|hallo)\b/.test(lower)) return 'de';
+  if (/[ñ¿¡]/.test(lower) || /\b(el|la|los|las|y|o|pero|es|son|hola|gracias)\b/.test(lower)) return 'es';
+  if (/\b(the|and|or|but|is|are|hello|thanks)\b/.test(lower)) return 'en';
+  return fallback;
+}
+
 type CreatorReplyRow = {
   responseId: string;
   talkId: string;
@@ -9090,15 +9109,9 @@ export class UIManager extends EventEmitter {
     // a fresh root (`ensureRouteEditorRendered` only reseeds when this array is empty) or the
     // one actually being edited.
     this.routeEditorQuestions = [];
-    const defaultLanguage = String(existingTalk?.language || getDefaultTalkLanguagePreference(this.getUiLanguage())).toLowerCase();
     openTalkEditorDialog({
       existingTalk,
       currentUserId: this.currentUserId,
-      defaultLanguage,
-      languageOptions: LANGUAGE_OPTIONS.map((language) => ({
-        ...language,
-        label: languageOptionLabel(this.getUiLanguage(), language.code, language.label),
-      })),
       text: this.t.bind(this),
       escapeHtml: escapeHtml,
       getAnswerPreferences,
@@ -9148,11 +9161,9 @@ export class UIManager extends EventEmitter {
       | 'survey'
       | 'tag'
       | 'route';
-    const language = String(
-      (document.getElementById('talk-language') as HTMLSelectElement | null)?.value ||
-      this.getUiLanguage() ||
-      'en',
-    ).toLowerCase();
+    // No per-talk language picker: auto-detected from the title, falling back to the
+    // author's Settings > Languages > Default Talk Language preference.
+    const language = detectTalkLanguage(title, getDefaultTalkLanguagePreference(this.getUiLanguage()));
 
     const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
     const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
