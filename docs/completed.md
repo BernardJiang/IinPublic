@@ -2,6 +2,24 @@
 
 Last updated: 2026-08-24
 
+## 2026-08-24 — UIManager decomposition cluster #3: application shell
+
+- Extracted the deterministic first-paint application markup and repeatable shell-localization pass
+  from `UIManager` into `app-shell.ts`. The functions accept explicit translated-text,
+  language-option, and language-label inputs and do not import or reach through `UIManager`.
+- Kept listener installation, bottom-navigation wiring, AppBar behavior, and initial view syncing
+  in the thin `UIManager` controller shim. Mechanical AST comparisons confirmed that the moved
+  451-line template and 112-line localization pass are unchanged apart from replacing implicit
+  dependencies with injected inputs.
+- Added shell characterization for the five-panel and five-navigation-item order, active Chatrooms
+  first paint, reply-language options, Chinese accessibility/navigation labels, and repeat
+  localization of an open filter toggle. Lowered the ratcheting `ui-manager.ts` ceiling from 10,830
+  to 10,280 lines.
+- Verification: typecheck, full lint, and the production web build pass; all 146 unit suites / 1,596
+  tests pass. Canonical `test:all` run `run-20260824-203147-12032` passed all static checks and all 12
+  browser blobs in 16m46s, including the full light shard, WebKit/Firefox smoke tests, and mass-user
+  coverage.
+
 ## 2026-08-24 — UIManager decomposition cluster #2: survey statistics
 
 - Extracted the creator survey analytics block from `ui-manager.ts` into two cohesive modules.

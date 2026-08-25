@@ -2,7 +2,7 @@
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`. Issue #1
 (`ui-manager.ts` decomposition) is **in progress** as of 2026-08-24; extraction clusters #1
-(route editor) and #2 (survey statistics) are complete.
+(route editor), #2 (survey statistics), and #3 (application shell) are complete.
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -141,7 +141,8 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         passed in 16m36s. Stage2/21c also passed twice alone after the fix, and stage2/93's real
         route fan-out E2E remains green.
 - [x] **1.1 Add a ratcheting growth guardrail.** Started at 11,793, lowered with the first
-      extraction to 11,197, and lowered with cluster #2 to a test-enforced ceiling of **10,830**
+      extraction to 11,197, with cluster #2 to 10,830, and with cluster #3 to a test-enforced
+      ceiling of **10,280**
       lines. Lower the ceiling in the same commit as every extraction; never raise it merely to land
       unrelated feature work. Line count is a warning metric, not the architecture definition.
 - [x] **1.2 Profile coupling before extracting (measured, not guessed).** The initial AST proxy
@@ -153,6 +154,12 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         dashboard rendering, filtering, CSVs, download side effect, and follow-up construction).
         Its only instance boundaries were local talk lookup, translations, notification/download,
         and opening the existing talk editor, so it was extracted as cluster #2.
+      - **Third: application shell.** `setupBaseUI` was 460 lines with only six `this.*`
+        references, and the adjacent `applyShellTranslations` was 112 lines with two dependencies.
+        The 451-line template and repeatable localization pass are deterministic shell work;
+        translation and language options are their only data inputs. Navigation and listener
+        ownership stay in `UIManager`, making this a low-coupling cluster despite its broad DOM
+        surface.
       - **Defer: `displayTalksList`.** It is about 679 lines and touches roughly 52 distinct instance
         members, so it is a poor first extraction despite its size.
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
@@ -167,6 +174,9 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
       - Cluster #2 adds characterization for CSV quoting, low-cohort region masking, anonymity
         toggle state, time-filter reaggregation, escaped labels/titles, modal lifecycle, and bounded
         follow-up draft construction.
+      - Cluster #3 freezes main-panel/navigation order, the active first-paint view, reply-language
+        options, localized accessibility text, Chinese navigation labels, and retranslation of an
+        already-open filter toggle before moving the shell template/localization pass.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -182,6 +192,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         metric cards, and follow-up drafts. `survey-statistics-dialog.ts` owns local aggregation,
         modal/dashboard DOM, filters, exports, and callbacks. `UIManager` retains a thin entry shim
         plus the browser download/notification side effect; neither extracted module imports it.
+      - Cluster #3: `app-shell.ts` owns deterministic first-paint markup and repeatable shell
+        localization with explicit translated-text, language-option, and language-label inputs.
+        `UIManager.setupBaseUI()` remains the controller shim that installs listeners, bottom
+        navigation, AppBar chrome, and the initial view state.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -198,6 +212,11 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         restored analytics test, and 11/12 phases; its sole unrelated expired-talk visibility race
         passed immediately alone, then the complete light shard passed 233 tests (6 skipped) in
         9.6m. All other phases from that run were green.
+      - Cluster #3 evidence: the original and injected shell template/localization statements are
+        mechanically equivalent;
+        typecheck/lint, the production web build, and 146 unit suites / 1,596 tests pass. Canonical
+        run `run-20260824-203147-12032` passed all static checks and all 12 browser blobs in 16m46s,
+        including the full light shard, WebKit/Firefox smoke coverage, and mass-user phase.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -237,8 +256,13 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
    the `UIManager` entry contract and isolates the browser download side effect.
 7. ~~Lower the ratchet to 10,830 and restore the deterministic full analytics E2E.~~ Done; focused
    and full-shard coverage is green.
-8. Re-measure the remaining clusters before choosing cluster #3; do not default to
-   `displayTalksList`, whose coupling remains much higher than its size alone suggests.
+8. ~~Re-measure the remaining clusters before choosing cluster #3.~~ Done; `displayTalksList`
+   remains deferred at about 685 lines / 52 dependencies, while the 460-line / six-dependency
+   application shell was selected.
+9. ~~Characterize and extract cluster #3 (application shell), lower the ratchet to 10,280, and
+   close its canonical verification gate.~~ Done; canonical run `run-20260824-203147-12032` is green.
+10. Re-measure and choose cluster #4 as a separate commit-sized change; keep
+    `displayTalksList` deferred unless its ownership boundary is first reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React
