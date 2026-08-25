@@ -2,6 +2,25 @@
 
 Last updated: 2026-08-24
 
+## 2026-08-24 — UIManager decomposition cluster #4: answer preferences
+
+- Extracted the answer-preference decision/persistence pipeline into
+  `answer-preference-resolution.ts`: branch-aware Pair-tag context, typed built-in dispatch,
+  flattened-before-exact resolution, multi-select id remapping, legacy fallback, exact + flat +
+  legacy persistence, and full zero-click answer construction now share one focused owner.
+- Preserved `UIManager`'s existing resolver, save, and public
+  `tryBuildChatbotAnswersFromFlattened()` methods as thin compatibility shims. The extracted module
+  takes the current user id explicitly and neither imports nor reaches through `UIManager`.
+- Added characterization for reciprocal-tag auto-proceed, flattened-over-exact precedence,
+  newest-first multi-select mapping, and cross-talk preference reuse across mirrored Pair tags.
+  Mechanical AST comparisons confirmed all four moved bodies retain their baseline statements.
+- Reduced `ui-manager.ts` from the merged 10,255-line baseline to 9,830 lines and lowered the
+  architecture ratchet from 10,280 to 9,830.
+- Verification: typecheck, full lint, and production web build pass; all 147 unit suites / 1,603
+  tests pass. Canonical `test:all` run `run-20260824-225837-46881` passed all static checks and all
+  12 browser blobs in 16m21s, including exact-chatbot-memory E2E, WebKit/Firefox smoke, and mass-
+  user coverage.
+
 ## 2026-08-24 — Talk editor: progressive disclosure + live responder preview
 
 Two more talk-editor usability follow-ups, same theme as the templates work below.

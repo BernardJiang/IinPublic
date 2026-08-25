@@ -2,7 +2,8 @@
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`. Issue #1
 (`ui-manager.ts` decomposition) is **in progress** as of 2026-08-24; extraction clusters #1
-(route editor), #2 (survey statistics), and #3 (application shell) are complete.
+(route editor), #2 (survey statistics), #3 (application shell), and #4 (answer-preference
+resolution) are complete.
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -141,8 +142,8 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         passed in 16m36s. Stage2/21c also passed twice alone after the fix, and stage2/93's real
         route fan-out E2E remains green.
 - [x] **1.1 Add a ratcheting growth guardrail.** Started at 11,793, lowered with the first
-      extraction to 11,197, with cluster #2 to 10,830, and with cluster #3 to a test-enforced
-      ceiling of **10,280**
+      extraction to 11,197, with cluster #2 to 10,830, with cluster #3 to 10,280, and with cluster
+      #4 to a test-enforced ceiling of **9,830**
       lines. Lower the ceiling in the same commit as every extraction; never raise it merely to land
       unrelated feature work. Line count is a warning metric, not the architecture definition.
 - [x] **1.2 Profile coupling before extracting (measured, not guessed).** The initial AST proxy
@@ -160,6 +161,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         translation and language options are their only data inputs. Navigation and listener
         ownership stay in `UIManager`, making this a low-coupling cluster despite its broad DOM
         surface.
+      - **Fourth: answer-preference resolution.** The 258-line resolver, 85-line persistence
+        method, 85-line full-chatbot builder, and their small effective-tag helper formed one
+        storage/decision pipeline. Only the current user id crossed the instance boundary, while
+        `app.ts` already depended on the full-builder method as a stable `UIManager` entry point.
       - **Defer: `displayTalksList`.** It is about 679 lines and touches roughly 52 distinct instance
         members, so it is a poor first extraction despite its size.
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
@@ -177,6 +182,8 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
       - Cluster #3 freezes main-panel/navigation order, the active first-paint view, reply-language
         options, localized accessibility text, Chinese navigation labels, and retranslation of an
         already-open filter toggle before moving the shell template/localization pass.
+      - Cluster #4 freezes reciprocal-tag auto-proceed, flattened-over-exact precedence,
+        newest-first multi-select id remapping, and cross-talk reuse across mirrored Pair tags.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -196,6 +203,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         localization with explicit translated-text, language-option, and language-label inputs.
         `UIManager.setupBaseUI()` remains the controller shim that installs listeners, bottom
         navigation, AppBar chrome, and the initial view state.
+      - Cluster #4: `answer-preference-resolution.ts` owns branch-aware effective-tag derivation,
+        typed/flattened/exact/legacy resolution order, exact + flat + legacy persistence, and full
+        zero-click answer construction. It receives the current user id explicitly and does not
+        import `UIManager`; the existing manager methods remain thin compatibility shims.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -217,6 +228,11 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         typecheck/lint, the production web build, and 146 unit suites / 1,596 tests pass. Canonical
         run `run-20260824-203147-12032` passed all static checks and all 12 browser blobs in 16m46s,
         including the full light shard, WebKit/Firefox smoke coverage, and mass-user phase.
+      - Cluster #4 evidence: all four moved method bodies are mechanically equivalent after
+        replacing instance calls with the explicit current-user argument; typecheck/lint,
+        production web build, and 147 unit suites / 1,603 tests pass. Canonical run
+        `run-20260824-225837-46881` passed all static checks and all 12 browser blobs in 16m21s,
+        including exact-chatbot-memory E2E, WebKit/Firefox smoke, and mass-user coverage.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -261,8 +277,13 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
    application shell was selected.
 9. ~~Characterize and extract cluster #3 (application shell), lower the ratchet to 10,280, and
    close its canonical verification gate.~~ Done; canonical run `run-20260824-203147-12032` is green.
-10. Re-measure and choose cluster #4 as a separate commit-sized change; keep
-    `displayTalksList` deferred unless its ownership boundary is first reduced.
+10. ~~Re-measure and choose cluster #4 as a separate commit-sized change.~~ Done; the answer-
+    preference resolver/persistence pipeline was selected, while `displayTalksList` remains
+    deferred at 685 lines / 52 dependencies.
+11. ~~Characterize and extract cluster #4, lower the ratchet to 9,830, and close its canonical
+    gate.~~ Done; canonical run `run-20260824-225837-46881` is green.
+12. Re-measure and choose cluster #5 as a separate commit-sized change; continue to defer
+    `displayTalksList` until its ownership boundary is reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React
