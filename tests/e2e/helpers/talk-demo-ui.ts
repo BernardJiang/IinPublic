@@ -388,6 +388,13 @@ export async function fillPairTagQuestion(
 ): Promise<void> {
   const q = page.locator(`.question-item[data-question-index="${qIndex}"]`);
   await q.locator('.question-text').fill(ownWord);
+  // Advanced fields (including the Pair-tag checkbox) live inside a collapsed <details> by
+  // default (progressive disclosure, talk-editor-form-helpers.ts) — a closed <details>'s
+  // children have no rendered box at all, so even a forced click can't land on them; open it
+  // first, same as a real user clicking the "Advanced options" summary.
+  await q.locator('.question-advanced').evaluate((el) => {
+    (el as HTMLDetailsElement).open = true;
+  });
   await q.locator('.question-reciprocal-tag').setChecked(true, { force: true });
   await q.locator('.answer-item[data-answer-index="0"] .answer-text').fill(counterpartWord);
   await q.locator('.answer-item[data-answer-index="0"] .answer-next').selectOption(matchNext);
@@ -476,6 +483,14 @@ export async function createFlowOrSurveyTalkViaEditor(
     const qSpec = opts.questions[qIndex];
     const qItem = page.locator(`.question-item[data-question-index="${qIndex}"]`);
     await qItem.locator('.question-text').fill(qSpec.text);
+    if (qSpec.answerSelectionMode === 'multiple' || qSpec.reciprocalTagContext) {
+      // Advanced fields live inside a collapsed <details> by default (progressive disclosure,
+      // talk-editor-form-helpers.ts) — open it before touching anything inside, same as a real
+      // user clicking the "Advanced options" summary first.
+      await qItem.locator('.question-advanced').evaluate((el) => {
+        (el as HTMLDetailsElement).open = true;
+      });
+    }
     if (qSpec.answerSelectionMode === 'multiple') {
       await qItem.locator('.answer-selection-mode').selectOption('multiple');
     }
@@ -696,6 +711,12 @@ export async function createRouteTalkViaEditor(
   const fillNode = async (qid: string, node: UiRouteNodeSpec): Promise<void> => {
     await page.locator(`.route-question-text[data-qid="${qid}"]`).fill(node.text);
     if (node.reciprocalTagContext) {
+      // Advanced fields (including the Pair-tag checkbox) live inside a collapsed <details> by
+      // default (progressive disclosure, ui-manager.ts's renderRouteEditor) — open it first,
+      // same as a real user clicking the node's "Advanced options" summary.
+      await page.locator(`.route-node-advanced[data-qid="${qid}"]`).evaluate((el) => {
+        (el as HTMLDetailsElement).open = true;
+      });
       await page.locator(`.route-question-reciprocal-tag[data-qid="${qid}"]`).setChecked(true, { force: true });
     }
     for (let i = 2; i < node.answers.length; i++) {
@@ -728,6 +749,12 @@ export async function createRouteTalkViaEditor(
           await fillNode(childId, childSpec);
         }
         if (spec.parallelThreshold != null) {
+          // Advanced fields (including the parallel-threshold input) live inside a collapsed
+          // <details> by default (progressive disclosure, ui-manager.ts's renderRouteEditor) —
+          // open it first, same as a real user clicking the node's "Advanced options" summary.
+          await page.locator(`.route-node-advanced[data-qid="${qid}"]`).evaluate((el) => {
+            (el as HTMLDetailsElement).open = true;
+          });
           await page
             .locator(`.route-parallel-threshold[data-qid="${qid}"][data-aid="${aid}"]`)
             .fill(String(spec.parallelThreshold));
@@ -736,6 +763,9 @@ export async function createRouteTalkViaEditor(
     }
     // Applied last: the answer text input(s) above become read-only once this is checked.
     if (node.simpleTag) {
+      await page.locator(`.route-node-advanced[data-qid="${qid}"]`).evaluate((el) => {
+        (el as HTMLDetailsElement).open = true;
+      });
       await page.locator(`.route-question-simple-tag[data-qid="${qid}"]`).setChecked(true, { force: true });
     }
   };

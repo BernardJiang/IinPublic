@@ -170,69 +170,74 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
       required
       style="margin-bottom: 10px;"
     >
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
-      ${text(options, 'editorAnswerSelectionModeLabel', 'Respondent may select:')}
-      <select class="form-input answer-selection-mode" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
-        <option value="single">${text(options, 'editorAnswerSelectionModeSingle', 'One (multiple choice)')}</option>
-        <option value="multiple">${text(options, 'editorAnswerSelectionModeMultiple', 'Any that apply (checkboxes)')}</option>
-      </select>
-    </label>
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
-      <input type="checkbox" class="question-simple-tag">
-      ${text(options, 'editorSimpleTagLabel', 'Simple tag (answer must match the question itself — needs exactly 1 real answer, besides Ignore)')}
-    </label>
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
-      <input type="checkbox" class="question-reciprocal-tag">
-      ${text(options, 'editorReciprocalTagLabel', 'Pair tag — define buy/sell context here for later questions (needs exactly 1 real answer, besides Ignore)')}
-    </label>
-    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
-      ${text(options, 'editorBuiltInKindLabel', 'Compare using:')}
-      <select class="form-input builtin-kind" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
-        <option value="">${text(options, 'editorBuiltInKindNone', 'Ordinary answer choices')}</option>
-        <option value="quantity">${text(options, 'editorBuiltInKindQuantity', 'Quantity (number comparison)')}</option>
-        <option value="priceRange">${text(options, 'editorBuiltInKindPriceRange', 'Price range (overlap)')}</option>
-        <option value="timeFrame">${text(options, 'editorBuiltInKindTimeFrame', 'Time frame (date overlap)')}</option>
-        <option value="location">${text(options, 'editorBuiltInKindLocation', 'Location (radius match)')}</option>
-        <option value="ageRange">${text(options, 'editorBuiltInKindAgeRange', 'Age range (mutual dating match)')}</option>
-      </select>
-    </label>
-    <div class="builtin-inputs" style="display: none; margin-left: 15px; margin-bottom: 10px;">
-      <div class="builtin-kind-fields" data-builtin-kind="quantity" style="display: none; margin-bottom: 6px;">
-        <label style="font-size: 0.9em;">${text(options, 'editorBuiltInQuantityLabel', 'Quantity:')}
-          <input type="number" class="form-input builtin-quantity-input" style="width: 120px; display: inline-block;">
+    <details class="question-advanced" style="margin-bottom: 10px;">
+      <summary style="cursor: pointer; font-size: 0.88em; color: var(--text-secondary); user-select: none;">${text(options, 'editorAdvancedToggle', 'Advanced options')}</summary>
+      <div style="margin-top: 8px;">
+        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
+          ${text(options, 'editorAnswerSelectionModeLabel', 'Respondent may select:')}
+          <select class="form-input answer-selection-mode" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
+            <option value="single">${text(options, 'editorAnswerSelectionModeSingle', 'One (multiple choice)')}</option>
+            <option value="multiple">${text(options, 'editorAnswerSelectionModeMultiple', 'Any that apply (checkboxes)')}</option>
+          </select>
         </label>
+        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
+          <input type="checkbox" class="question-simple-tag">
+          ${text(options, 'editorSimpleTagLabel', 'Simple tag (answer must match the question itself — needs exactly 1 real answer, besides Ignore)')}
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
+          <input type="checkbox" class="question-reciprocal-tag">
+          ${text(options, 'editorReciprocalTagLabel', 'Pair tag — define buy/sell context here for later questions (needs exactly 1 real answer, besides Ignore)')}
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
+          ${text(options, 'editorBuiltInKindLabel', 'Compare using:')}
+          <select class="form-input builtin-kind" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
+            <option value="">${text(options, 'editorBuiltInKindNone', 'Ordinary answer choices')}</option>
+            <option value="quantity">${text(options, 'editorBuiltInKindQuantity', 'Quantity (number comparison)')}</option>
+            <option value="priceRange">${text(options, 'editorBuiltInKindPriceRange', 'Price range (overlap)')}</option>
+            <option value="timeFrame">${text(options, 'editorBuiltInKindTimeFrame', 'Time frame (date overlap)')}</option>
+            <option value="location">${text(options, 'editorBuiltInKindLocation', 'Location (radius match)')}</option>
+            <option value="ageRange">${text(options, 'editorBuiltInKindAgeRange', 'Age range (mutual dating match)')}</option>
+          </select>
+        </label>
+        <div class="builtin-inputs" style="display: none; margin-left: 15px; margin-bottom: 10px;">
+          <div class="builtin-kind-fields" data-builtin-kind="quantity" style="display: none; margin-bottom: 6px;">
+            <label style="font-size: 0.9em;">${text(options, 'editorBuiltInQuantityLabel', 'Quantity:')}
+              <input type="number" class="form-input builtin-quantity-input" style="width: 120px; display: inline-block;">
+            </label>
+          </div>
+          <div class="builtin-kind-fields" data-builtin-kind="priceRange" style="display: none; margin-bottom: 6px;">
+            <label style="font-size: 0.9em;">${text(options, 'editorBuiltInPriceMinLabel', 'Min price:')}
+              <input type="number" class="form-input builtin-pricerange-min" style="width: 100px; display: inline-block;">
+            </label>
+            <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInPriceMaxLabel', 'Max price:')}
+              <input type="number" class="form-input builtin-pricerange-max" style="width: 100px; display: inline-block;">
+            </label>
+          </div>
+          <div class="builtin-kind-fields" data-builtin-kind="timeFrame" style="display: none; margin-bottom: 6px;">
+            <label style="font-size: 0.9em;">${text(options, 'editorBuiltInTimeStartLabel', 'From:')}
+              <input type="date" class="form-input builtin-timeframe-start" style="display: inline-block;">
+            </label>
+            <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInTimeEndLabel', 'To:')}
+              <input type="date" class="form-input builtin-timeframe-end" style="display: inline-block;">
+            </label>
+          </div>
+          <div class="builtin-kind-fields" data-builtin-kind="location" style="display: none; font-size: 0.85em; color: var(--text-secondary);">
+            ${text(options, 'editorBuiltInLocationNote', "Uses this talk's own location and radius (set below).")}
+          </div>
+          <div class="builtin-kind-fields" data-builtin-kind="ageRange" style="display: none; margin-bottom: 6px;">
+            <label style="font-size: 0.9em;">${text(options, 'editorBuiltInAgeLabel', 'My age:')}
+              <input type="number" class="form-input builtin-agerange-age" style="width: 90px; display: inline-block;">
+            </label>
+            <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInAgeMinLabel', 'Acceptable age, min:')}
+              <input type="number" class="form-input builtin-agerange-min" style="width: 90px; display: inline-block;">
+            </label>
+            <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInAgeMaxLabel', 'Acceptable age, max:')}
+              <input type="number" class="form-input builtin-agerange-max" style="width: 90px; display: inline-block;">
+            </label>
+          </div>
+        </div>
       </div>
-      <div class="builtin-kind-fields" data-builtin-kind="priceRange" style="display: none; margin-bottom: 6px;">
-        <label style="font-size: 0.9em;">${text(options, 'editorBuiltInPriceMinLabel', 'Min price:')}
-          <input type="number" class="form-input builtin-pricerange-min" style="width: 100px; display: inline-block;">
-        </label>
-        <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInPriceMaxLabel', 'Max price:')}
-          <input type="number" class="form-input builtin-pricerange-max" style="width: 100px; display: inline-block;">
-        </label>
-      </div>
-      <div class="builtin-kind-fields" data-builtin-kind="timeFrame" style="display: none; margin-bottom: 6px;">
-        <label style="font-size: 0.9em;">${text(options, 'editorBuiltInTimeStartLabel', 'From:')}
-          <input type="date" class="form-input builtin-timeframe-start" style="display: inline-block;">
-        </label>
-        <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInTimeEndLabel', 'To:')}
-          <input type="date" class="form-input builtin-timeframe-end" style="display: inline-block;">
-        </label>
-      </div>
-      <div class="builtin-kind-fields" data-builtin-kind="location" style="display: none; font-size: 0.85em; color: var(--text-secondary);">
-        ${text(options, 'editorBuiltInLocationNote', "Uses this talk's own location and radius (set below).")}
-      </div>
-      <div class="builtin-kind-fields" data-builtin-kind="ageRange" style="display: none; margin-bottom: 6px;">
-        <label style="font-size: 0.9em;">${text(options, 'editorBuiltInAgeLabel', 'My age:')}
-          <input type="number" class="form-input builtin-agerange-age" style="width: 90px; display: inline-block;">
-        </label>
-        <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInAgeMinLabel', 'Acceptable age, min:')}
-          <input type="number" class="form-input builtin-agerange-min" style="width: 90px; display: inline-block;">
-        </label>
-        <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInAgeMaxLabel', 'Acceptable age, max:')}
-          <input type="number" class="form-input builtin-agerange-max" style="width: 90px; display: inline-block;">
-        </label>
-      </div>
-    </div>
+    </details>
     <div class="answers-container" style="margin-left: 15px;"></div>
     <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">${text(options, 'editorAddAnswer', '+ Add Answer')}</button>
   `;

@@ -63,13 +63,23 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     await expect(page.locator('.route-answer[data-qid="q_0"][data-aid="a_0_match"] .route-answer-kind')).toHaveText('Next question');
     await expect(page.locator('.route-answer[data-qid="q_0"][data-aid="a_0_ignore"] .route-answer-kind')).toHaveText('Next question');
 
+    // Advanced fields (builtIn kind + its typed inputs) live inside a collapsed <details> by
+    // default (progressive disclosure, ui-manager.ts's renderRouteEditor) — open a node's before
+    // touching anything inside.
+    const openRouteAdvanced = (qid: string) =>
+      page.locator(`.route-node-advanced[data-qid="${qid}"]`).evaluate((el) => {
+        (el as HTMLDetailsElement).open = true;
+      });
+
     // Notebook branch (q_1): a builtIn quantity leaf, seller has 5.
     await page.locator('.route-question-text[data-qid="q_1"]').fill('How many notebooks do you have?');
+    await openRouteAdvanced('q_1');
     await page.locator('.route-builtin-kind[data-qid="q_1"]').selectOption('quantity');
     await page.locator('.route-builtin-quantity-input[data-qid="q_1"]').fill('5');
 
     // Pen branch (q_2): a builtIn quantity leaf, seller has 1.
     await page.locator('.route-question-text[data-qid="q_2"]').fill('How many pens do you have?');
+    await openRouteAdvanced('q_2');
     await page.locator('.route-builtin-kind[data-qid="q_2"]').selectOption('quantity');
     await page.locator('.route-builtin-quantity-input[data-qid="q_2"]').fill('1');
 

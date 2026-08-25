@@ -53,6 +53,14 @@ test.describe('Talk template picker', () => {
       await expect(page.locator('#talk-template-picker-modal')).toBeVisible();
     };
 
+    // Progressive disclosure: a brand-new blank question's advanced fields (answer-selection-
+    // mode, Simple/Pair tag, "Compare using") start collapsed — no value set, nothing to show.
+    await page.click('#create-talk-btn');
+    await page.waitForSelector('#talk-editor-modal');
+    await expect(page.locator('.question-item[data-question-index="0"] .question-advanced')).not.toHaveJSProperty('open', true);
+    await page.locator('#cancel-talk-btn').click();
+    await page.waitForSelector('#talk-editor-modal', { state: 'detached' });
+
     await openPicker();
     await expect(page.locator('[data-testid="talk-template-buySell"]')).toBeVisible();
     await expect(page.locator('[data-testid="talk-template-taxi"]')).toBeVisible();
@@ -108,7 +116,11 @@ test.describe('Talk template picker', () => {
     await expect(page.locator('.question-item[data-question-index="0"] .question-text')).toHaveValue('seeking women');
     await expect(page.locator('.question-item[data-question-index="0"] .question-reciprocal-tag')).toBeChecked();
     await expect(page.locator('.question-item[data-question-index="0"] .answer-item[data-answer-index="0"] .answer-text')).toHaveValue('seeking men');
+    // Progressive disclosure: the template's Pair tag is already set, so its advanced <details>
+    // starts open — the value is never hidden behind an extra click.
+    await expect(page.locator('.question-item[data-question-index="0"] .question-advanced')).toHaveJSProperty('open', true);
     const q2 = page.locator('.question-item[data-question-index="1"]');
+    await expect(q2.locator('.question-advanced')).toHaveJSProperty('open', true);
     await expect(q2.locator('.question-text')).toHaveValue('Age range');
     await expect(q2.locator('.builtin-kind')).toHaveValue('ageRange');
     await expect(q2.locator('.builtin-agerange-age')).toHaveValue('30');

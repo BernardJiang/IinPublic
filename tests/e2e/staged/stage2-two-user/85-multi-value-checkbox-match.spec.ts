@@ -70,6 +70,11 @@ async function createChecklistTalk(
   // and silently suppress the second broadcast — same class of issue Date.now()-in-text
   // patterns elsewhere in this suite exist to avoid.
   await q.locator('.question-text').fill(questionText);
+  // Advanced fields live inside a collapsed <details> by default (progressive disclosure,
+  // talk-editor-form-helpers.ts) — open it before touching anything inside.
+  await q.locator('.question-advanced').evaluate((el) => {
+    (el as HTMLDetailsElement).open = true;
+  });
   await q.locator('.answer-selection-mode').selectOption('multiple');
   await afterAction();
 

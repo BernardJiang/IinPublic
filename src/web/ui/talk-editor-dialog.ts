@@ -9,6 +9,7 @@ import {
   getTagOppositePairRegistryState,
   setTagOppositePairRegistryState,
 } from './answer-preferences-storage';
+import { mountTalkPreviewPanel, type TalkPreviewCollectors } from './talk-editor-preview';
 
 // docs/TODO.md §LL: shared auto-fill/lock/preview behavior for a `type: 'tag'` talk's tag-word
 // input (`#talk-title`) and its accepted-answer counterpart (`#talk-answer`). Typing into the
@@ -98,6 +99,7 @@ type TalkEditorDialogOptions = {
    *  editing, copying, or already on a picked template): closes this blank editor and opens the
    *  template picker (`showTalkTemplatePicker`, ui-manager.ts). */
   onBrowseTemplates?: () => void;
+  previewCollectors: TalkPreviewCollectors;
   text?: (key: UiTranslationKey) => string;
 };
 
@@ -263,6 +265,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             <input type="file" class="form-input" id="talk-attachment-input" aria-label="Attach media to share on match">
             <div id="talk-attachment-name" style="margin-top: 6px; font-size: 0.85em; color: var(--text-tertiary);"></div>
           </div>
+          <div class="form-group" id="talk-preview-panel"></div>
           <div class="modal-actions">
             <button type="button" class="btn btn-secondary" id="cancel-talk-btn">${text('editorCancel', 'Cancel')}</button>
             <button type="submit" class="btn" id="talk-submit-btn">${isEdit ? text('editorSave', 'Save changes') : text('editorCreate', 'Create')}</button>
@@ -321,6 +324,14 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
                 if (minInput) minInput.value = String(q.builtIn.ageRange.acceptableRange.min);
                 if (maxInput) maxInput.value = String(q.builtIn.ageRange.acceptableRange.max);
               }
+            }
+            // Progressive disclosure: the advanced fields above (answer-selection-mode, Simple/
+            // Pair tag, builtIn) live inside a collapsed <details> by default — open it whenever
+            // any of them already has a non-default value, so reopening a saved talk (or a
+            // picked template) never hides a value the author would have to hunt for.
+            if (q.reciprocalTagContext || q.tagKind === 'simple' || q.builtIn?.kind || q.answerSelectionMode === 'multiple') {
+              const advancedDetails = questionItem.querySelector('.question-advanced') as HTMLDetailsElement | null;
+              if (advancedDetails) advancedDetails.open = true;
             }
             const answersContainer = questionItem.querySelector('.answers-container') as HTMLElement | null;
             if (answersContainer && Array.isArray(q.answers)) {
@@ -533,6 +544,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     // edit — the per-question builtin-kind change listener (talk-editor-form-helpers.ts) handles
     // every subsequent edit from here.
     options.syncAdultLockFromBuiltInKinds(modal);
+    mountTalkPreviewPanel(modal, options.previewCollectors, text);
 
     document.getElementById('browse-talk-templates-btn')?.addEventListener('click', () => {
       if (document.body.contains(modal)) document.body.removeChild(modal);

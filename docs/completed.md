@@ -2,6 +2,51 @@
 
 Last updated: 2026-08-24
 
+## 2026-08-24 — Talk editor: progressive disclosure + live responder preview
+
+Two more talk-editor usability follow-ups, same theme as the templates work below.
+
+**Progressive disclosure.** Per-question "advanced" fields (answer-selection-mode, Simple tag,
+Pair tag, "Compare using" builtIn kind + its typed inputs — plus the route/DAG editor's per-node
+equivalents) now live inside a collapsed `<details class="question-advanced">` /
+`<details class="route-node-advanced" data-qid>`, default closed for a brand-new question and
+default open whenever the question already has a non-default value in any of them (rehydrating
+an existing talk or a picked template) — set in `talk-editor-dialog.ts`'s existing rehydration
+code and directly in `renderRouteEditor` (ui-manager.ts), which already has the node's live state
+in hand. The route editor's parallel-match-threshold input was deliberately left outside the
+collapse — it's already only shown for a real 2+-child fan-out, not part of the "wall of
+checkboxes" the collapse targets.
+
+Checked the blast radius against the e2e suite before touching anything: the Simple/Pair tag
+checkboxes were already exclusively driven via `{force: true}`, but ~33 other call sites (6 spec
+files + 2 shared helper functions) used plain, visibility-requiring Playwright actions against
+the now-collapsed fields. **`{force: true}` alone was not sufficient** — a closed native
+`<details>`'s children have no rendered box at all, so even a forced click/fill silently fails to
+land (`locator.setChecked: Clicking the checkbox did not change its state`), discovered the hard
+way on the first real test run. Fixed by having each call site (or the shared helper it goes
+through) explicitly open the relevant `<details>` via `.evaluate(el => el.open = true)` before
+touching anything inside — same as a real user clicking the "Advanced options" summary first.
+
+**Live "what the responder sees" preview.** A second collapsed section, above the editor's
+Cancel/Create buttons, reads the CURRENT in-progress form state (not the saved talk) on open and
+on every subsequent `input`/`change` event elsewhere in the form (delegated listener, ~200ms
+debounce), runs it through the same `TalkAutofix.fix` the real save path uses, and renders the
+current question + answer choices as clickable buttons — walking to a real match/ignore/survey-
+complete outcome via the actual `checkIfMatch` (talk-engine.ts), not a reimplementation.
+Deliberately does not reuse `talk-response-dialog.ts`'s renderer (a stateful closure wired to
+localStorage drafts, chatbot lookups, and real submission calls — confirmed unsafe to call from
+the editor). New file `src/web/ui/talk-editor-preview.ts`; the flow/survey editor's DOM-read
+(previously inlined in `processTalkForm`) was extracted into `collectFlowSurveyEditorQuestions`
+so both the real save path and the preview share one read, not two; the route editor's equivalent,
+`collectRouteEditorQuestions`, was already a pure function and needed no changes.
+
+E2E: extended `83-talk-template-picker.spec.ts` with progressive-disclosure default-state
+assertions; new `84-talk-editor-preview.spec.ts` (flow talk walking to both a match and an
+ignore, plus a live re-derive-on-edit check; a route talk's parallel-spec fan-out walking to a
+match). All ~33 previously-identified call sites (85, 86, 87, 92, 82, `stage4/06`, plus
+`fillPairTagQuestion`/`createFlowOrSurveyTalkViaEditor`/`createRouteTalkViaEditor` in
+`tests/e2e/helpers/talk-demo-ui.ts`) re-verified passing after the `<details>`-open fix.
+
 ## 2026-08-24 — Talk templates (Buy/Sell, Taxi, Job Seeker/Hiring, Dating) + §DD `ageRange` wiring
 
 Talk editor usability follow-up: a new "🎨 Start from a template" button at the top of a

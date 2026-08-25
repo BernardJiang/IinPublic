@@ -48,6 +48,11 @@ async function createQuantityTalk(
   await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
   const q2 = page.locator('.question-item[data-question-index="1"]');
   await q2.locator('.question-text').fill(questionText);
+  // Advanced fields live inside a collapsed <details> by default (progressive disclosure,
+  // talk-editor-form-helpers.ts) — open it before touching anything inside.
+  await q2.locator('.question-advanced').evaluate((el) => {
+    (el as HTMLDetailsElement).open = true;
+  });
   await q2.locator('.builtin-kind').selectOption('quantity');
   await afterAction();
   await q2.locator('.builtin-quantity-input').fill(String(quantity));

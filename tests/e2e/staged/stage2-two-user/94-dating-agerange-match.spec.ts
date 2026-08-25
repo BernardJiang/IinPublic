@@ -49,6 +49,11 @@ async function createDatingTalk(
   await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
   const q2 = page.locator('.question-item[data-question-index="1"]');
   await q2.locator('.question-text').fill(ageQuestionText);
+  // Advanced fields live inside a collapsed <details> by default (progressive disclosure,
+  // talk-editor-form-helpers.ts) — open it before touching anything inside.
+  await q2.locator('.question-advanced').evaluate((el) => {
+    (el as HTMLDetailsElement).open = true;
+  });
   await q2.locator('.builtin-kind').selectOption('ageRange');
   await afterAction();
   await q2.locator('.builtin-agerange-age').fill(String(myAge));

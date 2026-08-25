@@ -79,8 +79,17 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
     await pageAlice.selectOption('#talk-type', 'route');
     await expect(pageAlice.locator('#route-editor')).toBeVisible();
 
+    // Advanced fields (builtIn kind + its typed inputs) live inside a collapsed <details> by
+    // default (progressive disclosure, ui-manager.ts's renderRouteEditor) — open a node's before
+    // touching anything inside.
+    const openRouteAdvanced = (qid: string) =>
+      pageAlice.locator(`.route-node-advanced[data-qid="${qid}"]`).evaluate((el) => {
+        (el as HTMLDetailsElement).open = true;
+      });
+
     // q_0 (root): builtIn timeFrame — a wide-open window so any real "today" run matches.
     await pageAlice.locator('.route-question-text[data-qid="q_0"]').fill('When are you available?');
+    await openRouteAdvanced('q_0');
     await pageAlice.locator('.route-builtin-kind[data-qid="q_0"]').selectOption('timeFrame');
     const start = new Date();
     const end = new Date(start.getTime() + 1000 * 60 * 60 * 24 * 365);
@@ -102,12 +111,14 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
 
     // q_2 (Notebook branch): builtIn quantity leaf, seller has 5.
     await pageAlice.locator('.route-question-text[data-qid="q_2"]').fill('How many notebooks do you have?');
+    await openRouteAdvanced('q_2');
     await pageAlice.locator('.route-builtin-kind[data-qid="q_2"]').selectOption('quantity');
     await pageAlice.locator('.route-builtin-quantity-input[data-qid="q_2"]').fill('5');
 
     // q_3 (Pen branch): builtIn quantity leaf, seller has 1 — not walked by this test, but a
     // real destination is required for the talk to validate.
     await pageAlice.locator('.route-question-text[data-qid="q_3"]').fill('How many pens do you have?');
+    await openRouteAdvanced('q_3');
     await pageAlice.locator('.route-builtin-kind[data-qid="q_3"]').selectOption('quantity');
     await pageAlice.locator('.route-builtin-quantity-input[data-qid="q_3"]').fill('1');
 

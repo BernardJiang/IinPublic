@@ -77,8 +77,17 @@ async function createHandymanTalk(
 
   await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
 
+  // Advanced fields (builtIn kind + its typed inputs, answer-selection-mode) live inside a
+  // collapsed <details> by default (progressive disclosure, talk-editor-form-helpers.ts) — open
+  // each question's before touching anything inside.
+  const openAdvanced = (q: ReturnType<Page['locator']>) =>
+    q.locator('.question-advanced').evaluate((el) => {
+      (el as HTMLDetailsElement).open = true;
+    });
+
   const q1 = page.locator('.question-item').nth(1);
   await q1.locator('.question-text').fill(price.questionText);
+  await openAdvanced(q1);
   await q1.locator('.builtin-kind').selectOption('priceRange');
   await afterAction();
   await q1.locator('.builtin-pricerange-min').fill(String(price.min));
@@ -86,6 +95,7 @@ async function createHandymanTalk(
 
   const q2 = page.locator('.question-item').nth(2);
   await q2.locator('.question-text').fill(time.questionText);
+  await openAdvanced(q2);
   await q2.locator('.builtin-kind').selectOption('timeFrame');
   await afterAction();
   await q2.locator('.builtin-timeframe-start').fill(time.start);
@@ -93,6 +103,7 @@ async function createHandymanTalk(
 
   const q3 = page.locator('.question-item').nth(3);
   await q3.locator('.question-text').fill(service.questionText);
+  await openAdvanced(q3);
   await q3.locator('.answer-selection-mode').selectOption('multiple');
   await afterAction();
   // 2 answers exist by default; add a 3rd so all 3 service options are represented.
