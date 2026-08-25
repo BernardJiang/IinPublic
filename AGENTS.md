@@ -215,79 +215,46 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-08-15 10:09pm PDT
+# [IinPublic.codex] recent context, 2026-08-23 7:28pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (29,756t read) | 442,746t work | 93% savings
+Stats: 31 obs (13,530t read) | 242,909t work | 94% savings
 
-### Jul 2, 2026
-S27 Fix two failing Playwright E2E mass tests (02-survey-mass-exchange and 04-mixed-saturation) that fail during concurrent-wave test:all execution due to Gun mesh timing issues (Jul 2 at 11:31 PM)
-### Jul 10, 2026
-S28 IinPublic TODO.md: Full Project Backlog State as of 2026-07-25 (Jul 10 at 11:26 PM)
-### Jul 25, 2026
-S29 Read docs/TODO.md and summarize all open action items for the IinPublic project (Jul 25 at 4:38 PM)
-S30 IinPublic Full E2E Suite Green: 199/201 Passed, 0 Failures (Jul 25, 2026) (Jul 25 at 4:38 PM)
-S31 Check the latest npm run test:all report for IinPublic project (Jul 25 at 5:20 PM)
-S32 remote-control — investigating Playwright test results in IinPublic project (Jul 25 at 5:20 PM)
-### Jul 27, 2026
-S33 remote-control — fix single Playwright test failure in IinPublic caused by visit counter regression (Jul 27 at 7:11 PM)
-S34 remote-control — Playwright test failure fixed and committed: switchChatroom visit counter idempotency regression (Jul 27 at 7:16 PM)
-S35 Verify broadcast function correctness — chatroom-tab (per-receiver delta) and contacts-tab (group filtering, offline treatment) — produce TODO list, no code changes (Jul 27 at 7:43 PM)
-### Aug 15, 2026
-1097 9:23p 🔵 canUserBroadcast Server Gate Is Orphaned — No Callers After talk-delivery-routes.ts Deletion
-1098 9:24p 🔵 FR-CR-12 Guest Broadcast Gate — Enforcement Fully Removed, No Client or Server Enforcement Remains
-1099 " 🔵 syncStatusBroadcastButtonVisibility Has No Role Check — Only Disables When No Chatroom Active
-1100 9:25p 🔵 Broadcast Function — Complete Verified Architecture Summary (Both Flows)
-1101 9:30p ✅ IinPublic Identity Management: Actionable UI/UX Plan Documented
-1102 9:31p 🔵 IinPublic Identity Architecture: Full 659-Line TODO Document Mapped
-1103 9:32p 🔵 Settings Tab &amp; Identity Management GUI: Current Implementation State Mapped
-1104 " 🔵 Key Custody Implementation: Device-Secret-Only Encryption, No User Password Layer
-1105 9:34p ✅ Identity Architecture TODO Replaced With 6-Section Actionable Plan
-1106 9:35p ✅ Section 18 Renamed: Recovery Reframed as Intentionally Unavailable in v1
-1107 9:38p 🔴 Old Tags Not Sent to Late Joiners — Bug Confirmed via Manual Testing
-1108 " 🟣 Friends/Coworkers Overlapping Groups Added to Contact
-1109 9:39p 🔵 Tag Broadcast Architecture for Late Joiners in ui-manager.ts
-1110 " 🔵 Late Joiner Broadcast Flow: getUnsentBroadcastTalkIdsForReceiver is the Key Filter
-1111 " 🔵 Broadcast Tag Targeting Logic in bulk-broadcast-audience.ts
-1112 " 🔵 appendBulkBroadcastDeliveryRejections Is Defined But Never Called in Broadcast Pipeline
-1113 " 🔵 broadcastTalk Event Handler Full Flow: Automatic Path Skips Audience Confirmation Modal
-1114 9:40p 🔵 broadcastTargetTags Declared in Event Type But Never Applied in Delivery Logic
-1115 " 🔵 deliverPendingBroadcastTalksForE2e: Dedicated E2E Broadcast Hook in app.ts
-1116 9:41p 🔵 Tag Talk Type vs Broadcast Target Tags: Two Distinct Concepts in Codebase
-1117 " 🔵 Root Cause of Late Joiner Bug: shouldSuppressForPeer and Edge Gate May Block Delivery
-1118 " 🔵 E2E Test Structure: No Late Joiner Coverage; Broadcast Tests in stage2/stage3/stage5
-1119 " 🔵 Two Late Joiner Broadcast Triggers Found: syncPeerMeshRoom and broadcastPendingTalksOnRoomEntry
-1120 " 🔵 E2E Test Pattern for Broadcast: bootstrapUser + deliverPendingBroadcastTalksForE2e + talk-list-item assertion
-1121 9:42p 🔵 Contact Groups: friend/coworker Labels Exist But Single-Valued — Overlap Requires Data Model Change
-1122 9:43p 🔵 Contact Relationship Modal UI: Single-Value Dropdown Must Become Multi-Select for Overlap
-1123 9:44p 🔵 Subagent Research Confirms: Late Joiner Bug Is NOT About Tag Targeting — Both Paths Skip It Equally
-1124 " 🔵 KnownPerson Label Migration Risk: No Schema Versioning in SEA-Encrypted Private Data
-1125 " 🔵 syncPeerMeshRoom Race: Late Joiner Catch-Up Silently Dropped If Room Changes During joinRoom()
-1126 9:52p 🔵 shouldSuppress() Root Cause Confirmed: TALK_SENT Ledger Entry Blocks Late Joiner Catch-Up
-1127 " 🔵 FR-CG-3 (Coworker Group) Listed as Pending in Existing Contact Group E2E Test
-1128 " 🔵 Public Key Recovery Scenario After Device Loss with Multi-Device Social ID Linking
-1129 9:53p 🔵 Ledger Suppression NOT Root Cause: getBroadcastableTalkIds Returns Talks as Broadcastable to New Late Joiners
-1130 9:58p 🔵 Device Loss Key Management: Original Public Key Options After Social ID Migration to Second Device
-1131 " 🔵 IinPublic Identity & Key Architecture: Full Design Document Structure Revealed
-1132 9:59p ✅ DeviceAuthorization Gains Explicit Capabilities Field and Data Migration Sections (4.1–4.3) Added
-1133 " ✅ Section 8.1 Added: Losing the Original Phone — Two-Model Analysis of Public Key Options
-1134 " ✅ Architecture Doc: A5 Separates Three Promises, B9 Defines Data Migration GUI, C1 Gains Sync Consent Events
-S36 Two tasks: (1) Add E2E test + fix for old tags not being sent to late-joining chatroom members; (2) Add overlapping friend/coworker group support to contact system (Aug 15 at 9:59 PM)
-1135 " ✅ WP5 Renamed to Encrypted Migration/Sync; WP6/WP7 Renumbered; Delivery Plan Restructured
-1136 " ✅ Acceptance Matrix and Core Design Rules Extended with Migration, Sync, and Lost-Phone Criteria
-1137 10:00p ✅ C2 Deferred Items Clarified: Public Aggregation Deferred, Local Encrypted Replication Is Not
-1138 " ✅ Architecture Doc Session Complete: 830 Insertions, 76 Deletions Across Full Identity & Key Document
-1139 10:04p 🔵 Platform App Attestation Research: Apple App Attest and Google Play Integrity API Mechanisms
-1140 " 🔵 Section 16 Already Positions Apple App Attest and Play Integrity as Optional Future Layers, Not v1 Requirements
-1141 10:05p ✅ Section 16 Expanded from Stub to Full Software Attestation Specification (16.1–16.7)
-1142 " ✅ A6 Decision Gate, B10 App Authenticity GUI, and C1 Credential Schema Added to Architecture Doc
-1143 10:06p ✅ WP7 Becomes Official App Authentication Delivery Package; WP8 Inherits Identity Continuity Work
-1144 " ✅ Acceptance Matrix Gains Official App Authentication Section; Core Design Rules Extended to 16
-1145 " ✅ Full Session Summary: Architecture Doc Grew by 1169 Insertions Across Two Capability Areas
-1146 10:07p 🔵 Current App IDs Confirmed: com.iinpublic.app on Both Platforms; iOS Missing Team ID and Distribution Config
+### Aug 21, 2026
+1316 11:42p 🟣 WP1 Identity &amp; Devices Settings Shell Implemented
+1317 " ⚖️ WP0: Identity v1 Semantics Frozen in Canonical Document
+1318 " 🔵 SEA Key Custody Uses PBKDF2-AES-GCM with Per-Device Secret
+1319 " 🟣 Shared Modal Focus-Trap and Keyboard Accessibility Utility Added
+1320 11:43p 🟣 Full Accessibility Wiring Applied to All Identity Dialog Layers
+1321 11:44p 🟣 Responsive CSS and Missing i18n Keys Added for Identity &amp; Devices Page
+1322 " 🟣 E2E Tests Extended with Focus, Escape, and 320px Responsive Assertions
+1323 " 🔴 modal-accessibility.test.ts Missing `@jest-environment jsdom` Docblock Fixed
+1324 " 🔵 WP1 Accessibility Slice Passes Typecheck, Unit Tests, and Lint
+1325 11:45p 🔵 E2E Run Uses E2E_PORT_OFFSET=502 to Avoid Port 3001 Collision
+1326 " 🔵 All 3 E2E Tests Pass Including New Accessibility and 320px Responsive Assertions
+1327 " 🔵 WP2 Crypto Research Phase Started: Argon2id and OWASP Password Storage References Queried
+1328 11:46p 🔵 WP2 Crypto Research: Argon2id and PBKDF2 Standards Gathered from OWASP and RFC 9106
+1329 " 🔵 Full `ensureKeypairAndAuth()` Key Custody State Machine Traced for WP2 Design Gate
+1330 " 🔵 NIST SP 800-63B Password Requirements Gathered for WP2 Crypto Design Gate
+1331 11:49p 🔵 apply_patch Requires Every Content Line to Have `+` Prefix — Bare Continuation Lines Fail
+1332 11:50p 🟣 WP2 Cryptographic Design Gate Document Created
+1333 " 🔵 WP1 Accessibility Checklist Item Still Unchecked in Architecture TODO Despite Completion
+1334 11:51p 🔵 WebIdentityLinkService Exists but Is Not Wired into app.ts — UI Uses Optional Hook Pattern
+1335 " 🔵 WP3 Wiring Point in app.ts Identified: Service Instantiation and Hook Registration Site
+1336 " 🔵 X3 Cross-Platform Identity Linking E2E Test Exists but Is Fully Skipped Pending WP3
+1337 11:52p 🟣 WP3 First Slice: WebIdentityLinkService Wired into app.ts with Real SEA Attestation Publishing
+1338 11:53p 🔴 Missing `PairingPayload` Type Import in ui-manager.ts Fixed
+1339 " 🔵 Stage1/71 E2E Spec Updated with "Waiting for Approval" Assertion; .md Patch Failed on Text Mismatch
+1340 " 🔵 71-linked-devices-page.md Description Uses Prose Not List Items — Patch Mismatch Explained
+1341 " ✅ Stage1/71 Spec Comment and .md Description Updated to Reflect "Waiting for Approval" Semantics
+1342 " 🔵 Full Validation Pass After WP3 Wiring: Typecheck, Lint, and 17 Unit Tests All Green
+1343 11:54p 🔵 E2E Stage1/71 Regression: Valid-Code Path Returns No Row After Real Service Wiring
+1344 " 🔵 E2E Regression Root Cause: `putPublic` Routes Through GunBridge Worker Which Fails in E2E Memory-Only Mode
+1345 11:57p 🔵 `putPublic` in Worker Requires `currentUser` — Worker Login State Is Separate From Main Thread
+1346 " 🔵 WP3 E2E Regression Fixed: `publishAttestation` / `publishRevocation` Now Use `gunService.put()` (Shared Graph Root) Not `putPublic()` (Worker User-Namespace)
 
-Access 443k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 243k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

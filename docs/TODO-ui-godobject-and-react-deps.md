@@ -1,23 +1,19 @@
 # TODO — UI God-Object Refactor & Unused React Dependency Cleanup
 
-**Status:** Issue #2 (React dep graph) ✅ **DONE** — commit `2f0b7355` on `refactor/ui-decompose-and-deps-clean` (2026-08-22). Issue #1 (ui-manager god-object) **not started**. No code has been changed for #1.
-**Written:** 2026-08-18 by Hermes Agent (from an architecture study of the repo).
-**Intended executor:** Claude Code.
-**Branch:** Create a fresh branch off `dev` when this work begins.
-**⚠️ In-flight collision:** As of 2026-08-18 the working tree on `dev` has **uncommitted** changes to
-`src/web/ui/ui-manager.ts` (a route-editor self-answer fix: `buildRouteSelfAnswers`,
-`routeEditorQuestions` reset in `showTalkEditorDialog`) and `scripts/run-test-all.sh`
-(worker tuning 12→14). **Do not start the extraction (Section B) until that in-flight work
-is committed/landed and `npm run test:all` is green**, so any regression is attributable to the
-refactor and not to concurrent edits in the same file.
+**Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`. Issue #1
+(`ui-manager.ts` decomposition) is **in progress** as of 2026-08-24; extraction clusters #1
+(route editor), #2 (survey statistics), and #3 (application shell) are complete.
+**Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
+`origin/dev.claude` was merged at `28e92eca`.
+**Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
+characterize behavior before moving it, ratchet the size ceiling down after the extraction, and
+run the canonical verification gate before beginning another cluster.
 
 This document captures two issues found during an architecture study of `src/`:
 
-- **Issue #1** — `src/web/ui/ui-manager.ts` is an 11,148-line singleton god-object.
-- **Issue #2** — React 19 and a React toolchain are declared as dependencies, but the real UI is
-  framework-free hand-rolled DOM; the only React consumers are a legacy `src/examples/` demo that
-  is excluded from every build and test pipeline and is not even installable (it imports packages
-  that are not in `package.json`).
+- **Issue #1** — `src/web/ui/ui-manager.ts` is an 11,793-line singleton god-object.
+- **Issue #2** — React 19 and a React toolchain were declared as dependencies, but the real UI was
+  framework-free hand-rolled DOM; the only React consumers were legacy demos that are now archived.
 
 Both issues share one root cause: an early **Gun + React proof-of-concept** was superseded by a
 framework-free TS UI, but (a) the UI monolith was never decomposed and (b) the React manifest
@@ -25,14 +21,16 @@ entries and babel preset were never removed.
 
 ---
 
-## Evidence (verified, 2026-08-18)
+## Evidence (refreshed 2026-08-23)
 
 ### Issue #1 — the god-object
 
-- `src/web/ui/ui-manager.ts` = **11,148 lines**, a single `export class UIManager extends EventEmitter`.
-  It is the largest file in `src/` by more than 7× (next is `src/web/app/app.ts` at 6,373).
-- `src/web/` = 40,050 LOC; `src/test/` = 23,141 LOC; `src/shared/` = 15,241; `src/server/` = 5,327.
-  Testing is ~28% of the codebase and there is **already a working extraction pattern** to follow:
+- `src/web/ui/ui-manager.ts` = **11,793 lines** and 344 methods in one
+  `export class UIManager extends EventEmitter`. `src/web/app/app.ts` = **6,531 lines**.
+- `app.ts` currently uses about **132 distinct `UIManager` members**. Preserving its single import
+  statement is not enough: method signatures, emitted event names/payloads, DOM IDs, focus behavior,
+  and listener lifecycle are all compatibility contracts.
+- There is already a working extraction pattern to follow:
   - `src/test/unit/ui-extracted-modules.test.ts` imports from `my-talks-dialog`, `preferences-dialog`,
     `conversations-view`, `user-detail-view`, `talk-editor-form-helpers`, `ui-settings-storage`, etc.
   - So "extract a cohesive cluster into `src/web/ui/<module>.ts` and have `ui-manager.ts` delegate"
@@ -42,8 +40,9 @@ entries and babel preset were never removed.
 
 - **Zero `.tsx` files** in `src/`. `grep` for React imports in `src/{web,server,shared}` (excluding
   `examples`) returns **nothing**.
-- All React usage is confined to `src/examples/gun-react/` and `src/examples/opencodedemo/`:
-  - `src/examples/gun-react/*.js` import `react`, `react-dom`, `react-cytoscapejs`, and also
+- All historical React usage is confined to `docs/archive/examples/gun-react/` and
+  `docs/archive/examples/opencodedemo/`:
+  - `docs/archive/examples/gun-react/*.js` import `react`, `react-dom`, `react-cytoscapejs`, and also
     `react-router-dom`, `react-svg`, `react-load-image` — the last three are **not** in `package.json`,
     so the demo does not even build as-is.
 - `webpack.config.js:95` **excludes** `/src\/examples/` from the babel rule; the real entry is
@@ -121,59 +120,117 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
 
 ---
 
-## Issue #1 — Decompose the `ui-manager.ts` god-object  (the big one — do phase-by-phase)
+## Issue #1 — Decompose the `ui-manager.ts` god-object (phase-by-phase)
 
-> Strategy: **extract, don't rewrite.** Use the existing `ui-extracted-modules` pattern. Keep public
-> API stable by leaving re-export / delegation shims in `ui-manager.ts` so `src/web/app/app.ts`
-> import sites don't change. One cluster per commit, verified by the full suite each time. Do NOT
-> attempt to rewrite the 11k lines in one move.
+> Strategy: **extract, don't rewrite.** Use the existing `ui-extracted-modules` pattern. Keep the
+> public API stable through delegation shims in `ui-manager.ts`. Extracted modules must take typed,
+> explicit dependencies and must not import `UIManager`, reach through a singleton, or mutate a DOM
+> subtree owned by another renderer.
 
-- [ ] **1.0 Baseline (mandatory gate).** Ensure the in-flight work in `dev` is committed/landed.
-      Get a clean tree, then run the canonical gate and record numbers:
-      - `npm run test:all` → must end **green** (this is the project's canonical full-verification
-        script — prefer it over partial e2e variants).
-      - Record: wall-clock duration, per-phase timings, and `find src/web/ui/ui-manager.ts | xargs wc -l`.
-- [ ] **1.1 Add a growth guardrail (small, safe, do first).** Add a Jest test that asserts
-      `src/web/ui/ui-manager.ts` line count stays **at or below the post-refactor baseline** (so
-      future work can't re-bloat it). Also add a size-budget test on the whole `src/web/ui/` folder
-      if useful. This makes the refactor self-enforcing.
-- [ ] **1.2 Profile coupling before extracting (measured, not guessed).** For each candidate cluster,
-      count how many of its methods reference shared `this.` state or other clusters (e.g. grep for
-      `this\.` inside the candidate range). **Pick the largest cluster with the fewest cross-refs
-      first.** Strong candidates (verify at execution time that coupling is low):
-        - Route-talk DAG editor (`routeEditorQuestions`, `ensureRouteEditorRendered`,
-          `buildRouteSelfAnswers`, `toValidatorQuestions`, route self-answer logic) — *but this is
-          the area currently being edited in-flight, so it is a natural **second** target once the
-          in-flight change lands.*
-        - Contacts / local-contacts rendering + `contact-groups` interplay.
-        - Survey/analytics dashboard rendering clusters.
-        - Chatroom navigation / hierarchy rendering.
-      Record the chosen first target + its measured cross-ref count in this doc before starting.
-- [ ] **1.3 Extract cluster #N** (repeat 1.3–1.5 per cluster):
+- [x] **1.0 Baseline (mandatory gate).** The former route-editor collision has landed, including
+      route reset/self-answer behavior and the stage2/93 fan-out E2E. Record the current baseline:
+      - `ui-manager.ts`: 11,793 lines; `app.ts`: 6,531 lines.
+      - Run `npm run test:all` and record wall-clock/per-phase timings.
+      - Keep unrelated local files such as the user-owned `AGENTS.md` outside the refactor diff.
+      The implementation baseline is not complete until the canonical gate ends green.
+      - The first 2026-08-24 run exposed one real stage2/21c regression: a policy-rejected adult
+        offer was written to the sender's anti-repeat ledger before the receiver accepted it, so
+        reaching the three-vouch threshold could not make the offer retryable. Mesh delivery now
+        reports signed recipient ACKs and the sender records only accepted deliveries.
+      - Canonical rerun `run-20260824-181749-67574`: all static checks and all 12 browser blobs
+        passed in 16m36s. Stage2/21c also passed twice alone after the fix, and stage2/93's real
+        route fan-out E2E remains green.
+- [x] **1.1 Add a ratcheting growth guardrail.** Started at 11,793, lowered with the first
+      extraction to 11,197, with cluster #2 to 10,830, and with cluster #3 to a test-enforced
+      ceiling of **10,280**
+      lines. Lower the ceiling in the same commit as every extraction; never raise it merely to land
+      unrelated feature work. Line count is a warning metric, not the architecture definition.
+- [x] **1.2 Profile coupling before extracting (measured, not guessed).** The initial AST proxy
+      counted method size and distinct `this.*` references, then checked DOM/event/state ownership:
+      - **First: route-talk DAG editor.** `renderRouteEditor` is about 344 lines with only three
+        distinct `this.*` dependencies; its state and model conversions are concentrated in one
+        range. The former in-flight collision is now merged.
+      - **Second: survey statistics.** The final measured block was 385 removed lines (dialog,
+        dashboard rendering, filtering, CSVs, download side effect, and follow-up construction).
+        Its only instance boundaries were local talk lookup, translations, notification/download,
+        and opening the existing talk editor, so it was extracted as cluster #2.
+      - **Third: application shell.** `setupBaseUI` was 460 lines with only six `this.*`
+        references, and the adjacent `applyShellTranslations` was 112 lines with two dependencies.
+        The 451-line template and repeatable localization pass are deterministic shell work;
+        translation and language options are their only data inputs. Navigation and listener
+        ownership stay in `UIManager`, making this a low-coupling cluster despite its broad DOM
+        surface.
+      - **Defer: `displayTalksList`.** It is about 679 lines and touches roughly 52 distinct instance
+        members, so it is a poor first extraction despite its size.
+      Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
+      event subscriptions, async callbacks, mutable collections, imports, and possible cycles.
+- [x] **1.3 Characterize cluster #1 before moving it.** Tests freeze route fan-out ordering and
+      thresholds, built-in compatible branching, self-answer traversal, safe escaping, input
+      mirroring, and existing-talk rehydration. For later clusters, repeat these rules:
+      - Freeze pure model results, meaningful DOM output, event behavior, focus/accessibility, and
+        listener cleanup where applicable.
+      - Existing tests may change imports, fixtures, and mocks during extraction, but behavioral
+        expectations must not change unless a separate bug fix is documented.
+      - Cluster #2 adds characterization for CSV quoting, low-cohort region masking, anonymity
+        toggle state, time-filter reaggregation, escaped labels/titles, modal lifecycle, and bounded
+        follow-up draft construction.
+      - Cluster #3 freezes main-panel/navigation order, the active first-paint view, reply-language
+        options, localized accessibility text, Chinese navigation labels, and retranslation of an
+        already-open filter toggle before moving the shell template/localization pass.
+- [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
+      self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
+      DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
+      surface. For later clusters:
       - Create `src/web/ui/<cluster-name>.ts` exporting focused, pure-or-injected functions
         (dependency-injected callbacks, exactly like `talk-editor-form-helpers.ts` /
         `my-talks-dialog.ts` do), **not** more `singleton.instance` calls.
-      - Move the code verbatim first (preserving behavior), then only touch internals if tests demand.
+      - Move behavior first. Separate pure model conversion from DOM/event control when the cluster
+        contains both; do not mix a behavior rewrite into the move.
       - Add re-export / delegation in `ui-manager.ts` so `app.ts` and any existing internal call
         sites keep compiling unchanged.
-      - Add/extend a unit test in the `ui-extracted-modules` style covering the extracted functions.
-- [ ] **1.4 Verify after every extraction:**
+      - Cluster #2: `survey-statistics-model.ts` owns labels, CSV serialization, privacy threshold,
+        metric cards, and follow-up drafts. `survey-statistics-dialog.ts` owns local aggregation,
+        modal/dashboard DOM, filters, exports, and callbacks. `UIManager` retains a thin entry shim
+        plus the browser download/notification side effect; neither extracted module imports it.
+      - Cluster #3: `app-shell.ts` owns deterministic first-paint markup and repeatable shell
+        localization with explicit translated-text, language-option, and language-label inputs.
+        `UIManager.setupBaseUI()` remains the controller shim that installs listeners, bottom
+        navigation, AppBar chrome, and the initial view state.
+- [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
       - If a cluster is causing flakes unrelated to the extraction, stop and isolate it before
         continuing (don't stack unexplained failures on the refactor).
-- [ ] **1.5 Record progress** in `docs/completed.md` per the docs maintenance rule
+      - Cluster #1 evidence: typecheck and lint pass; 145 unit suites / 1,590 tests pass; the
+        canonical route E2E passes; `test:all` run `run-20260824-181749-67574` passed every static
+        check and all 12 browser blobs in 16m36s.
+      - Cluster #2 evidence: typecheck/lint and 146 unit suites / 1,593 tests pass. The compact-row
+        Results-popup E2E passes. The formerly stale-ignored full survey analytics E2E was restored,
+        updated for the long-press popup contract, and passes both alone and in the 12-worker light
+        shard. Canonical run `run-20260824-185020-77985` passed all 12 blobs before that test-config
+        restoration. The post-restoration run `run-20260824-190943-86105` passed static checks, the
+        restored analytics test, and 11/12 phases; its sole unrelated expired-talk visibility race
+        passed immediately alone, then the complete light shard passed 233 tests (6 skipped) in
+        9.6m. All other phases from that run were green.
+      - Cluster #3 evidence: the original and injected shell template/localization statements are
+        mechanically equivalent;
+        typecheck/lint, the production web build, and 146 unit suites / 1,596 tests pass. Canonical
+        run `run-20260824-203147-12032` passed all static checks and all 12 browser blobs in 16m46s,
+        including the full light shard, WebKit/Firefox smoke coverage, and mass-user phase.
+- [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
 
 **Targets / definition of done #1:**
-- [ ] `ui-manager.ts` reduced from **11,148 → < 3,000 lines** (aim to make it a thin router of
+- [ ] `ui-manager.ts` reduced from **11,793 → < 3,000 lines** (aim to make it a thin router of
       delegations; the substance lives in cohesive `src/web/ui/*.ts` modules).
-- [ ] No change to public behavior: `test:all` fully green with **no** test edits other than adding
-      new unit tests for extracted units and removing tests that only existed to cover now-private
-      internals.
-- [ ] The growth guardrail (1.1) is in place and passing.
-- [ ] `src/web/app/app.ts` import surface unchanged (shims in `ui-manager.ts` preserve it).
+- [x] No behavior regression: `test:all` is green and behavioral expectations remain stable.
+- [x] The growth guardrail (1.1) is in place and passing.
+- [ ] `src/web/app/app.ts` keeps its stable `UIManager` contract until a separately approved API
+      reduction: methods, event payloads, DOM contracts, focus, and listener lifecycle are preserved.
+- [ ] Extracted modules do not import `UIManager`, introduce singleton reach-through, or form cycles.
+- [ ] The work has not merely moved the god-object: new modules are cohesive, explicitly injected,
+      and small enough to review and test independently.
 
 **Risks & guardrails for #1:**
 - `ui-manager.ts` is an **EventEmitter singleton** — many methods rely on shared mutable `this.`
@@ -187,19 +244,26 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
 
 ---
 
-## Suggested branch & sequence
+## Current sequence
 
-```
-git switch -c refactor/ui-decompose-and-deps-clean dev   # from dev, AFTER in-flight work lands
-# Commit A (Section B, Issue #2): deps cleanup — small, verified, shippable on its own.
-# Commit B..N (Section A, Issue #1): one UI cluster per commit, each gated by a green `npm run test:all`.
-```
+1. ~~Establish the canonical green baseline and add the 11,793-line ratchet.~~ Done.
+2. ~~Add route-editor model and DOM characterization tests.~~ Done.
+3. ~~Extract pure route-model conversion/self-answer logic.~~ Done.
+4. ~~Extract the route-editor DOM/event controller behind `UIManager` delegation.~~ Done.
+5. ~~Lower the ratchet, run the full gate, and record evidence.~~ Done; choose cluster #2 from the
+   measured candidates before moving more code.
+6. ~~Characterize and extract cluster #2 (survey statistics).~~ Done; model/controller split keeps
+   the `UIManager` entry contract and isolates the browser download side effect.
+7. ~~Lower the ratchet to 10,830 and restore the deterministic full analytics E2E.~~ Done; focused
+   and full-shard coverage is green.
+8. ~~Re-measure the remaining clusters before choosing cluster #3.~~ Done; `displayTalksList`
+   remains deferred at about 685 lines / 52 dependencies, while the 460-line / six-dependency
+   application shell was selected.
+9. ~~Characterize and extract cluster #3 (application shell), lower the ratchet to 10,280, and
+   close its canonical verification gate.~~ Done; canonical run `run-20260824-203147-12032` is green.
+10. Re-measure and choose cluster #4 as a separate commit-sized change; keep
+    `displayTalksList` deferred unless its ownership boundary is first reduced.
 
-Keep Section B (Issue #2) and Section A (Issue #1) as **separate commits / PRs** so a UI refactor
-flake can never be blamed on the dependency cleanup (or vice versa).
-
-## Open question for the owner
-
-1. **Dispositon of `src/examples/`** (Issue #2, step 2.2): archive it and drop the React deps
-   (recommended), or keep the demos in-tree and retain the deps? Your call — I did not want to
-   delete anything or change the manifest without that decision.
+Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
+were archived and the unused direct React dependency graph was removed. A future, intentional React
+evaluation is specified separately in `docs/TODO-react-cross-platform-performance.md`.

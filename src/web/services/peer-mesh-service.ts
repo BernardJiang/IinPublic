@@ -502,7 +502,7 @@ export class PeerMeshService {
   async broadcastTalk(
     talk: Talk | Record<string, unknown>,
     opts: { recipientUserIds?: string[]; roomBroadcast?: boolean; skipAcknowledgements?: boolean } = {},
-  ): Promise<void> {
+  ): Promise<Set<string>> {
     const talkId = String((talk as { id?: unknown }).id || '');
     if (!talkId) throw new Error('mesh broadcast requires talk.id');
     const talkRecord = JSON.parse(JSON.stringify(talk || {})) as Record<string, unknown>;
@@ -535,7 +535,7 @@ export class PeerMeshService {
       const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
       await this.rememberAndFanout(announceFrame);
       await this.rememberAndFanout(bodyFrame);
-      return;
+      return new Set();
     }
     const recipients = [...new Set(opts.recipientUserIds?.filter(Boolean) || [])];
     const recipientSet = new Set(recipients);
@@ -547,6 +547,7 @@ export class PeerMeshService {
       ? opts.roomBroadcast === true
       : isWholeKnownRoom;
     if (recipients.length > 0 && !isRoomBroadcast) {
+      const acceptedRecipients = new Set<string>();
       await mapWithConcurrency(recipients, 3, async (recipientUserId) => {
         const announceFrame = await this.buildFrame('talk-announce', payload, {
           recipientUserId,
@@ -558,6 +559,7 @@ export class PeerMeshService {
         });
         await this.rememberAndFanout(announceFrame);
         const acknowledged = await this.sendAndWaitForAcks(bodyFrame, [recipientUserId]);
+        if (acknowledged.has(recipientUserId)) acceptedRecipients.add(recipientUserId);
         console.log(`[BODY-SEND] talk=${String(payload.talkId).slice(-8)} to=${recipientUserId.slice(0, 8)} acked=${acknowledged.has(recipientUserId)}`);
         if (!acknowledged.has(recipientUserId) && this.opts.onMailboxFallback) {
           void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, [recipientUserId])).catch(
@@ -565,7 +567,7 @@ export class PeerMeshService {
           );
         }
       });
-      return;
+      return acceptedRecipients;
     }
     const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
     if (isRoomBroadcast) {
@@ -645,11 +647,12 @@ export class PeerMeshService {
           );
         }
       }
-      return;
+      return acknowledged;
     }
     const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
     await this.rememberAndFanout(announceFrame);
     await this.rememberAndFanout(bodyFrame);
+    return new Set();
   }
 
   async sendTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<boolean> {

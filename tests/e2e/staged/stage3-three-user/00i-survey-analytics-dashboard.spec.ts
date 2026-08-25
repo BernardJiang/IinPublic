@@ -6,6 +6,7 @@ import {
   bootstrapUser,
   resetTalksMatchingSession,
   finalCleanupPages,
+  longPressTalkRow,
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
 import {
@@ -116,7 +117,10 @@ test.describe('Survey analytics dashboard', () => {
     await waitForTabActive(pageTom, 'talks');
     const talkRow = pageTom.locator('.talk-list-item[data-role="created"]').filter({ hasText: title }).first();
     await expect(talkRow).toBeVisible({ timeout: 20_000 });
-    await talkRow.locator('[data-testid="survey-stats-button"]').click();
+    await longPressTalkRow(pageTom, talkRow);
+    const detailsPopup = pageTom.locator('#item-details-popup');
+    await expect(detailsPopup).toBeVisible({ timeout: 10_000 });
+    await detailsPopup.locator('[data-testid="survey-stats-button"]').click();
 
     await expect(pageTom.locator('.modal-title', { hasText: 'Survey analytics dashboard' })).toBeVisible({
       timeout: 20_000,
@@ -146,6 +150,7 @@ test.describe('Survey analytics dashboard', () => {
     await expect(pageTom.locator('#talk-type')).toHaveValue('survey');
 
     await pageTom.click('#cancel-talk-btn');
+    await detailsPopup.locator('#close-item-details-popup').click();
     await pageTom.click('.nav-btn[data-view="settings"]');
     await waitForTabActive(pageTom, 'settings');
     await openSettingsSection(pageTom, SETTINGS_SECTION.languages);
@@ -153,8 +158,9 @@ test.describe('Survey analytics dashboard', () => {
     await expect(pageTom.locator('.nav-btn[data-view="talks"] .nav-label')).toHaveText('话题');
     await pageTom.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(pageTom, 'talks');
-    await pageTom.locator('.talk-list-item[data-role="created"]').filter({ hasText: title }).first()
-      .locator('[data-testid="survey-stats-button"]').click();
+    const localizedTalkRow = pageTom.locator('.talk-list-item[data-role="created"]').filter({ hasText: title }).first();
+    await longPressTalkRow(pageTom, localizedTalkRow);
+    await pageTom.locator('#item-details-popup [data-testid="survey-stats-button"]').click();
 
     await expect(pageTom.locator('.modal-title', { hasText: '问卷分析仪表板' })).toBeVisible({
       timeout: 20_000,

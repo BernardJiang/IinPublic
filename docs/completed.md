@@ -104,6 +104,82 @@ Two real bugs found and fixed while building this, both worth remembering:
   different titles, so the second silently deduped into the first. Fixed by giving each pair
   distinct question text, not just a distinct title.
 
+## 2026-08-24 — UIManager decomposition cluster #3: application shell
+
+- Extracted the deterministic first-paint application markup and repeatable shell-localization pass
+  from `UIManager` into `app-shell.ts`. The functions accept explicit translated-text,
+  language-option, and language-label inputs and do not import or reach through `UIManager`.
+- Kept listener installation, bottom-navigation wiring, AppBar behavior, and initial view syncing
+  in the thin `UIManager` controller shim. Mechanical AST comparisons confirmed that the moved
+  451-line template and 112-line localization pass are unchanged apart from replacing implicit
+  dependencies with injected inputs.
+- Added shell characterization for the five-panel and five-navigation-item order, active Chatrooms
+  first paint, reply-language options, Chinese accessibility/navigation labels, and repeat
+  localization of an open filter toggle. Lowered the ratcheting `ui-manager.ts` ceiling from 10,830
+  to 10,280 lines.
+- Verification: typecheck, full lint, and the production web build pass; all 146 unit suites / 1,596
+  tests pass. Canonical `test:all` run `run-20260824-203147-12032` passed all static checks and all 12
+  browser blobs in 16m46s, including the full light shard, WebKit/Firefox smoke tests, and mass-user
+  coverage.
+
+## 2026-08-24 — UIManager decomposition cluster #2: survey statistics
+
+- Extracted the creator survey analytics block from `ui-manager.ts` into two cohesive modules.
+  `survey-statistics-model.ts` owns the privacy threshold, question labels, shared metric cards,
+  CSV serialization, and bounded follow-up draft construction. `survey-statistics-dialog.ts` owns
+  local response aggregation, modal/dashboard DOM, time filtering, anonymity toggles, export
+  callbacks, and modal lifecycle. Both use typed injected translations/callbacks and neither imports
+  or reaches through `UIManager`.
+- Preserved `UIManager.showSurveyStatsDialog()` as the existing compatibility entry point. Its only
+  retained side effect is creating the browser download and showing the export notification; the
+  public `UIManager`/`app.ts` contract and all existing survey DOM IDs remain unchanged.
+- Added characterization coverage for CSV quoting, low-cohort masking, anonymity reveal, time-range
+  reaggregation, safe labels/titles, modal teardown, injected follow-up launch, and the four-question/
+  six-answer copy bounds. Lowered the ratcheting `ui-manager.ts` ceiling from 11,197 to 10,830 lines.
+- Restored the full three-user survey analytics E2E to the default Chromium suite after confirming
+  its old server-statistics ignore was stale. Updated it to use the current long-press details popup;
+  it now covers two local responses, privacy reveal, three CSV downloads, follow-up creation, and
+  English/Chinese localization through the real UI.
+- Verification: typecheck and lint pass; 146 unit suites / 1,593 tests pass; focused compact-row and
+  analytics E2Es pass. Canonical `test:all` run `run-20260824-185020-77985` passed all 12 blobs before
+  the E2E restoration. Post-restoration run `run-20260824-190943-86105` passed static checks, the
+  restored analytics test, and 11/12 phases; its only unrelated expired-talk race passed alone, then
+  the complete 12-worker light shard passed 233 tests (6 skipped) in 9.6m. Every other canonical
+  phase was green.
+
+## 2026-08-24 — Reputation vouch threshold delivery regression
+
+- Fixed the one failure in the canonical Playwright report: an adult talk rejected before the
+  recipient reached the three-vouch threshold was still recorded in the sender's anti-repeat
+  ledger, permanently suppressing the retry after the recipient became verified.
+- `PeerMeshService.broadcastTalk` now returns the set of recipients that signed an acceptance ACK.
+  `IinPublicApp` records outbound ledger entries only for those accepted recipients; filtered or
+  policy-rejected attempts remain retryable, while accepted delivery still suppresses duplicates
+  before a response returns. The no-ACK E2E fast path likewise no longer fabricates acceptance.
+- Added focused transport regression assertions for rejected-versus-accepted recipient results.
+  The exact stage2/21c Playwright scenario passed twice alone. Canonical `test:all` run
+  `run-20260824-181749-67574` passed type, lint, all 145 Jest suites / 1,590 tests, and all 12
+  browser-report blobs in 16m36s.
+
+## 2026-08-24 — UIManager decomposition cluster #1: route editor
+
+- Refreshed `docs/TODO-ui-godobject-and-react-deps.md` against the current merged baseline and
+  added a separate measurement-first React/cross-platform evaluation plan. The React plan does not
+  authorize a rewrite; it requires release profiling and a bounded React DOM pilot first.
+- Added a ratcheting architecture test and lowered the `ui-manager.ts` ceiling from 11,793 to
+  11,197 lines with this extraction.
+- Extracted the route editor into two modules without changing the `UIManager`/`app.ts` contract:
+  `route-editor-model.ts` owns initialization, existing-talk rehydration, author self-answer
+  traversal, and validator serialization; `route-editor-controller.ts` owns the explicitly
+  injected DOM renderer and event wiring. Neither imports or reaches through `UIManager`.
+- Added characterization coverage for ordered fan-out thresholds/context paths, built-in compatible
+  branching, author self-answer traversal through built-in nodes, escaped DOM values, question-to-
+  answer mirroring, and linking-answer rehydration.
+- Verification: typecheck and full lint pass; all 145 unit suites / 1,590 tests pass. Canonical
+  `test:all` run `run-20260824-181749-67574` passed all static checks and all 12 browser blobs in
+  16m36s, including stage2/21c after its separate ACK/ledger fix and the stage2/93 route fan-out
+  E2E. Cluster #1's gate is closed; cluster #2 may start as a separate change.
+
 ## 2026-08-23 — §EE (partial) + §DD (primitives only)
 
 Moved from `docs/TODO.md` §EE and §DD.

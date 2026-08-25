@@ -498,6 +498,126 @@ export function readBuiltInSpecFromQuestion(
   return { kind };
 }
 
+/**
+ * Pure DOM-read for a flow/survey talk's linear question list — shared by `processTalkForm`
+ * (ui-manager.ts, save path) and the live "what the responder sees" preview
+ * (talk-editor-preview.ts), which needs to read the CURRENT in-progress form state without
+ * running validation/autofix/save. One read path, not two.
+ */
+export function collectFlowSurveyEditorQuestions(
+  form: HTMLFormElement,
+  type: 'flow' | 'survey',
+  options: TalkEditorFormHelperOptions,
+): { questions: any[]; selfAnswers: { questionId: string; answerId: string }[]; errors: string[] } {
+  const questions: any[] = [];
+  const selfAnswers: { questionId: string; answerId: string }[] = [];
+  const errors: string[] = [];
+  const questionItems = form.querySelectorAll('.question-item');
+
+  questionItems.forEach((item, qIndex) => {
+    const questionId = `q_${qIndex}`;
+    const answerSelectionMode =
+      (item.querySelector('.answer-selection-mode') as HTMLSelectElement | null)?.value === 'multiple'
+        ? 'multiple'
+        : 'single';
+    // Spec §3.4 FR-QA-15/16, §30.8: a 'multiple'-mode question's self-answer is every
+    // checked box (possibly several) — pushing one selfAnswers entry per checked value
+    // reuses saveCreatedTalk's existing per-entry saveAnswerPreference loop unchanged,
+    // which is exactly the substrate findAutoAnswerMultiple scans (one history event per
+    // selected value under the same question).
+    item.querySelectorAll<HTMLInputElement>(`input[name="self-answer-${questionId}"]:checked`).forEach((selfInput) => {
+      if (selfInput.value !== 'ignore') {
+        selfAnswers.push({ questionId, answerId: selfInput.value });
+      }
+    });
+    const questionText = (item.querySelector('.question-text') as HTMLInputElement).value;
+    const answerItems = item.querySelectorAll('.answer-item');
+
+    const answers: any[] = [];
+    answerItems.forEach((answerItem, aIndex) => {
+      const answerText = (
+        answerItem.querySelector('.answer-text') as HTMLInputElement
+      ).value.trim();
+      const nextQuestion = (answerItem.querySelector('.answer-next') as HTMLSelectElement).value;
+
+      if (answerText) {
+        const answer: any = {
+          id: `a_${qIndex}_${aIndex}`,
+          text: answerText,
+        };
+
+        if (type === 'survey') {
+          // Surveys never branch; every answer carries a counter for stats.
+          answer.counter = 0;
+          answer.isTerminal = true;
+          if (nextQuestion === 'ignore') {
+            answer.isIgnore = true;
+          }
+        } else if (nextQuestion === 'ignore') {
+          answer.isIgnore = true;
+          answer.isTerminal = true;
+        } else if (nextQuestion === 'noticed') {
+          answer.isMatch = true;
+          answer.isTerminal = true;
+        } else if (nextQuestion) {
+          // It's a question ID (e.g., "q_1")
+          answer.nextQuestionId = nextQuestion;
+        }
+
+        answers.push(answer);
+      }
+    });
+
+    const questionObj: any = {
+      id: questionId,
+      text: questionText,
+      answers: answers,
+    };
+    if (answerSelectionMode === 'multiple') {
+      questionObj.answerSelectionMode = 'multiple';
+    }
+    // docs/TODO.md §LL follow-up: only meaningful with exactly 1 real answer (matching
+    // engine's own gate, myEffectiveTagContext/findReciprocalTagAncestor) — stored either
+    // way so re-checking the box round-trips even while the answer count is temporarily
+    // off (e.g. mid-edit).
+    const reciprocalTagCheckbox = item.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
+    if (reciprocalTagCheckbox?.checked) {
+      questionObj.reciprocalTagContext = true;
+    }
+    // docs/TODO.md §LL follow-up: "Simple tag" (tagKind: 'simple') — the mutually exclusive
+    // sibling of the Pair tag checkbox above (talk-editor-form-helpers.ts wires the
+    // exclusion in the DOM). Applies to flow and survey alike, same shared branch.
+    const simpleTagCheckbox = item.querySelector('.question-simple-tag') as HTMLInputElement | null;
+    if (simpleTagCheckbox?.checked) {
+      questionObj.tagKind = 'simple';
+    }
+    if (type === 'survey') {
+      questionObj.isAggregatable = true;
+      questionObj.contextHashId = '';
+    }
+    // §BB / spec §30.2: a builtIn question has no author-typed answers at all —
+    // TalkAutofix.fix generates the 2 synthetic answers from questionObj.builtIn alone, so
+    // force answers back to [] regardless of what the (hidden, unused) answer-item rows
+    // produced above.
+    const builtInRead = readBuiltInSpecFromQuestion(item, options);
+    if (builtInRead.error) {
+      errors.push(builtInRead.error);
+    } else if (builtInRead.kind) {
+      questionObj.answers = [];
+      questionObj.builtIn = {
+        kind: builtInRead.kind,
+        ...(builtInRead.quantity !== undefined ? { quantity: builtInRead.quantity } : {}),
+        ...(builtInRead.priceRange ? { priceRange: builtInRead.priceRange } : {}),
+        ...(builtInRead.timeFrame ? { timeFrame: builtInRead.timeFrame } : {}),
+        ...(builtInRead.ageRange ? { ageRange: builtInRead.ageRange } : {}),
+      };
+    }
+    questions.push(questionObj);
+  });
+
+  return { questions, selfAnswers, errors };
+}
+
 export function updateAllAnswerDropdowns(options: TalkEditorFormHelperOptions): void {
   const questions = document.querySelectorAll('.question-item');
   const totalQuestions = questions.length;

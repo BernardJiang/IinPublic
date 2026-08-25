@@ -495,6 +495,7 @@ describe('PeerMeshService', () => {
       localUserId: 'alice',
       localStageName: 'Alice',
       createSession: network.createSession,
+      ackTimeoutMs: 10,
     });
     const bob = new PeerMeshService(mockGunService(bobPair, users), {
       apiBase: 'http://127.0.0.1:8080',
@@ -516,22 +517,25 @@ describe('PeerMeshService', () => {
     await bob.joinRoom('global', members);
 
     const adultTalk = { id: 'adult-1', authorId: 'alice', title: 'Adult', type: 'flow', isAdult: true, questions: [] };
+    const deliveryOptions = { recipientUserIds: ['bob'], roomBroadcast: true };
 
     // Rejected delivery: bob is called but does not mark the talk delivered.
-    await alice.broadcastTalk({ ...adultTalk });
+    const rejectedRecipients = await alice.broadcastTalk({ ...adultTalk }, deliveryOptions);
     expect(bobBodies).toHaveLength(1);
+    expect(rejectedRecipients.has('bob')).toBe(false);
 
     // Re-broadcast while still rejecting: must reach bob again (not deduped away).
-    await alice.broadcastTalk({ ...adultTalk });
+    await alice.broadcastTalk({ ...adultTalk }, deliveryOptions);
     expect(bobBodies).toHaveLength(2);
 
     // Bob crosses the threshold and now accepts; this delivery is recorded.
     accept = true;
-    await alice.broadcastTalk({ ...adultTalk });
+    const acceptedRecipients = await alice.broadcastTalk({ ...adultTalk }, deliveryOptions);
     expect(bobBodies).toHaveLength(3);
+    expect(acceptedRecipients.has('bob')).toBe(true);
 
     // Further re-broadcasts are deduped now that the talk was accepted.
-    await alice.broadcastTalk({ ...adultTalk });
+    await alice.broadcastTalk({ ...adultTalk }, deliveryOptions);
     expect(bobBodies).toHaveLength(3);
   });
 
