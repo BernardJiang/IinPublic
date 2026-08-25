@@ -41,14 +41,8 @@ import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
 import type { SupportInboxEntry } from '../../shared/techsupport-faq';
 import { renderSupportInboxSection } from './support-inbox-view';
 import type { GraphNodeTarget } from './graph-navigation';
-import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary, TalkType } from '../../shared/talk-stats';
-import {
-  summarize,
-  aggregateByTime,
-  aggregateByRegion,
-  aggregateCrossQuestion,
-  buildStatsDashboard,
-} from '../../shared/talk-stats';
+import type { StatsDashboard } from '../../shared/talk-stats';
+import { buildStatsDashboard } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
 import {
   type CustomChatroomRow,
@@ -147,6 +141,8 @@ import {
   type RouteEditorQuestion,
 } from './route-editor-model';
 import { renderRouteEditor as renderRouteEditorController } from './route-editor-controller';
+import { showSurveyStatisticsDialog } from './survey-statistics-dialog';
+import { renderStatisticsMetricCard } from './survey-statistics-model';
 import { openPeerDetailView, refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderListProgressively } from './render-list-progressively';
@@ -154,7 +150,6 @@ import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationK
 import {
   deriveLocalCreatorReplies,
   readLocalTalkExchanges,
-  buildTalkResponsesFromExchanges,
   buildAllLocalTalkResponses,
 } from '../services/local-peer-derivation';
 import {
@@ -457,8 +452,6 @@ export class UIManager extends EventEmitter {
   private travelModeActive: boolean = false;
   private travelHomeChatroomId: string | undefined = undefined;
   private notificationsSuppressedForE2e: boolean = false;
-  private static readonly SURVEY_ANONYMITY_MIN_COUNT = 3;
-
   private getUiLanguage() {
     return getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
   }
@@ -5718,11 +5711,11 @@ export class UIManager extends EventEmitter {
           <button type="button" class="btn" id="statistics-refresh-btn" style="padding:6px 10px;">Refresh</button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:14px;">
-          ${this.surveyMetricCard('Talks', String(totals.talks))}
-          ${this.surveyMetricCard('Responses', String(totals.responses))}
-          ${this.surveyMetricCard('Matches', String(totals.matches))}
-          ${this.surveyMetricCard('Match rate', `${totals.matchRate}%`)}
-          ${this.surveyMetricCard('Latest day', latestBucket)}
+          ${renderStatisticsMetricCard('Talks', String(totals.talks))}
+          ${renderStatisticsMetricCard('Responses', String(totals.responses))}
+          ${renderStatisticsMetricCard('Matches', String(totals.matches))}
+          ${renderStatisticsMetricCard('Match rate', `${totals.matchRate}%`)}
+          ${renderStatisticsMetricCard('Latest day', latestBucket)}
         </div>
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
           ${this.renderStatsTable(this.t('statsByTypeHeader'), ['Type', 'Responses', 'Matches', 'Match rate'], typeRows)}
@@ -6904,340 +6897,18 @@ export class UIManager extends EventEmitter {
    * Since P0 Step 7 removed server-side stats, all aggregation is client-local.
    */
   private showSurveyStatsDialog(talkId: string): void {
-    const entry = this.getMyTalks()[talkId];
-    const title = String(entry?.title || this.t('surveyDefaultTitle')).trim() || this.t('surveyDefaultTitle');
-    const questionLabel = (questionId: string): string => {
-      const qs = entry?.fullTalk?.questions;
-      if (!Array.isArray(qs)) return questionId;
-      const q = qs.find((x: { id?: string }) => x?.id === questionId);
-      const text = (q?.text && String(q.text).trim()) || '';
-      return text || questionId;
-    };
-
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-      <div class="modal-content size-l modal-fullscreen" style="max-width:860px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('surveyAnalyticsTitle')}</h2>
-          <p style="margin:0;color:var(--text-tertiary);font-size:0.92em;">${escapeHtml(title)}</p>
-        </div>
-        <div id="survey-stats-body" style="padding:8px 0 16px;min-height:120px;">
-          <p style="text-align:center;color:var(--text-tertiary);">${this.t('surveyLoading')}</p>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn" id="survey-stats-followup-btn" style="background:var(--accent);">${this.t('surveyCreateFollowUp')}</button>
-          <button type="button" class="btn" id="survey-stats-close-btn" style="background:var(--text-tertiary);">${this.t('surveyClose')}</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    const close = (): void => {
-      if (document.body.contains(modal)) document.body.removeChild(modal);
-    };
-    modal.querySelector('#survey-stats-close-btn')?.addEventListener('click', close);
-    modal.addEventListener('click', (ev) => {
-      if (ev.target === modal) close();
+    showSurveyStatisticsDialog({
+      talkId,
+      entry: this.getMyTalks()[talkId],
+      exchanges: readLocalTalkExchanges(),
+      text: (key) => this.t(key),
+      formatText: (key, values) => this.tf(key, values),
+      downloadCsv: (filename, csvBody) => this.downloadSurveyCsv(filename, csvBody),
+      openFollowUp: (draft) => this.showTalkEditorDialog(draft),
     });
-
-    const body = modal.querySelector('#survey-stats-body') as HTMLElement | null;
-    const followUpBtn = modal.querySelector('#survey-stats-followup-btn') as HTMLButtonElement | null;
-
-    // Build stats from local exchange history — no server call required.
-    const exchanges = readLocalTalkExchanges();
-    const allResponses = buildTalkResponsesFromExchanges(talkId, exchanges);
-    const talkType = (entry?.fullTalk?.type || allResponses[0]?.talkType || 'survey') as TalkType;
-    const summary = summarize(talkId, talkType, allResponses);
-    const byDay = aggregateByTime(talkId, allResponses, 'day');
-    const byRegion = aggregateByRegion(talkId, allResponses);
-
-    if (followUpBtn) {
-      followUpBtn.disabled = false;
-      followUpBtn.addEventListener('click', () => {
-        const closeModal = (): void => {
-          if (document.body.contains(modal)) document.body.removeChild(modal);
-        };
-        closeModal();
-        this.createSurveyFollowUpFromStats(entry, summary, questionLabel);
-      });
-    }
-    this.renderSurveyStatsDashboard(body, summary, byDay, byRegion, questionLabel, title, allResponses);
   }
 
-  private renderSurveyStatsDashboard(
-    body: HTMLElement | null,
-    summary: StatsSummary,
-    byDay: StatsByTime,
-    byRegion: StatsByRegion,
-    questionLabel: (questionId: string) => string,
-    title: string,
-    allResponses: import('../../shared/talk-stats').TalkResponse[] = [],
-  ): void {
-    if (!body) return;
-    const anonymityMasking = summary.total < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
-    const render = (maskSmallCounts: boolean, filterDays?: number): void => {
-      // Apply optional time-range filter to responses for re-aggregation.
-      const responses = filterDays
-        ? allResponses.filter((r) => r.createdAt >= Date.now() - filterDays * 86_400_000)
-        : allResponses;
-      const filteredSummary = responses.length !== allResponses.length
-        ? summarize(summary.talkId, summary.talkType, responses)
-        : summary;
-      const filteredByDay = responses.length !== allResponses.length
-        ? aggregateByTime(summary.talkId, responses, 'day')
-        : byDay;
-      const filteredByRegion = responses.length !== allResponses.length
-        ? aggregateByRegion(summary.talkId, responses)
-        : byRegion;
-      const matchRate = filteredSummary.total > 0
-        ? +((filteredSummary.matches * 100) / filteredSummary.total).toFixed(1)
-        : 0;
-      const cards = `
-        <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:14px;">
-          ${this.surveyMetricCard(this.t('surveyResponses'), String(filteredSummary.total))}
-          ${this.surveyMetricCard(this.t('surveyQuestions'), String(filteredSummary.byQuestion?.length || 0))}
-          ${this.surveyMetricCard(this.t('surveyRegions'), String(filteredByRegion.series?.length || 0))}
-          ${this.surveyMetricCard(this.t('surveyLatestDayBucket'), escapeHtml(filteredByDay.series?.[filteredByDay.series.length - 1]?.bucket || '—'))}
-          ${this.surveyMetricCard('Match rate', `${matchRate}%`)}
-        </div>`;
-      const filterOptions = [
-        { value: '', label: this.t('surveyFilterAll') },
-        { value: '7', label: this.t('surveyFilterDays7') },
-        { value: '30', label: this.t('surveyFilterDays30') },
-        { value: '90', label: this.t('surveyFilterDays90') },
-      ];
-      const privacyLine = `<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);">
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.9em;color:var(--text-primary);">
-            <input type="checkbox" id="survey-anon-toggle" ${maskSmallCounts ? 'checked' : ''}>
-            <span>${this.tf('surveyAnonymizeCohorts', { count: UIManager.SURVEY_ANONYMITY_MIN_COUNT })}</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;color:var(--text-primary);">
-            <span>${this.t('surveyFilterLabel')}:</span>
-            <select id="survey-time-filter" style="padding:4px 6px;border:1px solid var(--border-strong);border-radius:6px;font-size:0.9em;">
-              ${filterOptions.map((o) => `<option value="${o.value}" ${filterDays?.toString() === o.value || (!filterDays && o.value === '') ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
-            </select>
-          </label>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button type="button" class="btn" id="survey-export-summary-btn" style="padding:6px 10px;background:var(--accent);">${this.t('surveyExportSummary')}</button>
-          <button type="button" class="btn" id="survey-export-day-btn" style="padding:6px 10px;background:var(--accent);">${this.t('surveyExportDay')}</button>
-          <button type="button" class="btn" id="survey-export-region-btn" style="padding:6px 10px;background:var(--accent);">${this.t('surveyExportRegion')}</button>
-        </div>
-      </div>`;
-
-      const byQuestionParts: string[] = [];
-      const completionFunnel = (filteredSummary.talkType === 'flow' || filteredSummary.talkType === 'route')
-        ? `<div class="survey-completion-funnel"><div class="survey-chart-title">Question completion</div>${(filteredSummary.byQuestion || []).map((q, index) => {
-            const width = Math.max(12, Math.round(q.completionRate));
-            return `<div class="survey-funnel-step"><span>Q${index + 1}</span><i style="width:${width}%"></i><b>${q.completionRate}%</b></div>`;
-          }).join('')}</div>`
-        : '';
-      if (!filteredSummary.byQuestion || filteredSummary.byQuestion.length === 0) {
-        byQuestionParts.push(`<p style="color:var(--text-tertiary);font-size:0.92em;">${this.t('surveyNoQuestionBreakdown')}</p>`);
-      } else {
-        for (const q of filteredSummary.byQuestion) {
-          const hideQuestion = maskSmallCounts && q.total < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
-          const qTitle = escapeHtml(questionLabel(q.questionId));
-          const skipLine = !hideQuestion && filteredSummary.total > 0
-            ? `<div style="font-size:0.78em;color:var(--text-muted);margin-top:2px;">${this.t('surveyCompletionRateLabel')}: ${q.completionRate}% · ${this.t('surveySkipRate')}: ${q.skipCount > 0 ? q.skipCount : 0} skipped</div>`
-            : '';
-          const rows = hideQuestion
-            ? `<div style="margin-top:8px;padding:10px;border-radius:8px;border:1px dashed var(--border-strong);background:var(--bg-subtle);color:var(--text-tertiary);">${this.tf('surveyHiddenUntil', { count: UIManager.SURVEY_ANONYMITY_MIN_COUNT })}</div>`
-            : q.answers
-                .map(
-                  (a) => `
-              <div class="survey-answer-bar">
-                <span>${escapeHtml(a.answerText || a.answerId)}</span>
-                <i><b style="width:${Math.max(2, a.percentage)}%"></b></i>
-                <strong>${a.count} <em>(${a.percentage}%)</em></strong>
-              </div>`,
-                )
-                .join('');
-          byQuestionParts.push(`
-            <div style="margin-top:16px;">
-              <div style="font-weight:700;font-size:0.95em;color:var(--text-primary);margin-bottom:2px;">${qTitle}</div>
-              <div style="font-size:0.8em;color:var(--text-tertiary);">${this.tf(q.total === 1 ? 'surveyAnswersRecordedOne' : 'surveyAnswersRecorded', { count: q.total })}</div>
-              ${skipLine}
-              ${rows}
-            </div>`);
-        }
-      }
-
-      // Cross-question correlation — show if ≥2 questions each have enough responses.
-      const eligibleQs = (filteredSummary.byQuestion || []).filter(
-        (q) => q.total >= UIManager.SURVEY_ANONYMITY_MIN_COUNT,
-      );
-      let crossQSection = '';
-      if (eligibleQs.length >= 2) {
-        const qA = eligibleQs[0]!;
-        const qB = eligibleQs[1]!;
-        const cross = aggregateCrossQuestion(
-          filteredSummary.talkId,
-          responses,
-          qA.questionId,
-          qB.questionId,
-          maskSmallCounts ? UIManager.SURVEY_ANONYMITY_MIN_COUNT : 1,
-        );
-        const crossRows = cross.cells
-          .map((cell) => `<tr>
-            <td style="padding:6px 8px;border-top:1px solid var(--border);">${cell.masked ? '—' : escapeHtml(cell.answerAText)}</td>
-            <td style="padding:6px 8px;border-top:1px solid var(--border);">${cell.masked ? '—' : escapeHtml(cell.answerBText)}</td>
-            <td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;background:rgba(15,118,110,${cell.masked ? 0 : Math.min(0.5, cell.percentage / 160)});">${cell.masked ? '—' : cell.count}</td>
-            <td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;background:rgba(15,118,110,${cell.masked ? 0 : Math.min(0.5, cell.percentage / 160)});">${cell.masked ? '—' : `${cell.percentage}%`}</td>
-          </tr>`)
-          .join('');
-        crossQSection = `
-          <div style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:8px;">
-            <div style="font-weight:700;color:var(--text-primary);margin-bottom:4px;">${this.t('surveyCrossQuestion')}</div>
-            <div style="font-size:0.82em;color:var(--text-tertiary);margin-bottom:8px;">${escapeHtml(questionLabel(qA.questionId))} × ${escapeHtml(questionLabel(qB.questionId))}</div>
-            <table class="survey-heatmap" style="width:100%;border-collapse:collapse;font-size:0.88em;">
-              <thead><tr>
-                <th style="text-align:left;padding:6px 8px;">${escapeHtml(questionLabel(qA.questionId).slice(0, 20))}</th>
-                <th style="text-align:left;padding:6px 8px;">${escapeHtml(questionLabel(qB.questionId).slice(0, 20))}</th>
-                <th style="text-align:right;padding:6px 8px;">${this.t('surveyCount')}</th>
-                <th style="text-align:right;padding:6px 8px;">%</th>
-              </tr></thead>
-              <tbody>${crossRows || `<tr><td colspan="4" style="padding:8px;color:var(--text-tertiary);">${this.t('surveyNoResponses')}</td></tr>`}</tbody>
-            </table>
-          </div>`;
-      } else if ((filteredSummary.byQuestion || []).length >= 2) {
-        crossQSection = `
-          <div style="margin-top:12px;padding:10px;border:1px dashed var(--border-strong);border-radius:8px;background:var(--bg-subtle);font-size:0.88em;color:var(--text-tertiary);">
-            ${this.tf('surveyCrossQuestionEmpty', { count: UIManager.SURVEY_ANONYMITY_MIN_COUNT })}
-          </div>`;
-      }
-
-      const dayRows = (filteredByDay.series || [])
-        .map((item) => `<tr><td style="padding:6px 8px;border-top:1px solid var(--border);">${escapeHtml(item.bucket)}</td><td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;">${item.count}</td></tr>`)
-        .join('');
-      const regionRows = (filteredByRegion.series || [])
-        .map((item) => {
-          const hidden = maskSmallCounts && item.count < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
-          return `<tr><td style="padding:6px 8px;border-top:1px solid var(--border);">${hidden ? this.t('surveyHiddenRegion') : escapeHtml(item.region || this.t('surveyUnknownRegion'))}</td><td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;">${hidden ? '—' : item.count}</td></tr>`;
-        })
-        .join('');
-      const followUpCandidates = (filteredSummary.byQuestion || []).filter(
-        (q) => q.total > 0 && q.total < Math.max(UIManager.SURVEY_ANONYMITY_MIN_COUNT, Math.ceil(filteredSummary.total * 0.6)),
-      );
-      const followUpHint =
-        followUpCandidates.length === 0
-          ? `<p style="margin:8px 0 0;color:var(--text-tertiary);font-size:0.9em;">${this.t('surveyNoFollowUpGaps')}</p>`
-          : `<p style="margin:8px 0 0;color:var(--text-primary);font-size:0.9em;">${escapeHtml(this.tf('surveyFollowUpCandidates', {
-              questions: followUpCandidates.map((q) => questionLabel(q.questionId)).join(', '),
-            }))}</p>`;
-
-      body.innerHTML = `
-        ${cards}
-        ${privacyLine}
-        <div style="margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:8px;">
-          <div style="font-weight:700;color:var(--text-primary);">${this.t('surveyQuestionDistribution')}</div>
-          ${completionFunnel}
-          ${byQuestionParts.join('')}
-        </div>
-        ${crossQSection}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
-          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;">
-            <div style="font-weight:700;color:var(--text-primary);">${this.t('surveyResponsesByDay')}</div>
-            <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:0.9em;">
-              <thead><tr><th style="text-align:left;padding:6px 8px;">${this.t('surveyBucket')}</th><th style="text-align:right;padding:6px 8px;">${this.t('surveyCount')}</th></tr></thead>
-              <tbody>${dayRows || `<tr><td colspan="2" style="padding:8px;color:var(--text-tertiary);">${this.t('surveyNoResponses')}</td></tr>`}</tbody>
-            </table>
-          </div>
-          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;">
-            <div style="font-weight:700;color:var(--text-primary);">${this.t('surveyResponsesByRegion')}</div>
-            <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:0.9em;">
-              <thead><tr><th style="text-align:left;padding:6px 8px;">${this.t('surveyRegions')}</th><th style="text-align:right;padding:6px 8px;">${this.t('surveyCount')}</th></tr></thead>
-              <tbody>${regionRows || `<tr><td colspan="2" style="padding:8px;color:var(--text-tertiary);">${this.t('surveyNoRegionData')}</td></tr>`}</tbody>
-            </table>
-          </div>
-        </div>
-        <div style="margin-top:12px;padding:12px;border:1px dashed var(--border-strong);border-radius:8px;background:var(--bg-subtle);">
-          <div style="font-weight:700;color:var(--text-primary);">${this.t('surveyFollowUpHandling')}</div>
-          <p style="margin:8px 0 0;color:var(--text-tertiary);font-size:0.9em;">${escapeHtml(this.tf('surveyFollowUpHelp', { title }))}</p>
-          ${followUpHint}
-        </div>
-        <p style="margin:10px 0 0;font-size:0.8em;color:var(--text-muted);">${this.t('surveyLocalData')}</p>`;
-
-      body.querySelector('#survey-anon-toggle')?.addEventListener('change', (event) => {
-        const checked = !!(event.target as HTMLInputElement | null)?.checked;
-        render(checked, filterDays);
-      });
-      body.querySelector('#survey-time-filter')?.addEventListener('change', (event) => {
-        const val = (event.target as HTMLSelectElement | null)?.value || '';
-        const days = val ? parseInt(val, 10) : undefined;
-        render(maskSmallCounts, days);
-      });
-      body.querySelector('#survey-export-summary-btn')?.addEventListener('click', () => {
-        this.downloadCsv(`survey-summary-${filteredSummary.talkId}.csv`, this.toSurveySummaryCsv(filteredSummary, questionLabel));
-      });
-      body.querySelector('#survey-export-day-btn')?.addEventListener('click', () => {
-        this.downloadCsv(`survey-by-day-${filteredSummary.talkId}.csv`, this.toByDayCsv(filteredByDay));
-      });
-      body.querySelector('#survey-export-region-btn')?.addEventListener('click', () => {
-        this.downloadCsv(`survey-by-region-${filteredSummary.talkId}.csv`, this.toByRegionCsv(filteredByRegion, maskSmallCounts));
-      });
-    };
-
-    render(anonymityMasking);
-  }
-
-  private surveyMetricCard(label: string, value: string): string {
-    return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);">
-      <div style="font-size:0.78em;color:var(--text-tertiary);">${escapeHtml(label)}</div>
-      <div style="font-size:1.2em;font-weight:700;color:var(--text-primary);">${escapeHtml(value)}</div>
-    </div>`;
-  }
-
-  private toSurveySummaryCsv(summary: StatsSummary, questionLabel: (questionId: string) => string): string {
-    const lines = ['question_id,question,answer_id,answer,count,percentage'];
-    for (const q of summary.byQuestion || []) {
-      for (const a of q.answers || []) {
-        lines.push(
-          [
-            q.questionId,
-            questionLabel(q.questionId),
-            a.answerId,
-            a.answerText || a.answerId,
-            String(a.count),
-            String(a.percentage),
-          ]
-            .map((part) => this.escapeCsvCell(part))
-            .join(','),
-        );
-      }
-    }
-    return lines.join('\n');
-  }
-
-  private toByDayCsv(byDay: StatsByTime): string {
-    const lines = ['bucket,count'];
-    for (const item of byDay.series || []) {
-      lines.push([item.bucket, String(item.count)].map((part) => this.escapeCsvCell(part)).join(','));
-    }
-    return lines.join('\n');
-  }
-
-  private toByRegionCsv(byRegion: StatsByRegion, maskSmallCounts: boolean): string {
-    const lines = ['region,count'];
-    for (const item of byRegion.series || []) {
-      const hide = maskSmallCounts && item.count < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
-      lines.push(
-        [hide ? 'hidden_region' : item.region || 'unknown', hide ? '' : String(item.count)]
-          .map((part) => this.escapeCsvCell(part))
-          .join(','),
-      );
-    }
-    return lines.join('\n');
-  }
-
-  private escapeCsvCell(value: string): string {
-    const str = String(value ?? '');
-    const escaped = str.replace(/"/g, '""');
-    return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
-  }
-
-  private downloadCsv(filename: string, csvBody: string): void {
+  private downloadSurveyCsv(filename: string, csvBody: string): void {
     const blob = new Blob([csvBody], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -7248,44 +6919,6 @@ export class UIManager extends EventEmitter {
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
     this.showNotification(this.tf('surveyExported', { filename }), 'success');
-  }
-
-  private createSurveyFollowUpFromStats(
-    entry: any,
-    summary: StatsSummary,
-    questionLabel: (questionId: string) => string,
-  ): void {
-    const sourceQuestions = Array.isArray(entry?.fullTalk?.questions) ? entry.fullTalk.questions : [];
-    const copiedQuestions = sourceQuestions
-      .slice(0, 4)
-      .map((q: any, qIdx: number) => ({
-        id: `q_${qIdx}`,
-        text: String(q?.text || questionLabel(String(q?.id || `q_${qIdx}`)) || '').trim(),
-        answers: Array.isArray(q?.answers)
-          ? q.answers.slice(0, 6).map((a: any, aIdx: number) => ({
-              id: `a_${qIdx}_${aIdx}`,
-              text: String(a?.text || '').trim() || `Option ${aIdx + 1}`,
-              isTerminal: true,
-              counter: 0,
-            }))
-          : [],
-      }))
-      .filter((q: any) => q.text && Array.isArray(q.answers) && q.answers.length > 0);
-    if (copiedQuestions.length === 0) {
-      copiedQuestions.push({
-        id: 'q_0',
-        text: this.t('surveyFollowUpQuestion'),
-        answers: [
-          { id: 'a_0_0', text: this.t('surveyFollowUpDetails'), isTerminal: true, counter: 0 },
-          { id: 'a_0_1', text: this.t('surveyNoFollowUpNeeded'), isTerminal: true, counter: 0 },
-        ],
-      });
-    }
-    this.showTalkEditorDialog({
-      title: this.tf('surveyFollowUpTitle', { title: String(entry?.title || summary.talkId).trim() }),
-      type: 'survey',
-      questions: copiedQuestions,
-    });
   }
 
   displayNewMessage(message: any): void {

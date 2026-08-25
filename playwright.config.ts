@@ -273,7 +273,8 @@ export default defineConfig({
             /07-survey-restaurants\.spec\.ts/,
             /08-route-job-seeking\.spec\.ts/,
             /10-stats-four-types\.spec\.ts/,
-            /00i-survey-analytics-dashboard\.spec\.ts/,
+            // The survey analytics dashboard now derives from localTalkExchanges and has
+            // deterministic local-history coverage, so its former server-stats ignore is gone.
             // S3 embedded-node: spawns its own extra dist/server/node-app/embedded-node.js
             // process and needs a prebuilt dist/web, so it runs under its own dedicated
             // Playwright config (tests/e2e/embedded-node/playwright.config.ts) instead of

@@ -2,6 +2,31 @@
 
 Last updated: 2026-08-24
 
+## 2026-08-24 — UIManager decomposition cluster #2: survey statistics
+
+- Extracted the creator survey analytics block from `ui-manager.ts` into two cohesive modules.
+  `survey-statistics-model.ts` owns the privacy threshold, question labels, shared metric cards,
+  CSV serialization, and bounded follow-up draft construction. `survey-statistics-dialog.ts` owns
+  local response aggregation, modal/dashboard DOM, time filtering, anonymity toggles, export
+  callbacks, and modal lifecycle. Both use typed injected translations/callbacks and neither imports
+  or reaches through `UIManager`.
+- Preserved `UIManager.showSurveyStatsDialog()` as the existing compatibility entry point. Its only
+  retained side effect is creating the browser download and showing the export notification; the
+  public `UIManager`/`app.ts` contract and all existing survey DOM IDs remain unchanged.
+- Added characterization coverage for CSV quoting, low-cohort masking, anonymity reveal, time-range
+  reaggregation, safe labels/titles, modal teardown, injected follow-up launch, and the four-question/
+  six-answer copy bounds. Lowered the ratcheting `ui-manager.ts` ceiling from 11,197 to 10,830 lines.
+- Restored the full three-user survey analytics E2E to the default Chromium suite after confirming
+  its old server-statistics ignore was stale. Updated it to use the current long-press details popup;
+  it now covers two local responses, privacy reveal, three CSV downloads, follow-up creation, and
+  English/Chinese localization through the real UI.
+- Verification: typecheck and lint pass; 146 unit suites / 1,593 tests pass; focused compact-row and
+  analytics E2Es pass. Canonical `test:all` run `run-20260824-185020-77985` passed all 12 blobs before
+  the E2E restoration. Post-restoration run `run-20260824-190943-86105` passed static checks, the
+  restored analytics test, and 11/12 phases; its only unrelated expired-talk race passed alone, then
+  the complete 12-worker light shard passed 233 tests (6 skipped) in 9.6m. Every other canonical
+  phase was green.
+
 ## 2026-08-24 — Reputation vouch threshold delivery regression
 
 - Fixed the one failure in the canonical Playwright report: an adult talk rejected before the
