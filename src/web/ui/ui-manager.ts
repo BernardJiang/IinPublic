@@ -137,9 +137,11 @@ import {
   applyTagKindVisibilityToQuestion,
   readBuiltInSpecFromQuestion,
   setupTalkFormHandlers as setupTalkEditorFormHandlers,
+  syncAdultLockFromBuiltInKinds,
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
+import { TALK_TEMPLATES } from './talk-templates';
 import { openPeerDetailView, refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderListProgressively } from './render-list-progressively';
@@ -9101,6 +9103,68 @@ export class UIManager extends EventEmitter {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
+  /**
+   * Talk editor usability follow-up: "+ Create Talk" opens this picker instead of jumping
+   * straight into a blank editor. Picking a template opens the SAME editor pre-filled
+   * (`showTalkEditorDialog` already accepts an `existingTalk`-shaped prefill with no `id` —
+   * proven by the existing copy-talk/survey-follow-up call sites — so a template is just
+   * another one, fully editable, created fresh on save). Modeled on the existing
+   * `showChooseWhoToDmPicker` skeleton; rows reuse `.chatroom-item`'s icon+name+description+
+   * arrow visual language (main.css) rather than inventing a new one.
+   */
+  private showTalkTemplatePicker(): void {
+    document.getElementById('talk-template-picker-modal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'talk-template-picker-modal';
+    modal.className = 'modal-overlay';
+    const templateRows = TALK_TEMPLATES.map(
+      (template) => `
+      <div class="chatroom-item talk-template-row" data-testid="talk-template-${template.id}" data-template-id="${template.id}">
+        <div class="chatroom-icon">${template.icon}</div>
+        <div class="chatroom-info">
+          <div class="chatroom-name">${escapeHtml(this.t(template.labelKey))}</div>
+          <div class="chatroom-description">${escapeHtml(this.t(template.descKey))}</div>
+        </div>
+        <div class="chatroom-arrow">›</div>
+      </div>
+    `,
+    ).join('');
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:440px;">
+        <div class="modal-header">
+          <h2 class="modal-title">${this.t('talkTemplatePickerTitle')}</h2>
+          <button class="close-button" id="close-talk-template-picker">&times;</button>
+        </div>
+        <p style="padding:0 20px;margin:0 0 12px;color:var(--text-secondary);font-size:0.9em;">${escapeHtml(this.t('talkTemplatePickerSubtitle'))}</p>
+        <div style="padding:0 20px 20px;">
+          ${templateRows}
+          <div class="chatroom-item talk-template-row" data-testid="talk-template-scratch" data-template-id="scratch">
+            <div class="chatroom-icon">✏️</div>
+            <div class="chatroom-info">
+              <div class="chatroom-name">${escapeHtml(this.t('talkTemplateScratch'))}</div>
+              <div class="chatroom-description">${escapeHtml(this.t('talkTemplateScratchDesc'))}</div>
+            </div>
+            <div class="chatroom-arrow">›</div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    document.getElementById('close-talk-template-picker')?.addEventListener('click', close);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) close();
+    });
+    modal.querySelectorAll<HTMLElement>('.talk-template-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const templateId = row.dataset.templateId || '';
+        close();
+        const template = TALK_TEMPLATES.find((t) => t.id === templateId);
+        this.showTalkEditorDialog(template?.build());
+      });
+    });
+  }
+
   showTalkEditorDialog(existingTalk?: any): void {
     // Reset the route DAG editor's in-memory model on every open — it's a field on this
     // (singleton) instance, not scoped to one dialog session, so without this a second route
@@ -9143,6 +9207,8 @@ export class UIManager extends EventEmitter {
           processTalkForm: this.processTalkForm.bind(this),
           text: this.t.bind(this),
         }),
+      syncAdultLockFromBuiltInKinds,
+      onBrowseTemplates: () => this.showTalkTemplatePicker(),
     });
   }
 
@@ -9352,6 +9418,7 @@ export class UIManager extends EventEmitter {
             ...(builtInRead.quantity !== undefined ? { quantity: builtInRead.quantity } : {}),
             ...(builtInRead.priceRange ? { priceRange: builtInRead.priceRange } : {}),
             ...(builtInRead.timeFrame ? { timeFrame: builtInRead.timeFrame } : {}),
+            ...(builtInRead.ageRange ? { ageRange: builtInRead.ageRange } : {}),
           };
         }
         questions.push(questionObj);
@@ -9424,6 +9491,7 @@ export class UIManager extends EventEmitter {
         ...(q.builtIn.quantity !== undefined ? { quantity: q.builtIn.quantity } : {}),
         ...(q.builtIn.priceRange ? { priceRange: q.builtIn.priceRange } : {}),
         ...(q.builtIn.timeFrame ? { timeFrame: q.builtIn.timeFrame } : {}),
+        ...(q.builtIn.ageRange ? { ageRange: q.builtIn.ageRange } : {}),
       });
       setTypedPreferenceState(preferenceState);
     }

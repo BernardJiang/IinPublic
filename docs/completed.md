@@ -1,6 +1,63 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
+
+## 2026-08-24 — Talk templates (Buy/Sell, Taxi, Job Seeker/Hiring, Dating) + §DD `ageRange` wiring
+
+Talk editor usability follow-up: a new "🎨 Start from a template" button at the top of a
+genuinely-fresh "Create a Talk" form opens a picker (`src/web/ui/talk-templates.ts`,
+`UIManager.showTalkTemplatePicker`) offering four built-in starting points — 🤝 Buy/Sell,
+🚕 Taxi Ride, 💼 Job Seeker/Hiring, ❤️ Dating — all Pair-tag (`reciprocalTagContext`) talks,
+sharing one `buildTwoSidedOfferTemplate` generator. Picking a template opens the ordinary editor
+pre-filled (a plain prefill object with no `id` — the same shape the existing copy-talk/survey-
+follow-up call sites already pass to `showTalkEditorDialog`), fully editable, created fresh on
+save. Deliberately did **not** intercept `#create-talk-btn` itself — ~60 other e2e specs click it
+expecting the blank editor to open directly, so that was rejected as too large a blast radius;
+the button's behavior is unchanged.
+
+Dating needed real product work first, not just a template — §DD's `ageRange` comparator
+(`ageRangeMutuallyAcceptable`, landed 2026-08-23 as a pure function with zero callers) is now a
+fully wired `BuiltInQuestionKind`, mirroring how `priceRange`/`quantity` already work:
+- `types.ts`: `BuiltInQuestionKind` gains `'ageRange'`; `BuiltInQuestionSpec.ageRange: { age,
+  acceptableRange: { min, max } }`.
+- `built-in-question-resolution.ts`: new resolution branch calling `ageRangeMutuallyAcceptable`,
+  same missing-data → `ASK_USER` pattern as every other kind.
+- `typed-preference-store.ts`: `TypedPreferenceValue.ageRange` alongside the existing fields.
+- `talk-editor-form-helpers.ts`: new `ageRange` option + 3 typed-input fields (my age, acceptable
+  min/max) + read/validate branch, EN+ZH translations.
+- `talk-engine.ts` (`TalkAutofix.fix`): a talk with any `builtIn.kind === 'ageRange'` question
+  gets `isAdult` force-set to `true` if not already — the authoritative half of the "force and
+  lock isAdult for dating-category talks" TODO item, inferred from question shape the same way
+  `isDealEligibleTalk` (app.ts) already infers deal-eligibility from `reciprocalTagContext`
+  presence, no new schema field. `ui-manager.ts`'s `syncAdultLockFromBuiltInKinds` gives the
+  matching live UI feedback (checks + disables `#talk-is-adult` the moment an `ageRange` question
+  is selected).
+- `mutualPreferenceSetMembership` (multi-value gender/race preference sets) intentionally left
+  unwired — the shipped Dating template uses an ordinary Pair-tag question for the gender-
+  preference side instead (one accepted counterpart, not a set); see `docs/TODO.md` §DD.
+
+E2E: `83-talk-template-picker.spec.ts` (single browser — picker renders all 5 rows, each
+template's prefill is structurally correct, Dating's `ageRange` fields + adult lock included);
+`94-dating-agerange-match.spec.ts` (real two-browser match — two independently-authored Dating
+talks with mutually-acceptable, non-identical ages match via the existing chatbot exact-text
+cross-talk mechanism already proven for `priceRange`, `87-price-overlap-buy-sell-match.spec.ts`;
+a second, differently-worded pair with an out-of-range age does not). Buy/Sell, Taxi, and Job
+Seeker deliberately don't get their own match spec — they reuse the already-proven Pair-tag +
+chatbot mechanism (`89-buy-sell-chatbot-cross-talk-match.spec.ts`, the taxi spec), so only their
+template prefill needed checking. 3 new unit tests for the `ageRange` resolution branch
+(`built-in-question-resolution.test.ts`).
+
+Two real bugs found and fixed while building this, both worth remembering:
+- The Dating e2e match test initially failed silently (`[BODY-RECV] accepted=false`) because
+  Eve wasn't age-verified — an adult-flagged talk delivered to a non-age-verified receiver is
+  correctly rejected by the existing intake gate (`talk-intake-filters.ts`). Not a bug; just a
+  reminder that `serverVouchAgeVerified(page, userId, 3)` (`AGE_VERIFICATION_THRESHOLD`) is
+  required before any adult-content e2e scenario can deliver at all.
+- The match/mismatch pair in that same test initially collapsed to ONE talk in Adam's own store
+  because non-tag talk ids are content-hashed from questions alone (title is not part of the
+  identity, `src/shared/cid.ts`) — both pairs originally reused identical question wording across
+  different titles, so the second silently deduped into the first. Fixed by giving each pair
+  distinct question text, not just a distinct title.
 
 ## 2026-08-23 — §EE (partial) + §DD (primitives only)
 

@@ -20,6 +20,8 @@ export interface TypedPreferenceValue {
   quantity?: number;
   priceRange?: { min: number; max: number };
   timeFrame?: { start: number; end: number };
+  /** kind === 'ageRange' (§DD, spec §30.6). See `Question.builtIn.ageRange` (types.ts). */
+  ageRange?: { age: number; acceptableRange: { min: number; max: number } };
   updatedAt: number;
 }
 

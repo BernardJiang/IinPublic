@@ -9,7 +9,7 @@
  * trustworthy enough to auto-resolve" decision in `docs/TODO.md` §BB.
  */
 import type { Question } from './types';
-import { intervalsOverlap, quantitySufficient } from './built-in-comparisons';
+import { ageRangeMutuallyAcceptable, intervalsOverlap, quantitySufficient } from './built-in-comparisons';
 import { getTypedPreference, makeTypedPreferenceScopeKey, type TypedPreferenceState } from './typed-preference-store';
 
 export type BuiltInResolution = { action: 'ANSWER'; compatible: boolean } | { action: 'ASK_USER' };
@@ -83,6 +83,11 @@ export function resolveBuiltInQuestion(
         { min: myPref.timeFrame.start, max: myPref.timeFrame.end },
       ),
     };
+  }
+
+  if (builtIn.kind === 'ageRange') {
+    if (!builtIn.ageRange || !myPref.ageRange) return { action: 'ASK_USER' };
+    return { action: 'ANSWER', compatible: ageRangeMutuallyAcceptable(builtIn.ageRange, myPref.ageRange) };
   }
 
   return { action: 'ASK_USER' };

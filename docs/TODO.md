@@ -175,11 +175,10 @@ match.spec.ts`) — a `type: 'route'` talk turned out unnecessary for that case;
 
 ### DD. Generalized dating matching
 
-Design is specified in technical specification §30.6; implementation has not started beyond the
-pure comparison primitives below. The remaining bullets each carry real product/safety judgment
-calls (dating-category detection and enforcement, photo-delivery consent/safety copy, mandatory
-adult-lock UX) — deliberately left for a dedicated pass rather than rushed alongside the pure-math
-primitives, which carry no such risk.
+Design is specified in technical specification §30.6. The age-range comparator is now fully
+wired and shipping (as the built-in Dating talk template); the remaining bullets — multi-value
+gender/race preference-set matching and photo-delivery consent/safety copy — each carry their
+own product/safety judgment calls and are left for a dedicated pass.
 
 - [x] Implement mutual preference-set membership and the age point-in-range primitive. **Landed
   2026-08-23** — `mutualPreferenceSetMembership`/`ageRangeMutuallyAcceptable`
@@ -188,15 +187,13 @@ primitives, which carry no such risk.
   `mutualPreferenceSetMembership` generalizes `checkIfMatch`'s existing one-directional
   `preferenceSet` veto to a real two-sided check (both sides' own selfTag/preferenceSet
   supplied), matching that veto's exact permissive default for a missing counterpart selfTag.
-  Neither is wired into `checkIfMatch`, a `BuiltInQuestionKind`, or any editor UI yet — `ageRange`
-  isn't yet a recognized `builtIn.kind` (`types.ts`'s `BuiltInQuestionKind` union), and
-  `mutualPreferenceSetMembership` has no caller since nothing today supplies "the responder's own
-  (selfTag, preferenceSet) pair" as an input to the match engine. Wiring either requires the
-  dating-specific product decisions this section's other bullets are about, so left as
-  ready-to-use primitives, not yet load-bearing.
-- [ ] Force and lock `isAdult` for dating-category talks.
+- [x] Wire `ageRange` as a real `BuiltInQuestionKind`, and force+lock `isAdult` for talks that use
+  it. **Landed 2026-08-24** — see `docs/completed.md`. `mutualPreferenceSetMembership` is still
+  unwired (multi-value gender/race preference sets need a decision on what supplies "the
+  responder's own (tag, preference-set) pair" as match input) — the shipped Dating template uses
+  an ordinary Pair-tag question for the gender-preference side instead, which only supports one
+  accepted counterpart per talk, not a set.
 - [ ] Add optional author-selected talk photo delivery after a successful match and safety notice.
-- [ ] Add unit and E2E coverage, including unverified-recipient intake blocking.
 
 ### EE. Me/profile completion
 

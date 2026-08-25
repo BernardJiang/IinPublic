@@ -188,6 +188,51 @@ describe('resolveBuiltInQuestion', () => {
     });
   });
 
+  describe('ageRange (§DD)', () => {
+    it('asks the user when there is no stored age/range preference (missing data, not incompatible)', () => {
+      const state = createEmptyTypedPreferenceState();
+      const tagContext = { myTag: 'seeking women', theirTag: 'seeking men', title: 'Dating' };
+      const question = {
+        text: 'Age range',
+        builtIn: { kind: 'ageRange' as const, ageRange: { age: 28, acceptableRange: { min: 25, max: 35 } } },
+      };
+      expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({ action: 'ASK_USER' });
+    });
+
+    it('is compatible when each side\'s declared age falls within the OTHER side\'s acceptable range, mutually', () => {
+      const state = createEmptyTypedPreferenceState();
+      const tagContext = { myTag: 'seeking women', theirTag: 'seeking men', title: 'Dating' };
+      const scopeKey = makeTypedPreferenceScopeKey('seeking women', 'Dating', 'Age range');
+      saveTypedPreference(state, userId, scopeKey, { kind: 'ageRange', ageRange: { age: 30, acceptableRange: { min: 26, max: 40 } } });
+      const question = {
+        text: 'Age range',
+        builtIn: { kind: 'ageRange' as const, ageRange: { age: 28, acceptableRange: { min: 25, max: 35 } } },
+      };
+
+      expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({
+        action: 'ANSWER',
+        compatible: true,
+      });
+    });
+
+    it('is not compatible when one side\'s age falls outside the other\'s acceptable range', () => {
+      const state = createEmptyTypedPreferenceState();
+      const tagContext = { myTag: 'seeking women', theirTag: 'seeking men', title: 'Dating' };
+      const scopeKey = makeTypedPreferenceScopeKey('seeking women', 'Dating', 'Age range');
+      saveTypedPreference(state, userId, scopeKey, { kind: 'ageRange', ageRange: { age: 30, acceptableRange: { min: 26, max: 40 } } });
+      const question = {
+        text: 'Age range',
+        // Incoming side is 50 — outside my 26-40 acceptable range.
+        builtIn: { kind: 'ageRange' as const, ageRange: { age: 50, acceptableRange: { min: 25, max: 55 } } },
+      };
+
+      expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({
+        action: 'ANSWER',
+        compatible: false,
+      });
+    });
+  });
+
   it('resolves two DIFFERENT builtIn questions in the SAME talk independently (priceRange + timeFrame, §HH)', () => {
     const state = createEmptyTypedPreferenceState();
     const tagContext = { myTag: 'buy', theirTag: 'sell', title: 'Home Repair Help' };

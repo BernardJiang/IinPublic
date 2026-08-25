@@ -93,6 +93,11 @@ type TalkEditorDialogOptions = {
   refreshFlowAnswerConstraints: (type: string) => void;
   ensureRouteEditorRendered: (existingTalk?: any) => void;
   setupTalkFormHandlers: (modal: HTMLElement) => void;
+  syncAdultLockFromBuiltInKinds: (root: ParentNode) => void;
+  /** Only rendered/wired for a genuinely fresh create (no `existingTalk` at all — not shown when
+   *  editing, copying, or already on a picked template): closes this blank editor and opens the
+   *  template picker (`showTalkTemplatePicker`, ui-manager.ts). */
+  onBrowseTemplates?: () => void;
   text?: (key: UiTranslationKey) => string;
 };
 
@@ -124,6 +129,11 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           <p class="talk-editor-description">${text('editorDescription', 'Build a branching conversation flow - each answer can lead to a different question')}</p>
         </div>
         <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${isOwnedEdit ? existingTalk.id : ''}" data-revise-source-talk="${!isOwnedEdit && existingTalk?.id ? options.escapeHtml(JSON.stringify(existingTalk)) : ''}">
+          ${!existingTalk ? `
+          <div class="form-group">
+            <button type="button" class="btn btn-secondary" id="browse-talk-templates-btn" style="width: 100%;">${text('editorBrowseTemplates', '🎨 Start from a template')}</button>
+          </div>
+          ` : ''}
           <div class="form-group">
             <label class="form-label">${text('editorTalkTitle', 'Talk Title')}</label>
             <input type="text" class="form-input" id="talk-title" placeholder="${text('editorTitlePlaceholder', 'e.g., Coffee Meetup, Quick Survey')}" required value="${existingTalk ? options.escapeHtml(existingTalk.title) : ''}">
@@ -303,6 +313,13 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
                 const endInput = questionItem.querySelector('.builtin-timeframe-end') as HTMLInputElement | null;
                 if (startInput) startInput.value = new Date(q.builtIn.timeFrame.start).toISOString().slice(0, 10);
                 if (endInput) endInput.value = new Date(q.builtIn.timeFrame.end).toISOString().slice(0, 10);
+              } else if (q.builtIn.kind === 'ageRange' && q.builtIn.ageRange) {
+                const ageInput = questionItem.querySelector('.builtin-agerange-age') as HTMLInputElement | null;
+                const minInput = questionItem.querySelector('.builtin-agerange-min') as HTMLInputElement | null;
+                const maxInput = questionItem.querySelector('.builtin-agerange-max') as HTMLInputElement | null;
+                if (ageInput) ageInput.value = String(q.builtIn.ageRange.age);
+                if (minInput) minInput.value = String(q.builtIn.ageRange.acceptableRange.min);
+                if (maxInput) maxInput.value = String(q.builtIn.ageRange.acceptableRange.max);
               }
             }
             const answersContainer = questionItem.querySelector('.answers-container') as HTMLElement | null;
@@ -512,6 +529,15 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     });
 
     options.setupTalkFormHandlers(modal);
+    // §DD: covers both a prefilled Dating template and reopening an existing ageRange talk for
+    // edit — the per-question builtin-kind change listener (talk-editor-form-helpers.ts) handles
+    // every subsequent edit from here.
+    options.syncAdultLockFromBuiltInKinds(modal);
+
+    document.getElementById('browse-talk-templates-btn')?.addEventListener('click', () => {
+      if (document.body.contains(modal)) document.body.removeChild(modal);
+      options.onBrowseTemplates?.();
+    });
   };
 
   document.body.appendChild(modal);

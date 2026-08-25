@@ -193,6 +193,7 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
         <option value="priceRange">${text(options, 'editorBuiltInKindPriceRange', 'Price range (overlap)')}</option>
         <option value="timeFrame">${text(options, 'editorBuiltInKindTimeFrame', 'Time frame (date overlap)')}</option>
         <option value="location">${text(options, 'editorBuiltInKindLocation', 'Location (radius match)')}</option>
+        <option value="ageRange">${text(options, 'editorBuiltInKindAgeRange', 'Age range (mutual dating match)')}</option>
       </select>
     </label>
     <div class="builtin-inputs" style="display: none; margin-left: 15px; margin-bottom: 10px;">
@@ -220,6 +221,17 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
       <div class="builtin-kind-fields" data-builtin-kind="location" style="display: none; font-size: 0.85em; color: var(--text-secondary);">
         ${text(options, 'editorBuiltInLocationNote', "Uses this talk's own location and radius (set below).")}
       </div>
+      <div class="builtin-kind-fields" data-builtin-kind="ageRange" style="display: none; margin-bottom: 6px;">
+        <label style="font-size: 0.9em;">${text(options, 'editorBuiltInAgeLabel', 'My age:')}
+          <input type="number" class="form-input builtin-agerange-age" style="width: 90px; display: inline-block;">
+        </label>
+        <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInAgeMinLabel', 'Acceptable age, min:')}
+          <input type="number" class="form-input builtin-agerange-min" style="width: 90px; display: inline-block;">
+        </label>
+        <label style="font-size: 0.9em; margin-left: 12px;">${text(options, 'editorBuiltInAgeMaxLabel', 'Acceptable age, max:')}
+          <input type="number" class="form-input builtin-agerange-max" style="width: 90px; display: inline-block;">
+        </label>
+      </div>
     </div>
     <div class="answers-container" style="margin-left: 15px;"></div>
     <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">${text(options, 'editorAddAnswer', '+ Add Answer')}</button>
@@ -234,9 +246,11 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
 
   const removeBtn = questionDiv.querySelector('.btn-remove-question');
   removeBtn?.addEventListener('click', () => {
+    const form = questionDiv.closest('form');
     container.removeChild(questionDiv);
     renumberQuestions(options);
     updateAllAnswerDropdowns(options);
+    if (form) syncAdultLockFromBuiltInKinds(form);
   });
 
   const addAnswerBtn = questionDiv.querySelector('.btn-add-answer');
@@ -255,6 +269,8 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
   const builtInKindSelect = questionDiv.querySelector('.builtin-kind') as HTMLSelectElement | null;
   builtInKindSelect?.addEventListener('change', () => {
     applyBuiltInKindToQuestion(questionDiv, builtInKindSelect.value);
+    const form = questionDiv.closest('form');
+    if (form) syncAdultLockFromBuiltInKinds(form);
   });
 
   // docs/TODO.md §LL follow-up: "Simple tag" (tagKind: 'simple') and "Pair tag"
@@ -342,6 +358,30 @@ export function applyAnswerSelectionModeToQuestion(questionItem: HTMLElement, mo
 }
 
 /**
+ * §DD: force+lock `#talk-is-adult` whenever any question in this form has a `builtIn` kind of
+ * `ageRange` — the UI half of the dating-category adult-content lock (`TalkAutofix.fix`,
+ * talk-engine.ts, is the authoritative enforcement that can't be bypassed; this is immediate
+ * visual feedback + preventing an accidental uncheck). Re-enables the checkbox — without
+ * forcing it back off — once no `ageRange` question remains, so it stays ordinarily
+ * user-controlled for every other talk. Scoped to whatever root is passed in (the talk-editor
+ * `<form>`) rather than `document`, since only one editor is ever open at a time but scoping
+ * still keeps this safe to call from a detached/about-to-be-removed question row.
+ */
+export function syncAdultLockFromBuiltInKinds(root: ParentNode): void {
+  const adultCheckbox = root.querySelector('#talk-is-adult') as HTMLInputElement | null;
+  if (!adultCheckbox) return;
+  const hasAgeRange = Array.from(root.querySelectorAll<HTMLSelectElement>('.builtin-kind')).some(
+    (select) => select.value === 'ageRange',
+  );
+  if (hasAgeRange) {
+    adultCheckbox.checked = true;
+    adultCheckbox.disabled = true;
+  } else if (adultCheckbox.disabled) {
+    adultCheckbox.disabled = false;
+  }
+}
+
+/**
  * §BB / spec §30.2: a `builtIn` (typed comparison) question has no author-typed answers at
  * all — `TalkAutofix.fix` generates its 2 synthetic answers (`Compatible`/`Not compatible`)
  * from `Question.builtIn` alone. Selecting a kind hides the ordinary answers UI (and the now-
@@ -377,6 +417,7 @@ export interface BuiltInReadResult {
   quantity?: number;
   priceRange?: { min: number; max: number };
   timeFrame?: { start: number; end: number };
+  ageRange?: { age: number; acceptableRange: { min: number; max: number } };
   /** Set when `kind` is non-empty but the typed value is missing/invalid — caller should
    *  surface this and abort before autofix/validate, same as any other early-exit field error. */
   error?: string;
@@ -426,6 +467,25 @@ export function readBuiltInSpecFromQuestion(
       };
     }
     return { kind, timeFrame: { start, end } };
+  }
+
+  if (kind === 'ageRange') {
+    const ageInput = questionItem?.querySelector('.builtin-agerange-age') as HTMLInputElement | null;
+    const minInput = questionItem?.querySelector('.builtin-agerange-min') as HTMLInputElement | null;
+    const maxInput = questionItem?.querySelector('.builtin-agerange-max') as HTMLInputElement | null;
+    const age = Number(ageInput?.value);
+    const min = Number(minInput?.value);
+    const max = Number(maxInput?.value);
+    if (
+      !ageInput?.value || !minInput?.value || !maxInput?.value ||
+      !Number.isFinite(age) || !Number.isFinite(min) || !Number.isFinite(max) || min > max
+    ) {
+      return {
+        kind,
+        error: text(options, 'editorBuiltInAgeRangeRequired', 'Enter your age and a valid min/max acceptable partner age range.'),
+      };
+    }
+    return { kind, ageRange: { age, acceptableRange: { min, max } } };
   }
 
   // 'location' needs no typed value of its own — it reuses the talk's own

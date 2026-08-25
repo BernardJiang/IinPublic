@@ -887,6 +887,16 @@ export class TalkAutofix {
       }
     }
 
+    // §DD: a talk with an `ageRange` built-in question is dating-category by inference — the
+    // same "infer from question shape, no separate schema field" approach `isDealEligibleTalk`
+    // (app.ts) already uses for `reciprocalTagContext`. Force+lock `isAdult` here (shared,
+    // authoritative) so an ageRange question can never end up on an undeliverable-to-minors talk
+    // regardless of what the editor UI did or didn't enforce.
+    if (!talk.isAdult && (talk.questions ?? []).some((q) => q.builtIn?.kind === 'ageRange')) {
+      talk.isAdult = true;
+      fixes.push('Marked talk as adult content (18+) — required for age-range dating questions.');
+    }
+
     if (talk.type === 'tag') {
       return { talk, fixes };
     }

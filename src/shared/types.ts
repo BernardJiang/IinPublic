@@ -354,7 +354,7 @@ export interface Question {
 }
 
 /** See `Question.builtIn`. */
-export type BuiltInQuestionKind = 'quantity' | 'priceRange' | 'timeFrame' | 'location';
+export type BuiltInQuestionKind = 'quantity' | 'priceRange' | 'timeFrame' | 'location' | 'ageRange';
 
 export interface BuiltInQuestionSpec {
   kind: BuiltInQuestionKind;
@@ -364,6 +364,13 @@ export interface BuiltInQuestionSpec {
   priceRange?: { min: number; max: number };
   /** kind === 'timeFrame'. Epoch milliseconds. */
   timeFrame?: { start: number; end: number };
+  /**
+   * kind === 'ageRange' (§DD, spec §30.6). Distinct from `priceRange`/`timeFrame`'s plain
+   * interval-overlap: one side of the comparison is a single declared fact (this author's own
+   * age), the other is a range (their acceptable partner-age range) — see
+   * `ageRangeMutuallyAcceptable` (built-in-comparisons.ts) for the actual mutual check.
+   */
+  ageRange?: { age: number; acceptableRange: { min: number; max: number } };
 }
 
 export interface Answer {
