@@ -3787,29 +3787,34 @@ export class IinPublicApp {
     const filteredPlans = plans.filter((p) => JSON.stringify(p.talkPayload) !== fullTalkPayload);
 
     let announceCount = 0;
+    const acceptedRecipientIds = new Set<string>();
     // Deliver full-talk recipients in one broadcast (batched).
     if (fullRecipients.length > 0) {
-      await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
+      const acknowledged = await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
         recipientUserIds: fullRecipients,
         roomBroadcast: true,
         ...(deliveryOptions.skipAcknowledgements ? { skipAcknowledgements: true } : {}),
       });
+      for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
       announceCount += fullRecipients.length;
     }
     // Deliver per-recipient filtered talk (directed sends, one per distinct filtered body).
     for (const plan of filteredPlans) {
-      await mesh.broadcastTalk(plan.talkPayload, {
+      const acknowledged = await mesh.broadcastTalk(plan.talkPayload, {
         recipientUserIds: [plan.recipientId],
         roomBroadcast: false,
       });
+      for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
       announceCount += 1;
     }
 
-    // docs/TODO.md §W Gap 2 — record our own send action locally, no round-trip to the
-    // recipient required. This is what lets a future send to the same (peer, identity) get
-    // suppressed even before an answer ever comes back — closes Gap 1 at the source.
+    // Record only delivery that the recipient accepted and acknowledged. Transport attempts
+    // rejected by intake policy (for example, an adult talk before age verification) deliberately
+    // receive no ACK and must remain eligible after that policy changes. The accepted-delivery
+    // record still suppresses repeats before an answer comes back.
     const sentAtIso = new Date(nowMs).toISOString();
     for (const plan of plans) {
+      if (!acceptedRecipientIds.has(plan.recipientId)) continue;
       for (const ik of plan.sentIdentityKeys) {
         markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
       }

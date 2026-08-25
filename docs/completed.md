@@ -1,6 +1,39 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
+
+## 2026-08-24 — Reputation vouch threshold delivery regression
+
+- Fixed the one failure in the canonical Playwright report: an adult talk rejected before the
+  recipient reached the three-vouch threshold was still recorded in the sender's anti-repeat
+  ledger, permanently suppressing the retry after the recipient became verified.
+- `PeerMeshService.broadcastTalk` now returns the set of recipients that signed an acceptance ACK.
+  `IinPublicApp` records outbound ledger entries only for those accepted recipients; filtered or
+  policy-rejected attempts remain retryable, while accepted delivery still suppresses duplicates
+  before a response returns. The no-ACK E2E fast path likewise no longer fabricates acceptance.
+- Added focused transport regression assertions for rejected-versus-accepted recipient results.
+  The exact stage2/21c Playwright scenario passed twice alone. Canonical `test:all` run
+  `run-20260824-181749-67574` passed type, lint, all 145 Jest suites / 1,590 tests, and all 12
+  browser-report blobs in 16m36s.
+
+## 2026-08-24 — UIManager decomposition cluster #1: route editor
+
+- Refreshed `docs/TODO-ui-godobject-and-react-deps.md` against the current merged baseline and
+  added a separate measurement-first React/cross-platform evaluation plan. The React plan does not
+  authorize a rewrite; it requires release profiling and a bounded React DOM pilot first.
+- Added a ratcheting architecture test and lowered the `ui-manager.ts` ceiling from 11,793 to
+  11,197 lines with this extraction.
+- Extracted the route editor into two modules without changing the `UIManager`/`app.ts` contract:
+  `route-editor-model.ts` owns initialization, existing-talk rehydration, author self-answer
+  traversal, and validator serialization; `route-editor-controller.ts` owns the explicitly
+  injected DOM renderer and event wiring. Neither imports or reaches through `UIManager`.
+- Added characterization coverage for ordered fan-out thresholds/context paths, built-in compatible
+  branching, author self-answer traversal through built-in nodes, escaped DOM values, question-to-
+  answer mirroring, and linking-answer rehydration.
+- Verification: typecheck and full lint pass; all 145 unit suites / 1,590 tests pass. Canonical
+  `test:all` run `run-20260824-181749-67574` passed all static checks and all 12 browser blobs in
+  16m36s, including stage2/21c after its separate ACK/ledger fix and the stage2/93 route fan-out
+  E2E. Cluster #1's gate is closed; cluster #2 may start as a separate change.
 
 ## 2026-08-23 — §EE (partial) + §DD (primitives only)
 
