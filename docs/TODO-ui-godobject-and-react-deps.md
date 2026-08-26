@@ -142,8 +142,8 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         passed in 16m36s. Stage2/21c also passed twice alone after the fix, and stage2/93's real
         route fan-out E2E remains green.
 - [x] **1.1 Add a ratcheting growth guardrail.** Started at 11,793, lowered with the first
-      extraction to 11,197, with cluster #2 to 10,830, with cluster #3 to 10,280, and with cluster
-      #4 to a test-enforced ceiling of **9,830**
+      extraction to 11,197, with cluster #2 to 10,830, with cluster #3 to 10,280, with cluster
+      #4 to 9,830, and with cluster #5 to a test-enforced ceiling of **9,656**
       lines. Lower the ceiling in the same commit as every extraction; never raise it merely to land
       unrelated feature work. Line count is a warning metric, not the architecture definition.
 - [x] **1.2 Profile coupling before extracting (measured, not guessed).** The initial AST proxy
@@ -165,6 +165,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         method, 85-line full-chatbot builder, and their small effective-tag helper formed one
         storage/decision pipeline. Only the current user id crossed the instance boundary, while
         `app.ts` already depended on the full-builder method as a stable `UIManager` entry point.
+      - **Fifth: local statistics dashboard rendering.** The dashboard renderer and its table,
+        frequency-bar, and sparkline helpers removed 174 net lines from `UIManager`. Their only
+        instance dependencies were translated text and the refresh callback; local aggregation,
+        optional server augmentation, and refresh orchestration remain in the manager.
       - **Defer: `displayTalksList`.** It is about 679 lines and touches roughly 52 distinct instance
         members, so it is a poor first extraction despite its size.
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
@@ -184,6 +188,9 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         already-open filter toggle before moving the shell template/localization pass.
       - Cluster #4 freezes reciprocal-tag auto-proceed, flattened-over-exact precedence,
         newest-first multi-select id remapping, and cross-talk reuse across mirrored Pair tags.
+      - Cluster #5 freezes bounded day/tag trend windows, aggregate and privacy rendering,
+        escaping of talk/peer/tag/region labels, masked-region output, chart geometry, and refresh
+        delegation.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -207,6 +214,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         typed/flattened/exact/legacy resolution order, exact + flat + legacy persistence, and full
         zero-click answer construction. It receives the current user id explicitly and does not
         import `UIManager`; the existing manager methods remain thin compatibility shims.
+      - Cluster #5: `statistics-dashboard.ts` owns deterministic dashboard markup, table sections,
+        frequency bars, sparkline geometry, privacy summaries, and refresh-button binding. It
+        receives text and refresh dependencies explicitly; `UIManager` retains data acquisition
+        and its existing render shim.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -233,6 +244,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         production web build, and 147 unit suites / 1,603 tests pass. Canonical run
         `run-20260824-225837-46881` passed all static checks and all 12 browser blobs in 16m21s,
         including exact-chatbot-memory E2E, WebKit/Firefox smoke, and mass-user coverage.
+      - Cluster #5 evidence: typecheck/lint, production web build, and 148 unit suites / 1,605
+        tests pass. Canonical run `run-20260824-233709-56642` passed all static checks and all 12
+        browser blobs in 16m22s, including the complete light shard, WebKit/Firefox smoke, and
+        mass-user coverage.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -282,7 +297,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
     deferred at 685 lines / 52 dependencies.
 11. ~~Characterize and extract cluster #4, lower the ratchet to 9,830, and close its canonical
     gate.~~ Done; canonical run `run-20260824-225837-46881` is green.
-12. Re-measure and choose cluster #5 as a separate commit-sized change; continue to defer
+12. ~~Re-measure, characterize, and extract cluster #5 (local statistics dashboard), lower the
+    ratchet to 9,656, and close its canonical gate.~~ Done; translations and refresh are explicit
+    dependencies, while data fetching remains in `UIManager`.
+13. Re-measure and choose cluster #6 as a separate commit-sized change; continue to defer
     `displayTalksList` until its ownership boundary is reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples

@@ -5824,6 +5824,19 @@ inspection):
 - Verified: type-check, lint, full unit suite green (87 suites / 1167 tests), the spec's all 3
   tests together (2 runs), and a regression pass on the dealmaker spec + per-question-deep-link +
   tags-checkbox specs (all pass unmodified).
+
+## 2026-08-24 — UIManager decomposition cluster #5
+
+- Extracted deterministic local-statistics dashboard rendering and its table, frequency-bar, and
+  sparkline helpers to `src/web/ui/statistics-dashboard.ts`; translations and refresh are explicit
+  inputs, while `UIManager` retains local aggregation and optional server augmentation.
+- Added `statistics-dashboard-characterization.test.ts` for bounded trend windows, aggregate and
+  privacy output, hostile-label escaping, masked regions, chart geometry, and refresh delegation.
+- Lowered the enforced `ui-manager.ts` ceiling from 9,830 to 9,656 lines. Typecheck, lint,
+  production web build, and 148 unit suites / 1,605 tests pass.
+- Canonical `test:all` run `run-20260824-233709-56642` passed all static checks and all 12 browser
+  blobs in 16m22s.
+
 # TODO reconciliation archive — 2026-08-14
 
 The historical implementation narratives formerly retained in `docs/TODO.md` were reconciled on
