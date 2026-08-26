@@ -3,19 +3,24 @@
  * (still opens a blank editor directly — ~60 other e2e specs click `#create-talk-btn` expecting
  * exactly that, so intercepting it was rejected as too large a blast radius). Instead, a new
  * "🎨 Start from a template" button at the top of the blank editor (shown only for a genuinely
- * fresh create, never when editing/copying/already-templated) opens the picker
- * (🤝 Buy/Sell, 🚕 Taxi, 💼 Job Seeker/Hiring, ❤️ Dating, ✏️ Start from scratch). Picking a
- * template opens the SAME editor pre-filled and fully editable — `showTalkEditorDialog` already
- * accepts an `existingTalk`-shaped prefill with no `id` (proven by the existing copy-talk/
- * survey-follow-up call sites), so a template is just another one, created fresh on save, not
- * edited-in-place (`src/web/ui/talk-templates.ts`).
+ * fresh create, never when editing/copying/already-templated) opens the picker, which now lists
+ * 8 built-in templates plus ✏️ Start from scratch (🤝 Buy/Sell, 🚕 Taxi, 💼 Job Seeker/Hiring,
+ * ❤️ Dating here, plus 🏠 Roommate Search, 🔍 Lost & Found, 🐾 Pet Sitting, 📚 Study
+ * Buddy/Tutoring in 85-talk-template-customize-and-expand.spec.ts). Picking a template opens the
+ * SAME editor pre-filled and fully editable — `showTalkEditorDialog` already accepts an
+ * `existingTalk`-shaped prefill with no `id` (proven by the existing copy-talk/survey-follow-up
+ * call sites), so a template is just another one, created fresh on save, not edited-in-place
+ * (`src/web/ui/talk-templates.ts`).
  *
- * This spec proves the picker renders all 5 rows and that each template's prefill is
- * structurally correct — title/type/Q1 Pair-tag word/Q2 text, and for Dating, the new `ageRange`
- * built-in fields (§DD) plus the force-checked-and-disabled adult-content lock. It does NOT
- * re-prove the underlying Pair-tag + chatbot cross-talk matching mechanism (already proven by
- * 89-buy-sell-chatbot-cross-talk-match.spec.ts and the taxi spec) — only Dating's genuinely new
- * `ageRange` mechanism gets its own full match spec, 94-dating-agerange-match.spec.ts.
+ * This spec proves the picker renders the original 4 templates + scratch and that each
+ * template's prefill is structurally correct — title/type/Q1 Pair-tag word/Q2 text, and for
+ * Dating, the new `ageRange` built-in fields (§DD) plus the force-checked-and-disabled
+ * adult-content lock. It does NOT re-prove the underlying Pair-tag + chatbot cross-talk matching
+ * mechanism (already proven by 89-buy-sell-chatbot-cross-talk-match.spec.ts and the taxi spec) —
+ * only Dating's genuinely new `ageRange` mechanism gets its own full match spec,
+ * 94-dating-agerange-match.spec.ts. The 4 newer templates' prefills, and a customize+expand
+ * flow proving a template's fields and question flow stay fully editable after picking it, live
+ * in 85-talk-template-customize-and-expand.spec.ts.
  */
 import { Browser } from '@playwright/test';
 import { chromium } from '@playwright/test';

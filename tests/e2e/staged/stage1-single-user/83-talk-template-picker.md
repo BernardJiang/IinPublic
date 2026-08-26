@@ -7,8 +7,10 @@ Before this, "+ Create Talk" always opened a completely blank editor, with no wa
 a working example. "+ Create Talk" itself is unchanged (still opens the blank editor directly —
 roughly 60 other e2e specs click `#create-talk-btn` expecting exactly that, so intercepting it
 was rejected as too large a blast radius). Instead, a new "🎨 Start from a template" button at
-the top of the blank editor (shown only for a genuinely fresh create) opens a picker listing
-🤝 Buy/Sell, 🚕 Taxi Ride, 💼 Job Seeker/Hiring, ❤️ Dating, and ✏️ Start from scratch. Picking a
+the top of the blank editor (shown only for a genuinely fresh create) opens a picker now listing 8
+built-in templates plus ✏️ Start from scratch: 🤝 Buy/Sell, 🚕 Taxi Ride, 💼 Job Seeker/Hiring,
+❤️ Dating (this spec), and 🏠 Roommate Search, 🔍 Lost & Found, 🐾 Pet Sitting, 📚 Study
+Buddy/Tutoring (85-talk-template-customize-and-expand.spec.ts). Picking a
 template opens the same editor, pre-filled and fully editable (not locked to the template) —
 since a template is just a plain prefill object with no `id`, saving it creates a new talk,
 exactly like starting from scratch and typing everything by hand would.

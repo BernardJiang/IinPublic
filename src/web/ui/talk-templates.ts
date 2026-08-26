@@ -22,7 +22,7 @@ import type { UiTranslationKey } from './ui-translations';
  * `updateAllAnswerDropdowns` also auto-defaults an unset/stale value to the immediate next
  * question, so this is belt-and-suspenders, not load-bearing.
  */
-export type TalkTemplateId = 'buySell' | 'taxi' | 'job' | 'dating';
+export type TalkTemplateId = 'buySell' | 'taxi' | 'job' | 'dating' | 'roommate' | 'lostFound' | 'petSitting' | 'tutor';
 
 export type TalkTemplateDefinition = {
   id: TalkTemplateId;
@@ -105,6 +105,60 @@ function buildJobTemplate(): any {
 }
 
 /**
+ * Everyday-errand templates (find-more-use-cases follow-up) — same two-sided Pair-tag shape
+ * as buy/sell/taxi/job, covering the routine day-to-day coordination this app targets:
+ * splitting a room, reuniting a lost item with its owner, lining up a pet sitter, finding a
+ * study/tutoring partner.
+ */
+function buildRoommateTemplate(): any {
+  return buildTwoSidedOfferTemplate({
+    title: 'Roommate Search',
+    tag: 'need a roommate',
+    counterpartTag: 'have a room',
+    ignoreTagText: 'Not looking',
+    q2Text: "What's your monthly budget?",
+    q2MatchText: '$800-1200/month',
+    q2IgnoreText: 'Something else',
+  });
+}
+
+function buildLostFoundTemplate(): any {
+  return buildTwoSidedOfferTemplate({
+    title: 'Lost & Found',
+    tag: 'lost something',
+    counterpartTag: 'found something',
+    ignoreTagText: 'Nothing lost',
+    q2Text: 'What did you lose?',
+    q2MatchText: 'Wallet',
+    q2IgnoreText: 'Something else',
+  });
+}
+
+function buildPetSittingTemplate(): any {
+  return buildTwoSidedOfferTemplate({
+    title: 'Pet Sitting',
+    tag: 'need a pet sitter',
+    counterpartTag: 'offering pet sitting',
+    ignoreTagText: 'Not needed',
+    q2Text: 'What kind of pet?',
+    q2MatchText: 'Dog',
+    q2IgnoreText: 'Something else',
+  });
+}
+
+function buildTutorTemplate(): any {
+  return buildTwoSidedOfferTemplate({
+    title: 'Study Buddy / Tutoring',
+    tag: 'need a tutor',
+    counterpartTag: 'offering tutoring',
+    ignoreTagText: 'Not looking',
+    q2Text: 'What subject?',
+    q2MatchText: 'Math',
+    q2IgnoreText: 'Something else',
+  });
+}
+
+/**
  * §DD: the one template that needs the new `ageRange` built-in comparator
  * (`built-in-question-resolution.ts`) instead of a plain text Q2 — each side declares their own
  * age + acceptable partner-age range, and `isAdult` is pre-checked (also force-locked by
@@ -140,4 +194,8 @@ export const TALK_TEMPLATES: TalkTemplateDefinition[] = [
   { id: 'taxi', icon: '🚕', labelKey: 'talkTemplateTaxi', descKey: 'talkTemplateTaxiDesc', build: buildTaxiTemplate },
   { id: 'job', icon: '💼', labelKey: 'talkTemplateJob', descKey: 'talkTemplateJobDesc', build: buildJobTemplate },
   { id: 'dating', icon: '❤️', labelKey: 'talkTemplateDating', descKey: 'talkTemplateDatingDesc', build: buildDatingTemplate },
+  { id: 'roommate', icon: '🏠', labelKey: 'talkTemplateRoommate', descKey: 'talkTemplateRoommateDesc', build: buildRoommateTemplate },
+  { id: 'lostFound', icon: '🔍', labelKey: 'talkTemplateLostFound', descKey: 'talkTemplateLostFoundDesc', build: buildLostFoundTemplate },
+  { id: 'petSitting', icon: '🐾', labelKey: 'talkTemplatePetSitting', descKey: 'talkTemplatePetSittingDesc', build: buildPetSittingTemplate },
+  { id: 'tutor', icon: '📚', labelKey: 'talkTemplateTutor', descKey: 'talkTemplateTutorDesc', build: buildTutorTemplate },
 ];
