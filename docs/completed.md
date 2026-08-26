@@ -5825,6 +5825,19 @@ inspection):
   tests together (2 runs), and a regression pass on the dealmaker spec + per-question-deep-link +
   tags-checkbox specs (all pass unmodified).
 
+## 2026-08-25 — UIManager decomposition cluster #6
+
+- Extracted the edit-profile form, localization/formatting, dynamic attribute rows, validation,
+  collection, and async callback lifecycle to `src/web/ui/edit-profile-dialog.ts` behind explicit
+  user, language, translation, and update-callback inputs.
+- Added `edit-profile-dialog-characterization.test.ts` for fallback/localized languages,
+  visibility/category controls, safe markup, attribute identity/timestamps, dynamic rows,
+  validation, cancel/success cleanup, and failure rejection.
+- Lowered the enforced `ui-manager.ts` ceiling from 9,656 to 9,426 lines. Typecheck, lint,
+  production web build, and 149 unit suites / 1,608 tests pass.
+- Canonical `test:all` run `run-20260825-211024-46403` passed all static checks and all 12 browser
+  blobs in 16m51s.
+
 ## 2026-08-24 — UIManager decomposition cluster #5
 
 - Extracted deterministic local-statistics dashboard rendering and its table, frequency-bar, and

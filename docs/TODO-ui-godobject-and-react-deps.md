@@ -143,7 +143,8 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         route fan-out E2E remains green.
 - [x] **1.1 Add a ratcheting growth guardrail.** Started at 11,793, lowered with the first
       extraction to 11,197, with cluster #2 to 10,830, with cluster #3 to 10,280, with cluster
-      #4 to 9,830, and with cluster #5 to a test-enforced ceiling of **9,656**
+      #4 to 9,830, with cluster #5 to 9,656, and with cluster #6 to a test-enforced ceiling of
+      **9,426**
       lines. Lower the ceiling in the same commit as every extraction; never raise it merely to land
       unrelated feature work. Line count is a warning metric, not the architecture definition.
 - [x] **1.2 Profile coupling before extracting (measured, not guessed).** The initial AST proxy
@@ -169,6 +170,9 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         frequency-bar, and sparkline helpers removed 174 net lines from `UIManager`. Their only
         instance dependencies were translated text and the refresh callback; local aggregation,
         optional server augmentation, and refresh orchestration remain in the manager.
+      - **Sixth: edit-profile dialog.** The 215-line dialog and its profile visibility/interest
+        category formatters formed one DOM/event unit. Only the user, UI language, language option
+        list, translated text, and async profile-change callback cross the extracted boundary.
       - **Defer: `displayTalksList`.** It is about 679 lines and touches roughly 52 distinct instance
         members, so it is a poor first extraction despite its size.
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
@@ -191,6 +195,9 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
       - Cluster #5 freezes bounded day/tag trend windows, aggregate and privacy rendering,
         escaping of talk/peer/tag/region labels, masked-region output, chart geometry, and refresh
         delegation.
+      - Cluster #6 freezes localized language/category/visibility controls, unsupported-language
+        fallback, safe profile markup, existing attribute identity/timestamp preservation, dynamic
+        row collection, required-language validation, cancel/success cleanup, and failure rejection.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -218,6 +225,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         frequency bars, sparkline geometry, privacy summaries, and refresh-button binding. It
         receives text and refresh dependencies explicitly; `UIManager` retains data acquisition
         and its existing render shim.
+      - Cluster #6: `edit-profile-dialog.ts` owns profile foundation form rendering, row lifecycle,
+        normalization/collection, validation, and async completion. It imports shared profile
+        normalization only, receives manager-facing dependencies explicitly, and leaves the public
+        `showEditProfileDialog()` manager contract unchanged.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -248,6 +259,11 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         tests pass. Canonical run `run-20260824-233709-56642` passed all static checks and all 12
         browser blobs in 16m22s, including the complete light shard, WebKit/Firefox smoke, and
         mass-user coverage.
+      - Cluster #6 evidence: typecheck/lint, production web build, and 149 unit suites / 1,608
+        tests pass. One unrelated Gun signaling timing test failed once, then passed three focused
+        runs and the full-unit rerun. Canonical run `run-20260825-211024-46403` passed all static
+        checks and all 12 browser blobs in 16m51s, including settings/profile E2E, WebKit/Firefox
+        smoke, and mass-user coverage.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -300,7 +316,9 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
 12. ~~Re-measure, characterize, and extract cluster #5 (local statistics dashboard), lower the
     ratchet to 9,656, and close its canonical gate.~~ Done; translations and refresh are explicit
     dependencies, while data fetching remains in `UIManager`.
-13. Re-measure and choose cluster #6 as a separate commit-sized change; continue to defer
+13. ~~Re-measure, characterize, and extract cluster #6 (edit-profile dialog), lower the ratchet to
+    9,426, and close its canonical gate.~~ Done; the existing manager method remains a thin shim.
+14. Re-measure and choose cluster #7 as a separate commit-sized change; continue to defer
     `displayTalksList` until its ownership boundary is reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples

@@ -2,8 +2,6 @@ import {
   User,
   type GPSCoordinate,
   type KnownPerson,
-  type ProfileAttributeVisibility,
-  type TagCategory,
   type TalkIntakeFilters,
   type QuestionAnswer,
   type Tag,
@@ -13,9 +11,8 @@ import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { type QAPair } from '../../shared/flattened-answer-keys';
-import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
+import { normalizeQuestionKey } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
-import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
 import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, singleNonIgnoreAnswer, findTagPairAncestor } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
@@ -137,6 +134,7 @@ import {
 import { renderRouteEditor as renderRouteEditorController } from './route-editor-controller';
 import { showSurveyStatisticsDialog } from './survey-statistics-dialog';
 import { renderStatisticsDashboard as renderLocalStatisticsDashboard } from './statistics-dashboard';
+import { showEditProfileDialog as openEditProfileDialog } from './edit-profile-dialog';
 import {
   resolveAnswerPreferenceForTalkQuestion as resolveStoredAnswerPreference,
   saveAnswerPreference as persistAnswerPreference,
@@ -465,28 +463,6 @@ export class UIManager extends EventEmitter {
       (label, [placeholder, value]) => label.replace(`{${placeholder}}`, String(value)),
       this.t(key),
     );
-  }
-
-  private formatProfileVisibility(visibility: ProfileAttributeVisibility): string {
-    if (visibility === 'contacts_only') return this.t('meVisibilityContacts');
-    if (visibility === 'private') return this.t('meVisibilityPrivate');
-    return this.t('meVisibilityEveryone');
-  }
-
-  private formatInterestCategory(category: TagCategory): string {
-    const keys: Record<TagCategory, UiTranslationKey> = {
-      community: 'interestCategoryCommunity',
-      discussion: 'interestCategoryDiscussion',
-      personals: 'interestCategoryPersonals',
-      jobs: 'interestCategoryJobs',
-      gigs: 'interestCategoryGigs',
-      resumes: 'interestCategoryResumes',
-      'for-sale': 'interestCategoryForSale',
-      housing: 'interestCategoryHousing',
-      services: 'interestCategoryServices',
-      other: 'interestCategoryOther',
-    };
-    return this.t(keys[category]);
   }
 
   private formatTalkRelativeTime(date: Date): string {
@@ -5952,218 +5928,12 @@ export class UIManager extends EventEmitter {
   }
 
   async showEditProfileDialog(user: User): Promise<void> {
-    const currentProfile = Array.isArray(user.profile) ? user.profile : [];
-    const supportedLanguageCodes = new Set(LANGUAGE_OPTIONS.map((language) => language.code));
-    const currentLanguages = (Array.isArray(user.languages) ? user.languages : [])
-      .map((language) => String(language).toLowerCase())
-      .filter((language) => supportedLanguageCodes.has(language));
-    if (currentLanguages.length === 0) currentLanguages.push('en');
-    const languageOptionsHtml = LANGUAGE_OPTIONS.map(
-      (language) => `
-        <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);">
-          <input type="checkbox" class="profile-language-option" value="${language.code}" ${currentLanguages.includes(language.code) ? 'checked' : ''}>
-          <span>${escapeHtml(languageOptionLabel(this.getUiLanguage(), language.code, language.label))}</span>
-        </label>
-      `,
-    ).join('');
-    const currentHeadshot = String(user.headshot || '').trim();
-    const currentInterests = Array.isArray(user.interests) ? user.interests : [];
-    const interestsFieldValue = currentInterests.map((t) => String(t.name || '').trim()).filter(Boolean).join(', ');
-    const dominantInterestCategory = (): TagCategory => {
-      const cats = currentInterests.map((t) => t.category).filter(Boolean) as TagCategory[];
-      if (cats.length === 0) return 'other';
-      const counts = new Map<TagCategory, number>();
-      for (const c of cats) counts.set(c, (counts.get(c) || 0) + 1);
-      let best: TagCategory = 'other';
-      let n = 0;
-      for (const [c, k] of counts) {
-        if (k > n) {
-          n = k;
-          best = c;
-        }
-      }
-      return best;
-    };
-    const defaultInterestCategory = dominantInterestCategory();
-    const visibilityOptionsHtml = (current: ProfileAttributeVisibility) =>
-      (['public', 'contacts_only', 'private'] as const)
-        .map(
-          (v) =>
-            `<option value="${v}"${v === current ? ' selected' : ''}>${escapeHtml(this.formatProfileVisibility(v))}</option>`,
-        )
-        .join('');
-    const interestCategoryOptionsHtml = INTEREST_CATEGORY_SELECT_ORDER.map(
-      (cat) =>
-        `<option value="${cat}"${cat === defaultInterestCategory ? ' selected' : ''}>${escapeHtml(
-          this.formatInterestCategory(cat),
-        )}</option>`,
-    ).join('');
-    return new Promise((resolve, reject) => {
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      const profileRowsHtml = currentProfile.length > 0
-        ? currentProfile
-            .map(
-              (qa) => `
-                <div class="profile-qa-row" data-qa-id="${escapeHtml(qa.id)}" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;">
-                  <input type="text" class="form-input profile-question-input" value="${escapeHtml(qa.question)}" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
-                  <input type="text" class="form-input profile-answer-input" value="${escapeHtml(qa.answer)}" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
-                  <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml(normalizeProfileAttributeVisibility(qa.visibility))}</select>
-                  <button type="button" class="btn remove-profile-qa-btn" style="background:var(--danger);">${this.t('profileDialogRemove')}</button>
-                </div>
-              `,
-            )
-            .join('')
-        : `
-          <div class="profile-qa-row" data-qa-id="" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;">
-            <input type="text" class="form-input profile-question-input" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
-            <input type="text" class="form-input profile-answer-input" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
-            <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml('public')}</select>
-            <button type="button" class="btn remove-profile-qa-btn" style="background:var(--danger);">${this.t('profileDialogRemove')}</button>
-          </div>
-        `;
-      const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
-      modal.innerHTML = `
-        <div class="modal-content size-l modal-fullscreen" style="max-width:760px;">
-          <div class="modal-header">
-            <h2 class="modal-title">${this.t('editProfile')}</h2>
-            <p>${escapeHtml(this.t('profileDialogDescription'))}</p>
-          </div>
-          <form id="edit-profile-form">
-            <div class="form-group">
-              <label class="form-label">${this.t('profileDialogHeadshot')}</label>
-              <div style="display:flex; flex-wrap:wrap; gap:8px;" id="headshot-choice-group">
-                ${headshotChoices
-                  .map(
-                    (choice) => `
-                      <label style="display:flex; align-items:center; justify-content:center; width:52px; height:52px; border:1px solid var(--border-strong); border-radius:14px; cursor:pointer; font-size:1.5em; background:${choice === currentHeadshot ? 'var(--accent-soft)' : 'white'};">
-                        <input type="radio" name="profile-headshot" value="${choice}" ${choice === currentHeadshot ? 'checked' : ''} style="display:none;">
-                        <span>${choice}</span>
-                      </label>
-                    `,
-                  )
-                  .join('')}
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">${this.t('languagesLabel')}</label>
-              <div id="profile-languages-select" data-testid="profile-languages-select" style="display:flex;flex-wrap:wrap;gap:8px;">
-                ${languageOptionsHtml}
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">${this.t('interestsLabel')}</label>
-              <input type="text" class="form-input" id="profile-interests-input" value="${escapeHtml(interestsFieldValue)}" placeholder="${escapeHtml(this.t('profileDialogInterestPlaceholder'))}">
-              <label class="form-label" style="margin-top:10px;">${this.t('profileDialogDefaultCategory')}</label>
-              <select class="form-input" id="profile-interest-category-default">${interestCategoryOptionsHtml}</select>
-              <small style="color:#666;font-size:0.85em;">${this.t('profileDialogCategoryHelp')}</small>
-            </div>
-            <div class="form-group">
-              <label class="form-label">${this.t('profileDialogAttributes')}</label>
-              <div id="profile-qa-list">${profileRowsHtml}</div>
-              <button type="button" class="btn" id="add-profile-qa-btn">${this.t('profileDialogAddAttribute')}</button>
-            </div>
-            <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-profile-btn" style="background: var(--text-tertiary);">${this.t('stageDialogCancel')}</button>
-              <button type="submit" class="btn" id="save-profile-btn">${this.t('profileDialogSave')}</button>
-            </div>
-          </form>
-        </div>
-      `;
-      document.body.appendChild(modal);
-
-      const close = () => {
-        if (document.body.contains(modal)) document.body.removeChild(modal);
-      };
-
-      const bindRemoveButtons = () => {
-        modal.querySelectorAll('.remove-profile-qa-btn').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const row = (btn as HTMLElement).closest('.profile-qa-row');
-            row?.remove();
-          });
-        });
-      };
-      bindRemoveButtons();
-
-      const addBtn = document.getElementById('add-profile-qa-btn') as HTMLButtonElement | null;
-      addBtn?.addEventListener('click', () => {
-        const list = document.getElementById('profile-qa-list');
-        if (!list) return;
-        const row = document.createElement('div');
-        row.className = 'profile-qa-row';
-        row.setAttribute('data-qa-id', '');
-        row.style.cssText =
-          'display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;';
-        row.innerHTML = `
-          <input type="text" class="form-input profile-question-input" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
-          <input type="text" class="form-input profile-answer-input" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
-          <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml('public')}</select>
-          <button type="button" class="btn remove-profile-qa-btn" style="background:var(--danger);">${this.t('profileDialogRemove')}</button>
-        `;
-        list.appendChild(row);
-        bindRemoveButtons();
-      });
-
-      const cancelBtn = document.getElementById('cancel-profile-btn') as HTMLButtonElement | null;
-      cancelBtn?.addEventListener('click', () => {
-        close();
-        resolve();
-      });
-
-      const form = document.getElementById('edit-profile-form') as HTMLFormElement | null;
-      form?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const selectedHeadshot = (modal.querySelector('input[name="profile-headshot"]:checked') as HTMLInputElement | null)?.value?.trim() || '';
-        const languages = Array.from(modal.querySelectorAll<HTMLInputElement>('.profile-language-option:checked'))
-          .map((option) => option.value)
-          .filter((language) => supportedLanguageCodes.has(language));
-        const interestsRaw = (document.getElementById('profile-interests-input') as HTMLInputElement | null)?.value || '';
-        const defaultCatRaw = (document.getElementById('profile-interest-category-default') as HTMLSelectElement | null)?.value;
-        const defaultCat: TagCategory =
-          defaultCatRaw && defaultCatRaw in INTEREST_CATEGORY_LABELS ? (defaultCatRaw as TagCategory) : 'other';
-        const interests = interestsFromCommaInput(interestsRaw, defaultCat);
-        const byId = new Map(currentProfile.map((qa) => [qa.id, qa]));
-        const profile: QuestionAnswer[] = Array.from(modal.querySelectorAll('.profile-qa-row'))
-          .map((row, index) => {
-            const question = ((row.querySelector('.profile-question-input') as HTMLInputElement | null)?.value || '').trim();
-            const answer = ((row.querySelector('.profile-answer-input') as HTMLInputElement | null)?.value || '').trim();
-            if (!question || !answer) return null;
-            const rowEl = row as HTMLElement;
-            const attrId = rowEl.dataset.qaId?.trim();
-            const prev = attrId ? byId.get(attrId) : undefined;
-            const visRaw = (row.querySelector('.profile-visibility-select') as HTMLSelectElement | null)?.value;
-            const visibility = normalizeProfileAttributeVisibility(visRaw);
-            return {
-              id: attrId || `profile_${Date.now()}_${index}`,
-              question,
-              answer,
-              isAuto: false,
-              answeredAt: prev?.answeredAt || new Date(),
-              ...(visibility === 'public' ? {} : { visibility }),
-            } as QuestionAnswer;
-          })
-          .filter((item): item is QuestionAnswer => !!item);
-
-        if (languages.length === 0) {
-          alert(this.t('profileDialogLanguageRequired'));
-          return;
-        }
-
-        try {
-          await this.onProfileChange?.(user.id, {
-            ...(selectedHeadshot ? { headshot: selectedHeadshot } : {}),
-            languages,
-            profile,
-            interests,
-          });
-          close();
-          resolve();
-        } catch (error) {
-          alert(this.t('profileDialogUpdateFailed'));
-          reject(error);
-        }
-      });
+    return openEditProfileDialog({
+      user,
+      uiLanguage: this.getUiLanguage(),
+      languageOptions: LANGUAGE_OPTIONS,
+      text: (key) => this.t(key),
+      onProfileChange: (userId, updates) => this.onProfileChange?.(userId, updates),
     });
   }
 
