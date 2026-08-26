@@ -12,9 +12,10 @@ import type { UiTranslationKey } from './ui-translations';
  * root-to-leaf position — `docs/`, `src/shared/talk-engine.ts`), not the simpler linear `flow`
  * shape. A Pair-tag root (`Question.reciprocalTagContext`) still opens every template exactly
  * like the old flow versions did (offerer tag vs. counterpart tag, e.g. buy/sell), but the body
- * now genuinely branches — e.g. Buy/Sell's item category fans out into per-category follow-up
- * questions (model, for iPhone) before converging on condition → price range, matching how a
- * real screening conversation would fork.
+ * now genuinely branches — e.g. Buy/Sell's "sell" answer fans out (parallel, not chained) across
+ * every item for sale, each item its own Simple tag whose one answer itself fans out into
+ * independent Model/Condition/Price-range specs that must all check out — matching how a real
+ * screening conversation would fork, and how a second/third item gets added to the same talk.
  *
  * `buildRouteTalk`/`flattenRouteTree` below turn a small recursive tree description
  * (`RouteQuestionSpec`) into the flat `questions[]` + `contextPath`/`nextQuestionId` shape the
@@ -39,17 +40,29 @@ type RouteAnswerSpec = {
   text: string;
   isIgnore?: boolean;
   isMatch?: boolean;
-  /** Present iff this answer continues the DAG instead of terminating it. */
+  /** Present iff this answer continues the DAG with a single follow-up question. */
   next?: RouteQuestionSpec;
+  /** Present iff this answer fans out into 2+ independently-answered sibling specs
+   * (`Answer.nextQuestionIds`) — e.g. an item's Model/Condition/Price-range, all required
+   * unless `parallelThreshold` says otherwise (mirrors the route editor's own "+Parallel Q"). */
+  parallel?: RouteQuestionSpec[];
+  /** Only meaningful alongside `parallel`. Omit for the default (all of `parallel` required). */
+  parallelThreshold?: number;
 };
 
 type RouteQuestionSpec = {
   text: string;
   /** Pair-tag root marker — mirrors `Question.reciprocalTagContext`. */
   reciprocalTagContext?: boolean;
-  /** A built-in comparator leaf (e.g. Dating's ageRange) — `answers` stays empty; TalkAutofix
-   * synthesizes the Compatible/Not-compatible pair. */
-  builtIn?: { kind: 'ageRange'; ageRange: { age: number; acceptableRange: { min: number; max: number } } };
+  /** Simple tag (self-match) — mirrors `Question.tagKind`. Needs exactly one non-ignore
+   * answer whose text equals this question's own text (`normalizeTagKey` comparison,
+   * `TalkValidator.validateTagKindFields`). */
+  tagKind?: 'simple';
+  /** A built-in comparator leaf (e.g. Dating's ageRange, Buy/Sell's price range) — `answers`
+   * stays empty; TalkAutofix synthesizes the Compatible/Not-compatible pair. */
+  builtIn?:
+    | { kind: 'ageRange'; ageRange: { age: number; acceptableRange: { min: number; max: number } } }
+    | { kind: 'priceRange'; priceRange: { min: number; max: number } };
   answers: RouteAnswerSpec[];
 };
 
@@ -67,12 +80,20 @@ function flattenRouteTree(root: RouteQuestionSpec): any[] {
     const id = `q_${n++}`;
     const question: any = { id, text: spec.text, contextPath, answers: [] };
     if (spec.reciprocalTagContext) question.reciprocalTagContext = true;
+    if (spec.tagKind) question.tagKind = spec.tagKind;
     if (spec.builtIn) question.builtIn = spec.builtIn;
     out.push(question);
 
     spec.answers.forEach((a, i) => {
       const aid = `${id}_a${i}`;
-      if (a.next) {
+      if (a.parallel && a.parallel.length > 0) {
+        const childIds = a.parallel.map((childSpec) =>
+          walk(childSpec, [...contextPath, { questionId: id, answerId: aid }]),
+        );
+        const answer: any = { id: aid, text: a.text, nextQuestionIds: childIds };
+        if (a.parallelThreshold != null) answer.parallelMatchThreshold = a.parallelThreshold;
+        question.answers.push(answer);
+      } else if (a.next) {
         const childId = walk(a.next, [...contextPath, { questionId: id, answerId: aid }]);
         question.answers.push({ id: aid, text: a.text, nextQuestionId: childId });
       } else {
@@ -136,25 +157,39 @@ function buildPairTagBranchRoute(opts: {
 }
 
 /**
- * The deepest template, matching the requested buy/sell walkthrough: 1) buy/sell (Pair-tag root)
- * 2) item category — iPhone branches into 3) model, everything else skips straight to condition
- * — 4) condition, 5) price range (match/ignore terminal). Item category fanning out into a
- * per-category sub-tree before converging on the shared condition/price-range shape is the
- * genuinely branching part a linear `flow` talk couldn't express.
+ * The deepest template, matching the requested buy/sell walkthrough: 1) buy/sell (Pair-tag
+ * root), 2) each item for sale is its own Simple tag (self-match — the item name IS the
+ * question, `93-route-parallel-spec-fanout-buy-sell.spec.ts`'s proven shape), which itself
+ * fans its one answer out into 3) model, condition, and price range as independent parallel
+ * specs (`Answer.nextQuestionIds`/`parallelMatchThreshold`) that must ALL match for that item —
+ * not a linear chain, since a real screening conversation asks these in any order and every
+ * one has to check out. "sell" fans out across every item (`parallelThreshold: 1` — ANY one
+ * item's full spec-set matching is enough), so adding a 3rd, 4th, ... item for sale to the
+ * same talk is just another "+Parallel Q" on that same answer in the route editor, not a new
+ * talk.
  */
 function buildBuySellTemplate(): any {
-  const priceRangeNode = (): RouteQuestionSpec => ({
-    text: 'Does a price range of $400-800 work for both of you?',
+  const item = (opts: {
+    name: string;
+    modelText: string;
+    priceMin: number;
+    priceMax: number;
+  }): RouteQuestionSpec => ({
+    text: opts.name,
+    tagKind: 'simple',
     answers: [
-      { text: 'Yes, that range works', isMatch: true },
-      { text: 'No, different range', isIgnore: true },
-    ],
-  });
-  const conditionNode = (): RouteQuestionSpec => ({
-    text: 'What condition is it in?',
-    answers: [
-      { text: 'New / like new', next: priceRangeNode() },
-      { text: 'Used', next: priceRangeNode() },
+      {
+        text: opts.name,
+        parallel: [
+          { text: 'Model', answers: [{ text: opts.modelText, isMatch: true }] },
+          { text: 'condition', answers: [{ text: 'used', isMatch: true }] },
+          {
+            text: 'price range',
+            builtIn: { kind: 'priceRange', priceRange: { min: opts.priceMin, max: opts.priceMax } },
+            answers: [],
+          },
+        ],
+      },
     ],
   });
 
@@ -164,23 +199,11 @@ function buildBuySellTemplate(): any {
     answers: [
       {
         text: 'sell',
-        next: {
-          text: 'What are you looking to buy or sell?',
-          answers: [
-            {
-              text: 'iPhone',
-              next: {
-                text: 'Which model?',
-                answers: [
-                  { text: 'iPhone 15 or newer', next: conditionNode() },
-                  { text: 'iPhone 14 or 13', next: conditionNode() },
-                  { text: 'iPhone 12 or older', next: conditionNode() },
-                ],
-              },
-            },
-            { text: 'Something else', next: conditionNode() },
-          ],
-        },
+        parallelThreshold: 1,
+        parallel: [
+          item({ name: 'iPhone', modelText: 'iPhone 15 or newer', priceMin: 300, priceMax: 400 }),
+          item({ name: 'iPad', modelText: 'iPad 10th gen or newer', priceMin: 200, priceMax: 350 }),
+        ],
       },
       { text: 'Not interested', isIgnore: true },
     ],

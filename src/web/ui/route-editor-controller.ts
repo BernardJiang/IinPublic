@@ -167,9 +167,13 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
                 value="${a.parallelMatchThreshold ?? ''}" style="width:70px; display:inline-block;">
             </label>`
                 : '';
-            // Simple tag (self-match): frozen — matches the answer text to the question, mirroring
-            // TalkAutofix's already-enforced invariant. Pair tag keeps this editable (the whole
-            // point is a divergent accepted answer).
+            // Simple tag (self-match): frozen — the answer text always mirrors the question
+            // text (TalkAutofix's already-enforced invariant), and — being the sole non-ignore
+            // answer a simple tag can have — it can never validly BE the ignore outcome either.
+            // Showing a text field that only ever repeats the question right above it, plus a
+            // match/ignore choice that isn't really a choice, is pure redundancy: skip both and
+            // keep just the label + fan-out controls. Pair tag keeps the full row — its answer
+            // is a genuinely different, editable word (the accepted counterpart).
             const frozen = isTagKind && q.tagKind === 'simple';
             // No answer auto-defaults to Ignore anymore (a responder always has their own
             // universal decline regardless of the talk's own answers) — new answers default to
@@ -177,21 +181,25 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
             // there's nothing to toggle once it continues the DAG) still gets an explicit
             // Match/Ignore choice here for the rare branch an author DOES want to design as a
             // deliberate decline distinct from silence.
-            const kindHtml =
-              childIds.length === 0
+            const kindHtml = frozen
+              ? ''
+              : childIds.length === 0
                 ? `
               <select class="form-input route-answer-kind-select" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; padding:2px 4px; width:auto; flex:0 0 auto;">
                 <option value="match" ${!a.isIgnore ? 'selected' : ''}>${text('editorRouteKindMatch')}</option>
                 <option value="ignore" ${a.isIgnore ? 'selected' : ''}>${text('editorRouteKindIgnore')}</option>
               </select>`
                 : `<span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text);">${kind}</span>`;
+            const textHtml = frozen
+              ? ''
+              : `<input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${text('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">`;
             return `
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
               <span class="route-answer-label" style="font-size:0.72em; opacity:0.55; min-width:32px;" title="${a.id}">a${answerLabel}</span>
               ${kindHtml}
-              <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${text('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" ${frozen ? 'readonly' : ''} style="flex:1; ${frozen ? 'background:var(--bg-subtle);' : ''}">
+              ${textHtml}
               <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${addChildLabel}</button>
-              <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">×</button>
+              ${frozen ? '' : `<button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">×</button>`}
             </div>
             ${thresholdHtml}
             ${childIds.map((c) => renderNode(c, depth + 1, nextChildLabel())).join('')}

@@ -30,9 +30,12 @@ so the value is never hidden behind an extra click.
 
 For each of the 4 templates, opens the picker, picks it, and asserts the editor's root/first
 branch fields (and Pair-tag checkbox) are pre-filled with the expected wording, then cancels and
-reopens the picker for the next one. Buy/Sell gets extra assertions proving the deeper item →
-model → condition → price-range chain actually landed — the genuinely branching part a linear
-`flow` talk couldn't express. Dating gets extra assertions: its "Something serious" branch's own
+reopens the picker for the next one. Buy/Sell gets extra assertions proving its "sell" answer
+fans out (parallel, not chained) across every item for sale — each item its own Simple tag
+(self-match) whose one answer itself fans out into independent Model/Condition/Price-range specs
+— the genuinely branching part a linear `flow` talk couldn't express, and also proves a Simple
+tag's one frozen answer no longer renders a redundant duplicate text field next to its fan-out
+controls (`route-editor-controller.ts`). Dating gets extra assertions: its "Something serious" branch's own
 `ageRange` node has the new built-in kind selected with its 3 fields populated (age/min/max) —
 this required adding `ageRange` support to the route editor itself
 (`route-editor-controller.ts`'s `.route-builtin-kind` select previously only offered

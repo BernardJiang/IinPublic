@@ -21,8 +21,11 @@
  *
  * This spec proves the picker renders the original 4 templates + scratch and that each
  * template's prefill is structurally correct at more than one DAG depth — title/type/Pair-tag
- * root/first branch — and for Buy/Sell, that the deeper item→model→condition→price chain
- * actually landed (the whole point of moving off flow's 2-question shape). For Dating, it also
+ * root/first branch — and for Buy/Sell, that "sell" fans out (parallel, not chained) across
+ * every item for sale, each item its own Simple tag whose one answer itself fans out into
+ * independent Model/Condition/Price-range specs (the whole point of moving off flow's
+ * 2-question shape — adding a 2nd/3rd item, or another spec per item, is just more fan-out).
+ * For Dating, it also
  * proves the new `ageRange` built-in comparator (§DD) renders correctly nested inside the route
  * editor (a route-editor gap fixed alongside this change — `route-editor-controller.ts` didn't
  * support the `ageRange` kind before) plus the force-checked-and-disabled adult-content lock. It
@@ -84,7 +87,7 @@ test.describe('Talk template picker', () => {
     await expect(page.locator('[data-testid="talk-template-dating"]')).toBeVisible();
     await expect(page.locator('[data-testid="talk-template-scratch"]')).toBeVisible();
 
-    // ── Buy / Sell — the deepest template: tag → item → model → condition → price range ──
+    // ── Buy / Sell — the deepest template: tag → item (Simple tag) → parallel model/condition/price ──
     await page.click('[data-testid="talk-template-buySell"]');
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue('Buy / Sell');
@@ -92,13 +95,23 @@ test.describe('Talk template picker', () => {
     await expect(page.locator('.route-question-text[data-qid="q_0"]')).toHaveValue('buy');
     await expect(page.locator('.route-question-reciprocal-tag[data-qid="q_0"]')).toBeChecked();
     await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a0"]')).toHaveValue('sell');
-    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('What are you looking to buy or sell?');
-    await expect(page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_a0"]')).toHaveValue('iPhone');
-    // The item→model branch is the genuinely new part a linear `flow` talk couldn't express.
-    await expect(page.locator('.route-question-text[data-qid="q_2"]')).toHaveValue('Which model?');
+    // "sell" fans out across every item for sale (parallel, not chained) — iPhone (q_1) and
+    // iPad (q_5) are independent siblings, each its own Simple tag (self-match); adding a 3rd
+    // item is just another "+Parallel Q" on this same answer.
+    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('iPhone');
+    await expect(page.locator('.route-question-simple-tag[data-qid="q_1"]')).toBeChecked();
+    await expect(page.locator('.route-question-text[data-qid="q_5"]')).toHaveValue('iPad');
+    await expect(page.locator('.route-question-simple-tag[data-qid="q_5"]')).toBeChecked();
+    // A Simple tag's one (self-match, frozen) answer no longer shows a redundant duplicate
+    // text field — just the fan-out controls (route-editor-controller.ts).
+    await expect(page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_a0"]')).toHaveCount(0);
+    // iPhone's own answer fans out into independent Model/Condition/Price-range specs — a
+    // linear `flow` talk couldn't express any of this (multi-item, nor per-item multi-spec).
+    await expect(page.locator('.route-question-text[data-qid="q_2"]')).toHaveValue('Model');
     await expect(page.locator('.route-answer-text[data-qid="q_2"][data-aid="q_2_a0"]')).toHaveValue('iPhone 15 or newer');
-    await expect(page.locator('.route-question-text[data-qid="q_3"]')).toHaveValue('What condition is it in?');
-    await expect(page.locator('.route-question-text[data-qid="q_4"]')).toHaveValue('Does a price range of $400-800 work for both of you?');
+    await expect(page.locator('.route-question-text[data-qid="q_3"]')).toHaveValue('condition');
+    await expect(page.locator('.route-question-text[data-qid="q_4"]')).toHaveValue('price range');
+    await expect(page.locator('.route-builtin-kind[data-qid="q_4"]')).toHaveValue('priceRange');
     // Once a template is loaded, "Start from a template" doesn't show again (only for a
     // genuinely blank create) — no accidental double-hop back into the picker.
     await expect(page.locator('#browse-talk-templates-btn')).toHaveCount(0);
