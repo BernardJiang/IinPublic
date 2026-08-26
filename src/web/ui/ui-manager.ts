@@ -143,6 +143,7 @@ import {
   type RouteEditorQuestion,
 } from './route-editor-model';
 import { renderRouteEditor as renderRouteEditorController } from './route-editor-controller';
+import { fetchDownloadManifest, renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { showSurveyStatisticsDialog } from './survey-statistics-dialog';
 import { renderStatisticsMetricCard } from './survey-statistics-model';
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
@@ -3464,6 +3465,7 @@ export class UIManager extends EventEmitter {
       { icon: '📍', label: this.t('settingsDistanceHome'), target: 'settings-section-distance-home' },
       { icon: '🚫', label: this.t('settingsContentFilters'), target: 'settings-section-content-filters' },
       { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
+      { icon: '📱', label: this.t('settingsDownloadApp'), target: 'settings-section-download-app' },
       { icon: '🔐', label: this.t('settingsIdentityDevices'), target: 'settings-section-linked-devices' },
       { icon: '🗑️', label: this.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
       { icon: '💾', label: this.t('settingsStorage'), target: 'settings-storage-inspector' },
@@ -3739,6 +3741,10 @@ export class UIManager extends EventEmitter {
           </div>`,
         )}
         ${this.renderSettingsSection(
+          { id: 'settings-section-download-app', title: this.t('settingsDownloadApp'), subtitle: this.t('settingsDownloadAppSubtitle') },
+          `<div id="settings-download-app-body" data-testid="settings-download-app-body" style="display:grid;gap:10px;">${renderDownloadAppSectionBody(this.appDownloadTextDeps(), {})}</div>`,
+        )}
+        ${this.renderSettingsSection(
           {
             id: 'settings-section-linked-devices',
             title: this.t('settingsIdentityDevices'),
@@ -3775,6 +3781,7 @@ export class UIManager extends EventEmitter {
     }
     this.bindSettingsControls();
     void this.refreshStorageInspector();
+    void this.refreshDownloadAppSection();
     this.renderSupportInboxSectionIfPresent();
     this.applySettingsSectionView(this.settingsActiveSectionId);
   }
@@ -8114,17 +8121,38 @@ export class UIManager extends EventEmitter {
     const banner = document.createElement('div');
     banner.id = 'app-download-banner';
     banner.className = 'app-download-banner';
+    // No dead-end "not available" copy — IinPublic really does ship native Mac/Windows/Android
+    // apps (this build just isn't published for the visitor's platform yet); route them to the
+    // Settings "Download the app" section instead, where every platform's real status shows.
     banner.innerHTML = `
       <span class="app-download-banner-text">${escapeHtml(this.t('appDownloadBannerText'))}</span>
       ${downloadUrl
         ? `<a class="app-download-banner-link" href="${escapeHtml(downloadUrl)}" download>${escapeHtml(this.tf('appDownloadBannerGetApp', { platform: platformLabel }))}</a>`
-        : `<span class="app-download-banner-muted">${escapeHtml(this.t('appDownloadBannerUnavailable'))}</span>`}
+        : `<button type="button" class="app-download-banner-link app-download-banner-see-options" data-action="see-options">${escapeHtml(this.t('appDownloadBannerSeeOptions'))}</button>`}
       <button type="button" class="app-download-banner-dismiss" aria-label="${escapeHtml(this.t('appDownloadBannerDismiss'))}">×</button>`;
+    // The settings nav click handler always resets settingsActiveSectionId to null before its
+    // own synchronous render, so the drill-down below has to happen AFTER that click resolves.
+    banner.querySelector('[data-action="see-options"]')?.addEventListener('click', () => {
+      banner.remove();
+      (document.querySelector('.nav-btn[data-view="settings"]') as HTMLElement | null)?.click();
+      this.applySettingsSectionView((this.settingsActiveSectionId = 'settings-section-download-app'));
+    });
     banner.querySelector('.app-download-banner-dismiss')?.addEventListener('click', () => {
       sessionStorage.setItem('iinpublic_dismissed_app_download_banner', '1');
       banner.remove();
     });
     shell.prepend(banner);
+  }
+
+  private appDownloadTextDeps(): AppDownloadTextDeps {
+    return { text: this.t.bind(this), tf: this.tf.bind(this), escapeHtml };
+  }
+
+  /** Populates Settings > "Download the app" from the banner's own manifest. */
+  private async refreshDownloadAppSection(): Promise<void> {
+    const body = document.getElementById('settings-download-app-body');
+    if (!body) return;
+    body.innerHTML = renderDownloadAppSectionBody(this.appDownloadTextDeps(), await fetchDownloadManifest(this.apiBase));
   }
 
   private dismissMatchNotifications(): void {

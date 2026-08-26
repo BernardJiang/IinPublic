@@ -27,6 +27,7 @@ export const SETTINGS_SECTION = {
   distanceHome: 'settings-section-distance-home',
   contentFilters: 'settings-section-content-filters',
   connectivity: 'settings-section-connectivity',
+  downloadApp: 'settings-section-download-app',
   linkedDevices: 'settings-section-linked-devices',
   eraseDevice: 'settings-section-erase-device',
   storageInspector: 'settings-storage-inspector',
