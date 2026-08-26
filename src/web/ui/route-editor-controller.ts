@@ -1,4 +1,5 @@
 import { escapeHtml } from './ui-formatters';
+import { syncAdultLockFromBuiltInKinds } from './talk-editor-form-helpers';
 import type { BuiltInQuestionKind } from '../../shared/types';
 import type { RouteEditorQuestion, RouteEditorText } from './route-editor-model';
 
@@ -58,6 +59,7 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
               <option value="priceRange" ${builtInKind === 'priceRange' ? 'selected' : ''}>${text('editorBuiltInKindPriceRange')}</option>
               <option value="timeFrame" ${builtInKind === 'timeFrame' ? 'selected' : ''}>${text('editorBuiltInKindTimeFrame')}</option>
               <option value="location" ${builtInKind === 'location' ? 'selected' : ''}>${text('editorBuiltInKindLocation')}</option>
+              <option value="ageRange" ${builtInKind === 'ageRange' ? 'selected' : ''}>${text('editorBuiltInKindAgeRange')}</option>
             </select>
           </label>
           ${
@@ -91,6 +93,20 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
               : ''
           }
           ${builtInKind === 'location' ? `<span style="font-size:0.8em; color:var(--text-secondary);">${text('editorBuiltInLocationNote')}</span>` : ''}
+          ${
+            builtInKind === 'ageRange'
+              ? `
+            <label style="font-size:0.85em;">${text('editorBuiltInAgeLabel')}
+              <input type="number" class="form-input route-builtin-agerange-age" data-qid="${q.id}" value="${q.builtIn?.ageRange?.age ?? ''}" style="width:90px; display:inline-block;">
+            </label>
+            <label style="font-size:0.85em;">${text('editorBuiltInAgeMinLabel')}
+              <input type="number" class="form-input route-builtin-agerange-min" data-qid="${q.id}" value="${q.builtIn?.ageRange?.acceptableRange?.min ?? ''}" style="width:90px; display:inline-block;">
+            </label>
+            <label style="font-size:0.85em;">${text('editorBuiltInAgeMaxLabel')}
+              <input type="number" class="form-input route-builtin-agerange-max" data-qid="${q.id}" value="${q.builtIn?.ageRange?.acceptableRange?.max ?? ''}" style="width:90px; display:inline-block;">
+            </label>`
+              : ''
+          }
         </div>
       `;
     // Reuses the exact same `.route-add-child-btn`/`.route-parallel-threshold` handlers an
@@ -287,6 +303,36 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
       q.builtIn.timeFrame = { start: q.builtIn.timeFrame?.start ?? NaN, end };
     });
   });
+  host.querySelectorAll<HTMLInputElement>('.route-builtin-agerange-age').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      const q = byId.get(inp.dataset.qid!);
+      if (!q?.builtIn) return;
+      q.builtIn.ageRange = {
+        age: Number(inp.value),
+        acceptableRange: q.builtIn.ageRange?.acceptableRange ?? { min: NaN, max: NaN },
+      };
+    });
+  });
+  host.querySelectorAll<HTMLInputElement>('.route-builtin-agerange-min').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      const q = byId.get(inp.dataset.qid!);
+      if (!q?.builtIn) return;
+      q.builtIn.ageRange = {
+        age: q.builtIn.ageRange?.age ?? NaN,
+        acceptableRange: { min: Number(inp.value), max: q.builtIn.ageRange?.acceptableRange?.max ?? NaN },
+      };
+    });
+  });
+  host.querySelectorAll<HTMLInputElement>('.route-builtin-agerange-max').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      const q = byId.get(inp.dataset.qid!);
+      if (!q?.builtIn) return;
+      q.builtIn.ageRange = {
+        age: q.builtIn.ageRange?.age ?? NaN,
+        acceptableRange: { min: q.builtIn.ageRange?.acceptableRange?.min ?? NaN, max: Number(inp.value) },
+      };
+    });
+  });
   host.querySelectorAll<HTMLInputElement>('.route-answer-text').forEach((inp) => {
     inp.addEventListener('input', () => {
       const q = byId.get(inp.dataset.qid!);
@@ -412,4 +458,10 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
       rerender();
     });
   });
+
+  // Keeps the "Adult content" lock in sync with a route ageRange node, same as the flow editor's
+  // own builtin-kind change handler — every route re-render (initial load or user edit) passes
+  // back through here, so a single call after each render covers both cases.
+  const form = host.closest('form');
+  if (form) syncAdultLockFromBuiltInKinds(form);
 }

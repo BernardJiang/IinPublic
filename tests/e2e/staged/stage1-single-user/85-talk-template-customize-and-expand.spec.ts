@@ -2,20 +2,25 @@
  * More template usage cases + "a template is a starting point, not a form" (talk template
  * picker follow-up, `src/web/ui/talk-templates.ts`). Adds 4 everyday-errand templates alongside
  * the original 4 (🤝 Buy/Sell, 🚕 Taxi, 💼 Job Seeker/Hiring, ❤️ Dating): 🏠 Roommate Search,
- * 🔍 Lost & Found, 🐾 Pet Sitting, 📚 Study Buddy/Tutoring — all reuse the same two-sided
- * Pair-tag `buildTwoSidedOfferTemplate` generator the original 4 already prove out
+ * 🔍 Lost & Found, 🐾 Pet Sitting, 📚 Study Buddy/Tutoring — all reuse the same Pair-tag-root
+ * `buildPairTagBranchRoute` generator the original 4 already prove out
  * (83-talk-template-picker.spec.ts), so this file doesn't re-prove the picker mechanism itself,
- * only that these 4 render and pre-fill correctly.
+ * only that these 4 render and pre-fill correctly. Every template is `type: 'route'` — a
+ * genuine branching DAG rendered by the route editor as nested `.route-node[data-qid]` blocks
+ * (`route-editor-controller.ts`), not the flat `.question-item[data-question-index]` list
+ * flow/tag/survey use.
  *
- * The second test is the actual point of this file: a template is not a fixed form. It proves
- * a realistic "start from a template, then make it your own" flow — the author edits the
- * template's pre-filled wording (both sides of the Pair tag, and Q2's answer) and then EXPANDS
- * the talk by adding a brand-new 3rd question with `#add-question-btn`, rewiring Q2's match
- * answer (`.answer-next`) to chain into it instead of terminating — exactly what a real user
- * does when a template gets them 90% of the way there but they need one more question. Saves
- * for real and reads the persisted talk back out of `myTalks` to confirm the edits and the new
- * question round-tripped through `processTalkForm` correctly (customized text, `nextQuestionId`
- * chaining instead of `isMatch`/`isTerminal`, deterministic `q_2`/`a_2_0` ids).
+ * The second test is the actual point of this file: a template is not a fixed form. It proves a
+ * realistic "start from a template, then make it your own" flow — the author edits the
+ * template's pre-filled wording at multiple DAG depths (both sides of the Pair-tag root, a
+ * branch answer, and a leaf's match-answer text), then EXPANDS the talk by clicking a leaf
+ * answer's "add child" button (`.route-add-child-btn`) to grow a brand-new question off it
+ * instead of leaving it terminal — exactly what a real user does when a template gets them 90%
+ * of the way there but they need one more question. Saves for real and reads the persisted talk
+ * back out of `myTalks` to confirm the edits and the new question round-tripped through
+ * `processTalkForm`'s route branch (`collectRouteEditorQuestions`) correctly: customized text,
+ * the old leaf's `nextQuestionId` chaining onward instead of `isMatch`/`isTerminal`, and the new
+ * node's deterministic `q_5`/`q_5_match`/`q_5_ignore` ids.
  */
 import { Browser } from '@playwright/test';
 import { chromium } from '@playwright/test';
@@ -63,11 +68,12 @@ test.describe('Talk template picker — more use cases + customize/expand', () =
     await page.click('[data-testid="talk-template-roommate"]');
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue('Roommate Search');
-    await expect(page.locator('.question-item[data-question-index="0"] .question-text')).toHaveValue('need a roommate');
-    await expect(page.locator('.question-item[data-question-index="0"] .question-reciprocal-tag')).toBeChecked();
-    await expect(page.locator('.question-item[data-question-index="0"] .answer-item[data-answer-index="0"] .answer-text')).toHaveValue('have a room');
-    await expect(page.locator('.question-item[data-question-index="1"] .question-text')).toHaveValue("What's your monthly budget?");
-    await expect(page.locator('.question-item[data-question-index="1"] .answer-item[data-answer-index="0"] .answer-text')).toHaveValue('$800-1200/month');
+    await expect(page.locator('#talk-type')).toHaveValue('route');
+    await expect(page.locator('.route-question-text[data-qid="q_0"]')).toHaveValue('need a roommate');
+    await expect(page.locator('.route-question-reciprocal-tag[data-qid="q_0"]')).toBeChecked();
+    await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a0"]')).toHaveValue('have a room');
+    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue("What's your monthly budget?");
+    await expect(page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_a0"]')).toHaveValue('Under $800');
     await page.locator('#cancel-talk-btn').click();
     await page.waitForSelector('#talk-editor-modal', { state: 'detached' });
 
@@ -76,9 +82,9 @@ test.describe('Talk template picker — more use cases + customize/expand', () =
     await page.click('[data-testid="talk-template-lostFound"]');
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue('Lost & Found');
-    await expect(page.locator('.question-item[data-question-index="0"] .question-text')).toHaveValue('lost something');
-    await expect(page.locator('.question-item[data-question-index="0"] .answer-item[data-answer-index="0"] .answer-text')).toHaveValue('found something');
-    await expect(page.locator('.question-item[data-question-index="1"] .question-text')).toHaveValue('What did you lose?');
+    await expect(page.locator('.route-question-text[data-qid="q_0"]')).toHaveValue('lost something');
+    await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a0"]')).toHaveValue('found something');
+    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('What did you lose?');
     await page.locator('#cancel-talk-btn').click();
     await page.waitForSelector('#talk-editor-modal', { state: 'detached' });
 
@@ -87,9 +93,9 @@ test.describe('Talk template picker — more use cases + customize/expand', () =
     await page.click('[data-testid="talk-template-petSitting"]');
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue('Pet Sitting');
-    await expect(page.locator('.question-item[data-question-index="0"] .question-text')).toHaveValue('need a pet sitter');
-    await expect(page.locator('.question-item[data-question-index="0"] .answer-item[data-answer-index="0"] .answer-text')).toHaveValue('offering pet sitting');
-    await expect(page.locator('.question-item[data-question-index="1"] .question-text')).toHaveValue('What kind of pet?');
+    await expect(page.locator('.route-question-text[data-qid="q_0"]')).toHaveValue('need a pet sitter');
+    await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a0"]')).toHaveValue('offering pet sitting');
+    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('What kind of pet?');
     await page.locator('#cancel-talk-btn').click();
     await page.waitForSelector('#talk-editor-modal', { state: 'detached' });
 
@@ -98,9 +104,9 @@ test.describe('Talk template picker — more use cases + customize/expand', () =
     await page.click('[data-testid="talk-template-tutor"]');
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue('Study Buddy / Tutoring');
-    await expect(page.locator('.question-item[data-question-index="0"] .question-text')).toHaveValue('need a tutor');
-    await expect(page.locator('.question-item[data-question-index="0"] .answer-item[data-answer-index="0"] .answer-text')).toHaveValue('offering tutoring');
-    await expect(page.locator('.question-item[data-question-index="1"] .question-text')).toHaveValue('What subject?');
+    await expect(page.locator('.route-question-text[data-qid="q_0"]')).toHaveValue('need a tutor');
+    await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a0"]')).toHaveValue('offering tutoring');
+    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('What subject?');
     await page.locator('#cancel-talk-btn').click();
     await page.waitForSelector('#talk-editor-modal', { state: 'detached' });
   });
@@ -117,59 +123,61 @@ test.describe('Talk template picker — more use cases + customize/expand', () =
     await page.waitForSelector('#talk-editor-modal');
 
     // Customize both sides of the template's pre-filled wording — a template is a starting
-    // point, not a locked form. Q1's own tag word (narrows the audience) and its counterpart
-    // word (the wording the other side must have offered).
-    const q0 = page.locator('.question-item[data-question-index="0"]');
-    await q0.locator('.question-text').fill('need a roommate near campus');
-    await q0.locator('.answer-item[data-answer-index="0"] .answer-text').fill('have a furnished room near campus');
+    // point, not a locked form. The root's own tag word (narrows the audience) and its
+    // counterpart word (the wording the other side must have offered).
+    await page.locator('.route-question-text[data-qid="q_0"]').fill('need a roommate near campus');
+    await page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a0"]').fill('have a furnished room near campus');
 
-    // Customize Q2's match answer (the budget the template suggested).
-    const q1 = page.locator('.question-item[data-question-index="1"]');
-    await q1.locator('.answer-item[data-answer-index="0"] .answer-text').fill('$1000-1500/month');
+    // Customize the budget branch's own wording (q_1's first branch answer).
+    await page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_a0"]').fill('Under $800, negotiable');
 
-    // Expand: the 2-question template isn't enough — add a real 3rd question with
-    // "+ Add Question" and rewire Q2's match answer to chain into it instead of terminating.
-    await page.click('#add-question-btn');
-    const q2 = page.locator('.question-item[data-question-index="2"]');
-    await expect(q2).toBeVisible();
-    await q2.locator('.question-text').fill('Do you allow pets?');
-    await q2.locator('.answer-item[data-answer-index="0"] .answer-text').fill('Yes');
-    await q2.locator('.answer-item[data-answer-index="0"] .answer-next').selectOption('noticed');
-    await q2.locator('.answer-item[data-answer-index="1"] .answer-text').fill('No');
-    await q2.locator('.answer-item[data-answer-index="1"] .answer-next').selectOption('ignore');
+    // Customize that branch's leaf match-answer text (q_2 — "When do you need to move in?",
+    // reached via the "Under $800" branch).
+    await page.locator('.route-answer-text[data-qid="q_2"][data-aid="q_2_a0"]').fill('ASAP, this weekend');
 
-    // Q2's match answer now chains to the new question (q_2) instead of ending the talk.
-    await q1.locator('.answer-item[data-answer-index="0"] .answer-next').selectOption('q_2');
+    // Expand: the template's leaf isn't enough — grow a brand-new question off q_2's match
+    // answer instead of leaving it terminal. The template loads 5 questions (q_0..q_4), so the
+    // route editor's `.route-add-child-btn` handler deterministically assigns the new node q_5.
+    await page.click('.route-add-child-btn[data-qid="q_2"][data-aid="q_2_a0"]');
+    await expect(page.locator('.route-node[data-qid="q_5"]')).toBeVisible();
+    await page.locator('.route-question-text[data-qid="q_5"]').fill('Do you allow pets?');
+    await page.locator('.route-answer-text[data-qid="q_5"][data-aid="q_5_match"]').fill('Yes');
+    await page.locator('.route-answer-text[data-qid="q_5"][data-aid="q_5_ignore"]').fill('No');
 
     await submitTalkEditorAndWaitForOut(page, 'Roommate Search');
 
     const { talkData } = await readCreatedTalkFromMyTalks(page, 'Roommate Search');
-    expect(talkData.questions).toHaveLength(3);
+    expect(talkData.questions).toHaveLength(6);
 
     const savedQ0 = talkData.questions.find((q: any) => q.id === 'q_0');
     expect(savedQ0.text).toBe('need a roommate near campus');
     expect(savedQ0.reciprocalTagContext).toBe(true);
-    const savedQ0Answer = savedQ0.answers.find((a: any) => a.id === 'a_0_0');
+    const savedQ0Answer = savedQ0.answers.find((a: any) => a.id === 'q_0_a0');
     expect(savedQ0Answer.text).toBe('have a furnished room near campus');
     expect(savedQ0Answer.nextQuestionId).toBe('q_1');
 
     const savedQ1 = talkData.questions.find((q: any) => q.id === 'q_1');
-    const savedQ1Answer = savedQ1.answers.find((a: any) => a.id === 'a_1_0');
-    expect(savedQ1Answer.text).toBe('$1000-1500/month');
-    // The whole point of the expansion: this answer used to be a terminal match
-    // (isMatch/isTerminal) and now chains onward instead.
+    const savedQ1Answer = savedQ1.answers.find((a: any) => a.id === 'q_1_a0');
+    expect(savedQ1Answer.text).toBe('Under $800, negotiable');
     expect(savedQ1Answer.nextQuestionId).toBe('q_2');
-    expect(savedQ1Answer.isMatch).toBeFalsy();
-    expect(savedQ1Answer.isTerminal).toBeFalsy();
 
     const savedQ2 = talkData.questions.find((q: any) => q.id === 'q_2');
-    expect(savedQ2.text).toBe('Do you allow pets?');
-    const savedQ2Yes = savedQ2.answers.find((a: any) => a.id === 'a_2_0');
-    expect(savedQ2Yes.text).toBe('Yes');
-    expect(savedQ2Yes.isMatch).toBe(true);
-    expect(savedQ2Yes.isTerminal).toBe(true);
-    const savedQ2No = savedQ2.answers.find((a: any) => a.id === 'a_2_1');
-    expect(savedQ2No.text).toBe('No');
-    expect(savedQ2No.isIgnore).toBe(true);
+    const savedQ2Answer = savedQ2.answers.find((a: any) => a.id === 'q_2_a0');
+    expect(savedQ2Answer.text).toBe('ASAP, this weekend');
+    // The whole point of the expansion: this answer used to be a terminal match
+    // (isMatch/isTerminal) and now chains onward instead.
+    expect(savedQ2Answer.nextQuestionId).toBe('q_5');
+    expect(savedQ2Answer.isMatch).toBeFalsy();
+    expect(savedQ2Answer.isTerminal).toBeFalsy();
+
+    const savedQ5 = talkData.questions.find((q: any) => q.id === 'q_5');
+    expect(savedQ5.text).toBe('Do you allow pets?');
+    const savedQ5Yes = savedQ5.answers.find((a: any) => a.id === 'q_5_match');
+    expect(savedQ5Yes.text).toBe('Yes');
+    expect(savedQ5Yes.isMatch).toBe(true);
+    expect(savedQ5Yes.isTerminal).toBe(true);
+    const savedQ5No = savedQ5.answers.find((a: any) => a.id === 'q_5_ignore');
+    expect(savedQ5No.text).toBe('No');
+    expect(savedQ5No.isIgnore).toBe(true);
   });
 });
