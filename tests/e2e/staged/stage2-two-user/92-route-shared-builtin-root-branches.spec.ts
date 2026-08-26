@@ -102,12 +102,15 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
 
     // q_1: "Which item?" — an ordinary two-answer branch (ordinary per-item branching already
     // proven by 82-route-editor-multi-item-builtin.spec.ts; only novel here is that it now
-    // hangs off a builtIn root instead of being the root itself).
+    // hangs off a builtIn root instead of being the root itself). A fresh child node only
+    // seeds 1 default answer (q_1_match, no auto "Ignore" — route-editor-model.ts), so
+    // "+ Add Answer" adds the 2nd item choice (deterministic id q_1_a1).
     await pageAlice.locator('.route-question-text[data-qid="q_1"]').fill('Which item are you interested in?');
+    await pageAlice.locator('.route-add-answer-btn[data-qid="q_1"]').click();
     await pageAlice.locator('.route-answer[data-qid="q_1"][data-aid="q_1_match"] .route-add-child-btn').click();
-    await pageAlice.locator('.route-answer[data-qid="q_1"][data-aid="q_1_ignore"] .route-add-child-btn').click();
+    await pageAlice.locator('.route-answer[data-qid="q_1"][data-aid="q_1_a1"] .route-add-child-btn').click();
     await pageAlice.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_match"]').fill('Notebook');
-    await pageAlice.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_ignore"]').fill('Pen');
+    await pageAlice.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_a1"]').fill('Pen');
 
     // q_2 (Notebook branch): builtIn quantity leaf, seller has 5.
     await pageAlice.locator('.route-question-text[data-qid="q_2"]').fill('How many notebooks do you have?');

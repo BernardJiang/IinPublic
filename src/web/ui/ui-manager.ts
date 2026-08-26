@@ -8598,10 +8598,7 @@ export class UIManager extends EventEmitter {
     const host = document.getElementById('route-editor');
     if (!host) return;
     if (this.routeEditorQuestions.length === 0) {
-      this.routeEditorQuestions = initializeRouteEditorQuestions(
-        existingTalk,
-        this.t('editorRouteDefaultIgnore'),
-      );
+      this.routeEditorQuestions = initializeRouteEditorQuestions(existingTalk);
     }
     this.renderRouteEditor();
   }

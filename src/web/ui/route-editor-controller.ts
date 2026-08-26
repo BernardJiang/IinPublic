@@ -31,10 +31,18 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
     }
   }
   const byId = new Map(questions.map((q) => [q.id, q]));
-  const renderNode = (qid: string, depth: number): string => {
+  // Position labels (e.g. "1.2", "1.2.1") so an author can find which on-screen box a
+  // validation error like "question q_15" refers to — internal ids don't reveal depth or
+  // position, and a deep DAG can have dozens of nodes that look identical at a glance. Each
+  // child's label is its parent's label + a running index over ALL of that parent's children
+  // (builtIn's synthetic compatible-branch child, or any ordinary answer's child) in render
+  // order; each answer's label is its question's label + its own 1-based position.
+  const renderNode = (qid: string, depth: number, label: string): string => {
     const q = byId.get(qid);
     if (!q) return '';
     const indent = `margin-left:${depth * 20}px;`;
+    let childCounter = 0;
+    const nextChildLabel = (): string => `${label}.${++childCounter}`;
     // §BB / spec §30.5: a builtIn node has no AUTHORED answers (TalkAutofix.fix / this
     // editor's own `collectRouteEditorQuestions` generate the synthetic "Compatible"/"Not
     // compatible" pair) but its one implicit "compatible" outcome CAN still fork further —
@@ -119,7 +127,7 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
         <div style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
           <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${builtInCompatibleAid}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${builtInAddChildLabel}</button>
         </div>
-        ${builtInChildIds.map((c) => renderNode(c, depth + 1)).join('')}
+        ${builtInChildIds.map((c) => renderNode(c, depth + 1, nextChildLabel())).join('')}
       `
       : '';
     // docs/TODO.md §LL.2 follow-up: a Simple/Pair tag question is structurally fixed to exactly
@@ -132,7 +140,8 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
     const answersHtml = q.builtIn
       ? ''
       : visibleAnswers
-          .map((a) => {
+          .map((a, answerIdx) => {
+            const answerLabel = `${label}.${answerIdx + 1}`;
             const childIds = childrenOf.get(`${q.id}::${a.id}`) ?? [];
             const kind = a.isMatch
               ? text('editorRouteKindMatch')
@@ -162,22 +171,38 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
             // TalkAutofix's already-enforced invariant. Pair tag keeps this editable (the whole
             // point is a divergent accepted answer).
             const frozen = isTagKind && q.tagKind === 'simple';
+            // No answer auto-defaults to Ignore anymore (a responder always has their own
+            // universal decline regardless of the talk's own answers) — new answers default to
+            // Match instead. An outcome answer (no child yet — a Link's kind isn't editable,
+            // there's nothing to toggle once it continues the DAG) still gets an explicit
+            // Match/Ignore choice here for the rare branch an author DOES want to design as a
+            // deliberate decline distinct from silence.
+            const kindHtml =
+              childIds.length === 0
+                ? `
+              <select class="form-input route-answer-kind-select" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; padding:2px 4px; width:auto; flex:0 0 auto;">
+                <option value="match" ${!a.isIgnore ? 'selected' : ''}>${text('editorRouteKindMatch')}</option>
+                <option value="ignore" ${a.isIgnore ? 'selected' : ''}>${text('editorRouteKindIgnore')}</option>
+              </select>`
+                : `<span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text);">${kind}</span>`;
             return `
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
-              <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text);">${kind}</span>
+              <span class="route-answer-label" style="font-size:0.72em; opacity:0.55; min-width:32px;" title="${a.id}">a${answerLabel}</span>
+              ${kindHtml}
               <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${text('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" ${frozen ? 'readonly' : ''} style="flex:1; ${frozen ? 'background:var(--bg-subtle);' : ''}">
               <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${addChildLabel}</button>
               <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">×</button>
             </div>
             ${thresholdHtml}
-            ${childIds.map((c) => renderNode(c, depth + 1)).join('')}
+            ${childIds.map((c) => renderNode(c, depth + 1, nextChildLabel())).join('')}
           `;
           })
           .join('');
     return `
         <div class="route-node" data-qid="${q.id}" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin:6px 0; ${indent} background:var(--bg-subtle);">
           <div style="display:flex; align-items:center; gap:8px;">
-            <strong style="color:var(--accent);">${text('editorRouteQuestionPrefix')}</strong>
+            <strong style="color:var(--accent);">${text('editorRouteQuestionPrefix')} ${label}</strong>
+            <span style="font-size:0.72em; opacity:0.55;" title="internal id">(${q.id})</span>
             <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="${text('editorRouteQuestionPlaceholder')}" data-qid="${q.id}" style="flex:1;">
             ${q.builtIn || isTagKind ? '' : `<button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${text('editorAddAnswer')}</button>`}
             ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">${text('editorRouteRemoveQuestion')}</button>` : ''}
@@ -206,7 +231,7 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
         </div>
       `;
   };
-  host.innerHTML = roots.map((r) => renderNode(r, 0)).join('');
+  host.innerHTML = roots.map((r, i) => renderNode(r, 0, String(i + 1))).join('');
 
   // Bind events (delegation-free for clarity).
   host.querySelectorAll<HTMLInputElement>('.route-question-text').forEach((inp) => {
@@ -343,6 +368,16 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
       q.matchAnswerDirty = true;
     });
   });
+  host.querySelectorAll<HTMLSelectElement>('.route-answer-kind-select').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      const q = byId.get(sel.dataset.qid!);
+      if (!q) return;
+      const a = q.answers.find((x) => x.id === sel.dataset.aid);
+      if (!a) return;
+      a.isIgnore = sel.value === 'ignore';
+      a.isMatch = sel.value === 'match';
+    });
+  });
   host.querySelectorAll<HTMLInputElement>('.route-parallel-threshold').forEach((inp) => {
     inp.addEventListener('input', () => {
       const q = byId.get(inp.dataset.qid!);
@@ -365,7 +400,7 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
       q.answers.push({
         id: `${q.id}_a${idx}`,
         text: text('editorRouteNewAnswer'),
-        isIgnore: true,
+        isMatch: true,
         isTerminal: true,
       });
       rerender();
@@ -401,19 +436,14 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
           parentAnswer.isTerminal = false;
         }
       }
+      // No auto-seeded "Ignore" answer here either (see route-editor-model.ts's blank
+      // default) — just the one Match outcome; add another answer and mark it Ignore
+      // explicitly if this branch actually needs a designed decline.
       questions.push({
         id: newId,
         text: '',
         parentAnswer: { questionId: parentQid, answerId: parentAid },
-        answers: [
-          { id: `${newId}_match`, text: '', isMatch: true, isTerminal: true },
-          {
-            id: `${newId}_ignore`,
-            text: text('editorRouteDefaultIgnore'),
-            isIgnore: true,
-            isTerminal: true,
-          },
-        ],
+        answers: [{ id: `${newId}_match`, text: '', isMatch: true, isTerminal: true }],
         matchAnswerDirty: false,
       });
       rerender();

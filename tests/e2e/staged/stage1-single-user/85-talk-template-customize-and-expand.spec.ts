@@ -142,7 +142,12 @@ test.describe('Talk template picker — more use cases + customize/expand', () =
     await expect(page.locator('.route-node[data-qid="q_5"]')).toBeVisible();
     await page.locator('.route-question-text[data-qid="q_5"]').fill('Do you allow pets?');
     await page.locator('.route-answer-text[data-qid="q_5"][data-aid="q_5_match"]').fill('Yes');
-    await page.locator('.route-answer-text[data-qid="q_5"][data-aid="q_5_ignore"]').fill('No');
+    // q_5 only seeds 1 default answer (q_5_match, no auto "Ignore" — route-editor-model.ts);
+    // "+ Add Answer" adds the 2nd (id q_5_a1), defaulting to Match too, so it needs an explicit
+    // flip to Ignore via the kind select next to it.
+    await page.click('.route-add-answer-btn[data-qid="q_5"]');
+    await page.locator('.route-answer-text[data-qid="q_5"][data-aid="q_5_a1"]').fill('No');
+    await page.locator('.route-answer-kind-select[data-qid="q_5"][data-aid="q_5_a1"]').selectOption('ignore');
 
     await submitTalkEditorAndWaitForOut(page, 'Roommate Search');
 
@@ -176,7 +181,7 @@ test.describe('Talk template picker — more use cases + customize/expand', () =
     expect(savedQ5Yes.text).toBe('Yes');
     expect(savedQ5Yes.isMatch).toBe(true);
     expect(savedQ5Yes.isTerminal).toBe(true);
-    const savedQ5No = savedQ5.answers.find((a: any) => a.id === 'q_5_ignore');
+    const savedQ5No = savedQ5.answers.find((a: any) => a.id === 'q_5_a1');
     expect(savedQ5No.text).toBe('No');
     expect(savedQ5No.isIgnore).toBe(true);
   });

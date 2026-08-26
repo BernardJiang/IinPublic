@@ -25,15 +25,18 @@ leaf, 5 questions: `q_0`..`q_4`), then:
   - expands the talk by clicking that leaf answer's `.route-add-child-btn` — instead of an
     `#add-question-btn` + dropdown-rewire (flow's linked-list model), the route editor grows a
     brand-new question directly off the chosen answer and demotes it from a terminal match to a
-    link. The template loads 5 questions, so the new node is deterministically `q_5` (with
-    default answers `q_5_match`/`q_5_ignore`) — filled in as "Do you allow pets?" /
+    link. The template loads 5 questions, so the new node is deterministically `q_5`, seeded
+    with exactly 1 default answer (`q_5_match` — no auto "Ignore", a responder always has their
+    own universal decline regardless of what the talk offers, `route-editor-model.ts`); "+ Add
+    Answer" adds the 2nd (`q_5_a1`), explicitly flipped to Ignore via its kind select since a
+    fresh answer now defaults to Match too — filled in as "Do you allow pets?" /
     Yes(match)/No(ignore).
 
 Saves for real (`submitTalkEditorAndWaitForOut`) and reads the persisted talk back out of
 `myTalks` (not just the live DOM) to confirm the edit and the expansion round-tripped through
 `processTalkForm`'s route branch (`collectRouteEditorQuestions`) correctly: the customized
 wording, the old leaf answer now carrying `nextQuestionId: 'q_5'` instead of
-`isMatch`/`isTerminal`, and the new `q_5`/`q_5_match`/`q_5_ignore` with the expected match/ignore
+`isMatch`/`isTerminal`, and the new `q_5`/`q_5_match`/`q_5_a1` with the expected match/ignore
 outcome.
 
 Single browser, single user — no cross-talk matching is exercised, only editor interaction and
