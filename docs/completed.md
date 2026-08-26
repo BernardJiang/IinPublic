@@ -5825,6 +5825,19 @@ inspection):
   tests together (2 runs), and a regression pass on the dealmaker spec + per-question-deep-link +
   tags-checkbox specs (all pass unmodified).
 
+## 2026-08-25 — UIManager decomposition cluster #7
+
+- Extracted create/rename custom-chatroom form rendering, conditional business fields, validation,
+  payload collection, and modal lifecycle to `src/web/ui/custom-chatroom-dialogs.ts`; network and
+  chatroom-state orchestration remain in `UIManager`.
+- Added `custom-chatroom-dialogs-characterization.test.ts` for business toggling, trimmed payloads,
+  capacity flooring, optional-field omission, safe rename text, validation, cleanup, and backdrop
+  cancellation.
+- Lowered the enforced `ui-manager.ts` ceiling from 9,426 to 9,290 lines. Typecheck, lint,
+  production web build, and 150 unit suites / 1,611 tests pass.
+- Canonical `test:all` run `run-20260825-214624-56319` passed all static checks and all 12 browser
+  blobs in 16m53s.
+
 ## 2026-08-25 — UIManager decomposition cluster #6
 
 - Extracted the edit-profile form, localization/formatting, dynamic attribute rows, validation,

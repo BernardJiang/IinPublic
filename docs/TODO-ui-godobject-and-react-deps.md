@@ -143,8 +143,8 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         route fan-out E2E remains green.
 - [x] **1.1 Add a ratcheting growth guardrail.** Started at 11,793, lowered with the first
       extraction to 11,197, with cluster #2 to 10,830, with cluster #3 to 10,280, with cluster
-      #4 to 9,830, with cluster #5 to 9,656, and with cluster #6 to a test-enforced ceiling of
-      **9,426**
+      #4 to 9,830, with cluster #5 to 9,656, with cluster #6 to 9,426, and with cluster #7 to a
+      test-enforced ceiling of **9,290**
       lines. Lower the ceiling in the same commit as every extraction; never raise it merely to land
       unrelated feature work. Line count is a warning metric, not the architecture definition.
 - [x] **1.2 Profile coupling before extracting (measured, not guessed).** The initial AST proxy
@@ -173,6 +173,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
       - **Sixth: edit-profile dialog.** The 215-line dialog and its profile visibility/interest
         category formatters formed one DOM/event unit. Only the user, UI language, language option
         list, translated text, and async profile-change callback cross the extracted boundary.
+      - **Seventh: custom-chatroom dialogs.** The 100-line create dialog and 53-line rename dialog
+        share modal cleanup, translated text, and short-name validation. Only text formatting and
+        warning notification cross the boundary; server creation and chatroom state remain in the
+        manager.
       - **Defer: `displayTalksList`.** It is about 679 lines and touches roughly 52 distinct instance
         members, so it is a poor first extraction despite its size.
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
@@ -198,6 +202,9 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
       - Cluster #6 freezes localized language/category/visibility controls, unsupported-language
         fallback, safe profile markup, existing attribute identity/timestamp preservation, dynamic
         row collection, required-language validation, cancel/success cleanup, and failure rejection.
+      - Cluster #7 freezes business-field toggling, trimmed payloads, capacity flooring, omission
+        of empty/invalid optional fields, safe current-name rendering, short-name warnings, modal
+        cleanup, and backdrop cancellation.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -229,6 +236,9 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         normalization/collection, validation, and async completion. It imports shared profile
         normalization only, receives manager-facing dependencies explicitly, and leaves the public
         `showEditProfileDialog()` manager contract unchanged.
+      - Cluster #7: `custom-chatroom-dialogs.ts` owns create/rename form rendering, conditional
+        business fields, payload collection, validation, and modal lifecycle. `UIManager` retains
+        its public methods as shims plus all HTTP and chatroom-state orchestration.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -264,6 +274,10 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
         runs and the full-unit rerun. Canonical run `run-20260825-211024-46403` passed all static
         checks and all 12 browser blobs in 16m51s, including settings/profile E2E, WebKit/Firefox
         smoke, and mass-user coverage.
+      - Cluster #7 evidence: typecheck/lint, production web build, and 150 unit suites / 1,611
+        tests pass. Canonical run `run-20260825-214624-56319` passed all static checks and all 12
+        browser blobs in 16m53s, including localized create/rename room E2E, WebKit/Firefox smoke,
+        and mass-user coverage.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -318,7 +332,9 @@ returns "empty" / not-found; the app builds and boots identically; all unit test
     dependencies, while data fetching remains in `UIManager`.
 13. ~~Re-measure, characterize, and extract cluster #6 (edit-profile dialog), lower the ratchet to
     9,426, and close its canonical gate.~~ Done; the existing manager method remains a thin shim.
-14. Re-measure and choose cluster #7 as a separate commit-sized change; continue to defer
+14. ~~Re-measure, characterize, and extract cluster #7 (custom-chatroom dialogs), lower the ratchet
+    to 9,290, and close its canonical gate.~~ Done; HTTP/state orchestration stays in `UIManager`.
+15. Re-measure and choose cluster #8 as a separate commit-sized change; continue to defer
     `displayTalksList` until its ownership boundary is reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples

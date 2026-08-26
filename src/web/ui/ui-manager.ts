@@ -44,6 +44,11 @@ import {
   updateChatroomMembers as renderChatroomMembers,
 } from './chatrooms-view';
 import {
+  showCreateCustomChatroomDialog as openCreateCustomChatroomDialog,
+  showRenameCustomChatroomDialog as openRenameCustomChatroomDialog,
+  type CustomChatroomDraft,
+} from './custom-chatroom-dialogs';
+import {
   displayContactsList as renderContactsList,
   openRelationshipDialog,
   renderContactContextSummaryInto,
@@ -1938,161 +1943,20 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  showCreateCustomChatroomDialog(): Promise<{
-    type: 'business' | 'custom';
-    name: string;
-    description?: string;
-    capacity?: number;
-    businessInfo?: { headline?: string };
-  } | null> {
-    return new Promise((resolve) => {
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal-content" style="max-width:420px;">
-          <div class="modal-header">
-            <h2 class="modal-title">${escapeHtml(this.t('chatroomCreateTitle'))}</h2>
-            <p style="color:#666;font-size:0.9em;">${escapeHtml(this.t('chatroomCreateHelp'))}</p>
-          </div>
-          <form id="create-custom-chatroom-form">
-            <div class="form-group">
-              <label class="form-label">${escapeHtml(this.t('chatroomType'))}</label>
-              <select class="form-input" id="custom-room-type" name="type">
-                <option value="custom">${escapeHtml(this.t('chatroomTypeCommunity'))}</option>
-                <option value="business">${escapeHtml(this.t('chatroomTypeBusiness'))}</option>
-              </select>
-            </div>
-            <div class="form-group" id="custom-room-business-headline-group" style="display:none;">
-              <label class="form-label">${escapeHtml(this.t('chatroomBusinessHeadline'))}</label>
-              <input type="text" class="form-input" id="custom-room-business-headline" maxlength="120" placeholder="${escapeHtml(this.t('chatroomBusinessPlaceholder'))}" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">${escapeHtml(this.t('chatroomName'))}</label>
-              <input type="text" class="form-input" id="custom-room-name" name="name" required minlength="2" maxlength="80" data-testid="custom-room-name-input" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">${escapeHtml(this.t('chatroomDescriptionOptional'))}</label>
-              <textarea class="form-input" id="custom-room-description" rows="2" maxlength="500"></textarea>
-            </div>
-            <div class="form-group">
-              <label class="form-label">${escapeHtml(this.t('chatroomCapacityOptional'))}</label>
-              <input type="number" class="form-input" id="custom-room-capacity" min="1" max="50000" placeholder="${escapeHtml(this.t('chatroomCapacityPlaceholder'))}" />
-            </div>
-            <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-custom-room-btn" style="background:var(--text-tertiary);">${escapeHtml(this.t('chatroomCancel'))}</button>
-              <button type="submit" class="btn primary-btn" data-testid="custom-room-submit-btn">${escapeHtml(this.t('chatroomCreate'))}</button>
-            </div>
-          </form>
-        </div>`;
-      document.body.appendChild(modal);
-
-      const typeSel = modal.querySelector('#custom-room-type') as HTMLSelectElement;
-      const bizGroup = modal.querySelector('#custom-room-business-headline-group') as HTMLElement;
-      const syncBiz = () => {
-        bizGroup.style.display = typeSel.value === 'business' ? 'block' : 'none';
-      };
-      typeSel.addEventListener('change', syncBiz);
-      syncBiz();
-
-      const cleanup = () => {
-        document.body.removeChild(modal);
-      };
-
-      modal.querySelector('#cancel-custom-room-btn')?.addEventListener('click', () => {
-        cleanup();
-        resolve(null);
-      });
-
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-          cleanup();
-          resolve(null);
-        }
-      });
-
-      const form = modal.querySelector('#create-custom-chatroom-form') as HTMLFormElement;
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const type = typeSel.value === 'business' ? 'business' : 'custom';
-        const name = (modal.querySelector('#custom-room-name') as HTMLInputElement).value.trim();
-        const description = (modal.querySelector('#custom-room-description') as HTMLTextAreaElement).value.trim();
-        const capRaw = (modal.querySelector('#custom-room-capacity') as HTMLInputElement).value.trim();
-        const capacity = capRaw ? Math.floor(Number(capRaw)) : undefined;
-        const headline = (modal.querySelector('#custom-room-business-headline') as HTMLInputElement).value.trim();
-        if (name.length < 2) {
-          this.showNotification(this.t('chatroomNameTooShort'), 'warning');
-          return;
-        }
-        const out: {
-          type: 'business' | 'custom';
-          name: string;
-          description?: string;
-          capacity?: number;
-          businessInfo?: { headline?: string };
-        } = { type, name };
-        if (description) out.description = description;
-        if (capacity != null && Number.isFinite(capacity) && capacity > 0) out.capacity = capacity;
-        if (type === 'business' && headline) out.businessInfo = { headline };
-        cleanup();
-        resolve(out);
-      });
+  showCreateCustomChatroomDialog(): Promise<CustomChatroomDraft | null> {
+    return openCreateCustomChatroomDialog({
+      text: (key) => this.t(key),
+      showWarning: (message) => this.showNotification(message, 'warning'),
     });
   }
-
   showRenameCustomChatroomDialog(currentName: string): Promise<string | null> {
-    return new Promise((resolve) => {
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal-content" style="max-width:400px;">
-          <div class="modal-header">
-            <h2 class="modal-title">${escapeHtml(this.t('chatroomRenameTitle'))}</h2>
-            <p class="rename-custom-room-current" style="color:#666;font-size:0.9em;"></p>
-          </div>
-          <form id="rename-custom-chatroom-form">
-            <div class="form-group">
-              <label class="form-label">${escapeHtml(this.t('chatroomNewName'))}</label>
-              <input type="text" class="form-input" id="rename-custom-room-name" required minlength="2" maxlength="80" data-testid="rename-custom-room-input" />
-            </div>
-            <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-rename-room-btn" style="background:var(--text-tertiary);">${escapeHtml(this.t('chatroomCancel'))}</button>
-              <button type="submit" class="btn primary-btn">${escapeHtml(this.t('chatroomSave'))}</button>
-            </div>
-          </form>
-        </div>`;
-      document.body.appendChild(modal);
-      const curEl = modal.querySelector('.rename-custom-room-current');
-      if (curEl) curEl.textContent = this.tf('chatroomCurrentName', { name: currentName });
-      (modal.querySelector('#rename-custom-room-name') as HTMLInputElement).value = currentName;
-
-      const cleanup = () => {
-        document.body.removeChild(modal);
-      };
-
-      modal.querySelector('#cancel-rename-room-btn')?.addEventListener('click', () => {
-        cleanup();
-        resolve(null);
-      });
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-          cleanup();
-          resolve(null);
-        }
-      });
-      const form = modal.querySelector('#rename-custom-chatroom-form') as HTMLFormElement;
-      form.addEventListener('submit', (ev) => {
-        ev.preventDefault();
-        const next = (modal.querySelector('#rename-custom-room-name') as HTMLInputElement).value.trim();
-        if (next.length < 2) {
-          this.showNotification(this.t('chatroomNameTooShort'), 'warning');
-          return;
-        }
-        cleanup();
-        resolve(next);
-      });
+    return openRenameCustomChatroomDialog({
+      currentName,
+      text: (key) => this.t(key),
+      formatText: (key, values) => this.tf(key, values),
+      showWarning: (message) => this.showNotification(message, 'warning'),
     });
   }
-
   private renderChatroomList(): void {
     renderChatrooms(this.chatroomsDeps());
   }
