@@ -9,7 +9,13 @@
  * trustworthy enough to auto-resolve" decision in `docs/TODO.md` §BB.
  */
 import type { Question } from './types';
-import { ageRangeMutuallyAcceptable, intervalsOverlap, quantitySufficient } from './built-in-comparisons';
+import {
+  ageRangeMutuallyAcceptable,
+  intervalsOverlap,
+  locationsMutuallyContained,
+  quantitySufficient,
+  type LocationForContainment,
+} from './built-in-comparisons';
 import { getTypedPreference, makeTypedPreferenceScopeKey, type TypedPreferenceState } from './typed-preference-store';
 
 export type BuiltInResolution = { action: 'ANSWER'; compatible: boolean } | { action: 'ASK_USER' };
@@ -27,14 +33,26 @@ export type BuiltInTagContext = {
   myTag?: string | undefined;
   theirTag?: string | undefined;
   title?: string | undefined;
+  /**
+   * §BB: the responder's OWN most-recent matching talk's `authorLocation`/`locationRadiusMiles`
+   * (side "b" of `locationsMutuallyContained`) — see that talk's own doc comment for why this is
+   * sourced from a counterpart talk rather than a separately-typed value. Only ever supplied by
+   * the caller when the user has granted `locationAutoMatchConsent` (`ui-settings-storage.ts`);
+   * this function stays a pure, consent-agnostic resolver, same as every other kind — absence
+   * alone (consent withheld, or no qualifying talk found) is what keeps this `ASK_USER`.
+   */
+  myLocation?: LocationForContainment | undefined;
+  /** The incoming talk's own `authorLocation`/`locationRadiusMiles` (side "a") — a talk-level
+   *  field, not carried on `Question.builtIn` itself (see `Question.builtIn`'s own doc comment,
+   *  types.ts), so the caller threads it through here explicitly. */
+  theirLocation?: LocationForContainment | undefined;
 };
 
 /**
- * `location` is deferred entirely (always `ASK_USER`): it needs a geo/privacy-aware source for
- * "my own" location + radius (the responder's blurred coordinate, or a matching counterpart
- * talk's own `authorLocation`/`locationRadiusMiles`) that hasn't been designed yet — see
- * `locationsMutuallyContained` in `built-in-comparisons.ts`, which is ready to be called once
- * that source exists.
+ * `location` auto-resolves once both sides' location+radius are supplied (§BB) — otherwise
+ * `ASK_USER`, same missing-data posture every other kind already has. The caller only ever
+ * supplies `myLocation` when the user has explicitly opted in
+ * (`getLocationAutoMatchConsent()`) — see `BuiltInTagContext.myLocation`'s own doc comment.
  */
 export function resolveBuiltInQuestion(
   tagContext: BuiltInTagContext,
@@ -44,7 +62,13 @@ export function resolveBuiltInQuestion(
 ): BuiltInResolution {
   const builtIn = question.builtIn;
   if (!builtIn) return { action: 'ASK_USER' };
-  if (builtIn.kind === 'location') return { action: 'ASK_USER' };
+  if (builtIn.kind === 'location') {
+    if (!tagContext.myLocation || !tagContext.theirLocation) return { action: 'ASK_USER' };
+    return {
+      action: 'ANSWER',
+      compatible: locationsMutuallyContained(tagContext.theirLocation, tagContext.myLocation),
+    };
+  }
 
   // The question's own text is ALSO part of the scope key — without it, a talk with more than
   // one builtIn question (e.g. priceRange AND timeFrame in the same talk, §HH) would have both

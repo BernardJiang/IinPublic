@@ -1,4 +1,5 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
+import type { LocationForContainment } from '../../shared/built-in-comparisons';
 import {
   buildAnswerPreferenceLookupKey,
   sessionAnswersToQAPairs,
@@ -28,6 +29,8 @@ import {
   setExactChatbotMemory,
   setFlattenedAnswerPreferences,
 } from './answer-preferences-storage';
+import { getLocationAutoMatchConsent } from './ui-settings-storage';
+import { getMyTalks, type MyTalkMap } from './my-talks-storage';
 
 function effectiveTagContext(
   currentUserId: string | undefined,
@@ -42,6 +45,45 @@ function effectiveTagContext(
       : { mySelfTag: ancestor.answerText, counterpartCandidates: [ancestor.questionText] };
   }
   return { mySelfTag: undefined, counterpartCandidates: [undefined] };
+}
+
+/**
+ * §BB: source side "b" of `locationsMutuallyContained` from whatever MY OWN most-recently
+ * created talk of matching (selfTag, title) scope already carries as its ordinary
+ * `authorLocation`/`locationRadiusMiles` — see `Question.builtIn`'s own doc comment (types.ts)
+ * for why location reuses a counterpart talk's fields instead of a separately-typed value like
+ * quantity/priceRange/timeFrame. Scoped the same way `typedPreferenceState` is (myTag + title),
+ * so two same-titled talks with different tags/locations don't bleed into each other. Pure/
+ * synchronous — `myTalks` is the already-loaded `getMyTalks()` map, not read internally, so this
+ * is directly unit-testable.
+ */
+export function myMostRecentLocationTalk(
+  myTalks: MyTalkMap,
+  currentUserId: string | undefined,
+  mySelfTag: string | undefined,
+  title: string | undefined,
+): LocationForContainment | undefined {
+  if (!title) return undefined;
+  const normalizedTitle = title.trim().toLowerCase();
+  const normalizedTag = String(mySelfTag || 'general');
+  let best: { timestamp: string; location: LocationForContainment } | undefined;
+  for (const entry of Object.values(myTalks)) {
+    if (entry.role !== 'created') continue;
+    if (String(entry.title || '').trim().toLowerCase() !== normalizedTitle) continue;
+    const fullTalk = entry.fullTalk || entry;
+    const questions: any[] = Array.isArray(fullTalk?.questions) ? fullTalk.questions : [];
+    const locationQuestion = questions.find((q: any) => q?.builtIn?.kind === 'location');
+    if (!locationQuestion) continue;
+    const { mySelfTag: ownTag } = effectiveTagContext(currentUserId, fullTalk, locationQuestion);
+    if (String(ownTag || 'general') !== normalizedTag) continue;
+    const authorLocation = fullTalk?.authorLocation;
+    const locationRadiusMiles = entry.locationRadiusMiles ?? fullTalk?.locationRadiusMiles;
+    if (!authorLocation || locationRadiusMiles == null) continue;
+    if (!best || entry.timestamp > best.timestamp) {
+      best = { timestamp: entry.timestamp, location: { authorLocation, locationRadiusMiles } };
+    }
+  }
+  return best?.location;
 }
 
 export function resolveAnswerPreferenceForTalkQuestion(
@@ -82,8 +124,18 @@ export function resolveAnswerPreferenceForTalkQuestion(
     // — mySelfTag is MY OWN declared side, counterpartCandidates[0] is the incoming talk's own
     // declared side (needed for the quantity want/have direction).
     const { mySelfTag, counterpartCandidates } = effectiveTagContext(currentUserId, talk, currentQuestion);
+    // §BB: only ever supply real location data when the user has explicitly opted in — omitting
+    // it when consent is withheld keeps resolveBuiltInQuestion's own missing-data ASK_USER
+    // fallback as the single source of truth for "not resolvable," rather than duplicating a
+    // consent check inside that (deliberately consent-agnostic, pure) function.
+    const locationContext = currentQuestion.builtIn?.kind === 'location' && getLocationAutoMatchConsent()
+      ? {
+          myLocation: myMostRecentLocationTalk(getMyTalks(), currentUserId, mySelfTag, talk?.title),
+          theirLocation: { authorLocation: talk?.authorLocation, locationRadiusMiles: talk?.locationRadiusMiles },
+        }
+      : {};
     const resolution = resolveBuiltInQuestion(
-      { myTag: mySelfTag, theirTag: counterpartCandidates[0], title: talk?.title },
+      { myTag: mySelfTag, theirTag: counterpartCandidates[0], title: talk?.title, ...locationContext },
       { builtIn: currentQuestion.builtIn, text: currentQuestion.text || '' },
       getTypedPreferenceState(),
       LOCAL_EXACT_CHATBOT_USER_ID,
@@ -431,16 +483,37 @@ export function tryBuildChatbotAnswersFromFlattened(
     return out;
   }
 
-  for (let i = 0; i < questions.length; i++) {
-    const q = questions[i];
-    const pref = resolveAnswerPreferenceForTalkQuestion(currentUserId, talkData, i, pairs, q, gunId);
-    if (!pref || pref.mode !== 'auto') return null;
-    if (pref.answerId === 'ignore') return null;
+  // Walk the real DAG (root -> nextQuestionId chains -> nextQuestionIds fan-out), not a flat
+  // `questions[]` array-order loop — the loop this replaced never followed either field, so it
+  // only ever happened to work by coincidence: every existing talk-generation path (the route
+  // DSL's `flattenRouteTree`, and flow's own linear authoring) always emits `questions[]` in a
+  // valid depth-first visit order already. It stopped being coincidentally correct for a
+  // fan-out talk whose parallel branches must each get their OWN ancestor-context `pairs` (not
+  // one shared list polluted by sibling branches) — found via docs/TODO.md §DD's Dating
+  // multi-gender rework, but the fix is general: any branching route needs this, not just
+  // Dating. `visitedQids` is a defensive cycle backstop only (route talks are validated as a
+  // DAG, `TalkValidator.validateDAGStructure`).
+  const byId = new Map(questions.map((q: any, i: number) => [q.id, { q, i }]));
+  const usesContextPath = questions.some((q: any) => Array.isArray(q.contextPath));
+  const root = usesContextPath
+    ? questions.find((q: any) => Array.isArray(q.contextPath) && q.contextPath.length === 0)
+    : questions[0];
+  if (!root) return null;
+
+  const visit = (q: any, branchPairs: QAPair[], visitedQids: Set<string>): boolean => {
+    if (visitedQids.has(q.id)) return false;
+    const entry = byId.get(q.id);
+    if (!entry) return false;
+    const pref = resolveAnswerPreferenceForTalkQuestion(currentUserId, talkData, entry.i, branchPairs, q, gunId);
+    if (!pref || pref.mode !== 'auto') return false;
+    if (pref.answerId === 'ignore') return false;
+    const nextVisited = new Set(visitedQids).add(q.id);
+
     if (pref.answerIds && pref.answerIds.length > 0) {
       // Spec §3.4 FR-QA-15/16, §30.8: every checked id must be a real option on this
       // question — same fail-safe spirit as the single-value lookup below.
       const allValid = pref.answerIds.every((id) => q.answers?.some((a: { id: string }) => a.id === id));
-      if (!allValid) return null;
+      if (!allValid) return false;
       out.push({
         questionId: q.id,
         answerId: pref.answerId,
@@ -448,32 +521,45 @@ export function tryBuildChatbotAnswersFromFlattened(
         answerText: pref.answerText,
         mode: 'auto',
       });
-      // docs/TODO.md §LL follow-up: mirrors `sessionAnswersToQAPairs`'s own exclusion — a
-      // Pair-tag question's (text, answer) differs by construction between independently-
-      // authored talks, so it's kept out of the path every later question's flattened lookup
-      // key is built from (see that function's doc comment for the full reasoning).
-      if (!q.reciprocalTagContext) {
-        pairs.push({
-          questionText: (q.text || '').trim(),
-          answerText: (pref.answerText || '').trim(),
-        });
-      }
-      continue;
+      // Multi-select is always chain-terminal (§30.8) — no nextQuestionId(s) of its own.
+      return true;
     }
+
     const ans = q.answers?.find((a: { id: string }) => a.id === pref.answerId);
-    if (!ans) return null;
+    if (!ans) return false;
     out.push({
       questionId: q.id,
       answerId: pref.answerId,
       answerText: pref.answerText,
       mode: 'auto',
     });
-    if (!q.reciprocalTagContext) {
-      pairs.push({
-        questionText: (q.text || '').trim(),
-        answerText: (pref.answerText || '').trim(),
-      });
+    // docs/TODO.md §LL follow-up: mirrors `sessionAnswersToQAPairs`'s own exclusion — a
+    // Pair-tag question's (text, answer) differs by construction between independently-
+    // authored talks, so it's kept out of the path every later question's flattened lookup
+    // key is built from (see that function's doc comment for the full reasoning).
+    const nextPairs = q.reciprocalTagContext
+      ? branchPairs
+      : [...branchPairs, { questionText: (q.text || '').trim(), answerText: (pref.answerText || '').trim() }];
+
+    if (Array.isArray(ans.nextQuestionIds) && ans.nextQuestionIds.length > 0) {
+      // Fan-out: visit every parallel child, each starting from the SAME ancestor context —
+      // whether enough of them individually "pass" is `checkIfMatch`/`evaluateRouteFanOutMatch`'s
+      // job afterward, not this walk's. A child that can't be auto-answered just isn't included
+      // in `out` — same "unanswered spec counts as not-passed" tolerance the fan-out scorer
+      // already has (talk-engine.test.ts), not a reason to abort the whole build.
+      for (const childId of ans.nextQuestionIds) {
+        const child = byId.get(childId)?.q;
+        if (child) visit(child, nextPairs, nextVisited);
+      }
+      return true;
     }
-  }
+    if (ans.nextQuestionId) {
+      const child = byId.get(ans.nextQuestionId)?.q;
+      if (child) return visit(child, nextPairs, nextVisited);
+    }
+    return true;
+  };
+
+  if (!visit(root, pairs, new Set())) return null;
   return out;
 }

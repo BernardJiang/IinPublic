@@ -122,8 +122,29 @@ function parseQuestionPromptText(subject: IncomingTalkFilterSubject): string[] {
   }
 }
 
+/**
+ * A route talk's parallel branches can legitimately reuse the same short question text (e.g.
+ * several Pair-tag branches all declaring the same author-side word paired with different
+ * accepted counterparts, docs/TODO.md §DD's Dating template) — several consecutive repeats of
+ * one short phrase reads as spam to the grammar heuristic below even though it's ordinary
+ * branching structure, not filler text. Deduplicated, case-insensitive, order-preserving (first
+ * occurrence kept) so the grammar check scores the talk's actual distinct content once each,
+ * not once per branch that happens to reuse a label.
+ */
+function dedupeCaseInsensitive(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const key = value.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
 function buildGrammarSubjectText(subject: IncomingTalkFilterSubject): string {
-  return [subject.title || '', ...parseQuestionPromptText(subject)].filter(Boolean).join('. ');
+  return [subject.title || '', ...dedupeCaseInsensitive(parseQuestionPromptText(subject))].filter(Boolean).join('. ');
 }
 
 /** Case-insensitive substring match against talk title + question/answer text. */

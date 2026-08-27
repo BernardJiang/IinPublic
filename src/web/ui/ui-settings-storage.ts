@@ -24,6 +24,21 @@ export function setChatbotEnabled(enabled: boolean): void {
   localStorage.setItem('chatbotEnabled', String(enabled));
 }
 
+/**
+ * docs/TODO.md §BB: one-time opt-in consent to let the chatbot auto-resolve a `location`
+ * builtIn question using this device's own blurred location — opt-IN (default false), unlike
+ * `chatbotEnabled`'s opt-out default, since this specifically governs an automated decision
+ * driven by location data. Precise location sharing is a separate, unrelated, still-manual-only
+ * feature untouched by this flag.
+ */
+export function getLocationAutoMatchConsent(): boolean {
+  return localStorage.getItem('locationAutoMatchConsent') === 'true';
+}
+
+export function setLocationAutoMatchConsent(consent: boolean): void {
+  localStorage.setItem('locationAutoMatchConsent', String(consent));
+}
+
 export function getUiLanguagePreference(defaultLanguage: UiLanguage = 'en'): UiLanguage {
   const stored = String(localStorage.getItem('iinpublic_ui_language') || '').toLowerCase();
   if (stored === 'en' || stored === 'zh') return stored;

@@ -6,30 +6,37 @@
  * real cross-browser test — 86/87/94's builtin specs only ever exercise the confident-auto-resolve
  * paths (both a match and a computed incompatible):
  *
- * 1. `location` is UNCONDITIONALLY ASK_USER — `resolveBuiltInQuestion` returns it before even
- *    looking at any stored preference (`if (builtIn.kind === 'location') return { action:
- *    'ASK_USER' };`). There is deliberately no auto-resolution to test "inside vs. outside
- *    radius" against yet — see the still-open "Design a privacy-safe source for the responder's
- *    blurred location/radius" bullet directly above this one in docs/TODO.md §BB. What's real and
- *    testable today is that a `location` builtIn question always falls back to a manual human
- *    decision, regardless of chatbot settings.
+ * 1. `location` is ASK_USER **by default** — `resolveBuiltInQuestion` returns it whenever the
+ *    caller doesn't supply both sides' location data, which only happens once the responder has
+ *    granted `locationAutoMatchConsent` (`ui-settings-storage.ts`) AND has a matching-scope talk
+ *    of their own carrying `authorLocation`/`locationRadiusMiles` — see the third test below for
+ *    the consent-granted auto-resolve path. Without consent (the default, opt-in posture), this
+ *    always requires a manual human decision, regardless of other chatbot settings.
  * 2. A `quantity`/`priceRange`/`timeFrame`/`ageRange` builtIn question also falls back to
  *    ASK_USER whenever the responder has no stored typed preference at all for that scope
  *    (`if (!myPref || myPref.kind !== builtIn.kind) return { action: 'ASK_USER' }`) — the
  *    ordinary case of receiving a builtIn question from someone you've never made a matching
  *    declaration of your own to.
  *
- * Both cases prove the SAME two things: no zero-click auto-answer/auto-conversation happens
- * (unlike 86's/87's/94's confident-match and confident-incompatible cases), and the safety net
- * still works end-to-end — the human can open the incoming talk and answer it manually, same as
- * any ordinary question.
+ * The first two tests prove the SAME two things: no zero-click auto-answer/auto-conversation
+ * happens (unlike 86's/87's/94's confident-match and confident-incompatible cases), and the
+ * safety net still works end-to-end — the human can open the incoming talk and answer it
+ * manually, same as any ordinary question. The third test proves the opt-in consent path itself:
+ * once granted, and once both sides have a matching-scope talk with location data, `location`
+ * auto-resolves the same zero-click way 86/87/94 already prove for the other typed kinds.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { bootstrapUser, waitForTabActive, openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
+import {
+  bootstrapUser,
+  waitForTabActive,
+  openIncomingTalkModal,
+  waitForResponseModalClosed,
+  pinStableE2eLocation,
+} from '../../helpers/talks-matching-flow';
 import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
@@ -92,6 +99,49 @@ async function enableChatbot(page: Page): Promise<void> {
   if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
+}
+
+async function enableLocationAutoMatchConsent(page: Page): Promise<void> {
+  await page.click('.nav-btn[data-view="settings"]');
+  await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
+  const consentCheckbox = page.locator('#settings-location-auto-match-consent');
+  if (!(await consentCheckbox.isChecked())) await consentCheckbox.click();
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+}
+
+/** Like `createBuiltInTalk` with kind='location', plus setting the talk-level location radius
+ *  (`#talk-location-radius`) — required for `locationsMutuallyContained` to have anything to
+ *  compare (default "Anywhere" carries no radius at all). */
+async function createLocationTalk(
+  page: Page,
+  title: string,
+  questionText: string,
+  tag: 'buy' | 'sell',
+  radiusMiles: string,
+): Promise<void> {
+  const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+  await page.click('#create-talk-btn');
+  await page.waitForSelector('#talk-editor-form');
+  await page.fill('#talk-title', title);
+  await page.selectOption('#talk-type', 'flow');
+
+  await page.click('#add-question-btn');
+  await fillPairTagQuestion(page, 0, tag, counterpartTag, 'q_1');
+  const q2 = page.locator('.question-item[data-question-index="1"]');
+  await q2.locator('.question-text').fill(questionText);
+  await q2.locator('.question-advanced').evaluate((el) => {
+    (el as HTMLDetailsElement).open = true;
+  });
+  await q2.locator('.builtin-kind').selectOption('location');
+  await afterAction();
+
+  await page.selectOption('#talk-location-radius', radiusMiles);
+  await page.locator('#talk-send-to-chatroom').setChecked(false);
+  await submitTalkEditorAndWaitForOut(page, title);
+  await expect(page.locator('#talk-validation-errors')).not.toBeVisible();
 }
 
 async function getCurrentUserId(page: Page): Promise<string> {
@@ -191,7 +241,7 @@ test.describe('Built-in question ASK_USER fallback to the human inbox (§BB)', (
     await expect.poll(() => hasConversationWith(pageAlice, bobId), { timeout: 20_000 }).toBe(true);
   });
 
-  test('a location builtin question is always unresolved automatically; manually answering still matches', async () => {
+  test('a location builtin question is not auto-resolved without consent; manually answering still matches', async () => {
     test.setTimeout(120_000);
     const runId = Date.now();
     const title = `Meetup Deal Location ${runId}`;
@@ -206,9 +256,11 @@ test.describe('Built-in question ASK_USER fallback to the human inbox (§BB)', (
 
     await createBuiltInTalk(pageAlice, title, questionText, 'location', 'buy');
 
-    // Both sides have chatbot enabled — location's ASK_USER is unconditional, so this must stay
-    // unresolved regardless, unlike the quantity/priceRange/timeFrame/ageRange kinds which DO
-    // auto-resolve once both sides have a matching stored preference (86/87/94).
+    // Both sides have chatbot enabled but NEITHER has granted locationAutoMatchConsent (the
+    // default, opt-in posture) — so this must stay unresolved regardless, unlike the
+    // quantity/priceRange/timeFrame/ageRange kinds which DO auto-resolve once both sides have a
+    // matching stored preference (86/87/94), and unlike the consent-granted case the third test
+    // below proves.
     await enableChatbot(pageAlice);
     await enableChatbot(pageBob);
 
@@ -228,6 +280,50 @@ test.describe('Built-in question ASK_USER fallback to the human inbox (§BB)', (
     await answerPairTagThenBuiltIn(pageBob);
     await afterSync();
 
+    await expect.poll(() => hasConversationWith(pageBob, aliceId), { timeout: 20_000 }).toBe(true);
+    await expect.poll(() => hasConversationWith(pageAlice, bobId), { timeout: 20_000 }).toBe(true);
+  });
+
+  test('with consent granted and a matching-scope talk on both sides, location auto-resolves with zero manual clicks', async () => {
+    test.setTimeout(120_000);
+    const runId = Date.now();
+    const title = `Meetup Deal LocationConsent ${runId}`;
+    const questionText = `Are you close enough to meet up? (${runId})`;
+
+    const alice = await bootstrapUser(browserAlice, 'Alice', 'AliceLocConsent');
+    contextAlice = alice.context;
+    pageAlice = alice.page;
+    const bob = await bootstrapUser(browserBob, 'Bob', 'BobLocConsent');
+    contextBob = bob.context;
+    pageBob = bob.page;
+
+    // Same pinned E2E coordinate for both — trivially within any nonzero radius, so this
+    // exercises the consent + scope-lookup wiring itself, not haversine distance math (already
+    // covered directly by built-in-question-resolution.test.ts's location unit tests).
+    await pinStableE2eLocation(pageAlice);
+    await pinStableE2eLocation(pageBob);
+
+    // Alice's "buy" talk gets broadcast; Bob's "sell" counterpart exists purely to seed
+    // myMostRecentLocationTalk's lookup (his own authorLocation/locationRadiusMiles for this
+    // (tag, title) scope) — same "counterpart talk exists but never broadcasts" pattern
+    // 87-price-overlap-buy-sell-match.spec.ts uses for typed preferences.
+    await createLocationTalk(pageAlice, title, questionText, 'buy', '10');
+    await createLocationTalk(pageBob, title, questionText, 'sell', '10');
+
+    await enableChatbot(pageAlice);
+    await enableChatbot(pageBob);
+    await enableLocationAutoMatchConsent(pageAlice);
+    await enableLocationAutoMatchConsent(pageBob);
+
+    const aliceId = await getCurrentUserId(pageAlice);
+    const bobId = await getCurrentUserId(pageBob);
+    expect(aliceId).toBeTruthy();
+    expect(bobId).toBeTruthy();
+
+    await broadcastTalk(pageAlice);
+
+    // No openIncomingTalkModal, no manual answering anywhere — resolveBuiltInQuestion resolves
+    // both directions purely from each side's own most-recent matching-scope talk's location.
     await expect.poll(() => hasConversationWith(pageBob, aliceId), { timeout: 20_000 }).toBe(true);
     await expect.poll(() => hasConversationWith(pageAlice, bobId), { timeout: 20_000 }).toBe(true);
   });

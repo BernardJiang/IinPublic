@@ -104,6 +104,7 @@ import {
   getCopyTalkAutoSave,
   getDefaultTalkLanguagePreference,
   getKeepOldTalkOnEdit,
+  getLocationAutoMatchConsent,
   getUiLanguagePreference,
   saveChatbotTemplate as storeChatbotTemplate,
   setChatbotEnabled,
@@ -111,6 +112,7 @@ import {
   setCopyTalkAutoSave,
   setDefaultTalkLanguagePreference,
   setKeepOldTalkOnEdit,
+  setLocationAutoMatchConsent,
   setUiLanguagePreference,
   type ColorScheme,
 } from './ui-settings-storage';
@@ -3467,6 +3469,11 @@ export class UIManager extends EventEmitter {
             <span>${this.t('settingsChatbot')}</span>
           </label>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
+            <input type="checkbox" id="settings-location-auto-match-consent" ${getLocationAutoMatchConsent() ? 'checked' : ''}>
+            <span>${this.t('settingsLocationAutoMatch')}</span>
+          </label>
+          <div style="font-size:0.82em;color:var(--text-tertiary);margin:2px 0 0 26px;">${this.t('settingsLocationAutoMatchNote')}</div>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
             <input type="checkbox" id="settings-keep-old-talk-on-edit" ${getKeepOldTalkOnEdit() ? 'checked' : ''}>
             <span>${this.t('settingsKeepOldTalkOnEdit')}</span>
           </label>
@@ -4267,6 +4274,9 @@ export class UIManager extends EventEmitter {
     });
     document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
       setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
+    });
+    document.getElementById('settings-location-auto-match-consent')?.addEventListener('change', (event) => {
+      setLocationAutoMatchConsent((event.currentTarget as HTMLInputElement).checked);
     });
     document.getElementById('settings-keep-old-talk-on-edit')?.addEventListener('change', (event) => {
       setKeepOldTalkOnEdit((event.currentTarget as HTMLInputElement).checked);

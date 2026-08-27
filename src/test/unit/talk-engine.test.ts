@@ -797,6 +797,84 @@ describe('checkIfMatch — Answer.nextQuestionIds fan-out (any-node generalizati
   });
 });
 
+describe('checkIfMatch — Pair-tag branch as a fan-out leaf (docs/TODO.md §DD follow-up, dating multi-value preference)', () => {
+  // Mirrors the reshaped Dating template's shape: a root fans out (threshold 1 — OR semantics,
+  // any ONE accepted gender is enough) into 3 independent single-answer reciprocalTagContext
+  // ("Pair tag") leaves, one per accepted gender. Each leaf's own answer-selection auto-proceeds
+  // unconditionally in the real app (answer-preference-resolution.ts's `reciprocalOnlyAnswer`
+  // shortcut) regardless of the responder's actual tag — so all 3 always arrive here already
+  // `isMatch: true`, and the veto has to happen in `evaluateRouteFanOutMatch` itself, not by
+  // trusting that flag.
+  const genderFanOutTalk: Talk = {
+    id: 'dating-gender-fanout',
+    title: 'Dating',
+    authorId: 'adam',
+    type: 'route',
+    isAdult: true,
+    language: 'en',
+    tags: [],
+    questions: [
+      {
+        id: 'q_root',
+        text: 'Root',
+        contextPath: [],
+        answers: [
+          { id: 'a_root', text: 'Continue', nextQuestionIds: ['q_male', 'q_female', 'q_nonbinary'], parallelMatchThreshold: 1 },
+        ],
+      },
+      {
+        id: 'q_male',
+        text: 'male',
+        contextPath: [{ questionId: 'q_root', answerId: 'a_root' }],
+        reciprocalTagContext: true,
+        answers: [{ id: 'a_male', text: 'male', isMatch: true, isTerminal: true }],
+      },
+      {
+        id: 'q_female',
+        text: 'male',
+        contextPath: [{ questionId: 'q_root', answerId: 'a_root' }],
+        reciprocalTagContext: true,
+        answers: [{ id: 'a_female', text: 'female', isMatch: true, isTerminal: true }],
+      },
+      {
+        id: 'q_nonbinary',
+        text: 'male',
+        contextPath: [{ questionId: 'q_root', answerId: 'a_root' }],
+        reciprocalTagContext: true,
+        answers: [{ id: 'a_nonbinary', text: 'non-binary', isMatch: true, isTerminal: true }],
+      },
+    ],
+    createdAt: new Date(),
+    isTemplate: false,
+    usageCount: 0,
+  } as any;
+
+  const genderFanOutAnswers = (): SubmittedAnswer[] => [
+    { questionId: 'q_root', answerId: 'a_root' },
+    { questionId: 'q_male', answerId: 'a_male' },
+    { questionId: 'q_female', answerId: 'a_female' },
+    { questionId: 'q_nonbinary', answerId: 'a_nonbinary' },
+  ];
+
+  it('matches when the responder\'s own tag equals exactly one of the fanned-out branches\' accepted answer', () => {
+    expect(checkIfMatch(genderFanOutTalk, genderFanOutAnswers(), 'female')).toBe(true);
+  });
+
+  it('does not match when the responder\'s own tag equals NONE of the fanned-out branches\' accepted answers — the real bug: without this fix, every branch\'s auto-proceeded isMatch:true would defeat the whole point of having several branches', () => {
+    expect(checkIfMatch(genderFanOutTalk, genderFanOutAnswers(), 'other')).toBe(false);
+  });
+
+  it('matches all 3 branches (permissive) when no responderSelfTag is supplied at all — same "nothing to veto" default checkIfMatch\'s own top-level veto uses', () => {
+    expect(checkIfMatch(genderFanOutTalk, genderFanOutAnswers(), undefined)).toBe(true);
+  });
+
+  it('is order-independent — branches submitted in a different order produce the identical result', () => {
+    const inOrder = genderFanOutAnswers();
+    const reordered = [inOrder[0], inOrder[3], inOrder[1], inOrder[2]];
+    expect(checkIfMatch(genderFanOutTalk, reordered, 'female')).toBe(checkIfMatch(genderFanOutTalk, inOrder, 'female'));
+  });
+});
+
 describe('TalkValidator — Answer.nextQuestionIds fan-out validation', () => {
   const baseQuestions = (productAnswerOverrides: Partial<Answer>): Talk['questions'] => [
     {

@@ -25,13 +25,17 @@
  * every item for sale, each item its own Simple tag whose one answer itself fans out into
  * independent Model/Condition/Price-range specs (the whole point of moving off flow's
  * 2-question shape — adding a 2nd/3rd item, or another spec per item, is just more fan-out).
- * For Dating, it also
- * proves the new `ageRange` built-in comparator (§DD) renders correctly nested inside the route
- * editor (a route-editor gap fixed alongside this change — `route-editor-controller.ts` didn't
- * support the `ageRange` kind before) plus the force-checked-and-disabled adult-content lock. It
- * does NOT re-prove the underlying Pair-tag + chatbot cross-talk matching mechanism (already
- * proven by 89-buy-sell-chatbot-cross-talk-match.spec.ts and the taxi spec) — only Dating's
- * genuinely new `ageRange` mechanism gets its own full match spec, 94-dating-agerange-match.spec.ts.
+ * Dating (§DD, reshaped 2026-08-26) is structurally similar but inverted: an `ageRange` built-in
+ * root — not a Pair-tag — asked first, whose Compatible outcome fans out (parallel, threshold 1)
+ * into 3 independent single-answer Pair-tag leaves, one per accepted gender — docs/TODO.md §DD's
+ * multi-value gender/race preference matching, modeled as several independent Pair-tag
+ * declarations rather than one Pair-tag with several answers. This spec proves both the
+ * `ageRange` built-in comparator renders correctly nested inside the route editor and that all 3
+ * fanned-out gender branches prefill correctly, plus the force-checked-and-disabled
+ * adult-content lock. It does NOT re-prove the underlying Pair-tag + chatbot cross-talk matching
+ * mechanism (already proven by 89-buy-sell-chatbot-cross-talk-match.spec.ts and the taxi spec)
+ * or the fan-out veto itself (unit-tested directly in talk-engine.test.ts) — see
+ * 96-dating-multi-gender-match.spec.ts for a real cross-browser proof of the reshaped template.
  * The 4 newer templates' prefills, and a customize+expand flow proving a template's DAG stays
  * fully editable (including growing a brand-new branch off an existing leaf) after picking it,
  * live in 85-talk-template-customize-and-expand.spec.ts.
@@ -144,27 +148,38 @@ test.describe('Talk template picker', () => {
     await page.locator('#cancel-talk-btn').click();
     await page.waitForSelector('#talk-editor-modal', { state: 'detached' });
 
-    // ── Dating (the one with the new ageRange built-in + forced adult lock) ─────────────
+    // ── Dating (age asked first, then 3 parallel Pair-tag gender branches fan out off its
+    // Compatible outcome — docs/TODO.md §DD's multi-value gender/race preference matching) ──
     await openPicker();
     await page.click('[data-testid="talk-template-dating"]');
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue('Dating');
-    await expect(page.locator('.route-question-text[data-qid="q_0"]')).toHaveValue('seeking women');
-    await expect(page.locator('.route-question-reciprocal-tag[data-qid="q_0"]')).toBeChecked();
-    await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a0"]')).toHaveValue('seeking men');
-    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('What are you looking for?');
-    await expect(page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_a0"]')).toHaveValue('Something casual');
-    await expect(page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_a1"]')).toHaveValue('Something serious');
-    // "Something serious" branches into its own ageRange node (q_3), independent of the
-    // "Something casual" branch's (q_2) — the goal-level fork the route shape now allows.
-    await expect(page.locator('.route-node-advanced[data-qid="q_3"]')).toHaveJSProperty('open', true);
-    await expect(page.locator('.route-question-text[data-qid="q_3"]')).toHaveValue('Age range');
-    await expect(page.locator('.route-builtin-kind[data-qid="q_3"]')).toHaveValue('ageRange');
-    await expect(page.locator('.route-builtin-agerange-age[data-qid="q_3"]')).toHaveValue('30');
-    await expect(page.locator('.route-builtin-agerange-min[data-qid="q_3"]')).toHaveValue('25');
-    await expect(page.locator('.route-builtin-agerange-max[data-qid="q_3"]')).toHaveValue('40');
+    await expect(page.locator('.route-node-advanced[data-qid="q_0"]')).toHaveJSProperty('open', true);
+    await expect(page.locator('.route-question-text[data-qid="q_0"]')).toHaveValue('Age range');
+    await expect(page.locator('.route-builtin-kind[data-qid="q_0"]')).toHaveValue('ageRange');
+    await expect(page.locator('.route-builtin-agerange-age[data-qid="q_0"]')).toHaveValue('28');
+    await expect(page.locator('.route-builtin-agerange-min[data-qid="q_0"]')).toHaveValue('21');
+    await expect(page.locator('.route-builtin-agerange-max[data-qid="q_0"]')).toHaveValue('45');
     await expect(page.locator('#talk-is-adult')).toBeChecked();
     await expect(page.locator('#talk-is-adult')).toBeDisabled();
+    // The age root's Compatible outcome fans out (parallel, threshold 1 — any ONE accepted
+    // gender is enough) into 3 independent Pair-tag branches, one per accepted gender, each
+    // followed by a trivial confirmation leaf (needed for the responder-tag veto to have
+    // something to run against — a bare Pair-tag leaf has nothing after it for the existing
+    // mid-tree veto mechanism to gate, see talk-templates.ts's own doc comment).
+    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('men');
+    await expect(page.locator('.route-question-reciprocal-tag[data-qid="q_1"]')).toBeChecked();
+    await expect(page.locator('.route-answer-text[data-qid="q_1"][data-aid="a_1_match"]')).toHaveValue('men');
+    await expect(page.locator('.route-question-text[data-qid="q_1c"]')).toHaveValue('Confirm: interested in men');
+    await expect(page.locator('.route-answer-text[data-qid="q_1c"][data-aid="a_1c_match"]')).toHaveValue('Yes');
+    await expect(page.locator('.route-question-text[data-qid="q_2"]')).toHaveValue('men');
+    await expect(page.locator('.route-question-reciprocal-tag[data-qid="q_2"]')).toBeChecked();
+    await expect(page.locator('.route-answer-text[data-qid="q_2"][data-aid="a_2_match"]')).toHaveValue('women');
+    await expect(page.locator('.route-question-text[data-qid="q_2c"]')).toHaveValue('Confirm: interested in women');
+    await expect(page.locator('.route-question-text[data-qid="q_3"]')).toHaveValue('men');
+    await expect(page.locator('.route-question-reciprocal-tag[data-qid="q_3"]')).toBeChecked();
+    await expect(page.locator('.route-answer-text[data-qid="q_3"][data-aid="a_3_match"]')).toHaveValue('non-binary people');
+    await expect(page.locator('.route-question-text[data-qid="q_3c"]')).toHaveValue('Confirm: interested in non-binary people');
     await page.locator('#cancel-talk-btn').click();
     await page.waitForSelector('#talk-editor-modal', { state: 'detached' });
 

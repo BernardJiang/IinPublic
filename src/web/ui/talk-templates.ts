@@ -301,42 +301,116 @@ function buildTutorTemplate(): any {
 }
 
 /**
- * §DD: the one template that needs the new `ageRange` built-in comparator
- * (`built-in-question-resolution.ts`) instead of a plain text final question — a relationship-
- * goal branch (Casual/Serious) fans out into its own ageRange node so each goal can carry its
- * own default age + acceptable range, and `isAdult` is pre-checked (also force-locked by
+ * §DD: age asked first (`ageRange` built-in comparator, `built-in-question-resolution.ts`), then
+ * its "Compatible" outcome fans out (parallel, `parallelMatchThreshold: 1` — OR semantics, any
+ * ONE accepted gender is enough) into 3 independent Pair-tag (`reciprocalTagContext`) branches,
+ * one per gender the author accepts — docs/TODO.md §DD's multi-value gender/race preference
+ * matching, modeled as several independent Pair-tag declarations rather than one Pair-tag with
+ * several answers (which would break the exact-text hash a Pair-tag match relies on — a single
+ * question can only ever have ONE accepted answer, `singleNonIgnoreAnswer`).
+ *
+ * Each branch is a Pair-tag question FOLLOWED BY a trivial confirmation leaf, not a bare
+ * Pair-tag leaf on its own — two real, empirically-found reasons, not just style:
+ * 1. A Pair-tag's own answer-selection auto-proceeds unconditionally regardless of the
+ *    responder's actual tag (`reciprocalOnlyAnswer`, answer-preference-resolution.ts) — the
+ *    real veto only runs on a question AFTER a Pair-tag ancestor
+ *    (`checkIfMatch`'s ancestor-aware veto / the chatbot's own PREFERENCE_CONFLICT gate,
+ *    exact-chatbot-memory.ts — both existing, already proven by every other Pair-tag talk, e.g.
+ *    buy/sell). A bare Pair-tag leaf has no such "question after it" for the veto to ever run
+ *    against, so it would silently accept every gender. Mirrors exactly how every other
+ *    Pair-tag talk in this file (Buy/Sell, Taxi, Job) is shaped — the Pair-tag is always
+ *    followed by more content, never a leaf on its own.
+ * 2. Each branch's confirmation-leaf text (distinct per branch: "Confirm: interested in
+ *    men"/"...women"/"...non-binary people") doubles as the SHARED, predictable topic label two
+ *    independently-authored talks both need to ask about for chatbot auto-matching to find each
+ *    other at all — the exact same role "What model?"/"What price range?" plays in Buy/Sell.
+ *    The 3 branches' OWN `myGender` text is deliberately left identical across all 3 (plain
+ *    "men", not disambiguated) — `checkIfMatch`'s veto needs it to equal EXACTLY the literal
+ *    word an author's own counterpart talk declares (see `myGender`'s own note below), so
+ *    nothing may be appended to it. 3 identical short question texts in one talk used to trip
+ *    the mesh delivery intake filter's grammar/spam heuristic before matching ever ran
+ *    (`intakeFilterRejectReasons`/`intake_grammar`, talk-intake-filters.ts) — fixed at the
+ *    source, in how that filter's subject text is built (`buildGrammarSubjectText` now
+ *    deduplicates repeated question text — a route talk's parallel branches legitimately
+ *    reusing a short label isn't spam), not by distorting this template's data to route around
+ *    a false positive in a filter every OTHER talk relies on too.
+ *
+ * Hand-built (not `buildRouteTalk`/`RouteQuestionSpec`) because the DSL's `builtIn` variant
+ * always leaves `answers: []` for `TalkAutofix.fix` to synthesize — it has no way to also attach
+ * a `parallel` fan-out to the synthesized "Compatible" outcome. Answer ids on the root follow
+ * `TalkAutofix`'s own `${questionId}_compatible`/`${questionId}_incompatible` convention exactly
+ * (`pickBuiltInAnswer`, built-in-question-resolution.ts, looks them up by that exact shape) —
+ * providing them here (non-empty `answers`) makes `TalkAutofix.fix` skip synthesis entirely and
+ * defer to what's supplied, same as if the editor's "+ Add child" button had authored this
+ * fan-out by hand (`92-route-shared-builtin-root-branches.spec.ts` proves a builtIn root can
+ * already carry a child this way). `isAdult` is pre-checked (also force-locked by
  * `TalkAutofix.fix`, talk-engine.ts, and by `syncAdultLockFromBuiltInKinds` scanning the route
  * editor's own `.route-builtin-kind` selects, regardless of what the editor UI does or doesn't
  * otherwise enforce).
+ *
+ * `myGender` defaults to "men" for all 3 branches — deliberately drawn from the SAME 3-word
+ * vocabulary ("men"/"women"/"non-binary people") the `acceptedGender` side uses, not a
+ * different word like "male": a responder's own counterpart talk must declare `myGender` using
+ * literally the word this or any other author's talk accepts (`checkIfMatch`'s veto is exact-text
+ * — see `92`'s buy/sell precedent needing "buy"/"sell" on both sides, not synonyms), so keeping
+ * both roles in one shared vocabulary is what makes swapping the default an obvious, correct
+ * edit rather than a subtle trap. The author is expected to edit it when the default doesn't
+ * apply — same as every other template's placeholder text (e.g. Buy/Sell's item names) is
+ * expected to be customized, not used verbatim by everyone.
  */
 function buildDatingTemplate(): any {
-  const ageRangeNode = (age: number, min: number, max: number): RouteQuestionSpec => ({
-    text: 'Age range',
-    builtIn: { kind: 'ageRange', ageRange: { age, acceptableRange: { min, max } } },
-    answers: [],
-  });
-
-  return buildRouteTalk(
-    'Dating',
+  const genderBranch = (
+    id: string,
+    confirmId: string,
+    answerId: string,
+    confirmAnswerId: string,
+    myGender: string,
+    acceptedGender: string,
+  ): any[] => [
     {
-      text: 'seeking women',
+      id,
+      text: myGender,
+      contextPath: [{ questionId: 'q_0', answerId: 'q_0_compatible' }],
       reciprocalTagContext: true,
-      answers: [
-        {
-          text: 'seeking men',
-          next: {
-            text: 'What are you looking for?',
-            answers: [
-              { text: 'Something casual', next: ageRangeNode(28, 21, 35) },
-              { text: 'Something serious', next: ageRangeNode(30, 25, 40) },
-            ],
-          },
-        },
-        { text: 'Not interested', isIgnore: true },
-      ],
+      answers: [{ id: answerId, text: acceptedGender, nextQuestionId: confirmId }],
     },
-    true,
-  );
+    {
+      id: confirmId,
+      text: `Confirm: interested in ${acceptedGender}`,
+      contextPath: [
+        { questionId: 'q_0', answerId: 'q_0_compatible' },
+        { questionId: id, answerId },
+      ],
+      answers: [{ id: confirmAnswerId, text: 'Yes', isMatch: true, isTerminal: true }],
+    },
+  ];
+
+  return {
+    type: 'route',
+    title: 'Dating',
+    isAdult: true,
+    questions: [
+      {
+        id: 'q_0',
+        text: 'Age range',
+        contextPath: [],
+        builtIn: { kind: 'ageRange', ageRange: { age: 28, acceptableRange: { min: 21, max: 45 } } },
+        answers: [
+          {
+            id: 'q_0_compatible',
+            text: 'Compatible',
+            isMatch: true,
+            nextQuestionIds: ['q_1', 'q_2', 'q_3'],
+            parallelMatchThreshold: 1,
+          },
+          { id: 'q_0_incompatible', text: 'Not compatible', isIgnore: true, isTerminal: true },
+        ],
+      },
+      ...genderBranch('q_1', 'q_1c', 'a_1_match', 'a_1c_match', 'men', 'men'),
+      ...genderBranch('q_2', 'q_2c', 'a_2_match', 'a_2c_match', 'men', 'women'),
+      ...genderBranch('q_3', 'q_3c', 'a_3_match', 'a_3c_match', 'men', 'non-binary people'),
+    ],
+  };
 }
 
 export const TALK_TEMPLATES: TalkTemplateDefinition[] = [
