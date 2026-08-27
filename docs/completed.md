@@ -1,6 +1,44 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-24
+Last updated: 2026-08-26
+
+## 2026-08-26 — X8 same-device linking E2E; found+fixed an embedded-node hub-peer env leak
+
+Enabled and passed `tests/e2e/cross-platform/x8-same-device-link.spec.ts` (TODO §I): a real
+`dist/server/node-app/embedded-node.js` process (the same model every desktop/mobile shell runs)
+stands in for "the app," a normal Playwright browser context stands in for "the browser," and the
+spec drives the full mutual identity-link protocol between them, with the responder side opening
+its code via a real navigation to the loopback `#link=<code>` fragment URL — the same URL the
+"Link with the app on this computer" button's `window.open(...)` produces — instead of typing it.
+Covers both the happy path (mutual link completes, both sides independently converge to "Linked")
+and the one-time-code reuse rejection. Not exercised: the loopback-button auto-discovery itself
+(`probeLoopbackNode()`'s hardcoded port 8080 collides with this test harness's own port
+convention) — that stays unit-covered (`linked-devices-dialog.test.ts`).
+
+Building it surfaced a real, pre-existing bug: `resolveUpstreamHubPeers`
+(`src/server/bootstrap/http-bootstrap.ts`) short-circuits to `[]` whenever
+`E2E_GUN_MEMORY_ONLY`/`DEV_GUN_FRESH` is set, before it even looks at `hubRelayMode` — those flags
+exist to keep the *worker's own* Gun server isolated between parallel test runs, but a plain
+`...process.env` spread when spawning the embedded-node child process also leaks them in, silently
+zeroing the embedded node's upstream peers regardless of `IINPUBLIC_HUB_GUN_URL`. This was also
+silently breaking the pre-existing `tests/e2e/embedded-node/01-browser-and-embedded-node-peer.spec.ts`
+(S3) the same way. Fixed in both specs: the two isolation env vars are explicitly stripped from the
+spawned child's env (with `TLS_DISABLE=1` taking back over the plaintext-test-mode duty
+`E2E_GUN_MEMORY_ONLY` was also incidentally gating in `tls-mode.ts`), and
+`IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` is set explicitly so the child dials a real raw Gun peer
+link instead of the production-default `explicit-http` HTTP relay.
+
+That default relay mode is itself a second, separate finding, left open: `explicit-http` only
+relays a narrow allowlist (`relayOnlyDataClasses: ['discovery', 'signaling', 'presence',
+'room-membership']`, `p2p-runtime.ts`) between an embedded node and the hub — `identity-link-requests`
+isn't in it, and neither, apparently, is whatever S3's mesh talk-cluster delivery needs (S3 now
+gets further — past cluster delivery — but still fails at chatroom-member-count sync, a separate,
+not-yet-diagnosed gap; a CSP violation loading the embedded node's Gun worker bridge script was
+also observed but not chased). Whether same-device linking and mesh talk delivery actually work
+end to end on a real native shell under the *production-default* relay mode is therefore still an
+open question — X8's `gun-peer` override is a test-only workaround for getting a real second
+same-machine instance, not proof of the production path. See both specs' file-header comments and
+docs/TODO.md §I for the fuller writeup.
 
 ## 2026-08-24 — UIManager decomposition cluster #4: answer preferences
 

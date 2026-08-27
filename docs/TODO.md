@@ -1,9 +1,9 @@
 # IinPublic TODO
 
-Last reconciled: 2026-08-23 (Smaller-independent-work batch landed — see docs/completed.md;
-S1/S2 moved 2026-08-22, Priority 1 clear; §I peer-detail badge, §I same-device shortcuts, and
-§J encrypted handoff transfer landed — Priority 2's remaining open items are all blocked on
-native-shell CI runners not yet connected, Priority 3)
+Last reconciled: 2026-08-26 (§I X8 same-device linking E2E landed, plus a real
+embedded-node hub-peer env-leak fix — see docs/completed.md; surfaced a new open question about
+the production-default embedded-node relay allowlist, noted under §I. X3 remains the only
+Priority 2 item still blocked on native-shell CI runners, Priority 3.)
 
 This file contains active work only. Completed implementation history is in
 `docs/completed.md`; product requirements and design decisions are authoritative in
@@ -73,9 +73,20 @@ This file contains active work only. Completed implementation history is in
   do with this change. Covered by `identity-link-fragment.test.ts` (10 tests), `loopback-probe.test.ts`
   (8 tests), and new cases in `linked-devices-dialog.test.ts` (prefill, paste, copy-link,
   loopback-button visibility).
-- [ ] Enable and pass X3 website↔app and X8 same-device linking E2E scenarios. X8's loopback
-  half is now real (not a stub) but unverified end-to-end — needs two same-machine instances
-  (a normal browser context + an embedded-node instance) driven together in one spec.
+- [x] Enable and pass X8 same-device linking E2E. **Landed 2026-08-26** — see
+  `docs/completed.md`. Also found+fixed a real `E2E_GUN_MEMORY_ONLY`/`DEV_GUN_FRESH` env-leak
+  bug that was silently zeroing the embedded-node child's upstream Gun peers (affected the
+  pre-existing S3 embedded-node spec too). **New known gap surfaced by this work:** the
+  production-default embedded-node relay mode (`explicit-http`) only relays a narrow allowlist
+  (discovery/signaling/presence/room-membership) between a native shell and the hub —
+  `identity-link-requests` isn't in it, so whether same-device linking (or mesh talk delivery,
+  which S3 also needs) actually completes on a real native shell talking to the real public hub
+  is still open; X8 forces `IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` as a test-only workaround, not
+  proof of the production path. Needs a dedicated look at whether `identity-link-requests` (and
+  whatever S3 needs) should join the relay allowlist, or whether same-device linking should
+  instead lean on LAN discovery to bypass the hub restriction entirely.
+- [ ] X3 website↔app remains skipped — needs a real native-shell CI runner (Priority 3), not a
+  same-machine mechanism gap like X8 was.
 
 ### J. Sync-then-erase
 
