@@ -2,6 +2,27 @@
 
 Last updated: 2026-08-26
 
+## 2026-08-26 — §BB: E2E coverage for `resolveBuiltInQuestion`'s ASK_USER fallback
+
+New `tests/e2e/staged/stage2-two-user/95-builtin-ask-user-fallback.spec.ts` closes docs/TODO.md
+§BB's last open bullet ("Add E2E cases for location outside either radius and missing preference
+falling to the human inbox"). Prior builtin specs (86, 87, 94) only ever exercised
+`resolveBuiltInQuestion`'s confident paths (a computed match, a computed incompatible); this adds
+the two ways it instead falls back to `ASK_USER`:
+
+1. A `quantity` builtin question where the responder has no stored typed preference at all for
+   that scope — unlike 86's seller side, Bob never authors a matching complementary talk.
+2. `location`, which is unconditionally `ASK_USER` before `resolveBuiltInQuestion` even looks at
+   any preference — there's no auto-resolution to test "inside vs. outside radius" against yet
+   (that's the still-open, deliberately-unimplemented location-auto-resolution design bullet
+   directly above this one in §BB).
+
+Both cases assert no auto-conversation forms even with chatbot enabled on both sides, then that
+the human inbox path still actually works — the responder can open the incoming talk and answer
+both the Pair-tag question and the builtin question manually (flow talks auto-advance to the next
+question on radio selection, no separate "Continue" button unlike a route talk's branch preview)
+to produce a real match. Confirms the fallback is a genuine safety net, not a silent drop.
+
 ## 2026-08-26 — X8 same-device linking E2E; found+fixed an embedded-node hub-peer env leak
 
 Enabled and passed `tests/e2e/cross-platform/x8-same-device-link.spec.ts` (TODO §I): a real

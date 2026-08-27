@@ -179,10 +179,10 @@ match.spec.ts`) — a `type: 'route'` talk turned out unnecessary for that case;
   see `docs/completed.md`.
 - [x] Support talk-level shared time/location questions before route item branches. **Landed
   2026-08-23** — see `docs/completed.md`.
-- [ ] Add E2E cases for location outside either radius and missing preference falling to the
-  human inbox. (Real cross-browser route matching is now covered —
-  `stage2-two-user/92-route-shared-builtin-root-branches.spec.ts` — though not yet the
-  location-specific edge cases.)
+- [x] Add E2E cases for missing preference and `location`'s unconditional-ASK_USER fallback to
+  the human inbox. **Landed 2026-08-26** — see `docs/completed.md`.
+  `stage2-two-user/95-builtin-ask-user-fallback.spec.ts`. (Real cross-browser route matching is
+  covered separately — `stage2-two-user/92-route-shared-builtin-root-branches.spec.ts`.)
 
 ### DD. Generalized dating matching
 
