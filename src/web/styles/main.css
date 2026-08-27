@@ -870,9 +870,12 @@ button:focus:not(:focus-visible) {
   white-space: nowrap;
 }
 
-.app-download-banner-muted {
-  opacity: 0.85;
-  white-space: nowrap;
+.app-download-banner-see-options {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
 }
 
 .app-download-banner-dismiss {

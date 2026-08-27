@@ -486,8 +486,13 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.answer-next').first().locator('option[value="noticed"]')).toHaveText('注意到（匹配）');
     await p.locator('input[name="talk-type-radio"][value="route"]').check();
     await expect(p.locator('#talk-editor-modal')).toContainText('路线（分支图编辑器）');
-    await expect(p.locator('.route-answer-kind').first()).toHaveText('匹配');
-    await expect(p.locator('.route-answer-kind').nth(1)).toHaveText('忽略');
+    // A fresh route question seeds exactly 1 default answer (Match — no auto "Ignore", a
+    // responder always has their own universal decline regardless of the talk's own answers)
+    // rendered as an editable kind `<select>`, not a fixed badge; both localized option labels
+    // are still verified via the same select.
+    await expect(p.locator('.route-answer-kind-select').first()).toHaveValue('match');
+    await expect(p.locator('.route-answer-kind-select').first().locator('option[value="match"]')).toHaveText('匹配');
+    await expect(p.locator('.route-answer-kind-select').first().locator('option[value="ignore"]')).toHaveText('忽略');
     await expect(p.locator('.route-question-text').first()).toHaveAttribute('placeholder', '问题（以 ? 结尾）');
     await expect(p.locator('.route-answer-text').first()).toHaveAttribute('placeholder', '答案内容（例如：是。）');
     // The match answer starts blank and mirrors the question text as the author types it

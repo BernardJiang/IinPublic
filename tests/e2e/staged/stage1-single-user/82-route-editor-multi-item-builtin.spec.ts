@@ -51,17 +51,21 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     await page.selectOption('#talk-type', 'route');
     await expect(page.locator('#route-editor')).toBeVisible();
 
-    // Root question, repurposing the 2 default seeded answers (a_0_match / a_0_ignore) as the
-    // 2 item choices — clicking "add child" on each converts it from match/ignore into a link.
+    // Root question. The blank editor seeds exactly 1 default answer (a_0_match, no more
+    // auto-seeded "Ignore" — a responder always has their own universal decline regardless of
+    // what the talk offers, route-editor-model.ts), so "+ Add Answer" adds the 2nd item choice
+    // (defaults to Match too; deterministic id q_0_a1). Clicking "add child" on each converts it
+    // from an outcome (match/ignore) into a link.
     await page.locator('.route-question-text[data-qid="q_0"]').fill('Which item are you interested in?');
+    await page.locator('.route-add-answer-btn[data-qid="q_0"]').click();
     await page.locator('.route-answer[data-qid="q_0"][data-aid="a_0_match"] .route-add-child-btn').click();
-    await page.locator('.route-answer[data-qid="q_0"][data-aid="a_0_ignore"] .route-add-child-btn').click();
+    await page.locator('.route-answer[data-qid="q_0"][data-aid="q_0_a1"] .route-add-child-btn').click();
     await page.locator('.route-answer-text[data-qid="q_0"][data-aid="a_0_match"]').fill('Notebook');
-    await page.locator('.route-answer-text[data-qid="q_0"][data-aid="a_0_ignore"]').fill('Pen');
+    await page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a1"]').fill('Pen');
 
     // Both children are now "Link" kind, not Match/Ignore — the promotion cleared those flags.
     await expect(page.locator('.route-answer[data-qid="q_0"][data-aid="a_0_match"] .route-answer-kind')).toHaveText('Next question');
-    await expect(page.locator('.route-answer[data-qid="q_0"][data-aid="a_0_ignore"] .route-answer-kind')).toHaveText('Next question');
+    await expect(page.locator('.route-answer[data-qid="q_0"][data-aid="q_0_a1"] .route-answer-kind')).toHaveText('Next question');
 
     // Advanced fields (builtIn kind + its typed inputs) live inside a collapsed <details> by
     // default (progressive disclosure, ui-manager.ts's renderRouteEditor) — open a node's before
@@ -102,7 +106,7 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('.route-question-text[data-qid="q_0"]')).toHaveValue('Which item are you interested in?');
     await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="a_0_match"]')).toHaveValue('Notebook');
-    await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="a_0_ignore"]')).toHaveValue('Pen');
+    await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a1"]')).toHaveValue('Pen');
     await expect(page.locator('.route-answer[data-qid="q_0"][data-aid="a_0_match"] .route-answer-kind')).toHaveText('Next question');
 
     await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('How many notebooks do you have?');

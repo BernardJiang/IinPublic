@@ -80,7 +80,6 @@ describe('UIManager route-editor characterization', () => {
           },
         ],
       },
-      'Ignore.',
     );
 
     expect(questions[0].answers[0]).toMatchObject({

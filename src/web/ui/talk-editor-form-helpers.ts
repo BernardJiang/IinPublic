@@ -375,9 +375,9 @@ export function applyAnswerSelectionModeToQuestion(questionItem: HTMLElement, mo
 export function syncAdultLockFromBuiltInKinds(root: ParentNode): void {
   const adultCheckbox = root.querySelector('#talk-is-adult') as HTMLInputElement | null;
   if (!adultCheckbox) return;
-  const hasAgeRange = Array.from(root.querySelectorAll<HTMLSelectElement>('.builtin-kind')).some(
-    (select) => select.value === 'ageRange',
-  );
+  const hasAgeRange = Array.from(
+    root.querySelectorAll<HTMLSelectElement>('.builtin-kind, .route-builtin-kind'),
+  ).some((select) => select.value === 'ageRange');
   if (hasAgeRange) {
     adultCheckbox.checked = true;
     adultCheckbox.disabled = true;

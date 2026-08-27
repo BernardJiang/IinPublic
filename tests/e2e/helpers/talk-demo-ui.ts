@@ -641,9 +641,10 @@ export type UiRouteNodeSpec = {
   text: string;
   answers: UiRouteAnswerSpec[];
   /** docs/TODO.md §LL follow-up: checks the editor's per-question `.route-question-reciprocal-
-   *  tag` checkbox — only meaningful (matching engine side) with exactly one non-`ignore`
-   *  answer, i.e. a single `{child}` or `{outcome:'match'}` answer alongside the seeded
-   *  `{outcome:'ignore'}` default; no special answer count needed. */
+   *  tag` checkbox — only meaningful (matching engine side) with exactly one non-ignore answer,
+   *  i.e. a single `{child}` or `{outcome:'match'}` answer alongside an `{outcome:'ignore'}`
+   *  one added explicitly (no special answer count needed; a fresh node only auto-seeds the one
+   *  match answer). */
   reciprocalTagContext?: boolean;
   /** Checks the editor's per-question `.route-question-simple-tag` checkbox — mutually
    *  exclusive with `reciprocalTagContext`. Freezes the node's one real answer to mirror the
@@ -670,9 +671,13 @@ export type CreateRouteTalkViaEditorOpts = {
  * "add child" click rather than predicted from the app's internal question-count counter, so
  * this stays correct even if that internal numbering ever changes.
  *
- * A freshly-opened route editor seeds every question with exactly 2 answers, ids
- * `${qid}_match`/`${qid}_ignore` — matching `node.answers[0]`/`node.answers[1]`. A 3rd+ answer
- * (via "+ Add Answer") gets id `${qid}_a${index}` (`renderRouteEditor`'s add-answer handler).
+ * A freshly-opened route editor seeds every question with exactly 1 default answer — id
+ * `a_0_match` for the root, `${qid}_match` for any other node (no auto-seeded "Ignore"; a
+ * responder always has their own universal decline regardless of the talk's own answers,
+ * talk-response-dialog.ts) — matching `node.answers[0]`. Every other answer (via "+ Add
+ * Answer") gets id `${qid}_a${index}` (`renderRouteEditor`'s add-answer handler) and defaults
+ * to Match too, so this always explicitly sets each terminal answer's Match/Ignore kind via
+ * its `.route-answer-kind-select` rather than relying on any positional default.
  */
 export async function createRouteTalkViaEditor(
   page: Page,
@@ -719,25 +724,21 @@ export async function createRouteTalkViaEditor(
       });
       await page.locator(`.route-question-reciprocal-tag[data-qid="${qid}"]`).setChecked(true, { force: true });
     }
-    for (let i = 2; i < node.answers.length; i++) {
+    for (let i = 1; i < node.answers.length; i++) {
       await page.locator(`.route-add-answer-btn[data-qid="${qid}"]`).click();
     }
     for (let i = 0; i < node.answers.length; i++) {
-      // The seeded root's first two answers keep the editor's original `a_0_*` naming (from
-      // before per-question child ids existed); every other node — and the root's own 3rd+
-      // answer, added via "+ Add Answer" same as any other node — uses `${qid}_*`.
-      const aid =
-        qid === 'q_0' && i === 0
-          ? 'a_0_match'
-          : qid === 'q_0' && i === 1
-            ? 'a_0_ignore'
-            : i === 0
-              ? `${qid}_match`
-              : i === 1
-                ? `${qid}_ignore`
-                : `${qid}_a${i}`;
+      // Only the 1st answer is auto-seeded (the root keeps the editor's original `a_0_match`
+      // naming from before per-question child ids existed; every other node uses
+      // `${qid}_match`) — every other answer, added via "+ Add Answer" above, uses `${qid}_a${i}`.
+      const aid = i === 0 ? (qid === 'q_0' ? 'a_0_match' : `${qid}_match`) : `${qid}_a${i}`;
       const spec = node.answers[i]!;
       await page.locator(`.route-answer-text[data-qid="${qid}"][data-aid="${aid}"]`).fill(spec.text);
+      if ('outcome' in spec) {
+        // Every answer defaults to Match now (no auto "Ignore") — set the kind explicitly
+        // rather than relying on position, since a designed Ignore branch still needs one.
+        await page.locator(`.route-answer-kind-select[data-qid="${qid}"][data-aid="${aid}"]`).selectOption(spec.outcome);
+      }
       if ('child' in spec) {
         const childId = await addChildAndGetId(qid, aid);
         await fillNode(childId, spec.child);

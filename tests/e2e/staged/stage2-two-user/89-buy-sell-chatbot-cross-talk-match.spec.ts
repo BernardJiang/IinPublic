@@ -165,30 +165,42 @@ async function createMultiSpecRouteTalk(page: Page, opts: MultiSpecRouteTalkOpts
   await expect(page.locator('#route-editor')).toBeVisible();
 
   // Root: 3 independent specs (Model / Condition / Capacity), each its own sibling branch —
-  // not chained to one another. Seeded with 2 answers; add a 3rd for the 3rd spec.
+  // not chained to one another. A fresh question only seeds 1 default answer (a_0_match, no
+  // auto "Ignore" — route-editor-model.ts), so 2 "+ Add Answer" clicks get the other 2 specs.
   await page.locator('.route-question-text[data-qid="q_0"]').fill(`${opts.title} — independent specs`);
-  await page.locator('.route-add-answer-btn[data-qid="q_0"]').click();
+  await page.locator('.route-add-answer-btn[data-qid="q_0"]').click(); // -> q_0_a1
+  await page.locator('.route-add-answer-btn[data-qid="q_0"]').click(); // -> q_0_a2
   await page.locator('.route-answer-text[data-qid="q_0"][data-aid="a_0_match"]').fill('Model');
-  await page.locator('.route-answer-text[data-qid="q_0"][data-aid="a_0_ignore"]').fill('Condition');
+  await page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a1"]').fill('Condition');
   await page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a2"]').fill('Capacity');
   await page.locator('.route-add-child-btn[data-qid="q_0"][data-aid="a_0_match"]').click(); // -> q_1 (Model)
-  await page.locator('.route-add-child-btn[data-qid="q_0"][data-aid="a_0_ignore"]').click(); // -> q_2 (Condition)
+  await page.locator('.route-add-child-btn[data-qid="q_0"][data-aid="q_0_a1"]').click(); // -> q_2 (Condition)
   await page.locator('.route-add-child-btn[data-qid="q_0"][data-aid="q_0_a2"]').click(); // -> q_3 (Capacity)
 
-  // q_1: Model spec — leaf, yes/no.
+  // q_1: Model spec — leaf, yes/no. Same "1 default answer, add a 2nd" shape as the root — but
+  // unlike the root's answers (promoted to links, so their match/ignore flag never matters), a
+  // leaf's own "No" answer must actually BE the mismatch outcome: a freshly added answer
+  // defaults to Match (route-editor-controller.ts), so it needs an explicit flip to Ignore via
+  // the kind select next to it.
   await page.locator('.route-question-text[data-qid="q_1"]').fill(opts.modelQuestion);
+  await page.locator('.route-add-answer-btn[data-qid="q_1"]').click(); // -> q_1_a1
   await page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_match"]').fill('Yes');
-  await page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_ignore"]').fill('No');
+  await page.locator('.route-answer-text[data-qid="q_1"][data-aid="q_1_a1"]').fill('No');
+  await page.locator('.route-answer-kind-select[data-qid="q_1"][data-aid="q_1_a1"]').selectOption('ignore');
 
   // q_2: Condition spec — leaf, yes/no ("used").
   await page.locator('.route-question-text[data-qid="q_2"]').fill('Is it used?');
+  await page.locator('.route-add-answer-btn[data-qid="q_2"]').click(); // -> q_2_a1
   await page.locator('.route-answer-text[data-qid="q_2"][data-aid="q_2_match"]').fill('Yes, used');
-  await page.locator('.route-answer-text[data-qid="q_2"][data-aid="q_2_ignore"]').fill('No');
+  await page.locator('.route-answer-text[data-qid="q_2"][data-aid="q_2_a1"]').fill('No');
+  await page.locator('.route-answer-kind-select[data-qid="q_2"][data-aid="q_2_a1"]').selectOption('ignore');
 
   // q_3: Capacity spec — leaf, yes/no.
   await page.locator('.route-question-text[data-qid="q_3"]').fill(opts.capacityQuestion);
+  await page.locator('.route-add-answer-btn[data-qid="q_3"]').click(); // -> q_3_a1
   await page.locator('.route-answer-text[data-qid="q_3"][data-aid="q_3_match"]').fill('Yes');
-  await page.locator('.route-answer-text[data-qid="q_3"][data-aid="q_3_ignore"]').fill('No');
+  await page.locator('.route-answer-text[data-qid="q_3"][data-aid="q_3_a1"]').fill('No');
+  await page.locator('.route-answer-kind-select[data-qid="q_3"][data-aid="q_3_a1"]').selectOption('ignore');
 
   // Require all 3 specs — exact match only.
   await page.fill('#talk-match-threshold', '3');

@@ -33,7 +33,6 @@ type ExistingRouteTalk = Pick<Talk, 'type' | 'questions'>;
  */
 export function initializeRouteEditorQuestions(
   existingTalk: ExistingRouteTalk | null | undefined,
-  defaultIgnoreText: string,
 ): RouteEditorQuestion[] {
   if (existingTalk?.type === 'route' && Array.isArray(existingTalk.questions)) {
     return existingTalk.questions.map((question) => ({
@@ -66,15 +65,17 @@ export function initializeRouteEditorQuestions(
     }));
   }
 
+  // No auto-seeded "Ignore" answer — a responder always has their own universal decline
+  // option regardless of what the talk itself offers (talk-response-dialog.ts's dedicated
+  // "Ignore" row), so the author only needs to author the outcomes they actually want to
+  // design (typically Match, or a link onward); an explicit Ignore answer is still just an
+  // ordinary answer they can add and mark themselves when they want one.
   return [
     {
       id: 'q_0',
       text: '',
       parentAnswer: null,
-      answers: [
-        { id: 'a_0_match', text: '', isMatch: true, isTerminal: true },
-        { id: 'a_0_ignore', text: defaultIgnoreText, isIgnore: true, isTerminal: true },
-      ],
+      answers: [{ id: 'a_0_match', text: '', isMatch: true, isTerminal: true }],
       matchAnswerDirty: false,
     },
   ];
