@@ -1,7 +1,7 @@
 /**
  * Settings tab drill-down. Every section renders through the shared `renderSettingsSection()`
  * helper (one `<div class="settings-section">` wrapper with a static title/subtitle header,
- * instead of 9 copy-pasted inline-style `<section>` blocks), and the tab itself is a menu-first
+ * instead of copy-pasted inline-style `<section>` blocks), and the tab itself is a menu-first
  * drill-down — tapping a menu item hides the menu and every other section, leaving just that
  * one section + a back button (#back-to-settings-menu) — same list-then-detail pattern as
  * Chatrooms/Contacts. This test verifies the wrapper landed everywhere (no leftover ad hoc
@@ -44,10 +44,10 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
 
     // No leftover ad hoc <section> markup — every top-level block is the shared wrapper.
     await expect(page.locator('#settings-content section')).toHaveCount(0);
-    // All 11 sections are rendered up front (stable DOM identity across a menu/detail switch) —
-    // just not all visible at once. The menu list is the default view.
+    // Every declared settings section is rendered up front (stable DOM identity across a
+    // menu/detail switch) — just not all visible at once. The menu list is the default view.
     const sections = page.locator('#settings-detail-container > div > .settings-section');
-    await expect(sections).toHaveCount(11);
+    await expect(sections).toHaveCount(Object.values(SETTINGS_SECTION).length);
     await expect(page.locator('#settings-menu-container')).toBeVisible();
     await expect(page.locator('#settings-detail-container')).toBeHidden();
     await expect(page.locator('#back-to-settings-menu')).toBeHidden();
