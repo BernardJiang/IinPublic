@@ -5825,6 +5825,20 @@ inspection):
   tests together (2 runs), and a regression pass on the dealmaker spec + per-question-deep-link +
   tags-checkbox specs (all pass unmodified).
 
+## 2026-08-26 — UIManager decomposition cluster #8
+
+- Extracted browser/IndexedDB inventory, relay diagnostics fetching, localized diagnostic value
+  mappings, and all storage-inspector section rendering to `src/web/ui/storage-inspector.ts`.
+- Added `storage-inspector-characterization.test.ts` for absent-panel behavior, browser and app
+  state, relay/protocol/ownership output, deterministic ordering, untrusted-data escaping, and
+  relay failure fallback.
+- Lowered the enforced `ui-manager.ts` ceiling from 9,290 to 8,938 lines. Typecheck, lint, both
+  production builds, and 151 unit suites / 1,614 tests pass.
+- A concurrent canonical attempt lost several independent API servers under wave resource
+  pressure; all affected specs passed sequentially. Canonical sequential run
+  `run-20260825-234056-81556` passed all static checks and every browser phase, including
+  WebKit/Firefox smoke, heavy staged, and mass-user coverage.
+
 ## 2026-08-25 — UIManager decomposition cluster #7
 
 - Extracted create/rename custom-chatroom form rendering, conditional business fields, validation,
