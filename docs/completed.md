@@ -1,6 +1,142 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-24
+Last updated: 2026-08-27
+
+## 2026-08-27 — §BB location auto-match consent; §DD multi-value gender/race preference matching
+
+Two related design decisions (Bernard) implemented and verified end to end via real 2-browser
+E2E runs, not just unit tests — several genuine pre-existing bugs were found and fixed along the
+way, each independently valuable beyond this session's two features.
+
+**§BB location auto-match consent.** New opt-in (default-off) `locationAutoMatchConsent` setting
+(`ui-settings-storage.ts`, `#settings-location-auto-match-consent` in Settings › Talk Behavior,
+same shape as the existing `chatbotEnabled` toggle) lets the chatbot auto-resolve a `location`
+builtIn question using this device's *blurred* location only — precise location sharing stays a
+completely separate, still-deferred, manual-only feature, untouched. New
+`myMostRecentLocationTalk` (`answer-preference-resolution.ts`) sources side "b" of
+`locationsMutuallyContained` from my own most-recent matching-scope talk's `authorLocation`/
+`locationRadiusMiles` (already blurred at creation time, no new blurring needed) — gated entirely
+at the `answer-preference-resolution.ts` call site (consent checked, `resolveBuiltInQuestion`
+itself stays a pure, consent-agnostic function). New E2E case in
+`stage2-two-user/95-builtin-ask-user-fallback.spec.ts` proves zero-click auto-match once both
+sides grant consent and have a matching-scope talk; unit tests in
+`built-in-question-resolution.test.ts` and new `my-most-recent-location-talk.test.ts`.
+
+**§DD multi-value gender/race preference matching.** Bernard's design: NOT
+`mutualPreferenceSetMembership` (a single Pair-tag question structurally has exactly one accepted
+answer, `singleNonIgnoreAnswer` — a preference SET on one question would break the exact-text
+hash a Pair-tag match relies on) — instead, the reshaped Dating template
+(`buildDatingTemplate`, talk-templates.ts) asks age first, then fans its "Compatible" outcome out
+(parallel, `parallelMatchThreshold: 1` — OR semantics) into 3 independent single-answer Pair-tag
+branches, one per accepted gender, each followed by a trivial confirmation leaf (needed so the
+existing mid-tree Pair-tag veto has a question to run against at all — a bare Pair-tag leaf's own
+answer-selection always auto-proceeds unconditionally regardless of the responder's real tag,
+`reciprocalOnlyAnswer`).
+
+Building this surfaced three real, general bugs, unrelated to each other, none previously caught
+because nothing had exercised "zero-click chatbot auto-reply through a talk with real branching"
+before (the existing fan-out spec, 93, only ever tested *manual* responder walking):
+
+1. **`tryBuildChatbotAnswersFromFlattened`** (answer-preference-resolution.ts) walked
+   `questions[]` in flat array-storage order, never following `nextQuestionId`/`nextQuestionIds`
+   — it only worked by coincidence because every existing talk-generation path happened to emit
+   array order matching a valid DFS visit order. Rewritten as a real DAG walk, with each
+   fan-out branch getting its own ancestor-context `pairs` instead of one shared, cross-branch-
+   polluted list. A child that fails to auto-resolve no longer aborts the whole build — it's
+   just absent from the answer set, which the existing fan-out scorer already treats as
+   "unanswered, not passed."
+2. **The mesh delivery intake filter's grammar/spam check** (`talk-intake-filters.ts`) built its
+   scoring subject text from every question's own text with no deduplication — several parallel
+   branches legitimately reusing one short label (e.g. 3 Pair-tag branches all declaring the
+   same author-side word) read as spam ("men. men. men.") and silently got the whole talk
+   rejected at delivery, before matching ever ran. Fixed at the source
+   (`buildGrammarSubjectText` now deduplicates repeated question text) rather than by mangling
+   template wording to route around the false positive.
+3. **`collectRouteEditorQuestions`** (route-editor-model.ts) never preserved a builtIn root's
+   fan-out `parallelMatchThreshold` on save — a prefilled value loaded correctly into the live
+   editor model (`initializeRouteEditorQuestions` already copies `question.answers`
+   unconditionally) but silently reverted to "require ALL children" every time the talk was
+   saved, since the builtIn branch of `collectRouteEditorQuestions` constructed its synthetic
+   "Compatible" answer from scratch and never read the loaded value back out. No prior spec had
+   exercised a builtIn-root fan-out with a non-default (OR-style) threshold to catch this.
+
+Also extended `evaluateRouteFanOutMatch` (talk-engine.ts) to veto a fan-out branch that is
+*itself* a terminal Pair-tag leaf against the responder's real tag — additive, only engages for
+that specific new shape (every existing fan-out user, e.g. Buy/Sell's Model+Condition, is
+unaffected) — though in the final shipped shape each branch has a confirmation leaf after it, so
+the existing mid-tree veto mechanism is what actually gates matches in practice; this extension
+remains a defensive safety net for a bare-leaf branch.
+
+New `stage2-two-user/96-dating-multi-gender-match.spec.ts`: two real cross-browser scenarios —
+a responder correctly matches via exactly the accepted branch (the other branches genuinely fail
+to auto-answer for her, proving real discrimination, not a permissive fallback), and a responder
+whose gender isn't in the author's accepted set produces no match at all. `83-talk-template-
+picker.spec.ts` updated for the reshaped template's new structure (age root + 3× [Pair-tag
+branch, confirmation leaf]). New unit coverage: 4 tests in `talk-engine.test.ts` for the fan-out
+veto extension, 1 in `talk-intake-filters.test.ts` for the grammar-dedup fix.
+
+`mutualPreferenceSetMembership` itself stays unwired/unused for Dating — superseded by the
+parallel-Pair-tag-branches approach — but remains available should some other feature need a
+genuine two-sided (selfTag, preferenceSet) check outside a question tree.
+
+## 2026-08-26 — §BB: E2E coverage for `resolveBuiltInQuestion`'s ASK_USER fallback
+
+New `tests/e2e/staged/stage2-two-user/95-builtin-ask-user-fallback.spec.ts` closes docs/TODO.md
+§BB's last open bullet ("Add E2E cases for location outside either radius and missing preference
+falling to the human inbox"). Prior builtin specs (86, 87, 94) only ever exercised
+`resolveBuiltInQuestion`'s confident paths (a computed match, a computed incompatible); this adds
+the two ways it instead falls back to `ASK_USER`:
+
+1. A `quantity` builtin question where the responder has no stored typed preference at all for
+   that scope — unlike 86's seller side, Bob never authors a matching complementary talk.
+2. `location`, which is unconditionally `ASK_USER` before `resolveBuiltInQuestion` even looks at
+   any preference — there's no auto-resolution to test "inside vs. outside radius" against yet
+   (that's the still-open, deliberately-unimplemented location-auto-resolution design bullet
+   directly above this one in §BB).
+
+Both cases assert no auto-conversation forms even with chatbot enabled on both sides, then that
+the human inbox path still actually works — the responder can open the incoming talk and answer
+both the Pair-tag question and the builtin question manually (flow talks auto-advance to the next
+question on radio selection, no separate "Continue" button unlike a route talk's branch preview)
+to produce a real match. Confirms the fallback is a genuine safety net, not a silent drop.
+
+## 2026-08-26 — X8 same-device linking E2E; found+fixed an embedded-node hub-peer env leak
+
+Enabled and passed `tests/e2e/cross-platform/x8-same-device-link.spec.ts` (TODO §I): a real
+`dist/server/node-app/embedded-node.js` process (the same model every desktop/mobile shell runs)
+stands in for "the app," a normal Playwright browser context stands in for "the browser," and the
+spec drives the full mutual identity-link protocol between them, with the responder side opening
+its code via a real navigation to the loopback `#link=<code>` fragment URL — the same URL the
+"Link with the app on this computer" button's `window.open(...)` produces — instead of typing it.
+Covers both the happy path (mutual link completes, both sides independently converge to "Linked")
+and the one-time-code reuse rejection. Not exercised: the loopback-button auto-discovery itself
+(`probeLoopbackNode()`'s hardcoded port 8080 collides with this test harness's own port
+convention) — that stays unit-covered (`linked-devices-dialog.test.ts`).
+
+Building it surfaced a real, pre-existing bug: `resolveUpstreamHubPeers`
+(`src/server/bootstrap/http-bootstrap.ts`) short-circuits to `[]` whenever
+`E2E_GUN_MEMORY_ONLY`/`DEV_GUN_FRESH` is set, before it even looks at `hubRelayMode` — those flags
+exist to keep the *worker's own* Gun server isolated between parallel test runs, but a plain
+`...process.env` spread when spawning the embedded-node child process also leaks them in, silently
+zeroing the embedded node's upstream peers regardless of `IINPUBLIC_HUB_GUN_URL`. This was also
+silently breaking the pre-existing `tests/e2e/embedded-node/01-browser-and-embedded-node-peer.spec.ts`
+(S3) the same way. Fixed in both specs: the two isolation env vars are explicitly stripped from the
+spawned child's env (with `TLS_DISABLE=1` taking back over the plaintext-test-mode duty
+`E2E_GUN_MEMORY_ONLY` was also incidentally gating in `tls-mode.ts`), and
+`IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` is set explicitly so the child dials a real raw Gun peer
+link instead of the production-default `explicit-http` HTTP relay.
+
+That default relay mode is itself a second, separate finding, left open: `explicit-http` only
+relays a narrow allowlist (`relayOnlyDataClasses: ['discovery', 'signaling', 'presence',
+'room-membership']`, `p2p-runtime.ts`) between an embedded node and the hub — `identity-link-requests`
+isn't in it, and neither, apparently, is whatever S3's mesh talk-cluster delivery needs (S3 now
+gets further — past cluster delivery — but still fails at chatroom-member-count sync, a separate,
+not-yet-diagnosed gap; a CSP violation loading the embedded node's Gun worker bridge script was
+also observed but not chased). Whether same-device linking and mesh talk delivery actually work
+end to end on a real native shell under the *production-default* relay mode is therefore still an
+open question — X8's `gun-peer` override is a test-only workaround for getting a real second
+same-machine instance, not proof of the production path. See both specs' file-header comments and
+docs/TODO.md §I for the fuller writeup.
 
 ## 2026-08-24 — UIManager decomposition cluster #4: answer preferences
 

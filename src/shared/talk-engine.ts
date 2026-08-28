@@ -206,7 +206,11 @@ export function computeRouteMatchScore(
  * talk using that one is scored by `computeRouteMatchScore` first, taking priority; this
  * only engages for a route that never used the legacy field at all.
  */
-export function evaluateRouteFanOutMatch(talkData: Talk | any, answers: SubmittedAnswer[]): boolean | null {
+export function evaluateRouteFanOutMatch(
+  talkData: Talk | any,
+  answers: SubmittedAnswer[],
+  responderSelfTag?: string,
+): boolean | null {
   if (talkData?.type !== 'route') return null;
   const questions: any[] = Array.isArray(talkData.questions) ? talkData.questions : [];
   const usesFanOut = questions.some((q) => (q.answers || []).some((a: any) => Array.isArray(a.nextQuestionIds) && a.nextQuestionIds.length > 0));
@@ -238,6 +242,22 @@ export function evaluateRouteFanOutMatch(talkData: Talk | any, answers: Submitte
       const next = questionsById.get(chosen.nextQuestionId);
       if (!next) return !!chosen.isMatch;
       return evaluateQuestion(next, new Set(visiting).add(question.id));
+    }
+    // §DD follow-up (dating multi-value preference via several parallel Pair-tag branches,
+    // docs/TODO.md): a TERMINAL question that is itself a Pair-tag declaration (a single-answer
+    // `reciprocalTagContext` leaf, e.g. "male" accepting "female") can't trust `chosen.isMatch`
+    // the way an ordinary terminal answer's flag can — its own auto-proceed shortcut
+    // (`reciprocalOnlyAnswer`, answer-preference-resolution.ts) always picks that one answer
+    // regardless of the responder's ACTUAL tag, precisely so multiple such branches can each be
+    // walked/scored independently (OR-style fan-out) without a decision at the question itself.
+    // The real veto happens HERE instead — `checkIfMatch`'s own top-level veto only ever
+    // inspects the LAST-answered question's ancestors, which never covers a branch that is
+    // itself the terminal Pair-tag leaf. Same permissive default as that top-level veto: no
+    // `responderSelfTag` at all means nothing to veto against, so ordinary non-Pair-tag leaves
+    // and callers that never pass a tag are entirely unaffected.
+    if (question.reciprocalTagContext && responderSelfTag) {
+      const only = singleNonIgnoreAnswer(question);
+      if (only) return responderSelfTag === only.text;
     }
     return !!chosen.isMatch;
   };
@@ -303,7 +323,7 @@ export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[], r
   const routeScore = computeRouteMatchScore(talkData, answers);
   if (routeScore) return routeScore.score >= talkData.matchThreshold;
 
-  const fanOutResult = evaluateRouteFanOutMatch(talkData, answers);
+  const fanOutResult = evaluateRouteFanOutMatch(talkData, answers, responderSelfTag);
   if (fanOutResult !== null) return fanOutResult;
 
   if (!lastAnswer || !lastQuestion) return false;

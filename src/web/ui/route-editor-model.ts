@@ -196,6 +196,20 @@ export function collectRouteEditorQuestions(
         compatibleAnswer.nextQuestionId = childIds[0];
       } else if (childIds.length > 1) {
         compatibleAnswer.nextQuestionIds = childIds;
+        // docs/TODO.md §DD follow-up: a builtIn root's synthetic "Compatible" answer isn't a
+        // real, author-editable `RouteEditorAnswer` the way an ordinary answer is — there's no
+        // dedicated UI field for its own threshold — but `initializeRouteEditorQuestions`
+        // DOES load `question.answers` unconditionally (regardless of `builtIn`), so a
+        // pre-existing `parallelMatchThreshold` on this same synthetic id (e.g. from a
+        // template prefill, or reopening a previously-saved talk) survives into the live
+        // editor model at `question.answers[0]`. Reading it back here is what keeps a >1
+        // (OR-style) threshold from silently reverting to "require ALL children" on every
+        // save — found via the reshaped Dating template's 3-way gender fan-out, a real,
+        // general gap for any builtIn-root fan-out, not template-specific.
+        const loadedThreshold = question.answers.find((a) => a.id === compatibleId)?.parallelMatchThreshold;
+        if (typeof loadedThreshold === 'number') {
+          compatibleAnswer.parallelMatchThreshold = loadedThreshold;
+        }
       } else {
         compatibleAnswer.isMatch = true;
         compatibleAnswer.isTerminal = true;

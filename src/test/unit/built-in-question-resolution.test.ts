@@ -32,11 +32,55 @@ describe('resolveBuiltInQuestion', () => {
     expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({ action: 'ASK_USER' });
   });
 
-  it('defers location entirely — always asks the user regardless of stored data', () => {
-    const state = createEmptyTypedPreferenceState();
-    const tagContext = { myTag: 'buy', theirTag: 'sell', title: 'Notebook' };
+  describe('location (§BB)', () => {
     const question = { text: 'Where?', builtIn: { kind: 'location' as const } };
-    expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({ action: 'ASK_USER' });
+
+    it('asks the user when neither side supplies location data (the default, no-consent posture)', () => {
+      const state = createEmptyTypedPreferenceState();
+      const tagContext = { myTag: 'buy', theirTag: 'sell', title: 'Notebook' };
+      expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({ action: 'ASK_USER' });
+    });
+
+    it('asks the user when only ONE side supplies location data', () => {
+      const state = createEmptyTypedPreferenceState();
+      const tagContext = {
+        myTag: 'buy',
+        theirTag: 'sell',
+        title: 'Notebook',
+        myLocation: { authorLocation: { latitude: 37.77, longitude: -122.42 }, locationRadiusMiles: 10 },
+      };
+      expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({ action: 'ASK_USER' });
+    });
+
+    it('is compatible when both sides supply location data within mutual radius', () => {
+      const state = createEmptyTypedPreferenceState();
+      const tagContext = {
+        myTag: 'buy',
+        theirTag: 'sell',
+        title: 'Notebook',
+        myLocation: { authorLocation: { latitude: 37.77, longitude: -122.42 }, locationRadiusMiles: 10 },
+        theirLocation: { authorLocation: { latitude: 37.78, longitude: -122.41 }, locationRadiusMiles: 10 },
+      };
+      expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({
+        action: 'ANSWER',
+        compatible: true,
+      });
+    });
+
+    it('is not compatible when both sides supply location data but are too far apart', () => {
+      const state = createEmptyTypedPreferenceState();
+      const tagContext = {
+        myTag: 'buy',
+        theirTag: 'sell',
+        title: 'Notebook',
+        myLocation: { authorLocation: { latitude: 37.77, longitude: -122.42 }, locationRadiusMiles: 10 },
+        theirLocation: { authorLocation: { latitude: 40.71, longitude: -74.01 }, locationRadiusMiles: 10 },
+      };
+      expect(resolveBuiltInQuestion(tagContext, question, state, userId)).toEqual({
+        action: 'ANSWER',
+        compatible: false,
+      });
+    });
   });
 
   describe('quantity', () => {

@@ -81,6 +81,30 @@ describe('talk intake filters', () => {
     expect(talkPassesIntakeFilters(survey, { ...baseFilters, requireGoodGrammar: true }, undefined)).toBe(true);
   });
 
+  it('does not reject a route talk whose parallel branches legitimately reuse the same short question text (docs/TODO.md §DD)', () => {
+    // Mirrors the reshaped Dating template's shape: 3 Pair-tag branches all declaring the same
+    // author-side word ("men") paired with different accepted counterparts — real, deliberate
+    // structural repetition, not spam. Found via a real end-to-end probe: before this fix, the
+    // repeated "men. men. men." subject text scored as spam and the whole talk was rejected at
+    // delivery, before matching ever ran.
+    const dating = {
+      title: 'Dating',
+      type: 'route',
+      language: 'en',
+      questions: [
+        { text: 'Age range', answers: [] },
+        { text: 'men', answers: [{ text: 'men' }] },
+        { text: 'Confirm: interested in men', answers: [{ text: 'Yes' }] },
+        { text: 'men', answers: [{ text: 'women' }] },
+        { text: 'Confirm: interested in women', answers: [{ text: 'Yes' }] },
+        { text: 'men', answers: [{ text: 'non-binary people' }] },
+        { text: 'Confirm: interested in non-binary people', answers: [{ text: 'Yes' }] },
+      ],
+    };
+
+    expect(talkPassesIntakeFilters(dating, { ...baseFilters, requireGoodGrammar: true }, undefined)).toBe(true);
+  });
+
   it('still checks punctuated answers for dirty words', () => {
     const survey = {
       title: 'Restaurant survey',

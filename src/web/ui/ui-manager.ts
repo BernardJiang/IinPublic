@@ -25,8 +25,11 @@ import {
   TECHSUPPORT_GREETING_TEMPLATES,
   verifySupportAck,
   TECHSUPPORT_SUPPORT_ACK_TEMPLATES,
+  verifyOnboardingTips,
+  TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES,
   type GreetingLocale,
   type SupportAckLocale,
+  type OnboardingTipsLocale,
 } from '../../shared/techsupport-greeting';
 import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
@@ -103,17 +106,22 @@ import {
   getColorSchemePreference,
   getCopyTalkAutoSave,
   getDefaultTalkLanguagePreference,
+  getHasSeenWalkthrough,
   getKeepOldTalkOnEdit,
+  getLocationAutoMatchConsent,
   getUiLanguagePreference,
   saveChatbotTemplate as storeChatbotTemplate,
   setChatbotEnabled,
   setColorSchemePreference,
   setCopyTalkAutoSave,
   setDefaultTalkLanguagePreference,
+  setHasSeenWalkthrough,
   setKeepOldTalkOnEdit,
+  setLocationAutoMatchConsent,
   setUiLanguagePreference,
   type ColorScheme,
 } from './ui-settings-storage';
+import { showWalkthroughDialog } from './onboarding-walkthrough';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showPreferencesDialog as openPreferencesDialog, type AnswerPreferenceUiMode } from './preferences-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
@@ -3307,6 +3315,7 @@ export class UIManager extends EventEmitter {
       { icon: '🔐', label: this.t('settingsIdentityDevices'), target: 'settings-section-linked-devices' },
       { icon: '🗑️', label: this.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
       { icon: '💾', label: this.t('settingsStorage'), target: 'settings-storage-inspector' },
+      { icon: '❓', label: this.t('settingsHelp'), target: 'settings-section-help' },
     ];
     const jumpMenuHtml = `
       <div class="settings-jump-menu" id="settings-jump-menu" style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
@@ -3467,6 +3476,11 @@ export class UIManager extends EventEmitter {
             <span>${this.t('settingsChatbot')}</span>
           </label>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
+            <input type="checkbox" id="settings-location-auto-match-consent" ${getLocationAutoMatchConsent() ? 'checked' : ''}>
+            <span>${this.t('settingsLocationAutoMatch')}</span>
+          </label>
+          <div style="font-size:0.82em;color:var(--text-tertiary);margin:2px 0 0 26px;">${this.t('settingsLocationAutoMatchNote')}</div>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
             <input type="checkbox" id="settings-keep-old-talk-on-edit" ${getKeepOldTalkOnEdit() ? 'checked' : ''}>
             <span>${this.t('settingsKeepOldTalkOnEdit')}</span>
           </label>
@@ -3608,6 +3622,15 @@ export class UIManager extends EventEmitter {
             action: `<button type="button" class="btn" id="settings-refresh-storage-btn">${this.t('settingsRefresh')}</button>`,
           },
           `<div id="settings-storage-inspector-body" style="font-size:0.9em;color:var(--text-tertiary);">${this.t('settingsStorageLoading')}</div>`,
+        )}
+        ${this.renderSettingsSection(
+          {
+            id: 'settings-section-help',
+            title: this.t('settingsHelp'),
+            subtitle: this.t('settingsHelpSubtitle'),
+            action: `<button type="button" class="btn" id="settings-replay-walkthrough-btn" data-testid="settings-replay-walkthrough-btn">${this.t('settingsReplayWalkthrough')}</button>`,
+          },
+          '',
         )}
         </div>
       </div>
@@ -4257,6 +4280,7 @@ export class UIManager extends EventEmitter {
       void this.openLinkedDevicesDialog();
     });
     document.getElementById('settings-erase-device-btn')?.addEventListener('click', () => this.openEraseDeviceDialog());
+    document.getElementById('settings-replay-walkthrough-btn')?.addEventListener('click', () => this.showWalkthrough());
     document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
       this.emit('setHomeChatroom', {
         chatroomId: (event.currentTarget as HTMLSelectElement).value,
@@ -4267,6 +4291,9 @@ export class UIManager extends EventEmitter {
     });
     document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
       setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
+    });
+    document.getElementById('settings-location-auto-match-consent')?.addEventListener('change', (event) => {
+      setLocationAutoMatchConsent((event.currentTarget as HTMLInputElement).checked);
     });
     document.getElementById('settings-keep-old-talk-on-edit')?.addEventListener('change', (event) => {
       setKeepOldTalkOnEdit((event.currentTarget as HTMLInputElement).checked);
@@ -6227,6 +6254,23 @@ export class UIManager extends EventEmitter {
     if (meView?.classList.contains('active')) {
       this.displayAnswersList();
     }
+  }
+
+  /** Shows the first-run walkthrough once per device, after boot finishes. No-op on replay. */
+  showFirstRunWalkthroughIfNeeded(): void {
+    if (getHasSeenWalkthrough()) return;
+    this.showWalkthrough();
+  }
+
+  /** Settings → Help & Tour "Replay Tour" button, and the automatic first-run trigger. */
+  showWalkthrough(): void {
+    showWalkthroughDialog({
+      text: (key, fallback) => {
+        const value = this.t(key as UiTranslationKey);
+        return value && value !== key ? value : (fallback ?? key);
+      },
+      onClose: () => setHasSeenWalkthrough(true),
+    });
   }
 
   showPreferencesDialog(): void {
@@ -8337,11 +8381,12 @@ export class UIManager extends EventEmitter {
    * renders to for the *current* user — closing the gap where `greetingSignature`/
    * `greetingLocale` are left untouched but `text` itself was altered after signing.
    *
-   * K5 (docs/TODO.md): same discipline extended to the two other TechSupport-authored,
+   * K5 (docs/TODO.md): same discipline extended to two more TechSupport-authored,
    * locally-rendered message types — a FAQ auto-answer (`faqSignature`) and the new-question
-   * ack (`ackSignature`). All three fail closed (K2-3): a verify failure drops the message
-   * silently, no error toast, no impersonated message rendered. Everything else passes
-   * through unchanged.
+   * ack (`ackSignature`) — plus the K2-extended "getting started" tips sequence
+   * (`tipSignature`, one signed bundle per locale covering the whole ordered list). All fail
+   * closed (K2-3): a verify failure drops the message silently, no error toast, no
+   * impersonated message rendered. Everything else passes through unchanged.
    */
   private async filterVerifiedSupportMessages(messages: any[]): Promise<any[]> {
     const stageName = this.currentUser?.stageName || '';
@@ -8354,6 +8399,7 @@ export class UIManager extends EventEmitter {
         !!msg.greetingSignature;
       const isFaqAnswer = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.faqSignature;
       const isAck = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.ackSignature;
+      const isTip = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.tipSignature;
 
       if (isFaqAnswer) {
         const cached = readCachedFaqBundle();
@@ -8380,6 +8426,21 @@ export class UIManager extends EventEmitter {
         if (!verified) continue;
         const expectedText = verified.template.replace('{name}', stageName);
         if (String(msg.text || '') !== expectedText) continue;
+        kept.push(msg);
+        continue;
+      }
+
+      if (isTip) {
+        const locale = msg.tipLocale as OnboardingTipsLocale;
+        const verified = await verifyOnboardingTips({
+          locale,
+          tips: TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES[locale],
+          authorPub: msg.tipAuthorPub,
+          signature: msg.tipSignature,
+        });
+        if (!verified) continue;
+        const expectedText = verified.tips[msg.tipIndex as number];
+        if (expectedText === undefined || String(msg.text || '') !== expectedText) continue;
         kept.push(msg);
         continue;
       }

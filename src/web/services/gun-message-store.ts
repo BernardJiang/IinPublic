@@ -184,6 +184,16 @@ export type ConversationMessageWire = {
   ackLocale?: string;
   ackSignature?: string;
   ackAuthorPub?: string;
+  /**
+   * K2-extended (docs/TODO.md): present only on a signed "getting started" tip — one of the
+   * follow-up messages sent right after the welcome greeting. `tipIndex` identifies which
+   * entry of the signed, locale-scoped tips array this message renders, so a later render pass
+   * can re-verify (`verifyOnboardingTips`) that the cached bundle backing it is still authentic.
+   */
+  tipIndex?: number;
+  tipLocale?: string;
+  tipSignature?: string;
+  tipAuthorPub?: string;
 };
 
 /**
@@ -439,6 +449,11 @@ export class GunMessageStore {
       ...(wire.ackLocale ? { ackLocale: wire.ackLocale } : {}),
       ...(wire.ackSignature ? { ackSignature: wire.ackSignature } : {}),
       ...(wire.ackAuthorPub ? { ackAuthorPub: wire.ackAuthorPub } : {}),
+      // tipIndex may legitimately be 0 — check presence, not truthiness (mirrors prevSeen above).
+      ...(wire.tipIndex !== undefined ? { tipIndex: wire.tipIndex } : {}),
+      ...(wire.tipLocale ? { tipLocale: wire.tipLocale } : {}),
+      ...(wire.tipSignature ? { tipSignature: wire.tipSignature } : {}),
+      ...(wire.tipAuthorPub ? { tipAuthorPub: wire.tipAuthorPub } : {}),
     };
     if (wire.transport === 'direct-p2p' && opts.otherUserId) {
       gun
@@ -705,6 +720,10 @@ export class GunMessageStore {
       ackLocale: null,
       ackSignature: null,
       ackAuthorPub: null,
+      tipIndex: null,
+      tipLocale: null,
+      tipSignature: null,
+      tipAuthorPub: null,
     };
     if (transport === 'direct-p2p' && otherUserId) {
       return this.putWithAck(gun

@@ -24,6 +24,21 @@ export function setChatbotEnabled(enabled: boolean): void {
   localStorage.setItem('chatbotEnabled', String(enabled));
 }
 
+/**
+ * docs/TODO.md §BB: one-time opt-in consent to let the chatbot auto-resolve a `location`
+ * builtIn question using this device's own blurred location — opt-IN (default false), unlike
+ * `chatbotEnabled`'s opt-out default, since this specifically governs an automated decision
+ * driven by location data. Precise location sharing is a separate, unrelated, still-manual-only
+ * feature untouched by this flag.
+ */
+export function getLocationAutoMatchConsent(): boolean {
+  return localStorage.getItem('locationAutoMatchConsent') === 'true';
+}
+
+export function setLocationAutoMatchConsent(consent: boolean): void {
+  localStorage.setItem('locationAutoMatchConsent', String(consent));
+}
+
 export function getUiLanguagePreference(defaultLanguage: UiLanguage = 'en'): UiLanguage {
   const stored = String(localStorage.getItem('iinpublic_ui_language') || '').toLowerCase();
   if (stored === 'en' || stored === 'zh') return stored;
@@ -76,6 +91,15 @@ export function getKeepOldTalkOnEdit(): boolean {
 
 export function setKeepOldTalkOnEdit(enabled: boolean): void {
   localStorage.setItem('keepOldTalkOnEdit', String(enabled));
+}
+
+/** Device-local flag: has this browser/device ever finished (or skipped) the first-run walkthrough? */
+export function getHasSeenWalkthrough(): boolean {
+  return localStorage.getItem('iinpublic_walkthrough_seen') === 'true';
+}
+
+export function setHasSeenWalkthrough(seen: boolean): void {
+  localStorage.setItem('iinpublic_walkthrough_seen', String(seen));
 }
 
 export function getChatbotTemplate(talkId: string): ChatbotTemplate | null {

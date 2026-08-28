@@ -1,9 +1,9 @@
 # IinPublic TODO
 
-Last reconciled: 2026-08-23 (Smaller-independent-work batch landed — see docs/completed.md;
-S1/S2 moved 2026-08-22, Priority 1 clear; §I peer-detail badge, §I same-device shortcuts, and
-§J encrypted handoff transfer landed — Priority 2's remaining open items are all blocked on
-native-shell CI runners not yet connected, Priority 3)
+Last reconciled: 2026-08-27 (§BB location auto-match consent and §DD multi-value gender/race
+preference matching both landed — see docs/completed.md. §I X8 same-device linking E2E and a
+real embedded-node hub-peer env-leak fix landed 2026-08-26; X3 remains the only Priority 2 item
+still blocked on native-shell CI runners, Priority 3.)
 
 This file contains active work only. Completed implementation history is in
 `docs/completed.md`; product requirements and design decisions are authoritative in
@@ -73,9 +73,20 @@ This file contains active work only. Completed implementation history is in
   do with this change. Covered by `identity-link-fragment.test.ts` (10 tests), `loopback-probe.test.ts`
   (8 tests), and new cases in `linked-devices-dialog.test.ts` (prefill, paste, copy-link,
   loopback-button visibility).
-- [ ] Enable and pass X3 website↔app and X8 same-device linking E2E scenarios. X8's loopback
-  half is now real (not a stub) but unverified end-to-end — needs two same-machine instances
-  (a normal browser context + an embedded-node instance) driven together in one spec.
+- [x] Enable and pass X8 same-device linking E2E. **Landed 2026-08-26** — see
+  `docs/completed.md`. Also found+fixed a real `E2E_GUN_MEMORY_ONLY`/`DEV_GUN_FRESH` env-leak
+  bug that was silently zeroing the embedded-node child's upstream Gun peers (affected the
+  pre-existing S3 embedded-node spec too). **New known gap surfaced by this work:** the
+  production-default embedded-node relay mode (`explicit-http`) only relays a narrow allowlist
+  (discovery/signaling/presence/room-membership) between a native shell and the hub —
+  `identity-link-requests` isn't in it, so whether same-device linking (or mesh talk delivery,
+  which S3 also needs) actually completes on a real native shell talking to the real public hub
+  is still open; X8 forces `IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` as a test-only workaround, not
+  proof of the production path. Needs a dedicated look at whether `identity-link-requests` (and
+  whatever S3 needs) should join the relay allowlist, or whether same-device linking should
+  instead lean on LAN discovery to bypass the hub restriction entirely.
+- [ ] X3 website↔app remains skipped — needs a real native-shell CI runner (Priority 3), not a
+  same-machine mechanism gap like X8 was.
 
 ### J. Sync-then-erase
 
@@ -141,44 +152,32 @@ non-identical, genuinely overlapping ranges (`stage2-two-user/87-price-overlap-b
 match.spec.ts`) — a `type: 'route'` talk turned out unnecessary for that case; a single-question
 `type: 'flow'` talk with one `builtIn` question already covers it.
 
-- [ ] Design a privacy-safe source for the responder's blurred location/radius, then wire location
-  auto-resolution using the existing mutual-containment comparison. **Research note
-  (2026-08-23), not yet implemented — genuinely needs a design decision, not just wiring:**
-  `Question.builtIn`'s own doc comment (types.ts) already states the intended shape — "location
-  has no nested lat/long/radius fields: it reuses the talk's own `authorLocation`/
-  `locationRadiusMiles`... both sides of a comparison read their own talk's fields" — i.e.
-  unlike quantity/priceRange/timeFrame (a separately-typed value saved into
-  `typedPreferenceState` per scope), location is deliberately excluded from that store (see the
-  `if (!q.builtIn || q.builtIn.kind === 'location') continue;` guard in `ui-manager.ts`'s
-  self-preference-save loop) because it should instead reuse whatever the RESPONDER'S OWN
-  authored talk of matching scope already carries as its ordinary location-radius setting — no
-  separate typed input needed. What's actually missing: (1) a scope-keyed lookup for "my own
-  most-recent talk sharing this incoming talk's (selfTag, title) that also declares a `location`
-  builtIn question," to source side "b" of `locationsMutuallyContained` (built-in-comparisons.ts,
-  already implemented and unit-tested) from that talk's own `authorLocation`/
-  `locationRadiusMiles`; (2) threading that lookup into `resolveBuiltInQuestion`
-  (built-in-question-resolution.ts, currently hardcoded `if (builtIn.kind === 'location') return
-  { action: 'ASK_USER' };`) and its caller (`resolveAnswerPreferenceForTalkQuestion`,
-  ui-manager.ts). Left unimplemented this session deliberately — geolocation flowing into an
-  automated match decision is exactly the kind of privacy-sensitive design choice worth a
-  deliberate look rather than a rushed pass, and the "no stored comparison at all" case already
-  falls back safely to the human inbox today (§30.4's documented behavior), so nothing is broken
-  by leaving this open.
+- [x] Design a privacy-safe source for the responder's blurred location/radius, then wire location
+  auto-resolution using the existing mutual-containment comparison. **Landed 2026-08-27** — see
+  `docs/completed.md`. Bernard's design: blurred location may auto-answer once the user grants a
+  one-time opt-in consent (default OFF); precise location stays entirely separate/manual, never
+  auto-sent by chatbot (e.g. taxi/meetup use cases where a driver/passenger explicitly chooses to
+  share precisely) — that precise-location feature remains its own deferred item, untouched.
+  New `locationAutoMatchConsent` setting (`ui-settings-storage.ts`) gates a new
+  `myMostRecentLocationTalk` lookup (`answer-preference-resolution.ts`, over the already-local
+  `getMyTalks()`) that sources side "b" of `locationsMutuallyContained` from my own most-recent
+  matching-scope talk's `authorLocation`/`locationRadiusMiles`, exactly the shape the original
+  research note below proposed.
 - [x] Persist user-created opposite-tag pairs; seeded pairs already work. **Landed 2026-08-23** —
   see `docs/completed.md`.
 - [x] Support talk-level shared time/location questions before route item branches. **Landed
   2026-08-23** — see `docs/completed.md`.
-- [ ] Add E2E cases for location outside either radius and missing preference falling to the
-  human inbox. (Real cross-browser route matching is now covered —
-  `stage2-two-user/92-route-shared-builtin-root-branches.spec.ts` — though not yet the
-  location-specific edge cases.)
+- [x] Add E2E cases for missing preference and `location`'s unconditional-ASK_USER fallback to
+  the human inbox. **Landed 2026-08-26** — see `docs/completed.md`.
+  `stage2-two-user/95-builtin-ask-user-fallback.spec.ts`. (Real cross-browser route matching is
+  covered separately — `stage2-two-user/92-route-shared-builtin-root-branches.spec.ts`.)
 
 ### DD. Generalized dating matching
 
-Design is specified in technical specification §30.6. The age-range comparator is now fully
-wired and shipping (as the built-in Dating talk template); the remaining bullets — multi-value
-gender/race preference-set matching and photo-delivery consent/safety copy — each carry their
-own product/safety judgment calls and are left for a dedicated pass.
+Design is specified in technical specification §30.6. The age-range comparator and multi-value
+gender/race preference matching are now both fully wired and shipping (as the built-in Dating
+talk template); the remaining bullet — photo-delivery consent/safety copy — carries its own
+product/safety judgment call and is left for a dedicated pass.
 
 - [x] Implement mutual preference-set membership and the age point-in-range primitive. **Landed
   2026-08-23** — `mutualPreferenceSetMembership`/`ageRangeMutuallyAcceptable`
@@ -188,11 +187,16 @@ own product/safety judgment calls and are left for a dedicated pass.
   `preferenceSet` veto to a real two-sided check (both sides' own selfTag/preferenceSet
   supplied), matching that veto's exact permissive default for a missing counterpart selfTag.
 - [x] Wire `ageRange` as a real `BuiltInQuestionKind`, and force+lock `isAdult` for talks that use
-  it. **Landed 2026-08-24** — see `docs/completed.md`. `mutualPreferenceSetMembership` is still
-  unwired (multi-value gender/race preference sets need a decision on what supplies "the
-  responder's own (tag, preference-set) pair" as match input) — the shipped Dating template uses
-  an ordinary Pair-tag question for the gender-preference side instead, which only supports one
-  accepted counterpart per talk, not a set.
+  it. **Landed 2026-08-24** — see `docs/completed.md`.
+- [x] Wire multi-value gender/race preference matching. **Landed 2026-08-27** — see
+  `docs/completed.md`. Bernard's design: NOT `mutualPreferenceSetMembership` (a single Pair-tag
+  question can only ever have one accepted answer, `singleNonIgnoreAnswer` — a preference SET on
+  one question would break the exact-text hash a Pair-tag match relies on, and isn't unique/
+  order-independent) — instead, several independent Pair-tag branches (one per accepted gender)
+  fan out in parallel off the shared `ageRange` root, `parallelMatchThreshold: 1` (OR semantics).
+  `mutualPreferenceSetMembership` itself stays unwired/unused — superseded by this approach for
+  Dating; still available for some other future use case needing a genuine two-sided
+  (selfTag, preferenceSet) check outside a question tree.
 - [ ] Add optional author-selected talk photo delivery after a successful match and safety notice.
 
 ### EE. Me/profile completion

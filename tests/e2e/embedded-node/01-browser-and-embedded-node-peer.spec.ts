@@ -25,6 +25,22 @@
  *
  * See tests/e2e/embedded-node/README.md for why this lives outside the
  * normal per-worker port-pair model and how to run it.
+ *
+ * CURRENT STATUS (found while building x8-same-device-link.spec.ts, which needed the
+ * same real second-instance setup): this spec's env spread (`...process.env`) was
+ * leaking `E2E_GUN_MEMORY_ONLY`, which short-circuits `resolveUpstreamHubPeers` to `[]`
+ * BEFORE it even looks at hubRelayMode — the embedded node was never actually peering
+ * upstream at all, despite logging a hub URL. Fixed below (stripped, + explicit
+ * `IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` + `TLS_DISABLE=1`) — real progress, the
+ * embedded-node peer now genuinely joins the shared Gun graph. Still failing past that
+ * point, at `clickBroadcastUntilBulkAck`'s chatroom-member-count wait: the worker
+ * server's own `/api` view of room membership doesn't yet see the embedded-node peer as
+ * a member, a separate, not-yet-diagnosed gap in how a remote embedded-node peer's
+ * chatroom presence reaches the worker's REST-facing member index. Also observed but not
+ * chased: `[Jerry]` (the embedded-node peer)'s browser logs a CSP violation loading its
+ * Gun worker bridge (`/node_modules/gun/sea.js` via `importScripts`), falling back to a
+ * local SEA pair — possibly related, possibly its own separate embedded-node
+ * static-serving/CSP gap.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
@@ -161,12 +177,25 @@ test.describe('S3 embedded-node: browser peer <-> embedded-node desktop peer', (
     await clearGunForStage2Spec();
 
     embeddedNodeDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-embedded-e2e-'));
+    // BUG FIX: `resolveUpstreamHubPeers` (http-bootstrap.ts) short-circuits to `[]`
+    // whenever `E2E_GUN_MEMORY_ONLY`/`DEV_GUN_FRESH` is set, BEFORE it even looks at
+    // hubRelayMode — those flags exist so the *worker's own* Gun server stays isolated
+    // between parallel test runs, but the `...process.env` spread below also leaked
+    // them into this spawned embedded-node child, silently zeroing its upstream peers
+    // regardless of IINPUBLIC_HUB_GUN_URL. The embedded node has its own isolated
+    // on-device dir (embeddedNodeDataDir, a fresh tmpdir cleaned up in afterAll) and
+    // doesn't need that isolation, so those two are explicitly stripped, with
+    // TLS_DISABLE taking back over its (unrelated) plaintext-test-mode duty.
+    const embeddedNodeEnv: NodeJS.ProcessEnv = { ...process.env };
+    delete embeddedNodeEnv.E2E_GUN_MEMORY_ONLY;
+    delete embeddedNodeEnv.DEV_GUN_FRESH;
     embeddedNodeProcess = spawn(
       process.execPath,
       [EMBEDDED_NODE_ENTRY],
       {
         env: {
-          ...process.env,
+          ...embeddedNodeEnv,
+          TLS_DISABLE: '1',
           IINPUBLIC_EMBEDDED_NODE: '1',
           IINPUBLIC_PLATFORM: 'ubuntu',
           IINPUBLIC_LOCAL_PORT: String(EMBEDDED_NODE_PORT),
@@ -176,6 +205,15 @@ test.describe('S3 embedded-node: browser peer <-> embedded-node desktop peer', (
           // hub, just pointed at the worker's test server so both peers share
           // one chatroom/talk graph.
           IINPUBLIC_HUB_GUN_URL: `${gunBaseURL()}/gun`,
+          // KNOWN GAP: the production DEFAULT relay mode ('explicit-http') only relays a
+          // narrow allowlist (relayOnlyDataClasses: discovery/signaling/presence/
+          // room-membership, p2p-runtime.ts) between the local node and the hub — not
+          // enough for the mesh talk-cluster delivery this test needs. Forcing a real raw
+          // Gun peer link here is a test-only workaround (same one
+          // x8-same-device-link.spec.ts uses), not a claim that mesh talk delivery works
+          // end to end under the production-default relay mode — see that spec's file
+          // header for the fuller writeup of this gap.
+          IINPUBLIC_EMBEDDED_HUB_MODE: 'gun-peer',
           IINPUBLIC_WEB_ROOT: WEB_ROOT,
           IINPUBLIC_DATA_DIR: embeddedNodeDataDir,
           IINPUBLIC_LOOPBACK_ONLY: '1',
