@@ -103,6 +103,7 @@ import {
   getColorSchemePreference,
   getCopyTalkAutoSave,
   getDefaultTalkLanguagePreference,
+  getHasSeenWalkthrough,
   getKeepOldTalkOnEdit,
   getLocationAutoMatchConsent,
   getUiLanguagePreference,
@@ -111,11 +112,13 @@ import {
   setColorSchemePreference,
   setCopyTalkAutoSave,
   setDefaultTalkLanguagePreference,
+  setHasSeenWalkthrough,
   setKeepOldTalkOnEdit,
   setLocationAutoMatchConsent,
   setUiLanguagePreference,
   type ColorScheme,
 } from './ui-settings-storage';
+import { showWalkthroughDialog } from './onboarding-walkthrough';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showPreferencesDialog as openPreferencesDialog, type AnswerPreferenceUiMode } from './preferences-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
@@ -3309,6 +3312,7 @@ export class UIManager extends EventEmitter {
       { icon: '🔐', label: this.t('settingsIdentityDevices'), target: 'settings-section-linked-devices' },
       { icon: '🗑️', label: this.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
       { icon: '💾', label: this.t('settingsStorage'), target: 'settings-storage-inspector' },
+      { icon: '❓', label: this.t('settingsHelp'), target: 'settings-section-help' },
     ];
     const jumpMenuHtml = `
       <div class="settings-jump-menu" id="settings-jump-menu" style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
@@ -3615,6 +3619,15 @@ export class UIManager extends EventEmitter {
             action: `<button type="button" class="btn" id="settings-refresh-storage-btn">${this.t('settingsRefresh')}</button>`,
           },
           `<div id="settings-storage-inspector-body" style="font-size:0.9em;color:var(--text-tertiary);">${this.t('settingsStorageLoading')}</div>`,
+        )}
+        ${this.renderSettingsSection(
+          {
+            id: 'settings-section-help',
+            title: this.t('settingsHelp'),
+            subtitle: this.t('settingsHelpSubtitle'),
+            action: `<button type="button" class="btn" id="settings-replay-walkthrough-btn" data-testid="settings-replay-walkthrough-btn">${this.t('settingsReplayWalkthrough')}</button>`,
+          },
+          '',
         )}
         </div>
       </div>
@@ -4264,6 +4277,7 @@ export class UIManager extends EventEmitter {
       void this.openLinkedDevicesDialog();
     });
     document.getElementById('settings-erase-device-btn')?.addEventListener('click', () => this.openEraseDeviceDialog());
+    document.getElementById('settings-replay-walkthrough-btn')?.addEventListener('click', () => this.showWalkthrough());
     document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
       this.emit('setHomeChatroom', {
         chatroomId: (event.currentTarget as HTMLSelectElement).value,
@@ -6237,6 +6251,23 @@ export class UIManager extends EventEmitter {
     if (meView?.classList.contains('active')) {
       this.displayAnswersList();
     }
+  }
+
+  /** Shows the first-run walkthrough once per device, after boot finishes. No-op on replay. */
+  showFirstRunWalkthroughIfNeeded(): void {
+    if (getHasSeenWalkthrough()) return;
+    this.showWalkthrough();
+  }
+
+  /** Settings → Help & Tour "Replay Tour" button, and the automatic first-run trigger. */
+  showWalkthrough(): void {
+    showWalkthroughDialog({
+      text: (key, fallback) => {
+        const value = this.t(key as UiTranslationKey);
+        return value && value !== key ? value : (fallback ?? key);
+      },
+      onClose: () => setHasSeenWalkthrough(true),
+    });
   }
 
   showPreferencesDialog(): void {

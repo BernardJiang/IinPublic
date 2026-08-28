@@ -1055,6 +1055,7 @@ export class IinPublicApp {
 
     // Show main interface
     this.uiManager.showMainInterface(this.currentUser!);
+    this.uiManager.showFirstRunWalkthroughIfNeeded();
     this.checkForPendingIdentityLinkFragment();
     // TODO §J — publish this identity's signed pub→epub binding on every boot so a
     // linked device can encrypt a handoff *to* this identity without needing to already

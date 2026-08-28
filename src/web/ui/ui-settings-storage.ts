@@ -93,6 +93,15 @@ export function setKeepOldTalkOnEdit(enabled: boolean): void {
   localStorage.setItem('keepOldTalkOnEdit', String(enabled));
 }
 
+/** Device-local flag: has this browser/device ever finished (or skipped) the first-run walkthrough? */
+export function getHasSeenWalkthrough(): boolean {
+  return localStorage.getItem('iinpublic_walkthrough_seen') === 'true';
+}
+
+export function setHasSeenWalkthrough(seen: boolean): void {
+  localStorage.setItem('iinpublic_walkthrough_seen', String(seen));
+}
+
 export function getChatbotTemplate(talkId: string): ChatbotTemplate | null {
   try {
     const raw = localStorage.getItem('chatbotTemplates');
