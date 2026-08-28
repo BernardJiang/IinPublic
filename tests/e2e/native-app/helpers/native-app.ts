@@ -121,11 +121,14 @@ async function publishCurrentPublicUserForRelay(page: Page): Promise<void> {
     }
     const apiBase = app.getBackendApiBase?.();
     if (!apiBase) return;
-    await fetch(`${apiBase}/api/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(user),
-    }).catch(() => undefined);
+    await Promise.race([
+      fetch(`${apiBase}/api/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(user),
+      }).catch(() => undefined),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5_000)),
+    ]);
   });
 }
 
@@ -274,14 +277,22 @@ export async function forceJoinGlobal(page: Page): Promise<void> {
     const app = (window as any).__iinpublic_app?.getApp?.();
     const user = app?.currentUser;
     if (!app || !user?.id) return;
-    await app.chatroomService?.joinChatroom?.('global', user.id, user.stageName);
+    await Promise.race([
+      app.chatroomService?.joinChatroom?.('global', user.id, user.stageName),
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error('joinChatroom(global) timed out after 20s')), 20_000);
+      }),
+    ]);
     const apiBase = app.getBackendApiBase?.();
     if (apiBase) {
-      await fetch(`${apiBase}/api/chatrooms/global/members`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, stageName: user.stageName }),
-      }).catch(() => undefined);
+      await Promise.race([
+        fetch(`${apiBase}/api/chatrooms/global/members`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, stageName: user.stageName }),
+        }).catch(() => undefined),
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5_000)),
+      ]);
     }
     app.currentChatroomId = 'global';
     app.uiManager?.setCurrentChatroomId?.('global');

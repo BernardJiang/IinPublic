@@ -9,16 +9,18 @@ import helmet from 'helmet';
 import Gun from 'gun';
 import { logger } from '../logger';
 import { requestLogger } from '../middleware/request-logger';
+import { isLoopbackEmbeddedNode, isPlaintextHttpAllowed } from '../tls-mode';
 import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
 
 export function buildAllowedOrigin(): Array<string | RegExp> | RegExp {
+  if (isLoopbackEmbeddedNode(process.env)) {
+    return /^http:\/\/(?:127(?:\.\d{1,3}){3}|localhost|\[::1\])(:\d+)?$/;
+  }
   if (process.env.NODE_ENV !== 'production') {
-    const plaintextTest =
-      process.env.TLS_DISABLE === '1' ||
-      process.env.E2E_GUN_MEMORY_ONLY === '1' ||
-      process.env.E2E_GUN_MEMORY_ONLY === 'true';
-    return plaintextTest ? /^http:\/\/[^/]+(:\d+)?$/ : /^https:\/\/[^/]+(:\d+)?$/;
+    return isPlaintextHttpAllowed(process.env)
+      ? /^http:\/\/[^/]+(:\d+)?$/
+      : /^https:\/\/[^/]+(:\d+)?$/;
   }
 
   const configuredOrigins = (process.env.IINPUBLIC_ALLOWED_ORIGINS || '')

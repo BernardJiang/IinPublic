@@ -24,6 +24,23 @@ describe('GunTalkRepository', () => {
     await expect(repo.putReceived('bob', 'alice', talk)).rejects.toThrow('read-back verification failed');
   });
 
+  test('retries a transient authored commit failure without changing the content-addressed soul', async () => {
+    const graph = new Map<string, unknown>();
+    let putAttempts = 0;
+    const repo = new GunTalkRepository({
+      put: async (key, value) => {
+        putAttempts += 1;
+        if (putAttempts === 1) throw new Error('transient ack timeout');
+        graph.set(key, value);
+      },
+      get: async (key) => graph.get(key) ?? null,
+    });
+
+    await expect(repo.putAuthored('alice-sea', talk)).resolves.toBeUndefined();
+    expect(putAttempts).toBe(2);
+    expect([...graph.keys()]).toEqual(['users/alice-sea/talks/talk-cid']);
+  });
+
   test('duplicate multi-path commits converge to one soul', async () => {
     const graph = new Map<string, unknown>();
     const repo = new GunTalkRepository({ put: async (key, value) => { graph.set(key, value); }, get: async (key) => graph.get(key) ?? null });

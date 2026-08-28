@@ -89,6 +89,40 @@ function isLocalHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1';
 }
 
+type BrowserLocationLike = { hostname: string; port: string };
+type BrowserStorageLike = Pick<Storage, 'removeItem'>;
+
+export function isEmbeddedNativeOrigin(locationLike: BrowserLocationLike | undefined): boolean {
+  if (!locationLike) return false;
+  const webPort = Number(locationLike.port);
+  return (
+    isLocalHost(locationLike.hostname) &&
+    Number.isFinite(webPort) &&
+    webPort > 0 &&
+    !isDevE2EWebPort(webPort)
+  );
+}
+
+/**
+ * Native shells already persist the authoritative Gun graph in their embedded Node process.
+ * Keeping a second copy in WebView localStorage is redundant and eventually exhausts the old
+ * Android WebView 5 MB quota, which also prevents identity-safe app projections from saving.
+ */
+export function prepareDirectGunBrowserStorage(
+  locationLike: BrowserLocationLike | undefined,
+  storage: BrowserStorageLike | undefined,
+): boolean {
+  const persistBrowserGraph = !isEmbeddedNativeOrigin(locationLike);
+  if (!persistBrowserGraph) {
+    try {
+      storage?.removeItem('gun/');
+    } catch {
+      // Gun remains usable in-memory and through the embedded-node peer.
+    }
+  }
+  return persistBrowserGraph;
+}
+
 export function deriveBackendApiBaseFromLocation(protocol: string, hostname: string, port: string): string {
   const webPort = Number(port);
   if (isDevE2EWebPort(webPort)) {
@@ -166,10 +200,9 @@ export class WebGunService extends EventEmitter {
   }
 
   private isEmbeddedLocalOrigin(): boolean {
-    if (typeof window === 'undefined' || !window.location) return false;
-    const { hostname, port } = window.location;
-    const webPort = Number(port);
-    return isLocalHost(hostname) && Number.isFinite(webPort) && webPort > 0 && !isDevE2EWebPort(webPort);
+    return isEmbeddedNativeOrigin(
+      typeof window !== 'undefined' && window.location ? window.location : undefined,
+    );
   }
 
   private getIdentityPasswordManager(): IdentityPasswordCustodyManager | null {
@@ -277,9 +310,13 @@ export class WebGunService extends EventEmitter {
       const e2eDisableAxe = this.isE2ERelaxedMode();
       const devStageZero = isDevStageZero();
       const disableAxe = e2eDisableAxe || devStageZero;
+      const persistBrowserGraph = prepareDirectGunBrowserStorage(
+        typeof window !== 'undefined' && window.location ? window.location : undefined,
+        typeof localStorage !== 'undefined' ? localStorage : undefined,
+      );
       this.gun = Gun({
         peers: this.peers,
-        localStorage: true,
+        localStorage: persistBrowserGraph,
         radisk: false,
         ...(disableAxe ? { axe: false, multicast: false } : {}),
       });

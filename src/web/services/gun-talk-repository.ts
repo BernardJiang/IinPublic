@@ -83,11 +83,29 @@ export class GunTalkRepository {
   }
 
   private async putAndVerify(soul: string, record: GunTalkRecord): Promise<void> {
-    await this.gun.put(soul, record);
-    const readBack = await this.gun.get(soul) as GunTalkRecord | null;
-    if (!readBack || readBack.version !== 1 || readBack.talkId !== record.talkId || readBack.talkJson !== record.talkJson) {
-      throw new Error(`Gun Talk read-back verification failed: ${soul}`);
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        // Re-putting the same immutable content-addressed record is idempotent. A busy physical
+        // peer can miss one ACK or expose a stale immediate read, so retry the full commit
+        // boundary before telling the user creation failed.
+        await this.gun.put(soul, record);
+        const readBack = await this.gun.get(soul) as GunTalkRecord | null;
+        if (
+          readBack
+          && readBack.version === 1
+          && readBack.talkId === record.talkId
+          && readBack.talkJson === record.talkJson
+        ) {
+          return;
+        }
+        throw new Error(`Gun Talk read-back verification failed: ${soul}`);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 100));
+      }
     }
+    throw lastError instanceof Error ? lastError : new Error(`Gun Talk commit failed: ${soul}`);
   }
 
   private async readTalk(soul: string, expectedTalkId: string): Promise<Talk | null> {

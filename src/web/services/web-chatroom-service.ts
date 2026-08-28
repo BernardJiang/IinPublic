@@ -407,6 +407,8 @@ export class WebChatroomService {
     stageName: string,
     lastSeen: string,
   ): Promise<void> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
       await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members/${encodeURIComponent(userId)}`,
@@ -414,10 +416,13 @@ export class WebChatroomService {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ stageName, lastSeen }),
+          signal: controller.signal,
         },
       );
     } catch (error) {
       console.warn('syncMembershipHeartbeatWithServer failed (non-fatal):', error);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -433,14 +438,19 @@ export class WebChatroomService {
 
   /** Register join on server index so GET /members is immediate (not Gun-map lag). */
   private async syncJoinWithServer(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
       await fetch(`${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, stageName: stageName || userId }),
+        signal: controller.signal,
       });
     } catch (error) {
       console.warn('syncJoinWithServer failed (non-fatal):', error);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

@@ -38,6 +38,8 @@ describe('production/development topology contract', () => {
   const originalAllowedOrigins = process.env.IINPUBLIC_ALLOWED_ORIGINS;
   const originalE2EMemoryOnly = process.env.E2E_GUN_MEMORY_ONLY;
   const originalTlsDisable = process.env.TLS_DISABLE;
+  const originalEmbeddedNode = process.env.IINPUBLIC_EMBEDDED_NODE;
+  const originalLoopbackOnly = process.env.IINPUBLIC_LOOPBACK_ONLY;
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
@@ -47,6 +49,10 @@ describe('production/development topology contract', () => {
     else process.env.E2E_GUN_MEMORY_ONLY = originalE2EMemoryOnly;
     if (originalTlsDisable === undefined) delete process.env.TLS_DISABLE;
     else process.env.TLS_DISABLE = originalTlsDisable;
+    if (originalEmbeddedNode === undefined) delete process.env.IINPUBLIC_EMBEDDED_NODE;
+    else process.env.IINPUBLIC_EMBEDDED_NODE = originalEmbeddedNode;
+    if (originalLoopbackOnly === undefined) delete process.env.IINPUBLIC_LOOPBACK_ONLY;
+    else process.env.IINPUBLIC_LOOPBACK_ONLY = originalLoopbackOnly;
   });
 
   it('keeps browser URL derivation compatible across production, LAN dev, and native loopback', () => {
@@ -100,6 +106,18 @@ describe('production/development topology contract', () => {
 
     expect((testOrigin as RegExp).test('http://localhost:3001')).toBe(true);
     expect((testOrigin as RegExp).test('https://localhost:3001')).toBe(false);
+  });
+
+  it('limits a production embedded app node to loopback HTTP origins', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.IINPUBLIC_EMBEDDED_NODE = '1';
+    process.env.IINPUBLIC_LOOPBACK_ONLY = '1';
+    const appOrigin = buildAllowedOrigin();
+
+    expect((appOrigin as RegExp).test('http://127.0.0.1:8088')).toBe(true);
+    expect((appOrigin as RegExp).test('http://localhost:8088')).toBe(true);
+    expect((appOrigin as RegExp).test('http://192.168.10.50:8088')).toBe(false);
+    expect((appOrigin as RegExp).test('https://127.0.0.1:8088')).toBe(false);
   });
 
   it('allows an operator to replace the production origin allowlist', () => {

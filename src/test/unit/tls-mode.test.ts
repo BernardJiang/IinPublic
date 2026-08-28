@@ -19,6 +19,25 @@ describe('HTTPS-only server transport', () => {
     )).toBe('plaintext-test');
   });
 
+  it('allows HTTP only when an embedded app node is also loopback-only', () => {
+    expect(resolveTlsMode(
+      {
+        IINPUBLIC_EMBEDDED_NODE: '1',
+        IINPUBLIC_LOOPBACK_ONLY: '1',
+      },
+      { keyExists: false, certExists: false },
+    )).toBe('plaintext-loopback');
+
+    expect(() => resolveTlsMode(
+      { IINPUBLIC_EMBEDDED_NODE: '1' },
+      { keyExists: false, certExists: false },
+    )).toThrow('HTTPS is required');
+    expect(() => resolveTlsMode(
+      { IINPUBLIC_LOOPBACK_ONLY: '1' },
+      { keyExists: false, certExists: false },
+    )).toThrow('HTTPS is required');
+  });
+
   it('refuses to start when no HTTPS mechanism is configured', () => {
     expect(() => resolveTlsMode({}, { keyExists: false, certExists: false })).toThrow(
       'HTTPS is required',

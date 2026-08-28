@@ -39,3 +39,15 @@ WebView: Android's Activity owns the one startup navigation, and high-volume tes
 cleared without navigation during teardown. The suite runs a seven-node matching ring (seven
 authors, seven broadcasts, seven completions). Use test devices or profiles because it creates
 ordinary test talks and exchanges.
+
+To isolate a phone that displays "Failed to create talk," run the authoritative-commit
+regression against that adb serial. It rejects local ghost OUT rows and requires the device's
+Gun repository record to be readable:
+
+```bash
+E2E_REAL_ANDROID_TALK_COMMIT=1 \
+NATIVE_APP_ANDROID_SERIAL=serial \
+NATIVE_APP_ANDROID_HOST=192.168.10.50 \
+npx playwright test --config tests/e2e/native-app/playwright.config.ts \
+  tests/e2e/native-app/07-android-authoritative-talk-commit.spec.ts
+```

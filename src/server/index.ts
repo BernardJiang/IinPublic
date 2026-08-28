@@ -66,6 +66,8 @@ function createAppServer(app: express.Application) {
   }
   if (tlsMode === 'https-proxy') {
     logger.info('🔒 HTTPS is terminated by the hosting proxy');
+  } else if (tlsMode === 'plaintext-loopback') {
+    logger.info('Plain HTTP enabled for loopback-only embedded app node');
   } else {
     logger.warn('Plain HTTP enabled for isolated test execution only');
   }

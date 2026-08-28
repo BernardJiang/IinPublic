@@ -11,21 +11,8 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.net.wifi.aware.AttachCallback
-import android.net.wifi.aware.DiscoverySession
-import android.net.wifi.aware.DiscoverySessionCallback
-import android.net.wifi.aware.PeerHandle
-import android.net.wifi.aware.PublishConfig
-import android.net.wifi.aware.SubscribeConfig
-import android.net.wifi.aware.WifiAwareManager
-import android.net.wifi.aware.WifiAwareNetworkSpecifier
-import android.net.wifi.aware.WifiAwareSession
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pManager
@@ -33,11 +20,17 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
-import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
+
+/** API-neutral boundary implemented by the Android 8+ Wi-Fi Aware provider. */
+internal interface WifiAwareProvider {
+    fun start()
+    fun connect(transportId: String, passphrase: String)
+    fun stop()
+}
 
 /**
  * Open Android implementation of IinPublic's platform-adapter boundary.
@@ -62,14 +55,11 @@ class NearbyConnectivityManager(
     }
 
     private val handler = Handler(Looper.getMainLooper())
-    private var awareSession: WifiAwareSession? = null
-    private var awareDiscovery: DiscoverySession? = null
-    private var requestedAwareNetwork: ConnectivityManager.NetworkCallback? = null
+    private var wifiAwareProvider: WifiAwareProvider? = null
     private var nsdListener: NsdManager.DiscoveryListener? = null
     private var p2pChannel: WifiP2pManager.Channel? = null
     private var bleScanCallback: ScanCallback? = null
     private var bleAdvertiseCallback: AdvertiseCallback? = null
-    private val awarePeers = mutableMapOf<String, PeerHandle>()
 
     fun capabilities(): JSONObject = JSONObject().apply {
         put("version", 1)
@@ -110,50 +100,20 @@ class NearbyConnectivityManager(
         }.also { manager.discoverServices(NSD_TYPE, NsdManager.PROTOCOL_DNS_SD, it) }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     fun startWifiAware() {
-        if (!hasNearbyWifiPermission()) { listener.onStatus("android-wifi-aware", "permission-denied"); return }
-        val manager = context.getSystemService(WifiAwareManager::class.java)
-        if (!manager.isAvailable) { listener.onStatus("android-wifi-aware", "unavailable"); return }
-        manager.attach(object : AttachCallback() {
-            override fun onAttached(session: WifiAwareSession) {
-                awareSession = session
-                val callback = object : DiscoverySessionCallback() {
-                    override fun onPublishStarted(session: android.net.wifi.aware.PublishDiscoverySession) { awareDiscovery = session; listener.onStatus("android-wifi-aware", "running") }
-                    override fun onSubscribeStarted(session: android.net.wifi.aware.SubscribeDiscoverySession) { awareDiscovery = session; listener.onStatus("android-wifi-aware", "running") }
-                    override fun onServiceDiscovered(peerHandle: PeerHandle, serviceSpecificInfo: ByteArray?, matchFilter: List<ByteArray>?) {
-                        val id = "aware:${peerHandle.hashCode()}"; awarePeers[id] = peerHandle
-                        listener.onCandidate("platform-nearby", id, null, listOf("wifi-aware", "ip-upgrade"))
-                    }
-                    override fun onSessionConfigFailed() = listener.onStatus("android-wifi-aware", "failed", "configuration")
-                }
-                session.publish(PublishConfig.Builder().setServiceName(SERVICE_NAME).build(), callback, handler)
-                session.subscribe(SubscribeConfig.Builder().setServiceName(SERVICE_NAME).build(), callback, handler)
-            }
-            override fun onAttachFailed() = listener.onStatus("android-wifi-aware", "failed", "attach")
-        }, handler)
-    }
-
-    @RequiresApi(Build.VERSION_CODES.O)
-    fun requestWifiAwareIpPath(discoverySession: DiscoverySession, peer: PeerHandle, passphrase: String) {
-        if (!hasNearbyWifiPermission()) { listener.onStatus("android-wifi-aware-path", "permission-denied"); return }
-        val specifier = WifiAwareNetworkSpecifier.Builder(discoverySession, peer).setPskPassphrase(passphrase).build()
-        val request = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE).setNetworkSpecifier(specifier).build()
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = listener.onCandidate("platform-nearby", "aware-network:${network.hashCode()}", "network-handle:${network.networkHandle}", listOf("wifi-aware", "ip", "gun-websocket"))
-            override fun onUnavailable() = listener.onStatus("android-wifi-aware-path", "failed", "unavailable")
-            override fun onLost(network: Network) = listener.onStatus("android-wifi-aware-path", "degraded", "lost")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            listener.onStatus("android-wifi-aware", "unsupported", "api-level")
+            return
         }
-        requestedAwareNetwork = callback
-        context.getSystemService(ConnectivityManager::class.java).requestNetwork(request, callback)
+        loadWifiAwareProvider()?.start()
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     fun connectWifiAware(transportId: String, passphrase: String) {
-        val session = awareDiscovery
-        val peer = awarePeers[transportId]
-        if (session == null || peer == null) { listener.onStatus("android-wifi-aware-path", "failed", "unknown-peer"); return }
-        requestWifiAwareIpPath(session, peer, passphrase)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            listener.onStatus("android-wifi-aware-path", "unsupported", "api-level")
+            return
+        }
+        loadWifiAwareProvider()?.connect(transportId, passphrase)
     }
 
     fun startWifiDirect() {
@@ -201,12 +161,32 @@ class NearbyConnectivityManager(
     }
 
     fun stop() {
-        awareDiscovery?.close(); awareDiscovery = null; awareSession?.close(); awareSession = null; awarePeers.clear()
-        requestedAwareNetwork?.let { runCatching { context.getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }; requestedAwareNetwork = null
+        wifiAwareProvider?.stop(); wifiAwareProvider = null
         nsdListener?.let { runCatching { context.getSystemService(NsdManager::class.java).stopServiceDiscovery(it) } }; nsdListener = null
         val adapter: BluetoothAdapter? = context.getSystemService(android.bluetooth.BluetoothManager::class.java).adapter
         bleScanCallback?.let { runCatching { adapter?.bluetoothLeScanner?.stopScan(it) } }; bleScanCallback = null
         bleAdvertiseCallback?.let { runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(it) } }; bleAdvertiseCallback = null
+    }
+
+    /**
+     * Android 7's verifier resolves framework types mentioned by a loaded class even when every
+     * call is guarded by an SDK check. Keep the base manager free of android.net.wifi.aware types
+     * and resolve the API-26 implementation by name only after the runtime gate.
+     */
+    private fun loadWifiAwareProvider(): WifiAwareProvider? {
+        wifiAwareProvider?.let { return it }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        return runCatching {
+            val providerClass = Class.forName("com.iinpublic.app.WifiAwareConnectivityProvider")
+            val constructor = providerClass.getDeclaredConstructor(
+                Context::class.java,
+                Listener::class.java,
+                Handler::class.java,
+            )
+            constructor.newInstance(context, listener, handler) as WifiAwareProvider
+        }.onFailure { error ->
+            listener.onStatus("android-wifi-aware", "failed", "provider-load:${error.javaClass.simpleName}")
+        }.getOrNull()?.also { wifiAwareProvider = it }
     }
 
     private fun hasNearbyWifiPermission(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED

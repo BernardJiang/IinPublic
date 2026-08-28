@@ -29,4 +29,23 @@ describe('WebTalkService Gun migration and rollback', () => {
     const rollback = service(graph, false);
     await expect(rollback.getTalk(talk.id)).resolves.toMatchObject({ id: talk.id, title: 'Legacy' });
   });
+
+  test('does not expose a broadcastable compatibility row when the authoritative create fails', async () => {
+    const gun = {
+      getStoredPair: () => ({ pub: 'alice-sea', epub: 'alice-epub' }),
+      put: async () => { throw new Error('repository unavailable'); },
+      get: async () => null,
+    } as unknown as WebGunService;
+    const svc = new WebTalkService(gun, undefined, { gunTalkRepository: true });
+
+    await expect(svc.createTalk({
+      id: 'failed-talk',
+      authorId: 'alice',
+      title: 'Must not become an OUT row',
+      type: 'tag',
+    })).rejects.toThrow('repository unavailable');
+
+    expect(localStorage.getItem('myTalks')).toBeNull();
+    expect(localStorage.getItem('myAuthoredTalks')).toBeNull();
+  });
 });

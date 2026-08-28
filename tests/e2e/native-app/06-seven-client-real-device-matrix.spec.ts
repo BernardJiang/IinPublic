@@ -49,6 +49,29 @@ type MatrixUser = {
   id: string;
 };
 
+function attachMatrixDiagnostics(user: MatrixUser): void {
+  const failedResponses = new Set<string>();
+  user.page.on('console', (message) => {
+    const text = message.text();
+    if (!/failed to create talk/i.test(text)) return;
+    console.log(`[matrix] console ${message.type()} from ${user.runtime} (${user.name}): ${text}`);
+  });
+  user.page.on('pageerror', (error) => {
+    console.log(`[matrix] page error from ${user.runtime} (${user.name}): ${error.message}`);
+  });
+  user.page.on('response', (response) => {
+    if (response.status() < 400) return;
+    const key = `${response.status()} ${response.url()}`;
+    if (failedResponses.has(key)) return;
+    failedResponses.add(key);
+    void response.text().catch(() => '').then((body) => {
+      console.log(
+        `[matrix] HTTP ${key} from ${user.runtime} (${user.name}): ${body.slice(0, 500)}`,
+      );
+    });
+  });
+}
+
 function resolveLanIp(): string {
   if (process.env.NATIVE_APP_ANDROID_HOST) return process.env.NATIVE_APP_ANDROID_HOST;
   for (const addresses of Object.values(os.networkInterfaces())) {
@@ -72,12 +95,41 @@ async function readCurrentPublicUser(page: Page): Promise<Record<string, unknown
 }
 
 async function publishPublicUserToHub(user: Record<string, unknown>): Promise<void> {
-  const response = await fetch(`http://127.0.0.1:${HUB_GUN_PORT}/api/users`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(user),
-  });
-  if (!response.ok) throw new Error(`Hub user publish failed: ${response.status}`);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(`http://127.0.0.1:${HUB_GUN_PORT}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Hub user publish failed: ${response.status}`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function runUserSetupStep(
+  user: MatrixUser,
+  label: string,
+  action: () => Promise<void>,
+): Promise<void> {
+  console.log(`[matrix] ${label}: ${user.runtime} (${user.name})`);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      action(),
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timed out after 35s`)), 35_000);
+      }),
+    ]);
+  } catch (error) {
+    throw new Error(`[matrix] ${label} failed for ${user.runtime} (${user.name}): ${String(error)}`);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+  console.log(`[matrix] ${label} complete: ${user.runtime} (${user.name})`);
 }
 
 function oneTagTalk(authorId: string, owner: string, runId: string): any[] {
@@ -181,9 +233,18 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
     }
 
     expect(new Set(users.map((user) => user.id)).size).toBe(7);
+    users.forEach(attachMatrixDiagnostics);
 
-    await Promise.all(users.map((user) => forceJoinGlobal(user.page)));
-    await Promise.all(users.map(async (user) => publishPublicUserToHub(await readCurrentPublicUser(user.page))));
+    await Promise.all(users.map((user) => runUserSetupStep(
+      user,
+      'joining Global',
+      () => forceJoinGlobal(user.page),
+    )));
+    await Promise.all(users.map((user) => runUserSetupStep(
+      user,
+      'publishing public user',
+      async () => publishPublicUserToHub(await readCurrentPublicUser(user.page)),
+    )));
 
     await expect.poll(async () => {
       const memberIds = new Set((await readGlobalMembersFromHub(HUB_GUN_PORT)).map((member) => member.userId));

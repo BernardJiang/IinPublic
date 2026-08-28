@@ -32,9 +32,9 @@ function saveAuthoredTalk(talkId: string, talk: Talk): void {
 }
 
 /**
- * Keep the user-facing OUT list immediately usable while the authoritative Gun commit waits
- * for relay acknowledgement. UIManager.saveCreatedTalk later merges self-answer metadata into
- * the same entry, so this compatibility projection is intentionally idempotent.
+ * Project an authoritatively committed Talk into the compatibility OUT list.
+ * UIManager.saveCreatedTalk later merges self-answer metadata into the same entry, so this
+ * projection is intentionally idempotent.
  */
 function projectAuthoredTalkToMyTalks(talkId: string, talk: Talk): void {
   try {
@@ -238,11 +238,11 @@ export class WebTalkService {
     const authorPair = this.gunService.getStoredPair?.();
     if (authorPair?.epub && !talk.authorEpub) talk.authorEpub = authorPair.epub;
 
-    // Project locally before waiting on a relay ACK so OUT rows and Broadcast are immediately
-    // available; the awaited Gun repository write below is still the authoritative commit.
-    projectAuthoredTalkToMyTalks(talk.id, talk);
     const ownerSeaPub = this.ownerSeaPub() || talk.authorId;
     if (this.repositoryEnabled()) await this.talkRepository.putAuthored(ownerSeaPub, talk);
+    // Never leave a broadcastable ghost row when the authoritative commit fails. The editor
+    // awaits createTalk(), so projecting after the commit does not delay any usable UI state.
+    projectAuthoredTalkToMyTalks(talk.id, talk);
     saveAuthoredTalk(talk.id, talk);
     console.log('Talk committed to local Gun repository:', talk.id);
     return talk;
