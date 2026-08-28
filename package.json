@@ -91,6 +91,7 @@
     "sign:techsupport-greeting": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && node scripts/sign-techsupport-greeting.js",
     "sign:techsupport-identity": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && node scripts/sign-techsupport-identity.js",
     "sign:techsupport-ack": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && node scripts/sign-techsupport-support-ack.js",
+    "sign:techsupport-onboarding-tips": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && node scripts/sign-techsupport-onboarding-tips.js",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
     "android:wrapper": "cd android && gradle wrapper --gradle-version 8.4",

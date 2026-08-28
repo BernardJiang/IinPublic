@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "locales": [
+    {
+      "locale": "en",
+      "tips": [
+        "Tip: Join a chatroom by location or topic in Chatrooms to meet people nearby, then broadcast your talks to everyone there.",
+        "Tip: Create a Talk in the Talks tab — it's a question you send out. Answer the ones you receive to see if you're a match.",
+        "Tip: When you and someone else answer a talk compatibly, that's a match — find them in Contacts and start chatting.",
+        "Tip: Every question you've answered lives in the Me tab, so you can review or change past answers any time.",
+        "Tip: Adjust filters, appearance, and privacy in Settings — you can replay the app tour any time from Settings → Help & Tour."
+      ],
+      "authorPub": "mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ",
+      "signature": "SEA{\"m\":{\"authorPub\":\"mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ\",\"kind\":\"techsupport-onboarding-tips\",\"locale\":\"en\",\"tips\":[\"Tip: Join a chatroom by location or topic in Chatrooms to meet people nearby, then broadcast your talks to everyone there.\",\"Tip: Create a Talk in the Talks tab — it's a question you send out. Answer the ones you receive to see if you're a match.\",\"Tip: When you and someone else answer a talk compatibly, that's a match — find them in Contacts and start chatting.\",\"Tip: Every question you've answered lives in the Me tab, so you can review or change past answers any time.\",\"Tip: Adjust filters, appearance, and privacy in Settings — you can replay the app tour any time from Settings → Help & Tour.\"]},\"s\":\"YM4m+3KvvHqxEThL3ddA4nuBPp9W/jVmJ9l47NjZbsensgIxnTjvV2FSg4uDiHX7FudPaSZG0jyEQ9/d0tto3w==\"}"
+    },
+    {
+      "locale": "zh",
+      "tips": [
+        "小提示：在\"聊天室\"里按地点或话题加入房间，认识附近的人，然后向房间里的所有人广播你的话题。",
+        "小提示：在\"话题\"标签页创建一个话题——那是你发送出去的问题。回答你收到的话题，看看你们是否匹配。",
+        "小提示：当你和另一个人对同一个话题的回答相合时，就形成了匹配——在\"联系人\"里找到他们并开始聊天。",
+        "小提示：你回答过的每一个问题都保存在\"我\"标签页，随时可以查看或修改。",
+        "小提示：在\"设置\"里调整过滤器、外观和隐私——你也可以随时从\"设置 → 帮助与导览\"重新播放导览。"
+      ],
+      "authorPub": "mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ",
+      "signature": "SEA{\"m\":{\"authorPub\":\"mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ\",\"kind\":\"techsupport-onboarding-tips\",\"locale\":\"zh\",\"tips\":[\"小提示：在\\\"聊天室\\\"里按地点或话题加入房间，认识附近的人，然后向房间里的所有人广播你的话题。\",\"小提示：在\\\"话题\\\"标签页创建一个话题——那是你发送出去的问题。回答你收到的话题，看看你们是否匹配。\",\"小提示：当你和另一个人对同一个话题的回答相合时，就形成了匹配——在\\\"联系人\\\"里找到他们并开始聊天。\",\"小提示：你回答过的每一个问题都保存在\\\"我\\\"标签页，随时可以查看或修改。\",\"小提示：在\\\"设置\\\"里调整过滤器、外观和隐私——你也可以随时从\\\"设置 → 帮助与导览\\\"重新播放导览。\"]},\"s\":\"0fmX48qSLUwy7h3WQBCC6Q/+rmMwIEfEemDYyygsx27v5YhN9rz1qxbJScly+TXYOUC34vZULHurz/IBrc2tOQ==\"}"
+    }
+  ]
+}

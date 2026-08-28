@@ -25,8 +25,11 @@ import {
   TECHSUPPORT_GREETING_TEMPLATES,
   verifySupportAck,
   TECHSUPPORT_SUPPORT_ACK_TEMPLATES,
+  verifyOnboardingTips,
+  TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES,
   type GreetingLocale,
   type SupportAckLocale,
+  type OnboardingTipsLocale,
 } from '../../shared/techsupport-greeting';
 import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
@@ -8378,11 +8381,12 @@ export class UIManager extends EventEmitter {
    * renders to for the *current* user — closing the gap where `greetingSignature`/
    * `greetingLocale` are left untouched but `text` itself was altered after signing.
    *
-   * K5 (docs/TODO.md): same discipline extended to the two other TechSupport-authored,
+   * K5 (docs/TODO.md): same discipline extended to two more TechSupport-authored,
    * locally-rendered message types — a FAQ auto-answer (`faqSignature`) and the new-question
-   * ack (`ackSignature`). All three fail closed (K2-3): a verify failure drops the message
-   * silently, no error toast, no impersonated message rendered. Everything else passes
-   * through unchanged.
+   * ack (`ackSignature`) — plus the K2-extended "getting started" tips sequence
+   * (`tipSignature`, one signed bundle per locale covering the whole ordered list). All fail
+   * closed (K2-3): a verify failure drops the message silently, no error toast, no
+   * impersonated message rendered. Everything else passes through unchanged.
    */
   private async filterVerifiedSupportMessages(messages: any[]): Promise<any[]> {
     const stageName = this.currentUser?.stageName || '';
@@ -8395,6 +8399,7 @@ export class UIManager extends EventEmitter {
         !!msg.greetingSignature;
       const isFaqAnswer = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.faqSignature;
       const isAck = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.ackSignature;
+      const isTip = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.tipSignature;
 
       if (isFaqAnswer) {
         const cached = readCachedFaqBundle();
@@ -8421,6 +8426,21 @@ export class UIManager extends EventEmitter {
         if (!verified) continue;
         const expectedText = verified.template.replace('{name}', stageName);
         if (String(msg.text || '') !== expectedText) continue;
+        kept.push(msg);
+        continue;
+      }
+
+      if (isTip) {
+        const locale = msg.tipLocale as OnboardingTipsLocale;
+        const verified = await verifyOnboardingTips({
+          locale,
+          tips: TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES[locale],
+          authorPub: msg.tipAuthorPub,
+          signature: msg.tipSignature,
+        });
+        if (!verified) continue;
+        const expectedText = verified.tips[msg.tipIndex as number];
+        if (expectedText === undefined || String(msg.text || '') !== expectedText) continue;
         kept.push(msg);
         continue;
       }

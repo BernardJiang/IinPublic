@@ -45,13 +45,16 @@ import {
   renderGreeting,
   verifyTechSupportGreeting,
   verifySupportAck,
+  verifyOnboardingTips,
   type GreetingLocale,
   type SignedGreeting,
   type SupportAckLocale,
   type SignedSupportAck,
+  type SignedOnboardingTips,
 } from '../../shared/techsupport-greeting';
 import techsupportGreetingBundle from '../../shared/techsupport-greeting.signed.json';
 import techsupportSupportAckBundle from '../../shared/techsupport-support-ack.signed.json';
+import techsupportOnboardingTipsBundle from '../../shared/techsupport-onboarding-tips.signed.json';
 import {
   buildSupportFaqEntry,
   lookupSupportAnswer,
@@ -3050,6 +3053,43 @@ export class IinPublicApp {
 
     if (!this.uiManager.isSupportNotificationsMuted()) {
       this.uiManager.showNotification(rendered, 'info');
+    }
+
+    // K2-extended: a short sequence of "getting started" tips, one per app tab, sent as
+    // follow-up TechSupport messages right after the welcome line — same voice/content as the
+    // in-app first-run walkthrough (onboarding-walkthrough.ts), for a first-time user who lands
+    // in the support channel instead of (or in addition to) the visual tour. Same locale set and
+    // fail-closed discipline as the greeting above: an unverifiable bundle sends nothing extra.
+    const tipsBundle = techsupportOnboardingTipsBundle.locales as SignedOnboardingTips[];
+    const tipsEntry = tipsBundle.find((t) => t.locale === locale) ?? tipsBundle.find((t) => t.locale === 'en');
+    const verifiedTips = tipsEntry ? await verifyOnboardingTips(tipsEntry) : null;
+    if (verifiedTips) {
+      let lastTipText = rendered;
+      let lastTipTime = now;
+      verifiedTips.tips.forEach((tip, index) => {
+        // Staggered a second apart so the tips render in order as distinct follow-up bubbles
+        // rather than all landing at the identical greeting timestamp.
+        const tipTimestamp = new Date(Date.parse(now) + (index + 1) * 1000).toISOString();
+        this.conversationService.upsertMessageRecord(
+          conversationId,
+          {
+            id: `support_tip_${index}_${userId}`,
+            senderId: TECHSUPPORT_ROOT_USER_ID,
+            text: tip,
+            timestamp: tipTimestamp,
+            channel: 'public',
+            transport: transportMode,
+            tipIndex: index,
+            tipLocale: verifiedTips.locale,
+            tipSignature: verifiedTips.signature,
+            tipAuthorPub: verifiedTips.authorPub,
+          },
+          { otherUserId: userId },
+        );
+        lastTipText = tip;
+        lastTipTime = tipTimestamp;
+      });
+      this.uiManager.updateConversationMessage(conversationId, lastTipText, lastTipTime);
     }
   }
 
