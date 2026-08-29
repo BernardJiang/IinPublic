@@ -24,7 +24,7 @@ import { headless, afterSync, afterNav } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { waitForContactDetailReady } from '../../helpers/durable-ui';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
-import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
+import { completeTalkInAppByAnswerIds, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
@@ -41,8 +41,7 @@ async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 test.describe('Me tab: an answer links to its talk and to the sender\'s contact', () => {

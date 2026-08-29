@@ -6259,6 +6259,8 @@ export class UIManager extends EventEmitter {
   /** Shows the first-run walkthrough once per device, after boot finishes. No-op on replay. */
   showFirstRunWalkthroughIfNeeded(): void {
     if (getHasSeenWalkthrough()) return;
+    const enabledForE2E = new URLSearchParams(window.location.search).get('e2e_walkthrough') === '1';
+    if (process.env.DISABLE_HMR === 'true' && !enabledForE2E) return;
     this.showWalkthrough();
   }
 

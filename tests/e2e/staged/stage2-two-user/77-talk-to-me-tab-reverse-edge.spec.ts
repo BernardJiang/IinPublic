@@ -9,7 +9,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterAction, afterSync } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
-import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
+import { completeTalkInAppByAnswerIds, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
@@ -26,8 +26,7 @@ async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 test.describe('Talk -> Me-tab Q&A reverse edge', () => {

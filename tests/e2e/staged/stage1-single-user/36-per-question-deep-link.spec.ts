@@ -20,7 +20,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
-import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
+import { completeTalkInAppByAnswerIds, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const TITLE = 'Two Question Deep Link Talk';
@@ -79,8 +79,7 @@ test.describe('Me-tab per-question deep link (P)', () => {
     await q1.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q1.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
 
-    await page.click('#talk-editor-form button[type="submit"]');
-    await afterSync();
+    await submitTalkEditorAndWaitForOut(page, TITLE);
 
     const talkId = await page.evaluate((title: string) => {
       const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');

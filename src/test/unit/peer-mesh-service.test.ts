@@ -419,6 +419,59 @@ describe('PeerMeshService', () => {
     expect(carolResponses.map((r) => r.responseId)).toEqual(['resp-carol']);
   });
 
+  it('processes one copy when direct and relayed frames arrive during signature verification', async () => {
+    const alicePair = await SEA.pair() as SeaSigningPair;
+    const responses: P2PMeshTalkResponsePayload[] = [];
+    const alice = new PeerMeshService(mockGunService(alicePair, { alice: { pub: alicePair.pub } }), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: createFakeNetwork().createSession,
+      onTalkResponse: (payload) => { responses.push(payload); },
+    });
+
+    let releaseVerification = (): void => {};
+    const verificationGate = new Promise<void>((resolve) => { releaseVerification = resolve; });
+    const verifyOrigin = jest
+      .spyOn(alice as any, 'verifyOrigin')
+      .mockImplementation(async () => {
+        await verificationGate;
+        return true;
+      });
+    const now = new Date().toISOString();
+    const frame: P2PMeshFrame = {
+      version: 1,
+      kind: 'talk-response',
+      msgId: 'same-direct-and-relayed-frame',
+      roomId: 'global',
+      originUserId: 'bob',
+      originPub: 'bob-pub',
+      recipientUserId: 'alice',
+      createdAt: now,
+      ttlHops: 6,
+      payload: {
+        responseId: 'one-response',
+        talkId: 'talk-1',
+        authorId: 'alice',
+        responderId: 'bob',
+        submittedAt: now,
+        respondedAt: now,
+        version: 1,
+        encryption: 'sea-ecdh-v1',
+        payloadCiphertext: 'SEA{"ct":"ciphertext"}',
+        transportMode: 'mesh-p2p',
+      },
+    };
+
+    const direct = (alice as any).handleRemoteFrame('bob', frame);
+    const relayed = (alice as any).handleRemoteFrame('carol', frame);
+    releaseVerification();
+    await Promise.all([direct, relayed]);
+
+    expect(verifyOrigin).toHaveBeenCalledTimes(1);
+    expect(responses.map((response) => response.responseId)).toEqual(['one-response']);
+  });
+
   /**
    * Coverage-gap fallback (find-similar-people root cause): when a room broadcast names more
    * recipients than the overlay degree bound (maxNeighbors) can directly hold, the connected

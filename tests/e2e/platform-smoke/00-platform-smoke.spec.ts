@@ -56,7 +56,7 @@ test.describe('@smoke platform smoke set', () => {
 
     // Tab sweep — no horizontal clipping, bottom nav present.
     for (const view of VIEWS) {
-      await p.locator(`.nav-btn[data-view="${view}"]`).click();
+      await p.locator(`.nav-btn[data-view="${view}"]`).click({ timeout: 30_000 });
       await afterNav();
       await expect(p.locator(`#${view}-view`)).toBeVisible({ timeout: 15000 });
       await expect(p.locator('.bottom-nav')).toBeVisible();

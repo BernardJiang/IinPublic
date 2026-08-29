@@ -73,6 +73,14 @@ class FakeGunNode {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`Condition not met within ${timeoutMs}ms`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 type SeaPair = Awaited<ReturnType<typeof SEA.pair>>;
 
 async function buildSignedBody(params: {
@@ -183,8 +191,7 @@ describe('GunPubSubSignaler', () => {
       payload: { type: 'offer', sdp: 'v=0' },
     });
     await remote.post('conv1', body);
-    await flush();
-    await flush();
+    await waitUntil(() => received.length === 1);
 
     expect(received).toHaveLength(1);
     expect(received[0].payload).toEqual({ type: 'offer', sdp: 'v=0' });

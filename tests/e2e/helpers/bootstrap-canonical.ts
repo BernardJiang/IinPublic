@@ -10,6 +10,7 @@ import { isStagePipeline, stageStoragePath, type E2eStageName } from './e2e-stag
 import { TECHSUPPORT, ADAM, EVE } from './canonical-users';
 import { assertStatusChecks } from './e2e-status-checks';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
+import { TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES } from '../../../src/shared/techsupport-greeting';
 import { attachFilteredConsoleLog } from './e2e-console';
 import {
   expectCurrentUserIsOrdinaryUser,
@@ -26,23 +27,24 @@ export type BootstrapOptions = {
 };
 
 export async function expectTechSupportGreetingReceived(page: Page, stageName?: string): Promise<void> {
+  const onboardingTips = Object.values(TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES).flat();
   await expect
     .poll(
       () =>
         page.evaluate(
-          ({ techSupportId, name }) => {
+          ({ techSupportId, name, tips }) => {
             const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
             return Object.values(conversations).some((conversation: any) => {
               const message = String(conversation?.lastMessage || '');
+              const hasWelcome = message.includes('Welcome to IinPublic') && (!name || message.includes(name));
               return (
                 conversation?.supportChannel === true &&
                 conversation?.otherUserId === techSupportId &&
-                message.includes('Welcome to IinPublic') &&
-                (!name || message.includes(name))
+                (hasWelcome || tips.includes(message))
               );
             });
           },
-          { techSupportId: TECHSUPPORT_ROOT_USER_ID, name: stageName || '' },
+          { techSupportId: TECHSUPPORT_ROOT_USER_ID, name: stageName || '', tips: onboardingTips },
         ),
       { timeout: 15_000 },
     )

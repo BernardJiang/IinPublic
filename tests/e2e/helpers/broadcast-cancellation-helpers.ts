@@ -2,6 +2,7 @@ import type { APIRequestContext, Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { afterNav, afterSync, E2E_ASSERT_TIMEOUT_MS } from './timing';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
+import { submitTalkEditorAndWaitForOut } from './talk-demo-ui';
 
 const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } as const;
 
@@ -75,8 +76,7 @@ export async function createSimpleFlowTalk(
     await sendToChatroomCheck.setChecked(true);
   }
 
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 export async function goToChatrooms(page: Page): Promise<void> {

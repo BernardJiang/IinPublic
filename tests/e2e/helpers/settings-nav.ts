@@ -31,4 +31,5 @@ export const SETTINGS_SECTION = {
   linkedDevices: 'settings-section-linked-devices',
   eraseDevice: 'settings-section-erase-device',
   storageInspector: 'settings-storage-inspector',
+  help: 'settings-section-help',
 } as const;

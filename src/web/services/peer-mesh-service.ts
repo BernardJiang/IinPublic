@@ -189,6 +189,8 @@ export class PeerMeshService {
   private reconcileRequested = false;
   /** R4: bounded FIFO dedup cache; cleared on leaveRoom (spec §23.8). */
   private readonly seen = new BoundedFifoSet(SEEN_SET_MAX_SIZE);
+  /** Frames currently undergoing async signature verification; closes the direct/relay race. */
+  private readonly verifyingFrameIds = new Set<string>();
   private readonly talkBodies = new Map<string, Record<string, unknown>>();
   private readonly deliveredTalkBodyIds = new Set<string>();
   private readonly rejectedTalkOfferIds = new Set<string>();
@@ -444,6 +446,7 @@ export class PeerMeshService {
     for (const neighbor of this.neighbors.values()) neighbor.session.dispose?.();
     this.neighbors.clear();
     this.seen.clear();
+    this.verifyingFrameIds.clear();
     this.deliveredTalkBodyIds.clear();
     for (const timer of this.pendingTalkBodyRequestTimers.values()) clearTimeout(timer);
     this.pendingTalkBodyRequestTimers.clear();
@@ -988,17 +991,22 @@ export class PeerMeshService {
   private async handleRemoteFrame(fromUserId: string, frame: P2PMeshFrame): Promise<void> {
     if (!frame || frame.version !== 1 || !frame.msgId || !frame.roomId) return;
     if (this.currentRoomId && frame.roomId !== this.currentRoomId) return;
-    if (this.seen.has(frame.msgId)) return;
-    if (!(await this.verifyOrigin(frame))) return;
-    this.rememberSeen(frame.msgId);
+    if (this.seen.has(frame.msgId) || this.verifyingFrameIds.has(frame.msgId)) return;
+    this.verifyingFrameIds.add(frame.msgId);
+    try {
+      if (!(await this.verifyOrigin(frame))) return;
+      this.rememberSeen(frame.msgId);
 
-    const addressedToMe = !frame.recipientUserId || frame.recipientUserId === this.opts.localUserId;
-    if (addressedToMe) {
-      await this.handleLocalFrame(fromUserId, frame);
+      const addressedToMe = !frame.recipientUserId || frame.recipientUserId === this.opts.localUserId;
+      if (addressedToMe) {
+        await this.handleLocalFrame(fromUserId, frame);
+      }
+
+      if (frame.recipientUserId === this.opts.localUserId) return;
+      await this.forwardFrame(frame, fromUserId);
+    } finally {
+      this.verifyingFrameIds.delete(frame.msgId);
     }
-
-    if (frame.recipientUserId === this.opts.localUserId) return;
-    await this.forwardFrame(frame, fromUserId);
   }
 
   private async handleLocalFrame(_fromUserId: string, frame: P2PMeshFrame): Promise<void> {

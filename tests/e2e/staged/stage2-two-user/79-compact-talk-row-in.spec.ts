@@ -12,6 +12,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterSync } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive, longPressTalkRow } from '../../helpers/talks-matching-flow';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
+import { submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
@@ -28,8 +29,7 @@ async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 test.describe('Compact talk rows (M2) — IN row 2-line collapse + popup details', () => {
