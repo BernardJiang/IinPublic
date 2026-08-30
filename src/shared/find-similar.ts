@@ -42,6 +42,65 @@ import {
   UserTagWeightMap,
 } from './user-tags';
 
+// ─── Binary tag similarity ─────────────────────────────────────────────────────
+
+/**
+ * Accepted binary tag shapes. Weight-map values are deliberately ignored: these
+ * metrics compare membership only, while the existing combine policies below
+ * remain the weighted scoring path.
+ */
+export type TagCollection =
+  | readonly string[]
+  | ReadonlySet<string>
+  | Readonly<Record<string, unknown>>;
+
+export type TagSimilarityMetricId = 'jaccard' | 'cosine';
+export type TagSimilarityMetric = (left: TagCollection, right: TagCollection) => number;
+
+function toTagSet(tags: TagCollection): Set<string> {
+  if (Array.isArray(tags)) return new Set(tags);
+  if (typeof (tags as ReadonlySet<string>).has === 'function') {
+    return new Set(tags as ReadonlySet<string>);
+  }
+  return new Set(Object.keys(tags));
+}
+
+function intersectionSize(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  const [smaller, larger] = left.size <= right.size ? [left, right] : [right, left];
+  let common = 0;
+  for (const tag of smaller) {
+    if (larger.has(tag)) common++;
+  }
+  return common;
+}
+
+function jaccardFromSets(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  const common = intersectionSize(left, right);
+  const union = left.size + right.size - common;
+  // No tags means no evidence of a match; avoid treating two empty profiles as identical.
+  return union === 0 ? 0 : common / union;
+}
+
+function cosineFromSets(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  const denominator = Math.sqrt(left.size * right.size);
+  return denominator === 0 ? 0 : intersectionSize(left, right) / denominator;
+}
+
+/** Binary Jaccard similarity: intersection size divided by union size. */
+export function jaccardSimilarity(left: TagCollection, right: TagCollection): number {
+  return jaccardFromSets(toTagSet(left), toTagSet(right));
+}
+
+/** Binary cosine similarity: intersection size divided by the geometric mean of set sizes. */
+export function cosineSimilarity(left: TagCollection, right: TagCollection): number {
+  return cosineFromSets(toTagSet(left), toTagSet(right));
+}
+
+export const TAG_SIMILARITY_METRICS: Record<TagSimilarityMetricId, TagSimilarityMetric> = {
+  jaccard: jaccardSimilarity,
+  cosine: cosineSimilarity,
+};
+
 // ─── Combine policies (spec §22.5.1) ────────────────────────────────────────────
 //
 // `combine(viewerWeight, otherWeight, tag)` decides how a shared tag contributes.
@@ -205,6 +264,8 @@ class TopKHeap {
 export type TopKOptions = {
   k: number;
   combine?: CombinePolicyId | MatchScoreCombine;
+  /** Optional binary metric. When present, it takes precedence over `combine`. */
+  metric?: TagSimilarityMetricId;
   /** Only score candidates sharing at least this many of the viewer's tags. */
   minSharedTags?: number;
   /**
@@ -300,12 +361,20 @@ export class FindSimilarIndex {
     return matchScore(this.getWeights(viewerId), this.getWeights(otherId), resolveCombine(combine));
   }
 
+  /** Direct pairwise binary similarity, independent of tag weights. */
+  similarity(viewerId: string, otherId: string, metric: TagSimilarityMetricId): number {
+    return TAG_SIMILARITY_METRICS[metric](this.getWeights(viewerId), this.getWeights(otherId));
+  }
+
   /**
    * Candidate generation: union of the inverted index over the viewer's tags,
    * with per-tag hot capping and a min-shared-tags threshold. Only users sharing
    * ≥1 tag are ever returned, so |candidates| ≪ N (spec §22.5.2).
    */
-  candidatesFor(viewerId: string, opts: Omit<TopKOptions, 'k' | 'combine'> = {}): Map<string, number> {
+  candidatesFor(
+    viewerId: string,
+    opts: Omit<TopKOptions, 'k' | 'combine' | 'metric'> = {},
+  ): Map<string, number> {
     const viewerTags = this.maps.get(viewerId)?.tags ?? {};
     const minShared = Math.max(1, opts.minSharedTags ?? 1);
     const sharedCount = new Map<string, number>();
@@ -338,6 +407,7 @@ export class FindSimilarIndex {
   topK(viewerId: string, opts: TopKOptions): TopKResult {
     const combine = resolveCombine(opts.combine);
     const viewerTags = this.maps.get(viewerId)?.tags ?? {};
+    const viewerTagSet = opts.metric ? toTagSet(viewerTags) : undefined;
     const candidates = this.candidatesFor(viewerId, opts);
     const heap = new TopKHeap(opts.k);
     let scored = 0;
@@ -345,7 +415,11 @@ export class FindSimilarIndex {
     for (const [userId, sharedTags] of candidates) {
       const otherTags = this.maps.get(userId)?.tags;
       if (!otherTags) continue; // candidate present in index but map evicted → skip, don't block
-      const score = matchScore(viewerTags, otherTags, combine);
+      const score = opts.metric
+        ? opts.metric === 'jaccard'
+          ? jaccardFromSets(viewerTagSet!, toTagSet(otherTags))
+          : cosineFromSets(viewerTagSet!, toTagSet(otherTags))
+        : matchScore(viewerTags, otherTags, combine);
       scored++;
       heap.offer({ userId, score, sharedTags });
     }
