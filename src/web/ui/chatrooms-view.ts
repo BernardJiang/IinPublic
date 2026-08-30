@@ -3,6 +3,8 @@ import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
+import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
+import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
 
 type ChatroomMember = { userId: string; stageName: string; joinedAt?: string | Date };
 
@@ -21,9 +23,11 @@ type ChatroomsViewDeps = {
   currentChatroom: string;
   chatroomMemberCounts: Map<string, number>;
   chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }>;
+  chatroomBrowseMode: 'tree' | 'map';
   expandedChatrooms: Set<string>;
   matchedUserIds: Set<string>;
   customChatrooms: ReadonlyArray<CustomChatroomRow>;
+  setChatroomBrowseMode: (mode: 'tree' | 'map') => void;
   setCurrentChatroom: (chatroomId: string) => void;
   setCurrentChatroomMembers: (members: ChatroomMember[]) => void;
   escapeHtml: (text: string) => string;
@@ -194,6 +198,62 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       }
     });
   });
+
+  const treeButton = document.getElementById('chatroom-tree-view-btn') as HTMLButtonElement | null;
+  const mapButton = document.getElementById('chatroom-map-view-btn') as HTMLButtonElement | null;
+  const mapContainer = document.getElementById('chatroom-map');
+  const mapStatus = document.getElementById('chatroom-map-status');
+  const listContainer = document.getElementById('chatroom-list-container');
+  if (!treeButton || !mapButton || !mapContainer || !mapStatus || !listContainer) return;
+
+  const isMap = deps.chatroomBrowseMode === 'map';
+  treeButton.setAttribute('aria-pressed', String(!isMap));
+  mapButton.setAttribute('aria-pressed', String(isMap));
+  chatroomList.hidden = isMap;
+  mapContainer.hidden = !isMap;
+  mapStatus.hidden = !isMap;
+  listContainer.classList.toggle('map-mode', isMap);
+
+  treeButton.onclick = () => {
+    if (deps.chatroomBrowseMode === 'tree') return;
+    deps.setChatroomBrowseMode('tree');
+    deps.renderChatroomList();
+  };
+  mapButton.onclick = () => {
+    if (deps.chatroomBrowseMode === 'map') return;
+    deps.setChatroomBrowseMode('map');
+    deps.renderChatroomList();
+  };
+
+  if (isMap) {
+    const mapRooms: ChatroomMapRoom[] = allChatrooms.map((room) => {
+      const visits = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
+      return {
+        ...room,
+        memberCount: deps.chatroomMemberCounts.get(room.id) || 0,
+        visitCount: visits.visitCount,
+        uniqueVisitorCount: visits.uniqueVisitorCount,
+      };
+    });
+    const mappedCount = mapRooms.filter((room) => !!getChatroomMapLocation(room.id)).length;
+    const unmappedCustomCount = customNodes.filter((room) => !getChatroomMapLocation(room.id)).length;
+    const customNote = unmappedCustomCount > 0
+      ? ` ${deps.text('chatroomMapCustomRoomsNote').replace('{count}', String(unmappedCustomCount))}`
+      : '';
+    mapStatus.textContent = `${deps.text('chatroomMapSummary').replace('{count}', String(mappedCount))}${customNote}`;
+    if (!mapContainer.classList.contains('leaflet-container')) {
+      mapContainer.textContent = deps.text('chatroomMapLoading');
+    }
+    void renderChatroomMap({
+      container: mapContainer,
+      rooms: mapRooms,
+      currentChatroom: deps.currentChatroom,
+      openChatroom: (chatroomId) => showChatroomDetail(deps, chatroomId),
+      mapLoadFailedText: deps.text('chatroomMapLoadFailed'),
+      membersText: (count) => deps.text(count === 1 ? 'chatroomMemberOne' : 'chatroomMembers').replace('{count}', String(count)),
+      visitsText: (count) => deps.text(count === 1 ? 'chatroomVisitOne' : 'chatroomVisits').replace('{count}', String(count)),
+    });
+  }
 }
 
 export function toggleChatroomExpanded(deps: ChatroomsViewDeps, chatroomId: string): void {

@@ -55,7 +55,17 @@ export async function handleSignalingFrame(
   onEnvelope: (envelope: P2PSignalingEnvelope, payload: unknown) => void | Promise<void>,
 ): Promise<void> {
   if (!data || typeof data !== 'object') return;
-  const frame = data as Record<string, unknown>;
+  const wire = data as Record<string, unknown>;
+  let frame = wire;
+  if (typeof wire.frame === 'string') {
+    try {
+      const parsed = JSON.parse(wire.frame) as unknown;
+      if (!parsed || typeof parsed !== 'object') return;
+      frame = parsed as Record<string, unknown>;
+    } catch {
+      return;
+    }
+  }
   const senderPub = String(frame.senderPub ?? '');
   const senderPeerId = String(frame.senderPeerId ?? '');
   const signature = String(frame.signature ?? '');
@@ -116,7 +126,7 @@ export async function handleSignalingFrame(
 /**
  * Gun pub/sub replacement for HTTP signaling polling.
  *
- * Writes each SDP/ICE frame as a Gun NODE (flat object) keyed by its nonce at
+ * Writes each SDP/ICE frame as a one-field Gun NODE keyed by its nonce at
  * gun.get('p2p-signal').get(sharedKey).get(nonce), and the peer subscribes via `.map().on()`.
  * Pure peer↔peer: frames travel over the open Gun connection with no HTTP signaling endpoint
  * and no server in the data path. `.map().on()` fires both for frames already present when the
@@ -124,8 +134,9 @@ export async function handleSignalingFrame(
  * and for every subsequent frame.
  *
  * Frames MUST be stored as object nodes, not primitive JSON strings: Gun's `.map()` iterates
- * child *nodes*; every field here is a primitive string (no nested arrays/objects). Keying by
- * the unique nonce means frames never overwrite each other; handleFrame dedups by nonce.
+ * child *nodes*. The signed frame itself is JSON inside the node's single `frame` field. This
+ * avoids expanding every SDP/ICE frame into ten Radix entries on low-memory embedded nodes.
+ * Keying by the unique nonce means frames never overwrite each other; handleFrame dedups by nonce.
  *
  * The Gun path is in-memory only on the server node (shouldSkipServerGunPersist
  * returns true for 'p2p-signal' paths), so frames never land on radata.
@@ -163,7 +174,11 @@ export class GunPubSubSignaler implements SignalingTransport {
       signature: body.signature,
       nonce: body.nonce,
     };
-    this.gun.get('p2p-signal').get(this.sharedKey!).get(body.nonce).put(record);
+    this.gun
+      .get('p2p-signal')
+      .get(this.sharedKey!)
+      .get(body.nonce)
+      .put({ frame: JSON.stringify(record) });
   }
 
   startPolling(

@@ -62,7 +62,17 @@ object NodeBridge {
             return
         }
         val versionMarker = File(nodeDir, ".iinpublic-assets-version")
-        val packagedVersion = "${BuildConfig.VERSION_CODE}:${BuildConfig.VERSION_NAME}"
+        // VERSION_CODE/NAME alone cannot distinguish two in-place debug or
+        // hotfix installs built as the same release. Android updates
+        // lastUpdateTime on every package replacement, so the first launch
+        // after any actual APK install refreshes the embedded server/UI while
+        // subsequent launches of that exact install keep the fast path.
+        val packageUpdateTime = try {
+            context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
+        } catch (_: Exception) {
+            0L
+        }
+        val packagedVersion = "${BuildConfig.VERSION_CODE}:${BuildConfig.VERSION_NAME}:$packageUpdateTime"
         if (versionMarker.exists() && versionMarker.readText().trim() == packagedVersion) {
             android.util.Log.i("NodeBridge", "embedded assets already current ($packagedVersion); skipping unpack")
             return

@@ -134,6 +134,50 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     }
   });
 
+  test('toggles between tree and OpenStreetMap views and opens a room marker', async () => {
+    await toChatroomList(page!);
+    const p = page!;
+    const treeButton = p.locator('[data-testid="chatroom-tree-view-btn"]');
+    const mapButton = p.locator('[data-testid="chatroom-map-view-btn"]');
+    const tree = p.locator('#chatroom-list');
+    const map = p.locator('[data-testid="chatroom-map"]');
+
+    await expect(treeButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(mapButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(tree).toBeVisible();
+    await expect(map).toBeHidden();
+
+    await mapButton.click();
+    await expect(mapButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(treeButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(tree).toBeHidden();
+    await expect(map).toBeVisible();
+    await expect(map).toHaveClass(/leaflet-container/, { timeout: 15_000 });
+    await expect(map.locator('.chatroom-map-marker')).not.toHaveCount(0);
+    await expect(map.locator('a[href*="openstreetmap.org/copyright"]')).toBeVisible();
+    await expect(p.locator('#chatroom-map-status')).toContainText('geographic rooms');
+
+    await p.setViewportSize({ width: 360, height: 800 });
+    await expect(treeButton).toBeVisible();
+    await expect(mapButton).toBeVisible();
+    const compactMapBox = await map.boundingBox();
+    expect(compactMapBox?.width).toBeLessThanOrEqual(360);
+    expect(compactMapBox?.height).toBeGreaterThanOrEqual(260);
+
+    // The current hierarchy room gets a distinct marker even when it represents a parent area.
+    await map.locator('.chatroom-map-marker.current-room').click();
+    await afterNav();
+    await expect(p.locator('#chatroom-detail-container')).toBeVisible();
+
+    await p.locator('#back-to-chatrooms').click();
+    await afterNav();
+    await expect(map).toBeVisible();
+    await treeButton.click();
+    await expect(tree).toBeVisible();
+    await expect(map).toBeHidden();
+    await p.setViewportSize({ width: 1100, height: 1100 });
+  });
+
   test('create a community room then rename it', async () => {
     await toChatroomList(page!);
     const p = page!;

@@ -37,6 +37,11 @@ extern "C" void* run_node(void*) {
 
     char* args[] = {
         const_cast<char*>("node"),
+        // nodejs-mobile's device-dependent default old-space ceiling was only
+        // ~700 MiB on the C10. Keep a modest explicit allowance above that
+        // default, but remain bounded so a persistence regression cannot grow
+        // until it starves Android's WebView and adb transport.
+        const_cast<char*>("--max-old-space-size=768"),
         const_cast<char*>(g_script_path_full.c_str())
     };
     int argc = sizeof(args) / sizeof(args[0]);

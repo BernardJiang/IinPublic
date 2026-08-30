@@ -143,7 +143,7 @@ describe('deriveSignalingSharedKey', () => {
 });
 
 describe('GunPubSubSignaler', () => {
-  it('writes a frame record (object node) keyed by nonce under p2p-signal/sharedKey', async () => {
+  it('writes a compact one-field frame node keyed by nonce under p2p-signal/sharedKey', async () => {
     const gun = new FakeGunNode();
     const signaler = new GunPubSubSignaler(gun, 'localPub', 'otherPub');
     const sharedKey = await deriveSignalingSharedKey('localPub', 'otherPub');
@@ -161,9 +161,10 @@ describe('GunPubSubSignaler', () => {
     };
     await signaler.post('conv1', body);
 
-    const stored = gun.get('p2p-signal').get(sharedKey).get('nonce-123').value;
+    const stored = gun.get('p2p-signal').get(sharedKey).get('nonce-123').value as Record<string, string>;
     expect(typeof stored).toBe('object');
-    expect(stored).toMatchObject({
+    expect(Object.keys(stored)).toEqual(['frame']);
+    expect(JSON.parse(stored.frame)).toMatchObject({
       conversationId: 'conv1',
       kind: 'offer',
       senderPub: 'localPub',

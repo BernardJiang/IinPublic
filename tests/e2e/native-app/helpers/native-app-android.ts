@@ -200,17 +200,27 @@ async function waitForAndroidApp(
 /** Deterministic multi-phone path that bypasses Playwright's experimental adb enumerator. */
 export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions & { deviceSerial: string }): Promise<AndroidUser> {
   const serial = options.deviceSerial;
-  await execFileAsync('adb', ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE]);
+  await execFileAsync(
+    'adb',
+    ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],
+    { timeout: 5_000 },
+  );
   await execFileAsync('adb', [
     '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
     '--es', 'hub_gun_url', options.hubGunUrl,
-  ]);
+  ], { timeout: 5_000 });
   const pid = await waitForAppProcessViaAdb(serial);
   const cdpForwardPort = await waitForCdpEndpoint(serial, pid);
   // Prefer Playwright's Android WebView transport. It identifies the browser as mobile
   // Chromium ("clank") and therefore avoids browser-context commands unsupported by old
   // WebViews such as Chrome 101 on Android 7.
-  const devices = await android.devices({ omitDriverInstall: true });
+  // The experimental Android enumerator can remain pending forever after an
+  // older phone's adb transport reconnects. Direct CDP below is a complete
+  // fallback, so bound enumeration instead of stalling the entire matrix.
+  const devices = await resolveWithin(
+    android.devices({ omitDriverInstall: true }),
+    10_000,
+  ).catch((): AndroidDevice[] => []);
   const device = devices.find((candidate) => candidate.serial() === serial);
   let androidBridgeError: unknown;
   if (device) {

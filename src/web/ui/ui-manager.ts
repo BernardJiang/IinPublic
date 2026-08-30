@@ -413,6 +413,7 @@ export class UIManager extends EventEmitter {
   private lastNotifiedMessageIdByConversation: Map<string, string> = new Map();
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
+  private chatroomBrowseMode: 'tree' | 'map' = 'tree';
   private expandedChatrooms: Set<string> = new Set([
     'global',
     'north-america',
@@ -1561,7 +1562,7 @@ export class UIManager extends EventEmitter {
     const listContainer = document.getElementById('chatroom-list-container');
     const detailContainer = document.getElementById('chatroom-detail-container');
 
-    if (listContainer) listContainer.style.display = 'block';
+    if (listContainer) listContainer.style.display = 'flex';
     if (detailContainer) detailContainer.style.display = 'none';
     const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
     if (backBtn) backBtn.style.display = 'none';
@@ -1871,9 +1872,11 @@ export class UIManager extends EventEmitter {
       currentChatroom: this.currentChatroom,
       chatroomMemberCounts: this.chatroomMemberCounts,
       chatroomVisitCounts: this.chatroomVisitCounts,
+      chatroomBrowseMode: this.chatroomBrowseMode,
       expandedChatrooms: this.expandedChatrooms,
       matchedUserIds: this.matchedUserIds,
       customChatrooms: this.customChatrooms,
+      setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
       setCurrentChatroom: (chatroomId) => {
         this.currentChatroom = chatroomId;
         this.syncReturnHomeButton();

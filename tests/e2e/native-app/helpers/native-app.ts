@@ -117,7 +117,14 @@ async function publishCurrentPublicUserForRelay(page: Page): Promise<void> {
     if (pair?.pub) user.pub = pair.pub;
     if (pair?.epub) user.epub = pair.epub;
     if (app.userService?.syncPublicUserForRelay) {
-      await app.userService.syncPublicUserForRelay(user);
+      // Gun acknowledgements can remain pending on an established physical
+      // device while its local graph is hydrating. This publish is best-effort
+      // setup; the matrix follows it with a bounded HTTP publish and verifies
+      // the hub's complete member set before authoring any talks.
+      await Promise.race([
+        Promise.resolve(app.userService.syncPublicUserForRelay(user)).catch(() => undefined),
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5_000)),
+      ]);
     }
     const apiBase = app.getBackendApiBase?.();
     if (!apiBase) return;
@@ -130,6 +137,13 @@ async function publishCurrentPublicUserForRelay(page: Page): Promise<void> {
       new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5_000)),
     ]);
   });
+}
+
+async function dismissAutomaticWalkthroughForBootstrap(page: Page): Promise<void> {
+  const modal = page.locator('[data-testid="walkthrough-modal"]');
+  if (!(await modal.isVisible().catch(() => false))) return;
+  await page.locator('[data-testid="walkthrough-skip-btn"]').click();
+  await expect(modal).toHaveCount(0);
 }
 
 export async function bootstrapNativeWindow(
@@ -145,6 +159,7 @@ export async function bootstrapNativeWindow(
   const readinessTimeoutMs = options.readinessTimeoutMs ?? 45_000;
   await expect(page.locator('body')).not.toContainText('Connecting to IinPublic network...', { timeout: readinessTimeoutMs });
   await waitForAppReady(page, readinessTimeoutMs);
+  await dismissAutomaticWalkthroughForBootstrap(page);
   if (options.updateStageName !== false) {
     await page.evaluate(() => {
       document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.click();
@@ -212,6 +227,7 @@ export async function bootstrapBrowserUserOnOrigin(
   await gotoWebApp(page, `${baseURL}/?${params.toString()}`);
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
+  await dismissAutomaticWalkthroughForBootstrap(page);
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
   await openSettingsSection(page, 'settings-section-profile');
@@ -278,10 +294,11 @@ export async function forceJoinGlobal(page: Page): Promise<void> {
     const user = app?.currentUser;
     if (!app || !user?.id) return;
     await Promise.race([
-      app.chatroomService?.joinChatroom?.('global', user.id, user.stageName),
-      new Promise<never>((_resolve, reject) => {
-        setTimeout(() => reject(new Error('joinChatroom(global) timed out after 20s')), 20_000);
-      }),
+      Promise.resolve(app.chatroomService?.joinChatroom?.('global', user.id, user.stageName)).catch(() => undefined),
+      // A slow Gun ack does not mean the membership write failed. Continue to
+      // the explicit HTTP membership publish below; the caller subsequently
+      // polls the hub for all seven exact user ids.
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 20_000)),
     ]);
     const apiBase = app.getBackendApiBase?.();
     if (apiBase) {

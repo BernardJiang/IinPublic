@@ -42,6 +42,73 @@ export interface EmbeddedNodeHandle {
   server?: unknown;
 }
 
+export interface TransientRadataQuarantineResult {
+  movedFiles: number;
+  movedBytes: number;
+  quarantineDir?: string;
+}
+
+function isTransientSignalRadataFile(fileName: string): boolean {
+  let decoded = fileName;
+  try {
+    decoded = decodeURIComponent(fileName);
+  } catch {
+    // A malformed unrelated filename is not a signaling record.
+  }
+  return decoded.startsWith('p2p-signal/') || decoded.startsWith('undefinedp2p-signal');
+}
+
+/**
+ * Older embedded builds allowed peer-originated Gun signaling frames to pass
+ * around the server persistence wrapper and land in Radisk. Those frames are
+ * ephemeral transport data, but an established Android profile can contain
+ * thousands of them and hydrate hundreds of MiB into V8.
+ *
+ * Move only recognizable signaling chunks out of the live Radisk directory
+ * before Gun starts. A timestamped quarantine keeps the migration recoverable;
+ * identity, Talk, contact, and key-custody records are never selected.
+ */
+export function quarantineTransientSignalRadata(
+  dataDir: string,
+  now = Date.now(),
+): TransientRadataQuarantineResult {
+  const radataDir = path.join(dataDir, 'radata');
+  let candidates: fs.Dirent[];
+  try {
+    candidates = fs
+      .readdirSync(radataDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && isTransientSignalRadataFile(entry.name));
+  } catch {
+    return { movedFiles: 0, movedBytes: 0 };
+  }
+  if (candidates.length === 0) return { movedFiles: 0, movedBytes: 0 };
+
+  const quarantineDir = path.join(
+    dataDir,
+    'radata-transient-quarantine',
+    `signal-${now}-${process.pid}`,
+  );
+  fs.mkdirSync(quarantineDir, { recursive: true });
+
+  let movedFiles = 0;
+  let movedBytes = 0;
+  for (const entry of candidates) {
+    const source = path.join(radataDir, entry.name);
+    const destination = path.join(quarantineDir, entry.name);
+    try {
+      const bytes = fs.statSync(source).size;
+      fs.renameSync(source, destination);
+      movedFiles += 1;
+      movedBytes += bytes;
+    } catch {
+      // Leave an individual file in place if it races or cannot be moved; a
+      // later boot can retry without blocking the native app from starting.
+    }
+  }
+
+  return { movedFiles, movedBytes, quarantineDir };
+}
+
 /**
  * Apply embedded defaults to process.env *before* the server module loads,
  * because `attachGun` / `configureHttpMiddleware` read env at construction.
@@ -64,6 +131,14 @@ function applyEnv(config: EmbeddedNodeConfig): void {
 function prepareDataDir(config: EmbeddedNodeConfig): void {
   try {
     fs.mkdirSync(config.dataDir, { recursive: true });
+    const quarantine = quarantineTransientSignalRadata(config.dataDir);
+    if (quarantine.movedFiles > 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[embedded-node] quarantined ${quarantine.movedFiles} transient Gun signaling files ` +
+          `(${quarantine.movedBytes} bytes) at ${quarantine.quarantineDir}`,
+      );
+    }
     // Gun's radisk defaults to <cwd>/radata; chdir so on-device persistence
     // lands in the app sandbox rather than a read-only bundle dir.
     process.chdir(config.dataDir);

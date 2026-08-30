@@ -65,9 +65,17 @@ export function renderAppShell(
           <div class="view-panel active" id="chatrooms-view">
             <!-- Chatroom List -->
             <div class="chatroom-list-container" id="chatroom-list-container">
+              <div class="chatroom-view-toolbar">
+                <div class="chatroom-view-toggle" role="group" aria-label="${text('chatroomViewMode')}">
+                  <button type="button" id="chatroom-tree-view-btn" data-testid="chatroom-tree-view-btn" aria-pressed="true">${text('chatroomTreeView')}</button>
+                  <button type="button" id="chatroom-map-view-btn" data-testid="chatroom-map-view-btn" aria-pressed="false">${text('chatroomMapView')}</button>
+                </div>
+                <div class="chatroom-map-status" id="chatroom-map-status" role="status" aria-live="polite" hidden></div>
+              </div>
               <div class="chatroom-list" id="chatroom-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading chatrooms...</p>
               </div>
+              <div class="chatroom-map" id="chatroom-map" data-testid="chatroom-map" aria-label="${text('chatroomMapAriaLabel')}" hidden></div>
             </div>
 
             <!-- Chatroom Detail (Hidden by default) -->
@@ -492,6 +500,8 @@ export function applyAppShellTranslations(
     ['#create-custom-chatroom-btn .app-bar-btn-label', 'newRoom'],
     ['#return-home-btn .app-bar-btn-label', 'returnHome'],
     ['#broadcast-talk-btn .app-bar-btn-label', 'broadcast'],
+    ['#chatroom-tree-view-btn', 'chatroomTreeView'],
+    ['#chatroom-map-view-btn', 'chatroomMapView'],
     ['#creator-replies-panel strong', 'repliesTitle'],
     ['#reply-clear-filters', 'clear'],
     ['#settings-refresh-location-btn .app-bar-btn-label', 'refreshLocation'],
@@ -509,6 +519,10 @@ export function applyAppShellTranslations(
     const element = root.querySelector<HTMLElement>(selector);
     if (element) element.textContent = text(key);
   }
+  const chatroomViewToggle = root.querySelector<HTMLElement>('.chatroom-view-toggle');
+  if (chatroomViewToggle) chatroomViewToggle.setAttribute('aria-label', text('chatroomViewMode'));
+  const chatroomMap = root.getElementById('chatroom-map');
+  if (chatroomMap) chatroomMap.setAttribute('aria-label', text('chatroomMapAriaLabel'));
   // AppBar icon buttons: translated label doubles as the tooltip.
   for (const id of ['create-custom-chatroom-btn', 'return-home-btn', 'broadcast-talk-btn', 'settings-refresh-location-btn']) {
     const btn = root.getElementById(id);

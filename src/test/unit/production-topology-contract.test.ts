@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {
   deriveBackendApiBaseFromLocation,
@@ -9,6 +10,7 @@ import {
   resolveEmbeddedNodeConfig,
 } from '../../shared/embedded-node-config';
 import { resolveUpstreamHubPeers, buildAllowedOrigin } from '../../server/bootstrap/http-bootstrap';
+import { quarantineTransientSignalRadata } from '../../node-app/embedded-node';
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
@@ -74,6 +76,45 @@ describe('production/development topology contract', () => {
     expect(embedded.hubRelayMode).toBe('explicit-http');
     expect(embedded.loopbackOnly).toBe(true);
     expect(resolveUpstreamHubPeers(embedded, { e2eMemoryOnly: false, devGunFresh: false })).toEqual([]);
+  });
+
+  it('gives Android embedded Node enough bounded heap for established native graphs', () => {
+    const nativeShim = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/main/cpp/native-lib.cpp'),
+      'utf8',
+    );
+
+    expect(nativeShim).toContain('const_cast<char*>("--max-old-space-size=768")');
+
+    const nodeBridge = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/main/java/com/iinpublic/app/NodeBridge.kt'),
+      'utf8',
+    );
+    expect(nodeBridge).toContain('lastUpdateTime');
+  });
+
+  it('quarantines only transient signaling chunks before embedded Gun starts', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-radata-quarantine-'));
+    const radataDir = path.join(dataDir, 'radata');
+    fs.mkdirSync(radataDir);
+    const transient = [
+      'p2p-signal%2Fchannel%2Fnonce%1Bsignature',
+      'undefinedp2p-signal%2Flegacy%1BpayloadHash',
+    ];
+    const durable = ['users%2Falice%1BstageName', 'talks%2Ftalk-1%1Btitle', '!'];
+    for (const file of [...transient, ...durable]) {
+      fs.writeFileSync(path.join(radataDir, file), file);
+    }
+
+    try {
+      const result = quarantineTransientSignalRadata(dataDir, 1234);
+      expect(result.movedFiles).toBe(2);
+      expect(result.quarantineDir).toContain('radata-transient-quarantine');
+      expect(fs.readdirSync(radataDir).sort()).toEqual(durable.sort());
+      expect(fs.readdirSync(result.quarantineDir!).sort()).toEqual(transient.sort());
+    } finally {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
   it('restricts production CORS while allowing non-production LAN development origins', () => {
