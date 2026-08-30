@@ -359,6 +359,16 @@ export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
   private currentUser?: User;
   private currentChatroom: string = 'global';
+  /**
+   * Which chatroom's detail panel the user last drilled into (Tree row, Map marker, or any other
+   * path — all of them funnel through chatrooms-view.ts's showChatroomDetail, whose
+   * onChatroomDetailOpened callback, wired in chatroomsDeps(), is what actually sets this), if
+   * any — restored when they leave the Chatrooms tab and come back, instead of always resetting
+   * to the list (see setupBottomNavigation's chatrooms case). Cleared in showChatroomList (every
+   * real "go back to the list" path — the back button and this same tab-switch handler when
+   * there's nothing to restore — already calls showChatroomList()).
+   */
+  private chatroomsDetailRoomId: string | null = null;
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   /** docs/TODO.md K5 — the TechSupport-root session's own pending-question inbox, fed by app.ts's live `techsupport-inbox/*` subscription (never read directly from Gun here). */
   private currentSupportInboxEntries: SupportInboxEntry[] = [];
@@ -1442,9 +1452,14 @@ export class UIManager extends EventEmitter {
         if (headerActions) headerActions.style.display = 'flex';
         this.syncAppBarActionsForView(targetView);
 
-        // Special handling for chatrooms view
+        // Special handling for chatrooms view: restore whichever room's detail panel the user
+        // was last looking at instead of always resetting to the room list (§ save-the-spot).
         if (targetView === 'chatrooms') {
-          this.showChatroomList();
+          if (this.chatroomsDetailRoomId) {
+            this.showChatroomDetail(this.chatroomsDetailRoomId);
+          } else {
+            this.showChatroomList();
+          }
         }
 
         // Special handling for contacts view
@@ -1470,8 +1485,11 @@ export class UIManager extends EventEmitter {
           this.displayAnswersList();
         }
 
+        // Re-render, but keep whichever settings section the user was last looking at
+        // (settingsActiveSectionId) instead of resetting to the top-level menu — renderSettingsView
+        // already restores it correctly via its own trailing applySettingsSectionView call, the
+        // same mechanism a language change relies on to survive a full re-render.
         if (targetView === 'settings') {
-          this.settingsActiveSectionId = null;
           if (this.currentUser) this.renderSettingsView(this.currentUser);
         }
       });
@@ -1558,6 +1576,7 @@ export class UIManager extends EventEmitter {
   }
 
   showChatroomList(): void {
+    this.chatroomsDetailRoomId = null;
     // Hide chatroom detail view, show chatroom list
     const listContainer = document.getElementById('chatroom-list-container');
     const detailContainer = document.getElementById('chatroom-detail-container');
@@ -1894,6 +1913,7 @@ export class UIManager extends EventEmitter {
       formatDate: this.formatUiDate.bind(this),
       isTechSupportOnline: this.isTechSupportOnline.bind(this),
       isUserOnline: this.isUserOnline.bind(this),
+      onChatroomDetailOpened: (chatroomId) => { this.chatroomsDetailRoomId = chatroomId; },
     };
   }
 
@@ -1975,9 +1995,10 @@ export class UIManager extends EventEmitter {
   }
 
   showChatroomDetail(chatroomId: string): void {
+    // openChatroomDetail's onChatroomDetailOpened callback (chatroomsDeps()) is what actually
+    // sets chatroomsDetailRoomId — the same single call path the Tree row click and Map marker
+    // click also go through, so every way of opening a room's detail panel is tracked uniformly.
     openChatroomDetail(this.chatroomsDeps(), chatroomId);
-    const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
-    if (backBtn) backBtn.style.display = 'inline-flex';
     this.syncReturnHomeButton();
   }
 

@@ -42,6 +42,15 @@ type ChatroomsViewDeps = {
   isTechSupportOnline: () => boolean;
   /** Same real-presence signal as isTechSupportOnline, generalized to any member. */
   isUserOnline: (userId: string) => boolean;
+  /**
+   * Fired every time showChatroomDetail actually opens a room's detail panel — both the Tree
+   * row click and the Map marker click (via the openChatroom callback below) go through this
+   * one function, so this is the single place that needs to notify the caller, regardless of
+   * which UI triggered it. Lets ui-manager.ts track which room's detail view is showing so it
+   * can restore it after the user leaves and returns to the Chatrooms tab, instead of always
+   * resetting to the room list.
+   */
+  onChatroomDetailOpened?: (chatroomId: string) => void;
 };
 
 export function syncStatusBroadcastButtonVisibility(currentChatroom: string): void {
@@ -274,6 +283,7 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   if (detailContainer) detailContainer.style.display = 'flex';
   const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';
+  deps.onChatroomDetailOpened?.(chatroomId);
 
   const custom = deps.customChatrooms.find((c) => c.id === chatroomId);
   const allChatrooms = getFlatChatroomList();
