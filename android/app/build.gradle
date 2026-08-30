@@ -114,15 +114,24 @@ dependencies {
 
 // Stage the embedded Node project into the APK assets:
 //   - platforms/mobile/nodejs-project (main.js + package.json)
-//   - repo dist/server + dist/web + public assets (compiled/reused by embedded server)
-// Run `npm run build:web && npm run build:server` at the repo root first.
+//   - dist/embedded-mobile/server (ONE bundled file, not the whole dist/server tree) + dist/web
+// Run `npm run mobile:stage` at the repo root first (build:web + build:server + the
+// scripts/build-embedded-mobile.js esbuild bundle — see that script's header comment for why
+// the server half is bundled rather than shipping dist/server + a separate node_modules install:
+// NodeBridge.kt's unpackIfNeeded copies staged assets out of the read-only APK ONE FILE AT A TIME
+// via the Android AssetManager, so the ~1000+ small files a full express/gun/socket.io node_modules
+// tree carries directly cost first-launch time; one file removes nearly all of that).
 def repoRoot = "${rootProject.projectDir}/.."
 task stageNodeProject(type: Copy) {
     from("${repoRoot}/platforms/mobile/nodejs-project")
     into("${projectDir}/src/main/assets/nodejs-project")
 }
-task stageNodeDist(type: Copy) {
-    from("${repoRoot}/dist") { include 'server/**', 'web/**' }
+// Sync (not Copy) so a server tree staged by a build predating this change (the old, unbundled
+// dist/server/** copy) gets cleaned out of assets/ instead of lingering alongside the new bundle
+// — same rationale as stageNodePublic's Sync below.
+task stageNodeDist(type: Sync) {
+    from("${repoRoot}/dist/embedded-mobile") { include 'server/**' }
+    from("${repoRoot}/dist") { include 'web/**' }
     into("${projectDir}/src/main/assets/nodejs-project/dist")
 }
 // Sync (not Copy): mirrors the source exactly, deleting anything already staged that the

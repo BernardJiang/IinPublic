@@ -203,6 +203,17 @@ export async function injectIdbClear(page: Page): Promise<void> {
     } catch {
       // Non-fatal — the worker will create a fresh database regardless.
     }
+    try {
+      // The first-run walkthrough (onboarding-walkthrough.ts) auto-shows once per device on a
+      // fresh localStorage — every test here IS a fresh device by this point, so without this it
+      // pops up and intercepts pointer events on the very first nav click every flow makes,
+      // failing hundreds of otherwise-unrelated specs. Suppressing it here (not per-spec) covers
+      // every one of injectIdbClear's ~100+ callers in one place, the same way the IDB clear
+      // above does for Gun's own fresh-graph requirement.
+      localStorage.setItem('iinpublic_walkthrough_seen', 'true');
+    } catch {
+      // Non-fatal — localStorage access can throw in a locked-down context; the app still works.
+    }
   });
 }
 
