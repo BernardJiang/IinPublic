@@ -209,8 +209,13 @@ export async function injectIdbClear(page: Page): Promise<void> {
       // pops up and intercepts pointer events on the very first nav click every flow makes,
       // failing hundreds of otherwise-unrelated specs. Suppressing it here (not per-spec) covers
       // every one of injectIdbClear's ~100+ callers in one place, the same way the IDB clear
-      // above does for Gun's own fresh-graph requirement.
-      localStorage.setItem('iinpublic_walkthrough_seen', 'true');
+      // above does for Gun's own fresh-graph requirement. The dedicated walkthrough spec opts in
+      // through its URL. Do not remove/reset the flag for that URL: after the user dismisses the
+      // tour, the same init script runs again on reload and must preserve the dismissal.
+      const walkthroughOptedIn = new URLSearchParams(window.location.search).get('e2e_walkthrough') === '1';
+      if (!walkthroughOptedIn) {
+        localStorage.setItem('iinpublic_walkthrough_seen', 'true');
+      }
     } catch {
       // Non-fatal — localStorage access can throw in a locked-down context; the app still works.
     }
