@@ -310,8 +310,15 @@ class IinPublicServer {
   }
 }
 
-// Start server
-if (require.main === module) {
+// Start server. Embedded mode (desktop/mobile) never reaches this — embedded-node.ts already
+// does its own single `new IinPublicServer(); server.start(port)` after applying embedded env
+// vars, and always sets IINPUBLIC_EMBEDDED_NODE=1 before this module ever runs. The extra check
+// (not just `require.main === module`) matters once this module is bundled into a single file
+// alongside embedded-node.ts (mobile's esbuild target, scripts/build-embedded-mobile.js): a
+// bundler can collapse `require.main`/`module` identity across originally-separate source files,
+// which made this guard fire a SECOND time on top of embedded-node.ts's own start call — two
+// IinPublicServer instances racing to listen on the same port, crashing with EADDRINUSE.
+if (require.main === module && process.env.IINPUBLIC_EMBEDDED_NODE !== '1') {
   const server = new IinPublicServer();
   const port = process.env.PORT ? parseInt(process.env.PORT) : 8080;
   server.start(port);

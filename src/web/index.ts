@@ -6,6 +6,7 @@ import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
 import { IDENTITY_CUSTODY_DATABASE_NAME } from './services/identity-custody-store';
+import { getCachedLocation, setCachedLocation } from './services/location-cache';
 
 const STAGE_ZERO_BOOT_KEY = 'iinpublic_stage_zero_boot';
 
@@ -65,10 +66,12 @@ class WebApp {
       }
 
       // FOR TESTING: Use a fixed location so all users end up in same chatroom
-      // Tests can override by setting window.__test_location before app loads
-      const USE_TEST_LOCATION = true;
+      // Tests can override by setting window.__test_location before app loads.
+      // Real (production) builds resolve real geolocation instead — see the else-branch below.
+      const USE_TEST_LOCATION = process.env.NODE_ENV !== 'production';
 
       let location: GPSCoordinate;
+      let locationConfirmed = true;
       if (USE_TEST_LOCATION) {
         // Check if test has set a custom location
         const customLocation = (window as any).__test_location;
@@ -92,16 +95,29 @@ class WebApp {
           console.log('🧪 Using default TEST location:', location.latitude, location.longitude);
         }
       } else {
-        location = await LocationPrivacy.getCurrentLocation();
-        console.log(
-          '📍 Location obtained:',
-          location.latitude.toFixed(3),
-          location.longitude.toFixed(3),
-        );
+        // Cache-first UI: never block first paint on geolocation — a permission prompt, a slow
+        // GPS fix, or a device with no GPS at all would otherwise leave the user staring at the
+        // loading screen (and, before this, would have failed boot entirely: getCurrentLocation()
+        // rejects on denial/timeout, which an unhandled rejection here would have surfaced as the
+        // full "Oops! Something went wrong" error screen instead of the app). A returning device
+        // reuses its last real fix instantly; a first-ever open uses a neutral placeholder and
+        // resolves the real fix in the background, updating once it lands (see
+        // resolveRealLocationInBackground below) — matches every other view in this app already
+        // reading its own local cache first and syncing live data in afterward.
+        const cached = getCachedLocation();
+        if (cached) {
+          location = cached;
+          console.log('📍 Using cached location for instant boot:', location.latitude.toFixed(3), location.longitude.toFixed(3));
+        } else {
+          location = LocationPrivacy.getMockLocation();
+          locationConfirmed = false;
+          console.log('📍 No cached location yet — booting with a placeholder while the real one resolves');
+        }
+        this.resolveRealLocationInBackground();
       }
 
       // Initialize the main app
-      await this.app.initialize(location);
+      await this.app.initialize(location, { locationConfirmed });
 
       if (stageSeed) {
         console.log(`🧪 Applying dev stage seed: ${stageSeed}`);
@@ -116,6 +132,26 @@ class WebApp {
         `Failed to initialize the app. Please refresh and try again.${detail ? ` (${detail})` : ''}`,
       );
     }
+  }
+
+  /**
+   * Fire-and-forget: resolves the real GPS fix without the caller ever awaiting it, so it can
+   * never delay first paint. Caches a successful fix for next boot's instant reuse, and pushes it
+   * into the already-running app (app.ts's updateCurrentLocation). Denial, timeout, or no GPS at
+   * all is silently swallowed — the app keeps working off whatever location it already booted
+   * with (cached, or the neutral placeholder), never blocking and never surfacing an error for
+   * something this non-essential to using the app.
+   */
+  private resolveRealLocationInBackground(): void {
+    void LocationPrivacy.getCurrentLocation()
+      .then((location) => {
+        setCachedLocation(location);
+        console.log('📍 Real location resolved:', location.latitude.toFixed(3), location.longitude.toFixed(3));
+        this.app.updateCurrentLocation(location);
+      })
+      .catch((error) => {
+        console.warn('📍 Could not resolve real location (keeping cached/placeholder):', error);
+      });
   }
 
   private async clearBrowserStageState(): Promise<void> {

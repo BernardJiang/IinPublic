@@ -826,9 +826,20 @@ export class IinPublicApp {
     this.loadAttachmentShareSentIds();
   }
 
-  async initialize(location: GPSCoordinate): Promise<void> {
+  /**
+   * True once `currentLocation` reflects a real fix (cached from a previous real GPS read, or a
+   * freshly-resolved one) rather than the neutral placeholder `index.ts` boots with while the
+   * real location resolves in the background (cache-first UI — see updateCurrentLocation below).
+   * Gates the one-time location-room suggestion: firing it against the placeholder would consume
+   * its per-user "already shown" flag with a location that was never real, permanently
+   * suppressing the correct suggestion once the real fix comes in.
+   */
+  private locationConfirmed = true;
+
+  async initialize(location: GPSCoordinate, options: { locationConfirmed?: boolean } = {}): Promise<void> {
     this.initialized = false;
     this.currentLocation = location;
+    this.locationConfirmed = options.locationConfirmed ?? true;
 
     // Paint Global/the cached hierarchy immediately. Identity, presence and counts hydrate below.
     this.uiManager.initialize();
@@ -1066,7 +1077,11 @@ export class IinPublicApp {
     // Best-effort, never a boot blocker.
     void this.deviceHandoffService.publishEpub().catch(() => {});
     this.subscribeToPublicAnnouncements();
-    this.showLocationRoomSuggestion();
+    // Skip when the location we booted with is still the placeholder (index.ts resolves the
+    // real one in the background for a first-ever open with no cache) — updateCurrentLocation
+    // fires this instead once the real fix lands, so the one-time suggestion is never consumed
+    // by a location that was never real.
+    if (this.locationConfirmed) this.showLocationRoomSuggestion();
 
     // Subscribe to member counts for all chatrooms (real-time updates)
     this.subscribeToAllChatroomMemberCounts();
@@ -1130,6 +1145,19 @@ export class IinPublicApp {
       this.gunService.getGun().get('public').get('techsupport-identity').once((value: unknown) => resolve(value));
     });
     return readVerifiedTechSupportIdentity(raw);
+  }
+
+  /**
+   * Cache-first UI (index.ts): called once the real GPS fix resolves in the background, after
+   * boot already painted with a cached-or-placeholder location so first paint never waits on it.
+   * A no-op before `initialize()` has run (this.currentUser unset yet — showLocationRoomSuggestion
+   * itself already guards on that) or after manualCleanup.
+   */
+  updateCurrentLocation(location: GPSCoordinate): void {
+    this.currentLocation = location;
+    this.locationConfirmed = true;
+    this.uiManager.setCurrentLocation(location);
+    this.showLocationRoomSuggestion();
   }
 
   /** Show once per user/device after location has selected a more specific hierarchy room. */

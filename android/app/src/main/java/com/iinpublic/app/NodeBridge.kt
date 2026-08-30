@@ -107,9 +107,16 @@ object NodeBridge {
         }
         opened.use { input ->
             destFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
-            if (destFile.exists() && destFile.length() == input.available().toLong() && input.available() > 0) {
-                return
-            }
+            // No same-size skip check: unpackIfNeeded's version marker already gates whether
+            // this function runs at all, so a real re-copy only ever happens once per app
+            // version — this per-file check was a redundant micro-optimization for that single
+            // pass, and it compared against InputStream.available(), which for a COMPRESSED APK
+            // asset entry (the default for most extensions — .js/.json are not in Android's
+            // no-compress list) is documented as unreliable: it can return the size of the
+            // current decompression buffer rather than the true total size, so this could
+            // wrongly treat a stale or different file as "already up to date" and silently skip
+            // copying it. Always writing is simple, correct, and — thanks to the outer version
+            // gate — no slower in the common case that actually matters.
             java.io.FileOutputStream(destFile).use { output ->
                 input.copyTo(output)
             }

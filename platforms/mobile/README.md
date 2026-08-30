@@ -30,15 +30,35 @@ WKWebView's limited WebRTC does not block P2P — the mesh/transport lives in No
 ## Shared Node project — `nodejs-project/`
 
 `main.js` is the nodejs-mobile entry. At build time both platforms stage:
-- `platforms/mobile/nodejs-project/` (this dir), and
-- the compiled `dist/server` + `dist/web`
+- `platforms/mobile/nodejs-project/` (this dir — `main.js` + `package.json`, whose one real
+  dependency is `gun`; see below for why), and
+- `dist/embedded-mobile/server` (ONE bundled file, not the whole `dist/server` tree) + `dist/web`
 
 into the app's bundle/assets. Build those first from the repo root:
 
 ```bash
-npm run build:web
-npm run build:server
+npm run mobile:stage   # = build:web + build:server + build:embedded-mobile
 ```
+
+**Why the server half is a single bundled file, not the raw `dist/server` tree:**
+`NodeBridge.kt`'s `unpackIfNeeded` copies staged assets out of the read-only APK into the app's
+writable sandbox ONE FILE AT A TIME via the Android `AssetManager` — `MainActivity.kt`'s own
+comment already documents this costing 30–45 seconds on first launch. The unbundled
+`dist/server` tree plus a separate `npm install` of express/gun/socket.io/helmet/cors/
+bonjour-service/uuid and their transitive dependencies is 1000+ small files; collapsing the
+server's own `require()` graph into one file (`scripts/build-embedded-mobile.js`, esbuild)
+removes nearly all of that count, and also removes the per-*launch* (not just first-launch) cost
+of Node's CommonJS resolver walking many small files on the mobile filesystem. Verify a change
+to that script with `npm run smoke:embedded-node-mobile` — it boots the actual bundled artifact
+in the same layout (`node_modules/gun` staged as a sibling, data dir == install dir) a real
+device would and asserts `/health`, `/`, `/worker.js`, and both `gun.js`/`sea.js` (the two files
+the browser Worker `importScripts()`) all serve correctly. `gun` stays a real dependency here —
+not bundled away — because those last two are static HTTP file responses to the browser's own
+Worker, not a server-side `require()`; bundling the *server's* code can never eliminate them (see
+that script's header comment for the full detail, including why `Gun.serve`'s own `__dirname`
+-based fallback for this stops working once bundled, and why the explicit
+`express.static('/node_modules/gun', …)` route in `http-bootstrap.ts` is what actually serves it
+here).
 
 ## Android
 
@@ -60,8 +80,8 @@ dependency coordinate for nodejs-mobile):**
    large third-party binary payload.
 
 ```bash
-npm run build:web && npm run build:server
-npm run android:build   # gradle stages nodejs-project + dist into assets
+npm run mobile:stage
+npm run android:build   # gradle stages nodejs-project + dist/embedded-mobile into assets
 ```
 
 ## iOS
@@ -93,7 +113,7 @@ cd platforms/ios
 Build the shared bundles first, then build in Xcode or with `xcodebuild`:
 
 ```bash
-npm run build:embedded
+npm run mobile:stage
 xcodebuild -project platforms/ios/IinPublic.xcodeproj -scheme IinPublic \
   -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```

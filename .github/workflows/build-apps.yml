@@ -95,9 +95,10 @@ jobs:
                      "ndk;26.1.10909125" "cmake;3.22.1"
 
       - run: npm ci
-      - run: npm run build:embedded
       - name: Stage nodejs-project + dist into the app
         run: npm run mobile:stage
+      - name: Smoke-test the bundled embedded-node artifact
+        run: node scripts/smoke-embedded-node-mobile.js
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -125,7 +126,6 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: npm ci
-      - run: npm run build:embedded
       - run: npm run mobile:stage
 
       # Requires platforms/ios/IinPublic.xcodeproj (+ NodeMobile pod enabled).
