@@ -12,6 +12,18 @@ import { requestLogger } from '../middleware/request-logger';
 import { isLoopbackEmbeddedNode, isPlaintextHttpAllowed } from '../tls-mode';
 import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
+import { CONFIG } from '../../shared/config';
+
+/** Origin the browser's MapLibre client fetches style/tile data from (chatroom map view).
+ * Must be CSP connect-src allowed or the map fails with "could not be loaded" despite a
+ * healthy connection. Falls back to no extra origin if CHATROOM_MAP_STYLE_URL is malformed. */
+function chatroomMapStyleOrigin(): string | undefined {
+  try {
+    return new URL(CONFIG.CHATROOM_MAP_STYLE_URL).origin;
+  } catch {
+    return undefined;
+  }
+}
 
 export function buildAllowedOrigin(): Array<string | RegExp> | RegExp {
   if (isLoopbackEmbeddedNode(process.env)) {
@@ -58,7 +70,12 @@ export function configureHttpMiddleware(app: express.Application): void {
           styleSrc: ["'self'", "'unsafe-inline'"],
           scriptSrc: ["'self'", "'unsafe-eval'"],
           imgSrc: ["'self'", 'data:', 'https:'],
-          connectSrc: ["'self'", 'ws:', 'wss:'],
+          connectSrc: [
+            "'self'",
+            'ws:',
+            'wss:',
+            ...(chatroomMapStyleOrigin() ? [chatroomMapStyleOrigin() as string] : []),
+          ],
           workerSrc: ["'self'", 'blob:'],
           // Helmet's CSP defaults (merged in unless overridden per-key) include
           // upgrade-insecure-requests, which silently forces every subresource fetch —
