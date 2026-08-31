@@ -4,6 +4,7 @@ import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
+import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
 
 type ChatroomMember = { userId: string; stageName: string; joinedAt?: string | Date };
@@ -17,6 +18,8 @@ export type CustomChatroomRow = {
   capacity?: number;
   createdAt?: string | Date;
   businessInfo?: { headline?: string };
+  /** Public room-level coordinate; never a member/user coordinate. */
+  location?: ChatroomMapLocation;
 };
 
 type ChatroomsViewDeps = {
@@ -214,34 +217,53 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   mapStatus.hidden = !isMap;
   listContainer.classList.toggle('map-mode', isMap);
 
-  treeButton.onclick = () => {
-    if (deps.chatroomBrowseMode === 'tree') return;
-    deps.setChatroomBrowseMode('tree');
+  const activateBrowseMode = (mode: 'tree' | 'map'): void => {
+    const detailContainer = document.getElementById('chatroom-detail-container');
+    const isAlreadyBrowsing = detailContainer?.style.display === 'none';
+    if (deps.chatroomBrowseMode === mode && isAlreadyBrowsing) return;
+    listContainer.style.display = 'flex';
+    if (detailContainer) detailContainer.style.display = 'none';
+    const backButton = document.getElementById('back-to-chatrooms') as HTMLElement | null;
+    if (backButton) backButton.style.display = 'none';
+    deps.setChatroomBrowseMode(mode);
     deps.renderChatroomList();
   };
-  mapButton.onclick = () => {
-    if (deps.chatroomBrowseMode === 'map') return;
-    deps.setChatroomBrowseMode('map');
-    deps.renderChatroomList();
-  };
+  treeButton.onclick = () => activateBrowseMode('tree');
+  mapButton.onclick = () => activateBrowseMode('map');
 
   if (isMap) {
-    const mapRooms: ChatroomMapRoom[] = allChatrooms.map((room) => {
+    const builtInMapRooms: ChatroomMapRoom[] = allChatrooms.map((room) => {
       const visits = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
+      const location = getChatroomMapLocation(room.id);
       return {
         ...room,
+        ...(location ? { location } : {}),
         memberCount: deps.chatroomMemberCounts.get(room.id) || 0,
         visitCount: visits.visitCount,
         uniqueVisitorCount: visits.uniqueVisitorCount,
       };
     });
-    const mappedCount = mapRooms.filter((room) => !!getChatroomMapLocation(room.id)).length;
-    const unmappedCustomCount = customNodes.filter((room) => !getChatroomMapLocation(room.id)).length;
+    const customMapRooms: ChatroomMapRoom[] = customNodes.map((room) => {
+      const custom = deps.customChatrooms.find((candidate) => candidate.id === room.id);
+      const visits = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
+      return {
+        ...room,
+        ...(custom?.location ? { location: custom.location } : {}),
+        memberCount: deps.chatroomMemberCounts.get(room.id) || 0,
+        visitCount: visits.visitCount,
+        uniqueVisitorCount: visits.uniqueVisitorCount,
+      };
+    });
+    const mapRooms = Array.from(
+      new Map([...builtInMapRooms, ...customMapRooms].map((room) => [room.id, room])).values(),
+    );
+    const mappedCount = mapRooms.filter((room) => !!room.location).length;
+    const unmappedCustomCount = customMapRooms.filter((room) => !room.location).length;
     const customNote = unmappedCustomCount > 0
       ? ` ${deps.text('chatroomMapCustomRoomsNote').replace('{count}', String(unmappedCustomCount))}`
       : '';
     mapStatus.textContent = `${deps.text('chatroomMapSummary').replace('{count}', String(mappedCount))}${customNote}`;
-    if (!mapContainer.classList.contains('leaflet-container')) {
+    if (!mapContainer.classList.contains('maplibregl-map')) {
       mapContainer.textContent = deps.text('chatroomMapLoading');
     }
     void renderChatroomMap({

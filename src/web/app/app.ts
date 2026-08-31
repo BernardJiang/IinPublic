@@ -1194,6 +1194,7 @@ export class IinPublicApp {
         capacity?: number;
         createdAt?: string;
         businessInfo?: { headline?: string };
+        location?: { latitude: number; longitude: number };
       }>;
       if (!Array.isArray(rows)) return;
       this.uiManager.setCustomChatroomsFromServer(rows);
@@ -6146,6 +6147,7 @@ export class IinPublicApp {
             capacity?: number;
             createdAt?: string;
             businessInfo?: { headline?: string };
+            location?: { latitude: number; longitude: number };
           } | null = null;
           if (text) {
             try {
@@ -6158,6 +6160,7 @@ export class IinPublicApp {
                 capacity?: number;
                 createdAt?: string;
                 businessInfo?: { headline?: string };
+                location?: { latitude: number; longitude: number };
               };
             } catch {
               created = null;
@@ -6182,6 +6185,7 @@ export class IinPublicApp {
               ...(created?.businessInfo != null || payload.businessInfo != null
                 ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
                 : {}),
+              ...(created?.location != null ? { location: created.location } : {}),
             });
             this.uiManager.showChatroomDetail(createdId);
           }

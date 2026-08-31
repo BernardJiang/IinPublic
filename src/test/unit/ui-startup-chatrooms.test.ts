@@ -18,6 +18,8 @@ describe('startup chatroom first paint', () => {
     expect(document.querySelector('#status-bar-text')?.textContent).toBe('Connecting...');
     expect(document.querySelector('#chatroom-tree-view-btn')?.getAttribute('aria-pressed')).toBe('true');
     expect(document.querySelector('#chatroom-map-view-btn')?.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('#chatroom-tree-view-btn')?.closest('#app-bar-actions')).not.toBeNull();
+    expect(document.querySelector('.chatroom-view-toolbar')).toBeNull();
     expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(true);
   });
 
@@ -101,8 +103,9 @@ describe('startup chatroom first paint', () => {
     contactsToggle?.setAttribute('aria-expanded', 'true');
     (ui as unknown as { applyShellTranslations(): void }).applyShellTranslations();
     expect(contactsToggle?.textContent).toBe('筛选 ▴');
-    expect(document.querySelector('#chatroom-tree-view-btn')?.textContent).toBe('树状');
-    expect(document.querySelector('#chatroom-map-view-btn')?.textContent).toBe('地图');
-    expect(document.querySelector('.chatroom-view-toggle')?.getAttribute('aria-label')).toBe('聊天室视图');
+    expect(document.querySelector('#chatroom-tree-view-btn .app-bar-btn-label')?.textContent).toBe('树状');
+    expect(document.querySelector('#chatroom-map-view-btn .app-bar-btn-label')?.textContent).toBe('地图');
+    expect(document.querySelector('#chatroom-tree-view-btn')?.getAttribute('aria-label')).toBe('树状');
+    expect(document.querySelector('#chatroom-map-view-btn')?.getAttribute('aria-label')).toBe('地图');
   });
 });

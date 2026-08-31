@@ -137,6 +137,16 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
   test('toggles between tree and OpenStreetMap views and opens a room marker', async () => {
     await toChatroomList(page!);
     const p = page!;
+    await p.route('https://tiles.openfreemap.org/styles/liberty*', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        json: {
+          version: 8,
+          sources: {},
+          layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#eef2f7' } }],
+        },
+      });
+    });
     const treeButton = p.locator('[data-testid="chatroom-tree-view-btn"]');
     const mapButton = p.locator('[data-testid="chatroom-map-view-btn"]');
     const tree = p.locator('#chatroom-list');
@@ -144,6 +154,9 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
 
     await expect(treeButton).toHaveAttribute('aria-pressed', 'true');
     await expect(mapButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(p.locator('#app-bar-actions [data-testid="chatroom-tree-view-btn"]')).toBeVisible();
+    await expect(p.locator('#app-bar-actions [data-testid="chatroom-map-view-btn"]')).toBeVisible();
+    await expect(p.locator('.chatroom-view-toolbar')).toHaveCount(0);
     await expect(tree).toBeVisible();
     await expect(map).toBeHidden();
 
@@ -152,7 +165,10 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await expect(treeButton).toHaveAttribute('aria-pressed', 'false');
     await expect(tree).toBeHidden();
     await expect(map).toBeVisible();
-    await expect(map).toHaveClass(/leaflet-container/, { timeout: 15_000 });
+    await expect(map).toHaveClass(/maplibregl-map/, { timeout: 15_000 });
+    await expect(map).toHaveAttribute('data-map-geojson-feature-count', /[1-9]\d*/);
+    await expect(map).toHaveAttribute('data-map-clustering', 'true');
+    await expect(map).toHaveAttribute('data-map-rendered-feature-count', /[1-9]\d*/);
     await expect(map.locator('.chatroom-map-marker')).not.toHaveCount(0);
     await expect(map.locator('a[href*="openstreetmap.org/copyright"]')).toBeVisible();
     await expect(p.locator('#chatroom-map-status')).toContainText('geographic rooms');
@@ -172,6 +188,14 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
     await expect(map).toBeVisible();
+    // The active room starts at city zoom. Zoom back to the world view and verify nearby
+    // room points collapse into MapLibre clusters rather than overlapping markers.
+    const zoomOut = map.locator('.maplibregl-ctrl-zoom-out');
+    for (let step = 0; step < 8; step++) {
+      await zoomOut.click();
+      await p.waitForTimeout(250); // MapLibre camera animation must settle between steps.
+    }
+    await expect(map.locator('.chatroom-map-cluster')).not.toHaveCount(0);
     await treeButton.click();
     await expect(tree).toBeVisible();
     await expect(map).toBeHidden();
@@ -213,5 +237,14 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
       await afterLoad();
       await expect(p.locator('body')).toContainText('Renamed', { timeout: 10000 });
     }
+
+    await p.locator('#back-to-chatrooms').click();
+    await afterNav();
+    const customRow = p.locator('.chatroom-item').filter({ hasText: roomName }).first();
+    const customId = await customRow.getAttribute('data-chatroom-id');
+    expect(customId).toBeTruthy();
+    await p.locator('[data-testid="chatroom-map-view-btn"]').click();
+    await expect(p.locator('#chatroom-map-status')).toContainText('custom rooms without a public location');
+    await expect(p.locator(`.chatroom-map-marker[data-chatroom-id="${customId}"]`)).toHaveCount(0);
   });
 });

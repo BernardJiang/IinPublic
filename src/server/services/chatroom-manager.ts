@@ -1,4 +1,5 @@
 import type { GPSCoordinate, CommunityRole, CommunityRoleRecord } from '../../shared/types';
+import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { GunService } from './gun-service';
 import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
@@ -199,6 +200,7 @@ export class ChatroomManager {
         createdAt: meta?.createdAt,
         isActive: meta?.isActive !== false,
         businessInfo: meta?.businessInfo,
+        location: meta?.location,
       });
     }
     return list;
@@ -238,6 +240,7 @@ export class ChatroomManager {
     description?: string;
     capacity?: number;
     businessInfo?: any;
+    location?: ChatroomMapLocation;
   }): Promise<any> {
     // FR-CR-11: derive a content-addressed ID when the caller doesn't provide one.
     // For business/custom rooms created by a known user we use deriveCommunityId
@@ -254,6 +257,7 @@ export class ChatroomManager {
       capacity: Math.max(1, Math.floor(Number(params.capacity || 50))),
       createdBy: params.createdBy,
       businessInfo: params.businessInfo,
+      ...(params.location ? { location: params.location } : {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isActive: true,
@@ -330,7 +334,13 @@ export class ChatroomManager {
   async updateChatroom(
     chatroomId: string,
     actorUserId: string,
-    updates: { name?: string; description?: string; isActive?: boolean; capacity?: number },
+    updates: {
+      name?: string;
+      description?: string;
+      isActive?: boolean;
+      capacity?: number;
+      location?: ChatroomMapLocation | null;
+    },
   ): Promise<any> {
     const existing = await this.getChatroom(chatroomId);
     if (!existing) throw new Error('chatroom not found');
@@ -343,6 +353,7 @@ export class ChatroomManager {
       ...(updates.description != null ? { description: String(updates.description).trim() } : {}),
       ...(updates.isActive != null ? { isActive: !!updates.isActive } : {}),
       ...(updates.capacity != null ? { capacity: Math.max(1, Math.floor(Number(updates.capacity))) } : {}),
+      ...(updates.location !== undefined ? { location: updates.location ?? undefined } : {}),
       updatedAt: new Date().toISOString(),
     };
     if (!next.name) throw new Error('chatroom name is required');

@@ -1,6 +1,6 @@
 /**
  * AppBar responsive overflow (redesign §1/§6, T2): width matrix 320/390/768/1024.
- * Priority order (stays inline longest → first into ⋯): ➕ → 📣 → 🏠 → 🆕.
+ * Priority order (stays inline longest → first into ⋯): 🌳 → 🗺️ → ➕ → 📣 → 🏠 → 🆕.
  * Overflow menu items stay the same live elements (ids/testids/handlers) and are invocable.
  */
 import { BrowserContext, Page } from '@playwright/test';
@@ -34,31 +34,31 @@ test.describe('AppBar overflow responsive', () => {
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
 
-    // 1024 and 768: all four icons inline, no ⋯.
+    // 1024 and 768: all six chatroom actions inline, no ⋯.
     for (const width of [1024, 768]) {
       await p.setViewportSize({ width, height: 800 });
       await afterAction();
-      for (const id of ['create-talk-btn', 'broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']) {
+      for (const id of ['chatroom-tree-view-btn', 'chatroom-map-view-btn', 'create-talk-btn', 'broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']) {
         await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
       }
       await expect(p.locator('#app-bar-overflow-menu')).toBeHidden();
     }
 
-    // 390: everything still fits once the ⋯ slot is reclaimed — all inline.
+    // 390: the view controls and create-talk action remain inline; secondary actions overflow.
     await p.setViewportSize({ width: 390, height: 844 });
     await afterAction();
-    for (const id of ['create-talk-btn', 'broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']) {
+    for (const id of ['chatroom-tree-view-btn', 'chatroom-map-view-btn', 'create-talk-btn']) {
       await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
     }
-    await expect(p.locator('#app-bar-overflow-menu')).toBeHidden();
+    await expect(p.locator('#app-bar-overflow-menu')).toBeVisible();
 
-    // 320: only ➕ stays inline; 📣 🏠 🆕 collapse into ⋯ in priority order.
+    // 320: Tree stays inline; Map and the remaining actions collapse into ⋯ in priority order.
     await p.setViewportSize({ width: 320, height: 700 });
     await afterAction();
-    await expect(p.locator('#app-bar-actions #create-talk-btn')).toBeVisible();
+    await expect(p.locator('#app-bar-actions #chatroom-tree-view-btn')).toBeVisible();
     await expect(p.locator('#app-bar-overflow-menu')).toBeVisible();
     const panelOrder = await p.locator('#app-bar-overflow-panel .app-bar-action-btn').evaluateAll((els) => els.map((el) => el.id));
-    expect(panelOrder).toEqual(['broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']);
+    expect(panelOrder).toEqual(['chatroom-map-view-btn', 'create-talk-btn', 'broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']);
 
     // Menu items show icon + label and are the same elements (testids preserved).
     await p.locator('#app-bar-overflow-btn').click();

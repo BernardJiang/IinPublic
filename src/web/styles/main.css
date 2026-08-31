@@ -977,6 +977,7 @@ button:focus:not(:focus-visible) {
   background: #fff;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 #chatroom-list {
@@ -985,57 +986,31 @@ button:focus:not(:focus-visible) {
   overflow-y: auto;
 }
 
-.chatroom-view-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  flex: 0 0 auto;
+.chatroom-view-mode-btn[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
-.chatroom-view-toggle {
-  display: inline-flex;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
-  flex: 0 0 auto;
-}
-
-.chatroom-view-toggle button {
-  min-height: 34px;
-  padding: 6px 14px;
-  border: 0;
-  border-radius: calc(var(--radius-lg) - 3px);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.chatroom-view-toggle button[aria-pressed='true'] {
-  background: var(--surface);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-sm);
-}
-
-.chatroom-view-toggle button:focus-visible {
+.chatroom-view-mode-btn:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
   outline-offset: 1px;
 }
 
 .chatroom-map-status {
-  min-width: 0;
-  color: var(--text-muted);
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 72px);
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 90%);
+  color: var(--text-secondary);
   font-size: 0.82rem;
   line-height: 1.25;
-}
-
-#chatroom-list-container.map-mode .chatroom-view-toolbar {
-  align-items: flex-start;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
 }
 
 .chatroom-map {
@@ -1057,6 +1032,7 @@ button:focus:not(:focus-visible) {
 .chatroom-map-marker {
   display: grid;
   place-items: center;
+  position: relative;
   width: 34px !important;
   height: 34px !important;
   margin: 0 !important;
@@ -1067,6 +1043,8 @@ button:focus:not(:focus-visible) {
   box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
   font-size: 0.75rem;
   font-weight: 800;
+  cursor: pointer;
+  appearance: none;
 }
 
 .chatroom-map-marker.current-room {
@@ -1075,22 +1053,61 @@ button:focus:not(:focus-visible) {
 }
 
 .chatroom-map-tooltip {
-  display: grid;
+  display: none;
+  position: absolute;
+  z-index: 2;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  min-width: max-content;
+  max-width: 220px;
+  padding: 7px 9px;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 6px;
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 22%);
+  transform: translateX(-50%);
+  text-align: left;
   gap: 2px;
+  pointer-events: none;
 }
 
-.chatroom-map-tooltip span {
+.chatroom-map-marker:hover .chatroom-map-tooltip,
+.chatroom-map-marker:focus-visible .chatroom-map-tooltip {
+  display: grid;
+}
+
+.chatroom-map-tooltip > span {
   color: #4b5563;
   font-size: 0.78rem;
 }
 
-@media (max-width: 480px) {
-  .chatroom-view-toolbar {
-    display: block;
-  }
+.chatroom-map-cluster {
+  display: grid;
+  place-items: center;
+  min-width: 42px;
+  height: 42px;
+  padding: 0 8px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #fff;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: zoom-in;
+}
 
+.chatroom-map-cluster:focus-visible,
+.chatroom-map-marker:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 45%, white);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
   .chatroom-map-status {
-    margin-top: 6px;
+    max-width: calc(100% - 64px);
   }
 
   .chatroom-map {

@@ -36,6 +36,8 @@ const BUNDLED_ENV_KEYS = [
   // reachable circuit relay so two browsers can peer for P2P media (dev:multi sets this).
   'IINPUBLIC_P2P_BOOTSTRAP_PEERS',
   'IINPUBLIC_MESH_SYNC_MODE',
+  // OSM-compatible MapLibre style URL. Defaults to OpenFreeMap Liberty.
+  'IINPUBLIC_MAP_STYLE_URL',
   // TODO §S Item 7: ledger E2E enable + checkpoint/retention overrides (see app.ts's
   // isLedgerDisabledForRun, web-ledger-service.ts, gun-message-store.ts). Missing these
   // here was itself a real bug found while writing the Item 7 E2E spec: without them in
@@ -87,6 +89,17 @@ module.exports = {
   },
   module: {
     rules: [
+      {
+        // MapLibre v6's ESM worker imports this shared module by its relative file name.
+        // Keep both assets together with stable names so the browser worker can resolve
+        // that import after Webpack emits them.
+        test: /maplibre-gl-(?:worker|shared)\.mjs$/,
+        resourceQuery: /maplibreWorkerAsset/,
+        type: 'asset/resource',
+        generator: {
+          filename: 'maplibre/[name][ext]',
+        },
+      },
       {
         test: /\.ts$/,
         use: [
@@ -156,6 +169,9 @@ module.exports = {
               process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS || '',
             ),
             'process.env.IINPUBLIC_MESH_SYNC_MODE': JSON.stringify(process.env.IINPUBLIC_MESH_SYNC_MODE || 'auto'),
+            'process.env.IINPUBLIC_MAP_STYLE_URL': JSON.stringify(
+              process.env.IINPUBLIC_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/liberty',
+            ),
             // TODO §S Item 7: the ledger (Phase E+F) is disabled for the whole DISABLE_HMR=true
             // E2E run by default (see app.ts's isLedgerDisabledForRun) — this narrowly
             // re-enables it for the one spec that needs it (checkpoint/prune/delta-sync E2E
@@ -200,6 +216,8 @@ module.exports = {
             RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB || '0',
             IINPUBLIC_P2P_BOOTSTRAP_PEERS: process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS || '',
             IINPUBLIC_MESH_SYNC_MODE: process.env.IINPUBLIC_MESH_SYNC_MODE || 'auto',
+            IINPUBLIC_MAP_STYLE_URL:
+              process.env.IINPUBLIC_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/liberty',
             // TODO §S1 bugfix: web-ledger-service.ts/gun-message-store.ts read these four
             // directly (`process.env.IINPUBLIC_E2E_LEDGER_CHECKPOINT_INTERVAL` etc., no
             // dynamic key) at module load, unconditionally — not just in the DISABLE_HMR=true

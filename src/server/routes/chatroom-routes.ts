@@ -11,6 +11,8 @@ import {
   type ChallengeContext,
   type GatedAction,
 } from '../../shared/challenge-plugins';
+import { isValidChatroomMapLocation } from '../../shared/chatroom-map-geojson';
+import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 
 const VALID_ROLES: CommunityRole[] = ['owner', 'moderator', 'member', 'guest'];
 
@@ -181,7 +183,7 @@ export function registerChatroomRoutes(
 
   app.post('/api/chatrooms', async (req, res) => {
     try {
-      const { id, name, type, createdBy, description, capacity, businessInfo } = req.body as {
+      const { id, name, type, createdBy, description, capacity, businessInfo, location } = req.body as {
         id?: string;
         name: string;
         type: 'business' | 'custom';
@@ -189,6 +191,7 @@ export function registerChatroomRoutes(
         description?: string;
         capacity?: number;
         businessInfo?: unknown;
+        location?: unknown;
       };
       if (!name || !type || !createdBy) {
         res.status(400).json({ error: 'name, type, and createdBy are required' });
@@ -196,6 +199,10 @@ export function registerChatroomRoutes(
       }
       if (type !== 'business' && type !== 'custom') {
         res.status(400).json({ error: 'type must be business or custom' });
+        return;
+      }
+      if (location != null && !isValidChatroomMapLocation(location)) {
+        res.status(400).json({ error: 'location must contain valid latitude and longitude' });
         return;
       }
       const createPayload: {
@@ -206,11 +213,13 @@ export function registerChatroomRoutes(
         description?: string;
         capacity?: number;
         businessInfo?: unknown;
+        location?: ChatroomMapLocation;
       } = { name, type, createdBy };
       if (id != null) createPayload.id = id;
       if (description != null) createPayload.description = description;
       if (capacity != null) createPayload.capacity = capacity;
       if (businessInfo != null) createPayload.businessInfo = businessInfo;
+      if (location != null) createPayload.location = location;
       const created = await chatroomManager.createChatroom(createPayload);
       res.status(201).json(created);
     } catch (error) {
@@ -220,22 +229,34 @@ export function registerChatroomRoutes(
 
   app.patch('/api/chatrooms/:id', async (req, res) => {
     try {
-      const { userId, name, description, isActive, capacity } = req.body as {
+      const { userId, name, description, isActive, capacity, location } = req.body as {
         userId: string;
         name?: string;
         description?: string;
         isActive?: boolean;
         capacity?: number;
+        location?: unknown;
       };
       if (!userId) {
         res.status(400).json({ error: 'userId is required' });
         return;
       }
-      const updates: { name?: string; description?: string; isActive?: boolean; capacity?: number } = {};
+      if (location !== undefined && location !== null && !isValidChatroomMapLocation(location)) {
+        res.status(400).json({ error: 'location must contain valid latitude and longitude' });
+        return;
+      }
+      const updates: {
+        name?: string;
+        description?: string;
+        isActive?: boolean;
+        capacity?: number;
+        location?: ChatroomMapLocation | null;
+      } = {};
       if (name != null) updates.name = name;
       if (description != null) updates.description = description;
       if (isActive != null) updates.isActive = isActive;
       if (capacity != null) updates.capacity = capacity;
+      if (location !== undefined) updates.location = location as ChatroomMapLocation | null;
       const updated = await chatroomManager.updateChatroom(req.params.id, userId, updates);
       res.json(updated);
     } catch (error) {

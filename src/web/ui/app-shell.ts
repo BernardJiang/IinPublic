@@ -45,10 +45,12 @@ export function renderAppShell(
               <span class="app-bar-btn-icon">💬</span>
             </button>
             <span class="app-bar-actions" id="app-bar-actions">
-              <button class="header-btn app-bar-action-btn" id="create-talk-btn" data-testid="create-talk-btn" data-appbar-view="chatrooms talks" data-appbar-priority="0" title="Create talk"><span class="app-bar-btn-icon">➕</span><span class="app-bar-btn-label">Create talk</span></button>
-              <button type="button" class="header-btn app-bar-action-btn status-broadcast-btn" id="broadcast-talk-btn" data-testid="broadcast-talk-btn" data-appbar-view="chatrooms" data-appbar-priority="1" title="Send every talk in your OUT list to everyone in this chatroom"><span class="app-bar-btn-icon">📣</span><span class="app-bar-btn-label">Broadcast</span></button>
-              <button type="button" class="header-btn app-bar-action-btn" id="return-home-btn" data-testid="return-home-btn" data-appbar-view="chatrooms" data-appbar-priority="2" disabled title="Return Home"><span class="app-bar-btn-icon">🏠</span><span class="app-bar-btn-label">Return Home</span></button>
-              <button type="button" class="header-btn app-bar-action-btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn" data-appbar-view="chatrooms" data-appbar-priority="3" title="New Room"><span class="app-bar-btn-icon">🆕</span><span class="app-bar-btn-label">New Room</span></button>
+              <button type="button" class="header-btn app-bar-action-btn chatroom-view-mode-btn" id="chatroom-tree-view-btn" data-testid="chatroom-tree-view-btn" data-appbar-view="chatrooms" data-appbar-priority="0" aria-pressed="true" title="${text('chatroomTreeView')}"><span class="app-bar-btn-icon" aria-hidden="true">🌳</span><span class="app-bar-btn-label">${text('chatroomTreeView')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn chatroom-view-mode-btn" id="chatroom-map-view-btn" data-testid="chatroom-map-view-btn" data-appbar-view="chatrooms" data-appbar-priority="1" aria-pressed="false" title="${text('chatroomMapView')}"><span class="app-bar-btn-icon" aria-hidden="true">🗺️</span><span class="app-bar-btn-label">${text('chatroomMapView')}</span></button>
+              <button class="header-btn app-bar-action-btn" id="create-talk-btn" data-testid="create-talk-btn" data-appbar-view="chatrooms talks" data-appbar-priority="2" title="Create talk"><span class="app-bar-btn-icon">➕</span><span class="app-bar-btn-label">Create talk</span></button>
+              <button type="button" class="header-btn app-bar-action-btn status-broadcast-btn" id="broadcast-talk-btn" data-testid="broadcast-talk-btn" data-appbar-view="chatrooms" data-appbar-priority="3" title="Send every talk in your OUT list to everyone in this chatroom"><span class="app-bar-btn-icon">📣</span><span class="app-bar-btn-label">Broadcast</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="return-home-btn" data-testid="return-home-btn" data-appbar-view="chatrooms" data-appbar-priority="4" disabled title="Return Home"><span class="app-bar-btn-icon">🏠</span><span class="app-bar-btn-label">Return Home</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn" data-appbar-view="chatrooms" data-appbar-priority="5" title="New Room"><span class="app-bar-btn-icon">🆕</span><span class="app-bar-btn-label">New Room</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="settings-refresh-location-btn" data-testid="settings-refresh-location-btn" data-appbar-view="settings" data-appbar-priority="4" title="Refresh Location"><span class="app-bar-btn-icon">📍</span><span class="app-bar-btn-label">Refresh Location</span></button>
             </span>
             <div class="app-bar-overflow-menu" id="app-bar-overflow-menu" style="display:none;">
@@ -65,13 +67,7 @@ export function renderAppShell(
           <div class="view-panel active" id="chatrooms-view">
             <!-- Chatroom List -->
             <div class="chatroom-list-container" id="chatroom-list-container">
-              <div class="chatroom-view-toolbar">
-                <div class="chatroom-view-toggle" role="group" aria-label="${text('chatroomViewMode')}">
-                  <button type="button" id="chatroom-tree-view-btn" data-testid="chatroom-tree-view-btn" aria-pressed="true">${text('chatroomTreeView')}</button>
-                  <button type="button" id="chatroom-map-view-btn" data-testid="chatroom-map-view-btn" aria-pressed="false">${text('chatroomMapView')}</button>
-                </div>
-                <div class="chatroom-map-status" id="chatroom-map-status" role="status" aria-live="polite" hidden></div>
-              </div>
+              <div class="chatroom-map-status" id="chatroom-map-status" role="status" aria-live="polite" hidden></div>
               <div class="chatroom-list" id="chatroom-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading chatrooms...</p>
               </div>
@@ -500,8 +496,8 @@ export function applyAppShellTranslations(
     ['#create-custom-chatroom-btn .app-bar-btn-label', 'newRoom'],
     ['#return-home-btn .app-bar-btn-label', 'returnHome'],
     ['#broadcast-talk-btn .app-bar-btn-label', 'broadcast'],
-    ['#chatroom-tree-view-btn', 'chatroomTreeView'],
-    ['#chatroom-map-view-btn', 'chatroomMapView'],
+    ['#chatroom-tree-view-btn .app-bar-btn-label', 'chatroomTreeView'],
+    ['#chatroom-map-view-btn .app-bar-btn-label', 'chatroomMapView'],
     ['#creator-replies-panel strong', 'repliesTitle'],
     ['#reply-clear-filters', 'clear'],
     ['#settings-refresh-location-btn .app-bar-btn-label', 'refreshLocation'],
@@ -519,15 +515,14 @@ export function applyAppShellTranslations(
     const element = root.querySelector<HTMLElement>(selector);
     if (element) element.textContent = text(key);
   }
-  const chatroomViewToggle = root.querySelector<HTMLElement>('.chatroom-view-toggle');
-  if (chatroomViewToggle) chatroomViewToggle.setAttribute('aria-label', text('chatroomViewMode'));
   const chatroomMap = root.getElementById('chatroom-map');
   if (chatroomMap) chatroomMap.setAttribute('aria-label', text('chatroomMapAriaLabel'));
   // AppBar icon buttons: translated label doubles as the tooltip.
-  for (const id of ['create-custom-chatroom-btn', 'return-home-btn', 'broadcast-talk-btn', 'settings-refresh-location-btn']) {
+  for (const id of ['chatroom-tree-view-btn', 'chatroom-map-view-btn', 'create-custom-chatroom-btn', 'return-home-btn', 'broadcast-talk-btn', 'settings-refresh-location-btn']) {
     const btn = root.getElementById(id);
     const label = btn?.querySelector<HTMLElement>('.app-bar-btn-label');
     if (btn && label && id !== 'return-home-btn') btn.title = label.textContent || '';
+    if (btn && label && id.startsWith('chatroom-')) btn.setAttribute('aria-label', label.textContent || '');
   }
   for (const id of ['back-to-chatrooms', 'back-to-contacts-list', 'back-to-settings-menu']) {
     const btn = root.getElementById(id);

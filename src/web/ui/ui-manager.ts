@@ -1007,7 +1007,7 @@ export class UIManager extends EventEmitter {
   /**
    * Responsive overflow for the AppBar right zone. Buttons that do not fit move
    * (as the same live elements, ids/testids/handlers intact) into the `⋯` panel,
-   * lowest priority first (➕ stays inline longest, then 📣, 🏠, 🆕).
+   * lowest priority first (the active Tree/Map controls stay inline longest).
    */
   private syncAppBarOverflow(): void {
     const bar = document.getElementById('top-header');

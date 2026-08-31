@@ -38,6 +38,32 @@ describe('chatroom routes', () => {
     expect(manager.createChatroom).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts valid public chatroom coordinates and rejects invalid coordinates', async () => {
+    const { app, manager } = buildApp();
+    const valid = await request(app).post('/api/chatrooms').send({
+      name: 'Coffee discussion',
+      type: 'custom',
+      createdBy: 'user_1',
+      location: { latitude: 32.7157, longitude: -117.1611 },
+    });
+
+    expect(valid.status).toBe(201);
+    expect(manager.createChatroom).toHaveBeenCalledWith(
+      expect.objectContaining({ location: { latitude: 32.7157, longitude: -117.1611 } }),
+    );
+
+    manager.createChatroom.mockClear();
+    const invalid = await request(app).post('/api/chatrooms').send({
+      name: 'Impossible room',
+      type: 'custom',
+      createdBy: 'user_1',
+      location: { latitude: 91, longitude: 0 },
+    });
+
+    expect(invalid.status).toBe(400);
+    expect(manager.createChatroom).not.toHaveBeenCalled();
+  });
+
   it('rejects chatroom create when required fields are missing', async () => {
     const { app } = buildApp();
     const res = await request(app).post('/api/chatrooms').send({ type: 'custom' });

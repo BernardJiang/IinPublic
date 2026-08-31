@@ -43,6 +43,11 @@ export const CONFIG = {
       getEnv('CHATROOM_ENABLE_FIFO', e2eServerGun || browserLocalLoopback ? 'false' : 'true')) !==
     'false',
   GLOBAL_CHATROOM_ID: 'global',
+  /** OSM vector basemap used by the lazy MapLibre chatroom view. Override for self-hosting. */
+  CHATROOM_MAP_STYLE_URL:
+    typeof process !== 'undefined' && process.env?.IINPUBLIC_MAP_STYLE_URL
+      ? process.env.IINPUBLIC_MAP_STYLE_URL
+      : 'https://tiles.openfreemap.org/styles/liberty',
 
   // Bulk sending limits
   MAX_BULK_RECIPIENTS: 1000,

@@ -73,6 +73,27 @@ describe('ChatroomManager visit accounting', () => {
     expect(await manager.getChatroom('room_1')).toMatchObject({ visitCount: 2, uniqueVisitorCount: 1 });
   });
 
+  it('persists optional public chatroom coordinates in list and detail metadata', async () => {
+    const manager = buildManager();
+    await manager.createChatroom({
+      id: 'room_mapped',
+      name: 'Mapped Room',
+      type: 'custom',
+      createdBy: 'owner',
+      location: { latitude: 48.8566, longitude: 2.3522 },
+    });
+
+    expect(await manager.getChatroom('room_mapped')).toMatchObject({
+      location: { latitude: 48.8566, longitude: 2.3522 },
+    });
+    expect(await manager.getAllChatrooms()).toContainEqual(
+      expect.objectContaining({
+        id: 'room_mapped',
+        location: { latitude: 48.8566, longitude: 2.3522 },
+      }),
+    );
+  });
+
   it('triggers a prune the moment recordVisit pushes a room past the slot threshold', async () => {
     const manager = buildManager();
     const gunService = (manager as any).gunService as MemoryGunService;
