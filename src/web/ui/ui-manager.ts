@@ -1512,6 +1512,13 @@ export class UIManager extends EventEmitter {
     this.currentUser = user;
     this.currentUserId = user.id;
     this.applyShellTranslations();
+    // The Settings tab can be clicked before this identity was known (cold launch, before the
+    // rest of the boot chain reaches showMainInterface) — setupBottomNavigation's
+    // `targetView === 'settings'` handler no-ops in that case, leaving the panel blank. Paint it
+    // now that the user is available instead of leaving the tab waiting on the full boot chain.
+    if (document.getElementById('settings-view')?.classList.contains('active')) {
+      this.renderSettingsView(user);
+    }
   }
 
   showMainInterface(user: User): void {
@@ -3228,6 +3235,11 @@ export class UIManager extends EventEmitter {
     const appPlatform = nativeHost?.platform || queryPlatform;
     const container = document.getElementById('settings-content');
     if (!container) return;
+    // adoptSessionUser can now trigger this render as soon as this device's local Gun read
+    // for the user record resolves (see app.ts's initializeUser) — before the rest of boot has
+    // had a chance to let Gun finish syncing every field in, that local read can momentarily
+    // come back missing stageName. Must not assume it's always a non-empty string here.
+    const stageNameSafe = user.stageName || '';
     const currentColorScheme = getColorSchemePreference();
     const profileLanguages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
     user.languages = profileLanguages;
@@ -3366,7 +3378,7 @@ export class UIManager extends EventEmitter {
             <div style="display:grid;gap:8px;min-width:0;">
               <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
                 <span>${this.t('settingsStageName')}</span>
-                <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(user.stageName)}" minlength="3">
+                <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(stageNameSafe)}" minlength="3">
               </label>
               <div id="settings-stage-name-error" role="alert" style="display:none;font-size:0.82em;color:var(--danger-hover);margin-top:5px;"></div>
               ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:var(--text-tertiary);">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
@@ -3374,7 +3386,7 @@ export class UIManager extends EventEmitter {
             <div style="display:grid;gap:8px;font-size:0.9em;">
               <span>${this.t('settingsHeadshot')}</span>
               <div class="user-avatar" style="width:72px;height:72px;font-size:1.7em;">
-                ${avatarInnerHtml(headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
+                ${avatarInnerHtml(headshot, stageNameSafe.charAt(0).toUpperCase() || '?', escapeHtml)}
               </div>
               <select class="form-input" id="settings-headshot-select" data-testid="settings-headshot-select">
                 <option value="">${this.t('settingsInitial')}</option>
