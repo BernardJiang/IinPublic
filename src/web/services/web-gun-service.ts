@@ -188,6 +188,11 @@ export class WebGunService extends EventEmitter {
   /** Serialize authenticated private-namespace writes; GUN/SEA can reject overlapping signs. */
   private privateWriteQueue: Promise<void> = Promise.resolve();
   private identityPasswordManager: IdentityPasswordCustodyManager | null = null;
+  /** Cached from the last `getIdentityPasswordProtectionStatus()` read (and kept current by
+   * `setIdentityPassword`/`removeIdentityPassword`/`unlockIdentity`) so the synchronous
+   * `beforeunload` handler can tell, without awaiting anything, whether there is a
+   * password-protected identity worth clearing from memory before an unload. */
+  private identityPasswordActive = false;
 
   constructor() {
     super();
@@ -832,10 +837,19 @@ export class WebGunService extends EventEmitter {
 
   async getIdentityPasswordProtectionStatus(): Promise<IdentityPasswordProtectionStatus> {
     if (typeof localStorage !== 'undefined' && localStorage.getItem(TECHSUPPORT_KEYPAIR_STORAGE)) {
+      this.identityPasswordActive = false;
       return { state: 'not-set' };
     }
     const manager = this.getIdentityPasswordManager();
-    return manager ? manager.getStatus() : { state: 'not-set' };
+    const status = manager ? await manager.getStatus() : ({ state: 'not-set' } as const);
+    this.identityPasswordActive = status.state === 'locked';
+    return status;
+  }
+
+  /** Synchronous best-known answer to "does this identity have password protection
+   * configured" — for call sites (like `beforeunload`) that cannot await `getIdentityPasswordProtectionStatus()`. */
+  isIdentityPasswordActive(): boolean {
+    return this.identityPasswordActive;
   }
 
   async setIdentityPassword(password: string): Promise<void> {
@@ -844,6 +858,7 @@ export class WebGunService extends EventEmitter {
     const manager = this.getIdentityPasswordManager();
     if (!manager) throw new Error('Password protection is unavailable on this platform');
     await manager.setPassword(pair as SeaPrivateIdentityMaterial, password);
+    this.identityPasswordActive = true;
   }
 
   async changeIdentityPassword(currentPassword: string, newPassword: string): Promise<void> {
@@ -875,6 +890,7 @@ export class WebGunService extends EventEmitter {
     ) {
       throw new Error('Password removal returned a different identity');
     }
+    this.identityPasswordActive = false;
   }
 
   async unlockIdentity(password: string): Promise<GunPair> {
@@ -882,6 +898,7 @@ export class WebGunService extends EventEmitter {
     if (!manager) throw new Error('Password protection is unavailable on this platform');
     const pair = await manager.unlock(password);
     await this.authenticatePair(pair);
+    this.identityPasswordActive = true;
     return pair;
   }
 

@@ -6379,8 +6379,16 @@ export class IinPublicApp {
       // A protected identity must not remain reachable from service references during a
       // normal navigation/close boundary. JavaScript cannot await unload work reliably,
       // but lockIdentityNow clears the pair and direct Gun authentication synchronously
-      // before its best-effort worker logout.
-      void this.gunService.lockIdentityNow();
+      // before its best-effort worker logout. Only do this when an identity password is
+      // actually configured: beforeunload can fire without the page truly being torn down
+      // (bfcache restores, some browsers' speculative unload timing) and unconditionally
+      // nulling out the ordinary (non-password-protected) identity's in-memory SEA pair on
+      // every such event — with nothing re-establishing it afterward — left the app running
+      // with no keypair and every send failing with "No SEA keypair — call
+      // ensureKeypairAndAuth first" until an actual full reload.
+      if (this.gunService.isIdentityPasswordActive()) {
+        void this.gunService.lockIdentityNow();
+      }
       if (this.mailboxPollTimer) clearInterval(this.mailboxPollTimer);
       this.mailboxPollTimer = undefined;
       this.peerMeshService?.leaveRoom();
