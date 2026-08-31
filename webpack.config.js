@@ -251,6 +251,12 @@ module.exports = {
       module: /gun/,
       message: /Critical dependency: the request of a dependency is an expression/,
     },
+    // Suppress maplibre-gl's dynamic worker-loading require warning — same benign
+    // pattern as Gun.js above, just from the map library's own bundle instead.
+    {
+      module: /maplibre-gl/,
+      message: /Critical dependency: the request of a dependency is an expression/,
+    },
   ],
   devServer: {
     static: [
