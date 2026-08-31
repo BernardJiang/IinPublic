@@ -37,6 +37,18 @@ const INCOMING_ROW_FINAL_MS = E2E_ASSERT_TIMEOUT_MS;
 const RESPONSE_MODAL_CONTENT_MS = E2E_ASSERT_TIMEOUT_MS;
 const RESPONSE_MODAL_DETACHED_MS = E2E_ASSERT_TIMEOUT_MS;
 
+/**
+ * Cross-browser delivery budget: the delivery path acks on the SEND side before the
+ * receiver has actually recorded the cluster (direct-delivery mode skips peer ACKs and
+ * falls back to the mailbox drain, which is seconds-to-tens-of-seconds under load).
+ * E2E_ASSERT_TIMEOUT_MS (10s at 4+ workers) races that and intermittently fails — the
+ * "clusters=N but not the expected title" class (e.g. stage2/91, stage3/00f). Give the
+ * cluster-arrival wait real headroom; single-worker debug budgets only grow slightly
+ * because the machine is idle and delivery is fast there anyway.
+ */
+export const INCOMING_CLUSTER_ARRIVAL_MS =
+  E2E_ASSERT_TIMEOUT_MS >= 30_000 ? 45_000 : 60_000;
+
 export type IncomingTalkServerWaitOptions = {
   /** Default 90s; super-user bulk flows can use less once the server already holds clusters. */
   timeout?: number;
@@ -188,7 +200,10 @@ export async function waitForIncomingTalkClusterOnLocalGun(
   titleSubstring: string,
   options?: IncomingTalkServerWaitOptions,
 ): Promise<void> {
-  const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
+  // Default to the cross-browser arrival budget (not E2E_ASSERT_TIMEOUT_MS): the
+  // sender-side bulk-ack fires before the receiver's mailbox drain has recorded the
+  // cluster, so the 10s default intermittently races delivery under worker load.
+  const timeout = options?.timeout ?? INCOMING_CLUSTER_ARRIVAL_MS;
   const polling = options?.polling ?? 100;
   await expect
     .poll(

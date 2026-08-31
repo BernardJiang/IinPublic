@@ -104,6 +104,22 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
+    // The response records in Tom's ledger (recordLocalTalkExchange) only after it
+    // propagates back over the mesh/mailbox — under parallel load that can take far
+    // longer than the 15s contacts-list budget, so the row intermittently never
+    // appears. Wait for the recorder's own evidence (the localTalkExchanges write,
+    // which the contacts view reads directly) before asserting the UI.
+    await expect
+      .poll(
+        () => pageTom.evaluate((t) => {
+          const raw = localStorage.getItem('localTalkExchanges') || '[]';
+          const hay = raw.toLowerCase();
+          return hay.includes(String(t).toLowerCase()) ? 'recorded' : raw.length;
+        }, 'Tom Out Talk'),
+        { timeout: 45_000, intervals: [300, 600, 1200, 2500] },
+      )
+      .toBe('recorded');
+
     await pageTom.click('.nav-btn[data-view="contacts"]');
     await afterSync();
     const contactItem = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
