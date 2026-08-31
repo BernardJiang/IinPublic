@@ -359,6 +359,16 @@ export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
   private currentUser?: User;
   private currentChatroom: string = 'global';
+  /**
+   * Which chatroom's detail panel the user last drilled into (Tree row, Map marker, or any other
+   * path — all of them funnel through chatrooms-view.ts's showChatroomDetail, whose
+   * onChatroomDetailOpened callback, wired in chatroomsDeps(), is what actually sets this), if
+   * any — restored when they leave the Chatrooms tab and come back, instead of always resetting
+   * to the list (see setupBottomNavigation's chatrooms case). Cleared in showChatroomList (every
+   * real "go back to the list" path — the back button and this same tab-switch handler when
+   * there's nothing to restore — already calls showChatroomList()).
+   */
+  private chatroomsDetailRoomId: string | null = null;
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   /** docs/TODO.md K5 — the TechSupport-root session's own pending-question inbox, fed by app.ts's live `techsupport-inbox/*` subscription (never read directly from Gun here). */
   private currentSupportInboxEntries: SupportInboxEntry[] = [];
@@ -1442,9 +1452,14 @@ export class UIManager extends EventEmitter {
         if (headerActions) headerActions.style.display = 'flex';
         this.syncAppBarActionsForView(targetView);
 
-        // Special handling for chatrooms view
+        // Special handling for chatrooms view: restore whichever room's detail panel the user
+        // was last looking at instead of always resetting to the room list (§ save-the-spot).
         if (targetView === 'chatrooms') {
-          this.showChatroomList();
+          if (this.chatroomsDetailRoomId) {
+            this.showChatroomDetail(this.chatroomsDetailRoomId);
+          } else {
+            this.showChatroomList();
+          }
         }
 
         // Special handling for contacts view
@@ -1470,8 +1485,11 @@ export class UIManager extends EventEmitter {
           this.displayAnswersList();
         }
 
+        // Re-render, but keep whichever settings section the user was last looking at
+        // (settingsActiveSectionId) instead of resetting to the top-level menu — renderSettingsView
+        // already restores it correctly via its own trailing applySettingsSectionView call, the
+        // same mechanism a language change relies on to survive a full re-render.
         if (targetView === 'settings') {
-          this.settingsActiveSectionId = null;
           if (this.currentUser) this.renderSettingsView(this.currentUser);
         }
       });
@@ -1494,6 +1512,13 @@ export class UIManager extends EventEmitter {
     this.currentUser = user;
     this.currentUserId = user.id;
     this.applyShellTranslations();
+    // The Settings tab can be clicked before this identity was known (cold launch, before the
+    // rest of the boot chain reaches showMainInterface) — setupBottomNavigation's
+    // `targetView === 'settings'` handler no-ops in that case, leaving the panel blank. Paint it
+    // now that the user is available instead of leaving the tab waiting on the full boot chain.
+    if (document.getElementById('settings-view')?.classList.contains('active')) {
+      this.renderSettingsView(user);
+    }
   }
 
   showMainInterface(user: User): void {
@@ -1558,6 +1583,7 @@ export class UIManager extends EventEmitter {
   }
 
   showChatroomList(): void {
+    this.chatroomsDetailRoomId = null;
     // Hide chatroom detail view, show chatroom list
     const listContainer = document.getElementById('chatroom-list-container');
     const detailContainer = document.getElementById('chatroom-detail-container');
@@ -1894,6 +1920,7 @@ export class UIManager extends EventEmitter {
       formatDate: this.formatUiDate.bind(this),
       isTechSupportOnline: this.isTechSupportOnline.bind(this),
       isUserOnline: this.isUserOnline.bind(this),
+      onChatroomDetailOpened: (chatroomId) => { this.chatroomsDetailRoomId = chatroomId; },
     };
   }
 
@@ -1975,9 +2002,10 @@ export class UIManager extends EventEmitter {
   }
 
   showChatroomDetail(chatroomId: string): void {
+    // openChatroomDetail's onChatroomDetailOpened callback (chatroomsDeps()) is what actually
+    // sets chatroomsDetailRoomId — the same single call path the Tree row click and Map marker
+    // click also go through, so every way of opening a room's detail panel is tracked uniformly.
     openChatroomDetail(this.chatroomsDeps(), chatroomId);
-    const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
-    if (backBtn) backBtn.style.display = 'inline-flex';
     this.syncReturnHomeButton();
   }
 
@@ -3207,6 +3235,11 @@ export class UIManager extends EventEmitter {
     const appPlatform = nativeHost?.platform || queryPlatform;
     const container = document.getElementById('settings-content');
     if (!container) return;
+    // adoptSessionUser can now trigger this render as soon as this device's local Gun read
+    // for the user record resolves (see app.ts's initializeUser) — before the rest of boot has
+    // had a chance to let Gun finish syncing every field in, that local read can momentarily
+    // come back missing stageName. Must not assume it's always a non-empty string here.
+    const stageNameSafe = user.stageName || '';
     const currentColorScheme = getColorSchemePreference();
     const profileLanguages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
     user.languages = profileLanguages;
@@ -3345,7 +3378,7 @@ export class UIManager extends EventEmitter {
             <div style="display:grid;gap:8px;min-width:0;">
               <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
                 <span>${this.t('settingsStageName')}</span>
-                <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(user.stageName)}" minlength="3">
+                <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(stageNameSafe)}" minlength="3">
               </label>
               <div id="settings-stage-name-error" role="alert" style="display:none;font-size:0.82em;color:var(--danger-hover);margin-top:5px;"></div>
               ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:var(--text-tertiary);">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
@@ -3353,7 +3386,7 @@ export class UIManager extends EventEmitter {
             <div style="display:grid;gap:8px;font-size:0.9em;">
               <span>${this.t('settingsHeadshot')}</span>
               <div class="user-avatar" style="width:72px;height:72px;font-size:1.7em;">
-                ${avatarInnerHtml(headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
+                ${avatarInnerHtml(headshot, stageNameSafe.charAt(0).toUpperCase() || '?', escapeHtml)}
               </div>
               <select class="form-input" id="settings-headshot-select" data-testid="settings-headshot-select">
                 <option value="">${this.t('settingsInitial')}</option>

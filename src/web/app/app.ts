@@ -1292,6 +1292,13 @@ export class IinPublicApp {
     // Store whether this is a new user for welcome banner
     (this as any).isNewUser = isNewUser;
 
+    // Hand identity to the UI as soon as it's known — do not make it wait for the slower
+    // location-publish/relay-sync calls below, or for the rest of the boot chain
+    // (restoreReceivedTalkHistory, initializeChatrooms) that still has to run before
+    // showMainInterface fires. A tab clicked immediately on cold launch (e.g. Settings) can
+    // then paint from this identity right away instead of sitting blank for the full boot.
+    this.uiManager.adoptSessionUser(this.currentUser);
+
     // Phase E: re-initialize ledger now that currentUser is known (userId was not available earlier)
     this.initLedger();
 
