@@ -11,6 +11,7 @@ import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 // Two real browsers, two sequential broadcast+mesh-delivery round trips, plus a P2P
 // match conversation — the global default (120s at higher worker counts,
@@ -127,8 +128,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
     // 2) Alice creates tag "Coffee"
     console.log('\n📍 STEP 2: Alice creates tag "' + TAG_COFFEE + '"');
-    await pageAlice.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
+    await ensureChatroomList(pageAlice);
     await pageAlice.click('.chatroom-item:has-text("Global")');
     await afterNav();
 

@@ -4,7 +4,7 @@
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterNav, afterSync, headless } from '../../helpers/timing';
+import { afterSync, headless } from '../../helpers/timing';
 import { waitForServerConversationBetween } from '../../helpers/conversation-e2e';
 import { bootstrapUser, openIncomingTalkModal, waitForIncomingTalkClusterOnServer, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
 import { createSimpleFlowTalk, goToChatrooms } from '../../helpers/broadcast-cancellation-helpers';
@@ -14,6 +14,7 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 const MATCH_ANSWER = 'Yes, lets play.';
 const IGNORE_ANSWER = 'No thanks.';
@@ -77,8 +78,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
 
       await waitForIncomingTalkClusterOnServer(pageJerry, talkTitle, { timeout: 60_000, polling: 500 });
 
-      await pageJerry.click('.nav-btn[data-view="chatrooms"]');
-      await afterNav();
+      await ensureChatroomList(pageJerry);
       await pageJerry.locator(`.chatroom-item[data-chatroom-id="north-america"]`).click();
       await afterSync();
 

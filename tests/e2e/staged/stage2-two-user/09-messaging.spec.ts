@@ -15,6 +15,7 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 import {
   assertGunStoredMessageBodies,
   prepareDirectP2PConversation,
@@ -135,8 +136,7 @@ test.describe('Direct messaging between matched users', () => {
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
 
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
+    await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);

@@ -11,6 +11,7 @@ import {
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 import {
   launchThreeBrowsers,
   shutdownThreeBrowsers,
@@ -123,8 +124,7 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await pageTom.click('#back-from-peer-detail');
     await afterAction();
 
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await afterSync();
+    await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item[data-chatroom-id="global"]');
     await afterSync();
     const jerryMember = pageTom.locator('.chatroom-member-item').filter({ hasText: 'Jerry' }).first();

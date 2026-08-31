@@ -20,6 +20,7 @@ import { bootstrapUser, waitForResponseModalClosed, openIncomingTalkModal } from
 import { clickBroadcastUntilBulkAck, createRouteTalkViaEditor, type UiRouteNodeSpec } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -75,7 +76,7 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     await pageBob.click('.nav-btn[data-view="settings"]');
     await openSettingsSection(pageBob, SETTINGS_SECTION.contentFilters);
     await pageBob.locator('#settings-grammar-filter').uncheck();
-    await pageBob.click('.nav-btn[data-view="chatrooms"]');
+    await ensureChatroomList(pageBob);
     await pageBob.click('.chatroom-item:has-text("Global")');
 
     // ── Alice builds "buy stuff" through the real route editor ─────────────────────────
@@ -122,7 +123,7 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     await pageAlice.waitForSelector('#talk-editor-modal', { state: 'detached' });
 
     // ── Bob receives it and walks every branch to a match ───────────────────────────────
-    await pageAlice.click('.nav-btn[data-view="chatrooms"]');
+    await ensureChatroomList(pageAlice);
     await pageAlice.click('.chatroom-item:has-text("Global")');
     await clickBroadcastUntilBulkAck(pageAlice);
 

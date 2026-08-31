@@ -31,6 +31,7 @@ import { getConversationIdBetween, openConversationViaServer } from '../../helpe
 import { waitForMessageVisible } from '../../helpers/fast-dm-setup';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 test.describe('Chatroom peer detail views', () => {
   let browserTom: Browser;
@@ -121,9 +122,7 @@ test.describe('Chatroom peer detail views', () => {
 
   /** Navigate to chatroom list (unhides list, hides detail) then click Global to enter detail. */
   async function enterGlobalChatroom(page: Page): Promise<void> {
-    await page.click('.nav-btn[data-view="chatrooms"]');
-    await afterNav();
-    await page.waitForSelector('#chatroom-list-container', { state: 'visible' });
+    await ensureChatroomList(page);
     await page.click('.chatroom-item[data-chatroom-id="global"]');
     await afterSync();
   }

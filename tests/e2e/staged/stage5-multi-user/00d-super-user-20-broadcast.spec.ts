@@ -2,7 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
-import { delay, headless, afterAction, afterNav, afterLoad } from '../../helpers/timing';
+import { delay, headless, afterNav, afterLoad } from '../../helpers/timing';
 import { gunBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import {
   completeTalksInAppByAnswerIds,
@@ -19,6 +19,7 @@ import {
   waitForTabActive,
 } from '../../helpers/super-user-techsupport-shared';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 function matchingAnswerIds(talkData: any): string[] {
   if (talkData?.type === 'tag') {
@@ -107,8 +108,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
     await afterLoad();
 
-    await pageTechSupport.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
+    await ensureChatroomList(pageTechSupport);
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
     await afterNav();
 

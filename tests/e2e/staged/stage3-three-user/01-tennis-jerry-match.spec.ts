@@ -7,6 +7,7 @@ import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterCreateTalkBeforeBroadcast, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { clickBroadcastUntilBulkAck, waitForOutgoingTalkRow } from '../../helpers/talk-demo-ui';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -82,8 +83,7 @@ test.describe('Talks matching — tennis, Jerry match', () => {
     await pageTom.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });
     await waitForOutgoingTalkRow(pageTom, 'Tennis Partner', E2E_ASSERT_TIMEOUT_MS);
     await afterCreateTalkBeforeBroadcast();
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await waitForTabActive(pageTom, 'chatrooms');
+    await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterSync();
     await clickBroadcastUntilBulkAck(pageTom);

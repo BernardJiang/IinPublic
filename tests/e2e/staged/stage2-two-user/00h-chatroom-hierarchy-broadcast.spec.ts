@@ -6,6 +6,7 @@ import { afterSync, delay, headless } from '../../helpers/timing';
 import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 /** Expand parent only when collapsed (▶). Default UI already expands NA/Europe — blind toggle hides children. */
 async function ensureHierarchyParentExpanded(page: Page, parentId: string): Promise<void> {
@@ -21,8 +22,7 @@ async function ensureHierarchyParentExpanded(page: Page, parentId: string): Prom
  * Chatroom list → expand parent row → open a hierarchy leaf (e.g. United States under North America).
  */
 async function openHierarchyLeafRoom(page: Page, parentId: string, roomId: string): Promise<void> {
-  await page.click('.nav-btn[data-view="chatrooms"]');
-  await waitForTabActive(page, 'chatrooms');
+  await ensureChatroomList(page);
   await afterSync();
   await ensureHierarchyParentExpanded(page, parentId);
   const leaf = page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`);
@@ -33,8 +33,7 @@ async function openHierarchyLeafRoom(page: Page, parentId: string, roomId: strin
 
 /** Open detail for an internal node (continent) from the list. */
 async function openHierarchyNodeRoom(page: Page, roomId: string): Promise<void> {
-  await page.click('.nav-btn[data-view="chatrooms"]');
-  await waitForTabActive(page, 'chatrooms');
+  await ensureChatroomList(page);
   await afterSync();
   await page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`).click();
   await afterSync();

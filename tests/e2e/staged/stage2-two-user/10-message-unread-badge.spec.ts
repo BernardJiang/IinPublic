@@ -23,6 +23,7 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { getConversationIdBetween } from '../../helpers/conversation-e2e';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 import {
   warmDirectP2PSession,
   waitForDirectP2PChannel,
@@ -224,8 +225,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
+    await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);

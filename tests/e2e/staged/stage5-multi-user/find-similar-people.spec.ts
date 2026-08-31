@@ -40,6 +40,7 @@ import {
 } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 // ─── Test data (not app logic) ──────────────────────────────────────────────────
 
@@ -255,8 +256,7 @@ test.describe('Find similar people', () => {
         await expect
           .poll(() => page.evaluate(() => localStorage.getItem('chatbotEnabled')), { timeout: 15_000 })
           .toBe('true');
-        await page.click('.nav-btn[data-view="chatrooms"]');
-        await afterNav();
+        await ensureChatroomList(page);
         await page.locator('.chatroom-item:has-text("Global")').first().click();
         await afterSync();
       }),

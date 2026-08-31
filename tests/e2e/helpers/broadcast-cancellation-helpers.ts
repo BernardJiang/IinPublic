@@ -3,6 +3,7 @@ import { expect } from './fixtures';
 import { afterNav, afterSync, E2E_ASSERT_TIMEOUT_MS } from './timing';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
 import { submitTalkEditorAndWaitForOut } from './talk-demo-ui';
+import { ensureChatroomList } from './chatroom-nav';
 
 const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } as const;
 
@@ -80,7 +81,7 @@ export async function createSimpleFlowTalk(
 }
 
 export async function goToChatrooms(page: Page): Promise<void> {
-  await page.click('.nav-btn[data-view="chatrooms"]');
+  await ensureChatroomList(page);
   await afterNav();
   await afterSync();
 }

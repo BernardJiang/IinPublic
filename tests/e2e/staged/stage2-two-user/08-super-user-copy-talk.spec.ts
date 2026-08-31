@@ -13,6 +13,7 @@ import {
   waitForTabActive,
 } from '../../helpers/super-user-techsupport-shared';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 test.describe('Super user: copy talk broadcast toggle + delete', () => {
   let browserTechSupport: Browser;
@@ -142,8 +143,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await copyTalkRow.locator('.talk-broadcast-toggle-checkbox').uncheck();
     await expect(copyTalkRow.locator('.talk-broadcast-toggle-checkbox')).not.toBeChecked({ timeout: 10000 });
 
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
+    await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterNav();
     await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
@@ -166,8 +166,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await expect(copyRowAgain.locator('.talk-broadcast-toggle-checkbox')).toBeChecked({ timeout: 10000 });
     await afterNav();
 
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
+    await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterAction();
     await clickBroadcastUntilBulkAck(pageTom, { minGunPeers: 0 });

@@ -14,6 +14,7 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 import { prepareDirectP2PConversation } from '../../helpers/p2p-transport-e2e';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
@@ -127,8 +128,7 @@ test.describe('Auto Linear Capture from DM shorthand', () => {
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
 
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
+    await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);

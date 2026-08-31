@@ -17,7 +17,7 @@ import { execFileSync } from 'child_process';
 import { chromium, BrowserContext, Page, expect } from '@playwright/test';
 import { webAppURLStableChatroom } from './ports';
 import { WEBRTC_CHROMIUM_ARGS } from './webrtc-chromium';
-import { headless, afterLoad, afterNav, E2E_ASSERT_TIMEOUT_MS } from './timing';
+import { headless, afterNav, E2E_ASSERT_TIMEOUT_MS, waitForAppReady } from './timing';
 import { pinStableE2eLocation } from './talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
 import { openSettingsSection } from './settings-nav';
@@ -65,11 +65,7 @@ export async function launchPersistentUser(
  */
 export async function bootstrapOnPage(page: Page, stageName: string): Promise<string> {
   await page.goto(webAppURLStableChatroom(), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(
-    () => !!(window as any).__iinpublic_app?.getApp?.()?.currentUser?.id,
-    { timeout: E2E_ASSERT_TIMEOUT_MS },
-  );
-  await afterLoad();
+  await waitForAppReady(page);
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
   await openSettingsSection(page, 'settings-section-profile');

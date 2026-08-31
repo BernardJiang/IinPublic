@@ -23,6 +23,7 @@ import { headless } from '../../helpers/timing';
 import { bootstrapUser, waitForResponseModalClosed, openIncomingTalkModal } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -144,7 +145,7 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
     await pageAlice.waitForSelector('#talk-editor-modal', { state: 'detached' });
 
     // ── Bob receives it, walks the shared root, picks Notebook, and matches ───────────────
-    await pageAlice.click('.nav-btn[data-view="chatrooms"]');
+    await ensureChatroomList(pageAlice);
     await pageAlice.click('.chatroom-item:has-text("Global")');
     await clickBroadcastUntilBulkAck(pageAlice);
 

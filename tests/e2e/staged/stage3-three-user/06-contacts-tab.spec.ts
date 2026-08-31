@@ -16,6 +16,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
   let browserTom: Browser;
@@ -128,8 +129,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageBob.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
+    await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterNav();
 

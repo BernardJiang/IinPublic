@@ -3,12 +3,13 @@ import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
-import { afterLoad, afterNav, afterAction, afterSync, headless } from '../../helpers/timing';
+import { afterLoad, afterNav, afterSync, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { ensureChatroomList } from '../../helpers/chatroom-nav';
 
 async function bootstrapCompactUser(
   browser: Browser,
@@ -116,8 +117,7 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
 
     await afterSync();
     await waitForGunPeerCountInRoom(owner.page, 'global', 7);
-    await owner.page.click('.nav-btn[data-view="chatrooms"]');
-    await afterNav();
+    await ensureChatroomList(owner.page);
     await owner.page.click('.chatroom-item[data-chatroom-id="global"]');
     await afterSync();
 

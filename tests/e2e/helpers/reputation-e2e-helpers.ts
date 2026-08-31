@@ -6,6 +6,7 @@ import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from './tal
 import { openIncomingTalkModal, waitForResponseModalClosed, waitForTabActive } from './talks-matching-flow';
 import { dismissNotificationOverlays, waitForPeerHistoryTitle } from './durable-ui';
 import { ensureNoBlockBetween } from './blocking-e2e-helpers';
+import { ensureChatroomList } from './chatroom-nav';
 
 export async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
@@ -51,8 +52,7 @@ export async function getReputation(page: Page, userId: string, viewerId: string
 }
 
 export async function enterGlobalChatroom(page: Page): Promise<void> {
-  await page.click('.nav-btn[data-view="chatrooms"]');
-  await afterSync();
+  await ensureChatroomList(page);
   await page.click('.chatroom-item:has-text("Global")');
   await page.waitForSelector('.chatroom-member-item', { timeout: 15000 });
   await afterSync();

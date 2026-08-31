@@ -41,6 +41,9 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
 
     await page.click('.nav-btn[data-view="settings"]');
     await waitForTabActive(page, 'settings');
+    // bootstrapUser edited Profile before handing the page to this test, and Settings now
+    // deliberately restores that last drill-down. Return explicitly before testing the menu.
+    await backToSettingsMenu(page);
 
     // No leftover ad hoc <section> markup — every top-level block is the shared wrapper.
     await expect(page.locator('#settings-content section')).toHaveCount(0);
@@ -79,9 +82,10 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
     await waitForTabActive(page, 'chatrooms');
     await page.click('.nav-btn[data-view="settings"]');
     await waitForTabActive(page, 'settings');
-    // Re-entering the Settings tab always resets to the menu (same convention as
-    // Chatrooms/Contacts resetting to their list on tab entry).
-    await expect(page.locator('#settings-menu-container')).toBeVisible();
+    // Re-entering Settings restores the section the user was editing. The shared helper is
+    // idempotent when that requested section is already visible.
+    await expect(page.locator(`#${SETTINGS_SECTION.profile}`)).toBeVisible();
+    await expect(page.locator('#settings-menu-container')).toBeHidden();
     await openSettingsSection(page, SETTINGS_SECTION.profile);
     await expect(page.locator('#settings-stage-name-input')).toHaveValue('WrapperRenamedTom');
     await backToSettingsMenu(page);

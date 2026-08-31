@@ -3,6 +3,7 @@ import { afterSync } from './timing';
 import { gunBaseURL } from './ports';
 import { dismissNotificationOverlays } from './durable-ui';
 import { submitTalkEditorAndWaitForOut } from './talk-demo-ui';
+import { ensureChatroomList } from './chatroom-nav';
 
 /** Clear server-side block edges so prior specs in the same worker cannot poison delivery. */
 /** Clear server + client blocks from sender to each receiver before broadcast register. */
@@ -130,7 +131,7 @@ export async function enterGlobalChatroom(page: Page): Promise<void> {
       document.querySelector('[data-testid="broadcast-preamble-modal"]')?.remove();
     })
     .catch(() => {});
-  await page.click('.nav-btn[data-view="chatrooms"]');
+  await ensureChatroomList(page);
   await afterSync();
   await page
     .evaluate(() => {
