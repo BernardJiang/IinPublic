@@ -1038,7 +1038,12 @@ button:focus:not(:focus-visible) {
   margin: 0 !important;
   border: 3px solid #fff;
   border-radius: 50%;
-  background: var(--accent, #2563eb);
+  /* Fixed (not theme-token) colors: --accent and --success can both land on
+     similar greens in some color schemes (e.g. tropicalForest), which made
+     "your room" vs "other rooms" unreadable on the map. Matches the
+     underlying MapLibre circle layer's hardcoded #2563eb/#16803c pair
+     (chatroom-map-view.ts) so both rendering layers agree. */
+  background: #2563eb;
   color: #fff;
   box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
   font-size: 0.75rem;
@@ -1048,7 +1053,7 @@ button:focus:not(:focus-visible) {
 }
 
 .chatroom-map-marker.current-room {
-  background: var(--success, #16803c);
+  background: #16803c;
   box-shadow: 0 0 0 4px rgb(22 128 60 / 30%), 0 2px 8px rgb(0 0 0 / 35%);
 }
 
