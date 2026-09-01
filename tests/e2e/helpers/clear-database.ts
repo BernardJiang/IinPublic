@@ -28,8 +28,16 @@ const HEALTH_POLL_INTERVAL_MS = 100;
  * actually broken. Raised to give real startup delay the same order-of-magnitude margin
  * Playwright's own gate already allows; a healthy server still responds in milliseconds,
  * so this only changes how long a *definitely* dead server takes to be reported as such.
+ *
+ * Raised again 45s→90s: the cross-browser shard (`test:e2e:cross-browser`, single worker)
+ * still hit this ceiling in a real `test:all` run once wave 2 started folding in
+ * `isolated` + `heavy-staged` by default alongside mesh-batch (2026-08-18 change) — a much
+ * heavier simultaneous load than when 45s was set. This case is a cold Node process start
+ * (the worker's very first spec, `beforeEach` clearing before anything has run yet), not a
+ * warm server answering a mid-run clear, so it can legitimately take longer to become
+ * responsive under CPU starvation from a dozen concurrent Chromium/Node/WebRTC processes.
  */
-const HEALTH_POLL_MAX_WAIT_MS = 45_000;
+const HEALTH_POLL_MAX_WAIT_MS = 90_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

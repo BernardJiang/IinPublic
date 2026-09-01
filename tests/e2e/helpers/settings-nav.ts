@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test';
+import { dismissNotificationOverlays } from './durable-ui';
 
 /**
  * Settings tab is a drill-down (menu list → one section's detail view → back), same
@@ -35,6 +36,7 @@ export async function openSettingsSection(page: Page, sectionId: string): Promis
 
   if (!(await menu.isVisible().catch(() => false))) {
     await back.waitFor({ state: 'visible' });
+    await dismissNotificationOverlays(page);
     await back.click();
     await menu.waitFor({ state: 'visible' });
   }
@@ -47,6 +49,7 @@ export async function openSettingsSection(page: Page, sectionId: string): Promis
 export async function backToSettingsMenu(page: Page): Promise<void> {
   const menu = page.locator('#settings-menu-container');
   if (await menu.isVisible().catch(() => false)) return;
+  await dismissNotificationOverlays(page);
   await page.locator('#back-to-settings-menu').click();
   await menu.waitFor({ state: 'visible' });
 }
