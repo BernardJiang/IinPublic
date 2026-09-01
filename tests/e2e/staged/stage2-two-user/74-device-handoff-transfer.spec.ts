@@ -113,11 +113,16 @@ test.describe('device handoff transfer (§J)', () => {
       // the graph, addressed to B.
       await expect(a.page.locator('.erase-sync-status[data-status="done"]')).toHaveCount(6, { timeout: 10_000 });
 
+      // Cross-browser envelope propagation: A's publish of the handoff envelope lands in B's
+      // local Gun graph only after the Gun sync propagates (seconds, and longer under
+      // 12-way parallel load) — bump like INCOMING_CLUSTER_ARRIVAL_MS does for the
+      // cluster-arrival wait.
+      const HANDOFF_ENVELOPE_ARRIVAL_MS = 45_000;
       // ── B: open Identity & devices — discovers the archive addressed to its own pub
       // (not a general scan; see web-device-handoff-service.ts's own doc comment on why
       // no discovery mechanism is needed), reviews, and explicitly imports. ──
       await openIdentityDevices(b.page);
-      await expect(b.page.locator('[data-testid="incoming-handoff-card"]')).toBeVisible({ timeout: 20_000 });
+      await expect(b.page.locator('[data-testid="incoming-handoff-card"]')).toBeVisible({ timeout: HANDOFF_ENVELOPE_ARRIVAL_MS });
       await b.page.locator('[data-testid="import-handoff-btn"]').click();
       await expect(b.page.locator('[data-testid="incoming-handoff-card"]')).toHaveCount(0, { timeout: 10_000 });
 

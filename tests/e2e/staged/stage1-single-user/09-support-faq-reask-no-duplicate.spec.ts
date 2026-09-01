@@ -132,14 +132,50 @@ test.describe('TechSupport FAQ: a re-asked known question is a hit, not a re-ans
 
     // 3. TechSupport is gone. The SAME user's still-open tab re-asks the identical question.
     // This must be an instant local hit — no TechSupport process is running to answer it again.
+    //
+    // Root cause of the former flake: the re-ask only routes to the 'known' (local
+    // auto-answer) branch if THIS user client has already cached + verified the FAQ
+    // bundle that TechSupport just published into Gun. That happens via the user's
+    // subscribeToFaqBundle Gun subscription + verifyFaqBundle write to localStorage —
+    // which lags the TechSupport-side write by a Gun propagation + crypto-verify window.
+    // If the re-ask fires before it lands, readCachedFaqEntries() is empty and
+    // handleSupportQuestion silently takes the MISS path (renders an ack, posts to the
+    // now-dead mailbox), so a second answer bubble never appears. Waiting for the cache
+    // to be present in THIS page's localStorage is the guarantee the test actually needs
+    // (same "wait for the recorder's own evidence" pattern as 00f's localTalkExchanges).
+    const faqBundleStorageKey = 'iinpublic_techsupport_faq_bundle_v1';
+    await expect
+      .poll(
+        () => userPage.evaluate(({ key, qk }: { key: string; qk: string }) => {
+          const raw = localStorage.getItem(key);
+          if (!raw) return 'no-bundle';
+          try {
+            const parsed = JSON.parse(raw);
+            const entries = parsed?.entries ?? [];
+            const hit = entries.some((e: any) => e?.questionKey === qk);
+            return hit ? 'cached' : `bundle-without-key(${entries.length} entries)`;
+          } catch {
+            return 'bundle-malformed';
+          }
+        }, { key: faqBundleStorageKey, qk: questionKey }),
+        { timeout: 45_000, intervals: [200, 400, 800, 1500] },
+      )
+      .toBe('cached');
+
     await userPage.fill('#conversation-message-input', question);
     await userPage.click('#send-conversation-message');
     await afterSync();
 
+    // Cross-browser / cross-process propagation: the FAQ-bundle render from the
+    // re-ask (handleSupportQuestion → upsertMessageRecord → re-render) can exceed the
+    // 15s generic assert budget when other Playwright workers are simultaneously
+    // hammering the same Gun process (12-way light phase). Bump like
+    // INCOMING_CLUSTER_ARRIVAL_MS does for the local-Gun cluster wait.
+    const FAQ_REASK_RENDER_MS = 45_000;
     // The re-ask renders the FAQ answer text again immediately (a second "answer" bubble, not a
     // new ack) — confirms the client took the 'known' branch of handleSupportQuestion locally.
     const answerBubbles = userPage.locator('#conversation-messages').getByText(answer, { exact: false });
-    await expect(answerBubbles).toHaveCount(2, { timeout: 15_000 });
+    await expect(answerBubbles).toHaveCount(2, { timeout: FAQ_REASK_RENDER_MS });
 
     // 4. No duplicate FAQ row and no inbox regression: handleSupportQuestion's 'known' branch never
     // calls postSupportQuestionToMailbox, so the re-ask cannot touch techsupport-inbox at all, and

@@ -3165,21 +3165,76 @@ export class IinPublicApp {
       // Re-derive the entry from the freshest cache read rather than trusting the lookup
       // snapshot, and bail if the cache went missing between lookup and here.
       if (!cachedBundle) return;
-      this.conversationService.upsertMessageRecord(
-        conversationId,
-        {
-          id: supportAutoAnswerMessageId(userMessageId),
-          senderId: TECHSUPPORT_ROOT_USER_ID,
-          text: result.entry.answer,
-          timestamp: now,
-          channel: 'public',
-          isFromChatbot: true,
-          faqQuestionKey: result.questionKey,
-          faqAuthorPub: cachedBundle.authorPub,
-          faqSignature: cachedBundle.signature,
-        },
-        { otherUserId: this.currentUser.id },
-      );
+      // Deliver like handleAnswerSupportQuestion does: via the resolved transport, which
+      // persists to the DURABLE server store in addition to local Gun. The known-branch
+      // historically used conversationService.upsertMessageRecord (local Gun only, no
+      // server, "NOT used as a conversation transport") — reliable at conversation-open
+      // time (the K2 greeting does this too) but racy when the conversation is already
+      // open and depends solely on the live Gun subscription observing the put. Under
+      // parallel test:all load (and under real-world Gun lag), that observation
+      // intermittently failed and the answer bubble silently never rendered. Sending
+      // through the techsupport transport adds the same 5s server-poll backstop the
+      // human-answer path already has, so a missed Gun put is still recovered.
+      //
+      // The message is still TECHSUPPORT-authored (senderId = TECHSUPPORT_ROOT_USER_ID).
+      // This is NOT a "send to peer" — the transport's sendMessage here is its Gun+server
+      // persist, no WebRTC/direct-p2p hop (mode = star-gun, channel = public →
+      // shouldEncrypt = false).
+      //
+      // The transport's server POST is awaited and can throw (e.g. server temporarily
+      // unavailable). The question in this same handler is already rendered/sent at the
+      // point we get here, so the answer's delivery path MUST NOT allow that to escape
+      // into the caller (which would surface a send-failed toast for an already-sent
+      // question). Fall back to the previous local-only render on any failure — the
+      // subscription-based recovery is best-effort; the fallback preserves prior behavior
+      // rather than regressing to a toast.
+      const faqProvenance = {
+        faqQuestionKey: result.questionKey,
+        faqAuthorPub: cachedBundle.authorPub,
+        faqSignature: cachedBundle.signature,
+      };
+      let delivered = false;
+      try {
+        await this.conversationService.sendMessage(
+          conversationId,
+          TECHSUPPORT_ROOT_USER_ID,
+          result.entry.answer,
+          {
+            otherUserId: this.currentUser.id,
+            messageId: supportAutoAnswerMessageId(userMessageId),
+            channel: 'public',
+            isFromChatbot: true,
+          },
+        );
+        delivered = true;
+      } catch (err) {
+        console.warn('[Support] known-branch transport send failed — falling back to local record', err);
+      }
+      // Belt: record the FAQ provenance fields on the local Gun message node (idempotent
+      // under the same deterministic messageId; harmless when the transport path already
+      // wrote it). When the transport path worked, this is a duplicate put that adds the
+      // provenance fields; when it failed, it is the only local delivery the subscription
+      // can recover from.
+      try {
+        const gun = this.gunService.getGun();
+        gun
+          .get(`conversations/${conversationId}`)
+          .get('messages')
+          .get(supportAutoAnswerMessageId(userMessageId))
+          .put({
+            ...(delivered ? {} : {
+              id: supportAutoAnswerMessageId(userMessageId),
+              senderId: TECHSUPPORT_ROOT_USER_ID,
+              text: result.entry.answer,
+              timestamp: now,
+              channel: 'public',
+              isFromChatbot: true,
+            }),
+            ...faqProvenance,
+          });
+      } catch {
+        // local Gun write failure is non-fatal in both paths
+      }
       this.uiManager.updateConversationMessage(conversationId, result.entry.answer, now);
       return;
     }
@@ -3191,21 +3246,64 @@ export class IinPublicApp {
     const verifiedAck = ackEntry ? await verifySupportAck(ackEntry) : null;
     if (verifiedAck) {
       const renderedAck = renderGreeting(verifiedAck.template, this.currentUser.stageName);
-      this.conversationService.upsertMessageRecord(
-        conversationId,
-        {
-          id: `support_ack_${userMessageId}`,
-          senderId: TECHSUPPORT_ROOT_USER_ID,
-          text: renderedAck,
-          timestamp: now,
-          channel: 'public',
-          isFromChatbot: true,
-          ackLocale: verifiedAck.locale,
-          ackSignature: verifiedAck.signature,
-          ackAuthorPub: verifiedAck.authorPub,
-        },
-        { otherUserId: this.currentUser.id },
-      );
+      // Same delivery guarantee as the 'known' branch (see above): a local-
+      // upsertMessageRecord render of a TECHSUPPORT-authored ack into an
+      // already-open conversation can be dropped (the open subscription's
+      // Gun-event delivery is the only recovery path for a local-only put, and
+      // it intermittently misses — observed as 06-support-new-question-ack's
+      // ack never rendering in a full test:all run). Route through the
+      // support transport so the message is durable on the server too, and
+      // the 5s server-poll in TechSupportConversationTransport.subscribe-
+      // ToMessages will recover any missed Gun put. A verify failure suppresses
+      // the ack but never blocks the mailbox delivery below (K2-3 discipline
+      // unchanged).
+      const ackProvenance = {
+        ackLocale: verifiedAck.locale,
+        ackSignature: verifiedAck.signature,
+        ackAuthorPub: verifiedAck.authorPub,
+      };
+      const ackMessageId = `support_ack_${userMessageId}`;
+      let ackDelivered = false;
+      try {
+        await this.conversationService.sendMessage(
+          conversationId,
+          TECHSUPPORT_ROOT_USER_ID,
+          renderedAck,
+          {
+            otherUserId: this.currentUser.id,
+            messageId: ackMessageId,
+            channel: 'public',
+            isFromChatbot: true,
+          },
+        );
+        ackDelivered = true;
+      } catch (err) {
+        console.warn('[Support] miss-branch transport send failed — falling back to local record', err);
+      }
+      // Belt: ensure the local Gun message node carries the ack provenance + full
+      // record as a fallback if the transport POST failed (or, when it succeeded,
+      // just add the provenance fields as a harmless duplicate put under the same
+      // deterministic messageId).
+      try {
+        const gun = this.gunService.getGun();
+        gun
+          .get(`conversations/${conversationId}`)
+          .get('messages')
+          .get(ackMessageId)
+          .put({
+            ...(ackDelivered ? {} : {
+              id: ackMessageId,
+              senderId: TECHSUPPORT_ROOT_USER_ID,
+              text: renderedAck,
+              timestamp: now,
+              channel: 'public',
+              isFromChatbot: true,
+            }),
+            ...ackProvenance,
+          });
+      } catch {
+        // local Gun write failure is non-fatal in both paths
+      }
       this.uiManager.updateConversationMessage(conversationId, renderedAck, now);
     }
     // A verify failure suppresses the ack (K2-3 discipline) but must never block delivery —

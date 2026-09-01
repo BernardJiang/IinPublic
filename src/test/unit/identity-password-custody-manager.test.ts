@@ -81,6 +81,13 @@ function setup(): {
 }
 
 describe('IdentityPasswordCustodyManager', () => {
+  // Each test runs real scrypt (N=65536, r=8, p=2) KDF operations twice or more.
+  // That is intentionally heavy — the profile under test is the production one —
+  // and under 12-way parallel test:all load (jest shares ~50% of cores with the
+  // e2e waves) it can exceed the 5s Jest default. Explicit budget, same class as
+  // the e2e INCOMING_CLUSTER_ARRIVAL_MS headroom: propagation/compute lag under
+  // parallel load, not a logic defect (all tests pass green in isolation).
+  jest.setTimeout(30_000);
   test('sets a password, verifies the committed record, then removes legacy custody', async () => {
     const { store, legacy, manager } = setup();
 
