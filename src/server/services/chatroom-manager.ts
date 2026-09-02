@@ -617,9 +617,15 @@ export class ChatroomManager {
     options: { stageName?: string; lastSeen?: string } = {},
   ): Promise<void> {
     const now = new Date().toISOString();
+    // This is the read behind the membership-heartbeat PATCH every connected client sends every
+    // ~10-30s (web-chatroom-service.ts's startMembershipHeartbeat) — getPath's 2000ms/3000ms
+    // defaults exist for letting a slow peer's write settle before trusting a read, which this
+    // single-relay server has no peers to wait on. At the default wait, this pair of reads was
+    // measured adding 2-6s to every heartbeat; user-service.ts already uses this same short-wait
+    // override for its own request-path reads.
     const existing =
-      (await this.gunService.getPath(['chatrooms', chatroomId, 'users', userId]).catch(() => null)) ||
-      (await this.gunService.getPath(['chatroomMembers', chatroomId, userId]).catch(() => null)) ||
+      (await this.gunService.getPath(['chatrooms', chatroomId, 'users', userId], 300, 500).catch(() => null)) ||
+      (await this.gunService.getPath(['chatroomMembers', chatroomId, userId], 300, 500).catch(() => null)) ||
       {};
     // Out-of-order completion guard (stageName only): this method does an async Gun read
     // before writing, so two concurrent touches (e.g. a rename's correction PATCH racing a
