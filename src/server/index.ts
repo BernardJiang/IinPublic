@@ -20,6 +20,7 @@ import { registerUserRoutes } from './routes/user-routes';
 import { registerSocketHandlers } from './socket/register-socket-handlers';
 import { MailboxStore } from './services/mailbox-store';
 import { registerMailboxRoutes } from './routes/mailbox-routes';
+import { TechSupportDurableStore } from './services/techsupport-durable-store';
 import { registerAdminRoutes } from './routes/admin-routes';
 import { TechSupportAnnouncementService } from './services/techsupport-announcement-service';
 import { LanGunDiscovery } from './services/lan-gun-discovery';
@@ -90,6 +91,7 @@ class IinPublicServer {
 
   private mailboxStore = new MailboxStore();
   private mailboxSweepTimer: ReturnType<typeof setInterval> | undefined;
+  private techSupportStore = new TechSupportDurableStore();
 
   private broadcastTagPopularityStore = new BroadcastTagPopularityStore();
 
@@ -239,10 +241,15 @@ class IinPublicServer {
         // Ghost-membership source: the in-memory member map keeps previous-spec users
         // "active" for the room-membership TTL even after the Gun graph is wiped.
         this.chatroomManager.resetForTesting();
+        // The durable TechSupport store lives outside the relay's ephemeral Gun graph on
+        // purpose (that's the whole point of it), so wiping `gun._.graph` above never touches
+        // it — an explicit reset here is what keeps E2E specs isolated from each other.
+        await this.techSupportStore.resetForTesting();
         await this.publishPublicBootstrap();
       },
       nodeEnv: process.env.NODE_ENV,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
+      techSupportStore: this.techSupportStore,
     });
 
     registerUserRoutes(this.app, {
@@ -269,6 +276,7 @@ class IinPublicServer {
 
     registerMailboxRoutes(this.app, {
       mailboxStore: this.mailboxStore,
+      techSupportStore: this.techSupportStore,
       nodeEnv: process.env.NODE_ENV,
     });
 

@@ -56,7 +56,8 @@ import {
   type PeerAckMessage,
   type PresenceRecord,
 } from '../../shared/p2p-presence';
-import { TechSupportMessageStore } from '../services/techsupport-message-store';
+import { TechSupportMessageStore, type TechSupportStoredMessage } from '../services/techsupport-message-store';
+import type { TechSupportDurableStore } from '../services/techsupport-durable-store';
 import { BoundedNonceCache, P2PAbuseDefenseContext } from '../../shared/p2p-abuse-defense';
 
 /** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
@@ -98,6 +99,10 @@ type RegisterSystemRoutesDeps = {
   abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
   /** S3 explicit relay mode: embedded local nodes mirror relay-only metadata upstream. */
   hubRelayClient?: EmbeddedHubRelayClientLike;
+  /** Durable, radisk-backed store for the support message thread — see
+   * techsupport-durable-store.ts's doc comment. Falls back to the plain in-memory
+   * TechSupportMessageStore when omitted (test callers that don't need real persistence). */
+  techSupportStore?: TechSupportDurableStore;
 };
 
 export function registerSystemRoutes(
@@ -110,6 +115,7 @@ export function registerSystemRoutes(
     nodeEnv,
     abuseDefenseConfig,
     hubRelayClient,
+    techSupportStore,
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
@@ -144,7 +150,13 @@ export function registerSystemRoutes(
         : {}),
     },
   );
-  const techSupportMessages = new TechSupportMessageStore();
+  // Real production wiring always injects a durable techSupportStore (index.ts); this fallback
+  // only exists so test callers that don't care about real persistence don't have to provide one.
+  const fallbackMessages = techSupportStore ? null : new TechSupportMessageStore();
+  const appendSupportMessage = (message: TechSupportStoredMessage): Promise<void> | void =>
+    techSupportStore ? techSupportStore.appendMessage(message) : fallbackMessages!.append(message);
+  const listSupportMessages = (conversationId: string): Promise<TechSupportStoredMessage[]> | TechSupportStoredMessage[] =>
+    techSupportStore ? techSupportStore.listMessages(conversationId) : fallbackMessages!.list(conversationId);
 
   const prunePresence = (now = new Date()): void => {
     prunePresenceRecords(presenceByUserId, now);
@@ -263,15 +275,15 @@ export function registerSystemRoutes(
     res.json({ acknowledgements: inbox });
   });
 
-  app.get('/api/support/messages/:conversationId', (req, res) => {
+  app.get('/api/support/messages/:conversationId', async (req, res) => {
     const conversationId = String(req.params.conversationId || '');
     res.json({
       conversationId,
-      messages: techSupportMessages.list(conversationId),
+      messages: await listSupportMessages(conversationId),
     });
   });
 
-  app.post('/api/support/messages/:conversationId', (req, res) => {
+  app.post('/api/support/messages/:conversationId', async (req, res) => {
     try {
       const conversationId = String(req.params.conversationId || '');
       if (!conversationId.startsWith('conv_support_')) {
@@ -291,7 +303,7 @@ export function registerSystemRoutes(
         res.status(400).json({ error: 'senderId and text are required' });
         return;
       }
-      techSupportMessages.append(message);
+      await appendSupportMessage(message);
       if (gunService) {
         void gunService.putPath(
           ['conversations', conversationId, 'messages', message.id],

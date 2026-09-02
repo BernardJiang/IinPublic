@@ -23,21 +23,47 @@ import {
   MAILBOX_MAX_TTL_MS,
   MAILBOX_MAX_CIPHERTEXT_BYTES,
   type MailboxEnvelope,
+  type StoreEnvelopeResult,
 } from '../services/mailbox-store';
+import type { TechSupportDurableStore } from '../services/techsupport-durable-store';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
 export type RegisterMailboxRoutesDeps = {
   mailboxStore: MailboxStore;
+  /** TechSupport's mail goes to the durable, radisk-backed store instead of the generic
+   * in-memory/TTL one — see techsupport-durable-store.ts's doc comment for why. Every other
+   * recipient is unaffected. */
+  techSupportStore?: TechSupportDurableStore;
   nodeEnv?: string | undefined;
+};
+
+/**
+ * MailboxStore's methods are synchronous; TechSupportDurableStore's are async (Gun reads).
+ * Union return types let both satisfy this interface, and every call site `await`s the result —
+ * awaiting a plain (non-Promise) value is a no-op pass-through, so this costs nothing for the
+ * sync store.
+ */
+type MailboxLike = {
+  store(params: { id: string; recipientId: string; ciphertext: string; ttlMs?: number }):
+    | StoreEnvelopeResult
+    | Promise<StoreEnvelopeResult>;
+  list(recipientId: string): MailboxEnvelope[] | Promise<MailboxEnvelope[]>;
+  delete(recipientId: string, envelopeId: string): boolean | Promise<boolean>;
+  getTotalCount(): number | Promise<number>;
+  getQueueSizes(): Record<string, number> | Promise<Record<string, number>>;
 };
 
 export function registerMailboxRoutes(
   app: express.Application,
-  { mailboxStore, nodeEnv }: RegisterMailboxRoutesDeps,
+  { mailboxStore, techSupportStore, nodeEnv }: RegisterMailboxRoutesDeps,
 ): void {
+  const storeFor = (recipientId: string): MailboxLike =>
+    recipientId === TECHSUPPORT_ROOT_USER_ID && techSupportStore ? techSupportStore : mailboxStore;
+
   // ── POST /api/mailbox/:recipientId ────────────────────────────────────────
   // Store a ciphertext envelope for an offline recipient.
   // Body: { id: string, ciphertext: string, ttlMs?: number }
-  app.post('/api/mailbox/:recipientId', (req, res) => {
+  app.post('/api/mailbox/:recipientId', async (req, res) => {
     try {
       const recipientId = String(req.params.recipientId || '').trim();
       if (!recipientId) {
@@ -74,9 +100,9 @@ export function registerMailboxRoutes(
         }
         ttlMs = raw;
       }
-      const storeParams: Parameters<typeof mailboxStore.store>[0] = { id: envelopeId, recipientId, ciphertext };
+      const storeParams: Parameters<MailboxLike['store']>[0] = { id: envelopeId, recipientId, ciphertext };
       if (ttlMs != null) storeParams.ttlMs = ttlMs;
-      const result = mailboxStore.store(storeParams);
+      const result = await storeFor(recipientId).store(storeParams);
       if (!result.stored) {
         res.status(429).json({ error: result.reason });
         return;
@@ -89,14 +115,14 @@ export function registerMailboxRoutes(
 
   // ── GET /api/mailbox/:recipientId ─────────────────────────────────────────
   // List all non-expired envelopes for a recipient (full ciphertext included).
-  app.get('/api/mailbox/:recipientId', (req, res) => {
+  app.get('/api/mailbox/:recipientId', async (req, res) => {
     try {
       const recipientId = String(req.params.recipientId || '').trim();
       if (!recipientId) {
         res.status(400).json({ error: 'recipientId is required' });
         return;
       }
-      const envelopes = mailboxStore.list(recipientId);
+      const envelopes = await storeFor(recipientId).list(recipientId);
       res.json({ recipientId, envelopes, count: envelopes.length });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -105,7 +131,7 @@ export function registerMailboxRoutes(
 
   // ── DELETE /api/mailbox/:recipientId/:envelopeId ──────────────────────────
   // Acknowledge and delete a drained envelope.
-  app.delete('/api/mailbox/:recipientId/:envelopeId', (req, res) => {
+  app.delete('/api/mailbox/:recipientId/:envelopeId', async (req, res) => {
     try {
       const recipientId = String(req.params.recipientId || '').trim();
       const envelopeId = String(req.params.envelopeId || '').trim();
@@ -113,7 +139,7 @@ export function registerMailboxRoutes(
         res.status(400).json({ error: 'recipientId and envelopeId are required' });
         return;
       }
-      const deleted = mailboxStore.delete(recipientId, envelopeId);
+      const deleted = await storeFor(recipientId).delete(recipientId, envelopeId);
       // Return 200 even when already gone — idempotent delete.
       res.json({ deleted });
     } catch (error) {
