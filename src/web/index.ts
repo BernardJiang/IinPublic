@@ -158,30 +158,41 @@ class WebApp {
     // Gun.js browser graph (chatrooms/global/users, etc.) — survives reboot unless removed.
     localStorage.removeItem('gun/');
     localStorage.clear();
-    try {
-      const dbs = await indexedDB.databases?.();
-      if (dbs) {
-        await Promise.all(
-          dbs
-            .map((db) => db.name || '')
-            .filter(
-              (name) =>
-                name.startsWith('gun') ||
-                name === 'gun-idb' ||
-                name === IDENTITY_CUSTODY_DATABASE_NAME,
-            )
-            .map((name) => new Promise<void>((resolve) => {
-              const req = indexedDB.deleteDatabase(name);
-              req.onsuccess = () => resolve();
-              req.onerror = () => resolve();
-              req.onblocked = () => resolve();
-            })),
-        );
-      }
-      indexedDB.deleteDatabase('gun-idb');
-    } catch {
+    // `deleteDatabase` never settles — not even `onblocked` — if this same page already holds
+    // an open connection to the database being deleted, which stalls boot forever behind a
+    // loading spinner with no error. The comment below promises this clear "should never block
+    // stage-zero startup", but a `try/catch` alone only guards a synchronous throw, not a
+    // promise that simply never resolves — race it against a bounded timeout so that promise
+    // is actually kept.
+    await Promise.race([
+      this.clearStageZeroIndexedDb(),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ]).catch(() => {
       /* A stale browser cache should never block stage-zero startup. */
+    });
+  }
+
+  private async clearStageZeroIndexedDb(): Promise<void> {
+    const dbs = await indexedDB.databases?.();
+    if (dbs) {
+      await Promise.all(
+        dbs
+          .map((db) => db.name || '')
+          .filter(
+            (name) =>
+              name.startsWith('gun') ||
+              name === 'gun-idb' ||
+              name === IDENTITY_CUSTODY_DATABASE_NAME,
+          )
+          .map((name) => new Promise<void>((resolve) => {
+            const req = indexedDB.deleteDatabase(name);
+            req.onsuccess = () => resolve();
+            req.onerror = () => resolve();
+            req.onblocked = () => resolve();
+          })),
+      );
     }
+    indexedDB.deleteDatabase('gun-idb');
   }
 
   private showError(message: string): void {
