@@ -298,7 +298,7 @@ button:focus:not(:focus-visible) {
 
 /* Single AppBar (top header) — redesign §1 */
 .top-header {
-  background: #fff;
+  background: var(--surface);
   height: 50px;
   display: flex;
   align-items: center;
@@ -414,7 +414,7 @@ button:focus:not(:focus-visible) {
   top: 100%;
   right: 0;
   z-index: 999;
-  background: #fff;
+  background: var(--surface);
   border-radius: var(--radius-md);
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
   min-width: 190px;
@@ -574,7 +574,7 @@ button:focus:not(:focus-visible) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  background: #fff;
+  background: var(--surface);
 }
 
 /* Bottom Navigation */
@@ -662,7 +662,7 @@ button:focus:not(:focus-visible) {
 
 /* Header */
 .header {
-  background: white;
+  background: var(--surface);
   padding: 15px 20px;
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -733,11 +733,11 @@ button:focus:not(:focus-visible) {
   flex: 1;
   overflow-y: auto;
   padding: 0;
-  background: #fff;
+  background: var(--surface);
 }
 
 .conversation-item {
-  background: white;
+  background: var(--surface);
   border-radius: var(--radius-md);
   padding: 15px;
   margin-bottom: 10px;
@@ -974,7 +974,7 @@ button:focus:not(:focus-visible) {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -1239,7 +1239,7 @@ button:focus:not(:focus-visible) {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -1357,7 +1357,7 @@ button:focus:not(:focus-visible) {
   align-items: center;
   padding: 12px;
   margin-bottom: 8px;
-  background: white;
+  background: var(--surface);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   cursor: pointer;
@@ -1516,7 +1516,7 @@ button:focus:not(:focus-visible) {
 .talks-nav-btn,
 .talks-nav-back {
   border: 1px solid var(--border-strong);
-  background: white;
+  background: var(--surface);
   color: var(--text-secondary);
   border-radius: var(--radius-full);
   padding: 8px 14px;
@@ -1536,7 +1536,7 @@ button:focus:not(:focus-visible) {
 
 .talks-header {
   padding: 16px;
-  background: #fff;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -1579,7 +1579,7 @@ button:focus:not(:focus-visible) {
 }
 
 .talk-list-item {
-  background: white;
+  background: var(--surface);
   border-radius: var(--radius-lg);
   padding: 16px;
   margin-bottom: 8px;
@@ -1881,7 +1881,7 @@ button.contacts-broadcast-icon-btn {
 
 .talk-list-item.talk-tag-out {
   border-color: var(--accent);
-  background: #fff;
+  background: var(--surface);
   color: var(--accent-text);
 }
 
@@ -2097,7 +2097,7 @@ button.talk-icon-btn:hover {
 }
 
 .message-bubble {
-  background: white;
+  background: var(--surface);
   padding: 10px 14px;
   border-radius: var(--radius-md);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
@@ -2118,7 +2118,7 @@ button.talk-icon-btn:hover {
 
 /* Talk Interface */
 .talk-question {
-  background: white;
+  background: var(--surface);
   border-radius: var(--radius-lg);
   padding: 20px;
   margin-bottom: 20px;
@@ -2170,7 +2170,7 @@ button.talk-icon-btn:hover {
 
 /* Message Input */
 .message-input-area {
-  background: white;
+  background: var(--surface);
   border-top: 1px solid var(--border);
   padding: 15px 20px;
 }
@@ -2222,7 +2222,7 @@ button.talk-icon-btn:hover {
 /* Tabs */
 .tabs {
   display: flex;
-  background: white;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
 
@@ -2765,7 +2765,7 @@ button.talk-icon-btn:hover {
 
 /* Talk Creation */
 .talk-editor {
-  background: white;
+  background: var(--surface);
   border-radius: var(--radius-md);
   padding: 20px;
 }
@@ -2802,7 +2802,7 @@ button.talk-icon-btn:hover {
 
 /* Survey Results */
 .survey-results {
-  background: white;
+  background: var(--surface);
   border-radius: var(--radius-md);
   padding: 20px;
 }
@@ -2970,7 +2970,7 @@ button.talk-icon-btn:hover {
 /* User Profile (Me View) */
 .user-profile {
   padding: 20px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .profile-actions {
@@ -2983,7 +2983,7 @@ button.talk-icon-btn:hover {
 .profile-btn {
   width: 100%;
   padding: 15px 20px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-size: 1em;
@@ -3034,7 +3034,7 @@ button.talk-icon-btn:hover {
   display: flex;
   align-items: center;
   padding: 12px;
-  background: white;
+  background: var(--surface);
   border-radius: var(--radius-lg);
   margin-bottom: 8px;
   cursor: pointer;
@@ -3349,7 +3349,7 @@ button.talk-icon-btn:hover {
   left: 0;
   right: 0;
   bottom: 0;
-  background: white;
+  background: var(--surface);
   /* Above the peer/User layout (1000): rule N2a stacks ⟨Conv⟩ on top of ⟨User⟩. */
   z-index: 1001;
   display: none; /* Hidden by default */
@@ -3368,7 +3368,7 @@ button.talk-icon-btn:hover {
   gap: 10px;
   padding: 10px 12px;
   margin-bottom: 6px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -3454,7 +3454,7 @@ button.talk-icon-btn:hover {
   display: flex;
   align-items: center;
   padding: 12px 16px;
-  background: white;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
   gap: 12px;
 }
@@ -3515,7 +3515,7 @@ body.iinpublic-debug .conversation-health-status {
   max-width: 70%;
   padding: 10px 14px;
   border-radius: var(--radius-xl);
-  background: white;
+  background: var(--surface);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
@@ -3526,7 +3526,7 @@ body.iinpublic-debug .conversation-health-status {
 }
 
 .message-other .message-content {
-  background: white;
+  background: var(--surface);
   color: var(--text-primary);
   border-bottom-left-radius: 4px;
 }
@@ -3883,7 +3883,7 @@ body.iinpublic-debug .conversation-health-status {
   display: flex;
   gap: 8px;
   padding: 12px;
-  background: white;
+  background: var(--surface);
   border-top: 1px solid var(--border);
   align-items: flex-end;
 }
@@ -3986,7 +3986,7 @@ body.iinpublic-debug .conversation-health-status {
 .peer-detail-overlay {
   position: fixed;
   inset: 0;
-  background: white;
+  background: var(--surface);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -4005,7 +4005,7 @@ body.iinpublic-debug .conversation-health-status {
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: white;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -4117,7 +4117,7 @@ body.iinpublic-debug .conversation-health-status {
 }
 
 .peer-outcome-pending {
-  background: white;
+  background: var(--surface);
 }
 
 .peer-history-direction {
