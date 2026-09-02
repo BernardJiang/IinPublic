@@ -383,7 +383,7 @@ export class UIManager extends EventEmitter {
   private talksDateTo = '';
   private contactsSortId: string = 'matched-tags'; // Sort strategy for contacts view
   private apiBase: string = '';
-  private currentUserId: string = '';
+  private currentUserIdValue: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
   private publicProfileFoundationReader: PublicProfileFoundationReader | undefined;
   private contactPreRenderSync: ContactPreRenderSync | undefined;
@@ -1502,6 +1502,22 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  private get currentUserId(): string {
+    return this.currentUserIdValue;
+  }
+
+  // Every setter (showMainInterface, adoptSessionUser, updateChatroomMembers) retries a
+  // Contacts tab stuck on displayContactsList's `!currentUserId` guard, not just whichever
+  // one happens to resolve the id first — a per-caller `hadUserId` flag let other setters
+  // leave that error permanent.
+  private set currentUserId(value: string) {
+    const hadUserId = !!this.currentUserIdValue;
+    this.currentUserIdValue = value;
+    if (!hadUserId && value && document.getElementById('contacts-view')?.classList.contains('active')) {
+      this.displayContactsList();
+    }
+  }
+
   /**
    * Point session state at the app's current `User` reference after server-backed updates
    * (e.g. block/unblock) so `isBlockedByMe` is not stale on a divergent object.
@@ -1524,17 +1540,9 @@ export class UIManager extends EventEmitter {
   showMainInterface(user: User): void {
     user.languages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
     user.talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
-    const hadUserId = !!this.currentUserId;
     this.currentUser = user;
     this.currentUserId = user.id;
     this.applyShellTranslations();
-    // If the Contacts tab was opened before the user record finished loading (fast tab
-    // click right after a reload), displayContactsList hit its `!currentUserId` guard and
-    // rendered a permanent "Could not load contacts." with no retry. Now that the user is
-    // known, re-render the list once if that tab is showing.
-    if (!hadUserId && document.getElementById('contacts-view')?.classList.contains('active')) {
-      this.displayContactsList();
-    }
     // Update the persistent header identity without duplicating the generated stage name.
     const headerStatus = document.getElementById('header-status');
     const headerUserInfo = document.getElementById('header-user-info');
