@@ -194,14 +194,17 @@ export class WebChatroomService {
       return;
     }
 
-    // Write user to database and wait for completion (with retry logic)
+    // Write user to database and wait for completion (with retry logic).
+    // Short per-attempt budget, matching WebGunService.put()'s convention for the same
+    // unreliable-ack problem: a relay-only production hub gives a lone browser no real ack to
+    // wait for, so 3s x 3 attempts was mostly dead time before this became non-fatal below.
     const writeUserWithRetry = async (maxRetries: number = 3): Promise<void> => {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
           await new Promise<void>((resolve, reject) => {
             const timeoutId = setTimeout(() => {
               reject(new Error('User data write timeout'));
-            }, 3000); // 3 second timeout per attempt
+            }, 800); // matches WebGunService.put()'s fast-timeout convention
 
             gun
               .get('chatrooms')
@@ -229,11 +232,19 @@ export class WebChatroomService {
           return;
         } catch (error) {
           if (attempt === maxRetries) {
-            // Final attempt failed - throw error (this is critical data)
-            throw new Error(`Failed to write user data after ${maxRetries} attempts: ${error}`);
+            // A bare ack timeout here is not proof the write failed — it's proof the relay
+            // didn't answer in time. Production runs as a relay-only hub with no application
+            // radata (RELAY_ONLY_HUB, p2p-runtime.ts): a lone browser's put NEVER gets a real
+            // network ack from the relay itself, only from a genuine second peer if one is
+            // meshed in. The local Gun graph already has this write regardless of whether an
+            // ack ever arrives, so throwing here used to strand every solo user's very first
+            // room join on "Failed to initialize the app" (same class of bug fixed for
+            // WebGunService.put/putPrivate — see that commit). Continue optimistically instead.
+            console.warn(`Gun chatroom-join write ack timed out after ${maxRetries} attempts, continuing optimistically:`, error);
+            return;
           } else {
             // Wait before retry (exponential backoff)
-            const delayMs = attempt * 500;
+            const delayMs = attempt * 150;
             console.log(`   Retrying user data write in ${delayMs}ms...`);
             await new Promise((resolve) => setTimeout(resolve, delayMs));
           }
