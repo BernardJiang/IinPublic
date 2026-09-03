@@ -28,22 +28,29 @@ describe('embedded native Gun browser-storage policy', () => {
     expect(storage.removeItem).toHaveBeenCalledWith('gun/');
   });
 
-  it('preserves browser Gun persistence outside embedded native shells', () => {
+  it('also disables the unbounded cache for ordinary browser origins (no eviction, quota crashes the app)', () => {
     const storage = { removeItem: jest.fn() };
 
     expect(prepareDirectGunBrowserStorage(
       { hostname: 'www.iinpublic.com', port: '443' },
       storage,
-    )).toBe(true);
-    expect(storage.removeItem).not.toHaveBeenCalled();
+    )).toBe(false);
+    expect(storage.removeItem).toHaveBeenCalledWith('gun/');
   });
 
-  it('still disables native persistence if legacy cache removal is unavailable', () => {
+  it('still disables persistence if legacy cache removal is unavailable', () => {
     const storage = { removeItem: jest.fn(() => { throw new Error('quota backend unavailable'); }) };
 
     expect(prepareDirectGunBrowserStorage(
       { hostname: 'localhost', port: '19161' },
       storage,
     )).toBe(false);
+  });
+
+  it('disables persistence even with no location info at all', () => {
+    const storage = { removeItem: jest.fn() };
+
+    expect(prepareDirectGunBrowserStorage(undefined, storage)).toBe(false);
+    expect(storage.removeItem).toHaveBeenCalledWith('gun/');
   });
 });

@@ -104,23 +104,25 @@ export function isEmbeddedNativeOrigin(locationLike: BrowserLocationLike | undef
 }
 
 /**
- * Native shells already persist the authoritative Gun graph in their embedded Node process.
- * Keeping a second copy in WebView localStorage is redundant and eventually exhausts the old
- * Android WebView 5 MB quota, which also prevents identity-safe app projections from saving.
+ * The direct Gun instance's own localStorage cache has no eviction and grows unbounded as mesh
+ * traffic flows through the graph. Native shells already persist the authoritative graph in their
+ * embedded Node process, so a second copy here was always redundant. Ordinary browser origins
+ * had it enabled with no cap either — a long-lived tab eventually fills the ~5MB per-origin quota
+ * and every subsequent write (including identity-safe app projections) starts failing. The
+ * IndexedDB-backed worker bridge (getBridge()) is the real browser persistence layer for both
+ * cases, so this cache is disabled everywhere and any stale copy from before this fix is cleared
+ * on init.
  */
 export function prepareDirectGunBrowserStorage(
-  locationLike: BrowserLocationLike | undefined,
+  _locationLike: BrowserLocationLike | undefined,
   storage: BrowserStorageLike | undefined,
 ): boolean {
-  const persistBrowserGraph = !isEmbeddedNativeOrigin(locationLike);
-  if (!persistBrowserGraph) {
-    try {
-      storage?.removeItem('gun/');
-    } catch {
-      // Gun remains usable in-memory and through the embedded-node peer.
-    }
+  try {
+    storage?.removeItem('gun/');
+  } catch {
+    // Gun remains usable in-memory and through the hub/embedded-node peer.
   }
-  return persistBrowserGraph;
+  return false;
 }
 
 export function deriveBackendApiBaseFromLocation(protocol: string, hostname: string, port: string): string {
