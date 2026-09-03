@@ -590,7 +590,7 @@ export class WebGunService extends EventEmitter {
     return new Promise((resolve, reject) => {
       try {
         const serializedData = this.serializeDates(data);
-        const relaxAck = isDevStageZero() || this.isE2ERelaxedMode();
+        const longerBudget = isDevStageZero() || this.isE2ERelaxedMode();
         let settled = false;
         const done = (err?: Error) => {
           if (settled) return;
@@ -600,14 +600,22 @@ export class WebGunService extends EventEmitter {
           else resolve();
         };
 
+        // No ack within the budget means we don't know whether the relay stored it — not that
+        // it failed. Gun is eventually-consistent and the local in-memory graph already has the
+        // write; treating a bare timeout as fatal here strands boot-path callers (e.g. a brand
+        // new user's first `users/<id>` put) on "Failed to initialize the app" whenever the
+        // relay's own ack is slow or absent (see the relay's radisk:false write-ack gaps in
+        // project memory). An explicit ack.err below still rejects — only the "no answer at all"
+        // case is treated as optimistic-continue, in every environment, not just dev/e2e.
+        // Short budget, matching gun-service.ts's own 300/500ms "fast" server-side convention for
+        // the same unreliable-ack problem: production runs `RELAY_ONLY_HUB` (no application
+        // radata — see p2p-runtime.ts), so a lone browser's put NEVER gets a real ack from the
+        // relay itself, only from a genuine second peer if one is meshed in. Waiting multiple
+        // seconds here was pure dead time on every boot, not a real chance at a slow-but-real ack.
         const timeout = setTimeout(() => {
-          if (relaxAck) {
-            console.warn(`Gun put ack timed out (relaxed mode), continuing optimistically: ${key}`);
-            done();
-          } else {
-            done(new Error('Gun.js put operation timed out'));
-          }
-        }, relaxAck ? 12_000 : 5000);
+          console.warn(`Gun put ack timed out, continuing optimistically: ${key}`);
+          done();
+        }, longerBudget ? 2000 : 800);
 
         this.gun.get(key).put(serializedData, (ack: any) => {
           if (ack?.err) {
@@ -761,7 +769,7 @@ export class WebGunService extends EventEmitter {
       ref = ref.get(part);
     }
     await new Promise<void>((resolve, reject) => {
-      const relaxAck = isDevStageZero() || this.isE2ERelaxedMode();
+      const longerBudget = isDevStageZero() || this.isE2ERelaxedMode();
       let settled = false;
       const done = (err?: Error) => {
         if (settled) return;
@@ -770,14 +778,14 @@ export class WebGunService extends EventEmitter {
         if (err) reject(err);
         else resolve();
       };
+      // Same reasoning as the public put() above: a bare ack timeout on this chained
+      // gun.user().get('private')... write is not proof of failure, just proof the relay
+      // didn't answer in time. Continue optimistically in every environment, on the same
+      // short budget (production is a relay-only hub with no real ack to wait for).
       const timeout = setTimeout(() => {
-        if (relaxAck) {
-          console.warn(`Gun private put ack timed out (relaxed mode), continuing optimistically: ${key}`);
-          done();
-        } else {
-          done(new Error(`Gun private put operation timed out: ${key}`));
-        }
-      }, relaxAck ? 12_000 : 5000);
+        console.warn(`Gun private put ack timed out, continuing optimistically: ${key}`);
+        done();
+      }, longerBudget ? 2000 : 800);
       ref.put(encrypted, (ack: any) => {
         if (ack?.err) {
           done(new Error(String(ack.err)));

@@ -570,19 +570,26 @@ export class WebUserService {
     if (userData.pub) user.pub = userData.pub;
     if (userData.epub) user.epub = userData.epub;
 
-    await this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(user));
-    await this.putPublicProfileFoundation(user);
-    await this.putPublicTalkFilters(userId, user.talkFilters || {
-      allowedLanguages: user.languages || ['en'],
-      minDistanceMiles: 0,
-      maxDistanceMiles: 50,
-      requireGoodGrammar: true,
-      blockDirtyWords: true,
-      allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
-    });
+    // These writes land on independent Gun keys with no cross-reads between them — run them
+    // concurrently rather than sequentially. Each await already carries its own bounded,
+    // optimistic-continue ack timeout (see WebGunService.put/putPrivate), so awaiting them one
+    // at a time was stacking that timeout budget on every fresh boot (worst case 4x) whenever
+    // the relay's ack was slow or absent.
+    await Promise.all([
+      this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(user)),
+      this.putPublicProfileFoundation(user),
+      this.putPublicTalkFilters(userId, user.talkFilters || {
+        allowedLanguages: user.languages || ['en'],
+        minDistanceMiles: 0,
+        maxDistanceMiles: 50,
+        requireGoodGrammar: true,
+        blockDirtyWords: true,
+        allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+      }),
+      this.putPrivateUserData(user),
+    ]);
     this.syncPublicUserToApiBestEffort(user);
     this.putUserTagsBestEffort(user, now);
-    await this.putPrivateUserData(user);
     if (user.id === TECHSUPPORT_ROOT_USER_ID) {
       await this.gunService.put(TECHSUPPORT_ROOT_META_KEY, {
         userId: user.id,
