@@ -13,6 +13,7 @@ function buildHubRelayClient(overrides: Partial<EmbeddedHubRelayClientLike> = {}
     postSignalingFrame: jest.fn().mockResolvedValue(undefined),
     getPublicUser: jest.fn().mockResolvedValue(null),
     upsertPublicUser: jest.fn().mockResolvedValue(undefined),
+    getTurnCredentials: jest.fn().mockResolvedValue({ username: '', credential: '', ttl: 0, urls: [] }),
     ...overrides,
   };
 }

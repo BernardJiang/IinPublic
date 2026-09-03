@@ -281,7 +281,9 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
     });
 
-    registerTurnRoutes(this.app);
+    registerTurnRoutes(this.app, {
+      ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
+    });
   }
 
   private setupSocketHandlers(): void {

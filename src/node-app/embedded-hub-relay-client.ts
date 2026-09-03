@@ -26,6 +26,13 @@ export type TouchMemberOptions = {
   lastSeen?: string;
 };
 
+export type RelayTurnCredentials = {
+  username: string;
+  credential: string;
+  ttl: number;
+  urls: string[];
+};
+
 export interface EmbeddedHubRelayClientLike {
   listMembers(chatroomId: string): Promise<RelayRoomMember[]>;
   addMember(chatroomId: string, userId: string, stageName?: string): Promise<void>;
@@ -35,6 +42,7 @@ export interface EmbeddedHubRelayClientLike {
   postSignalingFrame(conversationId: string, frame: SignalingRelayFrame): Promise<void>;
   getPublicUser(userId: string): Promise<Partial<User> | null>;
   upsertPublicUser(user: Partial<User> & { id: string }): Promise<void>;
+  getTurnCredentials(): Promise<RelayTurnCredentials>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -143,6 +151,17 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(user),
     });
+  }
+
+  async getTurnCredentials(): Promise<RelayTurnCredentials> {
+    const response = await this.request('/api/turn-credentials');
+    const body = (await response.json()) as Partial<RelayTurnCredentials>;
+    return {
+      username: String(body.username || ''),
+      credential: String(body.credential || ''),
+      ttl: Number(body.ttl) || 0,
+      urls: Array.isArray(body.urls) ? body.urls.filter((url): url is string => typeof url === 'string') : [],
+    };
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
