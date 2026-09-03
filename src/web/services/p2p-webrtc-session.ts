@@ -176,12 +176,62 @@ export function defaultIceServers(): RTCIceServer[] {
     return [];
   }
   // Production: provide STUN for NAT traversal (priorities 2–3).
-  // Priority 4 relay requires a TURN server; add one via E2E_WEBRTC_ICE_SERVERS
-  // or extend this list when relay fallback is required.
+  // Priority 4 relay requires a TURN server; see resolveIceServers() below.
   return [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ];
+}
+
+type CachedTurnServer = { server: RTCIceServer; expiresAtMs: number };
+let cachedTurnServer: CachedTurnServer | null = null;
+
+async function fetchTurnServer(apiBase: string): Promise<{ server: RTCIceServer; ttlSeconds: number } | null> {
+  try {
+    const res = await fetch(`${apiBase}/api/turn-credentials`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { urls?: string[]; username?: string; credential?: string; ttl?: number };
+    if (!Array.isArray(body.urls) || body.urls.length === 0 || !body.username || !body.credential) return null;
+    return {
+      server: { urls: body.urls, username: body.username, credential: body.credential },
+      ttlSeconds: typeof body.ttl === 'number' && body.ttl > 0 ? body.ttl : 3600,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Same priority-ordered ICE server list as defaultIceServers(), plus a TURN relay (priority 4)
+ * fetched from the relay's own `/api/turn-credentials` endpoint when one is configured
+ * server-side (`TURN_SHARED_SECRET`/`TURN_SERVER_HOST` — see
+ * docs/IinPublic_VPS_Installation_Guide.md's TURN section). Falls back to STUN-only, exactly
+ * matching `defaultIceServers()`, if the relay has no TURN server configured or the credential
+ * fetch fails for any reason — a missing/unreachable TURN server must never block a connection
+ * STUN alone can still complete.
+ *
+ * Short-lived credentials (coturn's `use-auth-secret` convention) are cached in memory and only
+ * re-fetched once they're close to expiry, so a burst of P2P session starts doesn't each pay a
+ * network round trip.
+ */
+export async function resolveIceServers(apiBase: string): Promise<RTCIceServer[]> {
+  const base = defaultIceServers();
+  // E2E override / same-machine E2E (empty list) already fully determine the answer — a TURN
+  // fetch would only add latency and a network dependency E2E specs don't need.
+  const e2eOverride = typeof process !== 'undefined' ? process.env.E2E_WEBRTC_ICE_SERVERS : undefined;
+  const sameMachineE2e = typeof process !== 'undefined' && process.env.DISABLE_HMR === 'true';
+  if ((e2eOverride && e2eOverride.trim()) || sameMachineE2e) return base;
+
+  const now = Date.now();
+  if (cachedTurnServer && cachedTurnServer.expiresAtMs > now) {
+    return [...base, cachedTurnServer.server];
+  }
+  const fetched = await fetchTurnServer(apiBase);
+  if (!fetched) return base;
+  // Refresh 5 minutes before actual expiry so a session starting near the boundary never races
+  // an about-to-expire credential.
+  cachedTurnServer = { server: fetched.server, expiresAtMs: now + Math.max(0, fetched.ttlSeconds - 300) * 1000 };
+  return [...base, fetched.server];
 }
 
 export type P2PSessionConfig = {
@@ -562,7 +612,7 @@ export class P2PConversationSession {
       },
     );
 
-    this.pc = new RTCPeerConnection({ iceServers: defaultIceServers() });
+    this.pc = new RTCPeerConnection({ iceServers: await resolveIceServers(this.config.apiBase) });
     this.pc.onicecandidate = (event) => {
       if (!event.candidate) return;
       void this.postSignal('ice-candidate', {

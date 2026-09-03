@@ -21,6 +21,7 @@ import { registerSocketHandlers } from './socket/register-socket-handlers';
 import { MailboxStore } from './services/mailbox-store';
 import { registerMailboxRoutes } from './routes/mailbox-routes';
 import { TechSupportDurableStore } from './services/techsupport-durable-store';
+import { registerTurnRoutes } from './routes/turn-routes';
 import { registerAdminRoutes } from './routes/admin-routes';
 import { TechSupportAnnouncementService } from './services/techsupport-announcement-service';
 import { LanGunDiscovery } from './services/lan-gun-discovery';
@@ -280,6 +281,7 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
     });
 
+    registerTurnRoutes(this.app);
   }
 
   private setupSocketHandlers(): void {

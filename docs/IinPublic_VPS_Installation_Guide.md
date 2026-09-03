@@ -17,6 +17,12 @@ IinPublic
    +-- GUN relay
    +-- P2P functionality
 
+Internet
+   |
+   | STUN/TURN :3478 (UDP+TCP) — WebRTC relay fallback, §13
+   v
+coturn
+
 Domain/DNS: Squarespace
 Public site: https://www.iinpublic.com
 ```
@@ -366,6 +372,187 @@ Then test `https://www.iinpublic.com`.
 
 Normally there is no need to change Squarespace DNS or Caddy again.
 
+## 13. Set up a TURN server for WebRTC NAT traversal
+
+### Why this exists
+
+WebRTC connections try, in order: host candidates (same machine/LAN), STUN-derived candidates
+(NAT traversal via public STUN servers), then TURN relay as the last resort. Without a TURN
+server, that last step doesn't exist — two devices whose NAT/router combination can't connect
+via host or STUN candidates alone simply fail to form a P2P session, with nothing to fall back
+to. This was diagnosed live (2026-09-03): three phones on the same home WiFi, one pair connected
+fine via STUN, another pair got a `WebRTC connection timeout` with no fallback available. Router
+NAT-hairpin support is inconsistent across hardware, and it's genuinely common for it to work
+for one device on a network and not another — this isn't a misconfiguration to hunt down so much
+as a fact of life WebRTC deployments handle by having a TURN relay as backup.
+
+This is a text-first app (talks, tags, chat messages) — TURN is the fallback path, not the
+default one, so bandwidth stays small even under heavy fallback use. See "Bandwidth and abuse
+ceiling" below for the actual limits configured.
+
+### Install coturn
+
+``` bash
+sudo apt update
+sudo apt install -y coturn
+```
+
+The package auto-enables and starts the systemd service immediately with an unconfigured
+default config — stop it before it sits exposed with no real auth:
+
+``` bash
+sudo systemctl stop coturn
+```
+
+### Generate a shared secret
+
+``` bash
+openssl rand -hex 32
+```
+
+Save this value — it goes in two places below, and must match exactly in both. Never commit it
+to the repo.
+
+### Configure `/etc/turnserver.conf`
+
+Back up the package default first, then write:
+
+``` bash
+sudo cp /etc/turnserver.conf /etc/turnserver.conf.orig-backup
+sudo nano /etc/turnserver.conf
+```
+
+``` ini
+listening-port=3478
+external-ip=YOUR_VPS_IP
+listening-ip=0.0.0.0
+realm=iinpublic.com
+
+# Time-limited credentials only (coturn's "TURN REST API" convention) — matches
+# src/server/services/turn-credentials.ts, which mints credentials this secret verifies.
+use-auth-secret
+static-auth-secret=YOUR_GENERATED_SECRET
+
+# Narrow relay port range — default is 49152-65535, far more than this app's scale needs.
+min-port=49160
+max-port=49223
+
+# Refuse to relay to private/loopback ranges (SSRF prevention — otherwise the TURN server
+# could be abused to reach services on the VPS's own internal network).
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+
+# Bandwidth/abuse ceiling — see "Bandwidth and abuse ceiling" below.
+total-quota=100
+bps-capacity=0
+user-quota=12
+
+no-multicast-peers
+no-cli
+no-stdout-log
+syslog
+```
+
+TLS/DTLS TURN (port 5349) is deliberately not enabled here — that's about firewall/DPI evasion,
+not NAT traversal, which isn't the problem being solved. Caddy already holds a Let's Encrypt
+cert for this domain if TURNS is ever needed later; reuse it rather than provisioning a separate
+one.
+
+Lock down the file (it holds the shared secret):
+
+``` bash
+sudo chown root:root /etc/turnserver.conf
+sudo chmod 640 /etc/turnserver.conf
+sudo chgrp turnserver /etc/turnserver.conf
+```
+
+Start it:
+
+``` bash
+sudo systemctl start coturn
+sudo systemctl status coturn
+```
+
+Verify it's listening and check for config errors:
+
+``` bash
+sudo journalctl -u coturn --no-pager -n 40
+sudo ss -tlnp | grep 3478
+sudo ss -ulnp | grep 3478
+```
+
+Warnings about a missing TLS certificate file are expected and harmless — TLS/DTLS wasn't
+configured on purpose (see above).
+
+### Wire the same secret into IinPublic
+
+Add to `/etc/systemd/system/iinpublic.service`'s `[Service]` block, alongside the existing
+`Environment=IINPUBLIC_TLS_TERMINATED_BY_PROXY=1` line:
+
+``` ini
+Environment=TURN_SHARED_SECRET=YOUR_GENERATED_SECRET
+Environment=TURN_SERVER_HOST=YOUR_VPS_IP
+```
+
+(`TURN_SERVER_PORT` only needs setting if coturn isn't on the default 3478.) Then:
+
+``` bash
+sudo systemctl daemon-reload
+sudo systemctl restart iinpublic
+```
+
+### Verify end-to-end
+
+``` bash
+curl -sS http://127.0.0.1:8080/api/turn-credentials
+```
+
+Expect `{"username":"...","credential":"...","ttl":3600,"urls":["turn:YOUR_VPS_IP:3478?transport=udp","turn:YOUR_VPS_IP:3478?transport=tcp"]}`.
+An empty `{"urls":[]}` means `TURN_SHARED_SECRET`/`TURN_SERVER_HOST` aren't set on the running
+process — check the systemd unit and confirm `daemon-reload` + `restart` actually happened.
+
+To test the credentials actually authenticate against coturn (not just that the endpoint
+returns something), use the credentials from the response above with coturn's own test client:
+
+``` bash
+turnutils_uclient -t -T -u USERNAME_FROM_RESPONSE -w CREDENTIAL_FROM_RESPONSE YOUR_VPS_IP
+```
+
+A successful allocation confirms the shared secret matches on both sides and coturn is actually
+relaying.
+
+### Rotating the secret
+
+Generate a new secret with `openssl rand -hex 32`, update it in **both**
+`/etc/turnserver.conf`'s `static-auth-secret` and the systemd unit's
+`TURN_SHARED_SECRET`, then:
+
+``` bash
+sudo systemctl restart coturn
+sudo systemctl daemon-reload
+sudo systemctl restart iinpublic
+```
+
+Credentials already handed to a connected client stay valid until their TTL (default 1h)
+expires — this isn't a hard cutover, just a bounded overlap window.
+
+### Bandwidth and abuse ceiling
+
+`total-quota=100` / `user-quota=12` caps concurrent relayed allocations (not raw bandwidth) —
+generous headroom over this deployment's actual scale, a hard ceiling regardless of how many
+credentials get minted. `/api/turn-credentials` has no auth beyond what the rest of the app
+already has (none — it's a public P2P app), matching the existing security model: the real
+protection against abuse is the short credential TTL plus this quota, not gatekeeping who can
+ask for credentials. Raise the quota if legitimate concurrent usage ever needs it; there's no
+reason to raise it preemptively.
+
 ## Troubleshooting
 
 ### `https://IP:8080` gives an SSL/protocol error
@@ -408,3 +595,18 @@ kill -9 PID
 ```
 
 For production, prefer systemd start/stop/restart commands.
+
+### Some device pairs can message each other, others can't ("WebRTC connection timeout")
+
+Signaling can succeed (both devices exchange offer/answer/ICE candidates fine) while the actual
+peer connection still times out — that's STUN-only NAT traversal failing for that specific
+pair, with no TURN relay configured as a fallback. See §13 above. Confirm the TURN server is
+actually reachable and returning credentials:
+
+``` bash
+curl -sS http://127.0.0.1:8080/api/turn-credentials
+sudo systemctl status coturn
+```
+
+If `/api/turn-credentials` returns `{"urls":[]}`, the relay's `TURN_SHARED_SECRET`/
+`TURN_SERVER_HOST` env vars aren't set — check the systemd unit.
