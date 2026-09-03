@@ -162,8 +162,8 @@ describe('Service Integration Tests', () => {
           ageVerified: false,
         },
       });
-      expect(mockGetOptional).toHaveBeenCalledWith('users/user123', 1200);
-      expect(mockGetOptional).toHaveBeenCalledWith('user-public-profile/user123', 1200);
+      expect(mockGetOptional).toHaveBeenCalledWith('users/user123', 500);
+      expect(mockGetOptional).toHaveBeenCalledWith('user-public-profile/user123', 500);
       expect(mockGetPath).toHaveBeenCalledWith(['user-age-verification', 'user123'], 300, 500);
     });
 

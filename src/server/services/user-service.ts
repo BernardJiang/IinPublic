@@ -294,15 +294,21 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     const cached = this.recentPublicUsers.get(userId) as User | undefined;
     const cachedPublicProfile = this.recentPublicProfileFoundations.get(userId);
     // These two Gun reads don't depend on each other's result — running them sequentially
-    // (as this used to) stacked their 1200ms timeouts additively into ~2.4s whenever either
-    // node genuinely hadn't synced yet (freshly-created users, e.g.), which was the bulk of
-    // a ~3s+ getUser call. Fire both at once; see the reputation/blockCount pair below for
-    // the other half of the same fix.
+    // (as this used to) stacked their timeouts additively, which was the bulk of a slow
+    // getUser call. Fire both at once; see the reputation/blockCount pair below for the other
+    // half of the same fix. Wait budget is 500ms, not the original 1200ms: confirmed live
+    // (2026-09-02/03) that a radisk-backed flat-key Gun read resolves genuinely-present data
+    // in ~100-300ms, so 1200ms was mostly paid on every call to a *missing* key waiting out
+    // the full budget for nothing — and this endpoint is on the critical path for
+    // peer-mesh-service.ts's resolveUserPub, whose own 900ms client-side timeout this
+    // server-side stage was silently exceeding on its own (~1200ms) before the second stage
+    // even ran, so P2P mesh connections between devices could never learn each other's public
+    // key and never formed at all. Still generous headroom above the confirmed resolve time.
     const [fromGun, publicProfileFromGun] = await Promise.all([
-      this.gunService.getOptional(`users/${userId}`, 1200) as Promise<Record<string, unknown> | null>,
+      this.gunService.getOptional(`users/${userId}`, 500) as Promise<Record<string, unknown> | null>,
       cachedPublicProfile
         ? Promise.resolve(null)
-        : (this.gunService.getOptional(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, 1200) as Promise<
+        : (this.gunService.getOptional(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, 500) as Promise<
             | {
                 headshot?: string | null;
                 languagesJson?: string;

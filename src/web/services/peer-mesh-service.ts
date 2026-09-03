@@ -726,7 +726,13 @@ export class PeerMeshService {
       try {
         const user = await this.withTimeout(
           this.gunService.getPublicUser(userId),
-          900,
+          // Confirmed live (2026-09-03): GET /api/users/:id's own server-side wait budget alone
+          // could reach ~1200ms even on success (two sequential Gun-read stages), silently
+          // exceeding this timeout on effectively every attempt — mesh sessions between real
+          // devices could never learn each other's pub key and never formed. The server side is
+          // now much faster, but a client timeout this close to a network round trip stays
+          // fragile on its own; give it real headroom instead of re-coupling to an exact budget.
+          2500,
           'Gun public-key lookup timeout',
         );
         if (user?.pub) return String(user.pub);
