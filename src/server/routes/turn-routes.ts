@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import type express from 'express';
 import { generateTurnCredentials } from '../services/turn-credentials';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
@@ -21,6 +22,14 @@ export type RegisterTurnRoutesDeps = {
  * credential. So instead this route forwards to the hub over the same hubRelayClient already used
  * for signaling/chatroom membership (src/node-app/embedded-hub-relay-client.ts), which mints the
  * credential server-side on the VPS and returns it to the phone.
+ *
+ * coturn's `user-quota` (see docs/IinPublic_VPS_Installation_Guide.md's TURN section) caps
+ * concurrent relay allocations per TURN username, not per real device. generateTurnCredentials()
+ * previously defaulted every caller to the same literal label ("iinpublic"), so every client on
+ * the network — direct browser and embedded-mobile alike — shared one TURN username and therefore
+ * one quota bucket: a handful of real devices in a full mesh was enough to exhaust it for
+ * everyone (observed live as TURN error code 486, "Allocation Quota Reached"). Minting a random
+ * label per request gives each client its own TURN username and its own quota bucket instead.
  */
 export function registerTurnRoutes(app: express.Application, deps: RegisterTurnRoutesDeps = {}): void {
   const { hubRelayClient } = deps;
@@ -30,7 +39,7 @@ export function registerTurnRoutes(app: express.Application, deps: RegisterTurnR
     if (secret && host) {
       const port = process.env.TURN_SERVER_PORT || '3478';
       const urls = [`turn:${host}:${port}?transport=udp`, `turn:${host}:${port}?transport=tcp`];
-      res.json(generateTurnCredentials({ secret, urls }));
+      res.json(generateTurnCredentials({ secret, urls, label: crypto.randomBytes(6).toString('hex') }));
       return;
     }
     if (hubRelayClient) {
