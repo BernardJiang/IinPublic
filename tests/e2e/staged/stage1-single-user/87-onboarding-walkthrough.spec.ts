@@ -36,6 +36,7 @@ test.describe('First-run walkthrough', () => {
     url.searchParams.set('e2e_walkthrough', '1');
 
     await gotoWebApp(p, url.toString());
+    await expect(p).toHaveTitle(/IinPublic — Build Your Digital You$/);
 
     const modal = p.locator('[data-testid="walkthrough-modal"]');
     await expect(modal).toBeVisible();
@@ -51,7 +52,7 @@ test.describe('First-run walkthrough', () => {
     await p.locator('[data-testid="walkthrough-next-btn"]').click();
     await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText('Talks are mini-programs you write in natural language.');
     await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText(
-      'Answer once. Your chatbot repeats an approved answer when the same exact question returns.',
+      'A chatbot that repeats you—not invents you. It reuses your approved answer when the same exact question returns.',
     );
     await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText("You only need to answer what's new.");
     await p.locator('[data-testid="walkthrough-skip-btn"]').click();
@@ -69,7 +70,7 @@ test.describe('First-run walkthrough', () => {
     await expect(modal).toBeVisible();
     await p.locator('[data-testid="walkthrough-dot-4"]').click();
     await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText(
-      'Build your public image, one answer at a time.',
+      'Build your digital you, one answer at a time.',
     );
     await p.locator('[data-testid="walkthrough-dot-5"]').click();
     await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText(

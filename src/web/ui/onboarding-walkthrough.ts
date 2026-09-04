@@ -74,7 +74,7 @@ const STEPS: WalkthroughStep[] = [
     bodyKey: 'walkthroughTalksBody',
     bodyFallback: 'No programming language is needed. Write ordinary questions and possible answers; each answer can guide what happens next.',
     points: [
-      { icon: '🤖', key: 'walkthroughTalksChatbotRepeat', fallback: 'Answer once. Your chatbot repeats an approved answer when the same exact question returns.' },
+      { icon: '🤖', key: 'walkthroughTalksChatbotRepeat', fallback: 'A chatbot that repeats you—not invents you. It reuses your approved answer when the same exact question returns.' },
       { icon: '♻️', key: 'walkthroughTalksReuse', fallback: 'Create once. Save, share, and reuse.' },
       { icon: '🆕', key: 'walkthroughTalksOnlyNew', fallback: "You only need to answer what's new." },
     ],
@@ -100,7 +100,7 @@ const STEPS: WalkthroughStep[] = [
     titleKey: 'walkthroughMeTitle',
     titleFallback: 'Me',
     taglineKey: 'walkthroughMeTagline',
-    taglineFallback: 'Build your public image, one answer at a time.',
+    taglineFallback: 'Build your digital you, one answer at a time.',
     bodyKey: 'walkthroughMeBody',
     bodyFallback: 'Your public image grows from what you ask, answer, create, and contribute—not just from a self-written bio.',
     points: [
