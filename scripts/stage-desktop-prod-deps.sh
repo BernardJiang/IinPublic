@@ -55,4 +55,9 @@ PYEOF
 echo "[stage-desktop-prod-deps] npm install (runtime-only) in $STAGE_DIR"
 (cd "$STAGE_DIR" && npm install --omit=dev --no-audit --no-fund --no-package-lock)
 
+# Desktop runs the embedded node with IINPUBLIC_EMBEDDED_NODE=1 (real on-device radisk
+# persistence, see platforms/desktop/main.js), so this staged gun copy is exposed to the same
+# Radisk radix-tree corruption bug as the root node_modules/gun copy — patch it too.
+node "$ROOT_DIR/scripts/patch-gun-radix.js" "$STAGE_DIR"
+
 echo "[stage-desktop-prod-deps] done: $(du -sh "$STAGE_DIR/node_modules" 2>/dev/null | cut -f1) ($(find "$STAGE_DIR/node_modules" -type f 2>/dev/null | wc -l | tr -d ' ') files)"

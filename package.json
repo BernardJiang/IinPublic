@@ -1,9 +1,10 @@
 {
   "name": "iinpublic",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
+    "postinstall": "node scripts/patch-gun-radix.js",
     "start": "NODE_ENV=production RELAY_ONLY_HUB=1 STAR_SERVER_PERSISTENCE=ephemeral node dist/server/server/index.js",
     "start:local:https": "PORT=${PORT:-8080} IINPUBLIC_ALLOWED_ORIGINS=https://localhost:${PORT:-8080},https://127.0.0.1:${PORT:-8080} npm start",
     "version:sync": "node scripts/sync-app-version.mjs",
