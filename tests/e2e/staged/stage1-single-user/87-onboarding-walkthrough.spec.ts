@@ -41,10 +41,19 @@ test.describe('First-run walkthrough', () => {
     await expect(modal).toBeVisible();
     await expect(p.locator('[data-testid="walkthrough-step-0"]')).toBeVisible();
     await expect(p.locator('#walkthrough-title')).toHaveText('Welcome to IinPublic');
+    await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText(
+      'Talk to hundreds of people about hundreds of topics—simultaneously.',
+    );
 
     await p.locator('[data-testid="walkthrough-next-btn"]').click();
     await expect(p.locator('[data-testid="walkthrough-step-1"]')).toBeVisible();
     await expect(p.locator('#walkthrough-title')).toHaveText('Chatrooms');
+    await p.locator('[data-testid="walkthrough-next-btn"]').click();
+    await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText('Talks are mini-programs you write in natural language.');
+    await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText(
+      'Answer once. Your chatbot repeats an approved answer when the same exact question returns.',
+    );
+    await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText("You only need to answer what's new.");
     await p.locator('[data-testid="walkthrough-skip-btn"]').click();
 
     await expect(modal).toHaveCount(0);
@@ -58,6 +67,17 @@ test.describe('First-run walkthrough', () => {
     await openSettingsSection(p, SETTINGS_SECTION.help);
     await p.locator('[data-testid="settings-replay-walkthrough-btn"]').click();
     await expect(modal).toBeVisible();
+    await p.locator('[data-testid="walkthrough-dot-4"]').click();
+    await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText(
+      'Build your public image, one answer at a time.',
+    );
+    await p.locator('[data-testid="walkthrough-dot-5"]').click();
+    await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText(
+      'Your reputation is earned from others. You decide how much to show.',
+    );
+    await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText(
+      'Choose what reaches you. Block who can reach you. Everyone else has the same control.',
+    );
 
     await p.keyboard.press('Escape');
     await expect(modal).toHaveCount(0);
