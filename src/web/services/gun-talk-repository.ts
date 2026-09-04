@@ -33,9 +33,15 @@ export class GunTalkRepository {
     });
     const indexSoul = this.receivedIndexSoul(ownerSeaPub, talk.id);
     await this.gun.put(indexSoul, { version: 1, talkId: talk.id, authorKey, soul });
-    const index = await this.gun.get(indexSoul) as { talkId?: string; authorKey?: string } | null;
-    if (index?.talkId !== talk.id || index.authorKey !== authorKey) {
-      throw new Error(`Gun received Talk index read-back verification failed: ${indexSoul}`);
+    // Same reasoning as putAndVerify above: the write already committed locally. Don't let an
+    // unreadable/slow read-back turn a successful incoming-talk commit into a delivery failure.
+    try {
+      const index = await this.gun.get(indexSoul) as { talkId?: string; authorKey?: string } | null;
+      if (index?.talkId !== talk.id || index.authorKey !== authorKey) {
+        console.warn(`Gun received Talk index read-back inconclusive (continuing — write already committed locally): ${indexSoul}`);
+      }
+    } catch (error) {
+      console.warn(`Gun received Talk index read-back timed out (continuing — write already committed locally): ${indexSoul}`, error);
     }
   }
 
@@ -83,29 +89,42 @@ export class GunTalkRepository {
   }
 
   private async putAndVerify(soul: string, record: GunTalkRecord): Promise<void> {
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    // A genuine put() failure (the call itself throwing) is worth retrying — that's a real
+    // transient write error. Re-putting the same immutable content-addressed record is
+    // idempotent, so a short retry loop here is safe.
+    let lastPutError: unknown;
+    let committed = false;
+    for (let attempt = 1; attempt <= 3 && !committed; attempt += 1) {
       try {
-        // Re-putting the same immutable content-addressed record is idempotent. A busy physical
-        // peer can miss one ACK or expose a stale immediate read, so retry the full commit
-        // boundary before telling the user creation failed.
         await this.gun.put(soul, record);
-        const readBack = await this.gun.get(soul) as GunTalkRecord | null;
-        if (
-          readBack
-          && readBack.version === 1
-          && readBack.talkId === record.talkId
-          && readBack.talkJson === record.talkJson
-        ) {
-          return;
-        }
-        throw new Error(`Gun Talk read-back verification failed: ${soul}`);
+        committed = true;
       } catch (error) {
-        lastError = error;
+        lastPutError = error;
         if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 100));
       }
     }
-    throw lastError instanceof Error ? lastError : new Error(`Gun Talk commit failed: ${soul}`);
+    if (!committed) throw lastPutError instanceof Error ? lastPutError : new Error(`Gun Talk commit failed: ${soul}`);
+
+    // The record already applied to the local Gun graph synchronously above — this read-back is
+    // a paranoid double-check, not the real commit. In this deployment (relay-only hub, no local
+    // persistence — see WebGunService's own doc comments) GunKeyValueStore.get() on a freshly-
+    // written soul can hang for its full multi-second timeout and reject even though the write
+    // succeeded, which used to turn a successful "create talk" into a user-facing failure. Try
+    // once to confirm; if it can't be confirmed, log and continue — the write already happened
+    // regardless of whether this read can see it.
+    try {
+      const readBack = await this.gun.get(soul) as GunTalkRecord | null;
+      if (
+        !readBack
+        || readBack.version !== 1
+        || readBack.talkId !== record.talkId
+        || readBack.talkJson !== record.talkJson
+      ) {
+        console.warn(`Gun Talk read-back verification inconclusive (continuing — write already committed locally): ${soul}`);
+      }
+    } catch (error) {
+      console.warn(`Gun Talk read-back timed out (continuing — write already committed locally): ${soul}`, error);
+    }
   }
 
   private async readTalk(soul: string, expectedTalkId: string): Promise<Talk | null> {

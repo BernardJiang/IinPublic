@@ -133,9 +133,18 @@ function persistIncomingTalkClustersToLocalGun(
       };
       const soul = ownerEnvelopeSoul(gunService, receiverUserId);
       await gunService.put(soul, envelope);
-      const verified = await gunService.get(soul) as OwnerIncomingTalkEnvelope | null;
-      if (verified?.version !== 1 || verified.clustersJson !== envelope.clustersJson) {
-        throw new Error(`incoming talk envelope read-back failed: ${clusters.map((c) => c.identityKey).join(',')}`);
+      // put() already applied this envelope to the local Gun graph synchronously — the read-back
+      // below is a paranoid double-check, not the real commit. In this deployment (relay-only
+      // hub, no local persistence) get() on a freshly-written soul can hang for its full
+      // multi-second timeout and reject even though the write succeeded, which used to turn a
+      // successful incoming-talk mirror into a reported delivery failure. Log and continue.
+      try {
+        const verified = await gunService.get(soul) as OwnerIncomingTalkEnvelope | null;
+        if (verified?.version !== 1 || verified.clustersJson !== envelope.clustersJson) {
+          console.warn(`incoming talk envelope read-back inconclusive (continuing — write already committed locally): ${clusters.map((c) => c.identityKey).join(',')}`);
+        }
+      } catch (error) {
+        console.warn(`incoming talk envelope read-back timed out (continuing — write already committed locally): ${clusters.map((c) => c.identityKey).join(',')}`, error);
       }
     });
   ownerEnvelopeWriteQueues.set(gunService, queued);

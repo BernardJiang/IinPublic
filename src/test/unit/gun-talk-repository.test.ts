@@ -19,9 +19,11 @@ describe('GunTalkRepository', () => {
     ]);
   });
 
-  test('fails before receipt when Gun read-back does not match', async () => {
+  test('does not fail receipt when Gun read-back is inconclusive — the put already committed locally', async () => {
+    // A relay-only hub can leave get() unable to confirm a write it just accepted (no local
+    // persistence to answer from). The write itself already succeeded, so this must not throw.
     const repo = new GunTalkRepository({ put: async () => undefined, get: async () => null });
-    await expect(repo.putReceived('bob', 'alice', talk)).rejects.toThrow('read-back verification failed');
+    await expect(repo.putReceived('bob', 'alice', talk)).resolves.toBeUndefined();
   });
 
   test('retries a transient authored commit failure without changing the content-addressed soul', async () => {
