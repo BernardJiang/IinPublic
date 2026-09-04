@@ -44,10 +44,25 @@ export class ChatroomManager {
     // until *something* happens to call getFastActiveMembers for that room again (an API
     // request, a join). Sweep every tracked room on the same cadence the client-side
     // heartbeat/TTL system already uses, so the badge self-heals even with zero traffic.
+    //
+    // getFastActiveMembers() only drops a stale entry from this process's own in-memory map —
+    // it never touches the Gun-persisted chatrooms/<id>/users and chatroomMembers/<id> nodes.
+    // getActiveMembersWithStageName() only runs pruneStaleRoomMemberships() (the one path that
+    // DOES write isActive:false back to those Gun nodes) when the fast map is empty for that
+    // room — which, once any real traffic exists, it almost never is again. Every browser's own
+    // UI reads that Gun-persisted roster directly (WebChatroomService.subscribeToMembers), not
+    // this in-memory map, so a member who simply closed their tab stayed visible as a "ghost" in
+    // everyone else's member list forever (confirmed live in production, 2026-09-04: entries
+    // from four days earlier still marked isActive in the shared graph). Run the Gun-writing
+    // prune on the same sweep, unconditionally, so the graph every client actually reads self-
+    // heals too.
     const sweepMs = Math.max(1000, Math.min(30_000, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)));
     this.staleMemberCountSweepTimer = setInterval(() => {
       for (const chatroomId of this.fastActiveMembers.keys()) {
         this.getFastActiveMembers(chatroomId);
+        void this.pruneStaleRoomMemberships(chatroomId).catch(() => {
+          /* best-effort — the next sweep tick tries again */
+        });
       }
     }, sweepMs);
     this.staleMemberCountSweepTimer.unref?.();
