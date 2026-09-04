@@ -149,9 +149,44 @@ function prepareDataDir(config: EmbeddedNodeConfig): void {
   }
 }
 
+/**
+ * Gun's own on-disk radix-tree index (node_modules/gun/lib/radix.js, used by Radisk) has a
+ * known internals bug: a leaf that was compressed to hold a raw primitive (a bare timestamp
+ * number) instead of an object throws `TypeError: Cannot create property '<field>' on number
+ * '<timestamp>'` the moment ANY later write tries to set a field at that same tree position —
+ * observed live, 2026-09-04, crashing three phones on every single boot (SIGABRT inside
+ * libnode.so) regardless of which field triggered it (`stalePresenceExpired`, then `isActive`
+ * once that first write was avoided — the corrupted leaf, not the field name, is the trigger).
+ * This is the production relay's near-total blind spot for this bug: it runs permanently
+ * ephemeral (radisk:false, p2p-runtime.ts) so Radisk's disk-index code never actually executes
+ * there. Only embedded nodes (real on-device persistence, so they can work offline) hit it.
+ *
+ * There is no reliable way to know in advance which key will be corrupted, or to distinguish
+ * "safe to keep going" from a genuinely fatal error — but crashing this process on every launch
+ * is strictly worse for a phone the user depends on. Swallow only this exact, recognizable
+ * Gun-internals error class and keep the process alive; anything else still crashes normally.
+ */
+function installRadiskCorruptionGuard(): void {
+  const isKnownRadiskCorruption = (err: unknown): boolean => {
+    if (!(err instanceof TypeError)) return false;
+    if (!/^Cannot create property '.*' on number '\d+'$/.test(err.message)) return false;
+    const stack = err.stack || '';
+    return /[/\\]gun[/\\]lib[/\\]radix2?\.js/.test(stack) || /\bat radix\b/.test(stack);
+  };
+  process.on('uncaughtException', (err) => {
+    if (isKnownRadiskCorruption(err)) {
+      // eslint-disable-next-line no-console
+      console.error('[embedded-node] swallowed known Gun/Radisk radix-tree corruption (see startEmbeddedNode doc comment):', err);
+      return;
+    }
+    throw err;
+  });
+}
+
 export async function startEmbeddedNode(
   options: StartEmbeddedNodeOptions = {},
 ): Promise<EmbeddedNodeHandle> {
+  installRadiskCorruptionGuard();
   const config = resolveEmbeddedNodeConfig(process.env, {
     enabled: true,
     ...options.defaults,
