@@ -56,10 +56,24 @@ export class ChatroomManager {
     // from four days earlier still marked isActive in the shared graph). Run the Gun-writing
     // prune on the same sweep, unconditionally, so the graph every client actually reads self-
     // heals too.
+    // The embedded mobile Node (IINPUBLIC_EMBEDDED_NODE=1) runs this same server bundle with
+    // real on-disk Gun persistence (Radisk) — unlike the production relay, which is permanently
+    // ephemeral (radisk:false, p2p-runtime.ts) and never actually exercises Radisk's disk-index
+    // code at all. Running pruneStaleRoomMemberships() on every sweep tick crash-looped three
+    // phones on 1.0.19: Radisk's own radix-tree implementation (node_modules/gun/lib/radix.js)
+    // hit "Cannot create property '' on number" on this exact write's key
+    // (chatrooms/global/users/<id>/stalePresenceExpired) during its own on-disk index rebuild at
+    // boot — a Gun/Radisk internals bug this write pattern triggers, not a fatal case this repo's
+    // code controls. Ghost-membership cleanup is only meaningful for the relay's shared graph
+    // (what every browser's UI reads) in the first place — an embedded phone's local graph isn't
+    // that shared roster — so skip the Gun-writing prune there entirely rather than risk
+    // recreating the same corruption after a device's data is cleared.
+    const isEmbeddedNode = process.env.IINPUBLIC_EMBEDDED_NODE === '1';
     const sweepMs = Math.max(1000, Math.min(30_000, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)));
     this.staleMemberCountSweepTimer = setInterval(() => {
       for (const chatroomId of this.fastActiveMembers.keys()) {
         this.getFastActiveMembers(chatroomId);
+        if (isEmbeddedNode) continue;
         void this.pruneStaleRoomMemberships(chatroomId).catch(() => {
           /* best-effort — the next sweep tick tries again */
         });
@@ -385,7 +399,10 @@ export class ChatroomManager {
   async getActiveMembersWithStageName(chatroomId: string): Promise<Array<{ userId: string; stageName: string }>> {
     const fastMembers = this.getFastActiveMembers(chatroomId);
     if (fastMembers.length > 0) return fastMembers;
-    const pruned = await this.pruneStaleRoomMemberships(chatroomId);
+    // Same embedded-node Radisk hazard as the sweep timer above — see its comment.
+    const pruned = process.env.IINPUBLIC_EMBEDDED_NODE === '1'
+      ? false
+      : await this.pruneStaleRoomMemberships(chatroomId);
     const fromRoomUsers = await this.collectActiveMembersFromUsersNode(chatroomId);
     if (fromRoomUsers.length > 0) {
       if (pruned) void this.publishRoomMemberCountValue(chatroomId, fromRoomUsers.length);
