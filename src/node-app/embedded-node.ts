@@ -172,7 +172,16 @@ function isKnownRadiskCorruption(err: unknown): boolean {
   // a bare integer timestamp.
   if (!/^Cannot create property '.*' on number '[\d.]+'$/.test(err.message)) return false;
   const stack = err.stack || '';
-  return /[/\\]gun[/\\]lib[/\\]radix2?\.js/.test(stack) || /\bat radix\b/.test(stack);
+  // radix.js's write path (`var radix = function(key, val, t){...}`, the Radix() constructor's
+  // returned closure) shows up in stack traces as `at radix`. Radix.map's *read* path is a
+  // separate function, `Radix.map = function rap(radix, cb, opt, pre){...}` — named `rap`, not
+  // `radix` — and shows up as `at rap` / `at Function.rap [as map]` instead. Both are the same
+  // underlying bug in the same file; a bundled single-file build (embedded-node.js) also has no
+  // `gun/lib/radix.js` path in the stack at all, so the file-path check is a bonus match for an
+  // unbundled dev run, not the primary signal for production.
+  return /[/\\]gun[/\\]lib[/\\]radix2?\.js/.test(stack)
+    || /\bat radix\b/.test(stack)
+    || /\bat rap\b/.test(stack);
 }
 
 /**
@@ -231,6 +240,32 @@ function installRadiskCorruptionGuard(dataDir: string): void {
     }
     throw err;
   });
+
+  // The write-path case above (an uncaught throw) is the rarer manifestation. Far more common:
+  // gun/lib/radix.js's OWN Radix.map has its own internal `catch (e) { console.error(e) }`
+  // (store.js's read path calls Radix.map directly) — this exact corruption there never reaches
+  // `uncaughtException` at all, Gun swallows it silently and the .map() call just stops
+  // enumerating early. Observed live, 2026-09-04: three phones stuck forever on the app's own
+  // "Connecting to IinPublic network..." boot screen — the corrupted leaf sat on whatever radix
+  // branch the server's own startup enumeration needed, so it kept re-hitting the same dead leaf
+  // and never finished initializing, with no crash to trigger the write-path guard above or
+  // Android's own crash-restart. Unlike the write case, there's nothing useful to "continue"
+  // after a swallowed read failure mid-boot — the fix only takes effect on a FRESH process (the
+  // in-memory tree for *this* session is already built around the bad leaf), so quarantine and
+  // deliberately exit — Android's existing crash-restart (already proven to work for the write
+  // case, with its own exponential backoff) brings the service back up clean. Throttled to fire
+  // only once per process lifetime since exit is already in flight.
+  let readPathCorruptionHandled = false;
+  const originalConsoleError = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    originalConsoleError(...args);
+    if (readPathCorruptionHandled) return;
+    if (!args.some((a) => isKnownRadiskCorruption(a))) return;
+    readPathCorruptionHandled = true;
+    originalConsoleError('[embedded-node] detected known Gun/Radisk radix-tree corruption during a read (Radix.map swallowed it internally) — quarantining and restarting to recover on a fresh process (see installRadiskCorruptionGuard doc comment)');
+    quarantineRadiskRootIndex(dataDir);
+    process.exit(1);
+  };
 }
 
 export async function startEmbeddedNode(
