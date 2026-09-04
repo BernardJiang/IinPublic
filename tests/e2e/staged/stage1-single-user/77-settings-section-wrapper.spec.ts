@@ -52,6 +52,9 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
     const sections = page.locator('#settings-detail-container > div > .settings-section');
     await expect(sections).toHaveCount(Object.values(SETTINGS_SECTION).length);
     await expect(page.locator('#settings-menu-container')).toBeVisible();
+    await expect(page.locator('[data-testid="settings-product-promise"]')).toHaveText(
+      'Your identity. Your answers. Your data.',
+    );
     await expect(page.locator('#settings-detail-container')).toBeHidden();
     await expect(page.locator('#back-to-settings-menu')).toBeHidden();
 
@@ -92,6 +95,9 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
 
     // Credit: visibility toggle (the action control, rendered below the section header).
     await openSettingsSection(page, SETTINGS_SECTION.credit);
+    await expect(page.locator(`#${SETTINGS_SECTION.credit}`)).toContainText(
+      'Your reputation is earned, not claimed.',
+    );
     const creditCheckbox = page.locator('#settings-credit-visible');
     await expect(creditCheckbox).toBeChecked();
     await creditCheckbox.uncheck();
@@ -100,6 +106,9 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
 
     // Content filters: grammar toggle + a new dirty-word chip.
     await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
+    await expect(page.locator(`#${SETTINGS_SECTION.contentFilters}`)).toContainText(
+      'Speak freely. Own what you say.',
+    );
     const grammarCheckbox = page.locator('#settings-grammar-filter');
     const grammarWasChecked = await grammarCheckbox.isChecked();
     await grammarCheckbox.setChecked(!grammarWasChecked);
@@ -107,6 +116,16 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
     await page.fill('#dirty-word-add-input', 'wrappertestword');
     await page.click('#dirty-word-add-btn');
     await expect(page.locator('.dirty-word-chip[data-word="wrappertestword"]')).toBeVisible();
+    await backToSettingsMenu(page);
+
+    // Talk behavior explains that the chatbot carries forward only the user's own answers.
+    await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
+    await expect(page.locator('[data-testid="settings-chatbot-promise"]')).toContainText(
+      'Teach it once. One answer can power hundreds of conversations.',
+    );
+    await expect(page.locator('[data-testid="settings-chatbot-promise"]')).toContainText(
+      'repeats you—not invents you',
+    );
     await backToSettingsMenu(page);
 
     // Distance/home: min-distance value round-trips through the same sync() path, and survives

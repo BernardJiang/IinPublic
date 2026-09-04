@@ -123,10 +123,11 @@ export function renderAppShell(
                 </select>
                 </div>
               </div>
+              <div data-testid="contacts-product-promise" style="padding:8px 12px 0;color:var(--text-secondary);font-size:0.9em;font-weight:600;">${text('contactsPromise')}</div>
               <div class="embedded-stats-strip" id="contacts-stats-strip" style="padding:8px 12px;color:var(--text-tertiary);font-size:0.88em;"></div>
               <div class="contacts-list-container" id="contacts-list-container">
                 <div class="contacts-list" id="contacts-list">
-                  <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts yet. Match with others via Talks to see them here.</p>
+                  <p style="text-align: center; padding: 40px 20px; color: #999;">${text('contactsEmpty')}</p>
                 </div>
               </div>
               <!-- The old contact-detail page is retired (redesign §5): contact rows land
@@ -250,7 +251,10 @@ export function renderAppShell(
                 <div id="creator-replies-list" style="display:grid;gap:6px;max-height:280px;overflow:auto;"></div>
               </section>
               <div class="talks-list" id="talks-list">
-                <p style="text-align: center; padding: 40px 20px; color: #999;">No talks yet. Create your first talk!</p>
+                <div class="empty-state" style="padding: 60px 20px; text-align: center;">
+                  <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">${text('talksNoTalks')}</p>
+                  <p style="font-size: 0.9em; color: #999;">${text('talksNoTalksHelp')}</p>
+                </div>
               </div>
             </div>
           </div>

@@ -2460,6 +2460,222 @@ button.talk-icon-btn:hover {
   margin-top: 20px;
 }
 
+/* First-run tour: each stop gets its own color and a concise product promise.
+   The decorative orbits suggest one idea branching into many conversations. */
+.walkthrough-card {
+  position: relative;
+  overflow-x: hidden;
+  border: 1px solid color-mix(in srgb, var(--walkthrough-accent) 24%, var(--border));
+  background:
+    radial-gradient(circle at 100% 0%, var(--walkthrough-accent-soft), transparent 38%),
+    var(--surface);
+}
+
+.walkthrough-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--walkthrough-accent);
+}
+
+.walkthrough-header {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: 1fr auto;
+  gap: 3px 12px !important;
+  margin-bottom: 8px;
+}
+
+.walkthrough-progress-label {
+  color: var(--walkthrough-accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.walkthrough-header .modal-title {
+  grid-column: 1;
+  font-size: clamp(1.35rem, 5vw, 1.75rem);
+}
+
+.walkthrough-header .close-button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.walkthrough-hero {
+  position: relative;
+  padding: 12px 18px 18px;
+  text-align: center;
+  animation: walkthrough-reveal 240ms ease-out;
+}
+
+.walkthrough-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  margin: 0 auto 14px;
+  border: 1px solid color-mix(in srgb, var(--walkthrough-accent) 35%, transparent);
+  border-radius: 24px;
+  background: var(--walkthrough-accent-soft);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--walkthrough-accent) 18%, transparent);
+  font-size: 2.35rem;
+  line-height: 1;
+  transform: rotate(-3deg);
+}
+
+.walkthrough-tagline {
+  position: relative;
+  max-width: 460px;
+  margin: 0 auto 10px;
+  color: var(--text-primary);
+  font-size: clamp(1.08rem, 4.5vw, 1.32rem);
+  font-weight: 800;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.walkthrough-body {
+  position: relative;
+  max-width: 465px;
+  margin: 0 auto;
+  color: var(--text-secondary, #555);
+  font-size: 0.96rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.walkthrough-points {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  max-width: 465px;
+  margin: 14px auto 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.walkthrough-points li {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--walkthrough-accent) 18%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--walkthrough-accent-soft) 45%, var(--surface));
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.walkthrough-point-icon {
+  line-height: 1.2;
+  text-align: center;
+}
+
+.walkthrough-orbit {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--walkthrough-accent-soft);
+  animation: walkthrough-float 3.2s ease-in-out infinite;
+}
+
+.walkthrough-orbit.orbit-one {
+  top: 6px;
+  left: 15%;
+  width: 13px;
+  height: 13px;
+}
+
+.walkthrough-orbit.orbit-two {
+  top: 54px;
+  right: 13%;
+  width: 20px;
+  height: 20px;
+  animation-delay: -1.4s;
+}
+
+.walkthrough-dots {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.walkthrough-dot {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  transition: width 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.walkthrough-dot:hover {
+  transform: scale(1.25);
+}
+
+.walkthrough-dot.active {
+  width: 25px;
+  background: var(--walkthrough-accent);
+}
+
+.walkthrough-dot:focus-visible {
+  outline: 3px solid var(--walkthrough-accent-soft);
+  outline-offset: 3px;
+}
+
+.walkthrough-actions {
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.walkthrough-navigation {
+  display: flex;
+  gap: 8px;
+}
+
+.walkthrough-card .primary-btn {
+  background: var(--walkthrough-accent);
+  border-color: var(--walkthrough-accent);
+}
+
+.walkthrough-card #walkthrough-back-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+@keyframes walkthrough-reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes walkthrough-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .walkthrough-hero,
+  .walkthrough-orbit {
+    animation: none;
+  }
+
+  .walkthrough-dot {
+    transition: none;
+  }
+}
+
 /* Identity & devices WP1: resilient card/row layout and a close control that
    remains reachable while the full-screen page scrolls on small displays. */
 .identity-devices-page {
@@ -2546,6 +2762,34 @@ button.talk-icon-btn:hover {
   .modal-actions > button,
   .modal-actions > .btn {
     width: 100%;
+    min-height: 44px;
+  }
+  .walkthrough-card {
+    padding: 18px 18px max(18px, env(safe-area-inset-bottom));
+  }
+  .walkthrough-hero {
+    padding: 8px 4px 14px;
+  }
+  .walkthrough-points {
+    gap: 6px;
+    margin-top: 11px;
+  }
+  .walkthrough-points li {
+    padding: 7px 8px;
+    font-size: 0.82rem;
+  }
+  .walkthrough-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+  .walkthrough-actions > button {
+    width: auto;
+  }
+  .walkthrough-navigation {
+    flex: 1;
+  }
+  .walkthrough-navigation .btn {
+    flex: 1;
     min-height: 44px;
   }
   /* Inputs/selects keep a 44px touch target. */

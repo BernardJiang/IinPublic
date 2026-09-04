@@ -128,6 +128,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       <div class="modal-content size-xl modal-fullscreen" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
           <h2 class="modal-title">${isEdit ? text('editorEditTitle', 'Edit Talk') : text('editorCreateTitle', 'Create a Talk')}</h2>
+          <p class="talk-editor-promise" style="margin:4px 0 0;font-weight:650;color:var(--text-secondary);">${text('editorPromise', 'Write conversations, not code.')}</p>
           <p class="talk-editor-description">${text('editorDescription', 'Build a branching conversation flow - each answer can lead to a different question')}</p>
         </div>
         <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${isOwnedEdit ? existingTalk.id : ''}" data-revise-source-talk="${!isOwnedEdit && existingTalk?.id ? options.escapeHtml(JSON.stringify(existingTalk)) : ''}">
