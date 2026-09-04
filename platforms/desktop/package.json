@@ -35,6 +35,7 @@
       "resources/**/*"
     ],
     "afterPack": "afterPack.js",
+    "afterAllArtifactBuild": "afterAllArtifactBuild.js",
     "extraResources": [
       {
         "from": "../../dist/server",
