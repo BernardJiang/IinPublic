@@ -3354,6 +3354,9 @@ export class UIManager extends EventEmitter {
       { icon: '❓', label: this.t('settingsHelp'), target: 'settings-section-help' },
     ];
     const jumpMenuHtml = `
+      <div data-testid="settings-product-promise" style="padding:2px 4px;font-size:0.92em;font-weight:650;color:var(--text-secondary);">
+        ${this.t('settingsOwnershipPromise')}
+      </div>
       <div class="settings-jump-menu" id="settings-jump-menu" style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
         ${jumpMenuItems.map((item, index) => `
           <button type="button" class="settings-jump-menu-item" data-target="${item.target}" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border:none;${index < jumpMenuItems.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}background:none;text-align:left;cursor:pointer;font:inherit;color:var(--text-primary);">
@@ -3511,6 +3514,7 @@ export class UIManager extends EventEmitter {
             <input type="checkbox" id="settings-chatbot-enabled" ${getChatbotEnabled() ? 'checked' : ''}>
             <span>${this.t('settingsChatbot')}</span>
           </label>
+          <div data-testid="settings-chatbot-promise" style="font-size:0.82em;color:var(--text-tertiary);margin:2px 0 0 26px;">${this.t('settingsChatbotHelp')}</div>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
             <input type="checkbox" id="settings-location-auto-match-consent" ${getLocationAutoMatchConsent() ? 'checked' : ''}>
             <span>${this.t('settingsLocationAutoMatch')}</span>
@@ -3548,7 +3552,7 @@ export class UIManager extends EventEmitter {
             <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
           </label>
         `)}
-        ${this.renderSettingsSection({ id: 'settings-section-content-filters', title: this.t('settingsContentFilters') }, `
+        ${this.renderSettingsSection({ id: 'settings-section-content-filters', title: this.t('settingsContentFilters'), subtitle: this.t('settingsContentFiltersHelp') }, `
           <div style="font-size:0.85em;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">${this.t('settingsMessageFiltersHeading')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${this.t('settingsGrammar')}</label>

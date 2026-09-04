@@ -63,8 +63,24 @@ test.describe('First-run walkthrough', () => {
     await reloadAppReady(p);
     await expect(modal).toHaveCount(0);
 
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
+    await expect(p.locator('#talks-list')).toContainText('One answer. Hundreds of conversations.');
+    await p.locator('#create-talk-btn').click();
+    await expect(p.locator('.talk-editor-promise')).toHaveText('Write conversations, not code.');
+    await p.locator('#cancel-talk-btn').click();
+
+    await p.locator('.nav-btn[data-view="contacts"]').click();
+    await afterNav();
+    await expect(p.locator('[data-testid="contacts-product-promise"]')).toHaveText(
+      'Find people through what matters to you.',
+    );
+
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await expect(p.locator('[data-testid="settings-product-promise"]')).toHaveText(
+      'Your identity. Your answers. Your data.',
+    );
     await openSettingsSection(p, SETTINGS_SECTION.help);
     await p.locator('[data-testid="settings-replay-walkthrough-btn"]').click();
     await expect(modal).toBeVisible();

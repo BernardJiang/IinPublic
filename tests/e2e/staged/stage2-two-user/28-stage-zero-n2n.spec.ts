@@ -224,7 +224,7 @@ test.describe('Stage zero N2N smoke', () => {
 
     await page.click('.nav-btn[data-view="talks"]');
     await afterNav();
-    await expect(page.locator('#talks-list')).toContainText('No talks yet');
+    await expect(page.locator('#talks-list')).toContainText('One answer. Hundreds of conversations.');
 
     for (const talk of talkSet('Adam', runId)) {
       if (talk.type === 'tag') {
@@ -243,6 +243,9 @@ test.describe('Stage zero N2N smoke', () => {
 
     await page.click('.nav-btn[data-view="contacts"]');
     await afterNav();
+    await expect(page.locator('[data-testid="contacts-product-promise"]')).toHaveText(
+      'Find people through what matters to you.',
+    );
     await expect(page.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(0);
 
     await page.click('.nav-btn[data-view="chatrooms"]');
