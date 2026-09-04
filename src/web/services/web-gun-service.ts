@@ -90,7 +90,27 @@ function isLocalHost(hostname: string): boolean {
 }
 
 type BrowserLocationLike = { hostname: string; port: string };
-type BrowserStorageLike = Pick<Storage, 'removeItem'>;
+type BrowserStorageLike = Pick<Storage, 'removeItem' | 'getItem'>;
+
+/**
+ * Safe ceiling for Gun's own localStorage cache, well under the ~5MB per-origin quota that
+ * caused the crash prepareDirectGunBrowserStorage was originally written to fix. Measured in
+ * UTF-16 code units (String.prototype.length) — what the quota is actually counted against, not
+ * exact bytes, but close enough with this much margin.
+ */
+const GUN_LOCALSTORAGE_MAX_CHARS = 3 * 1024 * 1024; // ~3MB
+const GUN_LOCALSTORAGE_CHECK_INTERVAL_MS = 30_000;
+
+function clearGunLocalStorageIfOversized(storage: BrowserStorageLike | undefined): void {
+  try {
+    const existing = storage?.getItem?.('gun/');
+    if (existing && existing.length > GUN_LOCALSTORAGE_MAX_CHARS) {
+      storage?.removeItem('gun/');
+    }
+  } catch {
+    // Gun remains usable in-memory and through the hub/embedded-node peer.
+  }
+}
 
 export function isEmbeddedNativeOrigin(locationLike: BrowserLocationLike | undefined): boolean {
   if (!locationLike) return false;
@@ -104,25 +124,45 @@ export function isEmbeddedNativeOrigin(locationLike: BrowserLocationLike | undef
 }
 
 /**
- * The direct Gun instance's own localStorage cache has no eviction and grows unbounded as mesh
- * traffic flows through the graph. Native shells already persist the authoritative graph in their
- * embedded Node process, so a second copy here was always redundant. Ordinary browser origins
- * had it enabled with no cap either — a long-lived tab eventually fills the ~5MB per-origin quota
- * and every subsequent write (including identity-safe app projections) starts failing. The
- * IndexedDB-backed worker bridge (getBridge()) is the real browser persistence layer for both
- * cases, so this cache is disabled everywhere and any stale copy from before this fix is cleared
- * on init.
+ * Gun's own localStorage cache turned out to be load-bearing, not just a redundant copy of the
+ * IndexedDB-backed worker bridge: disabling it everywhere (2026-09-03) stopped
+ * `.get().map().on()` from ever firing for newly-written children under a mapped path — including
+ * a client's own writes to its own local graph — which silently broke every live multi-user
+ * feature built on it (chatroom rosters, presence, and likely more). Confirmed via a 3-user
+ * chatroom-roster e2e test: with the cache disabled, a member who just joined never appeared in
+ * anyone's roster (stuck at 1 member for the full 15s test timeout, including never seeing their
+ * OWN join); re-enabling it, the same test passes immediately.
+ *
+ * Re-enabled here, but the original 5MB-quota crash that disabling it fixed was real (this
+ * adapter serializes and writes the WHOLE graph on every change, with no eviction of its own) —
+ * so `clearGunLocalStorageIfOversized` runs here at init AND on a periodic timer
+ * (`startGunLocalStorageSizeGuard`, below) to clear the cache outright whenever it grows past a
+ * safe ceiling, well before the browser's real quota. The IndexedDB-backed worker bridge
+ * (getBridge()) remains the authoritative browser persistence layer regardless, so clearing this
+ * cache is never a data-loss risk — Gun's live-update plumbing only needs *some* copy to exist,
+ * not any particular copy to survive.
  */
 export function prepareDirectGunBrowserStorage(
   _locationLike: BrowserLocationLike | undefined,
   storage: BrowserStorageLike | undefined,
 ): boolean {
-  try {
-    storage?.removeItem('gun/');
-  } catch {
-    // Gun remains usable in-memory and through the hub/embedded-node peer.
-  }
-  return false;
+  clearGunLocalStorageIfOversized(storage);
+  return true;
+}
+
+/**
+ * Companion to prepareDirectGunBrowserStorage's init-time check: re-enabling Gun's localStorage
+ * cache is only safe long-term with an ongoing size guard, since the adapter itself never evicts.
+ * Runs for the life of the page (WebGunService is a page-lifetime singleton; no caller currently
+ * needs to stop this early, but the returned function supports that if one ever does).
+ */
+export function startGunLocalStorageSizeGuard(
+  storage: BrowserStorageLike | undefined,
+  intervalMs: number = GUN_LOCALSTORAGE_CHECK_INTERVAL_MS,
+): () => void {
+  if (!storage) return () => {};
+  const timer = setInterval(() => clearGunLocalStorageIfOversized(storage), intervalMs);
+  return () => clearInterval(timer);
 }
 
 export function deriveBackendApiBaseFromLocation(protocol: string, hostname: string, port: string): string {
@@ -327,6 +367,9 @@ export class WebGunService extends EventEmitter {
         radisk: false,
         ...(disableAxe ? { axe: false, multicast: false } : {}),
       });
+      if (persistBrowserGraph) {
+        startGunLocalStorageSizeGuard(typeof localStorage !== 'undefined' ? localStorage : undefined);
+      }
 
       this.gun.on('hi', (peer: any) => {
         console.log('🤝 Gun peer connected:', peer.id || 'unknown');

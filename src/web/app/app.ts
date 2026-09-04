@@ -1499,23 +1499,28 @@ export class IinPublicApp {
       console.log(`📢 You've been moved to ${chatroomName} (room was at capacity)`);
     };
 
-    // Join the assigned chatroom (FIFO logic will be enforced in joinChatroom). Fire-and-forget:
-    // joinChatroom's own Gun put already lands on the local graph synchronously the instant it's
-    // called, well before its retry/ack-wait/propagation-delay machinery resolves — the
-    // subscriptions set up below pick that local write up immediately regardless. Awaiting it
-    // here used to make every boot pay its full retry/backoff/propagation-delay budget (several
-    // seconds) before the user could see anything. Network content should arrive like email
-    // (asynchronously, in the background) rather than block the door from opening.
-    void this.chatroomService.joinChatroom(
-      chatroomId,
-      this.currentUser.id,
-      this.currentUser.stageName,
-      async (newChatroomId: string) => {
-        await handleEviction(chatroomId, newChatroomId);
-      },
-    ).catch((error) => {
-      console.warn('Background chatroom join encountered an error (non-fatal):', error);
-    });
+    // Join the assigned chatroom (FIFO logic will be enforced in joinChatroom). Awaited: unlike
+    // the other boot-time network calls below (location publish, chatbot-memory restore, talk
+    // history — pure back-fill this client never blocks on), other peers' room rosters depend on
+    // this write actually reaching the shared graph before their own UIs can show this user.
+    // Briefly made fire-and-forget for boot speed, but that let the join silently race (or lose
+    // to) the multi-second Gun ack/propagation delay that's common under real network conditions
+    // with no visible failure — reproduced via a 3-browser chatroom-roster e2e test where the
+    // write never landed within a 15s window. joinChatroom's own local Gun put still lands
+    // synchronously on this user's own client the instant it's called, so this await's cost is
+    // only the network's ack/retry/propagation-delay budget, not a duplicate of the write itself.
+    try {
+      await this.chatroomService.joinChatroom(
+        chatroomId,
+        this.currentUser.id,
+        this.currentUser.stageName,
+        async (newChatroomId: string) => {
+          await handleEviction(chatroomId, newChatroomId);
+        },
+      );
+    } catch (error) {
+      console.warn('Chatroom join encountered an error (non-fatal):', error);
+    }
 
     // Store current chatroom in localStorage for next time
     localStorage.setItem('iinpublic_last_chatroom', chatroomId);
