@@ -41,6 +41,10 @@ const readMessageCheckpointIntervalEnv = (): string | undefined =>
   process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || undefined;
 const readMessageRetentionWindowEnv = (): string | undefined =>
   process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || undefined;
+const readMessageEnumerateWaitMsEnv = (): string | undefined =>
+  process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS || undefined;
+const readMessagePruneEnumerateWaitMsEnv = (): string | undefined =>
+  process.env.IINPUBLIC_E2E_MESSAGE_PRUNE_ENUMERATE_WAIT_MS || undefined;
 
 /**
  * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 4): every
@@ -67,6 +71,18 @@ export const MESSAGE_CHECKPOINT_INTERVAL =
 export const MESSAGE_RETENTION_WINDOW =
   parseInt(readMessageRetentionWindowEnv() || '', 10) ||
   deriveRetentionCap(representativePairConversationMessageBytes(), 200);
+/**
+ * How long listLocalWires waits for Gun's .map() to enumerate a conversation's messages before
+ * giving up and returning whatever it collected — see listLocalWires's own doc comment for why
+ * 500ms (this file's original value) undercounted often enough on real devices to matter.
+ * Overridable for tests the same way as the two constants above (fake Gun in tests has no real
+ * network latency to wait out, so a short value here doesn't sacrifice test correctness).
+ */
+export const MESSAGE_ENUMERATE_WAIT_MS =
+  parseInt(readMessageEnumerateWaitMsEnv() || '', 10) || 1_500;
+/** Extra-generous variant for maybeCreateMessageCheckpoint's destructive read — see its call site. */
+export const MESSAGE_PRUNE_ENUMERATE_WAIT_MS =
+  parseInt(readMessagePruneEnumerateWaitMsEnv() || '', 10) || 3_000;
 
 /**
  * SRS §28.9.4: leaves commit to both ordering and ciphertext integrity without
@@ -223,6 +239,19 @@ export class GunMessageStore {
 
   /** TODO §S Item 4: per-conversation checkpoint/prune bookkeeping, keyed by conversationId. */
   private messageCheckpointState = new Map<string, MessageCheckpointLocalState>();
+  /**
+   * Safety net for maybeCreateMessageCheckpoint's destructive prune decision (see its own doc
+   * comment): the highest total-message count ever observed per conversation this session.
+   * listLocalWires has no way to know it saw every message that truly exists on a single pass —
+   * Gun's .map() has no "done enumerating" signal, only a best-effort collection window — so an
+   * undercounted read here is possible on a slow/real device, and this bookkeeping *persists*
+   * across passes (writeCheckpointState). A single undercount would otherwise desync
+   * prunedThroughCount from reality and cascade into deleting messages that are still within
+   * the retention window on a later pass. The graph is append-only in the absence of pruning, so
+   * a real total can only grow or stay flat — any observed drop is evidence of an incomplete
+   * read, not of messages actually having disappeared.
+   */
+  private observedWireCountHighWaterMark = new Map<string, number>();
   /**
    * TODO §S Item 4: conversations currently mid-Phase-5-reconcile (digest build or
    * backfill read) — the prune pass skips a conversation while its flag is set, so a
@@ -605,7 +634,26 @@ export class GunMessageStore {
       // Full chronological read — bounded in practice by the retention policy itself (older
       // messages get pruned, so this array never grows past ~MESSAGE_RETENTION_WINDOW plus
       // one checkpoint interval's worth of headroom once the steady state is reached).
-      const wires = await this.listLocalWires(conversationId, senderId, otherUserId, 0);
+      // Extra-generous window here specifically: this read's result feeds a destructive
+      // deletion decision below (pruneMessages), not just a reconciliation digest — worth
+      // paying more wall-clock time for a more complete read before that runs. The high-water-
+      // mark guard right below is the actual safety net either way; this just makes it need to
+      // fire less often.
+      const wires = await this.listLocalWires(conversationId, senderId, otherUserId, 0, MESSAGE_PRUNE_ENUMERATE_WAIT_MS);
+      const observedAbsoluteCount = state.prunedThroughCount + wires.length;
+      // Safety net (see observedWireCountHighWaterMark's doc comment): a real conversation's
+      // total message count cannot shrink between passes, so any drop means this pass's
+      // listLocalWires read was incomplete, not that messages actually vanished. Proceeding
+      // anyway would desync prunedThroughCount from reality and risk deleting real, recent
+      // messages on a future pass — skip this pass entirely and retry later instead.
+      const priorHighWaterMark = this.observedWireCountHighWaterMark.get(conversationId) ?? 0;
+      if (observedAbsoluteCount < priorHighWaterMark) {
+        console.warn(
+          `[GunMessageStore] checkpoint pass observed fewer messages (${observedAbsoluteCount}) than a prior pass (${priorHighWaterMark}) for ${conversationId} — likely an incomplete read, skipping this pass rather than risk pruning real messages`,
+        );
+        return;
+      }
+      this.observedWireCountHighWaterMark.set(conversationId, observedAbsoluteCount);
       const plan = await planMessageCheckpoint(
         wires,
         state.lastCheckpointedCount,
@@ -624,7 +672,6 @@ export class GunMessageStore {
       state.lastCheckpointedCount = plan.newLastCheckpointedCount;
       await this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
 
-      const observedAbsoluteCount = state.prunedThroughCount + wires.length;
       await this.pruneMessages(conversationId, transport, senderId, otherUserId, wires, state);
       if (observedAbsoluteCount - state.lastCheckpointedCount >= MESSAGE_CHECKPOINT_INTERVAL) {
         state.checkpointPending = true;
@@ -751,6 +798,13 @@ export class GunMessageStore {
     myUserId: string,
     otherUserId?: string,
     limit: number = DEFAULT_RECONCILE_WINDOW,
+    // 500ms was measured against local/fast conditions, not the real Gun read latency this
+    // whole session's fixes found on real devices (frequently 800ms-8000ms+ — see
+    // WebGunService's own doc comments). Gun's .map() has no "done enumerating" signal, so this
+    // is inherently a best-effort window either way, but 500ms was undercounting often enough
+    // in practice to matter for callers that make destructive decisions from the result (see
+    // maybeCreateMessageCheckpoint's high-water-mark guard, added for exactly this).
+    enumerateWaitMs: number = MESSAGE_ENUMERATE_WAIT_MS,
   ): Promise<ReconcileMessage[]> {
     const gun = this.gunService.getGun();
     const byId = new Map<string, ReconcileMessage>();
@@ -776,7 +830,7 @@ export class GunMessageStore {
           if (resolved) resolved.root.map().once(collect);
         })
         .catch(() => undefined);
-      setTimeout(() => resolve(boundRecentWires([...byId.values()], limit)), 500);
+      setTimeout(() => resolve(boundRecentWires([...byId.values()], limit)), enumerateWaitMs);
     });
   }
 

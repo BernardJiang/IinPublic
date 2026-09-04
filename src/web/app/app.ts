@@ -2575,7 +2575,14 @@ export class IinPublicApp {
     } catch {
       /* fallback below */
     }
-    return this.talkService.getTalkWithRetry(talkId, { attempts: 3, gapMs: 150 });
+    // 3 attempts x 150ms (450ms total) was far too short against real Gun read latency — every
+    // finding tonight showed legitimate reads on real devices taking anywhere from ~800ms to
+    // several seconds (see WebGunService.get()'s own 8s timeout, and the boot-path fixes this
+    // session). A receiver opening a talk moments after it mesh-delivered would frequently lose
+    // this race and surface "Could not load this talk yet" even though the data was genuinely
+    // still in flight, not actually missing. 12 x 300ms (3.6s) gives real local Gun propagation
+    // a realistic chance without hanging the UI indefinitely.
+    return this.talkService.getTalkWithRetry(talkId, { attempts: 12, gapMs: 300 });
   }
 
   private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {
@@ -5537,17 +5544,27 @@ export class IinPublicApp {
           selfAnswers: talkData.selfAnswers ?? [],
         });
 
-        // Deliver to the current room over mesh.
+        // Deliver to the current room over mesh — fire-and-forget. deliverTalkToReceiversOverMesh
+        // already treats delivery as eventually-consistent (its own flood/ack retry loop falls
+        // back to an encrypted mailbox for any recipient that doesn't ACK in time — see its own
+        // doc comments), so awaiting it here only meant the "talk created" success notification
+        // sat blocked for however long that retry loop took, up to ~9s+ of pure ack-waiting per
+        // room member before this even reaches the mailbox fallback. The talk is already
+        // genuinely created and saved locally the moment createTalk() above resolved; delivering
+        // it to the room is a background concern, not a precondition for reporting success.
         const wantSendToChatroom = (talkData as { sendToChatroom?: boolean }).sendToChatroom !== false;
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (chatroomId && wantSendToChatroom) {
-          const receivers = await this.resolveBroadcastReceivers(
-            chatroomId,
-            this.uiManager.getCurrentChatroomMembers(),
-          );
-          await this.deliverTalkToReceiversOverMesh(talk.id, talk, receivers);
-
-          console.log('📢 Talk broadcasted to chatroom:', chatroomId);
+          void (async () => {
+            const receivers = await this.resolveBroadcastReceivers(
+              chatroomId,
+              this.uiManager.getCurrentChatroomMembers(),
+            );
+            await this.deliverTalkToReceiversOverMesh(talk.id, talk, receivers);
+            console.log('📢 Talk broadcasted to chatroom:', chatroomId);
+          })().catch((error) => {
+            console.warn('Background talk broadcast failed (non-fatal — talk is already saved):', error);
+          });
         }
 
         let createdMode: 'sent' | 'saved-only' | 'needs-room' = 'sent';
