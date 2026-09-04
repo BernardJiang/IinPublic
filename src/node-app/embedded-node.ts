@@ -166,17 +166,67 @@ function prepareDataDir(config: EmbeddedNodeConfig): void {
  * is strictly worse for a phone the user depends on. Swallow only this exact, recognizable
  * Gun-internals error class and keep the process alive; anything else still crashes normally.
  */
-function installRadiskCorruptionGuard(): void {
-  const isKnownRadiskCorruption = (err: unknown): boolean => {
-    if (!(err instanceof TypeError)) return false;
-    if (!/^Cannot create property '.*' on number '\d+'$/.test(err.message)) return false;
-    const stack = err.stack || '';
-    return /[/\\]gun[/\\]lib[/\\]radix2?\.js/.test(stack) || /\bat radix\b/.test(stack);
-  };
+function isKnownRadiskCorruption(err: unknown): boolean {
+  if (!(err instanceof TypeError)) return false;
+  // Observed values include a fractional HAM tie-breaker suffix (e.g. '...789.003'), not just
+  // a bare integer timestamp.
+  if (!/^Cannot create property '.*' on number '[\d.]+'$/.test(err.message)) return false;
+  const stack = err.stack || '';
+  return /[/\\]gun[/\\]lib[/\\]radix2?\.js/.test(stack) || /\bat radix\b/.test(stack);
+}
+
+/**
+ * rfs.js (Gun's default Radisk filesystem store) writes one file per Gun key under
+ * <dataDir>/radata/, plus a single aggregate root index file at <dataDir>/radata/! (Radisk's
+ * `opt.code.from` default) that merges every key's radix branch into one tree on load — see
+ * gun/lib/radisk.js. The corruption reproduces from a completely empty store within seconds of
+ * a fresh boot, so it's the merge step (many branches sharing one tree) that trips gun/lib/
+ * radix.js's leaf-vs-branch compression bug, not any single per-key file's own content.
+ * Deleting only that one aggregate file forces Radisk to rebuild it by re-scanning the
+ * (unaffected) per-key files on the next boot — recovering everything except whatever the
+ * corrupted merge itself was in the middle of, instead of a full-store wipe.
+ */
+function quarantineRadiskRootIndex(dataDir: string): void {
+  const rootIndexPath = path.join(dataDir, 'radata', '!');
+  try {
+    if (!fs.existsSync(rootIndexPath)) return;
+    const quarantineDir = path.join(dataDir, 'radata-transient-quarantine', `root-index-${Date.now()}`);
+    fs.mkdirSync(quarantineDir, { recursive: true });
+    fs.renameSync(rootIndexPath, path.join(quarantineDir, '!'));
+    // eslint-disable-next-line no-console
+    console.error(`[embedded-node] quarantined corrupted Radisk root index at ${rootIndexPath} -> ${quarantineDir}; it will rebuild from the surviving per-key files on next boot`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[embedded-node] failed to quarantine Radisk root index (non-fatal, process stays up)', err);
+  }
+}
+
+/**
+ * Gun's own on-disk radix-tree index (node_modules/gun/lib/radix.js, used by Radisk) has a
+ * known internals bug: a leaf that was compressed to hold a raw primitive (a bare timestamp
+ * number) instead of an object throws `TypeError: Cannot create property '<field>' on number
+ * '<timestamp>'` the moment ANY later operation touches that same tree position — observed
+ * live, 2026-09-04: it crashed three phones on every boot (SIGABRT inside libnode.so) via a
+ * write, and separately surfaced during a `.map()` *read* (store.js's own Radix.map call),
+ * where Gun's own internal try/catch silently swallows it and skips that data — i.e. this bug
+ * can also cause silent data loss (an incoming broadcast never showing up) with no crash at all.
+ * This is the production relay's near-total blind spot for this bug: it runs permanently
+ * ephemeral (radisk:false, p2p-runtime.ts) so Radisk's disk-index code never executes there.
+ * Only embedded nodes (real on-device persistence, so they can work offline) hit it.
+ *
+ * Disabling on-device persistence entirely would dodge this, but a production app silently
+ * losing all local data across every reboot is a worse defect than the one being fixed.
+ * Instead: swallow only this exact, recognizable error (anything else still crashes normally —
+ * this is not a general crash suppressor), and on each occurrence quarantine just the
+ * rebuildable aggregate root index (see quarantineRadiskRootIndex) rather than the whole store,
+ * so the next boot self-heals with minimal data loss instead of repeating the same crash.
+ */
+function installRadiskCorruptionGuard(dataDir: string): void {
   process.on('uncaughtException', (err) => {
     if (isKnownRadiskCorruption(err)) {
       // eslint-disable-next-line no-console
-      console.error('[embedded-node] swallowed known Gun/Radisk radix-tree corruption (see startEmbeddedNode doc comment):', err);
+      console.error('[embedded-node] swallowed known Gun/Radisk radix-tree corruption (see installRadiskCorruptionGuard doc comment):', err);
+      quarantineRadiskRootIndex(dataDir);
       return;
     }
     throw err;
@@ -186,11 +236,11 @@ function installRadiskCorruptionGuard(): void {
 export async function startEmbeddedNode(
   options: StartEmbeddedNodeOptions = {},
 ): Promise<EmbeddedNodeHandle> {
-  installRadiskCorruptionGuard();
   const config = resolveEmbeddedNodeConfig(process.env, {
     enabled: true,
     ...options.defaults,
   });
+  installRadiskCorruptionGuard(config.dataDir);
 
   applyEnv(config);
 
