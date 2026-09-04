@@ -868,9 +868,14 @@ export class IinPublicApp {
       applyPublicChatroomHierarchy(raw);
     });
     void this.identityLinkService.flushPendingRevocations().catch(() => {});
+    // getPrivate() (used by loadState()) has a hardcoded 4s wait for a lone peer with nothing to
+    // answer it locally — this was blocking every single boot for 4s to restore an auto-reply
+    // memory that has no bearing on whether the app can be used yet. Fire-and-forget: arrives
+    // like email whenever (if) it lands, and updates chatbot memory in place at that point.
     const durableChatbotMemory = new GunChatbotMemoryRepository(this.gunService);
-    const restoredChatbotMemory = await durableChatbotMemory.loadState().catch(() => null);
-    if (restoredChatbotMemory) setExactChatbotMemory(restoredChatbotMemory);
+    void durableChatbotMemory.loadState().then((restored) => {
+      if (restored) setExactChatbotMemory(restored);
+    }).catch(() => {});
     await this.syncConversationTransportFromServer();
     this.initLedgerTransportHooks();
 
@@ -1056,10 +1061,14 @@ export class IinPublicApp {
     });
     // Get or create user
     await this.initializeUser();
-    await restoreReceivedTalkHistory(
+    // Rebuilds previously-received Talk UI from a Gun read that, for a lone peer with nothing
+    // local to answer it, pays its own multi-second timeout before giving up (gun-talk-repository
+    // .ts's listReceived → WebGunService.get()). None of this gates whether the app is usable —
+    // it only back-fills a list the user can already see is there once it arrives. Fire-and-forget.
+    void restoreReceivedTalkHistory(
       this.talkService,
       (talk) => this.uiManager.displayIncomingTalk(talk),
-    );
+    ).catch(() => {});
 
     // Join appropriate chatroom
     await this.initializeChatrooms();
@@ -1266,21 +1275,45 @@ export class IinPublicApp {
     let isNewUser = false;
 
     if (existingUserId) {
-      try {
-        this.currentUser = await this.userService.getUser(existingUserId);
-        const pair = this.gunService.getStoredPair();
-        if (pair && !this.currentUser.pub) {
-          const merged: User = { ...this.currentUser, pub: pair.pub, epub: pair.epub };
-          await this.userService.publishIdentityKeys(this.currentUser.id, pair);
+      const cached = this.readCachedUser(existingUserId);
+      if (cached) {
+        // Instant path: render from the last-known copy of this identity's own record — no
+        // network wait at all. A decentralized app has no excuse to be slower to open than a
+        // centralized one just because the network is slow; the network's job is to keep this
+        // local copy fresh, not to gate the door. Refresh happens in the background below and
+        // arrives like email — asynchronously, whenever it lands — never blocking this boot.
+        this.currentUser = cached;
+        console.log('👤 Existing user loaded from local cache (instant):', this.currentUser.stageName);
+        void this.userService.getUser(existingUserId).then(async (fresh) => {
+          const pair = this.gunService.getStoredPair();
+          let merged = fresh;
+          if (pair && !fresh.pub) {
+            merged = { ...fresh, pub: pair.pub, epub: pair.epub };
+            await this.userService.publishIdentityKeys(fresh.id, pair).catch(() => {});
+          }
           this.currentUser = merged;
-        }
-        console.log('👤 Existing user loaded:', this.currentUser.stageName);
-      } catch (error) {
-        console.log('🆕 Existing user not found, creating new user');
-        this.currentUser = await this.createNewUser({
-          rootTechSupport: existingUserId === TECHSUPPORT_ROOT_USER_ID,
+          this.writeCachedUser(merged);
+          this.uiManager.adoptSessionUser(merged);
+        }).catch((error) => {
+          console.warn('Background user refresh failed (non-fatal, using cached identity):', error);
         });
-        isNewUser = true;
+      } else {
+        try {
+          this.currentUser = await this.userService.getUser(existingUserId);
+          const pair = this.gunService.getStoredPair();
+          if (pair && !this.currentUser.pub) {
+            const merged: User = { ...this.currentUser, pub: pair.pub, epub: pair.epub };
+            await this.userService.publishIdentityKeys(this.currentUser.id, pair);
+            this.currentUser = merged;
+          }
+          console.log('👤 Existing user loaded:', this.currentUser.stageName);
+        } catch (error) {
+          console.log('🆕 Existing user not found, creating new user');
+          this.currentUser = await this.createNewUser({
+            rootTechSupport: existingUserId === TECHSUPPORT_ROOT_USER_ID,
+          });
+          isNewUser = true;
+        }
       }
     } else {
       // K1 (docs/TODO.md): TechSupport is guaranteed by the relay (server boot seed) and
@@ -1298,27 +1331,55 @@ export class IinPublicApp {
     // showMainInterface fires. A tab clicked immediately on cold launch (e.g. Settings) can
     // then paint from this identity right away instead of sitting blank for the full boot.
     this.uiManager.adoptSessionUser(this.currentUser);
+    this.writeCachedUser(this.currentUser);
 
     // Phase E: re-initialize ledger now that currentUser is known (userId was not available earlier)
     this.initLedger();
 
-    // Update user location
+    // Update user location and sync the public record to the relay — both fire-and-forget.
+    // Neither result changes what's already on screen: the in-memory location is already used
+    // for room selection, and the local Gun graph already has this user's public record from
+    // createUser/getUser above. Waiting here just to observe a relay ack (which a relay-only
+    // production hub may never send at all — see WebGunService.put's doc comment) used to make
+    // every boot pay for a network round trip it didn't actually need to open the app.
     if (this.currentLocation) {
-      try {
-        await this.userService.updateUserLocation(this.currentUser.id, this.currentLocation);
-      } catch (error) {
-        // A relay/Gun acknowledgement failure must not strand an existing identity on the
-        // fatal startup screen. The in-memory location is already available for room selection,
-        // and later location/status publications retry through their normal paths.
+      void this.userService.updateUserLocation(this.currentUser.id, this.currentLocation).catch((error) => {
         console.warn('Boot-time location publication skipped (non-fatal):', error);
-      }
+      });
     }
     const pair = this.gunService.getStoredPair();
-    await this.userService.syncPublicUserForRelay({
+    void this.userService.syncPublicUserForRelay({
       ...this.currentUser,
       ...(pair?.pub ? { pub: pair.pub } : {}),
       ...(pair?.epub ? { epub: pair.epub } : {}),
+    }).catch((error) => {
+      console.warn('Boot-time relay sync skipped (non-fatal):', error);
     });
+  }
+
+  private static readonly CACHED_USER_STORAGE = 'iinpublic_cached_user_v1';
+
+  /** Last-known copy of this device's own user record, for an instant cold-boot render. */
+  private readCachedUser(expectedUserId: string): User | null {
+    try {
+      const raw = localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.id !== expectedUserId) return null;
+      if (typeof parsed.createdAt === 'string') parsed.createdAt = new Date(parsed.createdAt);
+      if (typeof parsed.lastActive === 'string') parsed.lastActive = new Date(parsed.lastActive);
+      return parsed as User;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeCachedUser(user: User): void {
+    try {
+      localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, JSON.stringify(user));
+    } catch {
+      // Best-effort only — a full cache means the next cold boot waits on the network instead.
+    }
   }
 
   private async createNewUser(options: { rootTechSupport?: boolean } = {}): Promise<User> {
@@ -1438,15 +1499,23 @@ export class IinPublicApp {
       console.log(`📢 You've been moved to ${chatroomName} (room was at capacity)`);
     };
 
-    // Join the assigned chatroom (FIFO logic will be enforced in joinChatroom)
-    await this.chatroomService.joinChatroom(
+    // Join the assigned chatroom (FIFO logic will be enforced in joinChatroom). Fire-and-forget:
+    // joinChatroom's own Gun put already lands on the local graph synchronously the instant it's
+    // called, well before its retry/ack-wait/propagation-delay machinery resolves — the
+    // subscriptions set up below pick that local write up immediately regardless. Awaiting it
+    // here used to make every boot pay its full retry/backoff/propagation-delay budget (several
+    // seconds) before the user could see anything. Network content should arrive like email
+    // (asynchronously, in the background) rather than block the door from opening.
+    void this.chatroomService.joinChatroom(
       chatroomId,
       this.currentUser.id,
       this.currentUser.stageName,
       async (newChatroomId: string) => {
         await handleEviction(chatroomId, newChatroomId);
       },
-    );
+    ).catch((error) => {
+      console.warn('Background chatroom join encountered an error (non-fatal):', error);
+    });
 
     // Store current chatroom in localStorage for next time
     localStorage.setItem('iinpublic_last_chatroom', chatroomId);

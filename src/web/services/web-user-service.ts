@@ -570,12 +570,14 @@ export class WebUserService {
     if (userData.pub) user.pub = userData.pub;
     if (userData.epub) user.epub = userData.epub;
 
-    // These writes land on independent Gun keys with no cross-reads between them — run them
-    // concurrently rather than sequentially. Each await already carries its own bounded,
-    // optimistic-continue ack timeout (see WebGunService.put/putPrivate), so awaiting them one
-    // at a time was stacking that timeout budget on every fresh boot (worst case 4x) whenever
-    // the relay's ack was slow or absent.
-    await Promise.all([
+    // `user` is fully known right now — nothing below reads any of it back before returning.
+    // These writes land on independent Gun keys with no cross-reads between them either, so fire
+    // them all concurrently and don't make the caller (a brand-new user's very first boot) wait
+    // on any of them: each already has its own bounded, optimistic-continue ack timeout (see
+    // WebGunService.put/putPrivate) that may never resolve quickly on a relay-only production
+    // hub. Publishing this identity to the network is the app's job to do in the background —
+    // like sending mail — not a precondition for the app being usable.
+    void Promise.all([
       this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(user)),
       this.putPublicProfileFoundation(user),
       this.putPublicTalkFilters(userId, user.talkFilters || {
@@ -587,15 +589,19 @@ export class WebUserService {
         allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
       }),
       this.putPrivateUserData(user),
-    ]);
+    ]).catch((error) => {
+      console.warn('createUser background publish encountered an error (non-fatal):', error);
+    });
     this.syncPublicUserToApiBestEffort(user);
     this.putUserTagsBestEffort(user, now);
     if (user.id === TECHSUPPORT_ROOT_USER_ID) {
-      await this.gunService.put(TECHSUPPORT_ROOT_META_KEY, {
+      void this.gunService.put(TECHSUPPORT_ROOT_META_KEY, {
         userId: user.id,
         stageName: user.stageName,
         networkRole: TECHSUPPORT_NETWORK_ROLE,
         createdAt: now.toISOString(),
+      }).catch((error) => {
+        console.warn('TechSupport root meta publish encountered an error (non-fatal):', error);
       });
     }
     return user;
