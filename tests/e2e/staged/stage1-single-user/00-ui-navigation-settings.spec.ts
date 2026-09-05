@@ -439,7 +439,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('加权表现');
     await expect(p.locator('#reply-filter-language option[value="zh"]')).toHaveText('中文');
     await expect(p.locator('#talks-stats-strip')).toContainText('统计：');
-    await expect(p.locator('#talks-list')).toContainText('还没有话题');
+    await expect(p.locator('#talks-list')).toContainText('一次回答，开启数百场对话');
     await p.evaluate(() => {
       localStorage.setItem('myTalks', JSON.stringify({
         localized_created: {
@@ -546,7 +546,7 @@ test.describe('UI navigation and settings shell', () => {
 
     await openSettingsSection(p, SETTINGS_SECTION.credit);
     await expect(p.locator('#settings-content')).toContainText('信用');
-    await expect(p.locator('#settings-content')).toContainText('来自其他用户互动的只读信誉摘要');
+    await expect(p.locator('#settings-content')).toContainText('只读信誉摘要来自其他用户的互动');
     await expect(p.locator('#settings-content')).toContainText('评价');
     await expect(p.locator('#settings-content')).toContainText('星级');
     await expect(p.locator('#settings-content')).toContainText('匹配数');
