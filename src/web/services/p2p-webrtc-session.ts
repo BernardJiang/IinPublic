@@ -604,14 +604,15 @@ export class P2PConversationSession {
     if (this._state === 'connecting' || this._state === 'connected') return;
     this.setState('connecting');
 
-    this.stopPolling = this.signaling.startPolling(
-      this.config.conversationId,
-      this.config.localPub,
-      async (_envelope, payload) => {
-        await this.handleRemoteSignal(payload as SignalPayload);
-      },
-    );
-
+    // Create AND FULLY WIRE the RTCPeerConnection before subscribing to signaling.
+    // resolveIceServers() is async (even though it resolves synchronously-fast in E2E), which
+    // left a real window where startPolling()'s Gun subscription was already live but `this.pc`
+    // (and its handlers, including the answerer's `ondatachannel`) were still unset — a peer
+    // whose own offer/answer/ice arrived in that window hit handleRemoteSignal's `if (!this.pc)
+    // return` guard and was silently dropped with no error and no retry. Confirmed via e2e: on a
+    // reconnect attempt, the initiator's offer (posted fast on retry, since resolveIceServers'
+    // result is cached) reached the answerer before the answerer's own `await
+    // resolveIceServers()` had assigned `this.pc`, permanently stalling both sides' DM channel.
     this.pc = new RTCPeerConnection({ iceServers: await resolveIceServers(this.config.apiBase) });
     this.pc.onicecandidate = (event) => {
       if (!event.candidate) return;
@@ -639,6 +640,20 @@ export class P2PConversationSession {
         this.connectPromise = null;
       }
     };
+    if (!this.config.isInitiator) {
+      this.pc.ondatachannel = (event) => {
+        this.dc = event.channel;
+        this.attachDataChannel(this.dc);
+      };
+    }
+
+    this.stopPolling = this.signaling.startPolling(
+      this.config.conversationId,
+      this.config.localPub,
+      async (_envelope, payload) => {
+        await this.handleRemoteSignal(payload as SignalPayload);
+      },
+    );
 
     if (this.config.isInitiator) {
       this.dc = this.pc.createDataChannel('iinpublic-dm', { ordered: true });
@@ -649,11 +664,6 @@ export class P2PConversationSession {
       await this.pc.setLocalDescription(offer);
       await this.postSignal('offer', { type: 'offer', sdp: offer, offerId: this.currentOfferId });
       this.makingOffer = false;
-    } else {
-      this.pc.ondatachannel = (event) => {
-        this.dc = event.channel;
-        this.attachDataChannel(this.dc);
-      };
     }
   }
 
