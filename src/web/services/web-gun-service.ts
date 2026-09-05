@@ -415,6 +415,11 @@ export class WebGunService extends EventEmitter {
     return this.bridge;
   }
 
+  /** Whether the worker bridge finished initializing (IndexedDB-backed Gun instance is up). */
+  isBridgeReady(): boolean {
+    return this.bridgeReady;
+  }
+
   /* ── Serialization helpers ─────────────────────────────────────── */
 
   private serializeDates(obj: any): any {

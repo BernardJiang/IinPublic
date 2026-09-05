@@ -1034,6 +1034,7 @@ export class IinPublicApp {
         });
         this.currentUser.knownPeople = merged.contacts as any;
         this.currentUser.talkFilters = merged.talkFilters as any;
+        this.writeCachedUser(this.currentUser);
         await this.userService.importHandoffData(this.currentUser.id, {
           knownPeople: merged.contacts as any,
           talkFilters: merged.talkFilters as any,
@@ -1268,10 +1269,37 @@ export class IinPublicApp {
         localStorage.removeItem(KEY_CUSTODY_STORAGE);
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
         localStorage.removeItem('gun/');
+        if (this.gunService.isBridgeReady()) {
+          void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, null).catch(() => {});
+        }
       }
     }
-    // Check for existing user in local storage
-    const existingUserId = localStorage.getItem('iinpublic_user_id');
+    // Check for existing user in local storage. A missing value here does not necessarily mean
+    // "no identity was ever created on this device" — see the recovery check below.
+    let existingUserId = localStorage.getItem('iinpublic_user_id');
+    if (!existingUserId) {
+      // localStorage being empty does not necessarily mean "no identity was ever created on this
+      // device" — a real process SIGKILL can lose a localStorage write that returned successfully
+      // moments earlier (see persistUserId's doc comment), and empirically which specific
+      // localStorage keys survive a given hard kill is not consistent from crash to crash (a
+      // SEA-identity custody record surviving is not a reliable enough signal to gate on).
+      // Checking the IndexedDB-backed mirror unconditionally is the only robust option — a
+      // genuinely new device's read comes back empty near-instantly (a local-only Gun `.once()`
+      // never waits on a network peer), so this adds no meaningful latency to normal cold boot.
+      if (this.gunService.isBridgeReady()) {
+        try {
+          const recovered = await this.gunService.getBridge().get(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH);
+          const recoveredId = recovered && typeof recovered === 'object' ? recovered.id : undefined;
+          if (typeof recoveredId === 'string' && recoveredId) {
+            existingUserId = recoveredId;
+            localStorage.setItem('iinpublic_user_id', existingUserId);
+            console.log('👤 Recovered user id from IndexedDB-backed mirror after apparent localStorage loss:', existingUserId);
+          }
+        } catch {
+          // Best-effort recovery only — fall through to the normal existingUserId handling below.
+        }
+      }
+    }
     let isNewUser = false;
 
     if (existingUserId) {
@@ -1382,6 +1410,32 @@ export class IinPublicApp {
     }
   }
 
+  /** Gun path for the IndexedDB-backed durable mirror of `iinpublic_user_id` — see persistUserId. */
+  private static readonly DEVICE_LOCAL_USER_ID_PATH = 'device-local/current-user-id';
+
+  /**
+   * A genuine hard process kill (SIGKILL — no graceful shutdown, no chance to flush) can lose a
+   * `localStorage.setItem()` that returned successfully moments earlier: Chromium's localStorage
+   * backend doesn't necessarily commit every write to disk immediately, and a kill before its own
+   * internal flush cycle fires loses that write permanently, regardless of how long anything waits
+   * afterward. Confirmed via e2e (37-hard-crash-recovery): after a real SIGKILL + relaunch from the
+   * same on-disk profile, `iinpublic_user_id` came back empty and the app created a brand-new
+   * identity instead of recovering the real one.
+   *
+   * Mirrors the id into the worker's IndexedDB-backed Gun instance (getBridge()) too — already the
+   * durable persistence layer for the Gun graph itself (see prepareDirectGunBrowserStorage's doc
+   * comment), so this piggybacks on infrastructure with stronger commit guarantees than plain
+   * localStorage, instead of introducing a new storage mechanism. Best-effort and fire-and-forget:
+   * a failed mirror write never blocks or fails user creation, since the localStorage copy remains
+   * the fast path for every normal (non-crash) boot.
+   */
+  private persistUserId(id: string): void {
+    localStorage.setItem('iinpublic_user_id', id);
+    if (this.gunService.isBridgeReady()) {
+      void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, { id }).catch(() => {});
+    }
+  }
+
   private async createNewUser(options: { rootTechSupport?: boolean } = {}): Promise<User> {
     // Show user creation UI
     const userData = await this.uiManager.showUserCreationDialog();
@@ -1400,7 +1454,7 @@ export class IinPublicApp {
         ...(pair?.epub ? { epub: pair.epub } : {}),
       };
       const user = await this.userService.createTechSupportRoot(rootUser);
-      localStorage.setItem('iinpublic_user_id', user.id);
+      this.persistUserId(user.id);
       console.log('✨ TechSupport root user created:', user.stageName);
       return user;
     }
@@ -1417,7 +1471,7 @@ export class IinPublicApp {
     };
 
     const user = await this.userService.createUser(newUser);
-    localStorage.setItem('iinpublic_user_id', user.id);
+    this.persistUserId(user.id);
 
     console.log('✨ New user created:', user.stageName);
     return user;
@@ -1651,6 +1705,7 @@ export class IinPublicApp {
         } else {
           this.currentUser.reputation.ageVerified = true;
         }
+        this.writeCachedUser(this.currentUser);
       }
       return verified;
     } catch {
@@ -5299,6 +5354,7 @@ export class IinPublicApp {
     this.uiManager.on('updateTalkFilters', async (filters: any) => {
       if (!this.currentUser) return;
       this.currentUser.talkFilters = filters;
+      this.writeCachedUser(this.currentUser);
       try {
         await this.userService.updateTalkFilters(this.currentUser.id, filters);
       } catch (error) {
@@ -5363,6 +5419,7 @@ export class IinPublicApp {
           ? await this.userService.blockUser(this.currentUser.id, data.userId)
           : await this.userService.unblockUser(this.currentUser.id, data.userId);
         this.currentUser.blockedUserIds = blockedUserIds;
+        this.writeCachedUser(this.currentUser);
         this.uiManager.adoptSessionUser(this.currentUser);
         this.uiManager.showNotification(
           this.uiManager.formatUserBlockChanged(data.blocked),
@@ -5381,6 +5438,7 @@ export class IinPublicApp {
         // Update current user object
         if (this.currentUser && this.currentUser.id === userId) {
           this.currentUser.stageName = newStageName;
+          this.writeCachedUser(this.currentUser);
           const pair = this.gunService.getStoredPair();
           await this.userService.syncPublicUserForRelay({
             ...this.currentUser,
@@ -5438,6 +5496,7 @@ export class IinPublicApp {
             ...updatedUser,
             ...(previousTalkFilters ? { talkFilters: previousTalkFilters } : {}),
           };
+          this.writeCachedUser(this.currentUser);
           this.uiManager.showMainInterface(this.currentUser);
           this.refreshStatusBar();
         }

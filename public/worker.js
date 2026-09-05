@@ -28,6 +28,17 @@ if (typeof window === 'undefined') {
 }
 
 importScripts('/node_modules/gun/gun.js');
+// Gun's IndexedDB/custom-store persistence is NOT part of gun.js core — it's a separate plugin
+// chain (radix → radisk → store) that registers a `Gun.on('create', ...)` hook consuming
+// `opt.store`. Without these three, passing `store: idbAdapter` to `Gun({...})` below is silently
+// ignored (no code ever reads `opt.store`) and the worker's Gun instance has zero persistence —
+// confirmed via e2e (37-hard-crash-recovery): a value written and ack'd successfully came back
+// `null` on an immediate re-read of the SAME live session, because it was never actually stored
+// anywhere, just held in a transient in-flight buffer. Order matters: radisk.js expects
+// `window.Radix` (set by radix.js) and store.js expects `window.Radisk` (set by radisk.js).
+importScripts('/node_modules/gun/lib/radix.js');
+importScripts('/node_modules/gun/lib/radisk.js');
+importScripts('/node_modules/gun/lib/store.js');
 importScripts('/node_modules/gun/sea.js');
 
 /* ── 2. IndexedDB persistence adapter ──────────────────────────── */
@@ -111,10 +122,12 @@ function initGun(hubUrl) {
   // local IndexedDB persistence.  Connecting the worker as a second Gun peer to
   // the same hub that the main-thread Gun already uses causes redundant graph
   // replication which inflates chatroom member-count subscriptions.
+  // `radisk: false` must NOT be set here — the store.js plugin's `Gun.on('create', ...)` hook
+  // no-ops immediately when `opt.radisk === false`, which would silently disable the very
+  // persistence this worker exists to provide (see the importScripts comment above).
   gun = Gun({
     peers: [],
     localStorage: false,
-    radisk: false,
     store: idbAdapter,
   });
 
@@ -273,7 +286,16 @@ function pathRef(path) {
 
 function gunPut(path, data) {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('put timeout')), 8000);
+    // A bare ack timeout is not proof the write failed — it's proof the relay didn't answer in
+    // time. This worker's Gun instance already has the write locally the instant .put() is
+    // called, regardless of whether a network ack ever arrives (a relay-only production hub
+    // gives a lone browser no real ack at all — see WebGunService.put's doc comment, fixed the
+    // same way for the main-thread Gun instance). Rejecting here used to fail EVERY caller of
+    // putPublic/putPrivate/createNode/the plain bridge put whenever no peer happened to ack in
+    // time, even though the data was already durably written to this worker's own IndexedDB-
+    // backed graph. Resolve optimistically instead; only an explicit ack.err (a real error) still
+    // rejects.
+    const timeout = setTimeout(() => resolve({ ok: true, timedOut: true }), 8000);
     pathRef(path).put(data, (ack) => {
       clearTimeout(timeout);
       if (ack.err) reject(new Error(ack.err));
