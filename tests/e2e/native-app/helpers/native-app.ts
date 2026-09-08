@@ -44,8 +44,21 @@ type ElectronLaunchTarget = { executablePath: string; args: string[]; cwd?: stri
  * otherwise, which still works on machines where XProtect hasn't flagged this build.
  */
 function resolveElectronLaunchTarget(): ElectronLaunchTarget {
+  const explicitExecutable = String(process.env.IINPUBLIC_DESKTOP_EXECUTABLE || '').trim();
+  if (explicitExecutable) {
+    if (!fs.existsSync(explicitExecutable)) {
+      throw new Error(`IINPUBLIC_DESKTOP_EXECUTABLE does not exist: ${explicitExecutable}`);
+    }
+    return { executablePath: explicitExecutable, args: [...webrtcLaunchArgs] };
+  }
   if (process.platform === 'darwin') {
     const packagedApp = path.join(desktopRoot, 'dist', 'mac-arm64', 'IinPublic.app', 'Contents', 'MacOS', 'IinPublic');
+    if (fs.existsSync(packagedApp)) {
+      return { executablePath: packagedApp, args: [...webrtcLaunchArgs] };
+    }
+  }
+  if (process.platform === 'win32') {
+    const packagedApp = path.join(desktopRoot, 'dist', 'win-unpacked', 'IinPublic.exe');
     if (fs.existsSync(packagedApp)) {
       return { executablePath: packagedApp, args: [...webrtcLaunchArgs] };
     }
@@ -61,7 +74,7 @@ function resolveElectronLaunchTarget(): ElectronLaunchTarget {
     return { executablePath: platformExecutable, args: [...webrtcLaunchArgs, '.'], cwd: desktopRoot };
   }
   throw new Error(
-    `No Electron executable found (checked ${process.platform === 'darwin' ? 'the packaged dist/mac-arm64/IinPublic.app and ' : ''}${platformExecutable}). ` +
+    `No Electron executable found (checked packaged output and ${platformExecutable}). ` +
       'Run "npm run desktop:dist" (packaged) or "cd platforms/desktop && npm install" (dev binary).',
   );
 }

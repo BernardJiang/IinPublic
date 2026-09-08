@@ -9,6 +9,7 @@ and filesystem paths; platform runners resolve those details here.
 ```bash
 npm run test:e2e:windows:preflight
 npm run test:e2e:windows
+npm run test:e2e:windows:desktop
 ```
 
 The Windows runner always performs its SSH/OS preflight before creating an archive,
@@ -16,7 +17,10 @@ installing dependencies, building, or starting Playwright. An unavailable option
 is reported as `SKIP` and starts no tests; set `WINDOWS_E2E_REQUIRED=1` to make that condition
 fail CI. `WINDOWS_E2E_SSH_HOST` overrides the configured `windows-test` alias.
 
-The runner installs portable Node under the remote user's `iinpublic-tools` directory,
-deploys the exact local Git revision to a revision-keyed worker directory, runs the Chromium,
-WebKit, and Firefox platform smoke projects, copies Playwright's blob report back to the Mac,
-and merges it into `playwright-report/`.
+The runner installs portable Node under the remote user's `iinpublic-tools` directory and
+deploys the exact local Git revision to a revision-keyed worker directory. The browser mode
+runs Chromium, installed Microsoft Edge, WebKit, and Firefox. Desktop mode builds the x64
+NSIS installer, installs it into an isolated directory, launches the installed `IinPublic.exe`
+with an isolated profile, verifies the embedded HTTP service and SPA, closes it, and runs the
+silent uninstaller. Both modes copy Playwright's blob report back to the Mac and merge it into
+`playwright-report/`.

@@ -14,6 +14,7 @@ const sshHost = process.env.WINDOWS_E2E_SSH_HOST || hostConfig.sshHost;
 const sshArgs = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', sshHost];
 const required = process.env.WINDOWS_E2E_REQUIRED === '1';
 const preflightOnly = process.argv.includes('--preflight');
+const desktopMode = process.argv.includes('--desktop');
 
 function encodePowerShell(script) {
   return Buffer.from(script, 'utf16le').toString('base64');
@@ -71,7 +72,7 @@ const npxCmd = `${nodeDir}\\npx.cmd`;
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
 const shortRevision = revision.slice(0, 12);
 const workspace = `${remote.userProfile}\\${hostConfig.workspaceRoot}\\${revision}`;
-const runId = `windows-${shortRevision}-${Date.now()}`;
+const runId = `windows${desktopMode ? '-desktop' : ''}-${shortRevision}-${Date.now()}`;
 
 const prepareTools = runPowerShell(`
 $ErrorActionPreference = 'Stop'
@@ -111,6 +112,81 @@ try {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
+const testActions = desktopMode
+  ? `
+& '${npxCmd}' playwright install chromium
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& '${npmCmd}' run desktop:stage-deps
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Push-Location (Join-Path $workspace 'platforms\\desktop')
+& '${npmCmd}' ci --no-audit --no-fund
+if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
+& '${npmCmd}' run dist:win
+$packageExit = $LASTEXITCODE
+Pop-Location
+if ($packageExit -ne 0) { exit $packageExit }
+
+$distDir = Join-Path $workspace 'platforms\\desktop\\dist'
+$installer = Get-ChildItem -Path $distDir -File -Filter '*.exe' |
+  Where-Object { $_.Name -like '*Setup*' } |
+  Sort-Object LastWriteTimeUtc |
+  Select-Object -Last 1
+if (-not $installer) { throw "Windows NSIS installer was not produced in $distDir" }
+$unpackedExe = Join-Path $distDir 'win-unpacked\\IinPublic.exe'
+if (-not (Test-Path $unpackedExe)) { throw "Packaged executable was not produced at $unpackedExe" }
+$hash = (Get-FileHash -Algorithm SHA256 -Path $installer.FullName).Hash
+Write-Host "[windows-e2e] built installer: $($installer.Name) ($($installer.Length) bytes, sha256 $hash)"
+
+$installDir = Join-Path $workspace 'desktop-test-install'
+if (Test-Path $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
+$testExit = 1
+try {
+  $installerProcess = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru
+  if ($installerProcess.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($installerProcess.ExitCode)" }
+  $installedExe = Join-Path $installDir 'IinPublic.exe'
+  if (-not (Test-Path $installedExe)) { throw "Installed executable was not found at $installedExe" }
+  Write-Host "[windows-e2e] testing installed executable: $installedExe"
+
+  $env:IINPUBLIC_DESKTOP_EXECUTABLE = $installedExe
+  $env:E2E_GUN_MEMORY_ONLY = '1'
+  $env:E2E_STATIC_WEB = '1'
+  $env:E2E_VIDEO = 'off'
+  $env:E2E_BLOB = '1'
+  $env:E2E_RUN_ID = '${runId}'
+  $env:PW_WORKERS = '1'
+  Set-Location $workspace
+  & '${npxCmd}' playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/01-desktop-app-boots.spec.ts
+  $testExit = $LASTEXITCODE
+} finally {
+  $uninstaller = Join-Path $installDir 'Uninstall IinPublic.exe'
+  if (Test-Path $uninstaller) {
+    $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+    if ($uninstallProcess.ExitCode -ne 0) {
+      Write-Warning "NSIS uninstaller exited with $($uninstallProcess.ExitCode)"
+    }
+  }
+  if (Test-Path $installDir) {
+    Start-Sleep -Milliseconds 500
+    Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+exit $testExit
+`
+  : `
+& '${npxCmd}' playwright install chromium webkit firefox
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$env:E2E_GUN_MEMORY_ONLY = '1'
+$env:E2E_CROSS_BROWSER = '1'
+$env:E2E_WINDOWS_EDGE = '1'
+$env:E2E_STATIC_WEB = '1'
+$env:E2E_VIDEO = 'off'
+$env:E2E_BLOB = '1'
+$env:E2E_RUN_ID = '${runId}'
+$env:PW_WORKERS = '1'
+& '${npxCmd}' playwright test tests/e2e/platform-smoke --project=chromium --project=edge --project=webkit --project=firefox
+exit $LASTEXITCODE
+`;
+
 const remoteRun = runPowerShell(`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -128,16 +204,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & '${npmCmd}' run build:server
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-$env:E2E_GUN_MEMORY_ONLY = '1'
-$env:E2E_CROSS_BROWSER = '1'
-$env:E2E_STATIC_WEB = '1'
-$env:E2E_VIDEO = 'off'
-$env:E2E_BLOB = '1'
-$env:E2E_RUN_ID = '${runId}'
-$env:PW_WORKERS = '1'
-& '${npxCmd}' playwright test tests/e2e/platform-smoke --project=chromium --project=webkit --project=firefox
-exit $LASTEXITCODE
-`, { stdio: 'inherit', timeoutMs: 30 * 60_000 });
+${testActions}
+`, { stdio: 'inherit', timeoutMs: (desktopMode ? 45 : 30) * 60_000 });
 
 const localBlobDir = path.join(repoRoot, 'blob-report', runId);
 fs.mkdirSync(localBlobDir, { recursive: true });
@@ -162,4 +230,4 @@ if (remoteRun.error || remoteRun.status !== 0) {
   console.error(`[windows-e2e] remote test failed (${remoteRun.error?.message || `exit ${remoteRun.status}`})`);
   process.exit(1);
 }
-console.log(`[windows-e2e] passed on ${remote.computerName}; report: ${path.join(repoRoot, 'playwright-report', 'index.html')}`);
+console.log(`[windows-e2e] ${desktopMode ? 'desktop executable' : 'browser matrix'} passed on ${remote.computerName}; report: ${path.join(repoRoot, 'playwright-report', 'index.html')}`);

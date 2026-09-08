@@ -22,7 +22,7 @@
  * Runs as an npm `postinstall` hook on the root package so the patch survives `npm
  * install`/`npm ci` there (the VPS, any future `npm ci`), and is also invoked explicitly
  * against every OTHER location that installs its own separate copy of gun:
- *   - platforms/desktop/.prod-deps-staging (scripts/stage-desktop-prod-deps.sh) — desktop
+ *   - platforms/desktop/.prod-deps-staging (scripts/stage-desktop-prod-deps.mjs) — desktop
  *     (Windows/macOS) ships the unbundled dist/server tree and requires('gun') from here at
  *     real runtime, with IINPUBLIC_EMBEDDED_NODE=1 (real on-device radisk persistence) — so
  *     this copy is just as exposed to the corruption as the root copy.

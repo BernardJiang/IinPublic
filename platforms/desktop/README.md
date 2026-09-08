@@ -33,6 +33,11 @@ Use `dist:win` for ordinary Intel/AMD Windows notebooks. ARM64 is opt-in so a
 build from an Apple Silicon Mac does not accidentally produce a Windows package
 that will not run on x64 PCs.
 
+From the Mac matrix controller, `npm run test:e2e:windows:desktop` checks the
+configured Windows worker before doing any work, builds and silently installs the
+x64 NSIS package there, exercises the installed executable with an isolated test
+profile, and uninstalls it afterward.
+
 `electron-builder` bundles `dist/server`, `dist/web`, and `node_modules` as
 `extraResources` so the packaged app is self-contained.
 

@@ -139,6 +139,7 @@ const DEVICE_PROFILES = process.env.E2E_DEVICE_PROFILES === '1' || process.env.E
  */
 const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === '1' || process.env.E2E_CROSS_BROWSER === 'true';
 const MIXED_BROWSER = process.env.E2E_MIXED_BROWSER === '1' || process.env.E2E_MIXED_BROWSER === 'true';
+const WINDOWS_EDGE = process.env.E2E_WINDOWS_EDGE === '1' || process.env.E2E_WINDOWS_EDGE === 'true';
 
 // Optional port-range offset so concurrent `playwright test` runs don't collide. Matches
 // E2E_PORT_OFFSET in tests/e2e/helpers/ports.ts (default 0). web = 3001+offset+i, gun =
@@ -306,6 +307,14 @@ export default defineConfig({
             ...(SKIP_ALL_MESH ? [/talks-matching\//] : []),
           ],
         },
+        ...(WINDOWS_EDGE
+          ? [{
+              name: 'edge',
+              grep: /@smoke/,
+              testMatch: /platform-smoke\//,
+              use: { ...devices['Desktop Chrome'], channel: 'msedge' },
+            }]
+          : []),
         // Mobile device-profile projects (item G): iPhone (WebKit) and Android (Chromium)
         // running the @smoke-tagged platform smoke set at their native viewports. Opt-in via
         // E2E_DEVICE_PROFILES=1 so default runs stay desktop-only.
