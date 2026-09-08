@@ -271,29 +271,33 @@ At this point introduce the first remote desktop host.
 
 ## 4.1 Prepare Windows as a Remote Test Worker
 
-- [ ] Enable OpenSSH Server on Windows.
-- [ ] Configure password-free SSH from the Mac mini.
-- [ ] Give the Windows machine a stable hostname or static DHCP lease.
-- [ ] Verify from Mac:
+- [x] Enable OpenSSH Server on Windows.
+- [x] Configure password-free SSH from the Mac mini.
+- [x] Give the Windows machine a stable SSH alias (`windows-test`).
+- [x] Verify from Mac (the worker uses explicit PowerShell because this host's default shell rejects bare `hostname`):
 
 ```bash
 ssh windows-test hostname
 ```
 
 - [ ] Install required versions of:
-  - Node.js
-  - npm
-  - Playwright
-  - IinPublic dependencies
+  - [x] Node.js (portable Node 24.20.0 under the remote user profile)
+  - [x] npm (from the portable Node distribution)
+  - [ ] Playwright
+  - [ ] IinPublic dependencies
 
-- [ ] Add a remote test working directory.
+- [x] Add a remote revision-keyed test working directory.
 - [ ] Add commands for:
-  - update source
-  - build
-  - start app
-  - stop app
-  - run tests
-  - collect logs/results
+  - [x] update source (`git archive` of the exact controller revision over SCP)
+  - [x] build
+  - [ ] start app
+  - [ ] stop app
+  - [x] run tests
+  - [x] collect logs/results (Playwright blob copied back and merged on the Mac)
+
+First runnable slice: `npm run test:e2e:windows` checks `windows-test` availability
+before doing any work, prepares the isolated worker, and runs the platform smoke gate in
+Chromium, WebKit, and Firefox. `npm run test:e2e:windows:preflight` performs no tests.
 
 ## 4.2 Add Windows Browsers
 
