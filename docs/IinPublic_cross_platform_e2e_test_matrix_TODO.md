@@ -15,44 +15,58 @@ Current baseline:
 
 # Stage 1 — Expand macOS Browser E2E Coverage
 
+Implementation note (2026-09-07): the first runnable slice is intentionally a
+small cross-platform-invariant smoke gate. It does not yet claim that every
+Chromium-oriented spec is portable. `npm run test:e2e:browsers` runs the gate in
+all three engines; `npm run test:e2e:mixed-browsers` runs simultaneous engines
+in one peer scenario.
+
 ## 1.1 Add Safari/WebKit
 
-- [ ] Add a Playwright WebKit project to `playwright.config.ts`.
+- [x] Add a Playwright WebKit project to `playwright.config.ts`.
 - [ ] Run the existing E2E suite under WebKit.
-- [ ] Identify tests that depend on Chromium-specific behavior.
-- [ ] Fix or isolate browser-specific assumptions.
-- [ ] Confirm networking, storage, IndexedDB, WebSocket, and Gun.js behavior under WebKit.
-- [ ] Add WebKit results to the normal Playwright HTML report.
-- [ ] Add a convenient command such as:
+- [x] Identify tests that depend on Chromium-specific behavior.
+- [x] Fix or isolate the first browser-specific assumption (`ensureWindowFitsViewport` now skips CDP outside Chromium).
+- [x] Confirm networking, storage, IndexedDB, WebSocket, and Gun.js behavior under WebKit.
+- [x] Add WebKit results to the normal Playwright HTML report.
+- [x] Add a convenient command such as:
 
 ```bash
 npm run test:e2e:webkit
 ```
 
+Implemented and passing for the platform smoke gate.
+
 ## 1.2 Add Firefox
 
-- [ ] Add a Playwright Firefox project.
+- [x] Add a Playwright Firefox project.
 - [ ] Run the existing E2E suite under Firefox.
 - [ ] Fix or document Firefox-specific failures.
 - [ ] Verify Gun.js/P2P behavior under Firefox.
 - [ ] Verify local storage, IndexedDB, permissions, WebSocket, and reconnect behavior.
-- [ ] Add a command such as:
+- [x] Add a command such as:
 
 ```bash
 npm run test:e2e:firefox
 ```
 
+Implemented and passing for the platform smoke gate; HTTP, WebSocket,
+localStorage, IndexedDB, and local Gun read/write are covered. Permissions,
+reconnect, and cross-peer Firefox behavior remain open.
+
 ## 1.3 Run All Three Browsers
 
-- [ ] Run Chromium, WebKit, and Firefox from one Playwright configuration.
-- [ ] Add a command such as:
+- [x] Run Chromium, WebKit, and Firefox from one Playwright configuration (platform smoke gate).
+- [x] Add a command such as:
 
 ```bash
 npm run test:e2e:browsers
 ```
 
+Implemented; all projects contribute to one HTML report.
+
 - [ ] Make test data and ports safe for parallel browser execution.
-- [ ] Prevent browser instances from accidentally sharing identities or state unless the test explicitly requires it.
+- [x] Prevent browser instances from accidentally sharing identities or state unless the test explicitly requires it (fresh context and browser IndexedDB plus server-graph clear per smoke test).
 - [ ] Give each test peer a visible identity such as:
   - chromium-alice
   - webkit-bob
@@ -62,8 +76,8 @@ npm run test:e2e:browsers
 
 Do not only run the same test independently in each browser. Add scenarios where different browsers communicate with each other.
 
-- [ ] Chromium -> WebKit
-- [ ] WebKit -> Chromium
+- [x] Chromium -> WebKit (first matching-thread slice).
+- [x] WebKit -> Chromium (bidirectional reply in the same slice).
 - [ ] Chromium -> Firefox
 - [ ] Firefox -> Chromium
 - [ ] WebKit -> Firefox
@@ -84,6 +98,11 @@ Suggested scenarios:
 - [ ] Disconnect and reconnect one browser.
 - [ ] Verify state convergence after reconnection.
 - [ ] Restart one browser and verify persisted identity/state.
+
+Current mixed-engine slice: `chromium-alice` creates a one-question matching
+Talk, `webkit-bob` answers it, and the resulting thread carries one message in
+each direction. Full broadcast receipt, the remaining engine pairs, three-peer
+presence, reconnect, and restart persistence are still open.
 
 Milestone:
 
@@ -149,21 +168,21 @@ Start with one phone. Do not begin with a multi-phone test farm.
 
 ## 3.1 One Android Phone
 
-- [ ] Connect one Android phone to the Mac mini with ADB.
-- [ ] Confirm:
+- [x] Connect one Android phone to the Mac mini with ADB (three connected on 2026-09-07).
+- [x] Confirm:
 
 ```bash
 adb devices
 ```
 
-- [ ] Automate APK installation.
-- [ ] Automate application reset/clean state.
-- [ ] Automate application launch.
-- [ ] Select the Android UI automation framework.
+- [x] Automate APK installation (`npm run android:install:matrix`; explicit serials, bounded per-device timeout, and combined failure reporting).
+- [x] Automate application reset/clean state (`adb shell pm clear` preflight barrier).
+- [x] Automate application launch.
+- [x] Select the Android UI automation framework (Playwright WebView/CDP plus explicit ADB lifecycle control, reusing the browser scenario layer).
 - [ ] Start with Maestro unless a feature requires lower-level Android control.
 - [ ] Add ADB-based log collection.
-- [ ] Capture screenshots on failure.
-- [ ] Add Android device information to the final test report.
+- [x] Capture screenshots on failure (Playwright attachments from each WebView).
+- [x] Add Android device information to the final test report.
 
 ## 3.2 Android + macOS Browser Tests
 
@@ -193,8 +212,8 @@ Milestone:
 
 ## 3.3 Expand to Two Android Phones
 
-- [ ] Add stable ADB serial mapping.
-- [ ] Give each device a logical test name.
+- [x] Add stable ADB serial mapping.
+- [x] Give each device a logical test name.
 - [ ] Example:
 
 ```text
@@ -202,20 +221,20 @@ android-alice -> SERIAL_1
 android-bob   -> SERIAL_2
 ```
 
-- [ ] Allow each test to address a specific device.
-- [ ] Prevent APK install/reset commands from affecting the wrong device.
+- [x] Allow each test to address a specific device.
+- [x] Prevent APK install/reset commands from affecting the wrong device.
 - [ ] Add Android -> Android Talk and discovery tests.
 - [ ] Add Android + Android + desktop three-peer tests.
 
 ## 3.4 Expand to Three or More Android Phones
 
-- [ ] Move device configuration into a central file such as:
+- [x] Move device configuration into a central file such as:
 
 ```text
 tests/matrix/devices.json
 ```
 
-- [ ] Automatically detect connected devices.
+- [x] Automatically detect connected devices for matrix installation and launch readiness.
 - [ ] Mark unavailable devices as skipped rather than crashing the whole matrix.
 - [ ] Support selecting devices by logical name.
 - [ ] Add 3+ peer convergence tests.

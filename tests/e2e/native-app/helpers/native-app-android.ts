@@ -23,6 +23,45 @@ export type AndroidUser = {
   cdpForwardPort?: number;
 };
 
+export async function isAndroidDeviceReady(serial: string): Promise<boolean> {
+  const result = await execFileAsync('adb', ['-s', serial, 'get-state'], { timeout: 3_000 })
+    .catch(() => ({ stdout: '' }));
+  return String(result.stdout).trim() === 'device';
+}
+
+export async function readAndroidDeviceMetadata(serial: string): Promise<Record<string, string>> {
+  const getprop = async (key: string): Promise<string> => {
+    const result = await execFileAsync('adb', ['-s', serial, 'shell', 'getprop', key], { timeout: 3_000 });
+    return String(result.stdout).trim();
+  };
+  const [manufacturer, model, release, sdk, fingerprint] = await Promise.all([
+    getprop('ro.product.manufacturer'),
+    getprop('ro.product.model'),
+    getprop('ro.build.version.release'),
+    getprop('ro.build.version.sdk'),
+    getprop('ro.build.fingerprint'),
+  ]);
+  return { serial, manufacturer, model, release, sdk, fingerprint };
+}
+
+/**
+ * Clear the installed app's sandbox before a destructive, isolated physical-device run.
+ * This prevents identities, rate-limit ledgers, and Radisk state from earlier manual/test
+ * sessions from changing the result of the matrix. The APK remains installed.
+ */
+export async function resetAndroidAppData(serial: string): Promise<void> {
+  const result = await execFileAsync(
+    'adb',
+    ['-s', serial, 'shell', 'pm', 'clear', ANDROID_PACKAGE],
+    { timeout: 15_000 },
+  );
+  if (String(result.stdout).trim() !== 'Success') {
+    throw new Error(
+      `Failed to clear ${ANDROID_PACKAGE} data on ${serial}: ${String(result.stdout || result.stderr).trim()}`,
+    );
+  }
+}
+
 async function settleWithin(work: Promise<unknown>, timeoutMs: number): Promise<void> {
   await resolveWithin(work.catch(() => undefined), timeoutMs).catch(() => undefined);
 }
@@ -155,6 +194,7 @@ async function connectToAppWebView(
 
 async function waitForAndroidApp(
   user: Omit<AndroidUser, 'window'> & { window: Page },
+  timeoutMs = 55_000,
 ): Promise<AndroidUser> {
   const { window, deviceSerial } = user;
   const diagnostics: string[] = [];
@@ -162,11 +202,14 @@ async function waitForAndroidApp(
     if (message.type() === 'error' || message.type() === 'warning') diagnostics.push(`console:${message.type()}:${message.text()}`);
   });
   window.on('pageerror', (error) => diagnostics.push(`pageerror:${error.message}`));
-  const deadline = Date.now() + 110_000;
+  const deadline = Date.now() + timeoutMs;
   const fallbackNavigationAt = Date.now() + 15_000;
   let fallbackNavigationUsed = false;
   let lastError: unknown;
   while (Date.now() < deadline) {
+    if (window.isClosed()) {
+      throw new Error(`Android WebView target closed on ${deviceSerial}; the app process may have restarted`);
+    }
     try {
       await window.waitForFunction(
         () => {
@@ -197,19 +240,11 @@ async function waitForAndroidApp(
   );
 }
 
-/** Deterministic multi-phone path that bypasses Playwright's experimental adb enumerator. */
-export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions & { deviceSerial: string }): Promise<AndroidUser> {
-  const serial = options.deviceSerial;
-  await execFileAsync(
-    'adb',
-    ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],
-    { timeout: 5_000 },
-  );
-  await execFileAsync('adb', [
-    '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
-    '--es', 'hub_gun_url', options.hubGunUrl,
-  ], { timeout: 5_000 });
+async function attachAndroidProcess(serial: string): Promise<AndroidUser> {
   const pid = await waitForAppProcessViaAdb(serial);
+  const candidatePort = cdpForwardPortForSerial(serial);
+  await execFileAsync('adb', ['-s', serial, 'forward', '--remove', `tcp:${candidatePort}`], { timeout: 5_000 })
+    .catch(() => undefined);
   const cdpForwardPort = await waitForCdpEndpoint(serial, pid);
   // Prefer Playwright's Android WebView transport. It identifies the browser as mobile
   // Chromium ("clank") and therefore avoids browser-context commands unsupported by old
@@ -223,16 +258,31 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
   ).catch((): AndroidDevice[] => []);
   const device = devices.find((candidate) => candidate.serial() === serial);
   let androidBridgeError: unknown;
+  let window: Page | undefined;
   if (device) {
     try {
-      const window = await connectToAppWebView(device, pid);
-      return waitForAndroidApp({ device, deviceSerial: serial, window, cdpForwardPort });
+      window = await connectToAppWebView(device, pid);
     } catch (error) {
       androidBridgeError = error;
       // Retain the explicit adb/CDP path for devices whose Android WebView enumeration is
       // unavailable. Modern WebViews support the browser-level CDP commands used below.
     }
   }
+  if (window) {
+    const attached: AndroidUser = {
+      ...(device ? { device } : {}),
+      deviceSerial: serial,
+      window,
+      cdpForwardPort,
+    };
+    try {
+      return await waitForAndroidApp(attached);
+    } catch (error) {
+      await disposeAndroidTransport(attached);
+      throw error;
+    }
+  }
+
   let cdpBrowser: Browser | undefined;
   let cdpError: unknown;
   for (let attempt = 0; attempt < 30 && !cdpBrowser; attempt += 1) {
@@ -250,8 +300,80 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
     );
   }
   const context = cdpBrowser.contexts()[0];
-  const window = context.pages()[0] || await context.newPage();
-  return waitForAndroidApp({ device, deviceSerial: serial, window, cdpBrowser, cdpForwardPort });
+  const cdpWindow = context.pages()[0] || await context.newPage();
+  const attached: AndroidUser = {
+    ...(device ? { device } : {}),
+    deviceSerial: serial,
+    window: cdpWindow,
+    cdpBrowser,
+    cdpForwardPort,
+  };
+  try {
+    return await waitForAndroidApp(attached);
+  } catch (error) {
+    await disposeAndroidTransport(attached);
+    throw error;
+  }
+}
+
+async function disposeAndroidTransport(user: AndroidUser | undefined): Promise<void> {
+  if (!user) return;
+  if (user.cdpBrowser) await settleWithin(user.cdpBrowser.close(), 3_000);
+  if (user.device) await settleWithin(user.device.close(), 3_000);
+  if (user.cdpForwardPort) {
+    await settleWithin(
+      execFileAsync('adb', ['-s', user.deviceSerial, 'forward', '--remove', `tcp:${user.cdpForwardPort}`], { timeout: 5_000 }),
+      6_000,
+    );
+  }
+}
+
+/**
+ * Deterministic multi-phone launch with bounded process-restart recovery. Some Android
+ * vendors restart the foreground-service process during cold boot; that closes the first
+ * DevTools target even though a replacement process and WebView appear moments later.
+ */
+export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions & { deviceSerial: string }): Promise<AndroidUser> {
+  const serial = options.deviceSerial;
+  if (options.resetAppData) await resetAndroidAppData(serial);
+  await execFileAsync(
+    'adb',
+    ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],
+    { timeout: 5_000 },
+  );
+  await execFileAsync('adb', [
+    '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
+    '--es', 'hub_gun_url', options.hubGunUrl,
+    ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+  ], { timeout: 5_000 });
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await attachAndroidProcess(serial);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) {
+        // A self-healing embedded-node restart (for example after quarantining a corrupt
+        // Radisk root) restarts the foreground service, but Android does not recreate the
+        // Activity/WebView that disappeared with the old process. Relaunch the Activity so
+        // it creates a fresh debuggable target against the recovered local node. Re-send the
+        // hub override as well; this also protects devices still handling intent redelivery.
+        await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+        await execFileAsync(
+          'adb',
+          ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],
+          { timeout: 5_000 },
+        ).catch(() => undefined);
+        await execFileAsync('adb', [
+          '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
+          '--es', 'hub_gun_url', options.hubGunUrl,
+          ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+        ], { timeout: 5_000 }).catch(() => undefined);
+      }
+    }
+  }
+  throw new Error(`Android WebView attach/readiness failed on ${serial} after 3 process attempts: ${String(lastError)}`);
 }
 
 /** Remove high-volume test projections at teardown without navigating/restarting the SPA. */
@@ -273,6 +395,10 @@ export async function clearAndroidE2ETestProjections(user: AndroidUser): Promise
 
 export type LaunchAndroidUserOptions = {
   hubGunUrl: string;
+  /** Clear the package sandbox before launch. Use for isolated E2E devices only. */
+  resetAppData?: boolean;
+  /** Keep a controlled matrix isolated from unrelated mDNS-advertised IinPublic nodes. */
+  disableLanDiscovery?: boolean;
   /** adb device serial (from `adb devices`) — required when more than one device/emulator
    *  is attached; the first detected device is used otherwise. */
   deviceSerial?: string;
@@ -319,7 +445,11 @@ export async function launchAndroidUser(options: LaunchAndroidUserOptions): Prom
   );
   await execFileAsync(
     'adb',
-    ['-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY, '--es', 'hub_gun_url', options.hubGunUrl],
+    [
+      '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
+      '--es', 'hub_gun_url', options.hubGunUrl,
+      ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+    ],
     { timeout: 5_000 },
   );
 
@@ -364,16 +494,5 @@ export async function closeAndroidUser(user: AndroidUser | undefined): Promise<v
     ),
     6_000,
   );
-  if (user.cdpBrowser) await settleWithin(user.cdpBrowser.close(), 3_000);
-  if (user.cdpForwardPort) {
-    await settleWithin(
-      execFileAsync(
-        'adb',
-        ['-s', user.deviceSerial, 'forward', '--remove', `tcp:${user.cdpForwardPort}`],
-        { timeout: 5_000 },
-      ),
-      6_000,
-    );
-  }
-  if (user.device) await settleWithin(user.device.close(), 3_000);
+  await disposeAndroidTransport(user);
 }

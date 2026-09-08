@@ -116,6 +116,9 @@ class MainActivity : AppCompatActivity() {
         this.intent?.getStringExtra(NodeForegroundService.HUB_GUN_URL_EXTRA)?.let { override ->
             intent.putExtra(NodeForegroundService.HUB_GUN_URL_EXTRA, override)
         }
+        if (this.intent?.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false) == true) {
+            intent.putExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, true)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {

@@ -11,6 +11,10 @@ export async function ensureWindowFitsViewport(
   contentWidth: number,
   contentHeight: number,
 ): Promise<void> {
+  // CDP is a Chromium-only protocol. Mixed-browser runs should keep the viewport
+  // supplied to browser.newContext() and avoid making a known-invalid API call.
+  if (page.context().browser()?.browserType().name() !== 'chromium') return;
+
   try {
     const cdp = await page.context().newCDPSession(page);
     // getWindowForTarget uses the session's target when targetId is omitted
@@ -21,6 +25,6 @@ export async function ensureWindowFitsViewport(
       height: contentHeight,
     });
   } catch (e) {
-    console.warn('ensureWindowFitsViewport failed (non-Chromium?):', e);
+    console.warn('ensureWindowFitsViewport failed:', e);
   }
 }

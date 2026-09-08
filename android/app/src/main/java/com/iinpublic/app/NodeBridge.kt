@@ -30,10 +30,23 @@ object NodeBridge {
 
     /* ── JNI entry point ──────────────────────────────────────────────── */
     @JvmStatic
-    external fun nativeStartNode(dataDir: String, scriptPath: String, port: Int, hubUrl: String)
+    external fun nativeStartNode(
+        dataDir: String,
+        scriptPath: String,
+        port: Int,
+        hubUrl: String,
+        disableLanDiscovery: Boolean,
+    )
 
     /** Called by NodeForegroundService.onStartCommand(). */
-    fun startProject(context: Context, scriptInProject: String, nodePort: Int, dataDirPath: String, hubUrl: String) {
+    fun startProject(
+        context: Context,
+        scriptInProject: String,
+        nodePort: Int,
+        dataDirPath: String,
+        hubUrl: String,
+        disableLanDiscovery: Boolean,
+    ) {
         if (started) return
         started = true
 
@@ -42,7 +55,7 @@ object NodeBridge {
         unpackIfNeeded(context, File(nodeDataDir))
 
         android.util.Log.i("NodeBridge", "calling nativeStartNode(port=$nodePort, hub=$hubUrl)")
-        nativeStartNode(nodeDataDir, scriptInProject, nodePort, hubUrl)
+        nativeStartNode(nodeDataDir, scriptInProject, nodePort, hubUrl, disableLanDiscovery)
     }
 
     /* ── asset unpacking ──────────────────────────────────────────────── */

@@ -138,6 +138,7 @@ const DEVICE_PROFILES = process.env.E2E_DEVICE_PROFILES === '1' || process.env.E
  * Run: `npm run test:e2e:cross-browser` (or `test:e2e:webkit` for WebKit only).
  */
 const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === '1' || process.env.E2E_CROSS_BROWSER === 'true';
+const MIXED_BROWSER = process.env.E2E_MIXED_BROWSER === '1' || process.env.E2E_MIXED_BROWSER === 'true';
 
 // Optional port-range offset so concurrent `playwright test` runs don't collide. Matches
 // E2E_PORT_OFFSET in tests/e2e/helpers/ports.ts (default 0). web = 3001+offset+i, gun =
@@ -285,6 +286,10 @@ export default defineConfig({
             // Native app E2E launches Electron and owns its own app-local ports/profile
             // directories; run it via `npm run test:e2e:native-app`.
             /native-app\//,
+            // Mixed-engine specs launch their own Chromium/WebKit/Firefox processes and are
+            // intentionally opt-in so an ordinary Chromium-only run does not download or
+            // require the other browser engines.
+            ...(MIXED_BROWSER ? [] : [/browser-matrix\//]),
             // Quarantined machine-sensitive specs: run ONLY in the dedicated single-worker
             // sequential phase (E2E_RUN_ISOLATED=1, tests/e2e/isolated) — never alongside
             // any other shard. See scripts/run-test-all.sh wave 'isolated'.

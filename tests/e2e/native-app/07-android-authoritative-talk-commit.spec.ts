@@ -15,9 +15,10 @@ import {
   launchAndroidUserViaAdb,
   type AndroidUser,
 } from './helpers/native-app-android';
+import { configuredAndroidDevices } from './helpers/android-device-config';
 
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
-const ANDROID_SERIAL = process.env.NATIVE_APP_ANDROID_SERIAL?.trim() || '';
+const ANDROID_SERIAL = process.env.NATIVE_APP_ANDROID_SERIAL?.trim() || configuredAndroidDevices()[0]?.serial || '';
 const RUN = process.env.E2E_REAL_ANDROID_TALK_COMMIT === '1';
 
 function resolveLanIp(): string {

@@ -83,6 +83,8 @@ export async function launchNativeUser(options: LaunchNativeUserOptions): Promis
       IINPUBLIC_LOCAL_PORT: String(options.localPort),
       IINPUBLIC_HUB_GUN_URL: options.hubGunUrl,
       IINPUBLIC_USER_DATA_DIR: options.userDataDir,
+      // Keep native E2E profiles isolated from unrelated mDNS-advertised nodes.
+      IINPUBLIC_LAN_DISCOVERY_ENABLED: '0',
     },
   });
   const window = await app.firstWindow();
@@ -186,7 +188,38 @@ export async function bootstrapNativeWindow(
     }
     await page.waitForSelector('#settings-stage-name-input', { timeout: E2E_ASSERT_TIMEOUT_MS });
     await page.fill('#settings-stage-name-input', stageName);
-    await page.locator('#settings-stage-name-input').blur();
+    // This helper prepares a peer; the Settings form itself has broad browser coverage.
+    // Invoke the same authoritative callback directly so Playwright can await and retry the
+    // asynchronous Gun write. `locator.blur()` only waits for DOM dispatch, not the async
+    // change listener, and a transient write failure used to leave the matrix polling the old
+    // random name for the entire 110-second readiness budget with no useful error detail.
+    let updated = false;
+    let lastUpdateError = '';
+    for (let attempt = 0; attempt < 4 && !updated; attempt += 1) {
+      const outcome = await page.evaluate(async (nextStageName) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        if (!app?.currentUser?.id || !app?.uiManager?.onStageNameChange) {
+          return { ok: false, error: 'stage-name callback unavailable' };
+        }
+        try {
+          await app.uiManager.onStageNameChange(app.currentUser.id, nextStageName);
+          return { ok: app.currentUser.stageName === nextStageName, error: '' };
+        } catch (error) {
+          const detail = error instanceof Error
+            ? `${error.name}: ${error.message}`
+            : (() => {
+                try { return JSON.stringify(error); } catch { return String(error); }
+              })();
+          return { ok: false, error: detail };
+        }
+      }, stageName);
+      updated = outcome.ok;
+      lastUpdateError = outcome.error;
+      if (!updated) await page.waitForTimeout(500 * (attempt + 1));
+    }
+    if (!updated) {
+      throw new Error(`Native stage-name update failed for "${stageName}": ${lastUpdateError || 'unknown error'}`);
+    }
     await afterNav();
     await expect
       .poll(

@@ -24,12 +24,19 @@
  *
  * Companion doc: tests/e2e/native-app/05-android-device-boots.md
  */
-import { test, expect, _android as android } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import * as os from 'os';
-import { launchAndroidUser, closeAndroidUser, type AndroidUser } from './helpers/native-app-android';
+import {
+  launchAndroidUserViaAdb,
+  closeAndroidUser,
+  isAndroidDeviceReady,
+  readAndroidDeviceMetadata,
+  type AndroidUser,
+} from './helpers/native-app-android';
+import { configuredAndroidDevices } from './helpers/android-device-config';
 
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
-const ANDROID_SERIAL = process.env.NATIVE_APP_ANDROID_SERIAL?.trim() || undefined;
+const ANDROID_SERIAL = process.env.NATIVE_APP_ANDROID_SERIAL?.trim() || configuredAndroidDevices()[0]?.serial;
 
 function resolveLanIp(): string {
   if (process.env.NATIVE_APP_ANDROID_HOST) return process.env.NATIVE_APP_ANDROID_HOST;
@@ -52,16 +59,19 @@ test.describe('Native app: Android device boot', () => {
     user = undefined;
   });
 
-  test('boots on a real device and serves the embedded SPA', async () => {
-    const devices = await android.devices().catch(() => []);
+  test('boots on a real device and serves the embedded SPA', async ({}, testInfo) => {
+    const deviceReady = ANDROID_SERIAL ? await isAndroidDeviceReady(ANDROID_SERIAL) : false;
     test.skip(
-      devices.length === 0,
-      'No adb device attached — connect a phone with USB debugging enabled (see this ' +
-        'file\'s header comment) so `adb devices` lists it, then re-run.',
+      !deviceReady,
+      `Configured adb device ${ANDROID_SERIAL || '(none)'} is unavailable — connect it with USB debugging enabled.`,
     );
 
     const hubGunUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
-    user = await launchAndroidUser({ hubGunUrl, ...(ANDROID_SERIAL ? { deviceSerial: ANDROID_SERIAL } : {}) });
+    user = await launchAndroidUserViaAdb({ hubGunUrl, deviceSerial: ANDROID_SERIAL! });
+    await testInfo.attach('android-device.json', {
+      body: Buffer.from(JSON.stringify(await readAndroidDeviceMetadata(ANDROID_SERIAL!), null, 2)),
+      contentType: 'application/json',
+    });
 
     await expect(user.window.locator('#chatroom-list')).toContainText('Global', { timeout: 5_000 });
     await expect(user.window.locator('body')).not.toContainText('Connecting to IinPublic network...', {

@@ -21,7 +21,9 @@ import {
 import {
   closeAndroidUser,
   clearAndroidE2ETestProjections,
+  readAndroidDeviceMetadata,
   launchAndroidUserViaAdb,
+  resetAndroidAppData,
   type AndroidUser,
 } from './helpers/native-app-android';
 import {
@@ -29,14 +31,12 @@ import {
   completeTalksInAppByAnswerIds,
   createTagTalkViaEditor,
 } from '../helpers/talk-demo-ui';
+import { resolveAndroidMatrixDevices } from './helpers/android-device-config';
 
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 const WEB_PORT = HUB_GUN_PORT - 8080 + 3001;
 const APP_PORT = 19161;
-const DEVICE_SERIALS = (process.env.NATIVE_APP_ANDROID_SERIALS || '')
-  .split(',')
-  .map((serial) => serial.trim())
-  .filter(Boolean);
+const ANDROID_DEVICES = resolveAndroidMatrixDevices(process.env.NATIVE_APP_ANDROID_SERIALS || '');
 const RUN_MATRIX = process.env.E2E_REAL_DEVICE_MATRIX === '1';
 const WEBRTC_ARGS = ['--disable-features=WebRtcHideLocalIpsWithMdns'];
 
@@ -157,7 +157,7 @@ function oneTagTalk(authorId: string, owner: string, runId: string): any[] {
 
 test.describe('Real-device seven-client cross-platform matrix', () => {
   test.skip(!RUN_MATRIX, 'Set E2E_REAL_DEVICE_MATRIX=1 to run the physical-device matrix.');
-  test.skip(DEVICE_SERIALS.length !== 3, 'Set NATIVE_APP_ANDROID_SERIALS to exactly three comma-separated adb serials.');
+  test.skip(ANDROID_DEVICES.length !== 3, 'Configure exactly three Android devices in tests/matrix/devices.json or NATIVE_APP_ANDROID_SERIALS.');
 
   let electron: NativeUser | undefined;
   const androidUsers: AndroidUser[] = [];
@@ -174,11 +174,24 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
     if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
   });
 
-  test('all seven runtimes share presence and exchange one matching talk each', async () => {
+  test('all seven runtimes share presence and exchange one matching talk each', async ({}, testInfo) => {
     test.setTimeout(900_000);
     const lanHubUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
     const loopbackHubUrl = `http://127.0.0.1:${HUB_GUN_PORT}/gun`;
     const users: MatrixUser[] = [];
+
+    await testInfo.attach('android-device-matrix.json', {
+      body: Buffer.from(JSON.stringify(await Promise.all(ANDROID_DEVICES.map(async (device) => ({
+        logicalName: device.name,
+        ...(await readAndroidDeviceMetadata(device.serial)),
+      }))), null, 2)),
+      contentType: 'application/json',
+    });
+
+    // Establish one clean boundary before ANY peer starts. Resetting each phone only when
+    // its turn arrived left the other phones' previous embedded nodes running long enough to
+    // mesh stale identities, ledgers, and corrupt Radisk branches into the new Electron peer.
+    await Promise.all(ANDROID_DEVICES.map((device) => resetAndroidAppData(device.serial)));
 
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-seven-client-e2e-'));
     electron = await launchNativeUser({ localPort: APP_PORT, hubGunUrl: loopbackHubUrl, userDataDir });
@@ -192,14 +205,16 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
     // Attach physical WebViews before launching three more local browser engines. On this
     // Mac, Playwright's experimental Android bridge can miss an adb WebView socket when
     // Chromium, WebKit, and Firefox are already consuming its browser-process event loop.
-    for (let index = 0; index < DEVICE_SERIALS.length; index += 1) {
-      console.log(`[matrix] launching Android ${index + 1}: ${DEVICE_SERIALS[index]}`);
+    for (let index = 0; index < ANDROID_DEVICES.length; index += 1) {
+      const configuredDevice = ANDROID_DEVICES[index];
+      console.log(`[matrix] launching ${configuredDevice.name}: ${configuredDevice.serial}`);
       const androidUser = await launchAndroidUserViaAdb({
         hubGunUrl: lanHubUrl,
-        deviceSerial: DEVICE_SERIALS[index],
+        deviceSerial: configuredDevice.serial,
+        disableLanDiscovery: true,
       });
       androidUsers.push(androidUser);
-      const name = `Matrix Android ${index + 1}`;
+      const name = configuredDevice.name;
       const id = await bootstrapNativeWindow(androidUser.window, name, {
         waitForSupportGreeting: false,
         readinessTimeoutMs: 110_000,
@@ -209,7 +224,7 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
       const actualName = await androidUser.window.evaluate(() =>
         String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName || ''),
       );
-      users.push({ name: actualName || name, runtime: `Android:${DEVICE_SERIALS[index]}`, page: androidUser.window, id });
+      users.push({ name: actualName || name, runtime: `Android:${configuredDevice.name}:${configuredDevice.serial}`, page: androidUser.window, id });
       console.log(`[matrix] ready: ${actualName || name} (${id})`);
     }
 

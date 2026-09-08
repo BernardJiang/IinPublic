@@ -29,12 +29,27 @@ Electron app, Chromium, WebKit, and Firefox. It is opt-in and never runs in the
 ordinary native suite:
 
 ```bash
-NATIVE_APP_ANDROID_SERIALS=serial1,serial2,serial3 \
-  npm run test:e2e:real-device-matrix
+npm run android:build
+npm run android:install:matrix
+npm run test:e2e:real-device-matrix
 ```
 
+The installer gives each phone five minutes by default and continues to the next serial
+after a timeout or ADB failure, then exits nonzero with one combined failure list. Override
+the bound when needed with `ANDROID_INSTALL_TIMEOUT_MS=240000 npm run android:install:matrix`.
+
+The normal device names and serials live in `tests/matrix/devices.json`. An
+explicit `NATIVE_APP_ANDROID_SERIALS=serial1,serial2,serial3` still overrides
+that file for an ad-hoc set. Every install and launch uses `adb -s <serial>`;
+commands cannot silently target whichever phone ADB happens to enumerate first.
+The matrix deliberately runs `adb shell pm clear com.iinpublic.app` on each
+configured phone before launch, leaving the APK installed while removing identities,
+rate-limit history, and Gun/Radisk data from earlier runs. Use dedicated test devices.
+
 The phones reach the test hub over the LAN; set `NATIVE_APP_ANDROID_HOST` only
-when automatic LAN-address detection selects the wrong interface. It never reloads an attached
+when automatic LAN-address detection selects the wrong interface. Matrix-launched native peers
+disable mDNS/LAN discovery so an unrelated IinPublic node on the same network cannot contaminate
+the controlled test graph; normal app launches keep LAN discovery enabled. It never reloads an attached
 WebView: Android's Activity owns the one startup navigation, and high-volume test projections are
 cleared without navigation during teardown. The suite runs a seven-node matching ring (seven
 authors, seven broadcasts, seven completions). Use test devices or profiles because it creates

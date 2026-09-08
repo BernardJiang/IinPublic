@@ -104,4 +104,95 @@ test.describe('@smoke platform smoke set', () => {
     await p.waitForSelector('#settings-grammar-filter');
     await expect(p.locator('#settings-grammar-filter')).toBeChecked({ checked: !was });
   });
+
+  test('HTTP, WebSocket, localStorage, IndexedDB, and Gun work together', async () => {
+    const p = page!;
+    const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const network = await p.evaluate(async () => {
+      const webPort = Number(window.location.port || (window.location.protocol === 'https:' ? '443' : '80'));
+      const gunPort = webPort - 3001 + 8080;
+      const healthUrl = `${window.location.protocol}//${window.location.hostname}:${gunPort}/health`;
+      const websocketUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:${gunPort}/gun`;
+
+      const response = await fetch(healthUrl, { cache: 'no-store' });
+      const websocketOpened = await new Promise<boolean>((resolve) => {
+        const socket = new WebSocket(websocketUrl);
+        const timeoutId = window.setTimeout(() => {
+          socket.close();
+          resolve(false);
+        }, 5_000);
+        socket.addEventListener('open', () => {
+          window.clearTimeout(timeoutId);
+          socket.close();
+          resolve(true);
+        }, { once: true });
+        socket.addEventListener('error', () => {
+          window.clearTimeout(timeoutId);
+          resolve(false);
+        }, { once: true });
+      });
+
+      return { healthOk: response.ok, websocketOpened };
+    });
+    expect(network).toEqual({ healthOk: true, websocketOpened: true });
+
+    await p.evaluate(async (id) => {
+      localStorage.setItem('iinpublic-e2e-browser-compat', id);
+
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('iinpublic-e2e-browser-compat', 1);
+        request.onupgradeneeded = () => request.result.createObjectStore('checks');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction('checks', 'readwrite');
+          transaction.objectStore('checks').put(id, 'run-id');
+          transaction.onerror = () => reject(transaction.error);
+          transaction.oncomplete = () => {
+            database.close();
+            resolve();
+          };
+        };
+      });
+
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      if (!app?.gunService) throw new Error('IinPublic Gun service is unavailable');
+      await app.gunService.put(`e2e/browser-compat/${id}`, { id, writtenAt: Date.now() });
+    }, runId);
+
+    await p.reload();
+    await afterLoad();
+
+    const persisted = await p.evaluate(async (id) => {
+      const indexedDbValue = await new Promise<string>((resolve, reject) => {
+        const request = indexedDB.open('iinpublic-e2e-browser-compat', 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction('checks', 'readonly');
+          const getRequest = transaction.objectStore('checks').get('run-id');
+          getRequest.onerror = () => reject(getRequest.error);
+          getRequest.onsuccess = () => {
+            database.close();
+            resolve(String(getRequest.result || ''));
+          };
+        };
+      });
+
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const gunValue = await app?.gunService?.get?.(`e2e/browser-compat/${id}`);
+      return {
+        localStorageValue: localStorage.getItem('iinpublic-e2e-browser-compat'),
+        indexedDbValue,
+        gunValueId: String(gunValue?.id || ''),
+      };
+    }, runId);
+
+    expect(persisted).toEqual({
+      localStorageValue: runId,
+      indexedDbValue: runId,
+      gunValueId: runId,
+    });
+  });
 });

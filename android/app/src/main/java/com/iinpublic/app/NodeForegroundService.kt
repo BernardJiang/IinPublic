@@ -32,6 +32,8 @@ class NodeForegroundService : Service() {
         const val HUB_GUN_URL = "https://www.iinpublic.com/gun"
         /** Intent extra key MainActivity forwards an adb-supplied hub override under. */
         const val HUB_GUN_URL_EXTRA = "hub_gun_url"
+        /** Test-only isolation switch; normal app launches retain LAN peer discovery. */
+        const val DISABLE_LAN_DISCOVERY_EXTRA = "disable_lan_discovery"
 
         @Volatile var nodeStarted = false
     }
@@ -47,12 +49,17 @@ class NodeForegroundService : Service() {
             // `started` latch below it). Fine for e2e: force-stop the app between runs
             // that need a different hub, same as any fresh launch.
             val hubUrl = intent?.getStringExtra(HUB_GUN_URL_EXTRA)?.takeIf { it.isNotBlank() } ?: HUB_GUN_URL
-            startEmbeddedNode(hubUrl)
+            val disableLanDiscovery = intent?.getBooleanExtra(DISABLE_LAN_DISCOVERY_EXTRA, false) == true
+            startEmbeddedNode(hubUrl, disableLanDiscovery)
         }
-        return START_STICKY
+        // Preserve the launch configuration if Android restarts this process. START_STICKY
+        // supplies a null Intent, which silently changed an adb-selected test hub back to the
+        // production hub after a process restart. Redelivery keeps the original hub_gun_url;
+        // an ordinary later app launch still sends its own fresh, production-default Intent.
+        return START_REDELIVER_INTENT
     }
 
-    private fun startEmbeddedNode(hubUrl: String) {
+    private fun startEmbeddedNode(hubUrl: String, disableLanDiscovery: Boolean) {
         val dataDir = filesDir.absolutePath + "/node-data"
         java.io.File(dataDir).mkdirs()
 
@@ -60,7 +67,7 @@ class NodeForegroundService : Service() {
             // NodeBridge.startProject unpacks assets then calls the JNI shim.
             // The native side sets IINPUBLIC_* env vars and spawns a pthread
             // that runs node::Start().
-            NodeBridge.startProject(this, "main.js", LOCAL_PORT, dataDir, hubUrl)
+            NodeBridge.startProject(this, "main.js", LOCAL_PORT, dataDir, hubUrl, disableLanDiscovery)
         }.start()
     }
 

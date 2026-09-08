@@ -1,0 +1,19 @@
+{
+  "android": [
+    {
+      "name": "android-alice",
+      "serial": "DUM0219418001663",
+      "model": "VOG_L29"
+    },
+    {
+      "name": "android-bob",
+      "serial": "PM1LHMA7A2707315",
+      "model": "PH_1"
+    },
+    {
+      "name": "android-charlie",
+      "serial": "RNV0217207000190",
+      "model": "FRD_L04"
+    }
+  ]
+}

@@ -55,11 +55,12 @@ extern "C" void* run_node(void*) {
 static pthread_mutex_t g_once_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
- * Java: NodeBridge.nativeStartNode(dataDir, scriptPath, port, hubUrl)
+ * Java: NodeBridge.nativeStartNode(dataDir, scriptPath, port, hubUrl, disableLanDiscovery)
  *   dataDir    — writable sandbox dir (assets unpacked here)
  *   scriptPath — entry point inside dataDir ("main.js")
  *   port       — loopback HTTP port for Express / WebView
  *   hubUrl     — Gun discovery peer URL
+ *   disableLanDiscovery — isolates controlled E2E matrices from unrelated LAN peers
  */
 extern "C" JNIEXPORT void JNICALL
 Java_com_iinpublic_app_NodeBridge_nativeStartNode(
@@ -68,7 +69,8 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
         jstring data_dir_j,
         jstring script_path_j,
         jint port,
-        jstring hub_j)
+        jstring hub_j,
+        jboolean disable_lan_discovery)
 {
     pthread_mutex_lock(&g_once_lock);
 
@@ -93,6 +95,7 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
     const char* hub = env->GetStringUTFChars(hub_j, nullptr);
     setenv("IINPUBLIC_HUB_GUN_URL", hub, 1);
     env->ReleaseStringUTFChars(hub_j, hub);
+    setenv("IINPUBLIC_LAN_DISCOVERY_ENABLED", disable_lan_discovery ? "0" : "1", 1);
 
     // Port (used by embedded-node config resolution)
     {
@@ -113,7 +116,10 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
     // — normally /dev/null — so they never reach logcat. Redirect to a file in the
     // sandbox so a device-side crash-loop with no AndroidRuntime/logcat trace (see
     // 2026-08-08 real-device debugging) can actually be diagnosed via `adb pull`.
-    freopen("node-stdio.log", "w", stdout);
+    // Append across Android process restarts. A sticky/re-delivered foreground service can
+    // restart within a second after Node calls process.exit(), and truncating here erased the
+    // only copy of the original boot failure before adb could collect it.
+    freopen("node-stdio.log", "a", stdout);
     freopen("node-stdio.log", "a", stderr);
     setvbuf(stdout, nullptr, _IONBF, 0);
     setvbuf(stderr, nullptr, _IONBF, 0);
