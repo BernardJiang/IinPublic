@@ -39,14 +39,7 @@ export function parseBootstrapPeerMultiaddrs(rawList?: string): string[] {
 }
 
 async function sha256Hex(value: string): Promise<string> {
-  const encoded = new TextEncoder().encode(value);
-  if (globalThis.crypto?.subtle) {
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', encoded);
-    return Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('');
-  }
-  throw new Error('WebCrypto SHA-256 is not available');
+  return portableSha256Hex(value);
 }
 
 export async function roomRendezvousKey(roomId: string): Promise<string> {
@@ -121,3 +114,4 @@ export class P2PRoomDiscoveryService {
     return [...found];
   }
 }
+import { portableSha256Hex } from '../../shared/portable-sha256';

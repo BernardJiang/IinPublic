@@ -55,6 +55,9 @@ cleared without navigation during teardown. The suite runs a seven-node matching
 authors, seven broadcasts, seven completions). Use test devices or profiles because it creates
 ordinary test talks and exchanges.
 
+On failure, the Playwright result includes each configured phone's PID-scoped logcat tail and
+embedded `node-stdio.log`, alongside the normal screenshots and device metadata attachments.
+
 To isolate a phone that displays "Failed to create talk," run the authoritative-commit
 regression against that adb serial. It rejects local ghost OUT rows and requires the device's
 Gun repository record to be readable:

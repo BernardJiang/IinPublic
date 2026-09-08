@@ -1,4 +1,5 @@
 import SEA from 'gun/sea';
+import { portableSha256Hex } from './portable-sha256';
 
 export type StarServerPersistencePolicy = 'durable' | 'ephemeral';
 
@@ -505,14 +506,7 @@ export function canonicalSerialize(value: unknown): string {
 }
 
 async function sha256Hex(value: string): Promise<string> {
-  const encoded = new TextEncoder().encode(value);
-  if (globalThis.crypto?.subtle) {
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', encoded);
-    return Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('');
-  }
-  throw new Error('WebCrypto SHA-256 is not available');
+  return portableSha256Hex(value);
 }
 
 export async function derivePeerIdFromPub(pub: string): Promise<string> {

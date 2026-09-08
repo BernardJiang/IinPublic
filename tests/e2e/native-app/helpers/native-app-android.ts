@@ -44,6 +44,35 @@ export async function readAndroidDeviceMetadata(serial: string): Promise<Record<
   return { serial, manufacturer, model, release, sdk, fingerprint };
 }
 
+export async function collectAndroidDiagnostics(serial: string): Promise<{
+  logcat: string;
+  nodeStdio: string;
+}> {
+  const pidResult = await execFileAsync(
+    'adb',
+    ['-s', serial, 'shell', 'pidof', ANDROID_PACKAGE],
+    { timeout: 3_000 },
+  ).catch(() => ({ stdout: '' }));
+  const pid = String(pidResult.stdout).trim().split(/\s+/)[0] || '';
+  const readText = async (args: string[]): Promise<string> => {
+    try {
+      const result = await execFileAsync('adb', ['-s', serial, ...args], {
+        encoding: 'utf8',
+        maxBuffer: 8 * 1024 * 1024,
+        timeout: 10_000,
+      });
+      return String(result.stdout);
+    } catch (error) {
+      return `[diagnostic collection failed: ${String(error)}]`;
+    }
+  };
+  const [logcat, nodeStdio] = await Promise.all([
+    readText(['logcat', '-d', '-t', '2000', ...(pid ? ['--pid', pid] : [])]),
+    readText(['shell', 'run-as', ANDROID_PACKAGE, 'cat', 'files/node-data/node-stdio.log']),
+  ]);
+  return { logcat, nodeStdio };
+}
+
 /**
  * Clear the installed app's sandbox before a destructive, isolated physical-device run.
  * This prevents identities, rate-limit ledgers, and Radisk state from earlier manual/test

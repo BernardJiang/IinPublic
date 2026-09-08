@@ -80,29 +80,30 @@ Do not only run the same test independently in each browser. Add scenarios where
 - [x] WebKit -> Chromium (bidirectional reply in the same slice).
 - [ ] Chromium -> Firefox
 - [ ] Firefox -> Chromium
-- [ ] WebKit -> Firefox
+- [x] WebKit -> Firefox (verified in the seven-runtime physical ring).
 - [ ] Firefox -> WebKit
-- [ ] Three-peer scenario:
+- [x] Three-peer scenario:
   - Chromium
   - WebKit
   - Firefox
 
 Suggested scenarios:
 
-- [ ] Peer discovery.
-- [ ] Join the same chatroom.
-- [ ] Send and receive a Talk.
-- [ ] Answer a Talk.
-- [ ] Verify tag/question matching.
-- [ ] Verify state propagation.
+- [x] Peer discovery.
+- [x] Join the same chatroom.
+- [x] Send and receive a Talk.
+- [x] Answer a Talk.
+- [x] Verify tag/question matching.
+- [x] Verify state propagation.
 - [ ] Disconnect and reconnect one browser.
 - [ ] Verify state convergence after reconnection.
 - [ ] Restart one browser and verify persisted identity/state.
 
 Current mixed-engine slice: `chromium-alice` creates a one-question matching
 Talk, `webkit-bob` answers it, and the resulting thread carries one message in
-each direction. Full broadcast receipt, the remaining engine pairs, three-peer
-presence, reconnect, and restart persistence are still open.
+each direction. The physical matrix additionally proves simultaneous three-engine
+presence and Chromium -> WebKit -> Firefox propagation. The remaining directed
+engine pairs, reconnect, and restart persistence are still open.
 
 Milestone:
 
@@ -143,18 +144,18 @@ Test combinations such as:
 - [ ] macOS App -> WebKit
 - [ ] WebKit -> macOS App
 - [ ] macOS App -> Firefox
-- [ ] Firefox -> macOS App
+- [x] Firefox -> macOS App (verified in the seven-runtime physical ring).
 - [ ] macOS App -> macOS App, using separate test profiles
 
 Suggested scenarios:
 
-- [ ] Discovery.
-- [ ] Chatroom join/leave.
-- [ ] Talk exchange.
-- [ ] Matching.
+- [x] Discovery.
+- [x] Chatroom join (leave remains open).
+- [x] Talk exchange.
+- [x] Matching.
 - [ ] Identity persistence.
 - [ ] App restart/reconnect.
-- [ ] Browser-to-app state synchronization.
+- [x] Browser-to-app state synchronization.
 
 Milestone:
 
@@ -180,7 +181,7 @@ adb devices
 - [x] Automate application launch.
 - [x] Select the Android UI automation framework (Playwright WebView/CDP plus explicit ADB lifecycle control, reusing the browser scenario layer).
 - [ ] Start with Maestro unless a feature requires lower-level Android control.
-- [ ] Add ADB-based log collection.
+- [x] Add ADB-based log collection (PID-scoped logcat and embedded Node stdio failure attachments).
 - [x] Capture screenshots on failure (Playwright attachments from each WebView).
 - [x] Add Android device information to the final test report.
 
@@ -188,19 +189,19 @@ adb devices
 
 Add cross-platform scenarios:
 
-- [ ] Android -> Chromium
+- [x] Android -> Chromium (Android Charlie -> Chromium ring edge).
 - [ ] Chromium -> Android
 - [ ] Android -> WebKit
 - [ ] Android -> Firefox
 - [ ] Android -> macOS App
-- [ ] macOS App -> Android
+- [x] macOS App -> Android (macOS -> Android Alice ring edge).
 
 Important IinPublic tests:
 
-- [ ] Android discovers desktop peer.
-- [ ] Desktop discovers Android peer.
+- [x] Android discovers desktop peer.
+- [x] Desktop discovers Android peer.
 - [ ] Android publishes a Talk and desktop receives it.
-- [ ] Desktop publishes a Talk and Android receives it.
+- [x] Desktop publishes a Talk and Android receives it.
 - [ ] Android disconnect/reconnect.
 - [ ] Android app background/foreground.
 - [ ] Network interruption and recovery.
@@ -223,8 +224,8 @@ android-bob   -> SERIAL_2
 
 - [x] Allow each test to address a specific device.
 - [x] Prevent APK install/reset commands from affecting the wrong device.
-- [ ] Add Android -> Android Talk and discovery tests.
-- [ ] Add Android + Android + desktop three-peer tests.
+- [x] Add Android -> Android Talk and discovery tests.
+- [x] Add Android + Android + desktop three-peer tests.
 
 ## 3.4 Expand to Three or More Android Phones
 
@@ -237,8 +238,8 @@ tests/matrix/devices.json
 - [x] Automatically detect connected devices for matrix installation and launch readiness.
 - [ ] Mark unavailable devices as skipped rather than crashing the whole matrix.
 - [ ] Support selecting devices by logical name.
-- [ ] Add 3+ peer convergence tests.
-- [ ] Test simultaneous joins.
+- [x] Add 3+ peer convergence tests.
+- [x] Test simultaneous joins.
 - [ ] Test concurrent Talk propagation.
 - [ ] Test one device going offline while others continue.
 - [ ] Test peer return and resynchronization.
@@ -256,6 +257,11 @@ macOS App
 Milestone:
 
 > The Mac mini controls three or more Android phones plus local macOS peers as one distributed IinPublic test environment.
+
+Verified 2026-09-07: `npm run test:e2e:real-device-matrix` passed in 4.8 minutes
+with three physical Android phones, macOS Electron, Chromium, WebKit, and Firefox.
+Every runtime authored and broadcast one Talk; a seven-node ring completed and matched
+one incoming Talk per runtime.
 
 ---
 

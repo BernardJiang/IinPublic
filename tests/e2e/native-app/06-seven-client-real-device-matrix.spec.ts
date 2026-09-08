@@ -20,6 +20,7 @@ import {
 } from './helpers/native-app';
 import {
   closeAndroidUser,
+  collectAndroidDiagnostics,
   clearAndroidE2ETestProjections,
   readAndroidDeviceMetadata,
   launchAndroidUserViaAdb,
@@ -172,6 +173,21 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
     await Promise.all(androidUsers.map((user) => closeAndroidUser(user)));
     await electron?.app.close().catch(() => {});
     if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
+  });
+
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status === testInfo.expectedStatus) return;
+    for (const device of ANDROID_DEVICES) {
+      const diagnostics = await collectAndroidDiagnostics(device.serial);
+      await testInfo.attach(`${device.name}-logcat.txt`, {
+        body: Buffer.from(diagnostics.logcat),
+        contentType: 'text/plain',
+      });
+      await testInfo.attach(`${device.name}-node-stdio.txt`, {
+        body: Buffer.from(diagnostics.nodeStdio),
+        contentType: 'text/plain',
+      });
+    }
   });
 
   test('all seven runtimes share presence and exchange one matching talk each', async ({}, testInfo) => {
