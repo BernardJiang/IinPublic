@@ -317,7 +317,7 @@ Then test Mac-controlled remote Playwright execution.
 - [x] Windows Chromium standalone.
 - [x] Windows Edge standalone.
 - [x] Windows Firefox standalone.
-- [ ] Mixed Windows-browser scenarios.
+- [x] Mixed Windows-browser scenarios (simultaneous installed Edge -> Firefox match and bidirectional messages).
 
 On 2026-09-07 all eight platform-smoke cases passed on Windows: two cases each
 under Chromium, installed Microsoft Edge, WebKit, and Firefox.
@@ -327,7 +327,7 @@ under Chromium, installed Microsoft Edge, WebKit, and Firefox.
 - [x] Build/install the Windows IinPublic app (x64 NSIS installer, isolated silent install).
 - [x] Add clean test-profile support.
 - [x] Add remote app startup/shutdown (including silent uninstall cleanup).
-- [ ] Add logs and crash artifact collection.
+- [x] Add logs and crash artifact collection (`electron.log` plus up to ten Crashpad files when present).
 - [x] Add Windows app automation adapter if required (Playwright Electron).
 
 First installed-executable gate: `npm run test:e2e:windows:desktop` builds the x64
@@ -335,7 +335,8 @@ NSIS package on `windows-test`, installs it into the revision workspace, launche
 that installed `IinPublic.exe`, and verifies the embedded SPA plus `/health`,
 `/worker.js`, and `/node_modules/gun/gun.js`. It uses an isolated user-data path,
 closes the app, uninstalls it, and merges the remote blob report on the Mac. The
-2026-09-07 run passed. Windows code signing and native crash-dump collection remain open.
+2026-09-07 run passed; its returned blob contains the Electron file-log attachment,
+and the isolated install directory was removed. Windows code signing remains open.
 
 ## 4.4 Cross-OS Tests
 
@@ -633,7 +634,7 @@ Keep this exact order unless a specific product requirement forces an earlier de
 10. [ ] Three or more Android phones.
 11. [x] Windows remote worker.
 12. [x] Windows browsers.
-13. [ ] Windows desktop app.
+13. [x] Windows desktop app.
 14. [ ] Windows + Mac + Android scenarios.
 15. [ ] Ubuntu remote worker.
 16. [ ] Ubuntu browsers.
