@@ -12,5 +12,7 @@ npm run test:e2e:mixed-browsers
 
 Current coverage: `chromium-alice` creates a one-question matching Talk,
 `webkit-bob` answers it, and the resulting thread delivers one message in each
-direction. Firefox pairings, a three-peer topology, reconnect, and restart
-persistence remain subsequent Stage 1 slices.
+direction. On the Windows worker, the matrix runner additionally launches the
+installed Microsoft Edge and Playwright Firefox simultaneously and verifies the
+same bidirectional matched thread. A three-peer topology, reconnect, and restart
+persistence remain subsequent slices.

@@ -114,13 +114,21 @@ try {
 
 const testActions = desktopMode
   ? `
-& '${npxCmd}' playwright install chromium
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & '${npmCmd}' run desktop:stage-deps
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Push-Location (Join-Path $workspace 'platforms\\desktop')
-& '${npmCmd}' ci --no-audit --no-fund
-if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
+$desktopLockHash = (Get-FileHash -Algorithm SHA256 -Path 'package-lock.json').Hash
+$desktopStamp = '.iinpublic-dependencies.sha256'
+$reuseDesktopDependencies = (Test-Path 'node_modules') -and
+  (Test-Path $desktopStamp) -and
+  ((Get-Content -Raw $desktopStamp).Trim() -eq $desktopLockHash)
+if ($reuseDesktopDependencies) {
+  Write-Host '[windows-e2e] reusing verified desktop dependencies'
+} else {
+  & '${npmCmd}' ci --no-audit --no-fund
+  if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
+  Set-Content -NoNewline -Path $desktopStamp -Value $desktopLockHash
+}
 & '${npmCmd}' run dist:win
 $packageExit = $LASTEXITCODE
 Pop-Location
@@ -173,8 +181,6 @@ try {
 exit $testExit
 `
   : `
-& '${npxCmd}' playwright install chromium webkit firefox
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $env:E2E_GUN_MEMORY_ONLY = '1'
 $env:E2E_CROSS_BROWSER = '1'
 $env:E2E_WINDOWS_EDGE = '1'
@@ -184,6 +190,10 @@ $env:E2E_BLOB = '1'
 $env:E2E_RUN_ID = '${runId}'
 $env:PW_WORKERS = '1'
 & '${npxCmd}' playwright test tests/e2e/platform-smoke --project=chromium --project=edge --project=webkit --project=firefox
+$smokeExit = $LASTEXITCODE
+if ($smokeExit -ne 0) { exit $smokeExit }
+$env:E2E_MIXED_BROWSER = '1'
+& '${npxCmd}' playwright test tests/e2e/browser-matrix/01-edge-firefox-talk.spec.ts --project=chromium
 exit $LASTEXITCODE
 `;
 
@@ -196,8 +206,18 @@ Set-Location $workspace
 if (-not (Test-Path (Join-Path $workspace 'package.json'))) {
   Expand-Archive -Path (Join-Path $workspace 'source.zip') -DestinationPath $workspace -Force
 }
-& '${npmCmd}' ci --no-audit --no-fund
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$rootLockHash = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $workspace 'package-lock.json')).Hash
+$rootStamp = Join-Path $workspace '.iinpublic-dependencies.sha256'
+$reuseRootDependencies = (Test-Path (Join-Path $workspace 'node_modules')) -and
+  (Test-Path $rootStamp) -and
+  ((Get-Content -Raw $rootStamp).Trim() -eq $rootLockHash)
+if ($reuseRootDependencies) {
+  Write-Host '[windows-e2e] reusing verified root dependencies'
+} else {
+  & '${npmCmd}' ci --no-audit --no-fund
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  Set-Content -NoNewline -Path $rootStamp -Value $rootLockHash
+}
 & '${npxCmd}' playwright install chromium webkit firefox
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & '${npmCmd}' run build:web

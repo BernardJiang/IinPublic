@@ -14,6 +14,8 @@ export type NativeUser = {
   window: Page;
   localPort: number;
   userDataDir: string;
+  electronLogPath: string;
+  crashDumpsDir: string;
 };
 
 export type LaunchNativeUserOptions = {
@@ -83,9 +85,10 @@ export async function launchNativeUser(options: LaunchNativeUserOptions): Promis
   fs.mkdirSync(options.userDataDir, { recursive: true });
 
   const target = resolveElectronLaunchTarget();
+  const electronLogPath = path.join(options.userDataDir, 'electron.log');
   const app = await electron.launch({
     executablePath: target.executablePath,
-    args: target.args,
+    args: [...target.args, '--enable-logging=file', `--log-file=${electronLogPath}`],
     ...(target.cwd ? { cwd: target.cwd } : {}),
     env: {
       ...process.env,
@@ -98,14 +101,18 @@ export async function launchNativeUser(options: LaunchNativeUserOptions): Promis
       IINPUBLIC_USER_DATA_DIR: options.userDataDir,
       // Keep native E2E profiles isolated from unrelated mDNS-advertised nodes.
       IINPUBLIC_LAN_DISCOVERY_ENABLED: '0',
+      ELECTRON_ENABLE_LOGGING: '1',
     },
   });
   const window = await app.firstWindow();
+  const crashDumpsDir = await app.evaluate(({ app: electronApp }) => electronApp.getPath('crashDumps'));
   return {
     app,
     window,
     localPort: options.localPort,
     userDataDir: options.userDataDir,
+    electronLogPath,
+    crashDumpsDir,
   };
 }
 

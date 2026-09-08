@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type TestInfo } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -11,8 +11,33 @@ test.describe('Native app: Electron desktop boot', () => {
   let native: NativeUser | undefined;
   let userDataDir = '';
 
-  test.afterEach(async () => {
+  async function attachDesktopDiagnostics(testInfo: TestInfo): Promise<void> {
+    const logPath = native?.electronLogPath || path.join(userDataDir, 'electron.log');
+    if (fs.existsSync(logPath)) {
+      await testInfo.attach('electron.log', { path: logPath, contentType: 'text/plain' });
+    }
+
+    const crashDir = native?.crashDumpsDir || path.join(userDataDir, 'Crashpad');
+    if (!fs.existsSync(crashDir)) return;
+    const pending = [crashDir];
+    let attached = 0;
+    while (pending.length > 0 && attached < 10) {
+      const current = pending.pop()!;
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        const entryPath = path.join(current, entry.name);
+        if (entry.isDirectory()) pending.push(entryPath);
+        else {
+          await testInfo.attach(`electron-crash-${attached}-${entry.name}`, { path: entryPath });
+          attached += 1;
+          if (attached >= 10) break;
+        }
+      }
+    }
+  }
+
+  test.afterEach(async ({}, testInfo) => {
     await native?.app.close().catch(() => {});
+    await attachDesktopDiagnostics(testInfo);
     native = undefined;
     if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
   });

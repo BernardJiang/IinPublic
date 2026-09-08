@@ -287,11 +287,11 @@ npm run test:e2e:windows:preflight
   - [x] IinPublic dependencies
 
 - [x] Add a remote revision-keyed test working directory.
-- [ ] Add commands for:
+- [x] Add commands for:
   - [x] update source (`git archive` of the exact controller revision over SCP)
   - [x] build
-  - [ ] start app
-  - [ ] stop app
+  - [x] start app (installed executable through Playwright Electron)
+  - [x] stop app (Playwright close followed by silent uninstall)
   - [x] run tests
   - [x] collect logs/results (Playwright blob copied back and merged on the Mac)
 
@@ -307,7 +307,7 @@ installation, builds, or tests. On 2026-09-07 all six platform-smoke cases passe
 Start with:
 
 - [x] Chromium.
-- [ ] Microsoft Edge.
+- [x] Microsoft Edge.
 - [x] Firefox.
 
 Playwright WebKit is also installed and its platform-smoke cases pass on this worker.
@@ -315,17 +315,27 @@ Playwright WebKit is also installed and its platform-smoke cases pass on this wo
 Then test Mac-controlled remote Playwright execution.
 
 - [x] Windows Chromium standalone.
-- [ ] Windows Edge standalone.
+- [x] Windows Edge standalone.
 - [x] Windows Firefox standalone.
 - [ ] Mixed Windows-browser scenarios.
 
+On 2026-09-07 all eight platform-smoke cases passed on Windows: two cases each
+under Chromium, installed Microsoft Edge, WebKit, and Firefox.
+
 ## 4.3 Add Windows Desktop App
 
-- [ ] Build/install the Windows IinPublic app.
-- [ ] Add clean test-profile support.
-- [ ] Add remote app startup/shutdown.
+- [x] Build/install the Windows IinPublic app (x64 NSIS installer, isolated silent install).
+- [x] Add clean test-profile support.
+- [x] Add remote app startup/shutdown (including silent uninstall cleanup).
 - [ ] Add logs and crash artifact collection.
-- [ ] Add Windows app automation adapter if required.
+- [x] Add Windows app automation adapter if required (Playwright Electron).
+
+First installed-executable gate: `npm run test:e2e:windows:desktop` builds the x64
+NSIS package on `windows-test`, installs it into the revision workspace, launches
+that installed `IinPublic.exe`, and verifies the embedded SPA plus `/health`,
+`/worker.js`, and `/node_modules/gun/gun.js`. It uses an isolated user-data path,
+closes the app, uninstalls it, and merges the remote blob report on the Mac. The
+2026-09-07 run passed. Windows code signing and native crash-dump collection remain open.
 
 ## 4.4 Cross-OS Tests
 
@@ -622,7 +632,7 @@ Keep this exact order unless a specific product requirement forces an earlier de
 9. [ ] Two Android phones.
 10. [ ] Three or more Android phones.
 11. [x] Windows remote worker.
-12. [ ] Windows browsers.
+12. [x] Windows browsers.
 13. [ ] Windows desktop app.
 14. [ ] Windows + Mac + Android scenarios.
 15. [ ] Ubuntu remote worker.

@@ -23,4 +23,7 @@ runs Chromium, installed Microsoft Edge, WebKit, and Firefox. Desktop mode build
 NSIS installer, installs it into an isolated directory, launches the installed `IinPublic.exe`
 with an isolated profile, verifies the embedded HTTP service and SPA, closes it, and runs the
 silent uninstaller. Both modes copy Playwright's blob report back to the Mac and merge it into
-`playwright-report/`.
+`playwright-report/`. The browser mode also runs a simultaneous Edge-to-Firefox matching and
+bidirectional-message scenario. Desktop reports retain Electron's file log and attach up to ten
+Crashpad artifacts when present. A lockfile hash stamp allows safe dependency reuse only within
+the exact same revision workspace.
