@@ -11,7 +11,16 @@ import { fileURLToPath } from 'url';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stageDir = path.join(rootDir, 'platforms', 'desktop', '.prod-deps-staging');
-const runtimePackages = ['bonjour-service', 'cors', 'express', 'gun', 'helmet', 'socket.io', 'uuid'];
+const runtimePackages = [
+  '@noble/hashes',
+  'bonjour-service',
+  'cors',
+  'express',
+  'gun',
+  'helmet',
+  'socket.io',
+  'uuid',
+];
 const rootPackage = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
 const dependencies = Object.fromEntries(
   runtimePackages.map((name) => {
