@@ -514,9 +514,13 @@ coupled, as before).
 
 ### K7. Delegated TechSupport answers
 
-- [ ] Write the design note first: co-operator discovery, signed redirect, relayed answer,
-  `answeredByDelegate` audit trail, timeouts, abuse controls, and privacy boundaries.
-- [ ] Implement only after that design is approved.
+- [x] Write the design note first: co-operator discovery, signed redirect, relayed answer,
+  `answeredByDelegate` audit trail, timeouts, abuse controls, and privacy boundaries. —
+  `docs/design/techsupport-k7-design-note.md` (2026-09-07).
+- [x] Implement only after that design is approved. — approved (delegation-credential model;
+  no in-app master phone sign-in for now) and implemented 2026-09-07. See
+  `docs/completed.md` for the summary and `techsupport-bootstrap-contract.md` for the
+  amended invariants. E2E: `stage2-two-user/00m-techsupport-delegate-answers.spec.ts`.
 
 - [ ] Define production TechSupport key custody and rotation tooling.
 - [ ] Package the headless/off-server TechSupport agent.

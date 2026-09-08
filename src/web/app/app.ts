@@ -71,6 +71,20 @@ import {
   readCachedFaqEntries,
   subscribeToFaqBundle,
 } from '../services/techsupport-faq-cache';
+import {
+  signDelegateGrant,
+  verifyValidDelegateGrant,
+  isValidDelegateGrant,
+  delegateGrantPath,
+  DELEGATE_GRANT_DEFAULT_TTL_MS,
+  DELEGATE_GRANT_MAX_TTL_MS,
+  type TechSupportDelegateGrant,
+} from '../../shared/techsupport-delegate';
+import {
+  readCachedDelegateGrants,
+  subscribeToDelegateGrants,
+  fetchGrantLive,
+} from '../services/techsupport-delegate-cache';
 import { uiLanguageFromProfile } from '../ui/ui-translations';
 import { getUiLanguagePreference } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
@@ -215,6 +229,15 @@ export class IinPublicApp {
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
   private techSupportFaqBundleUnsubscribe: (() => void) | null = null;
+  /** docs/TODO.md K7 — live subscription that keeps the local delegate-grant cache verified/fresh. */
+  private techSupportDelegateGrantsUnsubscribe: (() => void) | null = null;
+  /** docs/TODO.md K7 — this session's OWN currently-valid delegate grant, if any (never the master's). */
+  private techSupportDelegateGrant: TechSupportDelegateGrant | null = null;
+  /** docs/TODO.md K7 — whether the delegate has opted in to acting as a support operator (persisted). */
+  private techSupportDelegateOptedIn = false;
+  private static readonly DELEGATE_OPT_IN_STORAGE_KEY = 'iinpublic_techsupport_delegate_optin_v1';
+  /** Guards `subscribeToSupportInboxIfTechSupport` against double-subscribing — it is now called both at boot and when a delegate opts in later in the session. */
+  private supportInboxSubscribed = false;
   private mailboxDrainPromise: Promise<void> | null = null;
   /**
    * GUN/SEA signs writes in the authenticated user namespace. Overlapping talk completions
@@ -1659,7 +1682,13 @@ export class IinPublicApp {
       console.warn('Support bootstrap failed:', error);
     });
     this.subscribeToTechSupportFaqBundle();
+    this.subscribeToTechSupportDelegateGrants();
     this.subscribeToSupportInboxIfTechSupport();
+    if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) {
+      this.refreshDelegateAdminPanel();
+    } else {
+      void this.checkOwnDelegateEligibility();
+    }
     await this.initP2PPresenceAndBridge();
     this.initDirectTalkDeliverySubscriptions();
     // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
@@ -2365,35 +2394,56 @@ export class IinPublicApp {
     const mailbox = this.ensureMailboxClient();
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return;
+
+    const payload: MailboxSupportQuestionPayload = {
+      kind: 'support-question-v1',
+      questionKey: entry.questionKey,
+      question: entry.question,
+      askedBy: entry.askedBy,
+      conversationId: entry.conversationId,
+      askedAt: entry.askedAt,
+    };
+
+    // docs/TODO.md K7 fan-out: master + every currently-valid delegate each get their own
+    // envelope, so any of their devices independently materializes the same pending row in
+    // their OWN local `techsupport-inbox/*` (design note "Delivery: keeping the inbox visible
+    // to N devices"). One recipient's failure must not block another's.
+    const recipients: Array<{ id: string; epub: string }> = [];
     try {
       const identity = await this.discoverTechSupportIdentityFromGun();
-      const supportEpub = identity?.epub || '';
-      if (!supportEpub) {
-        console.warn('[Mailbox] Cannot post support question — verified TechSupport identity not found');
-        return;
-      }
-      const payload: MailboxSupportQuestionPayload = {
-        kind: 'support-question-v1',
-        questionKey: entry.questionKey,
-        question: entry.question,
-        askedBy: entry.askedBy,
-        conversationId: entry.conversationId,
-        askedAt: entry.askedAt,
-      };
-      const ciphertext = await mailbox.encryptForRecipient(supportEpub, pair as import('../sea-gun').GunPair, payload);
-      const result = await mailbox.postEnvelope({
-        id: `mbx_support_${entry.questionKey}_${entry.askedBy}`,
-        recipientId: TECHSUPPORT_ROOT_USER_ID,
-        ciphertext,
-      });
-      if (result.stored) {
-        console.log('[Mailbox] Posted support question envelope for', entry.questionKey);
-      } else {
-        console.warn('[Mailbox] Server rejected support question envelope:', result.error);
-      }
+      if (identity?.epub) recipients.push({ id: TECHSUPPORT_ROOT_USER_ID, epub: identity.epub });
+      else console.warn('[Mailbox] Cannot post support question to master — verified TechSupport identity not found');
     } catch (err) {
-      console.warn('[Mailbox] postSupportQuestionToMailbox failed:', err);
+      console.warn('[Mailbox] discoverTechSupportIdentityFromGun failed:', err);
     }
+    const now = new Date();
+    const validDelegates = readCachedDelegateGrants().filter((g) => isValidDelegateGrant(g, now));
+    for (const grant of validDelegates) {
+      try {
+        const epub = await this.resolvePeerEpub(grant.delegateUserId);
+        if (epub) recipients.push({ id: grant.delegateUserId, epub });
+      } catch {
+        /* one delegate's unresolved epub must not block the rest */
+      }
+    }
+
+    await Promise.all(recipients.map(async ({ id, epub }) => {
+      try {
+        const ciphertext = await mailbox.encryptForRecipient(epub, pair as import('../sea-gun').GunPair, payload);
+        const result = await mailbox.postEnvelope({
+          id: `mbx_support_${entry.questionKey}_${entry.askedBy}_${id}`,
+          recipientId: id,
+          ciphertext,
+        });
+        if (result.stored) {
+          console.log('[Mailbox] Posted support question envelope for', entry.questionKey, 'to', id);
+        } else {
+          console.warn('[Mailbox] Server rejected support question envelope for', id, ':', result.error);
+        }
+      } catch (err) {
+        console.warn('[Mailbox] postSupportQuestionToMailbox failed for', id, ':', err);
+      }
+    }));
   }
 
   /**
@@ -2404,7 +2454,7 @@ export class IinPublicApp {
    * by questionKey: a duplicate ask overwrites the same row rather than creating a second one.
    */
   private async ingestSupportQuestionFromMailbox(payload: MailboxSupportQuestionPayload): Promise<void> {
-    if (!this.currentUser?.id || this.currentUser.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    if (!this.currentUser?.id || !this.isTechSupportOperatorSession()) return;
     if (payload.kind !== 'support-question-v1' || !payload.questionKey) return;
     const gun = this.gunService.getGun();
     const existing = await new Promise<any>((resolve) => {
@@ -2435,7 +2485,9 @@ export class IinPublicApp {
    * relay-light presence invariant: the relay/other sessions hold no support data).
    */
   private subscribeToSupportInboxIfTechSupport(): void {
-    if (!this.currentUser || this.currentUser.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    if (!this.currentUser || !this.isTechSupportOperatorSession()) return;
+    if (this.supportInboxSubscribed) return;
+    this.supportInboxSubscribed = true;
     const entries = new Map<string, SupportInboxEntry>();
     const gun = this.gunService.getGun();
     gun
@@ -2448,15 +2500,24 @@ export class IinPublicApp {
         } else {
           entries.set(questionKey, { ...data, questionKey } as SupportInboxEntry);
         }
-        this.uiManager.updateSupportInboxEntries(Array.from(entries.values()));
+        // docs/TODO.md K7: with fan-out delivery, more than one device can hold the same
+        // pending row (master + every delegate each got their own envelope). No cross-device
+        // "claim" lock — whichever device answers first publishes `techsupport-faq/<key>`,
+        // which every other device already subscribes to; treat that as "someone already
+        // answered this" and hide the row rather than inviting a redundant answer.
+        const alreadyPublished = new Set(readCachedFaqEntries().map((e) => e.questionKey));
+        const visible = Array.from(entries.values()).filter(
+          (entry) => entry.status !== 'pending' || !alreadyPublished.has(entry.questionKey),
+        );
+        this.uiManager.updateSupportInboxEntries(visible);
       });
   }
 
   /**
-   * docs/TODO.md K5, design note §Item 5. Runs only in a session authenticated as TechSupport
-   * (holds the DM pair via K3) — one action does all four steps: sign + publish the updated FAQ
-   * bundle, deliver the answer to the asker over the real support transport, and flip the inbox
-   * entry to answered.
+   * docs/TODO.md K5, design note §Item 5. Runs in a session authenticated as TechSupport itself
+   * (holds the DM pair via K3) OR — docs/TODO.md K7 — an opted-in delegate holding a currently-
+   * valid grant. One action does all four steps: sign + publish the updated FAQ bundle, deliver
+   * the answer to the asker, and flip the inbox entry to answered.
    */
   private async handleAnswerSupportQuestion(input: {
     questionKey: string;
@@ -2465,17 +2526,35 @@ export class IinPublicApp {
     conversationId: string;
     askedBy: string;
   }): Promise<void> {
-    if (!this.currentUser || this.currentUser.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    if (!this.currentUser) return;
+    const isMaster = this.currentUser.id === TECHSUPPORT_ROOT_USER_ID;
     const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) {
-      console.warn('[Support] Cannot answer — no DM keypair available on this session');
+    if (!pair?.priv || !pair.pub) {
+      console.warn('[Support] Cannot answer — no keypair available on this session');
       return;
     }
+    if (!isMaster) {
+      // K7: re-verify live rather than trusting `this.techSupportDelegateGrant` — a stale
+      // cache must never authorize an actual answer (design note "not trusted from a stale
+      // cache"). Opt-in alone (without a still-valid grant) is also not enough.
+      if (!this.techSupportDelegateOptedIn) return;
+      const raw = await fetchGrantLive(this.gunService.getGun(), pair.pub);
+      const grant = await verifyValidDelegateGrant(raw);
+      if (!grant) {
+        console.warn('[Support] Cannot answer — delegate grant is missing, expired, or revoked');
+        return;
+      }
+    }
+
     // The operator may have edited the question text (privacy — never publish the asker's raw
     // wording verbatim if it carries personal detail); the PUBLISHED entry is keyed on the
     // edited text, not the original asked text. The original questionKey is kept only for
     // flipping the right inbox row below.
-    const entry = buildSupportFaqEntry({ question: input.question, answer: input.answer });
+    const entry = buildSupportFaqEntry({
+      question: input.question,
+      answer: input.answer,
+      ...(isMaster ? {} : { answeredByDelegate: pair.pub }),
+    });
     if (!entry) return;
 
     const gun = this.gunService.getGun();
@@ -2505,8 +2584,32 @@ export class IinPublicApp {
         isFromChatbot: false,
       },
     );
+    if (!isMaster) {
+      // K7: a delegate is authenticated as their OWN account, not TechSupport's — unlike the
+      // master's case (a genuinely-authenticated TechSupport session needs no extra proof), the
+      // asker's client must independently verify this delivered answer, so it needs the same
+      // signed provenance the auto-answer path attaches (`filterVerifiedSupportMessages`'s
+      // `isFaqAnswer` branch already checks exactly these fields against the delegate-aware
+      // `verifyFaqBundle`). Belt pattern matching `handleSupportQuestion`'s hit branch: merge
+      // onto the message node after the transport send, rather than threading new fields through
+      // `SendMessageOptions`.
+      try {
+        gun
+          .get(`conversations/${input.conversationId}`)
+          .get('messages')
+          .get(supportHumanAnswerMessageId(input.questionKey))
+          .put({
+            faqQuestionKey: entry.questionKey,
+            faqAuthorPub: signedBundle.authorPub,
+            faqSignature: signedBundle.signature,
+          });
+      } catch {
+        /* local Gun write failure is non-fatal — the message text itself already delivered */
+      }
+    }
 
     gun.get('techsupport-inbox').get(input.questionKey).put({ status: 'answered' });
+    if (this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) this.refreshDelegateAdminPanel();
     console.log('[Support] Answered and published', input.questionKey);
   }
 
@@ -3269,7 +3372,161 @@ export class IinPublicApp {
   private subscribeToTechSupportFaqBundle(): void {
     if (this.techSupportFaqBundleUnsubscribe) return;
     const gun = this.gunService.getGun();
-    this.techSupportFaqBundleUnsubscribe = subscribeToFaqBundle(gun);
+    this.techSupportFaqBundleUnsubscribe = subscribeToFaqBundle(gun, () => {
+      // docs/TODO.md K7: a delegate answering on their own device publishes this same bundle —
+      // the master's own session only learns about it through this subscription, never directly.
+      if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) this.refreshDelegateAdminPanel();
+    });
+  }
+
+  /**
+   * docs/TODO.md K7, design note "Extending the trust check": keeps the local delegate-grant
+   * cache verified/fresh for every session (master, delegates, and ordinary askers all need it —
+   * an asker's client must be able to verify a delegate-signed FAQ bundle/answer, and the master
+   * needs the live roster for its Delegates panel).
+   */
+  private subscribeToTechSupportDelegateGrants(): void {
+    if (this.techSupportDelegateGrantsUnsubscribe) return;
+    const gun = this.gunService.getGun();
+    this.techSupportDelegateGrantsUnsubscribe = subscribeToDelegateGrants(gun, (grant) => {
+      if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) {
+        this.refreshDelegateAdminPanel();
+        return;
+      }
+      // An ordinary user's OWN grant can arrive/change mid-session (issued or revoked while
+      // they're already online) — re-derive eligibility immediately rather than requiring a
+      // reload, matching the design note's "on boot (or on a slow poll)" allowance with the
+      // stronger live version this subscription already gives every other session for free.
+      const ownPub = this.gunService.getStoredPair()?.pub;
+      if (ownPub && grant.delegatePub === ownPub) void this.checkOwnDelegateEligibility();
+    });
+  }
+
+  /**
+   * docs/TODO.md K7: true for the master session (holds the DM pair, identity IS the root id) or
+   * an ordinary user who has both a currently-valid grant for their OWN pub AND has explicitly
+   * opted in (holding a grant never silently activates delegate mode — the person must accept).
+   */
+  private isTechSupportOperatorSession(): boolean {
+    if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) return true;
+    return this.techSupportDelegateOptedIn && isValidDelegateGrant(this.techSupportDelegateGrant);
+  }
+
+  private loadDelegateOptInFromStorage(): boolean {
+    try {
+      return localStorage.getItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private persistDelegateOptIn(optedIn: boolean): void {
+    try {
+      if (optedIn) localStorage.setItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY, '1');
+      else localStorage.removeItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY);
+    } catch {
+      /* best-effort persistence only */
+    }
+  }
+
+  /**
+   * docs/TODO.md K7: an ordinary (non-master) user checks, on boot, whether the master has issued
+   * THEM a currently-valid grant — a **live** Gun read (not the local cache), since this decides
+   * whether to unlock a capability, not merely how to render a message. Holding a valid grant only
+   * ever surfaces an opt-in prompt; it never silently enables delegate mode.
+   */
+  private async checkOwnDelegateEligibility(): Promise<void> {
+    if (!this.currentUser || this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) return;
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.pub) return;
+    const raw = await fetchGrantLive(this.gunService.getGun(), pair.pub);
+    const grant = await verifyValidDelegateGrant(raw);
+    this.techSupportDelegateGrant = grant;
+    this.techSupportDelegateOptedIn = !!grant && this.loadDelegateOptInFromStorage();
+    this.uiManager.setTechSupportDelegateEligibility(!!grant, grant?.label || '', this.techSupportDelegateOptedIn);
+    if (this.isTechSupportOperatorSession()) this.subscribeToSupportInboxIfTechSupport();
+  }
+
+  /** docs/TODO.md K7: the Me-tab opt-in toggle — never auto-enabled by merely holding a grant. */
+  private async handleToggleTechSupportDelegateOptIn(nextOptedIn: boolean): Promise<void> {
+    if (nextOptedIn) {
+      // Re-verify live rather than trusting the boot-time check — the grant could have been
+      // revoked since (design note's "re-verified at answer time, not a stale cache" discipline).
+      const pair = this.gunService.getStoredPair();
+      const raw = pair?.pub ? await fetchGrantLive(this.gunService.getGun(), pair.pub) : null;
+      const grant = await verifyValidDelegateGrant(raw);
+      if (!grant) {
+        this.techSupportDelegateGrant = null;
+        this.techSupportDelegateOptedIn = false;
+        this.uiManager.setTechSupportDelegateEligibility(false, '', false);
+        return;
+      }
+      this.techSupportDelegateGrant = grant;
+    }
+    this.techSupportDelegateOptedIn = nextOptedIn;
+    this.persistDelegateOptIn(nextOptedIn);
+    this.uiManager.setTechSupportDelegateEligibility(!!this.techSupportDelegateGrant, this.techSupportDelegateGrant?.label || '', nextOptedIn);
+    if (nextOptedIn) this.subscribeToSupportInboxIfTechSupport();
+  }
+
+  /** docs/TODO.md K7: master-only — issue or re-issue a grant for the given delegate pub. */
+  private async handleIssueTechSupportDelegate(input: { delegateUserId: string; label: string; ttlDays: number }): Promise<void> {
+    if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    const pair = this.gunService.getStoredPair();
+    const delegateUserId = input.delegateUserId.trim();
+    if (!pair?.priv || !delegateUserId) return;
+    const delegatePub = (await this.gunService.getPublicUser(delegateUserId))?.pub;
+    if (!delegatePub) {
+      console.warn('[Support] Cannot issue delegate grant — no such user id', delegateUserId);
+      return;
+    }
+    const ttlMs = Math.min(Math.max(input.ttlDays, 1) * 24 * 60 * 60 * 1000, DELEGATE_GRANT_MAX_TTL_MS) || DELEGATE_GRANT_DEFAULT_TTL_MS;
+    const grant = await signDelegateGrant(
+      { delegatePub, delegateUserId, label: input.label, expiresAt: new Date(Date.now() + ttlMs).toISOString() },
+      pair as import('../sea-gun').GunPair & { pub: string; priv: string },
+    );
+    this.writeDelegateGrant(grant);
+  }
+
+  /** docs/TODO.md K7: master-only — revoke by republishing the same soul with `revokedAt` set. */
+  private async handleRevokeTechSupportDelegate(delegatePub: string): Promise<void> {
+    if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return;
+    const existingRaw = await fetchGrantLive(this.gunService.getGun(), delegatePub);
+    const existing = await verifyValidDelegateGrant(existingRaw);
+    if (!existing) return;
+    const grant = await signDelegateGrant(
+      {
+        delegatePub,
+        delegateUserId: existing.delegateUserId,
+        label: existing.label,
+        expiresAt: existing.expiresAt,
+        issuedAt: existing.issuedAt,
+        revokedAt: new Date().toISOString(),
+      },
+      pair as import('../sea-gun').GunPair & { pub: string; priv: string },
+    );
+    this.writeDelegateGrant(grant);
+  }
+
+  private writeDelegateGrant(grant: TechSupportDelegateGrant): void {
+    let ref = this.gunService.getGun().get(delegateGrantPath(grant.delegatePub)[0]);
+    for (const segment of delegateGrantPath(grant.delegatePub).slice(1)) ref = ref.get(segment);
+    ref.put(grant);
+    this.refreshDelegateAdminPanel();
+  }
+
+  /** docs/TODO.md K7: pushes the current roster + delegate-answered FAQ entries to the master's Delegates panel. */
+  private refreshDelegateAdminPanel(): void {
+    if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    this.uiManager.updateTechSupportDelegates(readCachedDelegateGrants());
+    const gun = this.gunService.getGun();
+    gun.get('techsupport-faq').get('bundle').once((data: unknown) => {
+      const bundle = faqBundleFromGunWire(data) as { entries?: import('../../shared/techsupport-faq').SupportFaqEntry[] } | null;
+      const delegateActivity = (bundle?.entries || []).filter((e) => !!e.answeredByDelegate);
+      this.uiManager.updateDelegateActivity(delegateActivity);
+    });
   }
 
   /**
@@ -6186,6 +6443,31 @@ export class IinPublicApp {
         }
       },
     );
+
+    // docs/TODO.md K7 — master's Delegates panel: issue/revoke a co-operator grant.
+    this.uiManager.on(
+      'issueTechSupportDelegate',
+      async (data: { delegateUserId: string; label: string; ttlDays: number }) => {
+        try {
+          await this.handleIssueTechSupportDelegate(data);
+        } catch (error) {
+          console.error('Failed to issue TechSupport delegate grant:', error);
+          this.uiManager.showNotification(this.uiManager.formatMessageSendFailed((error as Error).message), 'error');
+        }
+      },
+    );
+    this.uiManager.on('revokeTechSupportDelegate', async (delegatePub: string) => {
+      try {
+        await this.handleRevokeTechSupportDelegate(delegatePub);
+      } catch (error) {
+        console.error('Failed to revoke TechSupport delegate grant:', error);
+        this.uiManager.showNotification(this.uiManager.formatMessageSendFailed((error as Error).message), 'error');
+      }
+    });
+    // docs/TODO.md K7 — an eligible ordinary user's own opt-in toggle in the Me tab.
+    this.uiManager.on('toggleTechSupportDelegateOptIn', (nextOptedIn: boolean) => {
+      void this.handleToggleTechSupportDelegateOptIn(nextOptedIn);
+    });
 
     // Share a link to any media file in a DM: upload the bytes to IPFS and send only the
     // link (an IPFS_SHARE card), never the raw bytes over the DM channel.

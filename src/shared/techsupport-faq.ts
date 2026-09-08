@@ -27,6 +27,12 @@ export type SupportFaqEntry = {
   canonicalQuestion: string;
   answer: string;
   answeredAt: string;
+  /**
+   * Set only when a K7 delegate (not the master) answered — the delegate's own pub, carried as
+   * signed audit metadata. Never rendered to the asker; surfaced only in the master's own
+   * "Delegate activity" audit view (docs/TODO.md K7).
+   */
+  answeredByDelegate?: string;
 };
 
 export type SupportInboxEntry = {
@@ -114,6 +120,7 @@ export function buildSupportFaqEntry(input: {
   question: unknown;
   answer: string;
   answeredAt?: string;
+  answeredByDelegate?: string;
 }): SupportFaqEntry | null {
   const canonicalQuestion = normalizeSupportQuestion(input.question);
   const answer = String(input.answer ?? '').trim();
@@ -123,6 +130,7 @@ export function buildSupportFaqEntry(input: {
     canonicalQuestion,
     answer,
     answeredAt: input.answeredAt || new Date().toISOString(),
+    ...(input.answeredByDelegate ? { answeredByDelegate: input.answeredByDelegate } : {}),
   };
 }
 
