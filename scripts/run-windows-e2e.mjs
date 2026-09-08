@@ -113,6 +113,7 @@ try {
 
 const remoteRun = runPowerShell(`
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $env:Path = '${nodeDir};' + $env:Path
 $workspace = '${workspace}'
 Set-Location $workspace

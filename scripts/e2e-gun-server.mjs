@@ -17,4 +17,13 @@ Object.assign(process.env, {
   PORT: String(port),
 });
 
-await import('../dist/server/server/index.js');
+// index.ts deliberately auto-starts only when it is the CommonJS entry point. This ESM
+// wrapper imports it, so instantiate explicitly; the double `.default` handles Node's ESM
+// interop around TypeScript's CommonJS default export.
+const loaded = await import('../dist/server/server/index.js');
+const IinPublicServer = loaded.default?.default || loaded.default;
+if (typeof IinPublicServer !== 'function') {
+  throw new Error('Compiled IinPublicServer constructor was not exported');
+}
+const server = new IinPublicServer();
+server.start(port);
