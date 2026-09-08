@@ -274,17 +274,17 @@ At this point introduce the first remote desktop host.
 - [x] Enable OpenSSH Server on Windows.
 - [x] Configure password-free SSH from the Mac mini.
 - [x] Give the Windows machine a stable SSH alias (`windows-test`).
-- [x] Verify from Mac (the worker uses explicit PowerShell because this host's default shell rejects bare `hostname`):
+- [x] Verify from Mac (the runner uses explicit PowerShell because this host's default shell rejects bare `hostname`):
 
 ```bash
-ssh windows-test hostname
+npm run test:e2e:windows:preflight
 ```
 
-- [ ] Install required versions of:
+- [x] Install required versions of:
   - [x] Node.js (portable Node 24.20.0 under the remote user profile)
   - [x] npm (from the portable Node distribution)
-  - [ ] Playwright
-  - [ ] IinPublic dependencies
+  - [x] Playwright (Chromium, WebKit, and Firefox browser bundles)
+  - [x] IinPublic dependencies
 
 - [x] Add a remote revision-keyed test working directory.
 - [ ] Add commands for:
@@ -298,20 +298,25 @@ ssh windows-test hostname
 First runnable slice: `npm run test:e2e:windows` checks `windows-test` availability
 before doing any work, prepares the isolated worker, and runs the platform smoke gate in
 Chromium, WebKit, and Firefox. `npm run test:e2e:windows:preflight` performs no tests.
+The runner always performs that availability gate before archive transfer, dependency
+installation, builds, or tests. On 2026-09-07 all six platform-smoke cases passed on
+`BERNARDJIANGPC` (Windows 10 Pro x64), and the blob report was merged on the Mac.
 
 ## 4.2 Add Windows Browsers
 
 Start with:
 
-- [ ] Chromium.
+- [x] Chromium.
 - [ ] Microsoft Edge.
-- [ ] Firefox.
+- [x] Firefox.
+
+Playwright WebKit is also installed and its platform-smoke cases pass on this worker.
 
 Then test Mac-controlled remote Playwright execution.
 
-- [ ] Windows Chromium standalone.
+- [x] Windows Chromium standalone.
 - [ ] Windows Edge standalone.
-- [ ] Windows Firefox standalone.
+- [x] Windows Firefox standalone.
 - [ ] Mixed Windows-browser scenarios.
 
 ## 4.3 Add Windows Desktop App
@@ -616,7 +621,7 @@ Keep this exact order unless a specific product requirement forces an earlier de
 8. [ ] Android + Mac tests.
 9. [ ] Two Android phones.
 10. [ ] Three or more Android phones.
-11. [ ] Windows remote worker.
+11. [x] Windows remote worker.
 12. [ ] Windows browsers.
 13. [ ] Windows desktop app.
 14. [ ] Windows + Mac + Android scenarios.
