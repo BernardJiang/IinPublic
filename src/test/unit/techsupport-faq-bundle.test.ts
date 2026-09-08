@@ -8,6 +8,7 @@ import {
 } from '../../shared/techsupport-faq-bundle';
 import { buildSupportFaqEntry, type SupportFaqEntry } from '../../shared/techsupport-faq';
 import { TECHSUPPORT_PUB } from '../../shared/techsupport';
+import { signDelegateGrant } from '../../shared/techsupport-delegate';
 import SEA from 'gun/sea';
 
 const DEV_PAIR = {
@@ -84,5 +85,49 @@ describe('techsupport-faq-bundle (docs/TODO.md K5)', () => {
   it('faqBundlePath and faqEntryPath produce the expected Gun paths', () => {
     expect(faqBundlePath()).toEqual(['techsupport-faq', 'bundle']);
     expect(faqEntryPath('abc123')).toEqual(['techsupport-faq', 'abc123']);
+  });
+
+  describe('K7 delegate-aware verification', () => {
+    it('rejects a bundle signed by a delegate when no fetchGrant is supplied (unchanged default behavior)', async () => {
+      const delegatePair = await SEA.pair();
+      const signed = await signFaqBundle([entry('q', 'a')], delegatePair);
+      expect(await verifyFaqBundle(signed)).toBeNull();
+    });
+
+    it('accepts a bundle signed by a currently-valid delegate when fetchGrant resolves the grant', async () => {
+      const delegatePair = await SEA.pair();
+      const grant = await signDelegateGrant(
+        { delegatePub: delegatePair.pub, delegateUserId: 'user-alice', label: 'Alice', expiresAt: new Date(Date.now() + 60_000).toISOString() },
+        DEV_PAIR,
+      );
+      const signed = await signFaqBundle([entry('q', 'a')], delegatePair);
+      const verified = await verifyFaqBundle(signed, { fetchGrant: async () => grant });
+      expect(verified).not.toBeNull();
+      expect(verified?.authorPub).toBe(delegatePair.pub);
+    });
+
+    it('rejects a bundle signed by a delegate whose grant has expired', async () => {
+      const delegatePair = await SEA.pair();
+      const grant = await signDelegateGrant(
+        { delegatePub: delegatePair.pub, delegateUserId: 'user-alice', label: 'Alice', expiresAt: new Date(Date.now() - 1000).toISOString() },
+        DEV_PAIR,
+      );
+      const signed = await signFaqBundle([entry('q', 'a')], delegatePair);
+      expect(await verifyFaqBundle(signed, { fetchGrant: async () => grant })).toBeNull();
+    });
+
+    it('rejects a bundle signed by a pub with no grant at all', async () => {
+      const stranger = await SEA.pair();
+      const signed = await signFaqBundle([entry('q', 'a')], stranger);
+      expect(await verifyFaqBundle(signed, { fetchGrant: async () => null })).toBeNull();
+    });
+
+    it('still accepts a master-signed bundle when fetchGrant is supplied (anchor short-circuits the grant lookup)', async () => {
+      const signed = await signFaqBundle([entry('q', 'a')], DEV_PAIR);
+      const fetchGrant = jest.fn().mockResolvedValue(null);
+      const verified = await verifyFaqBundle(signed, { fetchGrant });
+      expect(verified).not.toBeNull();
+      expect(fetchGrant).not.toHaveBeenCalled();
+    });
   });
 });

@@ -33,8 +33,12 @@ import {
 } from '../../shared/techsupport-greeting';
 import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
-import type { SupportInboxEntry } from '../../shared/techsupport-faq';
+import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import { renderSupportInboxSection } from './support-inbox-view';
+import { fetchGrantFromCache } from '../services/techsupport-delegate-cache';
+import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
+import { renderSupportDelegatesSection } from './support-delegates-view';
+import { renderSupportDelegateOptInSection } from './support-delegate-optin-view';
 import type { GraphNodeTarget } from './graph-navigation';
 import type { StatsDashboard } from '../../shared/talk-stats';
 import { buildStatsDashboard } from '../../shared/talk-stats';
@@ -372,6 +376,13 @@ export class UIManager extends EventEmitter {
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   /** docs/TODO.md K5 — the TechSupport-root session's own pending-question inbox, fed by app.ts's live `techsupport-inbox/*` subscription (never read directly from Gun here). */
   private currentSupportInboxEntries: SupportInboxEntry[] = [];
+  /** docs/TODO.md K7 — master-only Delegates panel state, fed by app.ts. */
+  private currentTechSupportDelegates: TechSupportDelegateGrant[] = [];
+  private currentDelegateActivity: SupportFaqEntry[] = [];
+  /** docs/TODO.md K7 — an ordinary user's own delegate eligibility/opt-in state, fed by app.ts. */
+  private techSupportDelegateEligible = false;
+  private techSupportDelegateLabel = '';
+  private techSupportDelegateOptedIn = false;
   private talksShowIncoming = true;
   private talksShowOutgoing = true;
   private talksEnabledTypes = new Set<string>(['tag', 'flow', 'survey', 'route']);
@@ -3685,13 +3696,27 @@ export class UIManager extends EventEmitter {
     `;
     // TechSupport's support-inbox is an operator inbox, not a settings section — it stays
     // permanently visible above the menu/detail split rather than gated behind a menu tap.
+    // docs/TODO.md K7: an eligible (non-master) user gets the opt-in prompt, plus the same
+    // inbox section once they've actually opted in.
     if (user.id === TECHSUPPORT_ROOT_USER_ID) {
-      container.insertAdjacentHTML('afterbegin', '<div id="support-inbox-section" style="margin-bottom:14px;"></div>');
+      container.insertAdjacentHTML(
+        'afterbegin',
+        '<div id="support-delegates-section" style="margin-bottom:14px;"></div>' +
+          '<div id="support-inbox-section" style="margin-bottom:14px;"></div>',
+      );
+    } else if (this.techSupportDelegateEligible) {
+      container.insertAdjacentHTML(
+        'afterbegin',
+        (this.techSupportDelegateOptedIn ? '<div id="support-inbox-section" style="margin-bottom:14px;"></div>' : '') +
+          '<div id="support-delegate-optin-section" style="margin-bottom:14px;"></div>',
+      );
     }
     this.bindSettingsControls();
     void this.refreshStorageInspector();
     void this.refreshDownloadAppSection();
     this.renderSupportInboxSectionIfPresent();
+    this.renderSupportDelegatesSectionIfPresent();
+    this.renderSupportDelegateOptInSectionIfPresent();
     this.applySettingsSectionView(this.settingsActiveSectionId);
   }
 
@@ -7538,6 +7563,58 @@ export class UIManager extends EventEmitter {
     );
   }
 
+  /** docs/TODO.md K7. Fed by app.ts's `refreshDelegateAdminPanel` — master session only. */
+  updateTechSupportDelegates(grants: TechSupportDelegateGrant[]): void {
+    this.currentTechSupportDelegates = grants;
+    this.renderSupportDelegatesSectionIfPresent();
+  }
+
+  updateDelegateActivity(entries: SupportFaqEntry[]): void {
+    this.currentDelegateActivity = entries;
+    this.renderSupportDelegatesSectionIfPresent();
+  }
+
+  private renderSupportDelegatesSectionIfPresent(): void {
+    if (!document.getElementById('support-delegates-section')) return;
+    renderSupportDelegatesSection(
+      {
+        escapeHtml,
+        text: this.t.bind(this),
+        tf: this.tf.bind(this),
+        formatDate: this.formatUiDate.bind(this),
+        onIssue: (input) => this.emit('issueTechSupportDelegate', input),
+        onRevoke: (delegatePub) => this.emit('revokeTechSupportDelegate', delegatePub),
+      },
+      this.currentTechSupportDelegates,
+      this.currentDelegateActivity,
+    );
+  }
+
+  /**
+   * docs/TODO.md K7. Fed by app.ts's live (or boot-time) grant check for THIS user's own pub —
+   * never derived from anything rendered here. Re-renders the opt-in/inbox sections in place if
+   * the Me/Settings tab is currently showing them.
+   */
+  setTechSupportDelegateEligibility(eligible: boolean, label: string, optedIn: boolean): void {
+    this.techSupportDelegateEligible = eligible;
+    this.techSupportDelegateLabel = label;
+    this.techSupportDelegateOptedIn = optedIn;
+    if (this.currentUser && document.getElementById('settings-view')?.classList.contains('active')) {
+      this.renderSettingsView(this.currentUser);
+    }
+  }
+
+  private renderSupportDelegateOptInSectionIfPresent(): void {
+    if (!document.getElementById('support-delegate-optin-section')) return;
+    renderSupportDelegateOptInSection({
+      escapeHtml,
+      text: this.t.bind(this),
+      label: this.techSupportDelegateLabel,
+      optedIn: this.techSupportDelegateOptedIn,
+      onToggle: (nextOptedIn) => this.emit('toggleTechSupportDelegateOptIn', nextOptedIn),
+    });
+  }
+
   setMemberMatched(userId: string): void {
     this.matchedUserIds.add(userId);
     const list = document.getElementById('chatroom-members-list');
@@ -8453,7 +8530,9 @@ export class UIManager extends EventEmitter {
 
       if (isFaqAnswer) {
         const cached = readCachedFaqBundle();
-        const verifiedBundle = cached ? await verifyFaqBundle(cached) : null;
+        // docs/TODO.md K7: fetchGrant lets a delegate-signed bundle verify here too — the local
+        // grant cache, not a live Gun read, since this render path has no Gun handle of its own.
+        const verifiedBundle = cached ? await verifyFaqBundle(cached, { fetchGrant: fetchGrantFromCache }) : null;
         if (!verifiedBundle) continue;
         // The message must be attributed to the exact cached bundle version, not merely
         // any validly-signed bundle — otherwise a stale message could survive a bundle

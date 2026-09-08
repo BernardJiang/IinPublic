@@ -1,6 +1,82 @@
 # IinPublic Completed Work
 
-Last updated: 2026-08-27
+Last updated: 2026-09-07
+
+## 2026-09-07 — K7 delegated TechSupport answers
+
+Design note: `docs/design/techsupport-k7-design-note.md`. Implements TODO.md Priority 5 K7: lets
+the master TechSupport identity extend "may answer support questions" to another account without
+ever sharing the master private key. Chosen trust model (user-confirmed): signed, expiring,
+revocable delegation credentials — not copying the master key onto other devices.
+
+**`src/shared/techsupport-delegate.ts` (new).** `TechSupportDelegateGrant` — `delegatePub` (the
+delegate's own identity pub), `delegateUserId` (their app user id, kept alongside the pub purely
+so a sender can resolve the delegate's epub via the existing `resolvePeerEpub(userId)` path — not
+part of the trust decision itself), `label`, `issuedAt`/`expiresAt` (mandatory, capped at
+`DELEGATE_GRANT_MAX_TTL_MS` = 90 days, default `DELEGATE_GRANT_DEFAULT_TTL_MS` = 30 days),
+`revokedAt`, `masterPub`, `signature`. `signDelegateGrant`/`verifyDelegateGrant` mirror
+`techsupport-faq-bundle.ts`'s canonicalSerialize+SEA sign/verify convention exactly, gated on
+`isTrustedTechSupportDmPub(masterPub)`. `isValidDelegateGrant` is the separate, pure expiry/
+revocation check. `isTrustedTechSupportAuthorPub(pub, fetchGrant)` is the new async trust
+predicate — true for a compiled master anchor (no grant lookup needed) or a pub holding a
+currently-valid grant — used everywhere content authored by a non-anchor pub needs to be accepted
+as genuinely TechSupport.
+
+**Trust-check extension.** `techsupport-faq-bundle.ts`'s `verifyFaqBundle` takes an optional
+`{ fetchGrant }`; when supplied it accepts a delegate-signed bundle. Two call sites wire it in:
+`techsupport-faq-cache.ts`'s `subscribeToFaqBundle` (live Gun lookup — a delegate's bundle may
+arrive before its grant is locally cached) and `ui-manager.ts`'s `filterVerifiedSupportMessages`
+(the local delegate-grant cache, since that render path holds no Gun handle). Existing callers
+that omit `fetchGrant` are unaffected (master-anchor-only, unchanged behavior).
+
+**Delivery.** `techsupport-inbox/*` stays per-device local Gun (K5-A unchanged), but
+`postSupportQuestionToMailbox` now fans a question out to master **and every currently-valid
+delegate** (each gets their own encrypted envelope, addressed via `resolvePeerEpub(delegateUserId)`)
+so any of their devices independently materializes the same pending row. No new "claim" lock for
+cross-device duplicate-answer avoidance — `subscribeToSupportInboxIfTechSupport`'s live rendering
+filter hides a pending row once `techsupport-faq/<key>` already exists (whoever publishes first
+wins; a rare simultaneous double-answer just means the entry gets overwritten, harmless).
+
+**Answering.** `handleAnswerSupportQuestion` gained a delegate branch: a non-master operator must
+hold `isTechSupportOperatorSession()` (opted in AND a grant re-verified **live** at answer time,
+never from a stale cache) to answer at all. A delegate signs the FAQ bundle with their own
+keypair and stamps the entry with `answeredByDelegate` (new optional field on `SupportFaqEntry`,
+part of the signed payload, never rendered to askers). Because a delegate is authenticated as
+their own account (not TechSupport's), their delivered answer additionally carries the same
+`faqQuestionKey`/`faqAuthorPub`/`faqSignature` provenance the auto-answer path already uses, so
+the asker's independent verify-on-render still accepts it.
+
+**UI.** New "Delegates" admin panel (`support-delegates-view.ts`) in the master's Support Inbox
+settings section: issue (user id + label + TTL days) / revoke, plus a "Delegate activity" audit
+list read from the public FAQ bundle's `answeredByDelegate` entries — visible only to the master.
+New opt-in section (`support-delegate-optin-view.ts`) in an eligible ordinary user's own Me tab —
+holding a valid grant never silently enables anything; the person must check a box. Both wired
+through `techsupport-delegate-cache.ts` (a `techsupport-faq-cache.ts`-style local cache/live
+subscription over `techsupport-delegates/*`).
+
+**Tests.** `src/test/unit/techsupport-delegate.test.ts` (sign/verify round-trip, tamper/expiry/
+revocation rejection, `isTrustedTechSupportAuthorPub`); extended
+`techsupport-faq-bundle.test.ts` for the delegate-aware `verifyFaqBundle` path.
+`tests/e2e/staged/stage2-two-user/00m-techsupport-delegate-answers.spec.ts`: master issues Dana a
+grant, Dana opts in, Amy (a different ordinary user, never involved with Dana) asks a new
+question, Dana answers it from her own device, Amy receives the real answer attributed to
+TechSupport, and the master's own Delegates panel shows Dana's pub against the question — proving
+audit works without the master ever answering. `npm run test:type`/`lint`/`test:unit` all green
+(160 suites, 1714 tests); `ui-manager-size-budget.test.ts`'s budget bumped 9,074 → 9,153 lines for
+the new panels (established convention, not a violation — see prior "bump ui-manager.ts line
+budget" commits).
+
+**Explicitly deferred** (per the design note's own open decisions, user-confirmed 2026-09-07): an
+in-app "paste key, sign in as TechSupport master" phone screen — the actual agent-assignment case
+never needs it, since a delegate logs in as an ordinary user with no key handling at all; master-
+key login stays desktop/laptop-only via the existing `dev:techsupport`/`techsupport-agent.js` path.
+
+**Known pre-existing flakiness, not introduced by this work (verified via `git stash`):** running
+several `stage1-single-user`/`stage2-two-user` TechSupport specs back-to-back in one
+`npx playwright test` invocation intermittently fails 3 of 4 with the pending inbox row never
+appearing, reproduced identically on the pre-K7 base commit with zero code changes. Matches the
+already-documented "cross-worker disk races in `clearGunDatabases()`" flakiness class in
+CLAUDE.md. Each spec passes reliably in isolation, including the new one.
 
 ## 2026-08-27 — §BB location auto-match consent; §DD multi-value gender/race preference matching
 

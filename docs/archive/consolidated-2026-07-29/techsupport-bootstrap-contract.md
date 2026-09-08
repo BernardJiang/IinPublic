@@ -53,6 +53,16 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   in the delivery/fanout path — deliberately *not* a `TalkIntakeFilters` entry, since that is
   user-editable and would let TechSupport be filtered back in by mistake. TechSupport still counts
   as 1 in every headcount regardless (invariant above, unchanged).
+- **Delegated answers never require the master private key to leave the master's device (K7).**
+  The master issues a signed, expiring, revocable `TechSupportDelegateGrant`
+  (`src/shared/techsupport-delegate.ts`) to a co-operator's own account pub — a small extension of
+  trust, not a copy of the key. A delegate answers with their own keypair; verification accepts
+  either a compiled master anchor or a pub holding a currently-valid grant
+  (`isTrustedTechSupportAuthorPub`), so the asker's client still displays the answer as TechSupport
+  without the delegate ever touching the DM private key. `answeredByDelegate` travels as signed
+  metadata on the published `SupportFaqEntry` for the master's own audit view — never rendered to
+  the asker. Answering requires the grant to be re-verified live at answer time, not trusted from a
+  local cache; opt-in is explicit (a valid grant alone never silently activates delegate mode).
 
 ## Current Enforcement
 
@@ -179,6 +189,27 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   E2E proof of both of the above: broadcasting tag and flow talks into a room containing an
   ordinary user and a real TechSupport session never populates TechSupport's local incoming-talk
   index, and Global headcount stays 2 throughout.
+- `src/shared/techsupport-delegate.ts` (K7, design note `docs/design/techsupport-k7-design-note.md`)
+  — sign/verify/validity for `TechSupportDelegateGrant`, plus `isTrustedTechSupportAuthorPub`, the
+  shared async trust predicate every non-anchor-authored verify path now accepts an optional
+  `fetchGrant` for (`verifyFaqBundle` in `techsupport-faq-bundle.ts`; wired live via
+  `techsupport-faq-cache.ts`'s `subscribeToFaqBundle` and cache-backed via `ui-manager.ts`'s
+  `filterVerifiedSupportMessages`). `src/web/services/techsupport-delegate-cache.ts` mirrors
+  `techsupport-faq-cache.ts`'s local-cache-over-live-subscription pattern for
+  `techsupport-delegates/*`. Fan-out delivery (`postSupportQuestionToMailbox` in `app.ts`) addresses
+  one encrypted mailbox envelope per currently-valid delegate in addition to the master, so
+  `techsupport-inbox/*` materializes independently on each of their own devices (K5-A's "relay holds
+  no support data" is unchanged — still ciphertext in transit, still local-only once drained).
+  `handleAnswerSupportQuestion`'s delegate branch re-verifies the answering session's own grant live
+  before allowing it to sign. UI: `support-delegates-view.ts` (master's issue/revoke + delegate-
+  activity audit panel) and `support-delegate-optin-view.ts` (an eligible ordinary user's explicit
+  opt-in, never silently enabled by merely holding a grant).
+- `src/test/unit/techsupport-delegate.test.ts` (K7) — grant sign/verify round-trip, tamper/expiry/
+  revocation rejection, `isTrustedTechSupportAuthorPub` trust decisions.
+- `tests/e2e/staged/stage2-two-user/00m-techsupport-delegate-answers.spec.ts` (K7) — master issues a
+  grant, the delegate opts in and answers a different ordinary user's question from her own device,
+  the asker receives it attributed to TechSupport, and the master's own Delegates panel shows the
+  delegate's pub against the question.
 
 ## Honest cost (K2/K3)
 
@@ -201,3 +232,17 @@ built on top of this fixture; `stage3`/`stage4`/`stage5` and the non-staged dire
 (`talks-matching/`, `mass/`, `isolated/`) still reset via the bare fixture on every spec rather
 than a stage-appropriate multi-user baseline — see the remaining `docs/TODO.md` K4 work items for
 that follow-on scope.
+
+## Honest cost (K7)
+
+Revocation is eventually consistent, not a remote kill switch: an already-open delegate session
+keeps whatever grant it last verified until its own next re-check (each answer action does force a
+live re-check, so a *revoked* delegate cannot answer again even mid-session — but their client's
+own UI state, e.g. whether the opt-in toggle still shows, updates only on the next grant-roster
+event or reload). A delegate's already-published FAQ answers remain valid after revocation — there
+is no tombstone/retire mechanism for delegate-authored entries beyond what K5 already lacks for FAQ
+entries generally. Fan-out delivery's envelope count scales with delegate count (fine at this
+project's scale; would need batching if that ever grew large). No in-app screen exists for signing
+in as the *master* from a phone (user-confirmed deferral, 2026-09-07) — that path stays
+desktop/laptop-only via `dev-techsupport-login.js`/`techsupport-agent.js`; assigning an agent
+should always be a delegate grant instead, which needs no such screen.

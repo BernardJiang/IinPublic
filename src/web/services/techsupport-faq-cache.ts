@@ -1,5 +1,6 @@
 import { verifyFaqBundle, faqBundlePath, type SignedFaqBundle } from '../../shared/techsupport-faq-bundle';
 import type { SupportFaqEntry } from '../../shared/techsupport-faq';
+import { fetchGrantLive } from './techsupport-delegate-cache';
 
 /**
  * Local cache of the verified TechSupport FAQ bundle (docs/TODO.md K5, design note §Item 1a/2).
@@ -85,7 +86,11 @@ export function subscribeToFaqBundle(
   let ref = gun.get(faqBundlePath()[0]);
   for (const segment of faqBundlePath().slice(1)) ref = ref.get(segment);
   const handler = async (data: unknown) => {
-    const verified = await verifyFaqBundle(faqBundleFromGunWire(data));
+    // Live Gun lookup (not the local cache — this is the first time this bundle version has
+    // been seen, so a delegate's grant may not be cached yet) — docs/TODO.md K7.
+    const verified = await verifyFaqBundle(faqBundleFromGunWire(data), {
+      fetchGrant: (delegatePub) => fetchGrantLive(gun as { get: (key: string) => any }, delegatePub),
+    });
     if (!verified) return;
     writeCachedFaqBundle(verified);
     onVerified?.(verified);

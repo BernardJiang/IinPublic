@@ -1,6 +1,7 @@
 import { canonicalSerialize, computeCIDv1 } from './cid';
 import SEA from 'gun/sea';
 import { isTrustedTechSupportDmPub } from './techsupport';
+import { isTrustedTechSupportAuthorPub } from './techsupport-delegate';
 import type { SupportFaqEntry } from './techsupport-faq';
 
 /**
@@ -68,12 +69,16 @@ export async function signFaqBundle(
 }
 
 /**
- * Any client. Verifies: shape, `authorPub` is a trusted DM anchor, `bundleCid` matches the
- * entries (rejects a tampered entry list even if otherwise validly signed), and the signature
- * recovers the exact canonical payload. Returns the verified bundle or null — never throws, so
- * callers can suppress silently (same fail-closed discipline as K2-3).
+ * Any client. Verifies: shape, `authorPub` is a trusted DM anchor (or, when `options.fetchGrant`
+ * is supplied, a currently-valid K7 delegate — docs/TODO.md K7), `bundleCid` matches the entries
+ * (rejects a tampered entry list even if otherwise validly signed), and the signature recovers
+ * the exact canonical payload. Returns the verified bundle or null — never throws, so callers can
+ * suppress silently (same fail-closed discipline as K2-3).
  */
-export async function verifyFaqBundle(value: unknown): Promise<SignedFaqBundle | null> {
+export async function verifyFaqBundle(
+  value: unknown,
+  options?: { fetchGrant?: (delegatePub: string) => Promise<unknown> },
+): Promise<SignedFaqBundle | null> {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<SignedFaqBundle>;
   if (
@@ -85,7 +90,10 @@ export async function verifyFaqBundle(value: unknown): Promise<SignedFaqBundle |
   ) {
     return null;
   }
-  if (!isTrustedTechSupportDmPub(candidate.authorPub)) return null;
+  const trusted = options?.fetchGrant
+    ? await isTrustedTechSupportAuthorPub(candidate.authorPub, options.fetchGrant)
+    : isTrustedTechSupportDmPub(candidate.authorPub);
+  if (!trusted) return null;
 
   const entries = candidate.entries as SupportFaqEntry[];
   const recomputedCid = await computeBundleCid(entries);
