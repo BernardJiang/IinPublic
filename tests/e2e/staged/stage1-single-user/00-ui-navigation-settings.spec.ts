@@ -470,7 +470,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talk-editor-modal')).toContainText('我喜欢这个标签');
     await expect(p.locator('#talk-title')).toHaveAttribute('placeholder', '例如：咖啡、网球、工作');
     // No manual per-talk language picker — language is auto-detected from the title (see
-    // detectTalkLanguage in ui-manager.ts); the editor's own dropdown was removed.
+    // detectTalkLanguage in talk-form-processor.ts); the editor's own dropdown was removed.
     await expect(p.locator('#talk-language')).toHaveCount(0);
     await p.evaluate(() => {
       document.getElementById('talk-editor-form')?.dispatchEvent(new Event('submit', {

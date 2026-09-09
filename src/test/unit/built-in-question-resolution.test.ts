@@ -9,7 +9,7 @@ const userId = 'local';
 
 // The scope key under test is always MY OWN tag (`tagContext.myTag`, derived by the caller
 // from the nearest Pair-tag ancestor — see the doc comment in built-in-question-resolution.ts)
-// — this is what `processTalkForm` (ui-manager.ts) saves under when I author my own talk, so a
+// — this is what `processTalkForm` (talk-form-processor.ts) saves under when I author my own talk, so a
 // test simulating "I'm responding to a talk whose own declared tag is 'sell'" must seed my
 // preference under scope 'buy' (my own tag), not 'sell' (their tag). `theirTag` is the incoming
 // talk's own declared tag, needed only to know which direction a `quantity` comparison's

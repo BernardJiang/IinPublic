@@ -521,7 +521,7 @@ function evictSection<T>(
  * For a **tag** talk, two real shapes exist and need different identity derivation:
  *
  * - Simple single-keyword tag talk — the editor's only tag shape (talk-editor-dialog.ts /
- *   processTalkForm, ui-manager.ts): one question, one `isMatch` answer paired with one
+ *   processTalkForm, talk-form-processor.ts): one question, one `isMatch` answer paired with one
  *   generic `isIgnore` answer (always literally "Match."/"Ignore." — the keyword lives in
  *   the *question* text, not the answers). The talk's identity is that keyword — REQ-
  *   LEDGER-16's own example is "tennis" itself. Hashing the answers here would make every

@@ -14,7 +14,7 @@ import type { Talk } from '../../../../src/shared/types';
 export function makeTagTalk(runId: number): Talk {
   // A real tag talk has exactly one field for both its title and its keyword — the
   // editor hides the separate question input entirely for type 'tag' and derives the
-  // question text from the title on submit (processTalkForm, ui-manager.ts). Two
+  // question text from the title on submit (processTalkForm, talk-form-processor.ts). Two
   // independent strings here would be a fixture-only mismatch a real user could never
   // produce, and reads as confusing/redundant in the response dialog.
   const keyword = `Tennis ${runId}`;

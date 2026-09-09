@@ -23,7 +23,7 @@ import {
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 // Language is no longer a manual per-talk field — it's auto-detected from the title
-// (`detectTalkLanguage` in ui-manager.ts). Callers must pass a title that detects as
+// (`detectTalkLanguage` in talk-form-processor.ts). Callers must pass a title that detects as
 // `language` (e.g. Chinese characters for 'zh'), falling back to the author's Settings >
 // Languages > Default Talk Language preference when detection is inconclusive.
 async function createLanguageTalk(page: Page, title: string): Promise<void> {

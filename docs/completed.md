@@ -2,6 +2,67 @@
 
 Last updated: 2026-09-08
 
+## 2026-09-08 — UIManager decomposition cluster #9: talk-editor form processing
+
+Extracted `processTalkForm` (all four talk-type branches — tag/flow/survey/route —, the
+mandatory financial-data guard, `TalkAutofix`/`TalkValidator` invocation, the typed-preference
+save loop, and create-vs-update `emit`) and its `detectTalkLanguage` free-function dependency to
+`src/web/ui/talk-form-processor.ts`. `docs/TODO.md` Priority 6, "Current sequence" step 16.
+
+- **Why this method:** re-measured the remaining candidates by size and distinct `this.*`
+  reference count (the established coupling filter). `processTalkForm` (248 lines, 9 distinct
+  refs — mostly calls to 5 sibling helper methods, `emit`, and `t`) had the best size-to-coupling
+  ratio of anything left besides the already-deferred `displayTalksList` (686 lines, 52 refs,
+  still deferred). `openLinkedDevicesDialog` (152 lines, 16 refs, but nearly all trivial
+  already-established hook setters) and `renderCreatorReplies` (202 lines, 14 refs) were also
+  measured and are reasonable candidates for a future cluster.
+- **Zero new indirection needed:** `processTalkForm` was `private` and never called externally —
+  every call site (5 inside `ui-manager.ts`, 1 in `talk-editor-form-helpers.ts`) already passed
+  it around as a bound `(form: HTMLFormElement) => boolean` callback, including a self-recursive
+  reference into `collectFlowSurveyEditorQuestions`. The extracted module's own self-reference
+  just becomes an ordinary named-function call instead of `this.processTalkForm.bind(this)`.
+  `UIManager.processTalkForm` is now a 10-line shim building an explicit `ProcessTalkFormDeps`
+  object (bound getters/setters, `emit`, `t`, and the two route-editor wrapper methods) per call.
+- **Also moved:** `detectTalkLanguage` (17-line pure function, zero `this.*` coupling, only ever
+  called from `processTalkForm`) — no reason to leave a single-consumer free function behind.
+- **Characterization:** `src/test/unit/talk-form-processor.test.ts` (new, 11 tests) — simple/pair
+  tag-talk creation, tag creation rejected with no keyword, route creation rejected on validator
+  errors, the financial-data guard blocking before validation/emit, a real flow talk built from
+  actual `talk-editor-form-helpers` DOM (question + match answer + required Ignore answer),
+  edit-vs-create emitting `updateTalk` vs `createTalk`, and `detectTalkLanguage`'s per-script
+  detection/fallback (CJK direct-script detection, Latin stopword/diacritic detection for
+  fr/de/es, and the short-title fallback).
+- **Real-browser regression** (targeted, not the full canonical gate — see below):
+  `staged/stage1-single-user/05-talks-edit` (flow create+edit — its own comment already named
+  `detectTalkLanguage` as what it exercises; updated to point at the new file), `staged/
+  stage2-two-user/92-route-shared-builtin-root-branches` (route), and `staged/stage2-two-user/
+  07-tags-checkbox` (tag, via the real editor UI — X1-X8's cross-platform specs all create tag
+  talks through the low-level pair-direct bypass instead, so none of them exercise this code
+  path). All three pass standalone.
+- **Also fixed:** ~13 scattered code comments across `src/shared/`, `src/test/unit/`, and
+  `tests/e2e/` that named `processTalkForm`/`detectTalkLanguage` as living in `ui-manager.ts` —
+  cheap enough to fix immediately, unlike the larger historical-document case in the 2026-07-29
+  consolidation.
+- **Ratchet:** grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding
+  walkthrough, K7 delegate credentials) landed between clusters — each bump was its own commit,
+  not folded into a cluster. This extraction brought `ui-manager.ts` from 9,153 to **8,912** lines
+  (`src/test/unit/ui-manager-size-budget.test.ts` ceiling lowered to match).
+- **Verification:** typecheck/lint clean, production web build succeeds, all 162 unit suites /
+  1,726 tests pass (11 new). Canonical `npm run test:all` run `run-20260908-220720-69284` (25m29s,
+  12 blobs) reported 3 phases with failures under concurrent-wave load: `light` (3 specs: 79-
+  techsupport-survives-restrictive-filters, 29-messaging-semantics, 83-survey-ignore-mid-question),
+  `heavy-staged` (01-login-two-users-headcount), and `cross-browser` (webkit+firefox
+  platform-smoke, both failing on `waitForGunApiReady: .../health not reachable after 90000ms`).
+  Investigated each: all 3 `light`-phase specs and all 4 `29-messaging-semantics` tests pass
+  standalone; `cross-browser`'s failure is a Gun server that never came up under wave 2's 6-way
+  concurrent phase pressure, not an application bug. `01-login-two-users-headcount` alone was the
+  one worth real suspicion (it touches login/headcount, not talk creation, but failed 3/3 times
+  including standalone) — confirmed via `git stash` that it **also fails identically on clean HEAD
+  before this cluster's changes**, ruling it out as a regression. Net: no failure traces to this
+  extraction; all are the same "phase-wave resource pressure" flakiness class cluster #8's own
+  evidence entry already documented (a 12-worker `light` phase plus 6 concurrent wave-2 phases on
+  one machine).
+
 ## 2026-09-08 — X5: three-platform network + thread isolation, implemented for real
 
 `tests/e2e/cross-platform/x5-three-platform-network.spec.ts` was a `test.skip`

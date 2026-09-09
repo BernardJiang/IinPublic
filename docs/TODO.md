@@ -896,10 +896,13 @@ Still open:
 
 ### UI god-object refactor
 
-**Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`. Issue #1
-(`ui-manager.ts` decomposition) is **in progress** as of 2026-08-24; extraction clusters #1
-(route editor), #2 (survey statistics), #3 (application shell), and #4 (answer-preference
-resolution) are complete; the current ratchet after extraction cluster #8 is 8,938 lines.
+**Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
+for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#9 are complete
+(cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`).
+The ratchet grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding,
+K7 delegate credentials) landed on top between clusters; cluster #9 brought it back down to
+**8,912** — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -996,6 +999,13 @@ entries and babel preset were never removed.
         the API base, and translated text through one thin async shim.
       - **Defer: `displayTalksList`.** It is about 679 lines and touches roughly 52 distinct instance
         members, so it is a poor first extraction despite its size.
+      - **Ninth: talk-editor form processing.** `processTalkForm` (248 lines) had only 9 distinct
+        `this.*` references — mostly calls to five sibling helper methods, `emit`, and `t` — the
+        lowest coupling-to-size ratio of any remaining method after `displayTalksList`. Its own
+        `detectTalkLanguage` free-function dependency (17 lines, zero coupling) moved with it.
+        Never called externally (`app.ts` never invokes it): every call site already passed it
+        around as a bound `(form: HTMLFormElement) => boolean` callback (including a self-recursive
+        one into `collectFlowSurveyEditorQuestions`), so the extraction needed no new indirection.
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
       event subscriptions, async callbacks, mutable collections, imports, and possible cycles.
 - [x] **1.3 Characterize cluster #1 before moving it.** Tests freeze route fan-out ordering and
@@ -1025,6 +1035,17 @@ entries and babel preset were never removed.
       - Cluster #8 freezes the absent-panel no-op, browser-storage sizing and database ordering,
         app/room state, relay/path/protocol/ownership sections, localization, untrusted diagnostic
         escaping, and the relay-failure fallback.
+      - Cluster #9 (`src/test/unit/talk-form-processor.test.ts`, 11 tests) freezes: simple
+        (self-match) and pair (divergent-answer) tag-talk creation; tag creation rejected with no
+        keyword; route creation rejected on validator errors; the mandatory financial-data guard
+        blocking before validation/emit; a real flow talk built from actual
+        `talk-editor-form-helpers` DOM (question + match answer + required Ignore answer);
+        edit-vs-create emitting `updateTalk` vs `createTalk`; and `detectTalkLanguage`'s per-script
+        detection/fallback. Real-browser regression evidence (not just unit characterization):
+        `staged/stage1-single-user/05-talks-edit` (flow create+edit, exercises `detectTalkLanguage`
+        directly per that spec's own comment), `staged/stage2-two-user/92-route-shared-builtin-
+        root-branches` (route), and `staged/stage2-two-user/07-tags-checkbox` (tag, via the real
+        editor UI rather than the low-level pair-direct bypass X1-X8 use) all pass.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -1062,6 +1083,13 @@ entries and babel preset were never removed.
       - Cluster #8: `storage-inspector.ts` owns browser storage discovery, relay diagnostics fetch,
         localized value/path/policy mapping, and all storage-inspector markup. `UIManager` retains
         a thin shim that formats current app state and injects translations/API base explicitly.
+      - Cluster #9: `talk-form-processor.ts` owns `processTalkForm` (all four talk-type branches,
+        the financial-data guard, TalkAutofix/TalkValidator invocation, the typed-preference save
+        loop, and create-vs-update emit) plus `detectTalkLanguage`, moved verbatim. `UIManager`'s
+        `processTalkForm` is now a 10-line shim building an explicit deps object (bound getters/
+        setters/`emit`/`t`, plus the two route-editor wrapper methods) each call; every existing
+        internal call site (`this.processTalkForm.bind(this)`, five of them) and the external
+        `talk-editor-form-helpers.ts` injection point keep compiling unchanged.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -1107,6 +1135,14 @@ entries and babel preset were never removed.
         dealmaker/taxi 5/5, find-similar 1/1). Sequential canonical run
         `run-20260825-234056-81556` passed all static checks and all browser phases/blobs, including
         WebKit/Firefox smoke, heavy staged, and mass-user coverage.
+      - Cluster #9 evidence: typecheck/lint, production web build, and 162 unit suites / 1,726
+        tests pass (11 new); `05-talks-edit` (flow), `92-route-shared-builtin-root-branches`
+        (route), and `07-tags-checkbox` (tag via the real editor UI) pass standalone. Canonical run
+        `run-20260908-220720-69284` (25m29s) surfaced 3 phases with failures under concurrent-wave
+        load; every one traced to pre-existing "phase-wave resource pressure" flakiness (the same
+        class cluster #8's evidence documented) rather than this extraction — see `docs/completed.md`
+        for the per-phase investigation, including a `git stash` confirmation that the one test
+        touching login/headcount (unrelated to talk creation) fails identically on clean HEAD.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1166,7 +1202,10 @@ entries and babel preset were never removed.
 15. ~~Re-measure, characterize, and extract cluster #8 (settings storage inspector), lower the
     ratchet to 8,938, and close its canonical gate.~~ Done; the read-only diagnostics module takes
     formatted app state and translation/API dependencies explicitly.
-16. Re-measure and choose cluster #9 as a separate commit-sized change; continue to defer
+16. ~~Re-measure and choose cluster #9 (talk-editor form processing), lower the ratchet from the
+    grown 9,153 to 8,912, and close its canonical gate.~~ Done; `processTalkForm` was never called
+    externally, so the extraction needed no new indirection beyond the usual deps-object shim.
+17. Re-measure and choose cluster #10 as a separate commit-sized change; continue to defer
     `displayTalksList` until its ownership boundary is reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples

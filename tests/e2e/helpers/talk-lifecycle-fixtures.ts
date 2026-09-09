@@ -35,7 +35,7 @@ export async function createTagTalkForLifecycle(
   return createTagTalkViaEditor(page, { title });
 }
 
-/** `processTalkForm`'s flow branch (ui-manager.ts) ids answers `a_${qIndex}_${aIndex}` —
+/** `processTalkForm`'s flow branch (talk-form-processor.ts) ids answers `a_${qIndex}_${aIndex}` —
  *  deterministic from array position, matching `createFlowTalkForLifecycle`'s single question
  *  with match listed first (index 0), ignore second (index 1). */
 export function flowMatchAnswerIds(): string[] {
