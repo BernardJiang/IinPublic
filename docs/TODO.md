@@ -35,7 +35,6 @@ partial completion is itself the useful signal.
 ## Priority 3 — native and cross-platform verification
 
 - [ ] Connect the Mac mini, Windows, and Linux native-app jobs to real CI runners.
-- [ ] Enable and pass X4 mobile↔desktop matching and threads.
 - [ ] Enable and pass X5 three-platform thread isolation.
 - [ ] Enable and pass X6 bidirectional offline/mailbox delivery.
 - [ ] Add iPhone native-shell coverage when an iOS shell is available. Android is already shipped

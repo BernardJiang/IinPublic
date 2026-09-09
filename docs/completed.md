@@ -2,6 +2,42 @@
 
 Last updated: 2026-09-08
 
+## 2026-09-08 — X4: mobile ↔ desktop matching + threads, implemented for real
+
+`tests/e2e/cross-platform/x4-mobile-desktop-threads.spec.ts` was a `test.skip` stub
+since the cross-platform harness was scaffolded; implemented it rather than
+waiting on the CI-runner-wiring bullet in `docs/TODO.md` Priority 3, since X4's
+actual requirements (a mobile-viewport client + a desktop client matching and
+messaging) don't need a native build at all.
+
+- Desktop client: ordinary chromium context on the shared per-worker hub (same
+  pattern as X1/X2). Mobile client: `bootstrapMobileUser`/`setupFastMatchedMobileDm`
+  (`tests/e2e/helpers/mobile-bootstrap.ts`) — a 390×844 viewport with
+  `isMobile`/`hasTouch`, the same helper `staged/stage2-two-user/38` and `39`
+  already use and prove reliable; reused rather than the originally-considered
+  real-WebKit-engine route (untested in the full bootstrap/matching flow — only
+  `platform-smoke`'s lightweight `@smoke` set has run under the `iphone-webkit`
+  WebKit project so far).
+- Match via the existing `setupFastMatchedMobileDm` pair-direct helper, then a
+  thread reply in each direction via `sendConversationMessage`/`waitForMessageVisible`
+  (the same X1/X2 pattern).
+- New contribution beyond what spec 39 already covers (conversation-overlay
+  usability at 390px): after messaging, the mobile client backs out of the
+  conversation (`#back-from-conversation`) and returns to the main chatrooms
+  view, asserting the AppBar/bottom-nav stays usable at 390px — no horizontal
+  clipping, and the create-talk action reachable inline or behind the `⋯`
+  overflow button (`[data-testid="app-bar-overflow-btn"]`) — the same T1/T2
+  contract `platform-smoke` asserts for the `iphone-webkit` device-profile
+  project, exercised here after a real cross-client match+thread.
+- Verified stable across 3 consecutive standalone runs (~14s each) and passing
+  alongside X1/X2 in the full `npm run test:e2e:cross-platform` run (X3/X5-X8
+  correctly still skip).
+- Promoted from "nightly, skipped" to the folder's P0 merge-gate set in
+  `tests/e2e/cross-platform/README.md`, alongside X1/X2. Companion narrative
+  written in `x4-mobile-desktop-threads.md` (was a placeholder).
+- `docs/TODO.md` Priority 3's "Enable and pass X4 mobile↔desktop matching and
+  threads" bullet removed — done.
+
 ## 2026-09-08 — §J: Sync-then-erase (fully landed)
 
 Archived from `docs/TODO.md` Priority 2 — both items shipped with full E2E coverage; nothing remains open under this letter.

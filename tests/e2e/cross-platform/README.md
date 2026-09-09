@@ -16,18 +16,23 @@ npm run test:e2e:cross-platform
   presence and a room headcount ≥ 2 (X1).
 - **x2-cross-platform-talk-lifecycle** — a talk broadcast + answered across the
   two clients produces a match + a thread reply in both directions (X2).
+- **x4-mobile-desktop-threads** — a desktop client and a 390×844 mobile-profile
+  client (`bootstrapMobileUser`/`setupFastMatchedMobileDm`) match and exchange a
+  thread reply in both directions, then the mobile client leaves the conversation
+  and proves its main AppBar/bottom-nav stays usable at 390px (X4, 2026-09-08).
 
-Both run as two browser contexts against the shared per-worker hub — the runnable
-form in this repo. The true website↔Electron and mobile-profile variants layer on
-top via the device-profile projects (`E2E_DEVICE_PROFILES=1`) and the native-app
-config (`npm run test:e2e:native-app`).
+All three run as two browser contexts against the shared per-worker hub — the
+runnable form in this repo. The true website↔Electron and mobile-profile variants
+layer on top via the device-profile projects (`E2E_DEVICE_PROFILES=1`) and the
+native-app config (`npm run test:e2e:native-app`).
 
-## Nightly (X3–X6)
+## Nightly (X3, X5, X6)
 
-`x3`–`x6` are scaffolded as skipped specs describing the setup each needs (native
-Electron build, mobile device profile, offline mailbox across platforms). They are
-run on the nightly cross-platform lane once the harness is wired to a real
-website/native build on the CI runners (Mac mini P2, Windows P3, Linux P4).
+`x3`, `x5`, and `x6` are scaffolded as skipped specs describing the setup each
+needs (native Electron build, a real third native client, offline mailbox across
+platforms). They are run on the nightly cross-platform lane once the harness is
+wired to a real website/native build on the CI runners (Mac mini P2, Windows P3,
+Linux P4) — see `docs/TODO.md` Priority 3.
 
 ## Real-device pass
 
