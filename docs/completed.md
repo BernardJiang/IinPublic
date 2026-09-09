@@ -2,6 +2,40 @@
 
 Last updated: 2026-09-08
 
+## 2026-09-08 — X6: offline mailbox across platforms, both directions, implemented for real
+
+`tests/e2e/cross-platform/x6-offline-mailbox.spec.ts` was a `test.skip` stub.
+Implemented it the same way X4 was: its actual requirements (offline simulation
++ encrypted-mailbox drain) don't need a native build, and two existing specs
+already prove the mechanism works for one direction.
+
+- Two matched clients via `setupLeanMatchedPair` (`tests/e2e/helpers/
+  fast-match-lean.ts` — the overlay-free helper `staged/stage2-two-user/
+  36-offline-beyond-mailbox-ttl` already uses, avoiding two 10s
+  `ensureConnected()` WebRTC-warm attempts neither side needs here).
+- "Offline" simulated the same way `talks-matching/05-mailbox-offline-response`
+  and spec 36 already do: close the browser context (storageState saved
+  first), later reopen a new context with that same storageState so the
+  reconnecting client is the same identity, not a new one.
+- New contribution beyond specs 05/36 (which each only ever take one side
+  offline): both directions in one continuous run — B offline while A sends
+  and B reconnects+drains, then (reusing the same matched pair/conversation) A
+  offline while B, now reconnected, sends back and A reconnects+drains. Uses
+  the ordinary production `sendConversationMessage` →
+  `WebConversationService.sendMessage` → `postConversationMessageToMailbox` (on
+  WebRTC failure) path (`src/web/app/app.ts`) rather than 05/36's manually
+  constructed envelopes, since X6 isn't testing TTL edge cases — just that
+  both directions actually deliver. Confirms both mailboxes end empty after
+  their respective drains.
+- Verified stable across 3 consecutive standalone runs (~16s each) and passing
+  alongside X1/X2/X4 in the full `npm run test:e2e:cross-platform` run (X3/X5/
+  X7 correctly still skip).
+- Promoted from "nightly, skipped" to the folder's P0 merge-gate set in
+  `tests/e2e/cross-platform/README.md`, alongside X1/X2/X4. Companion narrative
+  written in `x6-offline-mailbox.md` (was a placeholder).
+- `docs/TODO.md` Priority 3's "Enable and pass X6 bidirectional offline/mailbox
+  delivery" bullet removed — done.
+
 ## 2026-09-08 — X4: mobile ↔ desktop matching + threads, implemented for real
 
 `tests/e2e/cross-platform/x4-mobile-desktop-threads.spec.ts` was a `test.skip` stub

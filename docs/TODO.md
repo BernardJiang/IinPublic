@@ -36,7 +36,6 @@ partial completion is itself the useful signal.
 
 - [ ] Connect the Mac mini, Windows, and Linux native-app jobs to real CI runners.
 - [ ] Enable and pass X5 three-platform thread isolation.
-- [ ] Enable and pass X6 bidirectional offline/mailbox delivery.
 - [ ] Add iPhone native-shell coverage when an iOS shell is available. Android is already shipped
   and physically exercised; do not describe it as a browser-profile stand-in.
 - [ ] Apple Wi-Fi Aware discovery/data-path prototype on supported physical devices; real

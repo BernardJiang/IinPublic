@@ -20,19 +20,25 @@ npm run test:e2e:cross-platform
   client (`bootstrapMobileUser`/`setupFastMatchedMobileDm`) match and exchange a
   thread reply in both directions, then the mobile client leaves the conversation
   and proves its main AppBar/bottom-nav stays usable at 390px (X4, 2026-09-08).
+- **x6-offline-mailbox** — two matched clients (`setupLeanMatchedPair`); each
+  direction in turn goes offline (context closed, storageState saved), the
+  other sends a message that falls back to the encrypted mailbox, and the
+  offline side reconnects with the same identity and drains it (X6, 2026-09-08).
 
-All three run as two browser contexts against the shared per-worker hub — the
+All four run as two browser contexts against the shared per-worker hub — the
 runnable form in this repo. The true website↔Electron and mobile-profile variants
 layer on top via the device-profile projects (`E2E_DEVICE_PROFILES=1`) and the
 native-app config (`npm run test:e2e:native-app`).
 
-## Nightly (X3, X5, X6)
+## Nightly (X3, X5, X7)
 
-`x3`, `x5`, and `x6` are scaffolded as skipped specs describing the setup each
-needs (native Electron build, a real third native client, offline mailbox across
-platforms). They are run on the nightly cross-platform lane once the harness is
-wired to a real website/native build on the CI runners (Mac mini P2, Windows P3,
-Linux P4) — see `docs/TODO.md` Priority 3.
+`x3`, `x5`, and `x7` are scaffolded as skipped specs describing the setup each
+needs (native Electron build, a real third native client, a hosted website
+linked to a native webapp for sync-then-erase). They are run on the nightly
+cross-platform lane once the harness is wired to a real website/native build on
+the CI runners (Mac mini P2, Windows P3, Linux P4) — see `docs/TODO.md`
+Priority 3. (`x8-same-device-link` already runs for real — landed 2026-08-26,
+see `docs/completed.md`.)
 
 ## Real-device pass
 
