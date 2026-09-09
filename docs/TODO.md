@@ -898,11 +898,13 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#9 are complete
-(cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`).
-The ratchet grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding,
-K7 delegate credentials) landed on top between clusters; cluster #9 brought it back down to
-**8,912** — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#10 are complete
+(cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`;
+cluster #10, 2026-09-09: `openLinkedDevicesDialog`'s orchestration body → `linked-devices-dialog.ts`,
+alongside the `showLinkedDevicesDialog` renderer it already owned). The ratchet grew from 8,938
+(after cluster #8) to 9,153 as legitimate feature work (onboarding, K7 delegate credentials)
+landed on top between clusters; cluster #9 brought it down to 8,912, cluster #10 to **8,784** —
+the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -1006,6 +1008,16 @@ entries and babel preset were never removed.
         Never called externally (`app.ts` never invokes it): every call site already passed it
         around as a bound `(form: HTMLFormElement) => boolean` callback (including a self-recursive
         one into `collectFlowSurveyEditorQuestions`), so the extraction needed no new indirection.
+      - **Tenth: linked-devices dialog orchestration.** `openLinkedDevicesDialog` (152 lines, 16
+        distinct `this.*` refs) was the next-lowest coupling-to-size ratio after cluster #9;
+        `renderCreatorReplies` (202 lines, 14 refs, but with direct read/write of several mutable
+        `this.creatorReply*` instance fields — more entangled, deferred again) was re-measured and
+        passed over. Nearly all 16 refs were already-established optional hook properties
+        (`identityLinkCodeCreator`, `identityPasswordSetter`, etc. — set by `app.ts` via
+        `setIdentityLinkHooks`/`setIdentityPasswordHooks`/`setDeviceHandoffReceive`), trivially
+        forwarded as explicit deps rather than genuine coupling. The method itself was already a
+        thin(ish) options-builder around `showLinkedDevicesDialog` (an already-extracted renderer in
+        the same file), so its natural home was that same module, not a new one.
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
       event subscriptions, async callbacks, mutable collections, imports, and possible cycles.
 - [x] **1.3 Characterize cluster #1 before moving it.** Tests freeze route fan-out ordering and
@@ -1046,6 +1058,17 @@ entries and babel preset were never removed.
         directly per that spec's own comment), `staged/stage2-two-user/92-route-shared-builtin-
         root-branches` (route), and `staged/stage2-two-user/07-tags-checkbox` (tag, via the real
         editor UI rather than the low-level pair-direct bypass X1-X8 use) all pass.
+      - Cluster #10 (`src/test/unit/linked-devices-dialog.test.ts`, +8 tests) freezes:
+        `readLinkedDeviceRecords` forcing every row to "waiting" until the graph state resolves
+        (and returning `[]` for missing/malformed/non-array localStorage content); current-user
+        identity resolution including the no-current-user "unavailable" fallback;
+        `completeFromCode`'s self/reused rejections and its success path (persists the new row,
+        forwards to `identityLinkCompleter`); and `unlink` defaulting to "revocation-pending" when
+        no `identityLinkUnlinker` hook is wired. Driven through the real rendered DOM (the Enter-
+        code modal, the unlink-confirm modal) rather than calling the closures directly, since
+        `showLinkedDevicesDialog`'s own existing test file already established that convention.
+        Real-browser regression: `staged/stage2-two-user/73-identity-link-mutual`,
+        `74-device-handoff-transfer`, and `cross-platform/x8-same-device-link` all pass.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -1090,6 +1113,17 @@ entries and babel preset were never removed.
         setters/`emit`/`t`, plus the two route-editor wrapper methods) each call; every existing
         internal call site (`this.processTalkForm.bind(this)`, five of them) and the external
         `talk-editor-form-helpers.ts` injection point keep compiling unchanged.
+      - Cluster #10: `linked-devices-dialog.ts` gains `openLinkedDevicesDialog` (the orchestration
+        body — device metadata/platform resolution, password-protection and incoming-handoff
+        state, and the full `LinkedDevicesDeps` callback assembly) and two small pure helpers,
+        `readLinkedDeviceRecords`/`saveLinkedDeviceRecords`, alongside the `showLinkedDevicesDialog`
+        renderer that already lived there. `UIManager`'s `openLinkedDevicesDialog` is now a
+        20-line shim forwarding its 14 optional hook properties plus a `getCurrentUser` getter
+        (called fresh at each point the original read `this.currentUser`, not snapshotted once,
+        to preserve exact behavior across the method's two `await`s). `openEraseDeviceDialog`
+        (a separate method with its own independent, differently-scoped read of the same
+        `iinpublic_linked_devices` localStorage key) was deliberately left untouched — out of
+        scope for this cluster, not a dependency of the extracted method.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -1143,6 +1177,15 @@ entries and babel preset were never removed.
         class cluster #8's evidence documented) rather than this extraction — see `docs/completed.md`
         for the per-phase investigation, including a `git stash` confirmation that the one test
         touching login/headcount (unrelated to talk creation) fails identically on clean HEAD.
+      - Cluster #10 evidence: typecheck/lint, production web build, and 162 unit suites / 1,734
+        tests pass (8 new); `73-identity-link-mutual`, `74-device-handoff-transfer`, and
+        `cross-platform/x8-same-device-link` pass standalone. Canonical run `run-20260909-074052-
+        90038` (25m20s) surfaced the same 3 phases as cluster #9's run, none touching
+        linked-devices code: `cross-browser` reproduced cluster #9's exact same Gun-server-boot
+        failure byte-for-byte (same port, same error, same ~724s duration) and `heavy-staged`
+        failed the exact same already-clean-HEAD-confirmed spec again; `light` failed two
+        different TechSupport specs this time (varying between runs, consistent with load
+        flakiness rather than a deterministic regression) — see `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1205,7 +1248,11 @@ entries and babel preset were never removed.
 16. ~~Re-measure and choose cluster #9 (talk-editor form processing), lower the ratchet from the
     grown 9,153 to 8,912, and close its canonical gate.~~ Done; `processTalkForm` was never called
     externally, so the extraction needed no new indirection beyond the usual deps-object shim.
-17. Re-measure and choose cluster #10 as a separate commit-sized change; continue to defer
+17. ~~Re-measure and choose cluster #10 (linked-devices dialog orchestration), lower the ratchet
+    from 8,912 to 8,784, and close its canonical gate.~~ Done; the method folded into the same
+    module its already-extracted renderer lived in, since it was mostly a `LinkedDevicesDeps`
+    options-builder around that renderer.
+18. Re-measure and choose cluster #11 as a separate commit-sized change; continue to defer
     `displayTalksList` until its ownership boundary is reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples

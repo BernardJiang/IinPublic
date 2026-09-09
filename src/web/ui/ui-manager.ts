@@ -177,16 +177,11 @@ import {
 import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
 import { CONFIG } from '../../shared/config';
-import { showLinkedDevicesDialog, type LinkedDeviceRow } from './linked-devices-dialog';
+import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl, type LinkedDeviceRow } from './linked-devices-dialog';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
-import { decodePairingCode, isPairingExpired, type PairingPayload } from '../../shared/identity-linking';
+import { type PairingPayload } from '../../shared/identity-linking';
 import { showEraseDeviceDialog } from './erase-device-dialog';
 import { eraseDevice } from '../services/device-wipe';
-import {
-  detectLocalDevicePlatform,
-  getOrCreateLocalDeviceMetadata,
-  renameLocalDevice,
-} from '../services/local-device-metadata';
 import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { buildTagIdentityKeys } from '../../shared/talk-ledger';
 
@@ -3880,150 +3875,27 @@ export class UIManager extends EventEmitter {
    * a verified link.
    */
   private async openLinkedDevicesDialog(prefillLinkCode?: string): Promise<void> {
-    const LOCAL_KEY = 'iinpublic_linked_devices';
-    let graphStateResolved = false;
-    const listRecords = (): LinkedDeviceRow[] => {
-      try {
-        const arr = JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]');
-        if (!Array.isArray(arr)) return [];
-        // localStorage supplies candidate identities and display labels only. A
-        // persisted row cannot claim a verified link until this page has resolved
-        // the signed graph state in the current view.
-        return graphStateResolved
-          ? arr
-          : arr.map((row: LinkedDeviceRow) => ({ ...row, state: 'waiting' as const }));
-      } catch {
-        return [];
-      }
-    };
-    const saveRecords = (rows: LinkedDeviceRow[]): void => localStorage.setItem(LOCAL_KEY, JSON.stringify(rows));
-    const nativeHost = (window as unknown as {
-      iinpublicNative?: { version?: string; platform?: string };
-    }).iinpublicNative;
-    const nativeQuery = new URLSearchParams(window.location.search);
-    const explicitPlatform = nativeHost?.platform || nativeQuery.get('native_platform') || '';
-    const appVersion = String(nativeHost?.version || nativeQuery.get('app_version') || 'web');
-    const platform = detectLocalDevicePlatform(explicitPlatform, navigator.userAgent || '');
-    const createdAt = new Date(this.currentUser?.createdAt || Date.now()).getTime();
-    const defaultDeviceName = platform === 'android'
-      ? this.t('defaultAndroidDeviceName')
-      : platform === 'ios'
-        ? this.t('defaultIosDeviceName')
-        : platform === 'desktop'
-          ? this.t('defaultDesktopDeviceName')
-          : this.t('defaultBrowserDeviceName');
-    let deviceMetadata = getOrCreateLocalDeviceMetadata(localStorage, {
-      name: defaultDeviceName,
-      platform,
-      createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
-    });
-    const identityPub = this.currentUser?.pub || '';
-    let protection = this.identityPasswordStatusReader
-      ? await this.identityPasswordStatusReader().catch(() => ({ state: 'not-set' as const }))
-      : { state: 'not-set' as const };
-    let incomingHandoff = this.deviceHandoffCheckIncoming
-      ? await this.deviceHandoffCheckIncoming().catch(() => null)
-      : null;
-    showLinkedDevicesDialog({
-      text: (key: string, fallback?: string) => {
-        const value = this.t(key as any);
-        return value && value !== key ? value : (fallback ?? key);
+    return openLinkedDevicesDialogImpl(
+      {
+        t: (key) => this.t(key as any),
+        getCurrentUser: () => this.currentUser ?? null,
+        identityPasswordStatusReader: this.identityPasswordStatusReader,
+        identityPasswordSetter: this.identityPasswordSetter,
+        identityPasswordChanger: this.identityPasswordChanger,
+        identityPasswordRemover: this.identityPasswordRemover,
+        identityPasswordLocker: this.identityPasswordLocker,
+        identityLinkCodeCreator: this.identityLinkCodeCreator,
+        identityLinkRequestReader: this.identityLinkRequestReader,
+        identityLinkRequestApprover: this.identityLinkRequestApprover,
+        identityLinkPendingCanceler: this.identityLinkPendingCanceler,
+        identityLinkRefresher: this.identityLinkRefresher,
+        identityLinkCompleter: this.identityLinkCompleter,
+        identityLinkUnlinker: this.identityLinkUnlinker,
+        deviceHandoffCheckIncoming: this.deviceHandoffCheckIncoming,
+        deviceHandoffImport: this.deviceHandoffImport,
       },
-      listRecords,
-      identity: {
-        pub: identityPub,
-        stageName: this.currentUser?.stageName || this.t('unavailable'),
-        ...(this.currentUser?.headshot ? { headshot: this.currentUser.headshot } : {}),
-        createdAt: Number.isFinite(createdAt) ? createdAt : deviceMetadata.createdAt,
-        status: identityPub ? 'available' : 'needs-attention',
-      },
-      device: () => deviceMetadata,
-      appVersion,
-      protection: () => ({ state: protection.state === 'locked' ? 'set' : 'not-set' }),
-      ...(this.identityPasswordSetter
-        ? { setIdentityPassword: async (password: string) => {
-          await this.identityPasswordSetter!(password);
-          protection = { state: 'locked' };
-        } }
-        : {}),
-      ...(this.identityPasswordChanger
-        ? { changeIdentityPassword: this.identityPasswordChanger }
-        : {}),
-      ...(this.identityPasswordRemover
-        ? { removeIdentityPassword: async (currentPassword: string) => {
-          await this.identityPasswordRemover!(currentPassword);
-          protection = { state: 'not-set' };
-        } }
-        : {}),
-      ...(this.identityPasswordLocker
-        ? { lockIdentityNow: this.identityPasswordLocker }
-        : {}),
-      renameDevice: (name: string) => {
-        deviceMetadata = renameLocalDevice(localStorage, deviceMetadata, name);
-        return deviceMetadata;
-      },
-      selfPub: () => identityPub,
-      randomSecret: () => {
-        const bytes = new Uint8Array(18);
-        (globalThis.crypto || (window as any).crypto).getRandomValues(bytes);
-        return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-      },
-      ...(this.identityLinkCodeCreator
-        ? { createLinkCode: (now: number) => this.identityLinkCodeCreator!(now) }
-        : {}),
-      ...(this.identityLinkRequestReader
-        ? { readIncomingRequest: () => this.identityLinkRequestReader!() }
-        : {}),
-      ...(this.identityLinkRequestApprover
-        ? { approveIncomingRequest: (pub: string) => this.identityLinkRequestApprover!(pub) }
-        : {}),
-      ...(this.identityLinkPendingCanceler
-        ? { cancelPendingRequest: (requestId: string) => this.identityLinkPendingCanceler!(requestId) }
-        : {}),
-      ...(this.identityLinkRefresher
-        ? { refreshRecords: async () => {
-            await this.identityLinkRefresher!();
-            graphStateResolved = true;
-          } }
-        : {}),
-      completeFromCode: async (code: string) => {
-        const decoded = decodePairingCode(code);
-        if (!decoded) return 'invalid';
-        if (decoded.pub === identityPub) return 'self';
-        if (isPairingExpired(decoded)) return 'expired';
-        const rows = listRecords();
-        if (rows.some((r) => r.pub === decoded.pub)) return 'reused';
-        if (!this.identityLinkCompleter) return 'invalid';
-        const err = await this.identityLinkCompleter(code).catch(() => 'unavailable' as const);
-        if (err) return err;
-        rows.push({
-          pub: decoded.pub,
-          stageName: this.t('linkedDeviceDefaultName'),
-          platform: 'web',
-          linkedAt: Date.now(),
-          state: 'waiting',
-        });
-        saveRecords(rows);
-        return null;
-      },
-      unlink: async (pub: string) => {
-        const state = this.identityLinkUnlinker
-          ? await this.identityLinkUnlinker(pub)
-          : 'revocation-pending';
-        saveRecords(listRecords().map((row) => row.pub === pub ? { ...row, state } : row));
-        return state;
-      },
-      ...(incomingHandoff
-        ? {
-            incomingHandoff: { fromPub: incomingHandoff.fromPub, fromName: incomingHandoff.fromName },
-            importHandoff: async () => {
-              if (!incomingHandoff || !this.deviceHandoffImport) return;
-              await this.deviceHandoffImport(incomingHandoff.fromPub, incomingHandoff.archive);
-              incomingHandoff = null;
-            },
-          }
-        : {}),
-    }, prefillLinkCode ? { prefillLinkCode } : undefined);
+      prefillLinkCode,
+    );
   }
 
   /**

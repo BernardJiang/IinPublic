@@ -1,6 +1,82 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
+
+## 2026-09-09 — UIManager decomposition cluster #10: linked-devices dialog orchestration
+
+Extracted `UIManager.openLinkedDevicesDialog`'s body (device metadata/platform resolution,
+password-protection and incoming-handoff state, and the full `LinkedDevicesDeps` callback
+assembly) into `src/web/ui/linked-devices-dialog.ts` — the same file that already owned
+`showLinkedDevicesDialog`, the pure DOM renderer it calls. `docs/TODO.md` Priority 6, "Current
+sequence" step 17.
+
+- **Why this method:** re-measured after cluster #9. `openLinkedDevicesDialog` (152 lines, 16
+  distinct `this.*` refs) had the next-best ratio; `renderCreatorReplies` (202 lines, 14 refs)
+  was also measured but passed over — its refs include direct read/write of several mutable
+  `this.creatorReply*` instance fields, more entangled than a clean deps-forwarding candidate.
+  Nearly all 16 of `openLinkedDevicesDialog`'s refs turned out to be already-established optional
+  hook properties (`identityLinkCodeCreator`, `identityPasswordSetter`, `deviceHandoffImport`,
+  etc. — set by `app.ts` via `setIdentityLinkHooks`/`setIdentityPasswordHooks`/
+  `setDeviceHandoffReceive`), trivially forwarded as explicit deps rather than genuine coupling.
+- **Natural home, not a new file:** the method was already mostly a `LinkedDevicesDeps`
+  options-builder around `showLinkedDevicesDialog` — an already-extracted renderer living in
+  `linked-devices-dialog.ts`. Adding the orchestration function to that same file (rather than a
+  new sibling module) avoids re-importing `LinkedDeviceRow`/`LinkedDevicesDeps`/
+  `IncomingLinkRequestSummary` types across a file boundary for no benefit.
+- **`getCurrentUser` as a getter, not a snapshot:** the original inline body read `this.currentUser`
+  at 4 separate points, 2 of them after `await`ing `identityPasswordStatusReader`/
+  `deviceHandoffCheckIncoming`. To preserve exact behavior (however unlikely to matter in
+  practice) rather than silently snapshotting it once, the extracted function takes
+  `getCurrentUser: () => {...} | null` and calls it fresh at each of those 4 points.
+- **Two small pure helpers also extracted and exported:** `readLinkedDeviceRecords` (forces every
+  row to "waiting" until the graph state resolves) and `saveLinkedDeviceRecords` — both were
+  previously closures defined inline in the `UIManager` method.
+- **Deliberately NOT touched:** `openEraseDeviceDialog` (a separate `UIManager` method) reads the
+  same `iinpublic_linked_devices` localStorage key independently, filtering for `state ===
+  'linked'` — a different, narrower semantic than `readLinkedDeviceRecords`'s graph-aware
+  waiting/resolved distinction. Left with its own inline duplicate parsing rather than folded
+  into the new shared helper, since that would be an unrelated scope expansion for this cluster.
+- **`exactOptionalPropertyTypes` note:** the project's strict optional-property TS setting means
+  an object literal can't assign `undefined` to a `foo?: T` property — only omit it entirely.
+  Since `this.<hook>` values are typed `T | undefined` (from `private foo?: T` class fields),
+  every optional field in the new `OpenLinkedDevicesDialogDeps` interface needed an explicit
+  `| undefined` union, not just `?:`, to accept them directly without a spread-conditional at
+  each call site.
+- **Characterization:** `src/test/unit/linked-devices-dialog.test.ts` (+8 tests, alongside the
+  existing 8 that already covered `showLinkedDevicesDialog`'s rendering) — `readLinkedDeviceRecords`
+  forcing "waiting" until graph-resolved and returning `[]` for malformed/missing/non-array
+  storage; current-user identity resolution including the no-user "unavailable" fallback;
+  `completeFromCode`'s self/reused rejections and success path (persists the row, forwards to
+  `identityLinkCompleter`); and `unlink` defaulting to "revocation-pending" with no
+  `identityLinkUnlinker` wired. Driven through the real rendered DOM (Enter-code modal, then the
+  separate unlink-*confirmation* modal a naive first pass missed — clicking the row's Unlink
+  button only opens a confirm dialog, `deps.unlink` doesn't fire until `#unlink-confirm-btn` is
+  also clicked) rather than invoking closures directly, matching the existing test file's
+  established convention.
+- **Real-browser regression:** `staged/stage2-two-user/73-identity-link-mutual` (mutual linking),
+  `74-device-handoff-transfer` (the incoming-handoff import card this dialog surfaces), and
+  `cross-platform/x8-same-device-link` (loopback same-device linking, which enters through this
+  exact method via `openLinkedDevicesWithCode`) all pass standalone.
+- **Ratchet:** `ui-manager.ts` 8,912 → **8,784** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, production web build succeeds, all 162 unit suites /
+  1,734 tests pass (8 new). Canonical `npm run test:all` run `run-20260909-074052-90038` (25m20s,
+  12 blobs) surfaced the same 3 phases with failures as cluster #9's run (`light`, `heavy-staged`,
+  `cross-browser`), none of them touching linked-devices code: `cross-browser`'s failure
+  reproduced cluster #9's exact same symptom byte-for-byte — the same 4 webkit/firefox
+  `platform-smoke` tests, the identical `waitForGunApiReady: http://127.0.0.1:10080/health not
+  reachable after 90000ms` error, and essentially the same ~724s duration — clearly the same Gun
+  server that never comes up under wave 2's 6-way concurrent phase pressure, not an application
+  bug. `heavy-staged` failed the exact same `01-login-two-users-headcount` spec cluster #9's `git
+  stash` run already proved fails identically on clean HEAD. `light` failed two *different*
+  TechSupport specs this run (`79-techsupport-survives-restrictive-filters` again, plus
+  `00l-techsupport-faq-cross-user` instead of last run's messaging/survey ones) — the specific
+  specs varying between otherwise-identical runs is itself evidence for load-driven flakiness
+  over a deterministic regression: a real regression would fail the same test every time, not a
+  different unrelated one. No failure traces to this extraction. Given this cluster's two-run
+  reproduction of the *exact same* infrastructure symptoms already investigated in depth for
+  cluster #9 (including a `git stash`-verified clean-HEAD baseline), a fresh from-scratch
+  investigation wasn't repeated here.
 
 ## 2026-09-08 — UIManager decomposition cluster #9: talk-editor form processing
 
