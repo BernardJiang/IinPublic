@@ -898,13 +898,14 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#10 are complete
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#11 are complete
 (cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`;
 cluster #10, 2026-09-09: `openLinkedDevicesDialog`'s orchestration body → `linked-devices-dialog.ts`,
-alongside the `showLinkedDevicesDialog` renderer it already owned). The ratchet grew from 8,938
-(after cluster #8) to 9,153 as legitimate feature work (onboarding, K7 delegate credentials)
-landed on top between clusters; cluster #9 brought it down to 8,912, cluster #10 to **8,784** —
-the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
+alongside the `showLinkedDevicesDialog` renderer it already owned; cluster #11, 2026-09-09:
+`renderCreatorReplies` → new `creator-replies-view.ts`). The ratchet grew from 8,938 (after
+cluster #8) to 9,153 as legitimate feature work (onboarding, K7 delegate credentials) landed on
+top between clusters; cluster #9 brought it down to 8,912, cluster #10 to 8,784, cluster #11 to
+**8,584** — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -1018,6 +1019,21 @@ entries and babel preset were never removed.
         forwarded as explicit deps rather than genuine coupling. The method itself was already a
         thin(ish) options-builder around `showLinkedDevicesDialog` (an already-extracted renderer in
         the same file), so its natural home was that same module, not a new one.
+      - **Eleventh: creator-replies list.** Re-measured after cluster #10; `renderSettingsView`
+        (483 lines, 21 refs) and its companion `bindSettingsControls` (362 lines, 22 refs) are the
+        largest remaining methods after `displayTalksList`, but inspection (not just the `this.*`
+        count) shows them mutually referencing each other and touching a wide swath of
+        cross-cutting methods — `bindSettingsControls` alone calls `displayTalksList` itself,
+        `openEraseDeviceDialog`, `openLinkedDevicesDialog`, `showEditProfileDialog`,
+        `rerenderOpenConversation`, and more — the same over-entangled shape that already ruled out
+        `displayTalksList`, so both stay deferred alongside it. `renderCreatorReplies` (202 lines,
+        14 refs) was re-measured instead: its "direct read/write of mutable instance fields"
+        concern from cluster #10's pass is exactly the shape cluster #9's `processTalkForm` and
+        earlier dashboard-style clusters (#2, #5) already handled cleanly via explicit
+        getter/setter closures — a self-contained filter/sort/group/render pipeline over 3 scalar
+        fields (`creatorReplyScopedTalkId`/`Title`, `creatorReplyVisibleCount`) and one array field
+        (`creatorReplyRows`, read-only from this method's perspective), not the deep cross-feature
+        coupling settings has.
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
       event subscriptions, async callbacks, mutable collections, imports, and possible cycles.
 - [x] **1.3 Characterize cluster #1 before moving it.** Tests freeze route fan-out ordering and
@@ -1069,6 +1085,21 @@ entries and babel preset were never removed.
         `showLinkedDevicesDialog`'s own existing test file already established that convention.
         Real-browser regression: `staged/stage2-two-user/73-identity-link-mutual`,
         `74-device-handoff-transfer`, and `cross-platform/x8-same-device-link` all pass.
+      - Cluster #11 (`src/test/unit/creator-replies-view.test.ts`, new, 9 tests) freezes:
+        rendering rows with a correct shown/filtered/total summary count; the empty state when
+        every row is filtered out; the scoped-talk filter hiding non-matching rows and its
+        clearable scope chip; "load more" pagination growing the visible page and re-rendering;
+        click-routing (a matched row with a live conversation opens it via
+        `showConversationDetail`, an unmatched row navigates to the responder's graph node via
+        `navigateToGraphNode`); hostile responder-name/title escaping; and search-query filtering
+        by responder name and talk title. The dedicated `00v-creator-reply-triage-matrix` E2E spec
+        (100-reply pagination/search/filter/sort stress test) is pre-existing-excluded from the
+        default project (`testIgnore` in `playwright.config.ts`, unrelated to this cluster — its
+        own comment cites a stale server-snapshot data-path mismatch); confirmed via `npx
+        playwright test <path>` directly returning "No tests found" even with an explicit path.
+        Real-browser regression instead: `staged/stage3-three-user/
+        09-contacts-talks-cross-navigation` (exercises the same click-to-conversation vs
+        click-to-contact routing decision) passes.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -1124,6 +1155,19 @@ entries and babel preset were never removed.
         (a separate method with its own independent, differently-scoped read of the same
         `iinpublic_linked_devices` localStorage key) was deliberately left untouched — out of
         scope for this cluster, not a dependency of the extracted method.
+      - Cluster #11: new `creator-replies-view.ts` owns `renderCreatorReplies` (the filter/sort/
+        group/render pipeline, the scoped-talk clear-chip handler, and the load-more pagination
+        handler), plus the `CreatorReplyRow`/`CreatorReplyFilterState` types and the
+        `CREATOR_REPLY_PAGE_SIZE` constant, all moved from `ui-manager.ts` (which imports them
+        back where still needed — the two type-users outside this method, and the page-size
+        constant's own field initializer). `UIManager`'s `renderCreatorReplies` is now an 18-line
+        shim passing 15 explicit deps: getters/a scope-clearer/a count-grower for the 3 mutable
+        instance fields, and thin forwarding closures for the read-only helper methods
+        (`getMyConversations`, `getKnownPerson`, `getUiLanguage`, `t`, `tf`, `formatTalkLanguage`,
+        `showConversationDetail`, `navigateToGraphNode`). The extracted function references
+        itself directly (ordinary recursion, not `this.renderCreatorReplies.bind(this)`) for its
+        two internal re-render-after-state-change call sites, the same self-reference pattern
+        cluster #9's `processTalkForm` established.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -1186,6 +1230,13 @@ entries and babel preset were never removed.
         failed the exact same already-clean-HEAD-confirmed spec again; `light` failed two
         different TechSupport specs this time (varying between runs, consistent with load
         flakiness rather than a deterministic regression) — see `docs/completed.md`.
+      - Cluster #11 evidence: typecheck/lint, production web build, and 163 unit suites / 1,743
+        tests pass (9 new); `09-contacts-talks-cross-navigation` passes standalone. Canonical run
+        `run-20260909-145930-6825` (25m22s) reproduced the same 3 e2e phase failures a third
+        consecutive time (`light`, `heavy-staged`, `cross-browser`), none touching creator-replies
+        code, plus one new one-off flaky jest integration test (server-side relay-frame storage,
+        unrelated) confirmed passing both standalone and as part of the full integration suite —
+        see `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1252,8 +1303,13 @@ entries and babel preset were never removed.
     from 8,912 to 8,784, and close its canonical gate.~~ Done; the method folded into the same
     module its already-extracted renderer lived in, since it was mostly a `LinkedDevicesDeps`
     options-builder around that renderer.
-18. Re-measure and choose cluster #11 as a separate commit-sized change; continue to defer
-    `displayTalksList` until its ownership boundary is reduced.
+18. ~~Re-measure and choose cluster #11 (creator-replies list), lower the ratchet from 8,784 to
+    8,584, and close its canonical gate.~~ Done; `renderSettingsView`/`bindSettingsControls`
+    (largest remaining pair after `displayTalksList`) were re-measured and deferred alongside it —
+    too entangled with other cross-cutting methods for a clean extraction.
+19. Re-measure and choose cluster #12 as a separate commit-sized change; continue to defer
+    `displayTalksList`, `renderSettingsView`, and `bindSettingsControls` until their ownership
+    boundaries are reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React

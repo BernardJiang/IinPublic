@@ -2,6 +2,70 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09 — UIManager decomposition cluster #11: creator-replies list
+
+Extracted `UIManager.renderCreatorReplies` (filter/sort/group/render pipeline for the Talks tab's
+"Replies to my talks" panel, plus its scope-clear and load-more click handlers) into new
+`src/web/ui/creator-replies-view.ts`, along with the `CreatorReplyRow`/`CreatorReplyFilterState`
+types and the `CREATOR_REPLY_PAGE_SIZE` constant it owns. `docs/TODO.md` Priority 6, "Current
+sequence" step 18.
+
+- **Re-measured candidates:** `renderSettingsView` (483 lines, 21 refs) and its companion
+  `bindSettingsControls` (362 lines, 22 refs) are the largest remaining pair after
+  `displayTalksList`, but inspection — not just the `this.*` count, per the established
+  methodology — shows them mutually referencing each other and reaching into a wide swath of
+  cross-cutting methods (`bindSettingsControls` alone calls `displayTalksList` itself,
+  `openEraseDeviceDialog`, `openLinkedDevicesDialog`, `showEditProfileDialog`,
+  `rerenderOpenConversation`, and more). Same over-entangled shape that already ruled out
+  `displayTalksList`; both now deferred alongside it rather than force a premature extraction.
+- **Why `renderCreatorReplies` instead:** 202 lines, 14 `this.*` refs — cluster #10's own pass
+  flagged it for "direct read/write of several mutable instance fields" and deferred it, but on
+  closer inspection that's exactly the shape cluster #9 (`processTalkForm`) and the earlier
+  dashboard-style clusters (#2 survey-statistics, #5 statistics-dashboard) already handled cleanly:
+  a self-contained pipeline over 3 scalar mutable fields (`creatorReplyScopedTalkId`/`Title`,
+  `creatorReplyVisibleCount`) plus one read-only array field (`creatorReplyRows`), not genuine
+  deep coupling to other features.
+- **State via explicit closures, not a new class:** the extracted `renderCreatorReplies(deps)`
+  takes getters for all 4 fields, a `clearScope()` setter (both scope fields at once, matching the
+  original inline handler), and a `growVisibleCount()` setter (the pagination increment) — the
+  same "receive dependency-injected callbacks" convention every prior cluster used.
+- **Self-recursion, not a rerender callback:** the original method called `this.renderCreatorReplies()`
+  from its own scope-clear and load-more click handlers. The extracted plain function does the
+  same via ordinary recursion (`renderCreatorReplies(deps)`), reusing the exact same pattern
+  cluster #9's `processTalkForm` established for its own self-referencing callback.
+- **Also moved:** `CreatorReplyRow`/`CreatorReplyFilterState` (previously module-local types in
+  `ui-manager.ts`, used in a few other places too — `ui-manager.ts` now imports them back) and
+  `CREATOR_REPLY_PAGE_SIZE` (used by `ui-manager.ts`'s own field initializer and reset handlers,
+  imported back the same way).
+- **Characterization:** `src/test/unit/creator-replies-view.test.ts` (new, 9 tests) — rendering
+  with a correct shown/filtered/total summary; the empty state; the scoped-talk filter and its
+  clearable chip; load-more pagination; click-routing (matched-with-conversation →
+  `showConversationDetail`, unmatched → `navigateToGraphNode`); hostile-input escaping; and
+  search-query filtering.
+- **E2E regression:** the dedicated `staged/stage3-three-user/00v-creator-reply-triage-matrix`
+  spec (100-reply pagination/search/filter/sort stress test — the single most relevant E2E
+  coverage available) turned out to be pre-existing-excluded from the default Playwright project
+  (`testIgnore` in `playwright.config.ts`, whose own comment cites a stale server-snapshot
+  data-path mismatch unrelated to this cluster) — confirmed by running it directly, which returned
+  "No tests found" even with an explicit path. Ran `staged/stage3-three-user/
+  09-contacts-talks-cross-navigation` instead (exercises the same click-to-conversation vs
+  click-to-contact routing decision this cluster's code makes) — passes.
+- **Ratchet:** `ui-manager.ts` 8,784 → **8,584** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, production web build succeeds, all 163 unit suites /
+  1,743 tests pass (9 new). Canonical `npm run test:all` run `run-20260909-145930-6825` (25m22s,
+  12 blobs) reproduced the same 3 e2e phases with failures a third consecutive time — `light`
+  (one messaging-semantics test, already individually verified passing standalone during cluster
+  #9's investigation), `heavy-staged` (the same `01-login-two-users-headcount` spec confirmed via
+  `git stash` to fail on clean HEAD), and `cross-browser` (the identical Gun-server-boot symptom,
+  byte-for-byte, all three runs now) — none touching `creator-replies-view.ts` or the code this
+  cluster changed. This run also flagged a new, different failure in the jest static-checks phase:
+  `src/test/integration/system-routes.test.ts`'s "stores encrypted short-lived signaling relay
+  frames for explicit embedded relay mode" (server-side Gun relay-frame storage, unrelated to this
+  cluster's client-side UI extraction) — confirmed passing both standalone and as part of the full
+  `src/test/integration/` suite (10 suites / 89 tests), consistent with a one-off timing flake
+  under the phase's concurrent load rather than a regression. No failure traces to this extraction.
+
 ## 2026-09-09 — UIManager decomposition cluster #10: linked-devices dialog orchestration
 
 Extracted `UIManager.openLinkedDevicesDialog`'s body (device metadata/platform resolution,

@@ -178,6 +178,12 @@ import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS }
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
 import { CONFIG } from '../../shared/config';
 import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl, type LinkedDeviceRow } from './linked-devices-dialog';
+import {
+  renderCreatorReplies as renderCreatorRepliesImpl,
+  CREATOR_REPLY_PAGE_SIZE,
+  type CreatorReplyRow,
+  type CreatorReplyFilterState,
+} from './creator-replies-view';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
 import { showEraseDeviceDialog } from './erase-device-dialog';
@@ -217,32 +223,6 @@ const LANGUAGE_OPTIONS = [
   { code: 'ko', label: 'Korean' },
 ];
 
-type CreatorReplyRow = {
-  responseId: string;
-  talkId: string;
-  title: string;
-  type: string;
-  language: string;
-  responderId: string;
-  responderName: string;
-  outcome: 'match' | 'ignore' | 'mismatch';
-  answerMode: 'manual' | 'auto';
-  date: string;
-  answers: Array<{ questionId: string; answerId: string; answerText: string }>;
-};
-
-type CreatorReplyFilterState = {
-  query: string;
-  outcome: string;
-  relationship: string;
-  type: string;
-  language: string;
-  from: string;
-  to: string;
-  sort: string;
-  group: string;
-};
-
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
@@ -256,7 +236,6 @@ function shouldShowCooldownToast(storageKey: string): boolean {
   localStorage.setItem(storageKey, String(Date.now()));
   return true;
 }
-const CREATOR_REPLY_PAGE_SIZE = 25;
 /** TODO §R2: first-chunk size for the Talks tab's OUT/IN lists, same precedent as above. */
 const TALKS_FIRST_CHUNK_SIZE = 25;
 
@@ -2884,205 +2863,26 @@ export class UIManager extends EventEmitter {
   }
 
   private renderCreatorReplies(): void {
-    const list = document.getElementById('creator-replies-list');
-    const summary = document.getElementById('creator-replies-summary');
-    if (!list || !summary) return;
-    const state = this.readCreatorReplyFilterState();
-    const query = state.query.toLowerCase();
-    const fromTime = state.from ? new Date(`${state.from}T00:00:00`).getTime() : undefined;
-    const toTime = state.to ? new Date(`${state.to}T23:59:59.999`).getTime() : undefined;
-    const metricsByResponder = new Map<string, { replies: number; matches: number; relevance: number }>();
-    const metricsByTalk = new Map<string, { replies: number; matches: number; matchRate: number }>();
-    // Spec §30.2 matchThreshold routes: a matched row's own conversation (if the responder's
-    // reply actually formed one — see conversationId, otherUserId keyed lookup, robust to
-    // bidirectional-exchange talkId ambiguity the same way maybeFinalizeConfirmedDeal is,
-    // app.ts) carries the stored score/total for the "Matched items" percentage display/sort.
-    const conversationsById = this.getMyConversations();
-    const matchInfoByResponder = new Map<string, { conversationId: string; matchScore?: number; matchTotal?: number }>();
-    for (const [conversationId, conversation] of Object.entries(conversationsById) as Array<[string, any]>) {
-      const otherUserId = conversation?.otherUserId;
-      if (!otherUserId || matchInfoByResponder.has(otherUserId)) continue;
-      matchInfoByResponder.set(otherUserId, {
-        conversationId,
-        matchScore: conversation?.matchScore,
-        matchTotal: conversation?.matchTotal,
-      });
-    }
-    const matchPercent = (responderId: string): number | null => {
-      const info = matchInfoByResponder.get(responderId);
-      if (!info || info.matchScore == null || !info.matchTotal) return null;
-      return Math.round((info.matchScore / info.matchTotal) * 100);
-    };
-    for (const row of this.creatorReplyRows) {
-      const metrics = metricsByResponder.get(row.responderId) || { replies: 0, matches: 0, relevance: 0 };
-      metrics.replies += 1;
-      if (row.outcome === 'match') metrics.matches += 1;
-      metrics.relevance = metrics.matches * 100 + metrics.replies;
-      metricsByResponder.set(row.responderId, metrics);
-      const talkMetrics = metricsByTalk.get(row.talkId) || { replies: 0, matches: 0, matchRate: 0 };
-      talkMetrics.replies += 1;
-      if (row.outcome === 'match') talkMetrics.matches += 1;
-      talkMetrics.matchRate = talkMetrics.matches / talkMetrics.replies;
-      metricsByTalk.set(row.talkId, talkMetrics);
-    }
-    const filtered = this.creatorReplyRows
-      .filter((row) => {
-        const known = this.getKnownPerson(row.responderId);
-        const labels = known?.labels && known.labels.length > 0
-          ? known.labels.map((l) => l.toLowerCase())
-          : ['stranger'];
-        const time = new Date(row.date).getTime();
-        if (this.creatorReplyScopedTalkId && row.talkId !== this.creatorReplyScopedTalkId) return false;
-        if (query && !`${row.responderName} ${row.title}`.toLowerCase().includes(query)) return false;
-        if (state.outcome !== 'all' && row.outcome !== state.outcome && row.answerMode !== state.outcome) return false;
-        if (state.relationship !== 'all' && !labels.includes(state.relationship)) return false;
-        if (state.type !== 'all' && String(row.type || 'flow').toLowerCase() !== state.type) return false;
-        if (state.language !== 'all' && String(row.language || 'en').toLowerCase() !== state.language) return false;
-        if (fromTime != null && time < fromTime) return false;
-        if (toTime != null && time > toTime) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        const aMetrics = metricsByResponder.get(a.responderId)!;
-        const bMetrics = metricsByResponder.get(b.responderId)!;
-        const aTalk = metricsByTalk.get(a.talkId)!;
-        const bTalk = metricsByTalk.get(b.talkId)!;
-        // Pre-sort by group field so contiguous group blocks are formed (prevents duplicate group headers).
-        if (state.group === 'responder') {
-          const g = a.responderName.localeCompare(b.responderName);
-          if (g !== 0) return g;
-        } else if (state.group === 'talk') {
-          const g = a.title.localeCompare(b.title);
-          if (g !== 0) return g;
-        } else if (state.group === 'day') {
-          const g = new Date(a.date).toLocaleDateString().localeCompare(new Date(b.date).toLocaleDateString());
-          if (g !== 0) return g;
-        } else if (state.group === 'relationship') {
-          const aRel = (this.getKnownPerson(a.responderId)?.labels || []).join(', ') || 'stranger';
-          const bRel = (this.getKnownPerson(b.responderId)?.labels || []).join(', ') || 'stranger';
-          const g = aRel.localeCompare(bRel);
-          if (g !== 0) return g;
-        }
-        if (state.sort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
-        if (state.sort === 'user') return a.responderName.localeCompare(b.responderName) || a.title.localeCompare(b.title);
-        if (state.sort === 'talk') return a.title.localeCompare(b.title) || a.responderName.localeCompare(b.responderName);
-        if (state.sort === 'relationship') {
-          const byRelationship = ((this.getKnownPerson(a.responderId)?.labels || []).join(', ') || 'Stranger')
-            .localeCompare((this.getKnownPerson(b.responderId)?.labels || []).join(', ') || 'Stranger');
-          if (byRelationship !== 0) return byRelationship;
-        }
-        if (state.sort === 'match-percent') {
-          const aPct = matchPercent(a.responderId) ?? -1;
-          const bPct = matchPercent(b.responderId) ?? -1;
-          if (bPct !== aPct) return bPct - aPct;
-        }
-        if (state.sort === 'matches' && bMetrics.matches !== aMetrics.matches) return bMetrics.matches - aMetrics.matches;
-        if (state.sort === 'talk-matches' && bTalk.matches !== aTalk.matches) return bTalk.matches - aTalk.matches;
-        if (state.sort === 'talk-replies' && bTalk.replies !== aTalk.replies) return bTalk.replies - aTalk.replies;
-        if (state.sort === 'weighted' && bMetrics.relevance !== aMetrics.relevance) return bMetrics.relevance - aMetrics.relevance;
-        return new Date(b.date).getTime() - new Date(a.date).getTime() || a.responseId.localeCompare(b.responseId);
-      });
-    const shown = Math.min(this.creatorReplyVisibleCount, filtered.length);
-    summary.textContent = this.getUiLanguage() === 'zh'
-      ? `显示 ${shown}/${filtered.length} 条筛选回复（共 ${this.creatorReplyRows.length} 条）`
-      : `Showing ${shown} of ${filtered.length} filtered replies (${this.creatorReplyRows.length} total)`;
-    const activeFilters = document.getElementById('creator-replies-active-filters');
-    if (activeFilters) {
-      const chips = [
-        state.query ? `${this.getUiLanguage() === 'zh' ? '搜索' : 'Search'}: ${state.query}` : '',
-        state.outcome !== 'all' ? `${this.getUiLanguage() === 'zh' ? '结果' : 'Outcome'}: ${state.outcome}` : '',
-        state.relationship !== 'all' ? `${this.getUiLanguage() === 'zh' ? '关系' : 'Relation'}: ${state.relationship}` : '',
-        state.type !== 'all' ? `${this.getUiLanguage() === 'zh' ? '类型' : 'Type'}: ${state.type}` : '',
-        state.language !== 'all' ? `${this.getUiLanguage() === 'zh' ? this.t('languagesLabel') : 'Language'}: ${this.formatTalkLanguage(state.language)}` : '',
-        state.from ? `${this.getUiLanguage() === 'zh' ? '起始日期' : 'From'}: ${state.from}` : '',
-        state.to ? `${this.getUiLanguage() === 'zh' ? '结束日期' : 'To'}: ${state.to}` : '',
-      ].filter(Boolean);
-      activeFilters.innerHTML = chips.map((chip) =>
-        `<span class="reply-filter-chip" style="font-size:0.8em;background:var(--border);border-radius:999px;padding:3px 8px;">${escapeHtml(chip)}</span>`,
-      ).join('') + (this.creatorReplyScopedTalkId
-        ? `<span class="reply-filter-chip reply-scope-chip" id="reply-scope-chip" style="font-size:0.8em;background:var(--accent-soft);color:var(--accent-text);border-radius:999px;padding:3px 8px;cursor:pointer;font-weight:600;" title="${escapeHtml(this.t('repliesClearScope'))}">${escapeHtml(this.tf('repliesScopedToTalk', { title: this.creatorReplyScopedTalkTitle }))} ×</span>`
-        : '');
-      document.getElementById('reply-scope-chip')?.addEventListener('click', () => {
+    renderCreatorRepliesImpl({
+      getRows: () => this.creatorReplyRows,
+      readFilterState: () => this.readCreatorReplyFilterState(),
+      getScopedTalkId: () => this.creatorReplyScopedTalkId,
+      getScopedTalkTitle: () => this.creatorReplyScopedTalkTitle,
+      clearScope: () => {
         this.creatorReplyScopedTalkId = null;
         this.creatorReplyScopedTalkTitle = '';
-        this.renderCreatorReplies();
-      });
-    }
-    if (filtered.length === 0) {
-      list.innerHTML = `<div style="color:var(--text-muted);padding:8px;">${this.t('repliesNoMatch')}</div>`;
-      return;
-    }
-    let previousGroup = '';
-    list.innerHTML = filtered.slice(0, this.creatorReplyVisibleCount).map((row) => {
-      const known = this.getKnownPerson(row.responderId);
-      const label = known?.labels?.length ? known.labels.join(', ') : this.t('stranger');
-      const metrics = metricsByResponder.get(row.responderId)!;
-      const score = state.sort === 'weighted'
-        ? this.getUiLanguage() === 'zh'
-          ? ` · 得分 ${metrics.relevance}（${metrics.matches} 匹配 x100 + ${metrics.replies} 回复）`
-          : ` · Score ${metrics.relevance} (${metrics.matches} matches x100 + ${metrics.replies} replies)`
-        : '';
-      const answerPreview = row.answers
-        .map((answer) => String(answer.answerText || '').trim())
-        .filter(Boolean)
-        .join(', ');
-      const group = state.group === 'responder'
-        ? row.responderName
-        : state.group === 'talk'
-          ? row.title
-          : state.group === 'relationship'
-            ? String(label)
-            : state.group === 'day'
-              ? new Date(row.date).toLocaleDateString()
-              : '';
-      const groupHeader = group && group !== previousGroup
-        ? `<div class="creator-reply-group" style="font-weight:700;color:var(--text-secondary);margin-top:5px;">${escapeHtml(group)}</div>`
-        : '';
-      previousGroup = group;
-      // Spec §30.2: a matched row with a stored route matchThreshold score shows its match %
-      // (Adam's "Matched items" list) and, when a conversation actually formed, is clickable
-      // straight through to it instead of the profile view — review candidates, then DM.
-      // Scoped to matchThreshold-route matches only (pct != null) — an ordinary (non-route, or
-      // route without matchThreshold) match row keeps its long-standing behavior of navigating
-      // to the responder's contact detail instead (09-contacts-talks-cross-navigation.spec.ts).
-      const pct = row.outcome === 'match' ? matchPercent(row.responderId) : null;
-      const matchConversationId = pct != null ? matchInfoByResponder.get(row.responderId)?.conversationId : undefined;
-      const percentChip = pct != null
-        ? `<span class="creator-reply-match-percent" data-match-percent="${pct}" style="font-size:0.8em;font-weight:700;color:var(--success-text);margin-left:8px;">${pct}%</span>`
-        : '';
-      return `${groupHeader}
-        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-responder-name="${escapeHtml(row.responderName)}" data-talk-id="${escapeHtml(row.talkId)}" ${matchConversationId ? `data-conversation-id="${escapeHtml(matchConversationId)}"` : ''} style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);cursor:pointer;" role="button" tabindex="0" title="${escapeHtml(this.t('repliesViewContact'))}">
-          <div style="display:flex;justify-content:space-between;gap:10px;">
-            <strong>${escapeHtml(row.responderName)}</strong>
-            <span>
-              <span style="color:${row.outcome === 'match' ? 'var(--success-text)' : 'var(--text-tertiary)'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>${percentChip}
-            </span>
-          </div>
-          <div style="font-size:0.86em;color:var(--text-secondary);">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(this.formatTalkLanguage(String(row.language || 'en').toLowerCase()))} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
-          ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:var(--text-primary);margin-top:4px;">${this.t('repliesAnswers')}: ${escapeHtml(answerPreview)}</div>` : ''}
-        </div>
-      `;
-    }).join('');
-    list.querySelectorAll<HTMLElement>('.creator-reply-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const conversationId = row.dataset.conversationId || '';
-        if (conversationId) {
-          this.showConversationDetail(conversationId);
-          return;
-        }
-        const id = row.dataset.responderId || '';
-        const name = row.dataset.responderName || '';
-        if (id) this.navigateToGraphNode({ type: 'person', id, name });
-      });
+      },
+      getVisibleCount: () => this.creatorReplyVisibleCount,
+      growVisibleCount: () => { this.creatorReplyVisibleCount += CREATOR_REPLY_PAGE_SIZE; },
+      getMyConversations: () => this.getMyConversations(),
+      getKnownPerson: (userId) => this.getKnownPerson(userId),
+      getUiLanguage: () => this.getUiLanguage(),
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+      formatTalkLanguage: (code) => this.formatTalkLanguage(code),
+      showConversationDetail: (conversationId) => this.showConversationDetail(conversationId),
+      navigateToGraphNode: (target) => this.navigateToGraphNode(target),
     });
-    if (filtered.length > this.creatorReplyVisibleCount) {
-      const moreCount = Math.min(CREATOR_REPLY_PAGE_SIZE, filtered.length - this.creatorReplyVisibleCount);
-      list.innerHTML += `<button class="btn" id="reply-load-more" type="button" style="margin-top:6px;">${this.getUiLanguage() === 'zh' ? `再显示 ${moreCount} 条回复` : `Show ${moreCount} more replies`}</button>`;
-      document.getElementById('reply-load-more')?.addEventListener('click', () => {
-        this.creatorReplyVisibleCount += CREATOR_REPLY_PAGE_SIZE;
-        this.renderCreatorReplies();
-      });
-    }
   }
 
   displayAnswersList(): void {
