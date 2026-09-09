@@ -2,6 +2,35 @@
 
 Last updated: 2026-09-08
 
+## 2026-09-08 — X5: three-platform network + thread isolation, implemented for real
+
+`tests/e2e/cross-platform/x5-three-platform-network.spec.ts` was a `test.skip`
+stub claiming to need "three clients (website, webapp, native)." Its own
+comment said it mirrors `staged/stage3-three-user/71-thread-isolation-multi` —
+checked that spec and found it already proves the exact same scenario (same
+talk, three users, pair-private threads, per-thread unread badges) with three
+simultaneous Chromium browsers and no native app involved at all.
+
+- Ported 71's bootstrap/seed/assert logic essentially as-is into the
+  cross-platform harness: three independently-launched Chromium browsers
+  (matching X1/X2/X4/X6's explicit browser-lifecycle style, rather than the
+  fixture-managed contexts 71 uses), named Website/Webapp/Native.
+- Same talk id seeds two pair threads (Website↔Webapp, Website↔Native);
+  isolation must come from the pair, not the talk, so their conversation ids
+  must differ. Website writes into the Website↔Webapp thread; Webapp gets a
+  per-thread unread badge that clears on read; Native's thread with Website
+  for the *same* talk stays empty of Webapp's message.
+- Verified stable across 3 consecutive standalone runs (~14s each) and passing
+  alongside X1/X2/X4/X6 in the full `npm run test:e2e:cross-platform` run
+  (X3/X7 correctly still skip — those two are the ones that actually need a
+  real native build).
+- Promoted from "nightly, skipped" to the folder's P0 merge-gate set in
+  `tests/e2e/cross-platform/README.md`, alongside X1/X2/X4/X6. Companion
+  narrative written in `x5-three-platform-network.md` (was a placeholder).
+- `docs/TODO.md` Priority 3's "Enable and pass X5 three-platform thread
+  isolation" bullet removed — done. Of the original X3-X6 nightly batch, only
+  X3 and X7 remain genuinely blocked on native-shell CI runners.
+
 ## 2026-09-08 — X6: offline mailbox across platforms, both directions, implemented for real
 
 `tests/e2e/cross-platform/x6-offline-mailbox.spec.ts` was a `test.skip` stub.

@@ -24,21 +24,26 @@ npm run test:e2e:cross-platform
   direction in turn goes offline (context closed, storageState saved), the
   other sends a message that falls back to the encrypted mailbox, and the
   offline side reconnects with the same identity and drains it (X6, 2026-09-08).
+- **x5-three-platform-network** — three independently-launched Chromium
+  browsers (Website/Webapp/Native) share the same talk id across two pair
+  threads; per-thread messages/unread badges stay pair-private (Bob-equivalent
+  never sees Jerry-equivalent's message) — ports `staged/stage3-three-user/
+  71-thread-isolation-multi` into the harness (X5, 2026-09-08).
 
-All four run as two browser contexts against the shared per-worker hub — the
-runnable form in this repo. The true website↔Electron and mobile-profile variants
-layer on top via the device-profile projects (`E2E_DEVICE_PROFILES=1`) and the
-native-app config (`npm run test:e2e:native-app`).
+All five run as independently-launched browsers against the shared per-worker
+hub — the runnable form in this repo. The true website↔Electron and
+mobile-profile variants layer on top via the device-profile projects
+(`E2E_DEVICE_PROFILES=1`) and the native-app config
+(`npm run test:e2e:native-app`).
 
-## Nightly (X3, X5, X7)
+## Nightly (X3, X7)
 
-`x3`, `x5`, and `x7` are scaffolded as skipped specs describing the setup each
-needs (native Electron build, a real third native client, a hosted website
-linked to a native webapp for sync-then-erase). They are run on the nightly
-cross-platform lane once the harness is wired to a real website/native build on
-the CI runners (Mac mini P2, Windows P3, Linux P4) — see `docs/TODO.md`
-Priority 3. (`x8-same-device-link` already runs for real — landed 2026-08-26,
-see `docs/completed.md`.)
+`x3` and `x7` are scaffolded as skipped specs describing the setup each needs
+(a real native Electron build; a hosted website linked to a native webapp for
+sync-then-erase). They are run on the nightly cross-platform lane once the
+harness is wired to a real website/native build on the CI runners (Mac mini
+P2, Windows P3, Linux P4) — see `docs/TODO.md` Priority 3. (`x8-same-device-link`
+already runs for real — landed 2026-08-26, see `docs/completed.md`.)
 
 ## Real-device pass
 
