@@ -19,6 +19,7 @@ import {
 } from './local-statistics';
 import { hydrateAttachmentImages as hydrateAttachmentImagesImpl } from './attachment-hydration';
 import { openEraseDeviceDialog as openEraseDeviceDialogImpl } from './erase-device-flow';
+import { registerTalkForPeer } from './talk-peer-registration';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
@@ -5672,7 +5673,7 @@ export class UIManager extends EventEmitter {
       getCurrentInterests: () => Array.isArray(this.currentUser?.interests) ? this.currentUser!.interests : [],
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
       showConversationDetail: this.showConversationDetail.bind(this),
-      registerTalkForPeer: this.registerTalkForPeer.bind(this),
+      registerTalkForPeer,
       isBlockedByMe: this.isBlockedByMe.bind(this),
       setBlocked: this.setBlocked.bind(this),
       isSupportContact: (candidateId: string) => candidateId === TECHSUPPORT_ROOT_USER_ID,
@@ -5917,30 +5918,6 @@ export class UIManager extends EventEmitter {
 
   private rememberPeerName(userId: string, stageName: string): void {
     rememberPeerName(userId, stageName, () => this.getMyConversations());
-  }
-
-  private async registerTalkForPeer(talkId: string, talkData: any, peerId: string, peerName: string): Promise<void> {
-    // P0 step 7: server talk delivery removed. Always route via mesh (sendDirectTalkToPeer).
-    const app = (
-      window as unknown as {
-        __iinpublic_app?: {
-          getApp: () => {
-            sendDirectTalkToPeer?: (
-              talkId: string,
-              talkData: unknown,
-              peerId: string,
-              peerName: string,
-            ) => Promise<void>;
-          };
-        };
-      }
-    ).__iinpublic_app?.getApp?.();
-    if (app?.sendDirectTalkToPeer) {
-      await app.sendDirectTalkToPeer(talkId, talkData, peerId, peerName);
-      return;
-    }
-    // No mesh connection available — no-op (star path removed).
-    console.warn('registerTalkForPeer: sendDirectTalkToPeer unavailable, skipping delivery to', peerId);
   }
 
   updateMatchBadge(): void {

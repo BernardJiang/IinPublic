@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#48 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#49 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -926,8 +926,8 @@ pair; the incoming-talk notification display; block/unblock (`setBlocked`); talk
 (`showPreferencesDialog`/`normalizePreferenceMode`/`applyPreferenceModeToExactMemory`/
 `deleteAnswerPreference`); the local-statistics dashboard (`displayContextualStatistics`/
 `displayStatisticsDashboard`/`renderStatisticsDashboard`); IPFS attachment hydration
-(`hydrateAttachmentImages`); and the erase-device confirm-dialog wiring (`openEraseDeviceDialog`).
-Full per-cluster rationale,
+(`hydrateAttachmentImages`); the erase-device confirm-dialog wiring (`openEraseDeviceDialog`); and
+the zero-dependency mesh-delivery helper `registerTalkForPeer`. Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -939,8 +939,8 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
 (#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
-7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), and **6,802** (#48) — the current enforced
-ceiling
+7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), and **6,779** (#49) — the
+current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
 Three dead-code findings surfaced along the way, all left in place (logic-wise) rather than
@@ -1523,6 +1523,23 @@ entries and babel preset were never removed.
         `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`) — a
         heavier-than-usual batch but all repeat names from this session's rotation, none touching
         erase-device/localStorage logic. See `docs/completed.md`.
+      - Cluster #49 evidence: `registerTalkForPeer` → new `talk-peer-registration.ts` (0
+        `this.*` refs). Initially looked orphaned — no direct-call grep hit in `ui-manager.ts` —
+        until a repo-wide search found it wired as a deps callback into `user-detail-view.ts` via
+        `.bind(this)`; genuinely live, just not call-site-visible. Since it had zero instance
+        deps, the `ui-manager.ts` wiring now references the extracted free function directly and
+        the private shim was deleted outright rather than kept as bind-only indirection.
+        `getSenderOmittedBroadcastPreviews` (next on the candidate list, also 0 refs) was left
+        for a later cluster — it shares `resolveExpiresAtMs` and the `BroadcastAudiencePreview`
+        type (both still defined in `ui-manager.ts`, with `broadcast-audience-dialog.ts` already
+        importing the type *backwards* from `ui-manager.ts`) with other call sites, so a clean
+        extraction needs those relocated to a shared module first. New
+        `talk-peer-registration.test.ts` (5 tests), all passed first run. Typecheck/lint clean,
+        both production builds succeed, unit suites grew from 196/2,109 to 197/2,114 with zero
+        regressions. Canonical run `run-20260910-053006-68618` (25m24s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed one
+        already-established rotating spec (`29-messaging-semantics`), unrelated to this batch —
+        `user-detail-view.ts`'s own unit tests stayed green. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1655,7 +1672,13 @@ entries and babel preset were never removed.
 31. ~~Extract cluster #48 (`openEraseDeviceDialog` → new `erase-device-flow.ts`), lowering the
     ratchet from 6,830 to 6,802.~~ Done; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-32. Re-measure and choose cluster #49 as a separate commit-sized change; continue to defer
+32. ~~Extract cluster #49 (`registerTalkForPeer` → new `talk-peer-registration.ts`), lowering the
+    ratchet from 6,802 to 6,779.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+33. Re-measure and choose cluster #50 as a separate commit-sized change (note:
+    `getSenderOmittedBroadcastPreviews` needs `resolveExpiresAtMs`/`BroadcastAudiencePreview`
+    relocated out of `ui-manager.ts` first — see cluster #49's evidence bullet — so either do
+    that groundwork as part of #50 or pick a different candidate); continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.

@@ -2,6 +2,40 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #49: talk-peer registration
+
+Continuing the AST-script-guided sweep from cluster #48. `docs/TODO.md` Priority 6.
+
+- **#49: `registerTalkForPeer` → new `talk-peer-registration.ts`** (22 lines, 0 `this.*` refs).
+  Zero-dependency mesh-delivery helper (reads only `window.__iinpublic_app` — a global, not
+  instance state); it looked orphaned at first grep (no `registerTalkForPeer(` call site found in
+  `ui-manager.ts`) until a broader repo-wide search showed it's wired as a deps callback into
+  `user-detail-view.ts` at `registerTalkForPeer: this.registerTalkForPeer.bind(this)` — very much
+  alive, just referenced by `.bind(this)` rather than a direct call. Since the method had no
+  instance dependencies at all, the `ui-manager.ts` wiring now references the extracted free
+  function directly (`registerTalkForPeer,`) instead of keeping a `private` shim to `.bind` — the
+  private method was deleted outright rather than kept as a pass-through, since a bind-only shim
+  with zero own logic would just be indirection.
+  - **Deferred, not extracted this cluster:** `getSenderOmittedBroadcastPreviews` (0 refs, next
+    on the candidate list) shares `resolveExpiresAtMs` (defined in `ui-manager.ts`) and the
+    `BroadcastAudiencePreview` type (exported from `ui-manager.ts`, already imported *backwards*
+    by `broadcast-audience-dialog.ts`) with three other call sites still in `ui-manager.ts` —
+    extracting it cleanly needs those two relocated to a small shared module first so neither
+    file imports from the other. Left as groundwork for a future cluster rather than rushed into
+    this one.
+- **Characterization:** new `talk-peer-registration.test.ts` (5 tests) covering: routing through
+  `app.sendDirectTalkToPeer` when the mesh app is available; the no-op-and-warn path for three
+  different "unavailable" shapes (no `__iinpublic_app` at all, `getApp()` returning an object
+  without the method, `getApp()` itself returning `undefined`); and that a rejection from
+  `sendDirectTalkToPeer` propagates rather than being swallowed. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,802 → **6,779** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  196/2,109 to 197/2,114 (5 new) with zero regressions. Canonical run `run-20260910-053006-68618`
+  (25m24s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed one already-established rotating spec (`29-messaging-semantics`), unrelated to
+  this batch — `user-detail-view.ts`'s two `registerTalkForPeer` call sites are untouched by this
+  extraction, and its own unit tests stayed green.
+
 ## 2026-09-10 — UIManager decomposition cluster #48: erase-device flow
 
 Continuing the AST-script-guided sweep from cluster #47. `docs/TODO.md` Priority 6.
