@@ -2,6 +2,66 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09 — Smaller independent work: containment similarity metric + PMTiles/Protomaps evaluation
+
+Landed both items from `docs/TODO.md`'s "Smaller independent work" section.
+
+### Asymmetric/containment tag-similarity metric
+
+The existing `jaccardSimilarity`/`cosineSimilarity` (`src/shared/find-similar.ts`) are both
+symmetric — `score(A,B) === score(B,A)` always — which loses information the TODO called out:
+"50 of Eve's 50 tags match Adam" means Eve is *entirely* covered by Adam, but Adam (with 100 tags)
+is only half covered by Eve; a symmetric metric reports the same ~0.33-0.5-ish number either way.
+
+- Added `containmentSimilarity`/`containmentFromSets`: `|A ∩ B| / |A|`, the fraction of the FIRST
+  argument's tags also held by the second — genuinely asymmetric, same "pick a direction
+  deliberately" discipline as the existing `viewer-standard` combine policy. Registered as
+  `'containment'` in `TagSimilarityMetricId`/`TAG_SIMILARITY_METRICS`, and wired into
+  `FindSimilarIndex.similarity()`/`.topK({ metric: 'containment' })` via a new
+  `TAG_SIMILARITY_FROM_SETS` lookup table (replacing the old two-way jaccard/cosine ternary in
+  `topK`'s hot path, so adding a third metric there was a net simplification, not a bigger branch).
+- Does not touch the already-shipped `matchScore`/combine-policy weighted path or any UI — this
+  is a library-level capability addition, matching the TODO's own framing
+  ("does not block the already-shipped symmetric-metric implementation").
+- **Tests:** `src/test/unit/tag-similarity.test.ts` — added `containment` to the shared
+  cross-metric table (identical/disjoint/empty sets, repeated array entries, weight-map inputs,
+  all pass unchanged since those cases are symmetric-safe); a dedicated test proving the
+  asymmetry using the file's own Adam/Eve/Bob/Alice fixtures
+  (`containmentSimilarity(eve, adam) === 1` vs `containmentSimilarity(adam, eve) ≈ 0.5`, while
+  jaccard/cosine give the same value either direction); and a `FindSimilarIndex` integration test
+  showing `topK({ metric: 'containment' })` ties Eve/Bob/Alice at 0.5 (they each share exactly 50
+  of Adam's 100 tags) where jaccard/cosine rank them apart — the bounded top-K heap's existing
+  userId-based tiebreak resolves the tie deterministically (alphabetically ascending, confirmed by
+  running the test rather than assumed — the first draft had this backwards).
+
+### PMTiles/Protomaps evaluation for the chatroom map view
+
+The TODO asked to evaluate PMTiles/Protomaps "if offline, self-hosted, or decentralized map tile
+distribution becomes useful." Conclusion: it's a good fit for this app's self-hosted-VPS story,
+and the enabling change is small enough to land now rather than leave purely as a research note.
+
+- `CHATROOM_MAP_STYLE_URL` (`src/shared/config.ts`) was already self-hoster-overridable via
+  `IINPUBLIC_MAP_STYLE_URL` — the missing piece was that MapLibre GL has no built-in understanding
+  of `pmtiles://` URLs, so an override pointing at a self-hosted style.json that uses a
+  `pmtiles://` source would have silently failed to load tiles.
+- Added the `pmtiles` npm package (Protomaps' own client library) and registered its `Protocol` in
+  `chatroom-map-view.ts`'s existing lazy `loadMapLibre()` loader, alongside the existing
+  worker-URL setup. Registering the protocol is a no-op unless a style/source actually references
+  `pmtiles://`, so this changes nothing for the default shipped style (OpenFreeMap Liberty) —
+  purely additive. A self-hoster can now point `IINPUBLIC_MAP_STYLE_URL` at their own style.json
+  referencing a single static `.pmtiles` archive (servable from the same box, or IPFS, that
+  already hosts everything else in this app) with **no tile server required at all** — exactly
+  the "self-hosted/decentralized" framing the TODO asked about.
+- Did not download or host an actual `.pmtiles` archive (multi-hundred-MB to multi-GB even for a
+  single-region extract) — out of scope for a library-level enabling change, and a real hosting
+  decision for the user's own OVH VPS storage/bandwidth, not something to commit to unilaterally.
+- **Verification:** typecheck/lint clean (the file's two pre-existing `no-var-requires` lint
+  errors, for the unrelated webpack `?maplibreWorkerAsset` loader query syntax, were confirmed via
+  `git stash` to predate this change). Production web build succeeds — `pmtiles` bundles into the
+  already-lazy-loaded map chunk, not the main bundle. All 7 map-touching E2E specs pass
+  (`52-appbar-overflow-responsive`, `53-chatroom-navigation`, including the real map-render/
+  marker-click case). Full unit suite (164 suites / 1,760 tests, 8 new) passes.
+
 ## 2026-09-09 — Two real bugs fixed from a `test:all` Playwright report (membership resurrection + K7 FAQ-bundle race)
 
 Investigated `npx playwright show-report` from run `run-20260909-180724-18534` (the run at the end

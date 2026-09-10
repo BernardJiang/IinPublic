@@ -1515,17 +1515,8 @@ as a presumed cure for unmeasured slowness.
 ## Smaller independent work
 
 (2026-08-23 batch — R4/R5/FF measured, no action needed at current scale; Z/CC/sendBulkTalk/
-authorship/architecture-prose landed. See `docs/completed.md`.)
-
-- [ ] Consider an asymmetric/containment similarity metric for tag-based user similarity, because
-  "50 of Eve's 50 tags match Adam" conveys information symmetric Jaccard/cosine may not fully
-  capture. Does not block the already-shipped symmetric-metric implementation
-  (`jaccardSimilarity()`/`cosineSimilarity()`, `FindSimilarIndex.topK({ metric })`). Former
-  `docs/TODO_item.md`, folded in 2026-09-08.
-- [ ] Later evaluate PMTiles/Protomaps for the chatroom map view if offline, self-hosted, or
-  decentralized map tile distribution becomes useful; the shipped map view currently uses the
-  OSM-based OpenFreeMap Liberty vector style (overridable via `IINPUBLIC_MAP_STYLE_URL`). Former
-  `docs/iinpublic_map_chatrooms_todo.md`, folded in 2026-09-08.
+authorship/architecture-prose landed. Asymmetric/containment similarity metric and PMTiles/
+Protomaps evaluation landed 2026-09-09. See `docs/completed.md`.)
 
 ## Deferred product decisions
 
