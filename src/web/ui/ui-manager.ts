@@ -27,6 +27,7 @@ import {
 } from './broadcast-audience-preview';
 import { refreshFlowAnswerConstraints as refreshFlowAnswerConstraintsImpl } from './flow-answer-constraints';
 import { renderSettingsSection as renderSettingsSectionImpl } from './settings-section-template';
+import { showContentFilterToast as showContentFilterToastImpl } from './content-filter-toast';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
@@ -3166,24 +3167,10 @@ export class UIManager extends EventEmitter {
   }
 
   private showContentFilterToast(result: MessageFilterResult, direction: 'send' | 'receive'): void {
-    let text: string;
-    let attr: string;
-    if (result.reason === 'financial_data') {
-      // Mandatory, non-configurable (FR-FIN-2) — same message on both paths since a
-      // financial-data hit is never rendered for the receiver either (FR-FIN-4).
-      text = this.t('messageBlockedFinancialData');
-      attr = direction === 'send' ? 'financial-send' : 'financial-receive';
-    } else if (result.reason === 'dirty_words') {
-      text =
-        direction === 'send'
-          ? `${this.t('messageBlockedDirtyWord')}${result.word ? ` ('${result.word}')` : ''}`
-          : this.t('messageHiddenDirtyWord');
-      attr = direction === 'send' ? 'send' : 'receive';
-    } else {
-      text = direction === 'send' ? this.t('messageBlockedGrammar') : this.t('messageHiddenGrammar');
-      attr = direction === 'send' ? 'grammar-send' : 'grammar-receive';
-    }
-    this.showNotification(text, 'error', { contentFilter: attr });
+    showContentFilterToastImpl(result, direction, {
+      t: (key) => this.t(key),
+      showNotification: (message, type, options) => this.showNotification(message, type, options),
+    });
   }
 
   /** T1 (spec §7.4 FR-FIN-1): before a talk is sent/broadcast, at most once per day. */

@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#51 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#52 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -930,8 +930,8 @@ pair; the incoming-talk notification display; block/unblock (`setBlocked`); talk
 the zero-dependency mesh-delivery helper `registerTalkForPeer`; and the broadcast-audience
 preview trio (`resolveExpiresAtMs`/`BroadcastAudiencePreview`/
 `getSenderOmittedBroadcastPreviews`); the flow-editor answer-constraint refresh
-(`refreshFlowAnswerConstraints`); and the settings-section HTML template (`renderSettingsSection`).
-Full per-cluster rationale,
+(`refreshFlowAnswerConstraints`); the settings-section HTML template (`renderSettingsSection`);
+and the content-filter block/hide toast (`showContentFilterToast`). Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -943,8 +943,8 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
 (#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
-7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), and
-**6,710** (#51)
+7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), 6,710
+(#51), and **6,697** (#52)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -973,8 +973,11 @@ any method (as opposed to moving its body to an extracted module while leaving a
 shim), grep `src/test/` too, not just `ui-manager.ts`/`app.ts` — a characterization test can hold
 a private method's only remaining "caller" via a type-cast pattern (`new UIManager() as unknown
 as SomeInterface`, established in cluster #4) that `npm run test:type` won't catch, since the
-cast makes the missing method only a *runtime* error. Caught once in cluster #35's pass on
-`resolveAnswerPreferenceForTalkQuestion`; see `docs/completed.md` for the full account.
+cast makes the missing method only a *runtime* error. Caught in cluster #35's pass on
+`resolveAnswerPreferenceForTalkQuestion` (shipped, then reverted after a failing test run) and
+again in cluster #52's pass on `saveAnswerPreference` (caught by the grep *before* running
+anything, so the attempt was reverted with zero test churn — see `docs/completed.md` for both
+accounts).
 
 This document captures two issues found during an architecture study of `src/`:
 
@@ -1573,6 +1576,21 @@ entries and babel preset were never removed.
         specs (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
         `83-survey-ignore-mid-question-not-complete`), none touching flow-editor or settings
         rendering. See `docs/completed.md`.
+      - Cluster #52 evidence: first attempted inlining `saveAnswerPreference`'s three call sites
+        to call `persistAnswerPreference` directly and deleting the wrapper — grepping
+        `src/test/` per the execution rule caught `answer-preference-resolution-
+        characterization.test.ts:190` calling `ui.saveAnswerPreference(...)` directly via the
+        same `PreferenceUi` type-cast pattern behind cluster #35's near-miss; reverted before
+        running anything (`git diff --stat` confirmed byte-identical to the last commit), no
+        ratchet change for that attempt. Shipped `showContentFilterToast` → new
+        `content-filter-toast.ts` instead (2 refs). New `content-filter-toast.test.ts` (5 tests),
+        all passed first run. Typecheck/lint clean, both production builds succeed, unit suites
+        grew from 200/2,139 to 201/2,144 with zero regressions. Canonical run
+        `run-20260910-065622-92271` (25m29s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+        `83-survey-ignore-mid-question-not-complete`), none touching content-filter logic. See
+        `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1717,7 +1735,11 @@ entries and babel preset were never removed.
     `renderSettingsSection` → new `settings-section-template.ts`), lowering the ratchet from
     6,742 to 6,710.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and
     the conversation-view trio remain deferred, unchanged.
-35. Re-measure and choose cluster #52 as a separate commit-sized change; continue to defer
+35. ~~Extract cluster #52 (`showContentFilterToast` → new `content-filter-toast.ts`), lowering
+    the ratchet from 6,710 to 6,697.~~ Done; caught and reverted a near-miss attempt to inline
+    `saveAnswerPreference` before it touched any tests; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+36. Re-measure and choose cluster #53 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.

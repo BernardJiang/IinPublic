@@ -2,6 +2,38 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #52: content-filter toast (+ a caught near-miss)
+
+Continuing the AST-script-guided sweep from cluster #51. `docs/TODO.md` Priority 6.
+
+- **Caught near-miss, no code shipped:** first attempted a different change this cluster —
+  inlining `saveAnswerPreference`'s three internal call sites to call the already-extracted
+  `persistAnswerPreference` directly and deleting the wrapper method (it was already a thin
+  1-ref shim, so this looked like a pure simplification with no new file needed). Deleting the
+  method broke `answer-preference-resolution-characterization.test.ts:190`, which calls
+  `ui.saveAnswerPreference(...)` directly via the same `PreferenceUi` type-cast pattern behind
+  cluster #35's near-miss on `resolveAnswerPreferenceForTalkQuestion`. Caught by the standing
+  "grep `src/test/` before deleting any method" execution rule *before* running the test suite
+  this time — reverted the edit immediately (`git diff --stat` confirmed byte-identical to the
+  last commit) rather than shipping and having to fix it after a failing run. No ratchet change,
+  no commit for this abandoned attempt.
+- **#52: `showContentFilterToast` → new `content-filter-toast.ts`** (19 lines, 2 refs — `t`,
+  `showNotification`). Builds the blocked/hidden-message toast for the three content-filter
+  reasons (financial data — same message both directions per FR-FIN-4, dirty words — word-suffix
+  on send only, grammar fallback), each with its own `data-content-filter-notification` attribute
+  for E2E assertions.
+- **Characterization:** new `content-filter-toast.test.ts` (5 tests) covering the
+  same-message-both-directions financial-data case, the word-suffix-present-vs-absent dirty-words
+  cases, the hidden-vs-blocked direction difference, and the grammar fallback for both
+  directions. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,710 → **6,697** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  200/2,139 to 201/2,144 (5 new) with zero regressions. Canonical run `run-20260910-065622-92271`
+  (25m29s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs
+  (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), none touching content-filter logic.
+
 ## 2026-09-10 — UIManager decomposition cluster #51: flow constraints + settings section template
 
 Continuing the AST-script-guided sweep from cluster #50. `docs/TODO.md` Priority 6.
