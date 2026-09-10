@@ -2,6 +2,37 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #48: erase-device flow
+
+Continuing the AST-script-guided sweep from cluster #47. `docs/TODO.md` Priority 6.
+
+- **#48: `openEraseDeviceDialog` → new `erase-device-flow.ts`** (34 lines, 3 refs — `t`,
+  `identityLinkUnlinker`, `deviceHandoffSync`). Reads `iinpublic_linked_devices` from
+  localStorage, filters to graph-verified `state: 'linked'` rows only (historical
+  Removed/Invalid rows must not imply a receiver is available), and wires the confirm dialog's
+  `onErase` (best-effort link revocation via `identityLinkUnlinker`, then `eraseDevice`) and
+  optional `onSyncFirst` (only present when both `deviceHandoffSync` and a linked device exist).
+  `exactOptionalPropertyTypes` required spelling the two optional callback deps as
+  `(...) => ... | undefined` explicitly, not just `?:` — `tsc` caught the omission immediately.
+- **Characterization:** new `erase-device-flow.test.ts` (11 tests, `jest.mock`s both
+  `erase-device-dialog.ts` and `device-wipe.ts` to capture the wired options/hooks without
+  triggering a real storage wipe or `location.reload()`) covering: the empty/no-linked-device
+  case; the Removed/Invalid-rows-don't-count filter; reporting the first linked device's stage
+  name; malformed-JSON tolerance; the `text()` fallback-vs-translated-value branches; `onErase`'s
+  `revokeLinks` hook calling `identityLinkUnlinker` for every linked device best-effort (verified
+  by capturing the hooks object passed to the mocked `eraseDevice` and invoking `revokeLinks`
+  directly, since the mock itself doesn't); erasing without a configured unlinker; and all three
+  `onSyncFirst` presence/absence/wiring cases. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,830 → **6,802** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  195/2,098 to 196/2,109 (11 new) with zero regressions. Canonical run `run-20260910-050144-60704`
+  (25m27s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed five already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+  `79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`) — a heavier-than-usual
+  batch but all repeat names from this session's rotation, none touching erase-device/localStorage
+  logic.
+
 ## 2026-09-10 — UIManager decomposition cluster #47: attachment hydration
 
 Continuing the AST-script-guided sweep from cluster #46. `docs/TODO.md` Priority 6.

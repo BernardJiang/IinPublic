@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#47 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#48 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -925,8 +925,9 @@ pair; the incoming-talk notification display; block/unblock (`setBlocked`); talk
 `renderAppDownloadBanner`); the answer-preferences dialog + its mutation logic
 (`showPreferencesDialog`/`normalizePreferenceMode`/`applyPreferenceModeToExactMemory`/
 `deleteAnswerPreference`); the local-statistics dashboard (`displayContextualStatistics`/
-`displayStatisticsDashboard`/`renderStatisticsDashboard`); and IPFS attachment hydration
-(`hydrateAttachmentImages`). Full per-cluster rationale,
+`displayStatisticsDashboard`/`renderStatisticsDashboard`); IPFS attachment hydration
+(`hydrateAttachmentImages`); and the erase-device confirm-dialog wiring (`openEraseDeviceDialog`).
+Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -938,7 +939,8 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
 (#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
-7,027 (#44), 6,919 (#45), 6,858 (#46), and **6,830** (#47) — the current enforced ceiling
+7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), and **6,802** (#48) — the current enforced
+ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
 Three dead-code findings surfaced along the way, all left in place (logic-wise) rather than
@@ -1507,6 +1509,20 @@ entries and babel preset were never removed.
         `run-20260910-043301-52712` (25m16s): `heavy-staged` green (`rc=0`); `cross-browser`
         unchanged pre-existing infra issue; `light` failed one already-established rotating spec
         (`29-messaging-semantics`), unrelated to this batch. See `docs/completed.md`.
+      - Cluster #48 evidence: `openEraseDeviceDialog` → new `erase-device-flow.ts`.
+        `exactOptionalPropertyTypes` required spelling the two optional callback deps
+        (`identityLinkUnlinker`, `deviceHandoffSync`) as `(...) => ... | undefined` explicitly,
+        not just `?:` — `tsc` caught the omission immediately. New `erase-device-flow.test.ts`
+        (11 tests, `jest.mock`s both `erase-device-dialog.ts` and `device-wipe.ts` to avoid a real
+        storage wipe or `location.reload()`), all passed first run. Typecheck/lint clean, both
+        production builds succeed, unit suites grew from 195/2,098 to 196/2,109 with zero
+        regressions. Canonical run `run-20260910-050144-60704` (25m27s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed five
+        already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+        `79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`,
+        `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`) — a
+        heavier-than-usual batch but all repeat names from this session's rotation, none touching
+        erase-device/localStorage logic. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1636,7 +1652,10 @@ entries and babel preset were never removed.
 30. ~~Extract cluster #47 (`hydrateAttachmentImages` → new `attachment-hydration.ts`), lowering
     the ratchet from 6,858 to 6,830.~~ Done; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-31. Re-measure and choose cluster #48 as a separate commit-sized change; continue to defer
+31. ~~Extract cluster #48 (`openEraseDeviceDialog` → new `erase-device-flow.ts`), lowering the
+    ratchet from 6,830 to 6,802.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+32. Re-measure and choose cluster #49 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.

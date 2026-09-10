@@ -18,6 +18,7 @@ import {
   type LocalStatisticsDeps,
 } from './local-statistics';
 import { hydrateAttachmentImages as hydrateAttachmentImagesImpl } from './attachment-hydration';
+import { openEraseDeviceDialog as openEraseDeviceDialogImpl } from './erase-device-flow';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
@@ -196,7 +197,7 @@ import { renderMatchBadge } from './notification-badges';
 import { confirmCapturedQuestionDialog as confirmCapturedQuestionDialogView } from './captured-question-dialog';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
 import { CONFIG } from '../../shared/config';
-import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl, type LinkedDeviceRow } from './linked-devices-dialog';
+import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl } from './linked-devices-dialog';
 import {
   renderCreatorReplies as renderCreatorRepliesImpl,
   CREATOR_REPLY_PAGE_SIZE,
@@ -208,8 +209,6 @@ import {
 import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-gestures';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
-import { showEraseDeviceDialog } from './erase-device-dialog';
-import { eraseDevice } from '../services/device-wipe';
 import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { buildTagIdentityKeys } from '../../shared/talk-ledger';
 
@@ -3278,37 +3277,10 @@ export class UIManager extends EventEmitter {
    * wipe clears all device storage and reloads to a fresh boot.
    */
   private openEraseDeviceDialog(): void {
-    let linked: LinkedDeviceRow[] = [];
-    try {
-      const arr = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
-      // Only graph-verified active links are eligible sync/revocation targets.
-      // Historical Removed/Invalid rows must not imply a receiver is available.
-      linked = Array.isArray(arr)
-        ? arr.filter((row: LinkedDeviceRow) => row.state === 'linked')
-        : [];
-    } catch {
-      linked = [];
-    }
-    showEraseDeviceDialog({
-      text: (key: string, fallback?: string) => {
-        const value = this.t(key as any);
-        return value && value !== key ? value : (fallback ?? key);
-      },
-      hasLinkedDevice: linked.length > 0,
-      ...(linked[0]?.stageName ? { linkedDeviceName: linked[0].stageName } : {}),
-      onErase: async () => {
-        await eraseDevice({
-          revokeLinks: async () => {
-            if (this.identityLinkUnlinker) {
-              for (const r of linked) await this.identityLinkUnlinker(r.pub).catch(() => {});
-            }
-          },
-        });
-      },
-      ...(this.deviceHandoffSync && linked[0]?.pub
-        ? { onSyncFirst: (progress: (category: import('../../shared/device-handoff').HandoffCategory) => void) =>
-            this.deviceHandoffSync!(linked[0].pub, progress) }
-        : {}),
+    openEraseDeviceDialogImpl({
+      t: (key) => this.t(key as any),
+      identityLinkUnlinker: this.identityLinkUnlinker,
+      deviceHandoffSync: this.deviceHandoffSync,
     });
   }
 
