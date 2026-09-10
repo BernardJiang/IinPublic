@@ -2,6 +2,33 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #44: app-download banner
+
+Continuing the AST-script-guided sweep from cluster #43. `docs/TODO.md` Priority 6.
+
+- **#44: `detectDownloadPlatform` + `renderAppDownloadBanner` → new `app-download-banner.ts`**
+  (18+63 lines, 6 refs — `detectDownloadPlatform`, `apiBase`, `t`, `tf`, `applySettingsSectionView`,
+  `settingsActiveSectionId`). `detectDownloadPlatform` is a pure UA-sniffing function with zero
+  `this.*` dependencies and only one call site, so it moved as a plain export alongside the
+  banner. The `applySettingsSectionView(this.settingsActiveSectionId = ...)` write-then-render
+  pair collapsed into a single `openDownloadAppSettingsSection` deps callback rather than exposing
+  the instance field to the extracted module.
+- **Characterization:** new `app-download-banner.test.ts` (17 tests) — `detectDownloadPlatform`
+  across Android/iOS/Windows/Mac/Linux/unknown UAs plus the touch-capable-Mac-reports-as-iOS
+  iPadOS-13+ quirk; `renderAppDownloadBanner`'s Electron/native-host/already-dismissed/
+  already-present skip guards; the download-link vs. "see options" fallback branches (including
+  an unreachable-downloads-API path); and both the dismiss and "see options" click handlers. All
+  passed first run.
+- **Ratchet:** `ui-manager.ts` 7,097 → **7,027** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  191/2,043 to 192/2,059 (16 new) with zero regressions. Canonical run `run-20260910-030155-28427`
+  (25m28s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed two specs — `83-survey-ignore-mid-question-not-complete` (already-established
+  rotating flake) and `33-mobile-chatroom-hierarchy` (new to this session's rotation; confirmed
+  pre-existing and unrelated to this batch by reproducing it 2/4 standalone against the committed
+  cluster #43 baseline, i.e. before this batch's diff even existed — a `scrollIntoViewIfNeeded`
+  race in the chatroom-item list, nothing to do with the app-download banner).
+
 ## 2026-09-10 — UIManager decomposition cluster #43: talk completion
 
 Continuing the AST-script-guided sweep from clusters #40-#42. `docs/TODO.md` Priority 6.
