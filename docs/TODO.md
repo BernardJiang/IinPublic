@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#50 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#51 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -929,7 +929,9 @@ pair; the incoming-talk notification display; block/unblock (`setBlocked`); talk
 (`hydrateAttachmentImages`); the erase-device confirm-dialog wiring (`openEraseDeviceDialog`); and
 the zero-dependency mesh-delivery helper `registerTalkForPeer`; and the broadcast-audience
 preview trio (`resolveExpiresAtMs`/`BroadcastAudiencePreview`/
-`getSenderOmittedBroadcastPreviews`). Full per-cluster rationale,
+`getSenderOmittedBroadcastPreviews`); the flow-editor answer-constraint refresh
+(`refreshFlowAnswerConstraints`); and the settings-section HTML template (`renderSettingsSection`).
+Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -941,7 +943,8 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
 (#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
-7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), and **6,742** (#50)
+7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), and
+**6,710** (#51)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -1558,6 +1561,18 @@ entries and babel preset were never removed.
         already-established rotating specs (`00l-techsupport-faq-cross-user`,
         `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching
         this batch. See `docs/completed.md`.
+      - Cluster #51 evidence: `refreshFlowAnswerConstraints` → new `flow-answer-constraints.ts`
+        (1 ref) and `renderSettingsSection` → new `settings-section-template.ts` (0 refs, fully
+        pure HTML templating with 14 call sites all inside the deferred `renderSettingsView`
+        giant — extracting the template doesn't require touching that giant). New
+        `flow-answer-constraints.test.ts` (7 tests) and `settings-section-template.test.ts` (5
+        tests), all 12 passed first run. Typecheck/lint clean, both production builds succeed,
+        unit suites grew from 198/2,127 to 200/2,139 with zero regressions. Canonical run
+        `run-20260910-062712-84322` (25m24s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+        `83-survey-ignore-mid-question-not-complete`), none touching flow-editor or settings
+        rendering. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1698,7 +1713,11 @@ entries and babel preset were never removed.
     `broadcast-audience-preview.ts`), lowering the ratchet from 6,779 to 6,742.~~ Done;
     `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
     trio remain deferred, unchanged.
-34. Re-measure and choose cluster #51 as a separate commit-sized change; continue to defer
+34. ~~Extract cluster #51 (`refreshFlowAnswerConstraints` → new `flow-answer-constraints.ts`;
+    `renderSettingsSection` → new `settings-section-template.ts`), lowering the ratchet from
+    6,742 to 6,710.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and
+    the conversation-view trio remain deferred, unchanged.
+35. Re-measure and choose cluster #52 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.

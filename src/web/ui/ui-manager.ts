@@ -25,6 +25,8 @@ import {
   type BroadcastAudiencePreview,
   getSenderOmittedBroadcastPreviews as getSenderOmittedBroadcastPreviewsImpl,
 } from './broadcast-audience-preview';
+import { refreshFlowAnswerConstraints as refreshFlowAnswerConstraintsImpl } from './flow-answer-constraints';
+import { renderSettingsSection as renderSettingsSectionImpl } from './settings-section-template';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
@@ -2619,22 +2621,7 @@ export class UIManager extends EventEmitter {
     opts: { id?: string; title: string; subtitle?: string; action?: string; danger?: boolean },
     bodyHtml: string,
   ): string {
-    // A plain header, not a collapsible <details>/<summary>: now that the drill-down (see
-    // applySettingsSectionView) shows exactly one section at a time, a second, independent
-    // collapse control on top of that would be redundant and just a way to accidentally hide
-    // the only content on the page.
-    return `
-      <div class="settings-section" ${opts.id ? `id="${opts.id}"` : ''} style="background:var(--surface);border:1px solid ${opts.danger ? 'var(--danger-border)' : 'var(--border)'};border-radius:8px;">
-        <div class="settings-section-summary" style="padding:16px;">
-          <div style="font-weight:700;color:${opts.danger ? 'var(--danger-hover)' : 'var(--text-primary)'};display:inline;">${opts.title}</div>
-          ${opts.subtitle ? `<div style="font-size:0.82em;color:var(--text-tertiary);margin-top:2px;">${opts.subtitle}</div>` : ''}
-        </div>
-        <div class="settings-section-body" style="padding:0 16px 16px 16px;">
-          ${opts.action ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">${opts.action}</div>` : ''}
-          ${bodyHtml}
-        </div>
-      </div>
-    `;
+    return renderSettingsSectionImpl(opts, bodyHtml);
   }
 
   private renderSettingsView(user: User): void {
@@ -5360,26 +5347,7 @@ export class UIManager extends EventEmitter {
    * lifting is done by TalkAutofix + TalkValidator before save.
    */
   private refreshFlowAnswerConstraints(type: string): void {
-    const questionItems = document.querySelectorAll('.question-item');
-    questionItems.forEach((item) => {
-      const answersContainer = item.querySelector('.answers-container');
-      if (!answersContainer) return;
-      const answerItems = answersContainer.querySelectorAll('.answer-item');
-      answerItems.forEach((answerItem, aIdx) => {
-        const select = answerItem.querySelector('.answer-next') as HTMLSelectElement | null;
-        if (!select) return;
-        // Always keep the select enabled so Playwright / keyboard users can
-        // interact with every row. Reset any stale lock-state from previous
-        // renders.
-        select.disabled = false;
-        const ignoreOpt = select.querySelector('option[value="ignore"]') as HTMLOptionElement | null;
-        if (ignoreOpt) ignoreOpt.disabled = false;
-        select.removeAttribute('title');
-        if (type === 'flow' && aIdx > 0) {
-          select.title = this.t('editorFlowConstraint');
-        }
-      });
-    });
+    refreshFlowAnswerConstraintsImpl(type, { t: (key) => this.t(key) });
   }
 
   /** Mutable editor state; pure initialization/serialization lives in route-editor-model.ts. */

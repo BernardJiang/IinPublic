@@ -2,6 +2,32 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #51: flow constraints + settings section template
+
+Continuing the AST-script-guided sweep from cluster #50. `docs/TODO.md` Priority 6.
+
+- **#51: `refreshFlowAnswerConstraints` → new `flow-answer-constraints.ts`** (22 lines, 1 ref —
+  `t`) and **`renderSettingsSection` → new `settings-section-template.ts`** (21 lines, 0 refs —
+  fully pure HTML templating). Two small, unrelated utilities bundled into one cluster since each
+  is trivially self-contained. `renderSettingsSection` has 14 call sites, all inside the deferred
+  `renderSettingsView` giant — extracting the pure template function doesn't require touching
+  `renderSettingsView` itself, since both call sites and the extraction stay behind the same
+  `this.renderSettingsSection(...)` shim.
+- **Characterization:** new `flow-answer-constraints.test.ts` (7 tests: selects always stay
+  enabled, the tooltip lands on every row but the first for `'flow'` only, no tooltip for other
+  talk types, a stale tooltip clears on re-render, a previously-disabled ignore option
+  re-enables, a container-less question item no-ops, and multiple question items are handled
+  independently) and `settings-section-template.test.ts` (5 tests: title/body rendering, the
+  optional id/subtitle/action branches, and the danger-vs-normal color swap). All 12 passed first
+  run.
+- **Ratchet:** `ui-manager.ts` 6,742 → **6,710** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  198/2,127 to 200/2,139 (12 new) with zero regressions. Canonical run `run-20260910-062712-84322`
+  (25m24s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs
+  (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), none touching flow-editor or settings rendering.
+
 ## 2026-09-10 — UIManager decomposition cluster #50: broadcast-audience preview
 
 Continuing the AST-script-guided sweep from cluster #49, completing the groundwork flagged in
