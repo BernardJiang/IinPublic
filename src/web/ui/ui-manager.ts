@@ -7387,8 +7387,14 @@ export class UIManager extends EventEmitter {
     refreshPeerThreadList();
   }
 
-  /** Re-render the open conversation from the last synced messages (filter toggle, §9). */
-  private rerenderOpenConversation(): void {
+  /**
+   * Re-render the open conversation from the last synced messages (filter toggle, §9). Also
+   * called externally after the local TechSupport FAQ-bundle cache refreshes (docs/TODO.md K7):
+   * `filterVerifiedSupportMessages` fails closed against that cache, so a delegate's answer
+   * whose signature arrives before its bundle finishes syncing renders as if hidden until
+   * something re-renders — no new conversation message follows the bundle catching up.
+   */
+  rerenderOpenConversation(): void {
     if (!this.currentConversationId) return;
     this.displayConversationMessages(this.currentConversationId, this.lastConversationMessages);
   }

@@ -598,11 +598,26 @@ export class ChatroomManager {
   }
 
   async addMemberFast(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+    const requestStartedAt = Date.now();
     const memberData = {
       joinedAt: new Date(),
       isActive: true,
       ...(stageName ? { stageName } : {}),
     };
+    // Same out-of-order race touchMemberFast's isActive guard handles, for join instead of
+    // touch: this join's own HTTP request can be slow enough (this method does several
+    // sequential Gun writes below) that the *same client* leaves this room — a deliberate,
+    // more recent action, e.g. a room switch's leaveChatroom firing moments after this join
+    // request started — before this join's writes land. Re-check right before writing rather
+    // than trusting the request-entry state: only skip when the recorded leave happened after
+    // this specific request began, so a genuine sequential rejoin (leave, then a real new join
+    // request) still succeeds normally. Checked before upsertFastMember too, so a skipped join
+    // never leaves the in-memory fast-active map inconsistent with the Gun-persisted leave.
+    const currentlyLeft = await this.gunService.getPath(['chatrooms', chatroomId, 'users', userId], 100, 150).catch(() => null);
+    if (currentlyLeft?.isActive === false) {
+      const leftAt = currentlyLeft?.leftAt ? Date.parse(String(currentlyLeft.leftAt)) : NaN;
+      if (Number.isFinite(leftAt) && leftAt >= requestStartedAt) return;
+    }
     this.upsertFastMember(chatroomId, userId, stageName);
     await Promise.all([
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
@@ -678,6 +693,22 @@ export class ChatroomManager {
     const effectiveStageName = incomingStageNameIsStale
       ? existing?.stageName
       : options.stageName || existing?.stageName;
+    // A "touch" (this heartbeat PATCH) must never be what reactivates an already-left member —
+    // only an explicit join (addMemberFast/joinChatroom) may do that. Without this guard, a
+    // heartbeat beat() fired just before the user left races its own async Gun read/write
+    // (300-500ms, see above) against leaveChatroom's isActive:false/leftAt write, and — whichever
+    // completes last wins — can land *after* the leave and silently resurrect isActive:true.
+    // Confirmed via e2e (01-login-two-users-headcount: headcount bounced from 2 back to 3 and
+    // never recovered) and a raw Gun-write trace: the straggling touch's write landed ~300ms
+    // after leaveChatroom's, well inside this method's own read-wait window. A timestamp
+    // comparison (this touch's lastSeen vs. the recorded leftAt) was tried first, but Gun's HAM
+    // state and the plain ISO fields can disagree by the time this async method resolves,
+    // making an exact ordering comparison unreliable — checking `isActive` alone is both
+    // simpler and correct: a genuinely-active member is never mid-leave when touched, and a
+    // genuinely-rejoining member arrives through addMemberFast/joinChatroom, not this method.
+    if (existing?.isActive === false) {
+      return;
+    }
     const memberData = {
       joinedAt: existing?.joinedAt || now,
       isActive: true,

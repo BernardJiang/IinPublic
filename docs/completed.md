@@ -2,6 +2,75 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09 — Two real bugs fixed from a `test:all` Playwright report (membership resurrection + K7 FAQ-bundle race)
+
+Investigated `npx playwright show-report` from run `run-20260909-180724-18534` (the run at the end
+of UIManager cluster #12) instead of re-documenting its 3 failing phases as pre-existing flakiness.
+Two of the three were real, reproducible bugs; the third (`cross-browser`) remains the
+already-characterized Gun-server-boot timeout under `webkit`+`firefox` load.
+
+### Membership resurrection race (`heavy-staged` failure, `01-login-two-users-headcount.spec.ts:76`)
+
+`src/server/services/chatroom-manager.ts` — a member who just left a room could be silently
+resurrected to `isActive: true` moments later, permanently inflating the headcount.
+
+- **Root cause:** `touchMemberFast` (the heartbeat PATCH) does an async Gun read before writing —
+  a heartbeat fired just before a user left could complete its read/write (300-500ms) *after*
+  `leaveChatroom`'s `isActive:false`/`leftAt` write landed, silently overwriting it back to active.
+  Confirmed via a raw Gun-write trace (temporary `[DEBUG-RAW-WATCH]` logging on
+  `chatrooms/global/users/*`) showing a resurrection ~303ms after a correct leave, with the stray
+  `touchMemberFast` call confirmed as the culprit.
+- **Fix:** `touchMemberFast` now refuses to touch a member already recorded as
+  `isActive: false` — a heartbeat may only refresh an *active* member; only an explicit join
+  (`addMemberFast`/`joinChatroom`) may reactivate one. A timestamp-comparison guard was tried
+  first (comparing the touch's timestamp against the recorded `leftAt`) but Gun's HAM state and
+  the plain ISO fields can disagree by the time the async method resolves, making exact ordering
+  unreliable; the unconditional `isActive` check is both simpler and correct.
+- **Same race, second instance:** with `touchMemberFast` fixed, the test progressed further and
+  failed later (line 90) in the identical way but via `addMemberFast` — a slow join request
+  (several sequential Gun writes) completing after a same-client leave fired moments later (e.g. a
+  room switch). Added the same "don't resurrect past a newer leave" guard, keyed on whether the
+  recorded `leftAt` is at or after the join request's own start time (so a genuine sequential
+  rejoin still succeeds). Ordering note: the guard check must run *before* `upsertFastMember`
+  (the in-memory fast-member map write) — first draft had it after, which would have left the
+  in-memory map inconsistent with Gun on the skip path.
+- **Verification:** `01-login-two-users-headcount.spec.ts` — 5/5 clean reruns after each fix
+  stage. Typecheck/lint clean.
+
+### K7 FAQ-bundle verification race (`light` failure, `00m-techsupport-delegate-answers.spec.ts:162`)
+
+A delegate's answer (docs/TODO.md K7 — an ordinary user answering on TechSupport's behalf without
+holding the master key) could arrive at the asker's client and then render as if it never existed.
+
+- **Root cause:** `UIManager.filterVerifiedSupportMessages`'s `isFaqAnswer` branch verifies a
+  delegate-signed answer against `readCachedFaqBundle()` — a `localStorage` cache kept fresh by a
+  live Gun subscription (`subscribeToFaqBundle`, `techsupport-faq-cache.ts`) that runs
+  independently of the conversation-message subscription. If the answer message (carrying
+  `faqSignature`) syncs to the asker's client before that separate bundle subscription catches up,
+  the cached bundle's signature won't match yet, verification fails closed, and the message is
+  dropped — correctly, per the K2-3 "fail closed" discipline. The bug was what happened *next*:
+  `subscribeToTechSupportFaqBundle`'s `onVerified` callback only ever refreshed the TechSupport
+  master's own admin panel; for every other session (the asker) nothing re-rendered the open
+  conversation once the bundle cache became fresh, so a dropped answer stayed hidden indefinitely
+  — no future conversation message would arrive to trigger a retry.
+- **Fix:** made `UIManager.rerenderOpenConversation` (already used to re-reveal messages on a
+  filter-toggle, §9) public, and call it from `subscribeToTechSupportFaqBundle`'s callback for
+  every session, not just the master's. A stale render now self-heals the moment the bundle cache
+  catches up, instead of only on the next unrelated message.
+- **Verification:** `00m-techsupport-delegate-answers.spec.ts` — 5/5 clean reruns in isolation.
+  Typecheck/lint clean, production web + server builds succeed.
+
+### Scope note
+
+A full `stage2-two-user/` directory run (104 specs, single worker, ~37 min) surfaced 3 failures —
+`00l-techsupport-faq-cross-user` (passed on immediate rerun), `00m` again (this time failing
+*earlier*, at the onboarding-ack step, not the delegate-answer step this fix addresses), and
+`83-survey-ignore-mid-question-not-complete` (unrelated to anything touched here). All three match
+the already-documented "light phase rotating flaky specs" pattern (see cluster #12 below, same
+`00m`/`83-survey` names recur there under a different failing spec set) — sequential-load-induced,
+not a regression from either fix above, which only touch `chatroom-manager.ts`'s two heartbeat/join
+methods and one FAQ-bundle re-render callback respectively.
+
 ## 2026-09-09 — UIManager decomposition cluster #12: talks-row gestures
 
 Extracted `UIManager.bindTalksRowGestures` (the swipe/long-press gesture controller for talk-list
