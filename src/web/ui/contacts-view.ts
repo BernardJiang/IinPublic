@@ -1132,3 +1132,40 @@ export function saveKnownPerson(
   deps.emit('saveKnownPerson', { userId, ...details });
   deps.refreshContactsList();
 }
+
+/** Blocks or unblocks a user: server call (when online) + local `currentUser.blockedUserIds` mutation, then notifies and refreshes the Contacts list. */
+export async function setBlocked(
+  userId: string,
+  blocked: boolean,
+  deps: {
+    getCurrentUser: () => { blockedUserIds?: string[] } | null | undefined;
+    apiBase: string;
+    currentUserId: string | undefined;
+    emit: (event: string, payload: unknown) => void;
+    refreshContactsList: () => void;
+  },
+): Promise<void> {
+  const currentUser = deps.getCurrentUser();
+  if (!currentUser) return;
+  if (deps.apiBase && deps.currentUserId) {
+    const url = blocked
+      ? `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/blocks`
+      : `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/blocks/${encodeURIComponent(userId)}`;
+    const response = await fetch(
+      url,
+      blocked
+        ? {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetId: userId }),
+          }
+        : { method: 'DELETE' },
+    );
+    if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
+  }
+  currentUser.blockedUserIds = blocked
+    ? Array.from(new Set([...(currentUser.blockedUserIds || []), userId]))
+    : (currentUser.blockedUserIds || []).filter((candidate) => candidate !== userId);
+  deps.emit('setUserBlocked', { userId, blocked });
+  deps.refreshContactsList();
+}

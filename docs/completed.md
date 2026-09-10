@@ -2,6 +2,42 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition clusters #40-#42: three more extractions
+
+Continuing the AST-script-guided sweep from clusters #36-#39. `docs/TODO.md` Priority 6.
+
+- **#40: `tagAnswerSuffix` + `renderTagAnswerSuffixHtml` → `ui-formatters.ts`** (23+3 lines, 1
+  ref). A pure "?answer" title-suffix renderer for a tag/Pair-tag row, added to the existing
+  generic formatters module (already home to `escapeHtml` and friends) rather than a new file.
+  Its `singleNonIgnoreAnswer` dependency (`shared/talk-engine.ts`) moved with it — imported
+  directly by `ui-formatters.ts` rather than threaded as a parameter, since it's itself a pure
+  function with no circularity risk.
+- **#41: `displayIncomingTalk` → new `incoming-talk-notification.ts`** (25 lines, 4 refs —
+  `showNotification`, `tf`, `flashMemberForNewTalk`, `displayTalksList`). Public API (3 external
+  call sites in `app.ts`), kept as a shim.
+- **#42: `setBlocked` → `contacts-view.ts`** (24 lines, 5 refs — `currentUser` read/write,
+  `apiBase`, `currentUserId`, `emit`, `displayContactsList`). Grouped with cluster #32's
+  `saveKnownPerson` in the same module; verified with a dedicated real-browser regression
+  (`15a-blocking-unblock-resumes-talk-delivery`) given the network call + direct
+  `currentUser.blockedUserIds` mutation.
+- **Characterization:** three new/extended test files — `ui-formatters.test.ts` (+9 for
+  `tagAnswerSuffix`, one authoring mistake caught by a failing assertion: a test predicted a
+  fall-through case would render empty, but the fixture's talk title and matched-answer text
+  were actually different strings, so a suffix correctly renders — fixed the test's own
+  expectation once traced through), `incoming-talk-notification.test.ts` (5),
+  `contacts-view.test.ts` (+8 for `setBlocked`, covering the block/unblock HTTP methods and
+  URLs, the skip-network-call path when `apiBase`/`currentUserId` are unset, a non-ok response
+  throwing, deduped add vs. filtered remove on `blockedUserIds`, and the emit/refresh side
+  effects). All passed after the one fix. Real-browser regression:
+  `staged/stage2-two-user/15a-blocking-unblock-resumes-talk-delivery.spec.ts`.
+- **Ratchet:** `ui-manager.ts` 7,233 → 7,205 (#40) → 7,198 (#41) → **7,184** (#42) lines.
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (190 suites / 2,029 tests after all three, 22 new).
+  Canonical run `run-20260910-015954-12212` (25m26s): `heavy-staged` is green again (`rc=0`);
+  `cross-browser` remains the same pre-existing infra issue; `light` failed two
+  already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `83-survey-ignore-mid-question-not-complete`), neither touching this batch.
+
 ## 2026-09-10 — UIManager decomposition clusters #36-#39: four more extractions, two of them sibling pairs
 
 Continuing the AST-script-guided sweep from clusters #30-#35. `docs/TODO.md` Priority 6.

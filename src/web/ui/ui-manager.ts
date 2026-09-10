@@ -7,12 +7,12 @@ import {
   type Tag,
 } from '../../shared/types';
 import { EventEmitter } from 'events';
-import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
+import { formatTimeAgo, formatExpiration, escapeHtml, tagAnswerSuffix } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
-import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, singleNonIgnoreAnswer } from '../../shared/talk-engine';
+import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
@@ -47,6 +47,7 @@ import {
   openRelationshipDialog,
   renderContactContextSummaryInto,
   saveKnownPerson as saveKnownPersonImpl,
+  setBlocked as setBlockedImpl,
   showContactsList as openContactsList,
   type ContactsViewDeps,
 } from './contacts-view';
@@ -160,6 +161,7 @@ import {
   quickIgnoreIncomingTalk as quickIgnoreIncomingTalkImpl,
   quickCopyIncomingTalk as quickCopyIncomingTalkImpl,
 } from './quick-incoming-talk-actions';
+import { displayIncomingTalk as displayIncomingTalkImpl } from './incoming-talk-notification';
 import {
   buildRouteSelfAnswers as buildRouteEditorSelfAnswers,
   collectRouteEditorQuestions as collectRouteQuestions,
@@ -506,34 +508,6 @@ export class UIManager extends EventEmitter {
   // exactly one real answer — same shape the old root-level `selfTag`/`preferenceSet` fields
   // used to carry, now expressed as an ordinary question instead of talk-level metadata), else a
   // `type: 'tag'` talk's own (title, match-answer) pair (§LL: a tag is just 1 question/1 answer).
-  private tagAnswerSuffix(talk: {
-    title?: string;
-    questions?: Array<{ text?: string; reciprocalTagContext?: boolean; answers?: Array<{ text?: string; isMatch?: boolean; isIgnore?: boolean }> }>;
-    fullTalk?: {
-      title?: string;
-      questions?: Array<{ text?: string; reciprocalTagContext?: boolean; answers?: Array<{ text?: string; isMatch?: boolean; isIgnore?: boolean }> }>;
-    };
-  }): string {
-    const questions = talk?.questions ?? talk?.fullTalk?.questions;
-    const rootQuestion = Array.isArray(questions) ? questions[0] : undefined;
-    if (rootQuestion?.reciprocalTagContext) {
-      const only = singleNonIgnoreAnswer(rootQuestion);
-      const declaredAnswer = only?.text;
-      const keyword = rootQuestion.text;
-      if (keyword && declaredAnswer) {
-        return declaredAnswer === keyword ? '' : this.renderTagAnswerSuffixHtml(declaredAnswer);
-      }
-    }
-    const keyword = talk?.title ?? talk?.fullTalk?.title;
-    const matchAnswerText = rootQuestion?.answers?.find((a) => a?.isMatch)?.text;
-    if (!keyword || !matchAnswerText || matchAnswerText === keyword) return '';
-    return this.renderTagAnswerSuffixHtml(matchAnswerText);
-  }
-
-  private renderTagAnswerSuffixHtml(answer: string): string {
-    return `<span class="talk-tag-answer-suffix" style="color:var(--text-tertiary);font-weight:400;margin-left:2px;">?${escapeHtml(answer)}</span>`;
-  }
-
   private formatTalkDistanceFromAuthor(authorLocation: { latitude?: number; longitude?: number } | null | undefined): string {
     if (!this.currentLocation || !authorLocation) return '';
     const latitude = Number(authorLocation.latitude);
@@ -2129,7 +2103,7 @@ export class UIManager extends EventEmitter {
           <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(this.t('talksTagChecked'))}">
             <input type="checkbox" class="talk-tag-checkbox talk-tag-out-checkbox" data-talk-id="${escapeHtml(talkId)}" checked>
           </label>
-          <span class="talk-tag-text">${escapeHtml(talk.title)}${this.tagAnswerSuffix(talk)}</span>
+          <span class="talk-tag-text">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</span>
         </div>
       `;
                   }
@@ -2151,7 +2125,7 @@ export class UIManager extends EventEmitter {
               <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
               <span aria-hidden="true">${typeIcon}</span>
             </label>
-            <div class="talk-item-title">${escapeHtml(talk.title)}${this.tagAnswerSuffix(talk)}</div>
+            <div class="talk-item-title">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</div>
             <span class="talk-item-chevron" aria-hidden="true">›</span>
           </div>
           <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
@@ -4902,20 +4876,12 @@ export class UIManager extends EventEmitter {
     isOwnTalk: boolean;
     fullTalk: any;
   }): void {
-    // Do not auto-save to myTalks. Rely on the backend incomingTalkClusters instead.
-
-    // Show a notification for received talks and flash the author's icon in member list
-    if (!talk.isOwnTalk) {
-      this.showNotification(this.tf('newTalkNotification', { name: talk.authorName, title: talk.title }), 'info');
-      const authorId = talk.fullTalk?.authorId;
-      if (authorId) this.flashMemberForNewTalk(authorId);
-    }
-
-    // Refresh the talks list if the Talks tab is currently active
-    const talksTab = document.getElementById('tab-talks');
-    if (talksTab?.classList.contains('active')) {
-      this.displayTalksList();
-    }
+    displayIncomingTalkImpl(talk, {
+      showNotification: (message, type) => this.showNotification(message, type),
+      tf: this.tf.bind(this),
+      flashMemberForNewTalk: (authorId) => this.flashMemberForNewTalk(authorId),
+      refreshTalksListIfActive: () => this.displayTalksList(),
+    });
   }
 
   showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string; targetQuestionId?: string }): void {
@@ -6229,28 +6195,13 @@ export class UIManager extends EventEmitter {
   }
 
   private async setBlocked(userId: string, blocked: boolean): Promise<void> {
-    if (!this.currentUser) return;
-    if (this.apiBase && this.currentUserId) {
-      const url = blocked
-        ? `${this.apiBase}/api/users/${encodeURIComponent(this.currentUserId)}/blocks`
-        : `${this.apiBase}/api/users/${encodeURIComponent(this.currentUserId)}/blocks/${encodeURIComponent(userId)}`;
-      const response = await fetch(
-        url,
-        blocked
-          ? {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ targetId: userId }),
-            }
-          : { method: 'DELETE' },
-      );
-      if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
-    }
-    this.currentUser.blockedUserIds = blocked
-      ? Array.from(new Set([...(this.currentUser.blockedUserIds || []), userId]))
-      : (this.currentUser.blockedUserIds || []).filter((candidate) => candidate !== userId);
-    this.emit('setUserBlocked', { userId, blocked });
-    this.displayContactsList();
+    return setBlockedImpl(userId, blocked, {
+      getCurrentUser: () => this.currentUser,
+      apiBase: this.apiBase,
+      currentUserId: this.currentUserId,
+      emit: (event, payload) => this.emit(event, payload),
+      refreshContactsList: () => void this.displayContactsList(),
+    });
   }
 
   private getPeerName(userId: string, fallbackName?: string): string {

@@ -3,6 +3,8 @@
  * No DOM or state dependencies — safe to unit-test in Node.
  */
 
+import { singleNonIgnoreAnswer } from '../../shared/talk-engine';
+
 export function formatTimeAgo(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -46,4 +48,38 @@ export function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function renderTagAnswerSuffixHtml(answer: string): string {
+  return `<span class="talk-tag-answer-suffix" style="color:var(--text-tertiary);font-weight:400;margin-left:2px;">?${escapeHtml(answer)}</span>`;
+}
+
+/**
+ * A tag/Pair-tag row's title shows a "?answer" suffix when the declared/matched answer text
+ * differs from the row's own title/keyword — e.g. a Pair-tag root declaring "sell" renders
+ * "Buy a bike?sell" so the counterpart is visible without opening the row. Empty when the
+ * answer IS the keyword (nothing extra to show).
+ */
+export function tagAnswerSuffix(talk: {
+  title?: string;
+  questions?: Array<{ text?: string; reciprocalTagContext?: boolean; answers?: Array<{ text?: string; isMatch?: boolean; isIgnore?: boolean }> }>;
+  fullTalk?: {
+    title?: string;
+    questions?: Array<{ text?: string; reciprocalTagContext?: boolean; answers?: Array<{ text?: string; isMatch?: boolean; isIgnore?: boolean }> }>;
+  };
+}): string {
+  const questions = talk?.questions ?? talk?.fullTalk?.questions;
+  const rootQuestion = Array.isArray(questions) ? questions[0] : undefined;
+  if (rootQuestion?.reciprocalTagContext) {
+    const only = singleNonIgnoreAnswer(rootQuestion);
+    const declaredAnswer = only?.text;
+    const keyword = rootQuestion.text;
+    if (keyword && declaredAnswer) {
+      return declaredAnswer === keyword ? '' : renderTagAnswerSuffixHtml(declaredAnswer);
+    }
+  }
+  const keyword = talk?.title ?? talk?.fullTalk?.title;
+  const matchAnswerText = rootQuestion?.answers?.find((a) => a?.isMatch)?.text;
+  if (!keyword || !matchAnswerText || matchAnswerText === keyword) return '';
+  return renderTagAnswerSuffixHtml(matchAnswerText);
 }
