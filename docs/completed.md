@@ -2,6 +2,36 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #50: broadcast-audience preview
+
+Continuing the AST-script-guided sweep from cluster #49, completing the groundwork flagged in
+that cluster's entry. `docs/TODO.md` Priority 6.
+
+- **#50: `resolveExpiresAtMs` + `BroadcastAudiencePreview` + `getSenderOmittedBroadcastPreviews`
+  → new `broadcast-audience-preview.ts`.** This cluster did the relocation groundwork flagged in
+  #49 first: `resolveExpiresAtMs` (a module-level helper) and `BroadcastAudiencePreview` (an
+  exported type) both lived in `ui-manager.ts` with call sites/importers scattered across three
+  other files, including `broadcast-audience-dialog.ts` importing the type **backwards** from
+  `ui-manager.ts`. Moved both to the new module; updated `broadcast-audience-dialog.ts`, `app.ts`,
+  and — caught by grepping `src/test/` per the standing execution rule —
+  `broadcast-audience-dialog.test.ts` to import `BroadcastAudiencePreview` from the new module
+  instead of `ui-manager.ts`. With that groundwork in place, `getSenderOmittedBroadcastPreviews`
+  (0 `this.*` refs, flagged last cluster) moved cleanly; its `ui-manager.ts` public method is now
+  a one-line shim (kept because `app.ts` calls it externally).
+- **Characterization:** new `broadcast-audience-preview.test.ts` (13 tests) covering
+  `resolveExpiresAtMs`'s numeric/ISO-string/blank/non-string branches, and
+  `getSenderOmittedBroadcastPreviews`'s role filter (created/copied only), the
+  disabled/expired/both-reasons flagging, the fullTalk.expiresAt fallback, the
+  title/fullTalk.title/talkId fallback chain, and title-sorted output. All passed first run.
+  `broadcast-audience-dialog.test.ts` (import-path fix only) stayed green.
+- **Ratchet:** `ui-manager.ts` 6,779 → **6,742** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  197/2,114 to 198/2,127 (13 new) with zero regressions. Canonical run `run-20260910-055849-76503`
+  (25m26s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching this
+  batch.
+
 ## 2026-09-10 — UIManager decomposition cluster #49: talk-peer registration
 
 Continuing the AST-script-guided sweep from cluster #48. `docs/TODO.md` Priority 6.

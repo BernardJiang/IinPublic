@@ -1,6 +1,6 @@
 import { escapeHtml } from './ui-formatters';
 import type { UiTranslationKey } from './ui-translations';
-import type { BroadcastAudiencePreview } from './ui-manager';
+import type { BroadcastAudiencePreview } from './broadcast-audience-preview';
 
 export type BroadcastAudienceDialogDeps = {
   t: (key: UiTranslationKey) => string;

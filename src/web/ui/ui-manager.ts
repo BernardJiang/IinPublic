@@ -20,6 +20,11 @@ import {
 import { hydrateAttachmentImages as hydrateAttachmentImagesImpl } from './attachment-hydration';
 import { openEraseDeviceDialog as openEraseDeviceDialogImpl } from './erase-device-flow';
 import { registerTalkForPeer } from './talk-peer-registration';
+import {
+  resolveExpiresAtMs,
+  type BroadcastAudiencePreview,
+  getSenderOmittedBroadcastPreviews as getSenderOmittedBroadcastPreviewsImpl,
+} from './broadcast-audience-preview';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
@@ -213,12 +218,6 @@ import { type PairingPayload } from '../../shared/identity-linking';
 import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { buildTagIdentityKeys } from '../../shared/talk-ledger';
 
-function resolveExpiresAtMs(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string' && value.trim()) return new Date(value).getTime();
-  return Number.NaN;
-}
-
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
 // Settings → Appearance: decorative swatch + label per scheme, matching the
 // [data-color-scheme] token blocks in main.css's :root.
@@ -259,22 +258,6 @@ function shouldShowCooldownToast(storageKey: string): boolean {
 }
 /** TODO §R2: first-chunk size for the Talks tab's OUT/IN lists, same precedent as above. */
 const TALKS_FIRST_CHUNK_SIZE = 25;
-
-export type BroadcastAudiencePreview = {
-  talkId: string;
-  title: string;
-  totalCandidates: number;
-  eligibleReceivers: number;
-  /** Server preview ids (P0 mesh uses this instead of registering on hub). */
-  eligibleReceiverIds?: string[];
-  rejectedByCounts: Record<string, number>;
-  eligibleReceiverNames?: string[];
-  rejectedReceiverDetails?: Array<{ name: string; rejectedBy: string[] }>;
-  supportExcludedCount?: number;
-  previewUnavailable?: boolean;
-  /** Sender-side omission: talk cannot be broadcast or peer-sent (expired/disabled). */
-  senderOmittedBy?: string[];
-};
 
 type PublicProfileFoundationReader = (userId: string) => Promise<{
   headshot?: string | null;
@@ -5017,27 +5000,7 @@ export class UIManager extends EventEmitter {
 
   /** OUT talks omitted from broadcast/peer send because they are disabled or expired. */
   getSenderOmittedBroadcastPreviews(): BroadcastAudiencePreview[] {
-    const myTalks = getMyTalks();
-    const now = Date.now();
-    const previews: BroadcastAudiencePreview[] = [];
-    for (const [talkId, talk] of Object.entries(myTalks)) {
-      if (talk?.role !== 'created' && talk?.role !== 'copied') continue;
-      const omittedBy: string[] = [];
-      if (talk?.disabled) omittedBy.push('broadcast_disabled');
-      const expiresAt = talk?.expiresAt ?? talk?.fullTalk?.expiresAt;
-      const expiresAtMs = resolveExpiresAtMs(expiresAt);
-      if (Number.isFinite(expiresAtMs) && now > expiresAtMs) omittedBy.push('talk_expired');
-      if (omittedBy.length === 0) continue;
-      previews.push({
-        talkId,
-        title: String(talk?.title || talk?.fullTalk?.title || talkId),
-        totalCandidates: 0,
-        eligibleReceivers: 0,
-        rejectedByCounts: Object.fromEntries(omittedBy.map((reason) => [reason, 1])),
-        senderOmittedBy: omittedBy,
-      });
-    }
-    return previews.sort((a, b) => a.title.localeCompare(b.title));
+    return getSenderOmittedBroadcastPreviewsImpl();
   }
 
   /**

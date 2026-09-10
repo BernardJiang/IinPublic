@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import { confirmBroadcastAudience, type BroadcastAudienceDialogDeps } from '../../web/ui/broadcast-audience-dialog';
-import type { BroadcastAudiencePreview } from '../../web/ui/ui-manager';
+import type { BroadcastAudiencePreview } from '../../web/ui/broadcast-audience-preview';
 
 const t = (key: string): string => key;
 const tf = (key: string, vars: Record<string, string | number>): string => `${key}:${JSON.stringify(vars)}`;
