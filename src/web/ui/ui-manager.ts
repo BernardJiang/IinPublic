@@ -124,7 +124,12 @@ import {
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
-import { TALK_TEMPLATES } from './talk-templates';
+import { showTalkTemplatePicker as renderTalkTemplatePicker } from './talk-template-picker';
+import {
+  showChooseWhoToDmPicker as renderChooseWhoToDmPicker,
+  showDmInboxPicker as renderDmInboxPicker,
+} from './person-picker-dialogs';
+import { confirmBroadcastAudience as renderConfirmBroadcastAudience } from './broadcast-audience-dialog';
 import {
   buildRouteSelfAnswers as buildRouteEditorSelfAnswers,
   collectRouteEditorQuestions as collectRouteQuestions,
@@ -163,6 +168,9 @@ import {
 } from './talk-intake-filters';
 import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
 import { bindDirtyWordEditor } from './dirty-word-editor';
+import { renderChatroomMessage } from './chatroom-message-view';
+import { renderMatchBadge } from './notification-badges';
+import { confirmCapturedQuestionDialog as confirmCapturedQuestionDialogView } from './captured-question-dialog';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
 import { CONFIG } from '../../shared/config';
 import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl, type LinkedDeviceRow } from './linked-devices-dialog';
@@ -1678,100 +1686,18 @@ export class UIManager extends EventEmitter {
    * the same `navigateToGraphNode` 'person' destination N1/item 6 already settled on.
    */
   private showChooseWhoToDmPicker(people: Array<{ id: string; name: string }>): void {
-    document.getElementById('talk-dm-picker-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'talk-dm-picker-modal';
-    modal.className = 'modal-overlay';
-    const rows = people
-      .map(
-        (person) => `
-      <div class="talk-dm-picker-row" data-user-id="${escapeHtml(person.id)}" data-user-name="${escapeHtml(person.name)}" style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--bg-muted);border-radius:8px;margin-bottom:6px;cursor:pointer;">
-        <span style="font-weight:600;">${escapeHtml(person.name)}</span>
-      </div>
-    `,
-      )
-      .join('');
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:380px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('talksChooseWhoToDm')}</h2>
-          <button class="close-button" id="close-talk-dm-picker">&times;</button>
-        </div>
-        <div style="padding:16px;">${rows}</div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    const close = () => modal.remove();
-    document.getElementById('close-talk-dm-picker')?.addEventListener('click', close);
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) close();
-    });
-    modal.querySelectorAll<HTMLElement>('.talk-dm-picker-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const id = row.dataset.userId || '';
-        const name = row.dataset.userName || '';
-        close();
-        if (id) this.navigateToGraphNode({ type: 'person', id, name });
-      });
+    renderChooseWhoToDmPicker(people, {
+      t: this.t.bind(this),
+      navigateToPerson: (person) => this.navigateToGraphNode(person),
     });
   }
 
-  /**
-   * TODO §N2: the "no matter which tab" affordance — reachable from every tab via #dm-inbox-btn
-   * (badge-driven off the same aggregate unread count updateMatchBadge computes), lists senders
-   * with unread messages sorted most-recent-first. Modeled on showChooseWhoToDmPicker's modal
-   * skeleton; picking a row navigates via the same navigateToGraphNode 'person' destination.
-   */
   private showDmInboxPicker(): void {
-    document.getElementById('dm-inbox-modal')?.remove();
-    const conversations = this.getMyConversations();
-    const unread = Object.entries(conversations)
-      .filter(([, conv]: [string, any]) => conv?.unread && conv.supportChannel !== true && conv.otherUserId)
-      .map(([, conv]: [string, any]) => ({
-        id: String(conv.otherUserId),
-        name: this.getPeerName(conv.otherUserId, conv.otherUserName),
-        unreadCount: Number(conv.unreadCount || 0) || 1,
-        lastMessageTime: conv.lastMessageTime || conv.createdAt || '',
-      }))
-      .sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
-
-    const modal = document.createElement('div');
-    modal.id = 'dm-inbox-modal';
-    modal.className = 'modal-overlay';
-    const rows = unread.length > 0
-      ? unread
-          .map(
-            (person) => `
-      <div class="dm-inbox-row" data-user-id="${escapeHtml(person.id)}" data-user-name="${escapeHtml(person.name)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;background:var(--bg-muted);border-radius:8px;margin-bottom:6px;cursor:pointer;">
-        <span style="font-weight:600;">${escapeHtml(person.name)}</span>
-        <span class="notification-badge" style="position:static;">${person.unreadCount > 99 ? '99+' : person.unreadCount}</span>
-      </div>
-    `,
-          )
-          .join('')
-      : `<p style="text-align:center;color:#999;padding:16px 0;">${this.t('dmInboxEmpty')}</p>`;
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:380px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('dmInboxTitle')}</h2>
-          <button class="close-button" id="close-dm-inbox-modal">&times;</button>
-        </div>
-        <div style="padding:16px;">${rows}</div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    const close = () => modal.remove();
-    document.getElementById('close-dm-inbox-modal')?.addEventListener('click', close);
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) close();
-    });
-    modal.querySelectorAll<HTMLElement>('.dm-inbox-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const id = row.dataset.userId || '';
-        const name = row.dataset.userName || '';
-        close();
-        if (id) this.navigateToGraphNode({ type: 'person', id, name });
-      });
+    renderDmInboxPicker({
+      t: this.t.bind(this),
+      navigateToPerson: (person) => this.navigateToGraphNode(person),
+      getMyConversations: () => this.getMyConversations(),
+      getPeerName: (userId, fallbackName) => this.getPeerName(userId, fallbackName),
     });
   }
 
@@ -5040,46 +4966,7 @@ export class UIManager extends EventEmitter {
    * instead (the caller falls through to the normal send path on `false`).
    */
   confirmCapturedQuestionDialog(parsed: { question: string; answers: string[] }): Promise<boolean> {
-    document.getElementById('capture-question-confirm-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'capture-question-confirm-modal';
-    modal.dataset.testid = 'capture-question-confirm-modal';
-    modal.className = 'modal-overlay';
-    // This dialog is opened from *inside* an already-open conversation detail overlay
-    // (z-index 1001), which sits above .modal-overlay's own default (1000) — found via
-    // real E2E run (docs/TODO.md §V), matching the z-index tier the media lightbox
-    // already uses for the same "float above an open conversation" requirement.
-    modal.style.zIndex = '2000';
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:420px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('captureConfirmTitle')}</h2>
-          <p>${this.t('captureConfirmHelp')}</p>
-        </div>
-        <div style="padding:10px 0;">
-          <div style="font-weight:600;">${escapeHtml(parsed.question)}</div>
-          <ul style="margin:8px 0 0;padding-left:20px;font-size:0.9em;color:var(--text-secondary);">
-            ${parsed.answers.map((a) => `<li>${escapeHtml(a)}</li>`).join('')}
-          </ul>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn" data-testid="capture-question-confirm-decline">${this.t('captureConfirmDecline')}</button>
-          <button type="button" class="btn primary-btn" data-testid="capture-question-confirm-accept">${this.t('captureConfirmAccept')}</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    return new Promise<boolean>((resolve) => {
-      const finish = (confirmed: boolean): void => {
-        modal.remove();
-        resolve(confirmed);
-      };
-      modal.querySelector('[data-testid="capture-question-confirm-accept"]')?.addEventListener('click', () => finish(true));
-      modal.querySelector('[data-testid="capture-question-confirm-decline"]')?.addEventListener('click', () => finish(false));
-      modal.addEventListener('click', (event) => {
-        if (event.target === modal) finish(false);
-      });
-    });
+    return confirmCapturedQuestionDialogView(parsed, this.t.bind(this));
   }
 
   /**
@@ -5190,84 +5077,11 @@ export class UIManager extends EventEmitter {
   }
 
   confirmBroadcastAudience(previews: BroadcastAudiencePreview[]): Promise<boolean> {
-    document.getElementById('broadcast-preamble-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'broadcast-preamble-modal';
-    modal.dataset.testid = 'broadcast-preamble-modal';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:5000;background:rgba(15,23,42,0.48);display:flex;align-items:center;justify-content:center;padding:20px;';
-    const knownPreviews = previews.filter((preview) => !preview.previewUnavailable);
-    const deliveryCount = knownPreviews.reduce((count, preview) => count + preview.eligibleReceivers, 0);
-    const candidateCount = knownPreviews.reduce((count, preview) => count + preview.totalCandidates, 0);
-    const supportExcludedCount = knownPreviews.reduce((count, preview) => count + (preview.supportExcludedCount || 0), 0);
-    const excludedCount = Math.max(0, candidateCount - deliveryCount) + supportExcludedCount;
-    const hasUnavailable = knownPreviews.length !== previews.length;
-    const rows = previews.map((preview) => {
-      if (preview.senderOmittedBy?.length) {
-        const reasonText = preview.senderOmittedBy
-          .map((reason) => this.deliveryReasonLabel(reason))
-          .join(' · ');
-        return `
-          <div class="broadcast-preview-row broadcast-preview-row-omitted" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--danger-border);border-radius:10px;background:var(--danger-soft);">
-            <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-            <div style="font-size:0.88em;color:var(--danger-hover);margin-top:4px;">0 ${this.t('broadcastPreviewEligible')} · ${this.t('broadcastPreviewSenderOmitted')}</div>
-            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(reasonText)}</div>
-          </div>
-        `;
-      }
-      if (preview.previewUnavailable) {
-        return `
-          <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--border);border-radius:10px;">
-            <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${this.t('broadcastPreviewUnavailable')}</div>
-          </div>
-        `;
-      }
-      const reasonText = this.formatReasonCounts(preview.rejectedByCounts);
-      const recipientText = (preview.eligibleReceiverNames || []).join(', ') || this.t('broadcastPreviewNone');
-      const rejectedDetailText = (preview.rejectedReceiverDetails || [])
-        .map(({ name, rejectedBy }) => {
-          const reasonCounts = Object.fromEntries(rejectedBy.map((reason) => [reason, 1]));
-          return `${name}: ${this.formatReasonCounts(reasonCounts)}`;
-        })
-        .join('; ');
-      const perTalkExcluded = Math.max(0, preview.totalCandidates - preview.eligibleReceivers)
-        + (preview.supportExcludedCount || 0);
-      return `
-        <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--border);border-radius:10px;">
-          <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-          <div style="font-size:0.88em;color:var(--text-secondary);margin-top:4px;">${preview.eligibleReceivers} ${this.t('broadcastPreviewEligible')} · ${perTalkExcluded} ${this.t('broadcastPreviewExcluded')}</div>
-          <div class="broadcast-preview-recipients" style="font-size:0.82em;color:var(--text-secondary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewRecipients', { names: recipientText }))}</div>
-          ${reasonText ? `<div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(reasonText)}</div>` : ''}
-          ${rejectedDetailText ? `<div class="broadcast-preview-skipped" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSkipped', { details: rejectedDetailText }))}</div>` : ''}
-          ${preview.supportExcludedCount ? `<div class="broadcast-preview-support" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSupportExcluded', { count: preview.supportExcludedCount }))}</div>` : ''}
-        </div>
-      `;
-    }).join('');
-    modal.innerHTML = `
-      <div style="width:min(620px,96vw);max-height:90vh;overflow:auto;background:var(--surface);border-radius:16px;box-shadow:0 18px 55px rgba(15,23,42,0.2);">
-        <div style="padding:18px;border-bottom:1px solid var(--border);">
-          <div style="font-size:1.05em;font-weight:700;">${this.t('broadcastPreviewTitle')}</div>
-          <div style="font-size:0.88em;color:var(--text-tertiary);margin-top:5px;">${this.t('broadcastPreviewHelp')}</div>
-          <span class="broadcast-chip" style="display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent-hover);font-size:0.82em;">${this.tf(previews.length === 1 ? 'talksCountOne' : 'talksCount', { count: previews.length })} · ${deliveryCount} ${this.t('broadcastPreviewEligible')} · ${excludedCount} ${this.t('broadcastPreviewExcluded')}${hasUnavailable ? ` · ${this.t('broadcastPreviewFinalCheck')}` : ''}</span>
-        </div>
-        <div style="display:grid;gap:8px;padding:14px;">${rows}</div>
-        <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid var(--border);">
-          <button class="btn" type="button" data-testid="broadcast-preamble-cancel">${this.t('broadcastPreviewCancel')}</button>
-          <button class="btn primary-btn" type="button" data-testid="broadcast-preamble-send">${this.t('broadcastPreviewSend')}</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    return new Promise<boolean>((resolve) => {
-      const finish = (confirmed: boolean) => {
-        modal.remove();
-        resolve(confirmed);
-      };
-      modal.querySelector('[data-testid="broadcast-preamble-send"]')?.addEventListener('click', () => finish(true));
-      modal.querySelector('[data-testid="broadcast-preamble-cancel"]')?.addEventListener('click', () => finish(false));
-      modal.addEventListener('click', (event) => {
-        if (event.target === modal) finish(false);
-      });
+    return renderConfirmBroadcastAudience(previews, {
+      t: this.t.bind(this),
+      tf: this.tf.bind(this),
+      deliveryReasonLabel: this.deliveryReasonLabel.bind(this),
+      formatReasonCounts: this.formatReasonCounts.bind(this),
     });
   }
 
@@ -6274,40 +6088,7 @@ export class UIManager extends EventEmitter {
     timestamp: string;
     isOwnMessage: boolean;
   }): void {
-    const messagesContainer = document.getElementById('messages-container');
-    if (!messagesContainer) return;
-
-    // Check if message already exists to avoid duplicates
-    if (document.getElementById(`msg-${message.id}`)) {
-      return;
-    }
-
-    // Clear welcome message if it exists
-    const welcomeMsg = messagesContainer.querySelector('.text-center.p-20');
-    if (welcomeMsg) {
-      welcomeMsg.remove();
-    }
-
-    const messageTime = new Date(message.timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    const messageDiv = document.createElement('div');
-    messageDiv.id = `msg-${message.id}`;
-    messageDiv.className = `message ${message.isOwnMessage ? 'sent' : ''}`;
-    messageDiv.innerHTML = `
-      <div class="message-bubble">
-        ${!message.isOwnMessage ? `<div style="font-weight: bold; font-size: 0.85em; margin-bottom: 4px; color: var(--accent);">${escapeHtml(message.senderName)}</div>` : ''}
-        <div>${escapeHtml(message.text)}</div>
-        <div class="message-time">${messageTime}</div>
-      </div>
-    `;
-
-    messagesContainer.appendChild(messageDiv);
-
-    // Auto-scroll to bottom
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    renderChatroomMessage(message);
   }
 
   /**
@@ -6320,55 +6101,9 @@ export class UIManager extends EventEmitter {
    * arrow visual language (main.css) rather than inventing a new one.
    */
   private showTalkTemplatePicker(): void {
-    document.getElementById('talk-template-picker-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'talk-template-picker-modal';
-    modal.className = 'modal-overlay';
-    const templateRows = TALK_TEMPLATES.map(
-      (template) => `
-      <div class="chatroom-item talk-template-row" data-testid="talk-template-${template.id}" data-template-id="${template.id}">
-        <div class="chatroom-icon">${template.icon}</div>
-        <div class="chatroom-info">
-          <div class="chatroom-name">${escapeHtml(this.t(template.labelKey))}</div>
-          <div class="chatroom-description">${escapeHtml(this.t(template.descKey))}</div>
-        </div>
-        <div class="chatroom-arrow">›</div>
-      </div>
-    `,
-    ).join('');
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:440px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('talkTemplatePickerTitle')}</h2>
-          <button class="close-button" id="close-talk-template-picker">&times;</button>
-        </div>
-        <p style="padding:0 20px;margin:0 0 12px;color:var(--text-secondary);font-size:0.9em;">${escapeHtml(this.t('talkTemplatePickerSubtitle'))}</p>
-        <div style="padding:0 20px 20px;">
-          ${templateRows}
-          <div class="chatroom-item talk-template-row" data-testid="talk-template-scratch" data-template-id="scratch">
-            <div class="chatroom-icon">✏️</div>
-            <div class="chatroom-info">
-              <div class="chatroom-name">${escapeHtml(this.t('talkTemplateScratch'))}</div>
-              <div class="chatroom-description">${escapeHtml(this.t('talkTemplateScratchDesc'))}</div>
-            </div>
-            <div class="chatroom-arrow">›</div>
-          </div>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    const close = () => modal.remove();
-    document.getElementById('close-talk-template-picker')?.addEventListener('click', close);
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) close();
-    });
-    modal.querySelectorAll<HTMLElement>('.talk-template-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const templateId = row.dataset.templateId || '';
-        close();
-        const template = TALK_TEMPLATES.find((t) => t.id === templateId);
-        this.showTalkEditorDialog(template?.build());
-      });
+    renderTalkTemplatePicker({
+      t: this.t.bind(this),
+      openEditor: (existingTalk) => this.showTalkEditorDialog(existingTalk),
     });
   }
 
@@ -7075,41 +6810,7 @@ export class UIManager extends EventEmitter {
   }
 
   updateMatchBadge(): void {
-    // Count unread conversations
-    const conversations = this.getMyConversations();
-    const unreadCount = Object.values(conversations).filter((conv: any) => {
-      return conv?.unread && conv.supportChannel !== true;
-    }).length;
-
-    // Update badge on Me tab
-    const meTab = document.querySelector('.nav-btn[data-view="me"] .nav-icon');
-    if (meTab) {
-      // Remove existing badge
-      const existingBadge = meTab.querySelector('.notification-badge');
-      if (existingBadge) existingBadge.remove();
-
-      // Add new badge if there are unread conversations
-      if (unreadCount > 0) {
-        const badge = document.createElement('span');
-        badge.className = 'notification-badge';
-        badge.textContent = unreadCount > 99 ? '99+' : unreadCount.toString();
-        meTab.appendChild(badge);
-      }
-    }
-
-    // TODO §N2: same aggregate count badges the always-visible DM inbox icon, reachable from
-    // every tab (unlike the Me-tab badge above, which only shows while on the Me tab).
-    const dmInboxBtn = document.getElementById('dm-inbox-btn');
-    if (dmInboxBtn) {
-      const existingBadge = dmInboxBtn.querySelector('.notification-badge');
-      if (existingBadge) existingBadge.remove();
-      if (unreadCount > 0) {
-        const badge = document.createElement('span');
-        badge.className = 'notification-badge';
-        badge.textContent = unreadCount > 99 ? '99+' : unreadCount.toString();
-        dmInboxBtn.appendChild(badge);
-      }
-    }
+    renderMatchBadge(this.getMyConversations());
   }
 
   /** True when a message belongs to the currently open thread scope (DM vs per-talk). */

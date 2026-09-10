@@ -2,6 +2,73 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09 — UIManager decomposition clusters #17-#21: five more low-coupling extractions
+
+Continuing the AST-script-guided sweep from clusters #13-#16. `docs/TODO.md` Priority 6.
+
+- **#17: `displayChatroomMessage` → new `chatroom-message-view.ts`** (42 lines, 0 `this.*` refs).
+  Public API — called externally from `app.ts` — so `UIManager.displayChatroomMessage` stays as a
+  1-line delegating shim (`renderChatroomMessage(message)`) preserving the exact signature.
+- **#17: `updateMatchBadge` → new `notification-badges.ts`** (37 lines, 1 ref —
+  `getMyConversations`). Called from 8 internal sites; kept as a same-name public shim rather than
+  updating every call site, since it was already the established pattern for widely-called
+  methods (e.g. cluster #9's `processTalkForm`).
+- **#18: `confirmCapturedQuestionDialog` → new `captured-question-dialog.ts`** (42 lines, 1 ref —
+  `this.t`). docs/TODO.md §V capture-confirm modal; one internal caller.
+- **#19: `showTalkTemplatePicker` → new `talk-template-picker.ts`** (52 lines, 2 refs — `this.t`,
+  `this.showTalkEditorDialog`). The "+ Create Talk" template chooser. `TALK_TEMPLATES` was
+  imported into `ui-manager.ts` for this method alone — the import moved with the method instead
+  of staying behind unused.
+- **#20: `showChooseWhoToDmPicker` + `showDmInboxPicker` → new `person-picker-dialogs.ts`** (52 +
+  38 lines). Genuinely cohesive, not just co-sized: `showDmInboxPicker`'s own doc comment already
+  said "Modeled on `showChooseWhoToDmPicker`'s modal skeleton" — both are "pick a person from a
+  list, navigate to them" modals sharing the same `navigateToGraphNode('person', ...)` destination
+  and a near-identical row-binding shape, factored into one shared `bindPersonPickerRows` helper
+  in the new module.
+- **#21: `confirmBroadcastAudience` → new `broadcast-audience-dialog.ts`** (81 lines, 4 refs —
+  `t`/`tf`/`deliveryReasonLabel`/`formatReasonCounts`). Public API (called from `app.ts`'s bulk-send
+  flow) — kept as a delegating shim. `deliveryReasonLabel`/`formatReasonCounts` stayed as
+  `UIManager` methods (used in 3 other unrelated places) and are passed in as explicit deps rather
+  than moved. The `BroadcastAudiencePreview` type stayed exported from `ui-manager.ts` (app.ts
+  already imports it from there) — the new module imports it with `import type`, which erases at
+  compile time and doesn't create a runtime circular dependency.
+- **Also noted, not acted on:** `showEditStageNameDialog` (59 lines) has zero callers anywhere in
+  the codebase (`app.ts`, `ui-manager.ts`, tests) — likely dead code, but deleting a whole feature
+  is a different kind of change than a behavior-preserving extraction, so it was left in place
+  rather than removed unilaterally. Flagged here for a deliberate decision, not silently dropped.
+- **Characterization:** four new test files — `chatroom-message-view.test.ts` (5 tests: no-op
+  without a container, bubble render + welcome-placeholder clear, own-vs-other-message styling,
+  dedup by id, hostile-text escaping), `notification-badges.test.ts` (6: no badge at zero,
+  counts only unread+non-support, 99+ cap, badge removal when count drops to zero, no duplicate
+  badge across repeated calls, no-op with neither target element), `captured-question-dialog.test.ts`
+  (6), `talk-template-picker.test.ts` (6), `person-picker-dialogs.test.ts` (9 — including one
+  fixture-methodology lesson: checking `document.body.innerHTML` for escaped `<`/`>` inside an
+  HTML *attribute* value is unreliable, since jsdom's own serializer omits unnecessary escapes for
+  characters that aren't dangerous in that context on round-trip; the real check is that no
+  `<script>` element exists and the visible text renders as inert text, not markup), and
+  `broadcast-audience-dialog.test.ts` (10). All passed on first or second run (only the one
+  jsdom-serialization fixture issue above, not an extraction bug).
+- **Ratchet:** `ui-manager.ts` 8,133 → 8,068 (#17) → 8,030 (#18) → 7,984 (#19) → 7,906 (#20) →
+  **7,834** (#21) lines — crossed under 8,000 during #19.
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (173 suites / 1,853 tests after all five, 42 new).
+  Canonical run `run-20260909-223829-62705` (25m27s): `cross-browser` remains the known
+  pre-existing Gun-boot-timeout infra issue; `heavy-staged` failed
+  `01-login-two-users-headcount` at the same line as before today's earlier chatroom-manager
+  fix — but 5/5 standalone reruns on an idle machine all passed, meaning this is now a much
+  rarer residual instance of that race under extreme concurrent multi-phase load rather than
+  the "always fails" bug fixed earlier (the guard reads current state right before writing,
+  narrowing the race window to almost nothing, but cannot close it to zero without a stronger
+  mechanism like an atomic conditional write — out of scope today; flagged for awareness, not a
+  regression from clusters #17-#21, none of which touch server code at all). `light` failed 4
+  different specs, none touching anything extracted today except
+  `29-messaging-semantics`'s "unread badge lifecycle" case (plausibly cluster #17's
+  `renderMatchBadge`) — investigated specifically: failed standalone once, then passed 4/5
+  further standalone reruns (alone and as part of its full 3-test file), consistent with
+  pre-existing reload/timing flakiness in that one test rather than a deterministic regression
+  in the byte-for-byte-preserved badge logic. The other three (`33-mobile-chatroom-hierarchy`'s
+  DOM-detachment scroll flake, `00l`, `83-survey`) are unrelated to anything touched today.
+
 ## 2026-09-09 — UIManager decomposition cluster #16: Me-tab answers filter/sort
 
 `applyMeAnswerFilter` (63 lines, 1 `this.*` ref — `this.t`) moved into the existing

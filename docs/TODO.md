@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#16 are complete
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#21 are complete
 (cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`;
 cluster #10, 2026-09-09: `openLinkedDevicesDialog`'s orchestration body → `linked-devices-dialog.ts`,
 alongside the `showLinkedDevicesDialog` renderer it already owned; cluster #11, 2026-09-09:
@@ -912,12 +912,22 @@ alongside the `showLinkedDevicesDialog` renderer it already owned; cluster #11, 
 `saveFlatAnswerHistoryRecord`/`getTalkContentKey` → `answer-history-storage.ts`; cluster #14,
 2026-09-09: `filterVerifiedSupportMessages` → new `verified-support-messages.ts`; cluster #15,
 2026-09-09: `bindDirtyWordEditor` → new `dirty-word-editor.ts`; cluster #16, 2026-09-09:
-`applyMeAnswerFilter` → `answers-view.ts`). The ratchet grew from 8,938 (after
-cluster #8) to 9,153 as legitimate feature work (onboarding, K7 delegate credentials) landed on
-top between clusters; cluster #9 brought it down to 8,912, cluster #10 to 8,784, cluster #11 to
-8,584, cluster #12 to 8,482, cluster #13 to 8,378, cluster #14 to 8,270, cluster #15 to 8,197,
-cluster #16 to **8,133** — the current enforced ceiling
-(`src/test/unit/ui-manager-size-budget.test.ts`).
+`applyMeAnswerFilter` → `answers-view.ts`; cluster #17, 2026-09-09: `displayChatroomMessage` →
+new `chatroom-message-view.ts` and `updateMatchBadge` → new `notification-badges.ts`; cluster
+#18, 2026-09-09: `confirmCapturedQuestionDialog` → new `captured-question-dialog.ts`; cluster
+#19, 2026-09-09: `showTalkTemplatePicker` → new `talk-template-picker.ts`; cluster #20,
+2026-09-09: `showChooseWhoToDmPicker` + `showDmInboxPicker` → new `person-picker-dialogs.ts`;
+cluster #21, 2026-09-09: `confirmBroadcastAudience` → new `broadcast-audience-dialog.ts`). The
+ratchet grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding, K7
+delegate credentials) landed on top between clusters; cluster #9 brought it down to 8,912,
+cluster #10 to 8,784, cluster #11 to 8,584, cluster #12 to 8,482, cluster #13 to 8,378, cluster
+#14 to 8,270, cluster #15 to 8,197, cluster #16 to 8,133, cluster #17 to 8,068, cluster #18 to
+8,030, cluster #19 to 7,984 (crossing under 8,000), cluster #20 to 7,906, cluster #21 to
+**7,834** — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
+`showEditStageNameDialog` (59 lines) was found to have zero callers anywhere in the codebase
+during cluster #17-21's AST-script sweep — likely dead code, left in place rather than removed
+unilaterally (a behavior-removing decision, not an extraction) and flagged here for a deliberate
+call.
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -1321,6 +1331,26 @@ entries and babel preset were never removed.
         `79-techsupport-survives-restrictive-filters` in the full canonical run) — every one
         confirmed passing standalone once the machine was idle, consistent with load-induced
         flakiness rather than a regression from any of the four extractions. See `docs/completed.md`.
+      - Clusters #17-#21 evidence: five more extractions from the same AST-script sweep —
+        `displayChatroomMessage` → `chatroom-message-view.ts` and `updateMatchBadge` →
+        `notification-badges.ts` (#17), `confirmCapturedQuestionDialog` →
+        `captured-question-dialog.ts` (#18), `showTalkTemplatePicker` → `talk-template-picker.ts`
+        (#19), `showChooseWhoToDmPicker`/`showDmInboxPicker` → `person-picker-dialogs.ts` (#20),
+        `confirmBroadcastAudience` → `broadcast-audience-dialog.ts` (#21).
+        `showEditStageNameDialog` was found to have zero callers anywhere — flagged, not deleted
+        (see this section's status paragraph above). Typecheck/lint clean, both production builds
+        succeed, unit suites grew from 167/1,811 to 173/1,853 (42 new) with zero regressions.
+        Canonical run `run-20260909-223829-62705` (25m27s): `cross-browser` unchanged
+        pre-existing infra issue; `heavy-staged` failed `01-login-two-users-headcount` again at
+        the same assertion as before today's earlier chatroom-manager fix, but 5/5 standalone
+        reruns on an idle machine passed — a much rarer residual of that race under extreme
+        concurrent multi-phase load, not a "clusters #17-#21 broke it" regression (none of the
+        five touch server code); `light` failed 4 different specs, one
+        (`29-messaging-semantics`'s "unread badge lifecycle" case) plausibly related to cluster
+        #17's badge extraction and investigated specifically — failed standalone once, then
+        passed 4/5 further standalone reruns, consistent with pre-existing reload-timing
+        flakiness in that one test rather than a deterministic regression in the byte-for-byte
+        preserved badge logic. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1400,7 +1430,13 @@ entries and babel preset were never removed.
     `filterVerifiedSupportMessages`, `bindDirtyWordEditor`, `applyMeAnswerFilter`), lowering the
     ratchet from 8,482 to 8,133 across the four.~~ Done; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-21. Re-measure and choose cluster #17 as a separate commit-sized change; continue to defer
+21. ~~Extract clusters #17-#21 (`displayChatroomMessage`, `updateMatchBadge`,
+    `confirmCapturedQuestionDialog`, `showTalkTemplatePicker`,
+    `showChooseWhoToDmPicker`/`showDmInboxPicker`, `confirmBroadcastAudience`), lowering the
+    ratchet from 8,133 to 7,834 across the five.~~ Done; `showEditStageNameDialog` found to have
+    zero callers and flagged rather than deleted; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+22. Re-measure and choose cluster #22 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.
