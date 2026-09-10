@@ -3,6 +3,7 @@
 import {
   markConversationWithdrawn,
   markConversationEnded,
+  markOtherDealConversationsEnded,
 } from '../../web/ui/conversation-record-updates';
 
 function deps(overrides: Partial<Parameters<typeof markConversationWithdrawn>[3]> = {}) {
@@ -93,6 +94,74 @@ describe('markConversationEnded', () => {
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     markConversationEnded('u1', 't1', new Date().toISOString(), d);
     expect(d.updateMatchBadge).toHaveBeenCalledTimes(1);
+    expect(d.refreshConversationsListIfActive).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('markOtherDealConversationsEnded', () => {
+  it('ignores every other conversation for the same talkId, leaving the kept one untouched', () => {
+    const conversations: any = {
+      keep: { otherUserId: 'winner', talkId: 't1', status: 'matched' },
+      other: { otherUserId: 'loser', talkId: 't1', status: 'matched' },
+    };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    const changedAt = new Date('2026-03-01T00:00:00Z').toISOString();
+    markOtherDealConversationsEnded('t1', 'winner', changedAt, d);
+
+    expect(conversations.keep.status).toBe('matched');
+    expect(conversations.other.status).toBe('ignored');
+    expect(conversations.other.changedAt).toBe(changedAt);
+    expect(conversations.other.lastMessage).toContain('deal was confirmed with someone else');
+    expect(conversations.other.lastMessageTime).toBe(changedAt);
+  });
+
+  it('skips conversations for a different talkId', () => {
+    const conversations: any = { c1: { otherUserId: 'x', talkId: 'different-talk', status: 'matched' } };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markOtherDealConversationsEnded('t1', 'winner', new Date().toISOString(), d);
+    expect(conversations.c1.status).toBe('matched');
+    expect(d.updateMatchBadge).not.toHaveBeenCalled();
+  });
+
+  it('skips conversations already ignored or withdrawn', () => {
+    const conversations: any = {
+      c1: { otherUserId: 'x', talkId: 't1', status: 'ignored' },
+      c2: { otherUserId: 'y', talkId: 't1', status: 'withdrawn' },
+    };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markOtherDealConversationsEnded('t1', 'winner', new Date().toISOString(), d);
+    expect(d.updateMatchBadge).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op (no persist, no refresh) when nothing changed', () => {
+    const conversations: any = { c1: { otherUserId: 'winner', talkId: 't1', status: 'matched' } };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markOtherDealConversationsEnded('t1', 'winner', new Date().toISOString(), d);
+    expect(localStorage.getItem('myConversations')).toBeNull();
+    expect(d.updateMatchBadge).not.toHaveBeenCalled();
+  });
+
+  it('persists to localStorage and refreshes badge/status-bar always when something changed', () => {
+    const conversations: any = {
+      keep: { otherUserId: 'winner', talkId: 't1', status: 'matched' },
+      other: { otherUserId: 'loser', talkId: 't1', status: 'matched' },
+    };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markOtherDealConversationsEnded('t1', 'winner', new Date().toISOString(), d);
+    expect(JSON.parse(localStorage.getItem('myConversations')!).other.status).toBe('ignored');
+    expect(d.updateMatchBadge).toHaveBeenCalledTimes(1);
+    expect(d.syncStatusBarMatchCount).toHaveBeenCalledTimes(1);
+    expect(d.refreshConversationsListIfActive).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the conversations list too when the Me tab is active', () => {
+    document.body.innerHTML = '<button class="nav-btn active" data-view="me"></button>';
+    const conversations: any = {
+      keep: { otherUserId: 'winner', talkId: 't1', status: 'matched' },
+      other: { otherUserId: 'loser', talkId: 't1', status: 'matched' },
+    };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markOtherDealConversationsEnded('t1', 'winner', new Date().toISOString(), d);
     expect(d.refreshConversationsListIfActive).toHaveBeenCalledTimes(1);
   });
 });

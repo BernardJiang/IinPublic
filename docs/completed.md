@@ -2,6 +2,33 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #55: other-deal-conversations-ended
+
+Continuing the AST-script-guided sweep from cluster #54. `docs/TODO.md` Priority 6.
+
+- **#55: `markOtherDealConversationsEnded` → extended `conversation-record-updates.ts`** (21
+  lines, 4 refs — `getMyConversations`, `updateMatchBadge`, `syncStatusBarMatchCount`,
+  `displayConversationsList`). Its tail exactly matched cluster #37's
+  `refreshAfterConversationRecordChange` helper (update badge → sync status-bar match count →
+  refresh the conversations list only if the Me tab is active), so it joined
+  `markConversationWithdrawn`/`markConversationEnded` in the same module and reused both the
+  existing `ConversationRecordUpdateDeps` type and the already-wired
+  `this.conversationRecordUpdateDeps()` deps-builder in `ui-manager.ts` — no new deps plumbing
+  needed at all.
+- **Characterization:** extended `conversation-record-updates.test.ts` (+6 tests) covering:
+  ignoring every other conversation for the same talkId while leaving the kept one untouched;
+  skipping a different talkId entirely; skipping conversations already `ignored`/`withdrawn`;
+  the no-op-when-nothing-changed case (no localStorage write, no badge/status-bar refresh); the
+  persist-and-refresh-badge/status-bar-always case; and the Me-tab-active list-refresh case. All
+  passed first run.
+- **Ratchet:** `ui-manager.ts` 6,637 → **6,620** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  203/2,177 to 203/2,183 (6 new, same suite count since the test file was extended rather than
+  added) with zero regressions. Canonical run `run-20260910-082146-16155` (25m18s): `heavy-staged`
+  green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed one
+  already-established rotating spec (`79-techsupport-survives-restrictive-filters`), unrelated to
+  deal-confirmation conversation state.
+
 ## 2026-09-10 — UIManager decomposition cluster #54: attachment metadata + media tile
 
 Continuing the AST-script-guided sweep from cluster #53. `docs/TODO.md` Priority 6.

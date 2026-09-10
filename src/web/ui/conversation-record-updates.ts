@@ -73,3 +73,26 @@ export function markConversationEnded(
   localStorage.setItem('myConversations', JSON.stringify(conversations));
   refreshAfterConversationRecordChange(deps);
 }
+
+/** Marks every other conversation for this talk as ignored once a deal is confirmed with one peer. */
+export function markOtherDealConversationsEnded(
+  talkId: string,
+  keepOtherUserId: string,
+  changedAt: string,
+  deps: ConversationRecordUpdateDeps,
+): void {
+  const conversations = deps.getMyConversations();
+  let changed = false;
+  for (const [, c] of Object.entries(conversations)) {
+    if (c?.talkId !== talkId || c?.otherUserId === keepOtherUserId) continue;
+    if (c.status === 'ignored' || c.status === 'withdrawn') continue;
+    c.status = 'ignored';
+    c.changedAt = changedAt;
+    c.lastMessage = `No longer available — the deal was confirmed with someone else · ${new Date(changedAt).toLocaleString()}`;
+    c.lastMessageTime = changedAt;
+    changed = true;
+  }
+  if (!changed) return;
+  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  refreshAfterConversationRecordChange(deps);
+}

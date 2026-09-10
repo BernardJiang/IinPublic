@@ -165,6 +165,7 @@ import { updateStatusBar as updateStatusBarImpl } from './status-bar';
 import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
+  markOtherDealConversationsEnded as markOtherDealConversationsEndedImpl,
   type ConversationRecordUpdateDeps,
 } from './conversation-record-updates';
 import {
@@ -6460,25 +6461,7 @@ export class UIManager extends EventEmitter {
    * silently swept — see docs/TODO.md.
    */
   markOtherDealConversationsEnded(talkId: string, keepOtherUserId: string, changedAt: string): void {
-    const conversations = this.getMyConversations();
-    let changed = false;
-    for (const [, c] of Object.entries(conversations)) {
-      if (c?.talkId !== talkId || c?.otherUserId === keepOtherUserId) continue;
-      if (c.status === 'ignored' || c.status === 'withdrawn') continue;
-      c.status = 'ignored';
-      c.changedAt = changedAt;
-      c.lastMessage = `No longer available — the deal was confirmed with someone else · ${new Date(changedAt).toLocaleString()}`;
-      c.lastMessageTime = changedAt;
-      changed = true;
-    }
-    if (!changed) return;
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    this.updateMatchBadge();
-    this.syncStatusBarMatchCount();
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) {
-      this.displayConversationsList();
-    }
+    markOtherDealConversationsEndedImpl(talkId, keepOtherUserId, changedAt, this.conversationRecordUpdateDeps());
   }
 
   updateConversationMessage(conversationId: string, message: string, timestamp: string): void {
