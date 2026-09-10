@@ -2,6 +2,44 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #46: local statistics (+ a dead-code finding)
+
+Continuing the AST-script-guided sweep from cluster #45. `docs/TODO.md` Priority 6.
+
+- **#46: `displayContextualStatistics` + `displayStatisticsDashboard` + `renderStatisticsDashboard`
+  → new `local-statistics.ts`** (25+39+7 lines, 3 refs on the two dashboard methods —
+  `apiBase`/`currentUserId`/`renderStatisticsDashboard`; `displayContextualStatistics` shares the
+  same storage/stats-building imports so it moved along with them). Both methods build a
+  dashboard from `readLocalTalkExchanges`/`buildAllLocalTalkResponses`/`buildStatsDashboard`; only
+  `displayContextualStatistics` is actually reachable from the live UI (the contacts-view stats
+  strip and one other call site) — it kept its `ui-manager.ts` shim.
+- **Dead-code finding:** extracting `displayStatisticsDashboard`/`renderStatisticsDashboard`
+  exposed that neither was ever called from outside their own mutual-recursion loop (the
+  `onRefresh` callback the render function wires up calls back into
+  `displayStatisticsDashboard`). Before this cluster, that self-reference kept both methods
+  looking "used" to `tsc`'s unused-locals check; once the pair moved into their own module
+  together, `tsc` correctly flagged the now-genuinely-orphaned `ui-manager.ts` shim (nothing
+  outside the pair ever calls it, and no code anywhere creates a `#statistics-content` container
+  to render into — confirmed by grepping the whole repo, including `tests/e2e/`, for that id and
+  for both function names). Per the established policy (`showEditStageNameDialog`, `app-bar.ts`),
+  the underlying logic was not deleted — it's fully preserved and tested in `local-statistics.ts`
+  — but the now-uncompilable `ui-manager.ts` delegating shim for `displayStatisticsDashboard` was
+  removed, since keeping a broken shim isn't an option and the extraction is what revealed this
+  particular piece of dead code rather than creating it. Flagged in `docs/TODO.md` alongside the
+  other two findings for a deliberate call on whether to wire this feature up or delete it
+  outright.
+- **Characterization:** new `local-statistics.test.ts` (9 tests) covering
+  `displayContextualStatistics`'s missing-element/empty-exchanges/populated/dashboard-build-throws
+  paths, and `displayStatisticsDashboard`'s missing-container guard, blank-vs-set-`apiBase`
+  fetch behavior (both URLs, and the unreachable-API fallback), and that the rendered dashboard's
+  refresh affordance doesn't throw when clicked. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,919 → **6,858** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  193/2,080 to 194/2,089 (9 new) with zero regressions. Canonical run `run-20260910-040457-44880`
+  (25m16s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed one already-established rotating spec (`29-messaging-semantics`), unrelated to
+  this batch.
+
 ## 2026-09-10 — UIManager decomposition cluster #45: answer-preference mutations
 
 Continuing the AST-script-guided sweep from cluster #44. `docs/TODO.md` Priority 6.

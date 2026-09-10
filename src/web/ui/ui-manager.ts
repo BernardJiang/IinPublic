@@ -13,6 +13,10 @@ import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { completeTalk as completeTalkImpl, saveMyTalk as saveMyTalkImpl } from './talk-completion';
 import { renderAppDownloadBanner as renderAppDownloadBannerImpl } from './app-download-banner';
 import { openAnswerPreferencesDialog } from './answer-preference-mutations';
+import {
+  displayContextualStatistics as displayContextualStatisticsImpl,
+  type LocalStatisticsDeps,
+} from './local-statistics';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
@@ -29,8 +33,6 @@ import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate
 import { renderSupportDelegatesSection } from './support-delegates-view';
 import { renderSupportDelegateOptInSection } from './support-delegate-optin-view';
 import type { GraphNodeTarget } from './graph-navigation';
-import type { StatsDashboard } from '../../shared/talk-stats';
-import { buildStatsDashboard } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './answers-view';
 import {
   type CustomChatroomRow,
@@ -162,7 +164,6 @@ import { renderRouteEditor as renderRouteEditorController } from './route-editor
 import { processTalkForm as processTalkFormImpl } from './talk-form-processor';
 import { fetchDownloadManifest, renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { showSurveyStatisticsDialog } from './survey-statistics-dialog';
-import { renderStatisticsDashboard as renderLocalStatisticsDashboard } from './statistics-dashboard';
 import { showEditProfileDialog as openEditProfileDialog } from './edit-profile-dialog';
 import { refreshStorageInspector as renderStorageInspector } from './storage-inspector';
 import {
@@ -178,7 +179,6 @@ import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationK
 import {
   deriveLocalCreatorReplies,
   readLocalTalkExchanges,
-  buildAllLocalTalkResponses,
 } from '../services/local-peer-derivation';
 import {
   filterIncomingTalkClusters,
@@ -3805,80 +3805,19 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  private localStatisticsDeps(): LocalStatisticsDeps {
+    return {
+      apiBase: this.apiBase,
+      currentUserId: this.currentUserId,
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+    };
+  }
+
   private displayContextualStatistics(elementId: string, prefix = ''): void {
-    const element = document.getElementById(elementId);
-    if (!element) return;
-    try {
-      const exchanges = readLocalTalkExchanges();
-      const responsesByTalk = buildAllLocalTalkResponses(exchanges);
-      const dashboard = buildStatsDashboard({
-        responsesByTalk,
-        ...(this.currentUserId && { viewerId: this.currentUserId }),
-      });
-      const totals = dashboard.totals || { talks: 0, responses: 0, matches: 0, ignores: 0, matchRate: 0 };
-      const room = dashboard.chatrooms?.regions?.[0];
-      const roomText = room
-        ? this.tf('contextualStatsRoom', { room: room.masked ? this.t('contextualStatsHidden') : room.region })
-        : '';
-      element.textContent = prefix + this.tf('contextualStatsSummary', {
-        responses: totals.responses,
-        matches: totals.matches,
-        rate: totals.matchRate,
-        room: roomText,
-      });
-    } catch {
-      element.textContent = prefix + this.t('contextualStatsEmpty');
-    }
+    displayContextualStatisticsImpl(elementId, prefix, this.localStatisticsDeps());
   }
 
-  private async displayStatisticsDashboard(): Promise<void> {
-    const container = document.getElementById('statistics-content');
-    if (!container) return;
-    container.innerHTML = '<div style="padding:20px;color:var(--text-tertiary);">Building local statistics…</div>';
-
-    // Build local dashboard from LocalTalkExchanges (all talk types).
-    const exchanges = readLocalTalkExchanges();
-    const responsesByTalk = buildAllLocalTalkResponses(exchanges);
-
-    // Best-effort: fetch broadcast-tag popularity from server to augment the dashboard.
-    let broadcastTagPopularity: Array<{ id: string; count: number }> | undefined;
-    let broadcastTagTrends: { days: string[]; tags: Array<{ id: string; total: number; byDay: number[] }> } | undefined;
-    const base = (this.apiBase || '').trim();
-    if (base) {
-      try {
-        const [tagRes, trendRes] = await Promise.all([
-          fetch(`${base}/api/stats/broadcast-tags`, { cache: 'no-store' }),
-          fetch(`${base}/api/stats/broadcast-tags/trends`, { cache: 'no-store' }),
-        ]);
-        if (tagRes.ok) {
-          const tagData = (await tagRes.json()) as { tags?: Array<{ id: string; count: number }> };
-          broadcastTagPopularity = tagData.tags ?? [];
-        }
-        if (trendRes.ok) {
-          broadcastTagTrends = await trendRes.json() as { days: string[]; tags: Array<{ id: string; total: number; byDay: number[] }> };
-        }
-      } catch {
-        // Ignore — broadcast tags are supplementary
-      }
-    }
-
-    const dashboard = buildStatsDashboard({
-      responsesByTalk,
-      ...(broadcastTagPopularity !== undefined && { broadcastTagPopularity }),
-      ...(broadcastTagTrends !== undefined && { broadcastTagTrends }),
-      ...(this.currentUserId && { viewerId: this.currentUserId }),
-    });
-    this.renderStatisticsDashboard(container, dashboard);
-  }
-
-  private renderStatisticsDashboard(container: HTMLElement, dashboard: StatsDashboard): void {
-    renderLocalStatisticsDashboard({
-      container,
-      dashboard,
-      text: (key) => this.t(key),
-      onRefresh: () => this.displayStatisticsDashboard(),
-    });
-  }
   private copyAnsweredTalkToTalks(talkId: string): void {
     copyAnsweredTalkToTalksImpl(talkId, {
       showNotification: (message, type) => this.showNotification(message, type),
