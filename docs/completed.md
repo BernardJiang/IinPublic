@@ -2,6 +2,45 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #45: answer-preference mutations
+
+Continuing the AST-script-guided sweep from cluster #44. `docs/TODO.md` Priority 6.
+
+- **#45: `showPreferencesDialog` + `normalizePreferenceMode` + `applyPreferenceModeToExactMemory`
+  + `deleteAnswerPreference` → new `answer-preference-mutations.ts`** (104 lines total, 6 refs —
+  `applyPreferenceModeToExactMemory`, `normalizePreferenceMode`, `showNotification`, `t`,
+  `deleteAnswerPreference`, `formatUiDate`). All three helper methods were called only from within
+  this one block, so the whole cluster (dialog-wiring glue + its mutation logic) moved together
+  rather than being split. The new `openAnswerPreferencesDialog(deps)` wraps the existing
+  `preferences-dialog.ts`'s pure `showPreferencesDialog` renderer (unchanged, not touched by this
+  cluster) with the storage/exact-chatbot-memory mutation logic. `ui-manager.ts`'s
+  `showPreferencesDialog()` public method is now a 5-line shim. Six now-unused imports
+  (`clearAnswerPreferences`, `setAnswerPreferences`, `getFlattenedAnswerPreferences`,
+  `setFlattenedAnswerPreferences`, `setExactChatbotMemory`, `makeQuestionId`,
+  `savePermanentAnswer`, `saveSuppressedQuestion`, `saveTemporaryAnswer`, the `AnswerPreferenceUiMode`/
+  `AnswerPreferenceEntry`/`AnswerPreferenceMap` type imports, and the old `openPreferencesDialog`
+  import) were dropped from `ui-manager.ts`.
+- **Characterization:** new `answer-preference-mutations.test.ts` (21 tests, one `jest.mock` of
+  `preferences-dialog.ts` to capture the options object `openAnswerPreferencesDialog` builds
+  without needing the real DOM renderer) covering: the mode-normalization table; each
+  `applyPreferenceModeToExactMemory` branch (blank-questionText no-op, permanent, suppressed, and
+  manual clearing both the language-scoped and English-fallback keys); `deleteAnswerPreference`'s
+  regular-vs-`flat_`-prefixed routing and its no-op-on-missing-key case; and
+  `openAnswerPreferencesDialog`'s preference-map merge, update/delete/clear wiring plus
+  notification text, and the direct `notify`/`text`/`formatDate` pass-through. One authoring
+  mistake caught and fixed on first run: a test assumed deleting a preference in `'manual'` mode
+  creates an exact-chatbot-memory user entry — it doesn't (manual mode only ever *deletes* an
+  existing entry) — rewritten to first establish a permanent-mode entry, then assert it's cleared
+  by the delete.
+- **Ratchet:** `ui-manager.ts` 7,027 → **6,919** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  192/2,059 to 193/2,080 (21 new) with zero regressions. Canonical run `run-20260910-033339-36852`
+  (25m31s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching this
+  batch — `00l-techsupport-faq-cross-user` got a closer look since this cluster touches
+  exact-chatbot-memory writes, and reran clean standalone (21.6s, 1/1).
+
 ## 2026-09-10 — UIManager decomposition cluster #44: app-download banner
 
 Continuing the AST-script-guided sweep from cluster #43. `docs/TODO.md` Priority 6.

@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#44 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#45 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -921,8 +921,10 @@ saving; chatroom-title resolution; the creator-reply filter-state trio; the conv
 transport/online-status updates; the status bar; the conversation-withdrawn/ended record-update
 pair; the quick-ignore/quick-copy incoming-talk gesture actions; the tag-answer-suffix formatter
 pair; the incoming-talk notification display; block/unblock (`setBlocked`); talk completion
-(`completeTalk`/`saveMyTalk`); and the app-download banner (`detectDownloadPlatform`/
-`renderAppDownloadBanner`). Full per-cluster rationale,
+(`completeTalk`/`saveMyTalk`); the app-download banner (`detectDownloadPlatform`/
+`renderAppDownloadBanner`); and the answer-preferences dialog + its mutation logic
+(`showPreferencesDialog`/`normalizePreferenceMode`/`applyPreferenceModeToExactMemory`/
+`deleteAnswerPreference`). Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -934,7 +936,8 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
 (#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
-**7,027** (#44) — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
+7,027 (#44), and **6,919** (#45) — the current enforced ceiling
+(`src/test/unit/ui-manager-size-budget.test.ts`).
 
 Two dead-code findings surfaced along the way, both left in place rather than removed
 unilaterally (deleting a whole feature is a different kind of change than a behavior-preserving
@@ -1456,6 +1459,23 @@ entries and babel preset were never removed.
         to this batch by reproducing it 2/4 standalone against the committed cluster #43
         baseline — a `scrollIntoViewIfNeeded` race in the chatroom-item list, unrelated to the
         app-download banner). See `docs/completed.md`.
+      - Cluster #45 evidence: `showPreferencesDialog`/`normalizePreferenceMode`/
+        `applyPreferenceModeToExactMemory`/`deleteAnswerPreference` → new
+        `answer-preference-mutations.ts` (all four were called only from within this one block,
+        so dialog-wiring glue and its mutation logic moved together). New
+        `answer-preference-mutations.test.ts` (21 tests, `jest.mock`s `preferences-dialog.ts` to
+        capture the wired options object without the real DOM renderer). One authoring mistake
+        caught and fixed on first run (a test wrongly assumed deleting a preference in `'manual'`
+        mode creates an exact-chatbot-memory entry — it only ever clears one — rewritten to
+        establish a permanent-mode entry first, then assert the delete clears it). Typecheck/lint
+        clean, both production builds succeed, unit suites grew from 192/2,059 to 193/2,080 with
+        zero regressions. Canonical run `run-20260910-033339-36852` (25m31s): `heavy-staged`
+        green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed three
+        already-established rotating specs (`00l-techsupport-faq-cross-user`,
+        `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching
+        this batch — `00l-techsupport-faq-cross-user` got a closer look since this cluster
+        touches exact-chatbot-memory writes, reran clean standalone (1/1). See
+        `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1571,7 +1591,12 @@ entries and babel preset were never removed.
     `app-download-banner.ts`), lowering the ratchet from 7,097 to 7,027.~~ Done;
     `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
     trio remain deferred, unchanged.
-28. Re-measure and choose cluster #45 as a separate commit-sized change; continue to defer
+28. ~~Extract cluster #45 (`showPreferencesDialog`/`normalizePreferenceMode`/
+    `applyPreferenceModeToExactMemory`/`deleteAnswerPreference` → new
+    `answer-preference-mutations.ts`), lowering the ratchet from 7,027 to 6,919.~~ Done;
+    `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
+    trio remain deferred, unchanged.
+29. Re-measure and choose cluster #46 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.
