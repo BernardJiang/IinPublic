@@ -898,14 +898,16 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#11 are complete
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#12 are complete
 (cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`;
 cluster #10, 2026-09-09: `openLinkedDevicesDialog`'s orchestration body → `linked-devices-dialog.ts`,
 alongside the `showLinkedDevicesDialog` renderer it already owned; cluster #11, 2026-09-09:
-`renderCreatorReplies` → new `creator-replies-view.ts`). The ratchet grew from 8,938 (after
+`renderCreatorReplies` → new `creator-replies-view.ts`; cluster #12, 2026-09-09:
+`bindTalksRowGestures` → new `talks-row-gestures.ts`). The ratchet grew from 8,938 (after
 cluster #8) to 9,153 as legitimate feature work (onboarding, K7 delegate credentials) landed on
 top between clusters; cluster #9 brought it down to 8,912, cluster #10 to 8,784, cluster #11 to
-**8,584** — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
+8,584, cluster #12 to **8,482** — the current enforced ceiling
+(`src/test/unit/ui-manager-size-budget.test.ts`).
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -1034,6 +1036,19 @@ entries and babel preset were never removed.
         fields (`creatorReplyScopedTalkId`/`Title`, `creatorReplyVisibleCount`) and one array field
         (`creatorReplyRows`, read-only from this method's perspective), not the deep cross-feature
         coupling settings has.
+      - **Twelfth: talks-row gestures.** Re-measured after cluster #11; `showConversationDetail`
+        (246 lines, 18 refs), `addNewConversation` (160, 12), and `syncConversationMessageSummary`
+        (100, 11) all share a heavily-overlapping ref set (`currentConversationId`,
+        `getMyConversations`, `getPeerName`, `updateMatchBadge`, `displayContactsList`/
+        `displayConversationsList`) — a genuinely cohesive "conversation view" cluster, but one
+        whose methods are entangled with EACH OTHER and with other tabs' list-refresh side
+        effects the same way settings is; deferred rather than risk a fragile first cut.
+        `bindTalksRowGestures` (107 lines, 7 refs) was chosen instead: a self-contained
+        swipe/long-press gesture controller for talk-list rows, bound once and touching nothing
+        outside its own concern except one field (`talksGestureSuppressClickUntil`, read by a
+        click handler elsewhere) and four already-existing action methods
+        (`quickIgnoreIncomingTalk`, `quickCopyIncomingTalk`, `deleteMyTalk`,
+        `showDetailsPopupFor`).
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
       event subscriptions, async callbacks, mutable collections, imports, and possible cycles.
 - [x] **1.3 Characterize cluster #1 before moving it.** Tests freeze route fan-out ordering and
@@ -1100,6 +1115,25 @@ entries and babel preset were never removed.
         Real-browser regression instead: `staged/stage3-three-user/
         09-contacts-talks-cross-navigation` (exercises the same click-to-conversation vs
         click-to-contact routing decision) passes.
+      - Cluster #12 (`src/test/unit/talks-row-gestures.test.ts`, new, 9 tests) freezes: swipe-down
+        (dy > 0) on an incoming row committing to copy vs swipe-up (dy < 0) committing to ignore
+        at the exact commit threshold; swipe-left on a non-incoming row deleting it; an incoming
+        row's horizontal swipe never committing (only vertical is meaningful for incoming rows);
+        a sub-threshold movement never starting a drag or committing anything; a long press with
+        no movement opening the details popup and suppressing the trailing click; a pointerup
+        before the long-press timer fires cancelling the popup; a pointerdown outside `#talks-list`
+        being ignored entirely; and a pointercancel clearing in-flight gesture state without
+        committing. jsdom in this environment doesn't implement the `PointerEvent` constructor —
+        used `MouseEvent` instead (the code under test only reads `.button`/`.clientX`/`.clientY`/
+        `.target`, all present on both). The module's own "already bound" flag and in-flight
+        gesture state are module-scoped `let`s, not deps — nothing outside the original method
+        ever read them (confirmed by grep before moving) — so each test re-binds via
+        `jest.isolateModules` + `require()` for a clean module instance. First draft had the
+        up/down swipe-commit assertions backwards (swipe-down commits *copy*, swipe-up commits
+        *ignore* — non-obvious without reading the code) — caught by the two failing assertions,
+        not assumed. Real-browser regression: `staged/stage1-single-user/
+        37-compact-talk-rows-out` (swipe-left delete) and `05-talks-edit` (long-press details
+        popup, via the `longPressTalkRow` helper) both pass.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -1168,6 +1202,15 @@ entries and babel preset were never removed.
         itself directly (ordinary recursion, not `this.renderCreatorReplies.bind(this)`) for its
         two internal re-render-after-state-change call sites, the same self-reference pattern
         cluster #9's `processTalkForm` established.
+      - Cluster #12: new `talks-row-gestures.ts` owns `bindTalksRowGestures` (the full
+        pointerdown/pointermove/pointerup/pointercancel gesture state machine), moved with one
+        deliberate simplification: the "already bound" flag and in-flight gesture object were
+        `UIManager` instance fields in the original, but neither was ever read outside this one
+        method, so they became ordinary module-scoped state in the extracted function instead —
+        behaviorally identical for a singleton `UIManager`, one fewer thing threaded through the
+        deps object. `UIManager`'s `bindTalksRowGestures` is now a 7-line shim passing 5 deps: a
+        setter for the one field genuinely read elsewhere (`talksGestureSuppressClickUntil`) and
+        four thin forwarding closures for the existing action methods.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -1237,6 +1280,13 @@ entries and babel preset were never removed.
         code, plus one new one-off flaky jest integration test (server-side relay-frame storage,
         unrelated) confirmed passing both standalone and as part of the full integration suite —
         see `docs/completed.md`.
+      - Cluster #12 evidence: typecheck/lint, production web build, and 164 unit suites / 1,752
+        tests pass (9 new); `37-compact-talk-rows-out` (swipe-left delete) and `05-talks-edit`
+        (long-press popup) pass standalone. Canonical run `run-20260909-180724-18534` (25m25s)
+        reproduced the same 3 e2e phase failures a fourth consecutive time — `cross-browser` and
+        `heavy-staged` byte-for-byte identical to every prior run, `light` failed 5 different
+        TechSupport/messaging/survey specs this time, none touching gesture code — see
+        `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1307,9 +1357,14 @@ entries and babel preset were never removed.
     8,584, and close its canonical gate.~~ Done; `renderSettingsView`/`bindSettingsControls`
     (largest remaining pair after `displayTalksList`) were re-measured and deferred alongside it —
     too entangled with other cross-cutting methods for a clean extraction.
-19. Re-measure and choose cluster #12 as a separate commit-sized change; continue to defer
-    `displayTalksList`, `renderSettingsView`, and `bindSettingsControls` until their ownership
-    boundaries are reduced.
+19. ~~Re-measure and choose cluster #12 (talks-row gestures), lower the ratchet from 8,584 to
+    8,482, and close its canonical gate.~~ Done; `showConversationDetail`/`addNewConversation`/
+    `syncConversationMessageSummary` (a cohesive but mutually-entangled "conversation view"
+    cluster) were re-measured and deferred alongside settings/`displayTalksList`.
+20. Re-measure and choose cluster #13 as a separate commit-sized change; continue to defer
+    `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
+    trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
+    their ownership boundaries are reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React

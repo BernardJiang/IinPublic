@@ -184,6 +184,7 @@ import {
   type CreatorReplyRow,
   type CreatorReplyFilterState,
 } from './creator-replies-view';
+import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-gestures';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
 import { showEraseDeviceDialog } from './erase-device-dialog';
@@ -414,18 +415,6 @@ export class UIManager extends EventEmitter {
   /** Broadcast on/off checkbox — bound once, separate from the mousedown-capture block above. */
   private talksBroadcastCheckboxBound = false;
   /** Row-drag gesture recognizer (ignore/copy/delete) — bound once. */
-  private talksRowGestureBound = false;
-  private talksRowGestureState: {
-    row: HTMLElement;
-    talkId: string;
-    identityKey: string;
-    role: string;
-    cluster: any;
-    startX: number;
-    startY: number;
-    dragging: boolean;
-    committedAt: number;
-  } | null = null;
   /** A committed or cancelled drag swallows the click that would otherwise follow release. */
   private talksGestureSuppressClickUntil = 0;
   /** TODO §R2: lets a newer `displayTalksList()` call's deferred remainder win over a stale one. */
@@ -4502,103 +4491,12 @@ export class UIManager extends EventEmitter {
    * never accidentally opens the talk either.
    */
   private bindTalksRowGestures(): void {
-    if (this.talksRowGestureBound) return;
-    this.talksRowGestureBound = true;
-
-    const MOVE_THRESHOLD = 12;
-    const COMMIT_THRESHOLD = 64;
-    const LONG_PRESS_MS = 500;
-    const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details';
-
-    const clearHints = (row: HTMLElement): void => {
-      row.classList.remove('talk-gesture-live');
-      row.style.transform = '';
-      row.classList.remove('talk-gesture-hint-ignore', 'talk-gesture-hint-copy', 'talk-gesture-hint-delete');
-    };
-
-    document.body.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (e.button !== 0) return;
-      const target = e.target as HTMLElement;
-      if (!target.closest('#talks-list')) return;
-      if (target.closest(excluded)) return;
-      const row = target.closest('.talk-list-item') as HTMLElement | null;
-      if (!row || row.classList.contains('talk-tag-chip')) return;
-      const state = {
-        row,
-        talkId: row.dataset.talkId || '',
-        identityKey: row.dataset.identityKey || '',
-        role: row.dataset.role || '',
-        cluster: undefined,
-        startX: e.clientX,
-        startY: e.clientY,
-        dragging: false,
-        committedAt: 0,
-      };
-      this.talksRowGestureState = state;
-      const longPressTimer = window.setTimeout(() => {
-        if (this.talksRowGestureState !== state || state.dragging) return;
-        this.talksRowGestureState = null;
-        // Short window, just long enough to swallow the synthetic click the pointerup
-        // that follows the long-press would otherwise fire — NOT long enough to also
-        // swallow a real, separate click on something inside the popup that just opened
-        // (e.g. a test or a fast double-tap landing on the sender-name a moment later).
-        this.talksGestureSuppressClickUntil = Date.now() + 60;
-        const details = row.querySelector('.talk-item-details') as HTMLElement | null;
-        if (details) this.showDetailsPopupFor(details, row);
-      }, LONG_PRESS_MS);
-      const clearTimer = () => window.clearTimeout(longPressTimer);
-      row.addEventListener('pointerup', clearTimer, { once: true });
-      row.addEventListener('pointercancel', clearTimer, { once: true });
-    }, { passive: true });
-
-    document.body.addEventListener('pointermove', (e: PointerEvent) => {
-      const state = this.talksRowGestureState;
-      if (!state) return;
-      const dx = e.clientX - state.startX;
-      const dy = e.clientY - state.startY;
-      if (!state.dragging && Math.max(Math.abs(dx), Math.abs(dy)) < MOVE_THRESHOLD) return;
-      if (!state.dragging) state.row.classList.add('talk-gesture-live');
-      state.dragging = true;
-      if (Math.abs(dy) >= Math.abs(dx)) {
-        if (state.role === 'incoming') {
-          const clamped = Math.max(-100, Math.min(100, dy));
-          state.row.style.transform = `translateY(${clamped}px)`;
-          state.row.classList.toggle('talk-gesture-hint-ignore', dy < -MOVE_THRESHOLD);
-          state.row.classList.toggle('talk-gesture-hint-copy', dy > MOVE_THRESHOLD);
-        }
-      } else if (state.role !== 'incoming') {
-        const clamped = Math.max(-100, Math.min(0, dx));
-        state.row.style.transform = `translateX(${clamped}px)`;
-        state.row.classList.toggle('talk-gesture-hint-delete', dx < -MOVE_THRESHOLD);
-      }
-    }, { passive: true });
-
-    document.body.addEventListener('pointerup', (e: PointerEvent) => {
-      const state = this.talksRowGestureState;
-      this.talksRowGestureState = null;
-      if (!state) return;
-      if (!state.dragging) return; // plain tap or a long-press already handled by its own timer
-      clearHints(state.row);
-      // Same reasoning as the long-press timer: just long enough to swallow the click
-      // that naturally follows this same release, not a blanket window that could also
-      // eat an unrelated later click.
-      this.talksGestureSuppressClickUntil = Date.now() + 60;
-      const dx = e.clientX - state.startX;
-      const dy = e.clientY - state.startY;
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-      if (absDy >= absDx && absDy >= COMMIT_THRESHOLD && state.role === 'incoming') {
-        if (dy < 0) this.quickIgnoreIncomingTalk(state.talkId, state.identityKey || undefined);
-        else this.quickCopyIncomingTalk(state.talkId, state.identityKey || undefined);
-      } else if (absDx > absDy && absDx >= COMMIT_THRESHOLD && state.role !== 'incoming' && dx < 0 && state.talkId) {
-        this.deleteMyTalk(state.talkId);
-      }
-    });
-
-    document.body.addEventListener('pointercancel', () => {
-      const state = this.talksRowGestureState;
-      this.talksRowGestureState = null;
-      if (state) clearHints(state.row);
+    bindTalksRowGesturesImpl({
+      setSuppressClickUntil: (timestamp) => { this.talksGestureSuppressClickUntil = timestamp; },
+      showDetailsPopupFor: (detailsEl, originalParent) => this.showDetailsPopupFor(detailsEl, originalParent),
+      quickIgnoreIncomingTalk: (talkId, identityKeyFallback) => this.quickIgnoreIncomingTalk(talkId, identityKeyFallback),
+      quickCopyIncomingTalk: (talkId, identityKeyFallback) => this.quickCopyIncomingTalk(talkId, identityKeyFallback),
+      deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
     });
   }
 

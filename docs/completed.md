@@ -2,6 +2,59 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09 — UIManager decomposition cluster #12: talks-row gestures
+
+Extracted `UIManager.bindTalksRowGestures` (the swipe/long-press gesture controller for talk-list
+rows — swipe an incoming row down to copy or up to ignore, swipe an outgoing row left to delete,
+long-press any row for its details popup) into new `src/web/ui/talks-row-gestures.ts`.
+`docs/TODO.md` Priority 6, "Current sequence" step 19.
+
+- **Re-measured candidates:** `showConversationDetail` (246 lines, 18 refs), `addNewConversation`
+  (160, 12), and `syncConversationMessageSummary` (100, 11) share a heavily-overlapping ref set
+  (`currentConversationId`, `getMyConversations`, `getPeerName`, `updateMatchBadge`,
+  `displayContactsList`/`displayConversationsList`) — a genuinely cohesive "conversation view"
+  concern, but one whose methods are entangled with each other and with other tabs' list-refresh
+  side effects the same way settings already was. Deferred alongside `displayTalksList`/
+  `renderSettingsView`/`bindSettingsControls` rather than force a fragile first cut.
+- **Why `bindTalksRowGestures` instead:** 107 lines, 7 refs — bound once, touching nothing outside
+  its own concern except one field genuinely read elsewhere
+  (`talksGestureSuppressClickUntil`, checked by a row-click handler to swallow the synthetic click
+  that follows a committed gesture) and four already-existing action methods
+  (`quickIgnoreIncomingTalk`, `quickCopyIncomingTalk`, `deleteMyTalk`, `showDetailsPopupFor`).
+- **One deliberate simplification, not a behavior change:** the original kept its "already bound"
+  guard flag and in-flight gesture object as `UIManager` instance fields, but grep confirmed
+  neither was ever read outside this one method. They became ordinary module-scoped `let`s in the
+  extracted function instead — behaviorally identical for a singleton `UIManager` (there's only
+  ever one), and one fewer thing to thread through the deps object.
+- **Characterization:** `src/test/unit/talks-row-gestures.test.ts` (new, 9 tests) — swipe-down
+  committing to copy vs swipe-up committing to ignore at the exact commit threshold (dy > 0 vs
+  dy < 0 — the first draft had these backwards, caught by two failing assertions rather than
+  assumed correct); swipe-left deleting a non-incoming row; an incoming row's horizontal swipe
+  never committing; sub-threshold movement never starting a drag; a long press with no movement
+  opening the details popup and suppressing the trailing click; an early pointerup cancelling the
+  long-press timer; pointerdown outside `#talks-list` being ignored; and pointercancel clearing
+  state without committing. jsdom in this test environment doesn't implement the `PointerEvent`
+  constructor — substituted `MouseEvent` (the code only reads `.button`/`.clientX`/`.clientY`/
+  `.target`, all present on both). The module's own module-scoped state meant each test needed a
+  fresh module instance to avoid the "already bound" guard skipping re-binding across tests in the
+  same file — used `jest.isolateModules` + `require()` per test.
+- **Real-browser regression:** `staged/stage1-single-user/37-compact-talk-rows-out` (the
+  swipe-left delete gesture, exercised directly) and `05-talks-edit` (the long-press details
+  popup, via the existing `longPressTalkRow` E2E helper) both pass standalone.
+- **Ratchet:** `ui-manager.ts` 8,584 → **8,482** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, production web build succeeds, all 164 unit suites /
+  1,752 tests pass (9 new). Canonical `npm run test:all` run `run-20260909-180724-18534` (25m25s,
+  12 blobs, static checks all clean) reproduced the same 3 e2e phases with failures a fourth
+  consecutive time: `cross-browser` and `heavy-staged` byte-for-byte identical to every prior
+  cluster's run (same tests, same errors, same durations); `light` failed 5 different
+  TechSupport/messaging/survey specs this time (`06-support-new-question-ack`,
+  `79-techsupport-survives-restrictive-filters`, `00m-techsupport-delegate-answers`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question`) — none touching
+  `talks-row-gestures.ts` or talk-list gesture code, and the ever-changing specific specs across
+  four runs now is itself strong evidence against a deterministic regression. No failure traces
+  to this extraction.
+
 ## 2026-09-09 — UIManager decomposition cluster #11: creator-replies list
 
 Extracted `UIManager.renderCreatorReplies` (filter/sort/group/render pipeline for the Talks tab's
