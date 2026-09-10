@@ -903,10 +903,10 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#35 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#39 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
-dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#35
+dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
 (2026-09-08/09/10) extracted, in order: talk-editor form processing; linked-devices dialog
 orchestration; the creator-replies list; talks-row gestures; flat answer-history record
 construction; verified support-message filtering; the dirty-word editor; the Me-tab answers
@@ -916,19 +916,22 @@ confirm dialog; the notification toast (116 call sites — the widest blast radi
 so far); the peer-name cache; the conversation message cards (captured-question/IPFS-attachment);
 the app-bar overflow reflow + system-announcement banner + app-bar chrome setup; the item-details
 popup + question-answer-completion storage; the browser file-save helper; the talk-broadcast
-toggle; talk-creation storage; delivery-reason labels; known-person saving; chatroom-title
-resolution; the creator-reply filter-state trio; and the conversation transport/online-status
-updates. Full per-cluster rationale, characterization evidence, and canonical-gate results are in
-`docs/completed.md` (search "UIManager decomposition cluster"); this section keeps only the
-running ratchet and cross-cluster findings to stay readable as the count grows.
+toggle; talk-creation storage (+ copy-answered-talk); delivery-reason labels; known-person
+saving; chatroom-title resolution; the creator-reply filter-state trio; the conversation
+transport/online-status updates; the status bar; the conversation-withdrawn/ended record-update
+pair; and the quick-ignore/quick-copy incoming-talk gesture actions. Full per-cluster rationale,
+characterization evidence, and canonical-gate results are in `docs/completed.md` (search
+"UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
+findings to stay readable as the count grows.
 
 The ratchet grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding,
 K7 delegate credentials) landed on top between clusters, then came down cluster-by-cluster to
 8,912 (#9), 8,784 (#10), 8,584 (#11), 8,482 (#12), 8,378 (#13), 8,270 (#14), 8,197 (#15), 8,133
 (#16), 8,068 (#17), 8,030 (#18), 7,984 (#19, crossing under 8,000), 7,906 (#20), 7,834 (#21),
 7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
-(#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), and **7,345** (#35) — the
-current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
+(#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
+7,301 (#37), 7,285 (#38), and **7,233** (#39) — the current enforced ceiling
+(`src/test/unit/ui-manager-size-budget.test.ts`).
 
 Two dead-code findings surfaced along the way, both left in place rather than removed
 unilaterally (deleting a whole feature is a different kind of change than a behavior-preserving
@@ -1402,6 +1405,18 @@ entries and babel preset were never removed.
         unchanged pre-existing infra issue; `light` failed three already-established rotating
         specs, none touching this batch — `29-messaging-semantics` (plausibly related, given the
         new online-status logic) reran 3/3 clean standalone. See `docs/completed.md`.
+      - Clusters #36-#39 evidence: four more extractions — `updateStatusBar` → new
+        `status-bar.ts` (#36); `markConversationWithdrawn`/`markConversationEnded` → new
+        `conversation-record-updates.ts` (#37, a near-identical sibling pair sharing one
+        refresh helper); `copyAnsweredTalkToTalks` → added to `talk-creation-storage.ts` (#38);
+        `quickIgnoreIncomingTalk`/`quickCopyIncomingTalk` → new
+        `quick-incoming-talk-actions.ts` (#39, another sibling pair sharing one
+        full-talk-resolution helper). Typecheck/lint clean, both production builds succeed, unit
+        suites grew from 186/1,976 to 189/2,007 (31 new) with zero regressions. Canonical run
+        `run-20260910-012626-3551` (25m26s): `heavy-staged` green again; `cross-browser`
+        unchanged pre-existing infra issue; `light` failed four already-established rotating
+        specs (the same set seen rotating through several of today's earlier runs), none
+        touching this batch. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1501,7 +1516,12 @@ entries and babel preset were never removed.
     `resolveAnswerPreferenceForTalkQuestion` (still a characterization-test call target);
     `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
     trio remain deferred, unchanged.
-24. Re-measure and choose cluster #36 as a separate commit-sized change; continue to defer
+24. ~~Extract clusters #36-#39 (`updateStatusBar`, the `markConversationWithdrawn`/
+    `markConversationEnded` pair, `copyAnsweredTalkToTalks`, the `quickIgnoreIncomingTalk`/
+    `quickCopyIncomingTalk` pair), lowering the ratchet from 7,345 to 7,233 across the four.~~
+    Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the
+    conversation-view trio remain deferred, unchanged.
+25. Re-measure and choose cluster #40 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.

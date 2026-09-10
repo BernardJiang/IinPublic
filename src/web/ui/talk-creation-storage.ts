@@ -84,3 +84,43 @@ export function saveCreatedTalk(
     deps.refreshTalksListIfActive();
   }
 }
+
+export type CopyAnsweredTalkToTalksDeps = {
+  showNotification: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
+  t: (key: import('./ui-translations').UiTranslationKey) => string;
+  saveMyTalk: (talkData: import('./my-talks-storage').MyTalkEntry) => void;
+  refreshTalksList: () => void;
+  refreshAnswersList: () => void;
+};
+
+/**
+ * Copies an answered (not self-authored) talk into the user's own Talks list as a `role:
+ * 'copied'` entry — not authorship (docs/TODO.md §Y1): the original sender stays `authorId`
+ * until the user actually edits the content through the revise-mints-new-id path.
+ */
+export function copyAnsweredTalkToTalks(talkId: string, deps: CopyAnsweredTalkToTalksDeps): void {
+  const myTalks = getMyTalks();
+  const talk = myTalks[talkId];
+  if (!talk?.fullTalk) {
+    deps.showNotification(deps.t('talksDataNotFound'), 'error');
+    return;
+  }
+  if (talk.role === 'copied') {
+    deps.showNotification(deps.t('talksAlreadyCopied'), 'info');
+    return;
+  }
+  deps.saveMyTalk({
+    talkId,
+    title: talk.title,
+    type: talk.type,
+    timestamp: talk.lastInteraction || new Date().toISOString(),
+    role: 'copied',
+    fullTalk: talk.fullTalk,
+    completedAnswers: talk.completedAnswers,
+    outcome: talk.outcome,
+    senders: talk.senders,
+  });
+  deps.showNotification(deps.t('talksCopiedToList'), 'success');
+  deps.refreshTalksList();
+  deps.refreshAnswersList();
+}

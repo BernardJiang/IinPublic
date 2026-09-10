@@ -2,6 +2,45 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition clusters #36-#39: four more extractions, two of them sibling pairs
+
+Continuing the AST-script-guided sweep from clusters #30-#35. `docs/TODO.md` Priority 6.
+
+- **#36: `updateStatusBar` → new `status-bar.ts`** (25 lines, 2 refs — `tf`, `getTotalMatches`).
+  Public API (8 external call sites in `app.ts`), kept as a shim; its unused `_stageName`
+  parameter (already unused before this extraction) stays on the shim for signature stability.
+- **#37: `markConversationWithdrawn` + `markConversationEnded` → new
+  `conversation-record-updates.ts`** (32+23 lines). A near-identical sibling pair — both find a
+  conversation by `otherUserId`+`talkId` (with their own distinct fallback match), mutate its
+  status/timestamp/lastMessage, persist, and refresh badge/status-bar/list — factored around one
+  shared `refreshAfterConversationRecordChange` helper.
+- **#38: `copyAnsweredTalkToTalks` → added to `talk-creation-storage.ts`** (28 lines, 5 refs).
+  Grouped with cluster #30's `saveCreatedTalk` in the same module — both are "persist a talk
+  into `myTalks`, with notification/re-render side effects" operations.
+- **#39: `quickIgnoreIncomingTalk` + `quickCopyIncomingTalk` → new
+  `quick-incoming-talk-actions.ts`** (29+37 lines). Another sibling pair — both are talks-row
+  swipe-gesture handlers (cluster #12's `talks-row-gestures.ts` deps) that resolve an incoming
+  cluster's full Talk object the same asynchronous way, via one shared
+  `resolveIncomingFullTalk` helper, then diverge (ignore-and-complete vs. copy-without-completing).
+- **Characterization:** four new/extended test files — `status-bar.test.ts` (8),
+  `conversation-record-updates.test.ts` (8), `talk-creation-storage.test.ts` (+4 for
+  `copyAnsweredTalkToTalks`), `quick-incoming-talk-actions.test.ts` (11 — one fixture bug caught
+  by a failing assertion: the original draft used arbitrary strings like `'t1'` as talk ids, but
+  `isValidTalkId` requires an actual UUID/content-hash/CIDv1 shape, so the "valid talkId" branch
+  was silently never exercised until switched to a real UUID fixture). All passed once fixed.
+  Real-browser regression: `staged/stage2-two-user/00-broadcast-deletion-mid-broadcast.spec.ts`
+  (talk retraction, cluster #37).
+- **Ratchet:** `ui-manager.ts` 7,345 → 7,332 (#36) → 7,301 (#37) → 7,285 (#38) → **7,233** (#39)
+  lines.
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (189 suites / 2,007 tests after all four, 31 new).
+  Canonical run `run-20260910-012626-3551` (25m26s): `heavy-staged` is green again (`rc=0`);
+  `cross-browser` remains the same pre-existing infra issue; `light` failed four
+  already-established rotating specs (`79-techsupport-survives-restrictive-filters`,
+  `00l-techsupport-faq-cross-user`, `29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), the same set seen rotating through several of
+  today's earlier runs — none touch anything in this batch.
+
 ## 2026-09-10 — UIManager decomposition clusters #30-#35: six more extractions, plus a caught near-miss
 
 Continuing the AST-script-guided sweep from clusters #22-#29. `docs/TODO.md` Priority 6.

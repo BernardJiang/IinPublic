@@ -141,12 +141,25 @@ import { showSystemAnnouncement as renderSystemAnnouncement } from './system-ann
 import { showDetailsPopupFor as renderItemDetailsPopup } from './item-details-popup';
 import { saveObjectUrlAs as saveFileFromObjectUrl } from './browser-file-save';
 import { setTalkDisabled as setTalkDisabledImpl } from './talk-broadcast-toggle';
-import { saveCreatedTalk as saveCreatedTalkImpl } from './talk-creation-storage';
+import {
+  saveCreatedTalk as saveCreatedTalkImpl,
+  copyAnsweredTalkToTalks as copyAnsweredTalkToTalksImpl,
+} from './talk-creation-storage';
 import { deliveryReasonLabel, formatReasonCounts } from './delivery-reason-labels';
 import {
   updateConversationTransportMode as updateConversationTransportModeImpl,
   setConversationOnlineStatus as setConversationOnlineStatusImpl,
 } from './conversation-status-updates';
+import { updateStatusBar as updateStatusBarImpl } from './status-bar';
+import {
+  markConversationWithdrawn as markConversationWithdrawnImpl,
+  markConversationEnded as markConversationEndedImpl,
+  type ConversationRecordUpdateDeps,
+} from './conversation-record-updates';
+import {
+  quickIgnoreIncomingTalk as quickIgnoreIncomingTalkImpl,
+  quickCopyIncomingTalk as quickCopyIncomingTalkImpl,
+} from './quick-incoming-talk-actions';
 import {
   buildRouteSelfAnswers as buildRouteEditorSelfAnswers,
   collectRouteEditorQuestions as collectRouteQuestions,
@@ -3903,32 +3916,13 @@ export class UIManager extends EventEmitter {
     });
   }
   private copyAnsweredTalkToTalks(talkId: string): void {
-    const myTalks = getMyTalks();
-    const talk = myTalks[talkId];
-    if (!talk?.fullTalk) {
-      this.showNotification(this.t('talksDataNotFound'), 'error');
-      return;
-    }
-    if (talk.role === 'copied') {
-      this.showNotification(this.t('talksAlreadyCopied'), 'info');
-      return;
-    }
-    this.saveMyTalk({
-      talkId,
-      title: talk.title,
-      type: talk.type,
-      timestamp: talk.lastInteraction || new Date().toISOString(),
-      role: 'copied',
-      // docs/TODO.md §Y1: a copy is not authorship — keep the original sender as authorId
-      // until the user actually edits the content through the revise-mints-new-id path.
-      fullTalk: talk.fullTalk,
-      completedAnswers: talk.completedAnswers,
-      outcome: talk.outcome,
-      senders: talk.senders,
+    copyAnsweredTalkToTalksImpl(talkId, {
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: this.t.bind(this),
+      saveMyTalk: (talkData) => this.saveMyTalk(talkData),
+      refreshTalksList: () => this.displayTalksList(),
+      refreshAnswersList: () => this.displayAnswersList(),
     });
-    this.showNotification(this.t('talksCopiedToList'), 'success');
-    this.displayTalksList();
-    this.displayAnswersList();
   }
 
   /** Resolve a concrete talk UUID for an incoming cluster (Gun may reshape talkIds). */
@@ -3997,81 +3991,25 @@ export class UIManager extends EventEmitter {
    * immediately either way, so which one is recorded is not semantically meaningful.
    */
   private quickIgnoreIncomingTalk(talkId: string, identityKeyFallback?: string): void {
-    const finish = (fullTalk: any): void => {
-      if (!fullTalk) {
-        this.showNotification(this.t('talksCouldNotLoad'), 'error');
-        return;
-      }
-      const question = Array.isArray(fullTalk.questions) ? fullTalk.questions[0] : null;
-      const answers = question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
-      if (question) {
-        this.saveAnswerPreference(
-          fullTalk, fullTalk.id, question, 'ignore', 'ignore',
-          answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
-          'suppressed',
-        );
-      }
-      this.showNotification(this.t('responseTalkIgnored'), 'info');
-      this.completeTalk(fullTalk, answers, 'mismatch', { withholdFromSender: true });
-    };
-    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
-    if (!tid && identityKeyFallback) {
-      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
-      return;
-    }
-    if (!tid) {
-      this.showNotification(this.t('talksCouldNotOpen'), 'error');
-      return;
-    }
-    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+    quickIgnoreIncomingTalkImpl(talkId, identityKeyFallback, {
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: this.t.bind(this),
+      saveAnswerPreference: (talk, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode) =>
+        this.saveAnswerPreference(talk, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode),
+      completeTalk: (talk, answers, outcome, meta) => this.completeTalk(talk, answers, outcome, meta),
+      emit: (event, payload) => this.emit(event, payload),
+    });
   }
 
-  /**
-   * Row gesture (drag down): copies an incoming talk into the user's own outgoing list
-   * *without* answering it — distinct from `copyAnsweredTalkToTalks`, which only works on
-   * an already-answered `myTalks` entry. A live incoming cluster has no `myTalks[talkId]`
-   * row yet and no `.latestTalk` full-Talk object (only `.latestTalkId`/`.questionsJson`
-   * on the wire type), so the full talk has to be resolved the same asynchronous way
-   * `quickAnswerIncomingTag` does it, then saved directly with role 'copied' — bypassing
-   * `completeTalk` entirely so the sender is never notified and the incoming cluster
-   * stays in the inbox exactly as it was.
-   */
   private quickCopyIncomingTalk(talkId: string, identityKeyFallback: string | undefined, cluster?: any): void {
-    const existing = talkId ? this.getMyTalks()[talkId] : undefined;
-    if (existing?.role === 'copied') {
-      this.showNotification(this.t('talksAlreadyCopied'), 'info');
-      return;
-    }
-    const finish = (fullTalk: any): void => {
-      if (!fullTalk) {
-        this.showNotification(this.t('talksCouldNotLoad'), 'error');
-        return;
-      }
-      const senders = cluster?.senders && typeof cluster.senders === 'object'
-        ? Array.from(new Set(Object.values(cluster.senders).map((s: any) => String(s?.senderId || '')).filter(Boolean)))
-        : undefined;
-      this.saveMyTalk({
-        talkId: fullTalk.id || talkId,
-        title: fullTalk.title,
-        type: fullTalk.type,
-        timestamp: new Date().toISOString(),
-        role: 'copied',
-        fullTalk,
-        ...(senders && senders.length > 0 ? { senders } : {}),
-      });
-      this.showNotification(this.t('talksCopiedToList'), 'success');
-      this.displayTalksList();
-    };
-    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
-    if (!tid && identityKeyFallback) {
-      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
-      return;
-    }
-    if (!tid) {
-      this.showNotification(this.t('talksCouldNotOpen'), 'error');
-      return;
-    }
-    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+    quickCopyIncomingTalkImpl(talkId, identityKeyFallback, cluster, {
+      getMyTalks: () => this.getMyTalks(),
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: this.t.bind(this),
+      saveMyTalk: (talkData) => this.saveMyTalk(talkData),
+      refreshTalksList: () => this.displayTalksList(),
+      emit: (event, payload) => this.emit(event, payload),
+    });
   }
 
   /**
@@ -4913,24 +4851,10 @@ export class UIManager extends EventEmitter {
     memberCount: number,
     totalMatches?: number,
   ): void {
-    const statusBarText = document.getElementById('status-bar-text');
-
-    if (statusBarText) {
-      const userText = this.tf(memberCount === 1 ? 'statusBarUser' : 'statusBarUsers', { count: memberCount });
-      const base = `${chatroomName} · ${userText}`;
-      statusBarText.dataset.statusBarBase = base;
-      const localTotalMatches = this.getTotalMatches();
-      const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
-      let text = base;
-      if (effectiveTotalMatches > 0) {
-        const matchText = this.tf(
-          effectiveTotalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
-          { count: effectiveTotalMatches },
-        );
-        text += ` · ${matchText}`;
-      }
-      statusBarText.textContent = text;
-    }
+    updateStatusBarImpl(chatroomName, memberCount, totalMatches, {
+      tf: this.tf.bind(this),
+      getTotalMatches: () => this.getTotalMatches(),
+    });
   }
 
   private syncStatusBarMatchCount(): void {
@@ -7089,32 +7013,7 @@ export class UIManager extends EventEmitter {
     talkId: string,
     retractedAt: number,
   ): void {
-    const conversations = this.getMyConversations();
-    const retractedAtStr = new Date(retractedAt).toISOString();
-    // Find by otherUserId+talkId; fall back to talkId alone for author side.
-    let convId = Object.keys(conversations).find((id) => {
-      const c = conversations[id];
-      return c?.otherUserId === otherUserId && c?.talkId === talkId;
-    });
-    if (!convId) {
-      // Fallback: author-side teardown or retraction received before conversation was indexed
-      convId = Object.keys(conversations).find((id) => {
-        const c = conversations[id];
-        return c?.talkId === talkId;
-      });
-    }
-    if (!convId) return;
-    conversations[convId].status = 'withdrawn';
-    conversations[convId].retractedAt = retractedAtStr;
-    conversations[convId].lastMessage = `Author removed this talk — the match is gone · ${new Date(retractedAt).toLocaleString()}`;
-    conversations[convId].lastMessageTime = retractedAtStr;
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    this.updateMatchBadge();
-    this.syncStatusBarMatchCount();
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) {
-      this.displayConversationsList();
-    }
+    markConversationWithdrawnImpl(otherUserId, talkId, retractedAt, this.conversationRecordUpdateDeps());
   }
 
   /**
@@ -7124,27 +7023,16 @@ export class UIManager extends EventEmitter {
    * "answer changed" label assertable by E2E tests.
    */
   markConversationEnded(otherUserId: string, talkId: string, changedAt: string): void {
-    const conversations = this.getMyConversations();
-    // Find the conversation by otherUserId + talkId
-    let convId = Object.keys(conversations).find((id) => {
-      const c = conversations[id];
-      return c?.otherUserId === otherUserId && c?.talkId === talkId;
-    });
-    if (!convId) {
-      convId = Object.keys(conversations).find((id) => conversations[id]?.otherUserId === otherUserId);
-    }
-    if (!convId) return;
-    conversations[convId].status = 'ignored';
-    conversations[convId].changedAt = changedAt;
-    conversations[convId].lastMessage = `Answer changed · ${new Date(changedAt).toLocaleString()}`;
-    conversations[convId].lastMessageTime = changedAt;
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    this.updateMatchBadge();
-    this.syncStatusBarMatchCount();
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) {
-      this.displayConversationsList();
-    }
+    markConversationEndedImpl(otherUserId, talkId, changedAt, this.conversationRecordUpdateDeps());
+  }
+
+  private conversationRecordUpdateDeps(): ConversationRecordUpdateDeps {
+    return {
+      getMyConversations: () => this.getMyConversations(),
+      updateMatchBadge: () => this.updateMatchBadge(),
+      syncStatusBarMatchCount: () => this.syncStatusBarMatchCount(),
+      refreshConversationsListIfActive: () => this.displayConversationsList(),
+    };
   }
 
   /** Optimistic local update after a `confirmDeal` write — refreshes the deal bar without
