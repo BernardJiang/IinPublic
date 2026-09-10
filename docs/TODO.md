@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#46 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#47 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -924,8 +924,9 @@ pair; the incoming-talk notification display; block/unblock (`setBlocked`); talk
 (`completeTalk`/`saveMyTalk`); the app-download banner (`detectDownloadPlatform`/
 `renderAppDownloadBanner`); the answer-preferences dialog + its mutation logic
 (`showPreferencesDialog`/`normalizePreferenceMode`/`applyPreferenceModeToExactMemory`/
-`deleteAnswerPreference`); and the local-statistics dashboard (`displayContextualStatistics`/
-`displayStatisticsDashboard`/`renderStatisticsDashboard`). Full per-cluster rationale,
+`deleteAnswerPreference`); the local-statistics dashboard (`displayContextualStatistics`/
+`displayStatisticsDashboard`/`renderStatisticsDashboard`); and IPFS attachment hydration
+(`hydrateAttachmentImages`). Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -937,7 +938,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
 (#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
-7,027 (#44), 6,919 (#45), and **6,858** (#46) — the current enforced ceiling
+7,027 (#44), 6,919 (#45), 6,858 (#46), and **6,830** (#47) — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
 Three dead-code findings surfaced along the way, all left in place (logic-wise) rather than
@@ -1497,6 +1498,15 @@ entries and babel preset were never removed.
         (25m16s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra
         issue; `light` failed one already-established rotating spec (`29-messaging-semantics`),
         unrelated to this batch. See `docs/completed.md`.
+      - Cluster #47 evidence: `hydrateAttachmentImages` → new `attachment-hydration.ts`.
+        `openLightbox` stayed in `ui-manager.ts` (it mutates the shared `lightboxTarget` instance
+        field that `closeLightbox` and the lightbox-close/download wiring also touch) and is
+        passed through as a deps callback. New `attachment-hydration.test.ts` (9 tests), all
+        passed first run. Typecheck/lint clean, both production builds succeed, unit suites grew
+        from 194/2,089 to 195/2,098 with zero regressions. Canonical run
+        `run-20260910-043301-52712` (25m16s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed one already-established rotating spec
+        (`29-messaging-semantics`), unrelated to this batch. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1623,7 +1633,10 @@ entries and babel preset were never removed.
     `renderStatisticsDashboard`, see the dead-code paragraph above); `displayTalksList`,
     `renderSettingsView`/`bindSettingsControls`, and the conversation-view trio remain deferred,
     unchanged.
-30. Re-measure and choose cluster #47 as a separate commit-sized change; continue to defer
+30. ~~Extract cluster #47 (`hydrateAttachmentImages` → new `attachment-hydration.ts`), lowering
+    the ratchet from 6,858 to 6,830.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+31. Re-measure and choose cluster #48 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.

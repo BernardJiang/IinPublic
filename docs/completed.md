@@ -2,6 +2,29 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #47: attachment hydration
+
+Continuing the AST-script-guided sweep from cluster #46. `docs/TODO.md` Priority 6.
+
+- **#47: `hydrateAttachmentImages` → new `attachment-hydration.ts`** (36 lines, 3 refs —
+  `sharedAttachmentResolver`, `saveObjectUrlAs`, `openLightbox`). Turns IPFS attachment cards into
+  click-to-view (image) / click-to-save (file) elements once local bytes resolve. `openLightbox`
+  itself stayed in `ui-manager.ts` (it mutates the shared `lightboxTarget` instance field that
+  `closeLightbox` and the lightbox-close/download button wiring also touch) and is passed through
+  as a deps callback rather than moved.
+- **Characterization:** new `attachment-hydration.test.ts` (9 tests) covering: the
+  no-resolver-configured and already-`localReady` no-op guards; the resolve-then-reveal path
+  (image visible, loading indicator hidden, download link shown); the still-loading outcomes for
+  both a null-resolving and a rejecting resolver; the image-card-opens-lightbox vs.
+  non-image-card-saves click routing; the small download link always saving regardless of card
+  type; and multi-card hydration. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,858 → **6,830** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  194/2,089 to 195/2,098 (9 new) with zero regressions. Canonical run `run-20260910-043301-52712`
+  (25m16s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed one already-established rotating spec (`29-messaging-semantics`), unrelated to
+  this batch.
+
 ## 2026-09-10 — UIManager decomposition cluster #46: local statistics (+ a dead-code finding)
 
 Continuing the AST-script-guided sweep from cluster #45. `docs/TODO.md` Priority 6.

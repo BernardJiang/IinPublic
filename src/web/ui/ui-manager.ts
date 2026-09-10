@@ -17,6 +17,7 @@ import {
   displayContextualStatistics as displayContextualStatisticsImpl,
   type LocalStatisticsDeps,
 } from './local-statistics';
+import { hydrateAttachmentImages as hydrateAttachmentImagesImpl } from './attachment-hydration';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
@@ -6199,39 +6200,10 @@ export class UIManager extends EventEmitter {
    * click-to-save under the real filename once the bytes arrive.
    */
   private hydrateAttachmentImages(container: HTMLElement): void {
-    if (!this.sharedAttachmentResolver) return;
-    const cards = container.querySelectorAll('.ipfs-attachment[data-ipfs-cid]');
-    cards.forEach((cardEl) => {
-      const card = cardEl as HTMLElement;
-      if (card.dataset.localReady === '1') return; // already using local bytes
-      const cid = card.getAttribute('data-ipfs-cid') || '';
-      const mime = card.getAttribute('data-ipfs-mime') || '';
-      const name = card.getAttribute('data-ipfs-name') || 'download';
-      const img = card.querySelector('img.ipfs-attachment-img') as HTMLImageElement | null;
-      const dl = card.querySelector('a.ipfs-attachment-download') as HTMLAnchorElement | null;
-      let objectUrl = '';
-      const isImage = mime.startsWith('image/');
-      const save = (e: Event) => { e.preventDefault(); e.stopPropagation(); void this.saveObjectUrlAs(objectUrl, name, mime); };
-      const view = (e: Event) => { e.stopPropagation(); this.openLightbox(objectUrl, name, mime); };
-      void this.sharedAttachmentResolver!(cid, mime).then((url) => {
-        if (!url) return; // bytes not here yet — a later fetch/re-render resolves it
-        objectUrl = url;
-        card.dataset.localReady = '1';
-        card.style.cursor = 'pointer';
-        // Images open the in-app viewer on tap; files download on tap.
-        card.onclick = isImage ? view : save;
-        const loading = card.querySelector('.ipfs-attachment-loading') as HTMLElement | null;
-        if (loading) loading.hidden = true;
-        if (img) {
-          img.src = url;
-          img.hidden = false;
-        }
-        // The small Download link always saves the file.
-        if (dl) {
-          dl.hidden = false;
-          dl.onclick = save;
-        }
-      }).catch(() => { /* leave the loading state; a later fetch/re-render can resolve it */ });
+    hydrateAttachmentImagesImpl(container, {
+      sharedAttachmentResolver: this.sharedAttachmentResolver,
+      saveObjectUrlAs: (objectUrl, name, mimeType) => this.saveObjectUrlAs(objectUrl, name, mimeType),
+      openLightbox: (url, name, mime) => this.openLightbox(url, name, mime),
     });
   }
 
