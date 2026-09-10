@@ -4,6 +4,21 @@
 `hosts.json` defines remote desktop workers. Keep scenarios independent of raw SSH hosts
 and filesystem paths; platform runners resolve those details here.
 
+## macOS Firefox
+
+```bash
+npm run test:e2e:macos-firefox:preflight
+npm run test:e2e:macos-firefox
+```
+
+The macOS runner checks the configured Firefox executable and launches a short WebDriver BiDi
+probe before it builds or starts any test server. An unavailable optional browser is reported as
+`SKIP` and starts no tests; set `MACOS_FIREFOX_REQUIRED=1` to make that condition fail CI.
+`MACOS_FIREFOX_EXECUTABLE` overrides the configured application path.
+
+The `macos-firefox` project runs the platform smoke gate in the installed stable Firefox release.
+It is distinct from the existing `firefox` project, which uses Playwright's bundled Firefox build.
+
 ## Windows worker
 
 ```bash

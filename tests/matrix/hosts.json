@@ -1,4 +1,15 @@
 {
+  "macos": {
+    "type": "host",
+    "platform": "macos",
+    "host": "localhost",
+    "browsers": {
+      "firefox": {
+        "channel": "moz-firefox",
+        "executablePath": "/Applications/Firefox.app/Contents/MacOS/firefox"
+      }
+    }
+  },
   "windows": {
     "type": "host",
     "platform": "windows",

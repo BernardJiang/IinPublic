@@ -140,6 +140,8 @@ const DEVICE_PROFILES = process.env.E2E_DEVICE_PROFILES === '1' || process.env.E
 const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === '1' || process.env.E2E_CROSS_BROWSER === 'true';
 const MIXED_BROWSER = process.env.E2E_MIXED_BROWSER === '1' || process.env.E2E_MIXED_BROWSER === 'true';
 const WINDOWS_EDGE = process.env.E2E_WINDOWS_EDGE === '1' || process.env.E2E_WINDOWS_EDGE === 'true';
+const MACOS_FIREFOX = process.env.E2E_MACOS_FIREFOX === '1' || process.env.E2E_MACOS_FIREFOX === 'true';
+const MACOS_FIREFOX_EXECUTABLE = process.env.MACOS_FIREFOX_EXECUTABLE;
 
 // Optional port-range offset so concurrent `playwright test` runs don't collide. Matches
 // E2E_PORT_OFFSET in tests/e2e/helpers/ports.ts (default 0). web = 3001+offset+i, gun =
@@ -335,6 +337,26 @@ export default defineConfig({
                 use: { ...devices['Desktop Firefox'], launchOptions: nonChromiumLaunchOptions },
               },
             ]
+          : []),
+        // Installed macOS Firefox (stable release, automated through Firefox's WebDriver BiDi
+        // endpoint). This is intentionally separate from the `firefox` project above, which
+        // runs Playwright's bundled/patched Firefox build. The matrix runner performs an
+        // executable + BiDi preflight before Playwright starts any web server or test.
+        ...(MACOS_FIREFOX
+          ? [{
+              name: 'macos-firefox',
+              grep: /@smoke/,
+              testMatch: /platform-smoke\//,
+              use: {
+                ...devices['Desktop Firefox'],
+                channel: 'moz-firefox',
+                headless: true,
+                launchOptions: {
+                  ...nonChromiumLaunchOptions,
+                  ...(MACOS_FIREFOX_EXECUTABLE ? { executablePath: MACOS_FIREFOX_EXECUTABLE } : {}),
+                },
+              },
+            }]
           : []),
         ...(DEVICE_PROFILES
           ? [

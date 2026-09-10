@@ -2,6 +2,19 @@
 
 Last updated: 2026-09-08
 
+## 2026-09-08 — Installed macOS Firefox matrix target
+
+- Registered the Mac mini and its stable Firefox installation in `tests/matrix/hosts.json`.
+- Added a mandatory executable/version/WebDriver-BiDi availability gate which runs before any
+  build, server, or test, with optional-worker `SKIP` and `MACOS_FIREFOX_REQUIRED=1` fail-closed
+  behavior.
+- Added the `macos-firefox` Playwright project and the
+  `test:e2e:macos-firefox[:preflight]` commands. Unlike the existing bundled-Firefox project,
+  this target launches `/Applications/Firefox.app` through the `moz-firefox` WebDriver BiDi
+  channel.
+- Verified Firefox 155.0.1 preflight and both installed-release platform-smoke cases: UI/settings
+  persistence plus HTTP, WebSocket, localStorage, IndexedDB, and Gun read/write persistence.
+
 ## 2026-09-08 — §J: Sync-then-erase (fully landed)
 
 Archived from `docs/TODO.md` Priority 2 — both items shipped with full E2E coverage; nothing remains open under this letter.

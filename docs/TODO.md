@@ -113,6 +113,11 @@ Implemented and passing for the platform smoke gate; HTTP, WebSocket,
 localStorage, IndexedDB, and local Gun read/write are covered. Permissions,
 reconnect, and cross-peer Firefox behavior remain open.
 
+Installed-release coverage is also available through
+`npm run test:e2e:macos-firefox`: its mandatory preflight verifies the Firefox
+application and WebDriver BiDi endpoint before any build, server, or test starts,
+then runs the same platform smoke gate as the `macos-firefox` project.
+
 ##### 1.3 Run All Three Browsers
 
 - [x] Run Chromium, WebKit, and Firefox from one Playwright configuration (platform smoke gate).
@@ -683,7 +688,7 @@ Keep this exact order unless a specific product requirement forces an earlier de
 
 1. [ ] macOS Chromium baseline remains green.
 2. [ ] macOS WebKit/Safari.
-3. [ ] macOS Firefox.
+3. [x] macOS Firefox (installed stable release smoke gate; broader suite and reconnect coverage remain above).
 4. [ ] Mixed browser tests on Mac.
 5. [ ] macOS desktop app.
 6. [ ] macOS app + browser tests.
