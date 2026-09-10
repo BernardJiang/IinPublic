@@ -10,7 +10,7 @@
  * This exercises §BB phases 1-5 end to end through real UI: the talk editor's "Compare using:"
  * kind selector + typed quantity input (talk-editor-form-helpers.ts), TalkAutofix's synthetic
  * answer generation (talk-engine.ts), the typed-preference-store side effect saved on submit
- * (processTalkForm, ui-manager.ts), and the comparison dispatch wired into
+ * (processTalkForm, talk-form-processor.ts), and the comparison dispatch wired into
  * resolveAnswerPreferenceForTalkQuestion (ui-manager.ts / built-in-question-resolution.ts).
  *
  * - Buyer wants 2, seller has 5 (2 <= 5) -> auto-match, zero manual clicks.

@@ -13,7 +13,7 @@ import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeQuestionKey } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
-import { TalkValidator, TalkAutofix, FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, singleNonIgnoreAnswer, findTagPairAncestor } from '../../shared/talk-engine';
+import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, singleNonIgnoreAnswer } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
@@ -70,18 +70,15 @@ import {
   getAnsweredTalkByContent,
   getExactChatbotMemory,
   getFlattenedAnswerPreferences,
-  getTypedPreferenceState,
   setAnswerPreferences,
   setAnsweredTalkByContent,
   setExactChatbotMemory,
   setFlattenedAnswerPreferences,
   setMyQuestionAnswer,
-  setTypedPreferenceState,
   type AnswerPreferenceEntry,
   type AnswerPreferenceMap,
   type MyQuestionAnswerEntry,
 } from './answer-preferences-storage';
-import { makeTypedPreferenceScopeKey, saveTypedPreference } from '../../shared/typed-preference-store';
 import {
   getSelfTagForQuestionText,
   LOCAL_EXACT_CHATBOT_USER_ID,
@@ -94,7 +91,6 @@ import {
   clearMyTalks,
   deleteMyTalkEntry,
   getMyTalks,
-  patchMyTalk,
   setMyTalks,
   type MyTalkEntry,
 } from './my-talks-storage';
@@ -149,6 +145,7 @@ import {
   type RouteEditorQuestion,
 } from './route-editor-model';
 import { renderRouteEditor as renderRouteEditorController } from './route-editor-controller';
+import { processTalkForm as processTalkFormImpl } from './talk-form-processor';
 import { fetchDownloadManifest, renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { showSurveyStatisticsDialog } from './survey-statistics-dialog';
 import { renderStatisticsDashboard as renderLocalStatisticsDashboard } from './statistics-dashboard';
@@ -179,18 +176,19 @@ import {
 } from './talk-intake-filters';
 import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
-import { containsFinancialData } from '../../shared/financial-data-guard';
 import { CONFIG } from '../../shared/config';
-import { showLinkedDevicesDialog, type LinkedDeviceRow } from './linked-devices-dialog';
+import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl, type LinkedDeviceRow } from './linked-devices-dialog';
+import {
+  renderCreatorReplies as renderCreatorRepliesImpl,
+  CREATOR_REPLY_PAGE_SIZE,
+  type CreatorReplyRow,
+  type CreatorReplyFilterState,
+} from './creator-replies-view';
+import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-gestures';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
-import { decodePairingCode, isPairingExpired, type PairingPayload } from '../../shared/identity-linking';
+import { type PairingPayload } from '../../shared/identity-linking';
 import { showEraseDeviceDialog } from './erase-device-dialog';
 import { eraseDevice } from '../services/device-wipe';
-import {
-  detectLocalDevicePlatform,
-  getOrCreateLocalDeviceMetadata,
-  renameLocalDevice,
-} from '../services/local-device-metadata';
 import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { buildTagIdentityKeys } from '../../shared/talk-ledger';
 
@@ -226,51 +224,6 @@ const LANGUAGE_OPTIONS = [
   { code: 'ko', label: 'Korean' },
 ];
 
-/**
- * Best-effort language auto-detect for a talk's title/question text, so the author never has
- * to pick a language per-talk (that's now a one-time setting: Settings > Languages > Default
- * Talk Language, `getDefaultTalkLanguagePreference`). Short, keyword-only titles ("buy",
- * "iPhone") rarely carry enough signal to detect from — those fall through to `fallback`.
- */
-function detectTalkLanguage(text: string, fallback: string): string {
-  const normalized = text.normalize('NFKC');
-  if (/[぀-ヿ]/.test(normalized)) return 'ja'; // Hiragana/Katakana
-  if (/[가-힯]/.test(normalized)) return 'ko'; // Hangul
-  if (/[一-鿿]/.test(normalized)) return 'zh'; // CJK ideographs, no kana/hangul present
-  const lower = normalized.toLowerCase();
-  if (/[àâçéèêëîïôûùüÿœæ]/.test(lower) || /\b(le|la|les|et|ou|mais|est|sont|bonjour|merci)\b/.test(lower)) return 'fr';
-  if (/[äöüß]/.test(lower) || /\b(der|die|das|und|oder|aber|ist|sind|danke|hallo)\b/.test(lower)) return 'de';
-  if (/[ñ¿¡]/.test(lower) || /\b(el|la|los|las|y|o|pero|es|son|hola|gracias)\b/.test(lower)) return 'es';
-  if (/\b(the|and|or|but|is|are|hello|thanks)\b/.test(lower)) return 'en';
-  return fallback;
-}
-
-type CreatorReplyRow = {
-  responseId: string;
-  talkId: string;
-  title: string;
-  type: string;
-  language: string;
-  responderId: string;
-  responderName: string;
-  outcome: 'match' | 'ignore' | 'mismatch';
-  answerMode: 'manual' | 'auto';
-  date: string;
-  answers: Array<{ questionId: string; answerId: string; answerText: string }>;
-};
-
-type CreatorReplyFilterState = {
-  query: string;
-  outcome: string;
-  relationship: string;
-  type: string;
-  language: string;
-  from: string;
-  to: string;
-  sort: string;
-  group: string;
-};
-
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
@@ -284,7 +237,6 @@ function shouldShowCooldownToast(storageKey: string): boolean {
   localStorage.setItem(storageKey, String(Date.now()));
   return true;
 }
-const CREATOR_REPLY_PAGE_SIZE = 25;
 /** TODO §R2: first-chunk size for the Talks tab's OUT/IN lists, same precedent as above. */
 const TALKS_FIRST_CHUNK_SIZE = 25;
 
@@ -463,18 +415,6 @@ export class UIManager extends EventEmitter {
   /** Broadcast on/off checkbox — bound once, separate from the mousedown-capture block above. */
   private talksBroadcastCheckboxBound = false;
   /** Row-drag gesture recognizer (ignore/copy/delete) — bound once. */
-  private talksRowGestureBound = false;
-  private talksRowGestureState: {
-    row: HTMLElement;
-    talkId: string;
-    identityKey: string;
-    role: string;
-    cluster: any;
-    startX: number;
-    startY: number;
-    dragging: boolean;
-    committedAt: number;
-  } | null = null;
   /** A committed or cancelled drag swallows the click that would otherwise follow release. */
   private talksGestureSuppressClickUntil = 0;
   /** TODO §R2: lets a newer `displayTalksList()` call's deferred remainder win over a stale one. */
@@ -2912,205 +2852,26 @@ export class UIManager extends EventEmitter {
   }
 
   private renderCreatorReplies(): void {
-    const list = document.getElementById('creator-replies-list');
-    const summary = document.getElementById('creator-replies-summary');
-    if (!list || !summary) return;
-    const state = this.readCreatorReplyFilterState();
-    const query = state.query.toLowerCase();
-    const fromTime = state.from ? new Date(`${state.from}T00:00:00`).getTime() : undefined;
-    const toTime = state.to ? new Date(`${state.to}T23:59:59.999`).getTime() : undefined;
-    const metricsByResponder = new Map<string, { replies: number; matches: number; relevance: number }>();
-    const metricsByTalk = new Map<string, { replies: number; matches: number; matchRate: number }>();
-    // Spec §30.2 matchThreshold routes: a matched row's own conversation (if the responder's
-    // reply actually formed one — see conversationId, otherUserId keyed lookup, robust to
-    // bidirectional-exchange talkId ambiguity the same way maybeFinalizeConfirmedDeal is,
-    // app.ts) carries the stored score/total for the "Matched items" percentage display/sort.
-    const conversationsById = this.getMyConversations();
-    const matchInfoByResponder = new Map<string, { conversationId: string; matchScore?: number; matchTotal?: number }>();
-    for (const [conversationId, conversation] of Object.entries(conversationsById) as Array<[string, any]>) {
-      const otherUserId = conversation?.otherUserId;
-      if (!otherUserId || matchInfoByResponder.has(otherUserId)) continue;
-      matchInfoByResponder.set(otherUserId, {
-        conversationId,
-        matchScore: conversation?.matchScore,
-        matchTotal: conversation?.matchTotal,
-      });
-    }
-    const matchPercent = (responderId: string): number | null => {
-      const info = matchInfoByResponder.get(responderId);
-      if (!info || info.matchScore == null || !info.matchTotal) return null;
-      return Math.round((info.matchScore / info.matchTotal) * 100);
-    };
-    for (const row of this.creatorReplyRows) {
-      const metrics = metricsByResponder.get(row.responderId) || { replies: 0, matches: 0, relevance: 0 };
-      metrics.replies += 1;
-      if (row.outcome === 'match') metrics.matches += 1;
-      metrics.relevance = metrics.matches * 100 + metrics.replies;
-      metricsByResponder.set(row.responderId, metrics);
-      const talkMetrics = metricsByTalk.get(row.talkId) || { replies: 0, matches: 0, matchRate: 0 };
-      talkMetrics.replies += 1;
-      if (row.outcome === 'match') talkMetrics.matches += 1;
-      talkMetrics.matchRate = talkMetrics.matches / talkMetrics.replies;
-      metricsByTalk.set(row.talkId, talkMetrics);
-    }
-    const filtered = this.creatorReplyRows
-      .filter((row) => {
-        const known = this.getKnownPerson(row.responderId);
-        const labels = known?.labels && known.labels.length > 0
-          ? known.labels.map((l) => l.toLowerCase())
-          : ['stranger'];
-        const time = new Date(row.date).getTime();
-        if (this.creatorReplyScopedTalkId && row.talkId !== this.creatorReplyScopedTalkId) return false;
-        if (query && !`${row.responderName} ${row.title}`.toLowerCase().includes(query)) return false;
-        if (state.outcome !== 'all' && row.outcome !== state.outcome && row.answerMode !== state.outcome) return false;
-        if (state.relationship !== 'all' && !labels.includes(state.relationship)) return false;
-        if (state.type !== 'all' && String(row.type || 'flow').toLowerCase() !== state.type) return false;
-        if (state.language !== 'all' && String(row.language || 'en').toLowerCase() !== state.language) return false;
-        if (fromTime != null && time < fromTime) return false;
-        if (toTime != null && time > toTime) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        const aMetrics = metricsByResponder.get(a.responderId)!;
-        const bMetrics = metricsByResponder.get(b.responderId)!;
-        const aTalk = metricsByTalk.get(a.talkId)!;
-        const bTalk = metricsByTalk.get(b.talkId)!;
-        // Pre-sort by group field so contiguous group blocks are formed (prevents duplicate group headers).
-        if (state.group === 'responder') {
-          const g = a.responderName.localeCompare(b.responderName);
-          if (g !== 0) return g;
-        } else if (state.group === 'talk') {
-          const g = a.title.localeCompare(b.title);
-          if (g !== 0) return g;
-        } else if (state.group === 'day') {
-          const g = new Date(a.date).toLocaleDateString().localeCompare(new Date(b.date).toLocaleDateString());
-          if (g !== 0) return g;
-        } else if (state.group === 'relationship') {
-          const aRel = (this.getKnownPerson(a.responderId)?.labels || []).join(', ') || 'stranger';
-          const bRel = (this.getKnownPerson(b.responderId)?.labels || []).join(', ') || 'stranger';
-          const g = aRel.localeCompare(bRel);
-          if (g !== 0) return g;
-        }
-        if (state.sort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
-        if (state.sort === 'user') return a.responderName.localeCompare(b.responderName) || a.title.localeCompare(b.title);
-        if (state.sort === 'talk') return a.title.localeCompare(b.title) || a.responderName.localeCompare(b.responderName);
-        if (state.sort === 'relationship') {
-          const byRelationship = ((this.getKnownPerson(a.responderId)?.labels || []).join(', ') || 'Stranger')
-            .localeCompare((this.getKnownPerson(b.responderId)?.labels || []).join(', ') || 'Stranger');
-          if (byRelationship !== 0) return byRelationship;
-        }
-        if (state.sort === 'match-percent') {
-          const aPct = matchPercent(a.responderId) ?? -1;
-          const bPct = matchPercent(b.responderId) ?? -1;
-          if (bPct !== aPct) return bPct - aPct;
-        }
-        if (state.sort === 'matches' && bMetrics.matches !== aMetrics.matches) return bMetrics.matches - aMetrics.matches;
-        if (state.sort === 'talk-matches' && bTalk.matches !== aTalk.matches) return bTalk.matches - aTalk.matches;
-        if (state.sort === 'talk-replies' && bTalk.replies !== aTalk.replies) return bTalk.replies - aTalk.replies;
-        if (state.sort === 'weighted' && bMetrics.relevance !== aMetrics.relevance) return bMetrics.relevance - aMetrics.relevance;
-        return new Date(b.date).getTime() - new Date(a.date).getTime() || a.responseId.localeCompare(b.responseId);
-      });
-    const shown = Math.min(this.creatorReplyVisibleCount, filtered.length);
-    summary.textContent = this.getUiLanguage() === 'zh'
-      ? `显示 ${shown}/${filtered.length} 条筛选回复（共 ${this.creatorReplyRows.length} 条）`
-      : `Showing ${shown} of ${filtered.length} filtered replies (${this.creatorReplyRows.length} total)`;
-    const activeFilters = document.getElementById('creator-replies-active-filters');
-    if (activeFilters) {
-      const chips = [
-        state.query ? `${this.getUiLanguage() === 'zh' ? '搜索' : 'Search'}: ${state.query}` : '',
-        state.outcome !== 'all' ? `${this.getUiLanguage() === 'zh' ? '结果' : 'Outcome'}: ${state.outcome}` : '',
-        state.relationship !== 'all' ? `${this.getUiLanguage() === 'zh' ? '关系' : 'Relation'}: ${state.relationship}` : '',
-        state.type !== 'all' ? `${this.getUiLanguage() === 'zh' ? '类型' : 'Type'}: ${state.type}` : '',
-        state.language !== 'all' ? `${this.getUiLanguage() === 'zh' ? this.t('languagesLabel') : 'Language'}: ${this.formatTalkLanguage(state.language)}` : '',
-        state.from ? `${this.getUiLanguage() === 'zh' ? '起始日期' : 'From'}: ${state.from}` : '',
-        state.to ? `${this.getUiLanguage() === 'zh' ? '结束日期' : 'To'}: ${state.to}` : '',
-      ].filter(Boolean);
-      activeFilters.innerHTML = chips.map((chip) =>
-        `<span class="reply-filter-chip" style="font-size:0.8em;background:var(--border);border-radius:999px;padding:3px 8px;">${escapeHtml(chip)}</span>`,
-      ).join('') + (this.creatorReplyScopedTalkId
-        ? `<span class="reply-filter-chip reply-scope-chip" id="reply-scope-chip" style="font-size:0.8em;background:var(--accent-soft);color:var(--accent-text);border-radius:999px;padding:3px 8px;cursor:pointer;font-weight:600;" title="${escapeHtml(this.t('repliesClearScope'))}">${escapeHtml(this.tf('repliesScopedToTalk', { title: this.creatorReplyScopedTalkTitle }))} ×</span>`
-        : '');
-      document.getElementById('reply-scope-chip')?.addEventListener('click', () => {
+    renderCreatorRepliesImpl({
+      getRows: () => this.creatorReplyRows,
+      readFilterState: () => this.readCreatorReplyFilterState(),
+      getScopedTalkId: () => this.creatorReplyScopedTalkId,
+      getScopedTalkTitle: () => this.creatorReplyScopedTalkTitle,
+      clearScope: () => {
         this.creatorReplyScopedTalkId = null;
         this.creatorReplyScopedTalkTitle = '';
-        this.renderCreatorReplies();
-      });
-    }
-    if (filtered.length === 0) {
-      list.innerHTML = `<div style="color:var(--text-muted);padding:8px;">${this.t('repliesNoMatch')}</div>`;
-      return;
-    }
-    let previousGroup = '';
-    list.innerHTML = filtered.slice(0, this.creatorReplyVisibleCount).map((row) => {
-      const known = this.getKnownPerson(row.responderId);
-      const label = known?.labels?.length ? known.labels.join(', ') : this.t('stranger');
-      const metrics = metricsByResponder.get(row.responderId)!;
-      const score = state.sort === 'weighted'
-        ? this.getUiLanguage() === 'zh'
-          ? ` · 得分 ${metrics.relevance}（${metrics.matches} 匹配 x100 + ${metrics.replies} 回复）`
-          : ` · Score ${metrics.relevance} (${metrics.matches} matches x100 + ${metrics.replies} replies)`
-        : '';
-      const answerPreview = row.answers
-        .map((answer) => String(answer.answerText || '').trim())
-        .filter(Boolean)
-        .join(', ');
-      const group = state.group === 'responder'
-        ? row.responderName
-        : state.group === 'talk'
-          ? row.title
-          : state.group === 'relationship'
-            ? String(label)
-            : state.group === 'day'
-              ? new Date(row.date).toLocaleDateString()
-              : '';
-      const groupHeader = group && group !== previousGroup
-        ? `<div class="creator-reply-group" style="font-weight:700;color:var(--text-secondary);margin-top:5px;">${escapeHtml(group)}</div>`
-        : '';
-      previousGroup = group;
-      // Spec §30.2: a matched row with a stored route matchThreshold score shows its match %
-      // (Adam's "Matched items" list) and, when a conversation actually formed, is clickable
-      // straight through to it instead of the profile view — review candidates, then DM.
-      // Scoped to matchThreshold-route matches only (pct != null) — an ordinary (non-route, or
-      // route without matchThreshold) match row keeps its long-standing behavior of navigating
-      // to the responder's contact detail instead (09-contacts-talks-cross-navigation.spec.ts).
-      const pct = row.outcome === 'match' ? matchPercent(row.responderId) : null;
-      const matchConversationId = pct != null ? matchInfoByResponder.get(row.responderId)?.conversationId : undefined;
-      const percentChip = pct != null
-        ? `<span class="creator-reply-match-percent" data-match-percent="${pct}" style="font-size:0.8em;font-weight:700;color:var(--success-text);margin-left:8px;">${pct}%</span>`
-        : '';
-      return `${groupHeader}
-        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-responder-name="${escapeHtml(row.responderName)}" data-talk-id="${escapeHtml(row.talkId)}" ${matchConversationId ? `data-conversation-id="${escapeHtml(matchConversationId)}"` : ''} style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);cursor:pointer;" role="button" tabindex="0" title="${escapeHtml(this.t('repliesViewContact'))}">
-          <div style="display:flex;justify-content:space-between;gap:10px;">
-            <strong>${escapeHtml(row.responderName)}</strong>
-            <span>
-              <span style="color:${row.outcome === 'match' ? 'var(--success-text)' : 'var(--text-tertiary)'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>${percentChip}
-            </span>
-          </div>
-          <div style="font-size:0.86em;color:var(--text-secondary);">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(this.formatTalkLanguage(String(row.language || 'en').toLowerCase()))} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
-          ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:var(--text-primary);margin-top:4px;">${this.t('repliesAnswers')}: ${escapeHtml(answerPreview)}</div>` : ''}
-        </div>
-      `;
-    }).join('');
-    list.querySelectorAll<HTMLElement>('.creator-reply-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const conversationId = row.dataset.conversationId || '';
-        if (conversationId) {
-          this.showConversationDetail(conversationId);
-          return;
-        }
-        const id = row.dataset.responderId || '';
-        const name = row.dataset.responderName || '';
-        if (id) this.navigateToGraphNode({ type: 'person', id, name });
-      });
+      },
+      getVisibleCount: () => this.creatorReplyVisibleCount,
+      growVisibleCount: () => { this.creatorReplyVisibleCount += CREATOR_REPLY_PAGE_SIZE; },
+      getMyConversations: () => this.getMyConversations(),
+      getKnownPerson: (userId) => this.getKnownPerson(userId),
+      getUiLanguage: () => this.getUiLanguage(),
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+      formatTalkLanguage: (code) => this.formatTalkLanguage(code),
+      showConversationDetail: (conversationId) => this.showConversationDetail(conversationId),
+      navigateToGraphNode: (target) => this.navigateToGraphNode(target),
     });
-    if (filtered.length > this.creatorReplyVisibleCount) {
-      const moreCount = Math.min(CREATOR_REPLY_PAGE_SIZE, filtered.length - this.creatorReplyVisibleCount);
-      list.innerHTML += `<button class="btn" id="reply-load-more" type="button" style="margin-top:6px;">${this.getUiLanguage() === 'zh' ? `再显示 ${moreCount} 条回复` : `Show ${moreCount} more replies`}</button>`;
-      document.getElementById('reply-load-more')?.addEventListener('click', () => {
-        this.creatorReplyVisibleCount += CREATOR_REPLY_PAGE_SIZE;
-        this.renderCreatorReplies();
-      });
-    }
   }
 
   displayAnswersList(): void {
@@ -3903,150 +3664,27 @@ export class UIManager extends EventEmitter {
    * a verified link.
    */
   private async openLinkedDevicesDialog(prefillLinkCode?: string): Promise<void> {
-    const LOCAL_KEY = 'iinpublic_linked_devices';
-    let graphStateResolved = false;
-    const listRecords = (): LinkedDeviceRow[] => {
-      try {
-        const arr = JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]');
-        if (!Array.isArray(arr)) return [];
-        // localStorage supplies candidate identities and display labels only. A
-        // persisted row cannot claim a verified link until this page has resolved
-        // the signed graph state in the current view.
-        return graphStateResolved
-          ? arr
-          : arr.map((row: LinkedDeviceRow) => ({ ...row, state: 'waiting' as const }));
-      } catch {
-        return [];
-      }
-    };
-    const saveRecords = (rows: LinkedDeviceRow[]): void => localStorage.setItem(LOCAL_KEY, JSON.stringify(rows));
-    const nativeHost = (window as unknown as {
-      iinpublicNative?: { version?: string; platform?: string };
-    }).iinpublicNative;
-    const nativeQuery = new URLSearchParams(window.location.search);
-    const explicitPlatform = nativeHost?.platform || nativeQuery.get('native_platform') || '';
-    const appVersion = String(nativeHost?.version || nativeQuery.get('app_version') || 'web');
-    const platform = detectLocalDevicePlatform(explicitPlatform, navigator.userAgent || '');
-    const createdAt = new Date(this.currentUser?.createdAt || Date.now()).getTime();
-    const defaultDeviceName = platform === 'android'
-      ? this.t('defaultAndroidDeviceName')
-      : platform === 'ios'
-        ? this.t('defaultIosDeviceName')
-        : platform === 'desktop'
-          ? this.t('defaultDesktopDeviceName')
-          : this.t('defaultBrowserDeviceName');
-    let deviceMetadata = getOrCreateLocalDeviceMetadata(localStorage, {
-      name: defaultDeviceName,
-      platform,
-      createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
-    });
-    const identityPub = this.currentUser?.pub || '';
-    let protection = this.identityPasswordStatusReader
-      ? await this.identityPasswordStatusReader().catch(() => ({ state: 'not-set' as const }))
-      : { state: 'not-set' as const };
-    let incomingHandoff = this.deviceHandoffCheckIncoming
-      ? await this.deviceHandoffCheckIncoming().catch(() => null)
-      : null;
-    showLinkedDevicesDialog({
-      text: (key: string, fallback?: string) => {
-        const value = this.t(key as any);
-        return value && value !== key ? value : (fallback ?? key);
+    return openLinkedDevicesDialogImpl(
+      {
+        t: (key) => this.t(key as any),
+        getCurrentUser: () => this.currentUser ?? null,
+        identityPasswordStatusReader: this.identityPasswordStatusReader,
+        identityPasswordSetter: this.identityPasswordSetter,
+        identityPasswordChanger: this.identityPasswordChanger,
+        identityPasswordRemover: this.identityPasswordRemover,
+        identityPasswordLocker: this.identityPasswordLocker,
+        identityLinkCodeCreator: this.identityLinkCodeCreator,
+        identityLinkRequestReader: this.identityLinkRequestReader,
+        identityLinkRequestApprover: this.identityLinkRequestApprover,
+        identityLinkPendingCanceler: this.identityLinkPendingCanceler,
+        identityLinkRefresher: this.identityLinkRefresher,
+        identityLinkCompleter: this.identityLinkCompleter,
+        identityLinkUnlinker: this.identityLinkUnlinker,
+        deviceHandoffCheckIncoming: this.deviceHandoffCheckIncoming,
+        deviceHandoffImport: this.deviceHandoffImport,
       },
-      listRecords,
-      identity: {
-        pub: identityPub,
-        stageName: this.currentUser?.stageName || this.t('unavailable'),
-        ...(this.currentUser?.headshot ? { headshot: this.currentUser.headshot } : {}),
-        createdAt: Number.isFinite(createdAt) ? createdAt : deviceMetadata.createdAt,
-        status: identityPub ? 'available' : 'needs-attention',
-      },
-      device: () => deviceMetadata,
-      appVersion,
-      protection: () => ({ state: protection.state === 'locked' ? 'set' : 'not-set' }),
-      ...(this.identityPasswordSetter
-        ? { setIdentityPassword: async (password: string) => {
-          await this.identityPasswordSetter!(password);
-          protection = { state: 'locked' };
-        } }
-        : {}),
-      ...(this.identityPasswordChanger
-        ? { changeIdentityPassword: this.identityPasswordChanger }
-        : {}),
-      ...(this.identityPasswordRemover
-        ? { removeIdentityPassword: async (currentPassword: string) => {
-          await this.identityPasswordRemover!(currentPassword);
-          protection = { state: 'not-set' };
-        } }
-        : {}),
-      ...(this.identityPasswordLocker
-        ? { lockIdentityNow: this.identityPasswordLocker }
-        : {}),
-      renameDevice: (name: string) => {
-        deviceMetadata = renameLocalDevice(localStorage, deviceMetadata, name);
-        return deviceMetadata;
-      },
-      selfPub: () => identityPub,
-      randomSecret: () => {
-        const bytes = new Uint8Array(18);
-        (globalThis.crypto || (window as any).crypto).getRandomValues(bytes);
-        return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-      },
-      ...(this.identityLinkCodeCreator
-        ? { createLinkCode: (now: number) => this.identityLinkCodeCreator!(now) }
-        : {}),
-      ...(this.identityLinkRequestReader
-        ? { readIncomingRequest: () => this.identityLinkRequestReader!() }
-        : {}),
-      ...(this.identityLinkRequestApprover
-        ? { approveIncomingRequest: (pub: string) => this.identityLinkRequestApprover!(pub) }
-        : {}),
-      ...(this.identityLinkPendingCanceler
-        ? { cancelPendingRequest: (requestId: string) => this.identityLinkPendingCanceler!(requestId) }
-        : {}),
-      ...(this.identityLinkRefresher
-        ? { refreshRecords: async () => {
-            await this.identityLinkRefresher!();
-            graphStateResolved = true;
-          } }
-        : {}),
-      completeFromCode: async (code: string) => {
-        const decoded = decodePairingCode(code);
-        if (!decoded) return 'invalid';
-        if (decoded.pub === identityPub) return 'self';
-        if (isPairingExpired(decoded)) return 'expired';
-        const rows = listRecords();
-        if (rows.some((r) => r.pub === decoded.pub)) return 'reused';
-        if (!this.identityLinkCompleter) return 'invalid';
-        const err = await this.identityLinkCompleter(code).catch(() => 'unavailable' as const);
-        if (err) return err;
-        rows.push({
-          pub: decoded.pub,
-          stageName: this.t('linkedDeviceDefaultName'),
-          platform: 'web',
-          linkedAt: Date.now(),
-          state: 'waiting',
-        });
-        saveRecords(rows);
-        return null;
-      },
-      unlink: async (pub: string) => {
-        const state = this.identityLinkUnlinker
-          ? await this.identityLinkUnlinker(pub)
-          : 'revocation-pending';
-        saveRecords(listRecords().map((row) => row.pub === pub ? { ...row, state } : row));
-        return state;
-      },
-      ...(incomingHandoff
-        ? {
-            incomingHandoff: { fromPub: incomingHandoff.fromPub, fromName: incomingHandoff.fromName },
-            importHandoff: async () => {
-              if (!incomingHandoff || !this.deviceHandoffImport) return;
-              await this.deviceHandoffImport(incomingHandoff.fromPub, incomingHandoff.archive);
-              incomingHandoff = null;
-            },
-          }
-        : {}),
-    }, prefillLinkCode ? { prefillLinkCode } : undefined);
+      prefillLinkCode,
+    );
   }
 
   /**
@@ -4853,103 +4491,12 @@ export class UIManager extends EventEmitter {
    * never accidentally opens the talk either.
    */
   private bindTalksRowGestures(): void {
-    if (this.talksRowGestureBound) return;
-    this.talksRowGestureBound = true;
-
-    const MOVE_THRESHOLD = 12;
-    const COMMIT_THRESHOLD = 64;
-    const LONG_PRESS_MS = 500;
-    const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details';
-
-    const clearHints = (row: HTMLElement): void => {
-      row.classList.remove('talk-gesture-live');
-      row.style.transform = '';
-      row.classList.remove('talk-gesture-hint-ignore', 'talk-gesture-hint-copy', 'talk-gesture-hint-delete');
-    };
-
-    document.body.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (e.button !== 0) return;
-      const target = e.target as HTMLElement;
-      if (!target.closest('#talks-list')) return;
-      if (target.closest(excluded)) return;
-      const row = target.closest('.talk-list-item') as HTMLElement | null;
-      if (!row || row.classList.contains('talk-tag-chip')) return;
-      const state = {
-        row,
-        talkId: row.dataset.talkId || '',
-        identityKey: row.dataset.identityKey || '',
-        role: row.dataset.role || '',
-        cluster: undefined,
-        startX: e.clientX,
-        startY: e.clientY,
-        dragging: false,
-        committedAt: 0,
-      };
-      this.talksRowGestureState = state;
-      const longPressTimer = window.setTimeout(() => {
-        if (this.talksRowGestureState !== state || state.dragging) return;
-        this.talksRowGestureState = null;
-        // Short window, just long enough to swallow the synthetic click the pointerup
-        // that follows the long-press would otherwise fire — NOT long enough to also
-        // swallow a real, separate click on something inside the popup that just opened
-        // (e.g. a test or a fast double-tap landing on the sender-name a moment later).
-        this.talksGestureSuppressClickUntil = Date.now() + 60;
-        const details = row.querySelector('.talk-item-details') as HTMLElement | null;
-        if (details) this.showDetailsPopupFor(details, row);
-      }, LONG_PRESS_MS);
-      const clearTimer = () => window.clearTimeout(longPressTimer);
-      row.addEventListener('pointerup', clearTimer, { once: true });
-      row.addEventListener('pointercancel', clearTimer, { once: true });
-    }, { passive: true });
-
-    document.body.addEventListener('pointermove', (e: PointerEvent) => {
-      const state = this.talksRowGestureState;
-      if (!state) return;
-      const dx = e.clientX - state.startX;
-      const dy = e.clientY - state.startY;
-      if (!state.dragging && Math.max(Math.abs(dx), Math.abs(dy)) < MOVE_THRESHOLD) return;
-      if (!state.dragging) state.row.classList.add('talk-gesture-live');
-      state.dragging = true;
-      if (Math.abs(dy) >= Math.abs(dx)) {
-        if (state.role === 'incoming') {
-          const clamped = Math.max(-100, Math.min(100, dy));
-          state.row.style.transform = `translateY(${clamped}px)`;
-          state.row.classList.toggle('talk-gesture-hint-ignore', dy < -MOVE_THRESHOLD);
-          state.row.classList.toggle('talk-gesture-hint-copy', dy > MOVE_THRESHOLD);
-        }
-      } else if (state.role !== 'incoming') {
-        const clamped = Math.max(-100, Math.min(0, dx));
-        state.row.style.transform = `translateX(${clamped}px)`;
-        state.row.classList.toggle('talk-gesture-hint-delete', dx < -MOVE_THRESHOLD);
-      }
-    }, { passive: true });
-
-    document.body.addEventListener('pointerup', (e: PointerEvent) => {
-      const state = this.talksRowGestureState;
-      this.talksRowGestureState = null;
-      if (!state) return;
-      if (!state.dragging) return; // plain tap or a long-press already handled by its own timer
-      clearHints(state.row);
-      // Same reasoning as the long-press timer: just long enough to swallow the click
-      // that naturally follows this same release, not a blanket window that could also
-      // eat an unrelated later click.
-      this.talksGestureSuppressClickUntil = Date.now() + 60;
-      const dx = e.clientX - state.startX;
-      const dy = e.clientY - state.startY;
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-      if (absDy >= absDx && absDy >= COMMIT_THRESHOLD && state.role === 'incoming') {
-        if (dy < 0) this.quickIgnoreIncomingTalk(state.talkId, state.identityKey || undefined);
-        else this.quickCopyIncomingTalk(state.talkId, state.identityKey || undefined);
-      } else if (absDx > absDy && absDx >= COMMIT_THRESHOLD && state.role !== 'incoming' && dx < 0 && state.talkId) {
-        this.deleteMyTalk(state.talkId);
-      }
-    });
-
-    document.body.addEventListener('pointercancel', () => {
-      const state = this.talksRowGestureState;
-      this.talksRowGestureState = null;
-      if (state) clearHints(state.row);
+    bindTalksRowGesturesImpl({
+      setSuppressClickUntil: (timestamp) => { this.talksGestureSuppressClickUntil = timestamp; },
+      showDetailsPopupFor: (detailsEl, originalParent) => this.showDetailsPopupFor(detailsEl, originalParent),
+      quickIgnoreIncomingTalk: (talkId, identityKeyFallback) => this.quickIgnoreIncomingTalk(talkId, identityKeyFallback),
+      quickCopyIncomingTalk: (talkId, identityKeyFallback) => this.quickCopyIncomingTalk(talkId, identityKeyFallback),
+      deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
     });
   }
 
@@ -7150,235 +6697,17 @@ export class UIManager extends EventEmitter {
   }
 
   private processTalkForm(form: HTMLFormElement): boolean {
-    const title = (document.getElementById('talk-title') as HTMLInputElement).value.trim();
-    const type = (document.getElementById('talk-type') as HTMLSelectElement).value as
-      | 'flow'
-      | 'survey'
-      | 'tag'
-      | 'route';
-    // No per-talk language picker: auto-detected from the title, falling back to the
-    // author's Settings > Languages > Default Talk Language preference.
-    const language = detectTalkLanguage(title, getDefaultTalkLanguagePreference(this.getUiLanguage()));
-
-    const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
-    const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
-    const sendToChatroomCheck = document.getElementById('talk-send-to-chatroom') as HTMLInputElement;
-    // docs/TODO.md §LL follow-up: the root-level `#talk-tag`/`#talk-preference-set` fields (and
-    // the talk-level `selfTag`/`preferenceSet` they wrote) were removed entirely — tag/preference
-    // context is now declared exclusively per-question via a Pair-tag question's own
-    // `reciprocalTagContext` flag (`Question.reciprocalTagContext`), read at match/resolution
-    // time by `findTagPairAncestor`/`myEffectiveTagContext`, not authored here.
-    const tags: Tag[] = [];
-    const expiresVal = expiresSelect?.value || '';
-    const oneDay = 24 * 60 * 60 * 1000;
-    let expiresAt: number | null = null;
-    if (expiresVal === '1d') expiresAt = Date.now() + oneDay;
-    else if (expiresVal === '1w') expiresAt = Date.now() + 7 * oneDay;
-    else if (expiresVal === '1M') expiresAt = Date.now() + 30 * oneDay;
-    else if (expiresVal === '1y') expiresAt = Date.now() + 365 * oneDay;
-    const locationRadiusMiles =
-      locationSelect?.value === '' || locationSelect?.value == null
-        ? null
-        : parseInt(locationSelect.value, 10);
-    const sendToChatroom = sendToChatroomCheck?.checked !== false;
-
-    let questions: any[];
-    const selfAnswers: { questionId: string; answerId: string }[] = [];
-    // Spec §30.2 multi-spec route matching: presence switches checkIfMatch (talk-engine.ts)
-    // from "check only the terminal answer" to a score-threshold rule over every direct child
-    // of the route's root. Only meaningful for type: 'route'; left undefined for every other
-    // type, and undefined for a route talk that leaves the field blank (today's terminal-only
-    // behavior, unchanged).
-    let matchThreshold: number | undefined;
-    if (type === 'route') {
-      const matchThresholdInput = document.getElementById('talk-match-threshold') as HTMLInputElement | null;
-      const rawThreshold = matchThresholdInput?.value.trim() || '';
-      const parsedThreshold = rawThreshold ? parseInt(rawThreshold, 10) : NaN;
-      matchThreshold = Number.isFinite(parsedThreshold) && parsedThreshold > 0 ? parsedThreshold : undefined;
-    }
-
-      if (type === 'tag') {
-      const keyword = title || (document.getElementById('talk-title') as HTMLInputElement).value.trim();
-      if (!keyword) {
-        this.showTalkValidationError([this.t('editorTagRequired')]);
-        return false;
-      }
-      // docs/TODO.md §LL follow-up: a tag IS a single-question talk — the question text is the
-      // keyword (unchanged). By default it's a "simple tag" (tagKind: 'simple') — the match
-      // answer's text IS the keyword, self-match only ("Tennis" matches "Tennis"), enforced by
-      // TalkValidator.validateTagTalk. Only when the author checks "Pair tag"
-      // (`#tag-pair-checkbox`, talk-editor-dialog.ts) does the accepted answer come from
-      // `#talk-answer` and get to diverge (e.g. "sell" accepting "buy") — that's
-      // reciprocalTagContext:true, the same asymmetric-pair primitive usable anywhere in
-      // flow/survey/route (see Question.tagKind/reciprocalTagContext, types.ts).
-      const isPairTag = (document.getElementById('tag-pair-checkbox') as HTMLInputElement | null)?.checked === true;
-      const answerInputValue = isPairTag
-        ? (document.getElementById('talk-answer') as HTMLInputElement | null)?.value.trim() || ''
-        : '';
-      const answerWord = answerInputValue || keyword;
-      questions = [
-        {
-          id: 'q_0',
-          text: keyword,
-          ...(isPairTag ? { reciprocalTagContext: true } : { tagKind: 'simple' as const }),
-          answers: [
-            { id: 'a_0_match', text: answerWord, isMatch: true, isTerminal: true },
-            { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
-          ],
-        },
-      ];
-      const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
-      const likesTag = tagLikeCheckbox ? tagLikeCheckbox.checked : true;
-      selfAnswers.push({ questionId: 'q_0', answerId: likesTag ? 'a_0_match' : 'a_0_ignore' });
-    } else if (type === 'route') {
-      const routeResult = this.collectRouteEditorQuestions();
-      if (routeResult.errors.length > 0) {
-        this.showTalkValidationError(routeResult.errors);
-        return false;
-      }
-      questions = routeResult.questions;
-      if (questions.length === 0) {
-        this.showTalkValidationError([this.t('editorRouteRequired')]);
-        return false;
-      }
-      selfAnswers.push(...this.buildRouteSelfAnswers(matchThreshold));
-    } else {
-      // flow + survey share the linear editor
-      const collected = collectFlowSurveyEditorQuestions(form, type as 'flow' | 'survey', {
-        refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
-        processTalkForm: this.processTalkForm.bind(this),
-        text: this.t.bind(this),
-      });
-      questions = collected.questions;
-      selfAnswers.push(...collected.selfAnswers);
-      if (collected.errors.length > 0) {
-        this.showTalkValidationError(collected.errors);
-        return false;
-      }
-    }
-
-    // ── Mandatory financial-data check (spec §7.4, FR-FIN-2) ───────────────
-    // Runs before validation/autofix and cannot be disabled — covers the talk
-    // title and every question/answer text field.
-    const talkTextFields: string[] = [
-      title,
-      ...questions.flatMap((q: any) => [q.text, ...(q.answers || []).map((a: any) => a.text)]),
-    ];
-    if (talkTextFields.some((t) => containsFinancialData(String(t || '')))) {
-      this.showTalkValidationError([this.t('editorFinancialDataBlocked')]);
-      return false;
-    }
-
-    // ── Validate (with best-effort autofix) before we emit anything ────────
-    // Build a minimal Talk-shaped object for the validator. Fields the
-    // validator doesn't care about are filled with placeholders.
-    const isAdult = !!(document.getElementById('talk-is-adult') as HTMLInputElement | null)?.checked;
-    const candidate = {
-      id: '',
-      title,
-      authorId: '',
-      type,
-      isAdult,
-      language,
-      tags,
-      questions,
-      createdAt: new Date(),
-      isTemplate: false,
-      usageCount: 0,
-    };
-    let fixed: any;
-    try {
-      const report = TalkAutofix.fix(candidate as any);
-      fixed = report.talk;
-      if (report.fixes.length > 0) {
-        this.showTalkAutofixReport(report.fixes);
-      }
-      TalkValidator.validateTalk(fixed as any);
-    } catch (err) {
-      this.showTalkValidationError([(err as Error).message]);
-      return false;
-    }
-    questions = fixed.questions;
-
-    // §BB / spec §30.2: the value I just declared on my OWN builtIn question is also my own
-    // typed preference for future auto-resolution when I respond to someone ELSE'S talk of the
-    // same shape — save it into the same store `resolveBuiltInQuestion` (Phase 5) reads, scoped
-    // the same way (my own tag, from this question's nearest Pair-tag ancestor if any + this
-    // talk's title + this question's own text — the text component is required so a talk with
-    // MORE THAN ONE builtIn question, e.g. priceRange AND timeFrame in the same talk (§HH),
-    // doesn't have the second overwrite the first at an otherwise-identical scope key).
-    // 'location' is excluded: it has no stored preference, see Question.builtIn's doc comment.
-    for (const q of questions) {
-      if (!q.builtIn || q.builtIn.kind === 'location') continue;
-      const preferenceState = getTypedPreferenceState();
-      const myTag = findTagPairAncestor({ type, questions }, q)?.questionText;
-      const scopeKey = makeTypedPreferenceScopeKey(String(myTag || 'general'), title, q.text);
-      saveTypedPreference(preferenceState, LOCAL_EXACT_CHATBOT_USER_ID, scopeKey, {
-        kind: q.builtIn.kind,
-        ...(q.builtIn.quantity !== undefined ? { quantity: q.builtIn.quantity } : {}),
-        ...(q.builtIn.priceRange ? { priceRange: q.builtIn.priceRange } : {}),
-        ...(q.builtIn.timeFrame ? { timeFrame: q.builtIn.timeFrame } : {}),
-        ...(q.builtIn.ageRange ? { ageRange: q.builtIn.ageRange } : {}),
-      });
-      setTypedPreferenceState(preferenceState);
-    }
-
-    const editingTalkId = form.dataset.editingTalkId;
-    if (editingTalkId) {
-      // Update local myTalks so the list shows the new title when re-rendered after save
-      patchMyTalk(editingTalkId, {
-        title,
-        type,
-        language,
-        expiresAt: expiresAt ?? undefined,
-        locationRadiusMiles: locationRadiusMiles ?? undefined,
-        lastInteraction: new Date().toISOString(),
-      });
-      this.emit('updateTalk', {
-        id: editingTalkId,
-        title,
-        type,
-        isAdult,
-        questions,
-        language,
-        tags,
-        expiresAt,
-        locationRadiusMiles,
-        matchThreshold,
-      });
-    } else {
-      const attachmentInput = document.getElementById('talk-attachment-input') as HTMLInputElement | null;
-      const mediaFile = attachmentInput?.files?.[0];
-      // docs/TODO.md §Y1: editing a copied-but-not-yet-owned talk stashes the source talk on
-      // the form (see talk-editor-dialog.ts's isOwnedEdit gate) instead of setting
-      // editingTalkId — this is what finally makes the editor the credited author, via the
-      // same revise-mints-new-id + originalAuthorId-transfer path §V built for DM shorthand.
-      let reviseSourceTalk: any;
-      const rawReviseSource = form.dataset.reviseSourceTalk;
-      if (rawReviseSource) {
-        try {
-          reviseSourceTalk = JSON.parse(rawReviseSource);
-        } catch {
-          /* malformed stash — fall through as an ordinary new talk */
-        }
-      }
-      this.emit('createTalk', {
-        title,
-        type,
-        isAdult,
-        questions,
-        language,
-        tags,
-        sendToChatroom,
-        expiresAt,
-        locationRadiusMiles,
-        matchThreshold,
-        selfAnswers,
-        ...(mediaFile ? { mediaFile } : {}),
-        ...(reviseSourceTalk ? { reviseSourceTalk } : {}),
-      });
-    }
-    return true;
+    return processTalkFormImpl(form, {
+      getUiLanguage: () => this.getUiLanguage(),
+      getDefaultTalkLanguagePreference,
+      t: (key) => this.t(key),
+      emit: (event, payload) => this.emit(event, payload),
+      showTalkValidationError: (errors) => this.showTalkValidationError(errors),
+      showTalkAutofixReport: (fixes) => this.showTalkAutofixReport(fixes),
+      refreshFlowAnswerConstraints: (type) => this.refreshFlowAnswerConstraints(type),
+      collectRouteEditorQuestions: () => this.collectRouteEditorQuestions(),
+      buildRouteSelfAnswers: (matchThreshold) => this.buildRouteSelfAnswers(matchThreshold),
+    });
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -8058,8 +7387,14 @@ export class UIManager extends EventEmitter {
     refreshPeerThreadList();
   }
 
-  /** Re-render the open conversation from the last synced messages (filter toggle, §9). */
-  private rerenderOpenConversation(): void {
+  /**
+   * Re-render the open conversation from the last synced messages (filter toggle, §9). Also
+   * called externally after the local TechSupport FAQ-bundle cache refreshes (docs/TODO.md K7):
+   * `filterVerifiedSupportMessages` fails closed against that cache, so a delegate's answer
+   * whose signature arrives before its bundle finishes syncing renders as if hidden until
+   * something re-renders — no new conversation message follows the bundle catching up.
+   */
+  rerenderOpenConversation(): void {
     if (!this.currentConversationId) return;
     this.displayConversationMessages(this.currentConversationId, this.lastConversationMessages);
   }

@@ -616,7 +616,7 @@ describe('buildTagIdentityKeys', () => {
   });
 
   // Real repro (07-tags-checkbox.spec.ts): a simple single-keyword tag talk — the editor's
-  // only tag shape (processTalkForm, ui-manager.ts) — always pairs one generic "Match."
+  // only tag shape (processTalkForm, talk-form-processor.ts) — always pairs one generic "Match."
   // answer with one generic "Ignore." answer; the keyword lives in the question text, not
   // the answers. Hashing the answers made every simple tag talk collide onto the same two
   // identities, so a second tag talk (e.g. "Cat") sent to a peer who'd already answered a

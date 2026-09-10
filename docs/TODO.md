@@ -35,9 +35,6 @@ partial completion is itself the useful signal.
 ## Priority 3 — native and cross-platform verification
 
 - [ ] Connect the Mac mini, Windows, and Linux native-app jobs to real CI runners.
-- [ ] Enable and pass X4 mobile↔desktop matching and threads.
-- [ ] Enable and pass X5 three-platform thread isolation.
-- [ ] Enable and pass X6 bidirectional offline/mailbox delivery.
 - [ ] Add iPhone native-shell coverage when an iOS shell is available. Android is already shipped
   and physically exercised; do not describe it as a browser-profile stand-in.
 - [ ] Apple Wi-Fi Aware discovery/data-path prototype on supported physical devices; real
@@ -904,10 +901,18 @@ Still open:
 
 ### UI god-object refactor
 
-**Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`. Issue #1
-(`ui-manager.ts` decomposition) is **in progress** as of 2026-08-24; extraction clusters #1
-(route editor), #2 (survey statistics), #3 (application shell), and #4 (answer-preference
-resolution) are complete; the current ratchet after extraction cluster #8 is 8,938 lines.
+**Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
+for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#12 are complete
+(cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`;
+cluster #10, 2026-09-09: `openLinkedDevicesDialog`'s orchestration body → `linked-devices-dialog.ts`,
+alongside the `showLinkedDevicesDialog` renderer it already owned; cluster #11, 2026-09-09:
+`renderCreatorReplies` → new `creator-replies-view.ts`; cluster #12, 2026-09-09:
+`bindTalksRowGestures` → new `talks-row-gestures.ts`). The ratchet grew from 8,938 (after
+cluster #8) to 9,153 as legitimate feature work (onboarding, K7 delegate credentials) landed on
+top between clusters; cluster #9 brought it down to 8,912, cluster #10 to 8,784, cluster #11 to
+8,584, cluster #12 to **8,482** — the current enforced ceiling
+(`src/test/unit/ui-manager-size-budget.test.ts`).
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -1004,6 +1009,51 @@ entries and babel preset were never removed.
         the API base, and translated text through one thin async shim.
       - **Defer: `displayTalksList`.** It is about 679 lines and touches roughly 52 distinct instance
         members, so it is a poor first extraction despite its size.
+      - **Ninth: talk-editor form processing.** `processTalkForm` (248 lines) had only 9 distinct
+        `this.*` references — mostly calls to five sibling helper methods, `emit`, and `t` — the
+        lowest coupling-to-size ratio of any remaining method after `displayTalksList`. Its own
+        `detectTalkLanguage` free-function dependency (17 lines, zero coupling) moved with it.
+        Never called externally (`app.ts` never invokes it): every call site already passed it
+        around as a bound `(form: HTMLFormElement) => boolean` callback (including a self-recursive
+        one into `collectFlowSurveyEditorQuestions`), so the extraction needed no new indirection.
+      - **Tenth: linked-devices dialog orchestration.** `openLinkedDevicesDialog` (152 lines, 16
+        distinct `this.*` refs) was the next-lowest coupling-to-size ratio after cluster #9;
+        `renderCreatorReplies` (202 lines, 14 refs, but with direct read/write of several mutable
+        `this.creatorReply*` instance fields — more entangled, deferred again) was re-measured and
+        passed over. Nearly all 16 refs were already-established optional hook properties
+        (`identityLinkCodeCreator`, `identityPasswordSetter`, etc. — set by `app.ts` via
+        `setIdentityLinkHooks`/`setIdentityPasswordHooks`/`setDeviceHandoffReceive`), trivially
+        forwarded as explicit deps rather than genuine coupling. The method itself was already a
+        thin(ish) options-builder around `showLinkedDevicesDialog` (an already-extracted renderer in
+        the same file), so its natural home was that same module, not a new one.
+      - **Eleventh: creator-replies list.** Re-measured after cluster #10; `renderSettingsView`
+        (483 lines, 21 refs) and its companion `bindSettingsControls` (362 lines, 22 refs) are the
+        largest remaining methods after `displayTalksList`, but inspection (not just the `this.*`
+        count) shows them mutually referencing each other and touching a wide swath of
+        cross-cutting methods — `bindSettingsControls` alone calls `displayTalksList` itself,
+        `openEraseDeviceDialog`, `openLinkedDevicesDialog`, `showEditProfileDialog`,
+        `rerenderOpenConversation`, and more — the same over-entangled shape that already ruled out
+        `displayTalksList`, so both stay deferred alongside it. `renderCreatorReplies` (202 lines,
+        14 refs) was re-measured instead: its "direct read/write of mutable instance fields"
+        concern from cluster #10's pass is exactly the shape cluster #9's `processTalkForm` and
+        earlier dashboard-style clusters (#2, #5) already handled cleanly via explicit
+        getter/setter closures — a self-contained filter/sort/group/render pipeline over 3 scalar
+        fields (`creatorReplyScopedTalkId`/`Title`, `creatorReplyVisibleCount`) and one array field
+        (`creatorReplyRows`, read-only from this method's perspective), not the deep cross-feature
+        coupling settings has.
+      - **Twelfth: talks-row gestures.** Re-measured after cluster #11; `showConversationDetail`
+        (246 lines, 18 refs), `addNewConversation` (160, 12), and `syncConversationMessageSummary`
+        (100, 11) all share a heavily-overlapping ref set (`currentConversationId`,
+        `getMyConversations`, `getPeerName`, `updateMatchBadge`, `displayContactsList`/
+        `displayConversationsList`) — a genuinely cohesive "conversation view" cluster, but one
+        whose methods are entangled with EACH OTHER and with other tabs' list-refresh side
+        effects the same way settings is; deferred rather than risk a fragile first cut.
+        `bindTalksRowGestures` (107 lines, 7 refs) was chosen instead: a self-contained
+        swipe/long-press gesture controller for talk-list rows, bound once and touching nothing
+        outside its own concern except one field (`talksGestureSuppressClickUntil`, read by a
+        click handler elsewhere) and four already-existing action methods
+        (`quickIgnoreIncomingTalk`, `quickCopyIncomingTalk`, `deleteMyTalk`,
+        `showDetailsPopupFor`).
       Re-measure after every cluster. `this.*` counts are only a filter; also inspect DOM ownership,
       event subscriptions, async callbacks, mutable collections, imports, and possible cycles.
 - [x] **1.3 Characterize cluster #1 before moving it.** Tests freeze route fan-out ordering and
@@ -1033,6 +1083,62 @@ entries and babel preset were never removed.
       - Cluster #8 freezes the absent-panel no-op, browser-storage sizing and database ordering,
         app/room state, relay/path/protocol/ownership sections, localization, untrusted diagnostic
         escaping, and the relay-failure fallback.
+      - Cluster #9 (`src/test/unit/talk-form-processor.test.ts`, 11 tests) freezes: simple
+        (self-match) and pair (divergent-answer) tag-talk creation; tag creation rejected with no
+        keyword; route creation rejected on validator errors; the mandatory financial-data guard
+        blocking before validation/emit; a real flow talk built from actual
+        `talk-editor-form-helpers` DOM (question + match answer + required Ignore answer);
+        edit-vs-create emitting `updateTalk` vs `createTalk`; and `detectTalkLanguage`'s per-script
+        detection/fallback. Real-browser regression evidence (not just unit characterization):
+        `staged/stage1-single-user/05-talks-edit` (flow create+edit, exercises `detectTalkLanguage`
+        directly per that spec's own comment), `staged/stage2-two-user/92-route-shared-builtin-
+        root-branches` (route), and `staged/stage2-two-user/07-tags-checkbox` (tag, via the real
+        editor UI rather than the low-level pair-direct bypass X1-X8 use) all pass.
+      - Cluster #10 (`src/test/unit/linked-devices-dialog.test.ts`, +8 tests) freezes:
+        `readLinkedDeviceRecords` forcing every row to "waiting" until the graph state resolves
+        (and returning `[]` for missing/malformed/non-array localStorage content); current-user
+        identity resolution including the no-current-user "unavailable" fallback;
+        `completeFromCode`'s self/reused rejections and its success path (persists the new row,
+        forwards to `identityLinkCompleter`); and `unlink` defaulting to "revocation-pending" when
+        no `identityLinkUnlinker` hook is wired. Driven through the real rendered DOM (the Enter-
+        code modal, the unlink-confirm modal) rather than calling the closures directly, since
+        `showLinkedDevicesDialog`'s own existing test file already established that convention.
+        Real-browser regression: `staged/stage2-two-user/73-identity-link-mutual`,
+        `74-device-handoff-transfer`, and `cross-platform/x8-same-device-link` all pass.
+      - Cluster #11 (`src/test/unit/creator-replies-view.test.ts`, new, 9 tests) freezes:
+        rendering rows with a correct shown/filtered/total summary count; the empty state when
+        every row is filtered out; the scoped-talk filter hiding non-matching rows and its
+        clearable scope chip; "load more" pagination growing the visible page and re-rendering;
+        click-routing (a matched row with a live conversation opens it via
+        `showConversationDetail`, an unmatched row navigates to the responder's graph node via
+        `navigateToGraphNode`); hostile responder-name/title escaping; and search-query filtering
+        by responder name and talk title. The dedicated `00v-creator-reply-triage-matrix` E2E spec
+        (100-reply pagination/search/filter/sort stress test) is pre-existing-excluded from the
+        default project (`testIgnore` in `playwright.config.ts`, unrelated to this cluster — its
+        own comment cites a stale server-snapshot data-path mismatch); confirmed via `npx
+        playwright test <path>` directly returning "No tests found" even with an explicit path.
+        Real-browser regression instead: `staged/stage3-three-user/
+        09-contacts-talks-cross-navigation` (exercises the same click-to-conversation vs
+        click-to-contact routing decision) passes.
+      - Cluster #12 (`src/test/unit/talks-row-gestures.test.ts`, new, 9 tests) freezes: swipe-down
+        (dy > 0) on an incoming row committing to copy vs swipe-up (dy < 0) committing to ignore
+        at the exact commit threshold; swipe-left on a non-incoming row deleting it; an incoming
+        row's horizontal swipe never committing (only vertical is meaningful for incoming rows);
+        a sub-threshold movement never starting a drag or committing anything; a long press with
+        no movement opening the details popup and suppressing the trailing click; a pointerup
+        before the long-press timer fires cancelling the popup; a pointerdown outside `#talks-list`
+        being ignored entirely; and a pointercancel clearing in-flight gesture state without
+        committing. jsdom in this environment doesn't implement the `PointerEvent` constructor —
+        used `MouseEvent` instead (the code under test only reads `.button`/`.clientX`/`.clientY`/
+        `.target`, all present on both). The module's own "already bound" flag and in-flight
+        gesture state are module-scoped `let`s, not deps — nothing outside the original method
+        ever read them (confirmed by grep before moving) — so each test re-binds via
+        `jest.isolateModules` + `require()` for a clean module instance. First draft had the
+        up/down swipe-commit assertions backwards (swipe-down commits *copy*, swipe-up commits
+        *ignore* — non-obvious without reading the code) — caught by the two failing assertions,
+        not assumed. Real-browser regression: `staged/stage1-single-user/
+        37-compact-talk-rows-out` (swipe-left delete) and `05-talks-edit` (long-press details
+        popup, via the `longPressTalkRow` helper) both pass.
 - [x] **1.4 Extract cluster #1:** `route-editor-model.ts` now owns pure initialization,
       self-answer traversal, and validator serialization; `route-editor-controller.ts` owns its
       DOM and event wiring. `UIManager` retains thin state/text delegation and its existing call
@@ -1070,6 +1176,46 @@ entries and babel preset were never removed.
       - Cluster #8: `storage-inspector.ts` owns browser storage discovery, relay diagnostics fetch,
         localized value/path/policy mapping, and all storage-inspector markup. `UIManager` retains
         a thin shim that formats current app state and injects translations/API base explicitly.
+      - Cluster #9: `talk-form-processor.ts` owns `processTalkForm` (all four talk-type branches,
+        the financial-data guard, TalkAutofix/TalkValidator invocation, the typed-preference save
+        loop, and create-vs-update emit) plus `detectTalkLanguage`, moved verbatim. `UIManager`'s
+        `processTalkForm` is now a 10-line shim building an explicit deps object (bound getters/
+        setters/`emit`/`t`, plus the two route-editor wrapper methods) each call; every existing
+        internal call site (`this.processTalkForm.bind(this)`, five of them) and the external
+        `talk-editor-form-helpers.ts` injection point keep compiling unchanged.
+      - Cluster #10: `linked-devices-dialog.ts` gains `openLinkedDevicesDialog` (the orchestration
+        body — device metadata/platform resolution, password-protection and incoming-handoff
+        state, and the full `LinkedDevicesDeps` callback assembly) and two small pure helpers,
+        `readLinkedDeviceRecords`/`saveLinkedDeviceRecords`, alongside the `showLinkedDevicesDialog`
+        renderer that already lived there. `UIManager`'s `openLinkedDevicesDialog` is now a
+        20-line shim forwarding its 14 optional hook properties plus a `getCurrentUser` getter
+        (called fresh at each point the original read `this.currentUser`, not snapshotted once,
+        to preserve exact behavior across the method's two `await`s). `openEraseDeviceDialog`
+        (a separate method with its own independent, differently-scoped read of the same
+        `iinpublic_linked_devices` localStorage key) was deliberately left untouched — out of
+        scope for this cluster, not a dependency of the extracted method.
+      - Cluster #11: new `creator-replies-view.ts` owns `renderCreatorReplies` (the filter/sort/
+        group/render pipeline, the scoped-talk clear-chip handler, and the load-more pagination
+        handler), plus the `CreatorReplyRow`/`CreatorReplyFilterState` types and the
+        `CREATOR_REPLY_PAGE_SIZE` constant, all moved from `ui-manager.ts` (which imports them
+        back where still needed — the two type-users outside this method, and the page-size
+        constant's own field initializer). `UIManager`'s `renderCreatorReplies` is now an 18-line
+        shim passing 15 explicit deps: getters/a scope-clearer/a count-grower for the 3 mutable
+        instance fields, and thin forwarding closures for the read-only helper methods
+        (`getMyConversations`, `getKnownPerson`, `getUiLanguage`, `t`, `tf`, `formatTalkLanguage`,
+        `showConversationDetail`, `navigateToGraphNode`). The extracted function references
+        itself directly (ordinary recursion, not `this.renderCreatorReplies.bind(this)`) for its
+        two internal re-render-after-state-change call sites, the same self-reference pattern
+        cluster #9's `processTalkForm` established.
+      - Cluster #12: new `talks-row-gestures.ts` owns `bindTalksRowGestures` (the full
+        pointerdown/pointermove/pointerup/pointercancel gesture state machine), moved with one
+        deliberate simplification: the "already bound" flag and in-flight gesture object were
+        `UIManager` instance fields in the original, but neither was ever read outside this one
+        method, so they became ordinary module-scoped state in the extracted function instead —
+        behaviorally identical for a singleton `UIManager`, one fewer thing threaded through the
+        deps object. `UIManager`'s `bindTalksRowGestures` is now a 7-line shim passing 5 deps: a
+        setter for the one field genuinely read elsewhere (`talksGestureSuppressClickUntil`) and
+        four thin forwarding closures for the existing action methods.
 - [x] **1.5 Verify after every extraction:**
       - `npm run test:type` + `npm run lint` + `npm run test:unit` green.
       - `npm run test:all` green **before** starting the next cluster.
@@ -1115,6 +1261,37 @@ entries and babel preset were never removed.
         dealmaker/taxi 5/5, find-similar 1/1). Sequential canonical run
         `run-20260825-234056-81556` passed all static checks and all browser phases/blobs, including
         WebKit/Firefox smoke, heavy staged, and mass-user coverage.
+      - Cluster #9 evidence: typecheck/lint, production web build, and 162 unit suites / 1,726
+        tests pass (11 new); `05-talks-edit` (flow), `92-route-shared-builtin-root-branches`
+        (route), and `07-tags-checkbox` (tag via the real editor UI) pass standalone. Canonical run
+        `run-20260908-220720-69284` (25m29s) surfaced 3 phases with failures under concurrent-wave
+        load; every one traced to pre-existing "phase-wave resource pressure" flakiness (the same
+        class cluster #8's evidence documented) rather than this extraction — see `docs/completed.md`
+        for the per-phase investigation, including a `git stash` confirmation that the one test
+        touching login/headcount (unrelated to talk creation) fails identically on clean HEAD.
+      - Cluster #10 evidence: typecheck/lint, production web build, and 162 unit suites / 1,734
+        tests pass (8 new); `73-identity-link-mutual`, `74-device-handoff-transfer`, and
+        `cross-platform/x8-same-device-link` pass standalone. Canonical run `run-20260909-074052-
+        90038` (25m20s) surfaced the same 3 phases as cluster #9's run, none touching
+        linked-devices code: `cross-browser` reproduced cluster #9's exact same Gun-server-boot
+        failure byte-for-byte (same port, same error, same ~724s duration) and `heavy-staged`
+        failed the exact same already-clean-HEAD-confirmed spec again; `light` failed two
+        different TechSupport specs this time (varying between runs, consistent with load
+        flakiness rather than a deterministic regression) — see `docs/completed.md`.
+      - Cluster #11 evidence: typecheck/lint, production web build, and 163 unit suites / 1,743
+        tests pass (9 new); `09-contacts-talks-cross-navigation` passes standalone. Canonical run
+        `run-20260909-145930-6825` (25m22s) reproduced the same 3 e2e phase failures a third
+        consecutive time (`light`, `heavy-staged`, `cross-browser`), none touching creator-replies
+        code, plus one new one-off flaky jest integration test (server-side relay-frame storage,
+        unrelated) confirmed passing both standalone and as part of the full integration suite —
+        see `docs/completed.md`.
+      - Cluster #12 evidence: typecheck/lint, production web build, and 164 unit suites / 1,752
+        tests pass (9 new); `37-compact-talk-rows-out` (swipe-left delete) and `05-talks-edit`
+        (long-press popup) pass standalone. Canonical run `run-20260909-180724-18534` (25m25s)
+        reproduced the same 3 e2e phase failures a fourth consecutive time — `cross-browser` and
+        `heavy-staged` byte-for-byte identical to every prior run, `light` failed 5 different
+        TechSupport/messaging/survey specs this time, none touching gesture code — see
+        `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1174,8 +1351,25 @@ entries and babel preset were never removed.
 15. ~~Re-measure, characterize, and extract cluster #8 (settings storage inspector), lower the
     ratchet to 8,938, and close its canonical gate.~~ Done; the read-only diagnostics module takes
     formatted app state and translation/API dependencies explicitly.
-16. Re-measure and choose cluster #9 as a separate commit-sized change; continue to defer
-    `displayTalksList` until its ownership boundary is reduced.
+16. ~~Re-measure and choose cluster #9 (talk-editor form processing), lower the ratchet from the
+    grown 9,153 to 8,912, and close its canonical gate.~~ Done; `processTalkForm` was never called
+    externally, so the extraction needed no new indirection beyond the usual deps-object shim.
+17. ~~Re-measure and choose cluster #10 (linked-devices dialog orchestration), lower the ratchet
+    from 8,912 to 8,784, and close its canonical gate.~~ Done; the method folded into the same
+    module its already-extracted renderer lived in, since it was mostly a `LinkedDevicesDeps`
+    options-builder around that renderer.
+18. ~~Re-measure and choose cluster #11 (creator-replies list), lower the ratchet from 8,784 to
+    8,584, and close its canonical gate.~~ Done; `renderSettingsView`/`bindSettingsControls`
+    (largest remaining pair after `displayTalksList`) were re-measured and deferred alongside it —
+    too entangled with other cross-cutting methods for a clean extraction.
+19. ~~Re-measure and choose cluster #12 (talks-row gestures), lower the ratchet from 8,584 to
+    8,482, and close its canonical gate.~~ Done; `showConversationDetail`/`addNewConversation`/
+    `syncConversationMessageSummary` (a cohesive but mutually-entangled "conversation view"
+    cluster) were re-measured and deferred alongside settings/`displayTalksList`.
+20. Re-measure and choose cluster #13 as a separate commit-sized change; continue to defer
+    `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
+    trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
+    their ownership boundaries are reduced.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React

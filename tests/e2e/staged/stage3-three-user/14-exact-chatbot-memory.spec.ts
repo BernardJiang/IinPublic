@@ -35,7 +35,7 @@ const TITLE_DISABLED_APPLE = 'E2E Exact Memory Disabled Apple';
 const TITLE_REUSE_APPLE = 'E2E Exact Memory Reuse Apple';
 
 /** Every fruit talk is a single question, match answer first (real UI id `a_0_0`), ignore
- *  answer second (`a_0_1`) — deterministic from array position, `processTalkForm` (ui-manager.ts). */
+ *  answer second (`a_0_1`) — deterministic from array position, `processTalkForm` (talk-form-processor.ts). */
 const FRUIT_MATCH_ID = 'a_0_0';
 
 async function createFruitTalk(

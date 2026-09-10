@@ -18,7 +18,13 @@ import {
   PAIRING_TTL_MS,
 } from '../../shared/identity-linking';
 import { avatarInnerHtml } from './profile-avatar';
-import { formatIdentityFingerprint, type LocalDeviceMetadata } from '../services/local-device-metadata';
+import {
+  detectLocalDevicePlatform,
+  formatIdentityFingerprint,
+  getOrCreateLocalDeviceMetadata,
+  renameLocalDevice,
+  type LocalDeviceMetadata,
+} from '../services/local-device-metadata';
 import { activateModalAccessibility } from './modal-accessibility';
 import { isQrCameraScanSupported, renderLinkCodeQr, startQrCameraScan } from './link-code-qr';
 import { buildLinkFragmentUrl } from '../services/identity-link-fragment';
@@ -28,6 +34,7 @@ import {
   showRemoveIdentityPasswordDialog,
   showSetIdentityPasswordDialog,
 } from './identity-password-dialog';
+import type { HandoffArchive } from '../../shared/device-handoff';
 
 export interface LinkedDeviceRow {
   pub: string;
@@ -98,6 +105,192 @@ export interface LinkedDevicesDeps {
   incomingHandoff?: { fromPub: string; fromName: string } | null;
   /** Merge the incoming archive and publish the signed ack the sender is waiting on. */
   importHandoff?: () => Promise<void>;
+}
+
+const LINKED_DEVICES_LOCAL_KEY = 'iinpublic_linked_devices';
+
+/** Read locally-persisted candidate device rows. See `openLinkedDevicesDialog`'s doc comment. */
+export function readLinkedDeviceRecords(graphStateResolved: boolean): LinkedDeviceRow[] {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LINKED_DEVICES_LOCAL_KEY) || '[]');
+    if (!Array.isArray(arr)) return [];
+    // localStorage supplies candidate identities and display labels only. A persisted row
+    // cannot claim a verified link until this page has resolved the signed graph state.
+    return graphStateResolved ? arr : arr.map((row: LinkedDeviceRow) => ({ ...row, state: 'waiting' as const }));
+  } catch {
+    return [];
+  }
+}
+
+function saveLinkedDeviceRecords(rows: LinkedDeviceRow[]): void {
+  localStorage.setItem(LINKED_DEVICES_LOCAL_KEY, JSON.stringify(rows));
+}
+
+/** Optional hooks a caller wires to publish real signed attestations/revocations (spec §10)
+ *  and to reach the device-handoff receiver path (§11.2) — same shape as `UIManager`'s own
+ *  `setIdentityLinkHooks`/`setIdentityPasswordHooks`/`setDeviceHandoffReceive` setters. */
+export interface OpenLinkedDevicesDialogDeps {
+  t: (key: string) => string;
+  /** Called fresh at each of the points the original inline implementation read
+   *  `this.currentUser`, not snapshotted once — preserves the (unlikely but real, given the
+   *  `await`s below) possibility of it changing mid-call. */
+  getCurrentUser: () => { pub?: string; stageName?: string; headshot?: string; createdAt?: Date } | null;
+  identityPasswordStatusReader?: (() => Promise<{ state: 'not-set' | 'locked' }>) | undefined;
+  identityPasswordSetter?: ((password: string) => Promise<void>) | undefined;
+  identityPasswordChanger?: ((currentPassword: string, newPassword: string) => Promise<void>) | undefined;
+  identityPasswordRemover?: ((currentPassword: string) => Promise<void>) | undefined;
+  identityPasswordLocker?: (() => Promise<void>) | undefined;
+  identityLinkCodeCreator?: ((now: number) => { payload: PairingPayload; code: string }) | undefined;
+  identityLinkRequestReader?: (() => Promise<IncomingLinkRequestSummary | null>) | undefined;
+  identityLinkRequestApprover?: ((pub: string) => Promise<boolean>) | undefined;
+  identityLinkPendingCanceler?: ((requestId: string) => void) | undefined;
+  identityLinkRefresher?: (() => Promise<void>) | undefined;
+  identityLinkCompleter?: ((code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | 'unavailable' | null>) | undefined;
+  identityLinkUnlinker?: ((pub: string) => Promise<'removed' | 'revocation-pending'>) | undefined;
+  deviceHandoffCheckIncoming?: (() => Promise<{ fromPub: string; fromName: string; archive: HandoffArchive } | null>) | undefined;
+  deviceHandoffImport?: ((fromPub: string, archive: HandoffArchive) => Promise<void>) | undefined;
+}
+
+/**
+ * Orchestrates the Identity & devices overlay: resolves local device metadata/platform,
+ * the current password-protection state, and any pending incoming handoff, then assembles
+ * the full `LinkedDevicesDeps` callback set (forwarding whichever optional hooks the caller
+ * wired) and opens `showLinkedDevicesDialog`. Extracted from `UIManager.openLinkedDevicesDialog`
+ * (UIManager decomposition cluster #10, docs/TODO.md Priority 6) — moved as-is, not rewritten.
+ */
+export async function openLinkedDevicesDialog(
+  deps: OpenLinkedDevicesDialogDeps,
+  prefillLinkCode?: string,
+): Promise<void> {
+  let graphStateResolved = false;
+  const listRecords = (): LinkedDeviceRow[] => readLinkedDeviceRecords(graphStateResolved);
+  const nativeHost = (window as unknown as {
+    iinpublicNative?: { version?: string; platform?: string };
+  }).iinpublicNative;
+  const nativeQuery = new URLSearchParams(window.location.search);
+  const explicitPlatform = nativeHost?.platform || nativeQuery.get('native_platform') || '';
+  const appVersion = String(nativeHost?.version || nativeQuery.get('app_version') || 'web');
+  const platform = detectLocalDevicePlatform(explicitPlatform, navigator.userAgent || '');
+  const createdAt = new Date(deps.getCurrentUser()?.createdAt || Date.now()).getTime();
+  const defaultDeviceName = platform === 'android'
+    ? deps.t('defaultAndroidDeviceName')
+    : platform === 'ios'
+      ? deps.t('defaultIosDeviceName')
+      : platform === 'desktop'
+        ? deps.t('defaultDesktopDeviceName')
+        : deps.t('defaultBrowserDeviceName');
+  let deviceMetadata = getOrCreateLocalDeviceMetadata(localStorage, {
+    name: defaultDeviceName,
+    platform,
+    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+  });
+  const identityPub = deps.getCurrentUser()?.pub || '';
+  let protection = deps.identityPasswordStatusReader
+    ? await deps.identityPasswordStatusReader().catch(() => ({ state: 'not-set' as const }))
+    : { state: 'not-set' as const };
+  let incomingHandoff = deps.deviceHandoffCheckIncoming
+    ? await deps.deviceHandoffCheckIncoming().catch(() => null)
+    : null;
+  showLinkedDevicesDialog({
+    text: (key: string, fallback?: string) => {
+      const value = deps.t(key);
+      return value && value !== key ? value : (fallback ?? key);
+    },
+    listRecords,
+    identity: {
+      pub: identityPub,
+      stageName: deps.getCurrentUser()?.stageName || deps.t('unavailable'),
+      ...(deps.getCurrentUser()?.headshot ? { headshot: deps.getCurrentUser()!.headshot as string } : {}),
+      createdAt: Number.isFinite(createdAt) ? createdAt : deviceMetadata.createdAt,
+      status: identityPub ? 'available' : 'needs-attention',
+    },
+    device: () => deviceMetadata,
+    appVersion,
+    protection: () => ({ state: protection.state === 'locked' ? 'set' : 'not-set' }),
+    ...(deps.identityPasswordSetter
+      ? { setIdentityPassword: async (password: string) => {
+        await deps.identityPasswordSetter!(password);
+        protection = { state: 'locked' };
+      } }
+      : {}),
+    ...(deps.identityPasswordChanger
+      ? { changeIdentityPassword: deps.identityPasswordChanger }
+      : {}),
+    ...(deps.identityPasswordRemover
+      ? { removeIdentityPassword: async (currentPassword: string) => {
+        await deps.identityPasswordRemover!(currentPassword);
+        protection = { state: 'not-set' };
+      } }
+      : {}),
+    ...(deps.identityPasswordLocker
+      ? { lockIdentityNow: deps.identityPasswordLocker }
+      : {}),
+    renameDevice: (name: string) => {
+      deviceMetadata = renameLocalDevice(localStorage, deviceMetadata, name);
+      return deviceMetadata;
+    },
+    selfPub: () => identityPub,
+    randomSecret: () => {
+      const bytes = new Uint8Array(18);
+      (globalThis.crypto || (window as any).crypto).getRandomValues(bytes);
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    },
+    ...(deps.identityLinkCodeCreator
+      ? { createLinkCode: (now: number) => deps.identityLinkCodeCreator!(now) }
+      : {}),
+    ...(deps.identityLinkRequestReader
+      ? { readIncomingRequest: () => deps.identityLinkRequestReader!() }
+      : {}),
+    ...(deps.identityLinkRequestApprover
+      ? { approveIncomingRequest: (pub: string) => deps.identityLinkRequestApprover!(pub) }
+      : {}),
+    ...(deps.identityLinkPendingCanceler
+      ? { cancelPendingRequest: (requestId: string) => deps.identityLinkPendingCanceler!(requestId) }
+      : {}),
+    ...(deps.identityLinkRefresher
+      ? { refreshRecords: async () => {
+          await deps.identityLinkRefresher!();
+          graphStateResolved = true;
+        } }
+      : {}),
+    completeFromCode: async (code: string) => {
+      const decoded = decodePairingCode(code);
+      if (!decoded) return 'invalid';
+      if (decoded.pub === identityPub) return 'self';
+      if (isPairingExpired(decoded)) return 'expired';
+      const rows = listRecords();
+      if (rows.some((r) => r.pub === decoded.pub)) return 'reused';
+      if (!deps.identityLinkCompleter) return 'invalid';
+      const err = await deps.identityLinkCompleter(code).catch(() => 'unavailable' as const);
+      if (err) return err;
+      rows.push({
+        pub: decoded.pub,
+        stageName: deps.t('linkedDeviceDefaultName'),
+        platform: 'web',
+        linkedAt: Date.now(),
+        state: 'waiting',
+      });
+      saveLinkedDeviceRecords(rows);
+      return null;
+    },
+    unlink: async (pub: string) => {
+      const state = deps.identityLinkUnlinker
+        ? await deps.identityLinkUnlinker(pub)
+        : 'revocation-pending';
+      saveLinkedDeviceRecords(listRecords().map((row) => row.pub === pub ? { ...row, state } : row));
+      return state;
+    },
+    ...(incomingHandoff
+      ? {
+          incomingHandoff: { fromPub: incomingHandoff.fromPub, fromName: incomingHandoff.fromName },
+          importHandoff: async () => {
+            if (!incomingHandoff || !deps.deviceHandoffImport) return;
+            await deps.deviceHandoffImport(incomingHandoff.fromPub, incomingHandoff.archive);
+            incomingHandoff = null;
+          },
+        }
+      : {}),
+  }, prefillLinkCode ? { prefillLinkCode } : undefined);
 }
 
 const glyphFor = (platform: string): string =>

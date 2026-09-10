@@ -1,6 +1,428 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
+
+## 2026-09-09 — Two real bugs fixed from a `test:all` Playwright report (membership resurrection + K7 FAQ-bundle race)
+
+Investigated `npx playwright show-report` from run `run-20260909-180724-18534` (the run at the end
+of UIManager cluster #12) instead of re-documenting its 3 failing phases as pre-existing flakiness.
+Two of the three were real, reproducible bugs; the third (`cross-browser`) remains the
+already-characterized Gun-server-boot timeout under `webkit`+`firefox` load.
+
+### Membership resurrection race (`heavy-staged` failure, `01-login-two-users-headcount.spec.ts:76`)
+
+`src/server/services/chatroom-manager.ts` — a member who just left a room could be silently
+resurrected to `isActive: true` moments later, permanently inflating the headcount.
+
+- **Root cause:** `touchMemberFast` (the heartbeat PATCH) does an async Gun read before writing —
+  a heartbeat fired just before a user left could complete its read/write (300-500ms) *after*
+  `leaveChatroom`'s `isActive:false`/`leftAt` write landed, silently overwriting it back to active.
+  Confirmed via a raw Gun-write trace (temporary `[DEBUG-RAW-WATCH]` logging on
+  `chatrooms/global/users/*`) showing a resurrection ~303ms after a correct leave, with the stray
+  `touchMemberFast` call confirmed as the culprit.
+- **Fix:** `touchMemberFast` now refuses to touch a member already recorded as
+  `isActive: false` — a heartbeat may only refresh an *active* member; only an explicit join
+  (`addMemberFast`/`joinChatroom`) may reactivate one. A timestamp-comparison guard was tried
+  first (comparing the touch's timestamp against the recorded `leftAt`) but Gun's HAM state and
+  the plain ISO fields can disagree by the time the async method resolves, making exact ordering
+  unreliable; the unconditional `isActive` check is both simpler and correct.
+- **Same race, second instance:** with `touchMemberFast` fixed, the test progressed further and
+  failed later (line 90) in the identical way but via `addMemberFast` — a slow join request
+  (several sequential Gun writes) completing after a same-client leave fired moments later (e.g. a
+  room switch). Added the same "don't resurrect past a newer leave" guard, keyed on whether the
+  recorded `leftAt` is at or after the join request's own start time (so a genuine sequential
+  rejoin still succeeds). Ordering note: the guard check must run *before* `upsertFastMember`
+  (the in-memory fast-member map write) — first draft had it after, which would have left the
+  in-memory map inconsistent with Gun on the skip path.
+- **Verification:** `01-login-two-users-headcount.spec.ts` — 5/5 clean reruns after each fix
+  stage. Typecheck/lint clean.
+
+### K7 FAQ-bundle verification race (`light` failure, `00m-techsupport-delegate-answers.spec.ts:162`)
+
+A delegate's answer (docs/TODO.md K7 — an ordinary user answering on TechSupport's behalf without
+holding the master key) could arrive at the asker's client and then render as if it never existed.
+
+- **Root cause:** `UIManager.filterVerifiedSupportMessages`'s `isFaqAnswer` branch verifies a
+  delegate-signed answer against `readCachedFaqBundle()` — a `localStorage` cache kept fresh by a
+  live Gun subscription (`subscribeToFaqBundle`, `techsupport-faq-cache.ts`) that runs
+  independently of the conversation-message subscription. If the answer message (carrying
+  `faqSignature`) syncs to the asker's client before that separate bundle subscription catches up,
+  the cached bundle's signature won't match yet, verification fails closed, and the message is
+  dropped — correctly, per the K2-3 "fail closed" discipline. The bug was what happened *next*:
+  `subscribeToTechSupportFaqBundle`'s `onVerified` callback only ever refreshed the TechSupport
+  master's own admin panel; for every other session (the asker) nothing re-rendered the open
+  conversation once the bundle cache became fresh, so a dropped answer stayed hidden indefinitely
+  — no future conversation message would arrive to trigger a retry.
+- **Fix:** made `UIManager.rerenderOpenConversation` (already used to re-reveal messages on a
+  filter-toggle, §9) public, and call it from `subscribeToTechSupportFaqBundle`'s callback for
+  every session, not just the master's. A stale render now self-heals the moment the bundle cache
+  catches up, instead of only on the next unrelated message.
+- **Verification:** `00m-techsupport-delegate-answers.spec.ts` — 5/5 clean reruns in isolation.
+  Typecheck/lint clean, production web + server builds succeed.
+
+### Scope note
+
+A full `stage2-two-user/` directory run (104 specs, single worker, ~37 min) surfaced 3 failures —
+`00l-techsupport-faq-cross-user` (passed on immediate rerun), `00m` again (this time failing
+*earlier*, at the onboarding-ack step, not the delegate-answer step this fix addresses), and
+`83-survey-ignore-mid-question-not-complete` (unrelated to anything touched here). All three match
+the already-documented "light phase rotating flaky specs" pattern (see cluster #12 below, same
+`00m`/`83-survey` names recur there under a different failing spec set) — sequential-load-induced,
+not a regression from either fix above, which only touch `chatroom-manager.ts`'s two heartbeat/join
+methods and one FAQ-bundle re-render callback respectively.
+
+## 2026-09-09 — UIManager decomposition cluster #12: talks-row gestures
+
+Extracted `UIManager.bindTalksRowGestures` (the swipe/long-press gesture controller for talk-list
+rows — swipe an incoming row down to copy or up to ignore, swipe an outgoing row left to delete,
+long-press any row for its details popup) into new `src/web/ui/talks-row-gestures.ts`.
+`docs/TODO.md` Priority 6, "Current sequence" step 19.
+
+- **Re-measured candidates:** `showConversationDetail` (246 lines, 18 refs), `addNewConversation`
+  (160, 12), and `syncConversationMessageSummary` (100, 11) share a heavily-overlapping ref set
+  (`currentConversationId`, `getMyConversations`, `getPeerName`, `updateMatchBadge`,
+  `displayContactsList`/`displayConversationsList`) — a genuinely cohesive "conversation view"
+  concern, but one whose methods are entangled with each other and with other tabs' list-refresh
+  side effects the same way settings already was. Deferred alongside `displayTalksList`/
+  `renderSettingsView`/`bindSettingsControls` rather than force a fragile first cut.
+- **Why `bindTalksRowGestures` instead:** 107 lines, 7 refs — bound once, touching nothing outside
+  its own concern except one field genuinely read elsewhere
+  (`talksGestureSuppressClickUntil`, checked by a row-click handler to swallow the synthetic click
+  that follows a committed gesture) and four already-existing action methods
+  (`quickIgnoreIncomingTalk`, `quickCopyIncomingTalk`, `deleteMyTalk`, `showDetailsPopupFor`).
+- **One deliberate simplification, not a behavior change:** the original kept its "already bound"
+  guard flag and in-flight gesture object as `UIManager` instance fields, but grep confirmed
+  neither was ever read outside this one method. They became ordinary module-scoped `let`s in the
+  extracted function instead — behaviorally identical for a singleton `UIManager` (there's only
+  ever one), and one fewer thing to thread through the deps object.
+- **Characterization:** `src/test/unit/talks-row-gestures.test.ts` (new, 9 tests) — swipe-down
+  committing to copy vs swipe-up committing to ignore at the exact commit threshold (dy > 0 vs
+  dy < 0 — the first draft had these backwards, caught by two failing assertions rather than
+  assumed correct); swipe-left deleting a non-incoming row; an incoming row's horizontal swipe
+  never committing; sub-threshold movement never starting a drag; a long press with no movement
+  opening the details popup and suppressing the trailing click; an early pointerup cancelling the
+  long-press timer; pointerdown outside `#talks-list` being ignored; and pointercancel clearing
+  state without committing. jsdom in this test environment doesn't implement the `PointerEvent`
+  constructor — substituted `MouseEvent` (the code only reads `.button`/`.clientX`/`.clientY`/
+  `.target`, all present on both). The module's own module-scoped state meant each test needed a
+  fresh module instance to avoid the "already bound" guard skipping re-binding across tests in the
+  same file — used `jest.isolateModules` + `require()` per test.
+- **Real-browser regression:** `staged/stage1-single-user/37-compact-talk-rows-out` (the
+  swipe-left delete gesture, exercised directly) and `05-talks-edit` (the long-press details
+  popup, via the existing `longPressTalkRow` E2E helper) both pass standalone.
+- **Ratchet:** `ui-manager.ts` 8,584 → **8,482** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, production web build succeeds, all 164 unit suites /
+  1,752 tests pass (9 new). Canonical `npm run test:all` run `run-20260909-180724-18534` (25m25s,
+  12 blobs, static checks all clean) reproduced the same 3 e2e phases with failures a fourth
+  consecutive time: `cross-browser` and `heavy-staged` byte-for-byte identical to every prior
+  cluster's run (same tests, same errors, same durations); `light` failed 5 different
+  TechSupport/messaging/survey specs this time (`06-support-new-question-ack`,
+  `79-techsupport-survives-restrictive-filters`, `00m-techsupport-delegate-answers`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question`) — none touching
+  `talks-row-gestures.ts` or talk-list gesture code, and the ever-changing specific specs across
+  four runs now is itself strong evidence against a deterministic regression. No failure traces
+  to this extraction.
+
+## 2026-09-09 — UIManager decomposition cluster #11: creator-replies list
+
+Extracted `UIManager.renderCreatorReplies` (filter/sort/group/render pipeline for the Talks tab's
+"Replies to my talks" panel, plus its scope-clear and load-more click handlers) into new
+`src/web/ui/creator-replies-view.ts`, along with the `CreatorReplyRow`/`CreatorReplyFilterState`
+types and the `CREATOR_REPLY_PAGE_SIZE` constant it owns. `docs/TODO.md` Priority 6, "Current
+sequence" step 18.
+
+- **Re-measured candidates:** `renderSettingsView` (483 lines, 21 refs) and its companion
+  `bindSettingsControls` (362 lines, 22 refs) are the largest remaining pair after
+  `displayTalksList`, but inspection — not just the `this.*` count, per the established
+  methodology — shows them mutually referencing each other and reaching into a wide swath of
+  cross-cutting methods (`bindSettingsControls` alone calls `displayTalksList` itself,
+  `openEraseDeviceDialog`, `openLinkedDevicesDialog`, `showEditProfileDialog`,
+  `rerenderOpenConversation`, and more). Same over-entangled shape that already ruled out
+  `displayTalksList`; both now deferred alongside it rather than force a premature extraction.
+- **Why `renderCreatorReplies` instead:** 202 lines, 14 `this.*` refs — cluster #10's own pass
+  flagged it for "direct read/write of several mutable instance fields" and deferred it, but on
+  closer inspection that's exactly the shape cluster #9 (`processTalkForm`) and the earlier
+  dashboard-style clusters (#2 survey-statistics, #5 statistics-dashboard) already handled cleanly:
+  a self-contained pipeline over 3 scalar mutable fields (`creatorReplyScopedTalkId`/`Title`,
+  `creatorReplyVisibleCount`) plus one read-only array field (`creatorReplyRows`), not genuine
+  deep coupling to other features.
+- **State via explicit closures, not a new class:** the extracted `renderCreatorReplies(deps)`
+  takes getters for all 4 fields, a `clearScope()` setter (both scope fields at once, matching the
+  original inline handler), and a `growVisibleCount()` setter (the pagination increment) — the
+  same "receive dependency-injected callbacks" convention every prior cluster used.
+- **Self-recursion, not a rerender callback:** the original method called `this.renderCreatorReplies()`
+  from its own scope-clear and load-more click handlers. The extracted plain function does the
+  same via ordinary recursion (`renderCreatorReplies(deps)`), reusing the exact same pattern
+  cluster #9's `processTalkForm` established for its own self-referencing callback.
+- **Also moved:** `CreatorReplyRow`/`CreatorReplyFilterState` (previously module-local types in
+  `ui-manager.ts`, used in a few other places too — `ui-manager.ts` now imports them back) and
+  `CREATOR_REPLY_PAGE_SIZE` (used by `ui-manager.ts`'s own field initializer and reset handlers,
+  imported back the same way).
+- **Characterization:** `src/test/unit/creator-replies-view.test.ts` (new, 9 tests) — rendering
+  with a correct shown/filtered/total summary; the empty state; the scoped-talk filter and its
+  clearable chip; load-more pagination; click-routing (matched-with-conversation →
+  `showConversationDetail`, unmatched → `navigateToGraphNode`); hostile-input escaping; and
+  search-query filtering.
+- **E2E regression:** the dedicated `staged/stage3-three-user/00v-creator-reply-triage-matrix`
+  spec (100-reply pagination/search/filter/sort stress test — the single most relevant E2E
+  coverage available) turned out to be pre-existing-excluded from the default Playwright project
+  (`testIgnore` in `playwright.config.ts`, whose own comment cites a stale server-snapshot
+  data-path mismatch unrelated to this cluster) — confirmed by running it directly, which returned
+  "No tests found" even with an explicit path. Ran `staged/stage3-three-user/
+  09-contacts-talks-cross-navigation` instead (exercises the same click-to-conversation vs
+  click-to-contact routing decision this cluster's code makes) — passes.
+- **Ratchet:** `ui-manager.ts` 8,784 → **8,584** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, production web build succeeds, all 163 unit suites /
+  1,743 tests pass (9 new). Canonical `npm run test:all` run `run-20260909-145930-6825` (25m22s,
+  12 blobs) reproduced the same 3 e2e phases with failures a third consecutive time — `light`
+  (one messaging-semantics test, already individually verified passing standalone during cluster
+  #9's investigation), `heavy-staged` (the same `01-login-two-users-headcount` spec confirmed via
+  `git stash` to fail on clean HEAD), and `cross-browser` (the identical Gun-server-boot symptom,
+  byte-for-byte, all three runs now) — none touching `creator-replies-view.ts` or the code this
+  cluster changed. This run also flagged a new, different failure in the jest static-checks phase:
+  `src/test/integration/system-routes.test.ts`'s "stores encrypted short-lived signaling relay
+  frames for explicit embedded relay mode" (server-side Gun relay-frame storage, unrelated to this
+  cluster's client-side UI extraction) — confirmed passing both standalone and as part of the full
+  `src/test/integration/` suite (10 suites / 89 tests), consistent with a one-off timing flake
+  under the phase's concurrent load rather than a regression. No failure traces to this extraction.
+
+## 2026-09-09 — UIManager decomposition cluster #10: linked-devices dialog orchestration
+
+Extracted `UIManager.openLinkedDevicesDialog`'s body (device metadata/platform resolution,
+password-protection and incoming-handoff state, and the full `LinkedDevicesDeps` callback
+assembly) into `src/web/ui/linked-devices-dialog.ts` — the same file that already owned
+`showLinkedDevicesDialog`, the pure DOM renderer it calls. `docs/TODO.md` Priority 6, "Current
+sequence" step 17.
+
+- **Why this method:** re-measured after cluster #9. `openLinkedDevicesDialog` (152 lines, 16
+  distinct `this.*` refs) had the next-best ratio; `renderCreatorReplies` (202 lines, 14 refs)
+  was also measured but passed over — its refs include direct read/write of several mutable
+  `this.creatorReply*` instance fields, more entangled than a clean deps-forwarding candidate.
+  Nearly all 16 of `openLinkedDevicesDialog`'s refs turned out to be already-established optional
+  hook properties (`identityLinkCodeCreator`, `identityPasswordSetter`, `deviceHandoffImport`,
+  etc. — set by `app.ts` via `setIdentityLinkHooks`/`setIdentityPasswordHooks`/
+  `setDeviceHandoffReceive`), trivially forwarded as explicit deps rather than genuine coupling.
+- **Natural home, not a new file:** the method was already mostly a `LinkedDevicesDeps`
+  options-builder around `showLinkedDevicesDialog` — an already-extracted renderer living in
+  `linked-devices-dialog.ts`. Adding the orchestration function to that same file (rather than a
+  new sibling module) avoids re-importing `LinkedDeviceRow`/`LinkedDevicesDeps`/
+  `IncomingLinkRequestSummary` types across a file boundary for no benefit.
+- **`getCurrentUser` as a getter, not a snapshot:** the original inline body read `this.currentUser`
+  at 4 separate points, 2 of them after `await`ing `identityPasswordStatusReader`/
+  `deviceHandoffCheckIncoming`. To preserve exact behavior (however unlikely to matter in
+  practice) rather than silently snapshotting it once, the extracted function takes
+  `getCurrentUser: () => {...} | null` and calls it fresh at each of those 4 points.
+- **Two small pure helpers also extracted and exported:** `readLinkedDeviceRecords` (forces every
+  row to "waiting" until the graph state resolves) and `saveLinkedDeviceRecords` — both were
+  previously closures defined inline in the `UIManager` method.
+- **Deliberately NOT touched:** `openEraseDeviceDialog` (a separate `UIManager` method) reads the
+  same `iinpublic_linked_devices` localStorage key independently, filtering for `state ===
+  'linked'` — a different, narrower semantic than `readLinkedDeviceRecords`'s graph-aware
+  waiting/resolved distinction. Left with its own inline duplicate parsing rather than folded
+  into the new shared helper, since that would be an unrelated scope expansion for this cluster.
+- **`exactOptionalPropertyTypes` note:** the project's strict optional-property TS setting means
+  an object literal can't assign `undefined` to a `foo?: T` property — only omit it entirely.
+  Since `this.<hook>` values are typed `T | undefined` (from `private foo?: T` class fields),
+  every optional field in the new `OpenLinkedDevicesDialogDeps` interface needed an explicit
+  `| undefined` union, not just `?:`, to accept them directly without a spread-conditional at
+  each call site.
+- **Characterization:** `src/test/unit/linked-devices-dialog.test.ts` (+8 tests, alongside the
+  existing 8 that already covered `showLinkedDevicesDialog`'s rendering) — `readLinkedDeviceRecords`
+  forcing "waiting" until graph-resolved and returning `[]` for malformed/missing/non-array
+  storage; current-user identity resolution including the no-user "unavailable" fallback;
+  `completeFromCode`'s self/reused rejections and success path (persists the row, forwards to
+  `identityLinkCompleter`); and `unlink` defaulting to "revocation-pending" with no
+  `identityLinkUnlinker` wired. Driven through the real rendered DOM (Enter-code modal, then the
+  separate unlink-*confirmation* modal a naive first pass missed — clicking the row's Unlink
+  button only opens a confirm dialog, `deps.unlink` doesn't fire until `#unlink-confirm-btn` is
+  also clicked) rather than invoking closures directly, matching the existing test file's
+  established convention.
+- **Real-browser regression:** `staged/stage2-two-user/73-identity-link-mutual` (mutual linking),
+  `74-device-handoff-transfer` (the incoming-handoff import card this dialog surfaces), and
+  `cross-platform/x8-same-device-link` (loopback same-device linking, which enters through this
+  exact method via `openLinkedDevicesWithCode`) all pass standalone.
+- **Ratchet:** `ui-manager.ts` 8,912 → **8,784** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, production web build succeeds, all 162 unit suites /
+  1,734 tests pass (8 new). Canonical `npm run test:all` run `run-20260909-074052-90038` (25m20s,
+  12 blobs) surfaced the same 3 phases with failures as cluster #9's run (`light`, `heavy-staged`,
+  `cross-browser`), none of them touching linked-devices code: `cross-browser`'s failure
+  reproduced cluster #9's exact same symptom byte-for-byte — the same 4 webkit/firefox
+  `platform-smoke` tests, the identical `waitForGunApiReady: http://127.0.0.1:10080/health not
+  reachable after 90000ms` error, and essentially the same ~724s duration — clearly the same Gun
+  server that never comes up under wave 2's 6-way concurrent phase pressure, not an application
+  bug. `heavy-staged` failed the exact same `01-login-two-users-headcount` spec cluster #9's `git
+  stash` run already proved fails identically on clean HEAD. `light` failed two *different*
+  TechSupport specs this run (`79-techsupport-survives-restrictive-filters` again, plus
+  `00l-techsupport-faq-cross-user` instead of last run's messaging/survey ones) — the specific
+  specs varying between otherwise-identical runs is itself evidence for load-driven flakiness
+  over a deterministic regression: a real regression would fail the same test every time, not a
+  different unrelated one. No failure traces to this extraction. Given this cluster's two-run
+  reproduction of the *exact same* infrastructure symptoms already investigated in depth for
+  cluster #9 (including a `git stash`-verified clean-HEAD baseline), a fresh from-scratch
+  investigation wasn't repeated here.
+
+## 2026-09-08 — UIManager decomposition cluster #9: talk-editor form processing
+
+Extracted `processTalkForm` (all four talk-type branches — tag/flow/survey/route —, the
+mandatory financial-data guard, `TalkAutofix`/`TalkValidator` invocation, the typed-preference
+save loop, and create-vs-update `emit`) and its `detectTalkLanguage` free-function dependency to
+`src/web/ui/talk-form-processor.ts`. `docs/TODO.md` Priority 6, "Current sequence" step 16.
+
+- **Why this method:** re-measured the remaining candidates by size and distinct `this.*`
+  reference count (the established coupling filter). `processTalkForm` (248 lines, 9 distinct
+  refs — mostly calls to 5 sibling helper methods, `emit`, and `t`) had the best size-to-coupling
+  ratio of anything left besides the already-deferred `displayTalksList` (686 lines, 52 refs,
+  still deferred). `openLinkedDevicesDialog` (152 lines, 16 refs, but nearly all trivial
+  already-established hook setters) and `renderCreatorReplies` (202 lines, 14 refs) were also
+  measured and are reasonable candidates for a future cluster.
+- **Zero new indirection needed:** `processTalkForm` was `private` and never called externally —
+  every call site (5 inside `ui-manager.ts`, 1 in `talk-editor-form-helpers.ts`) already passed
+  it around as a bound `(form: HTMLFormElement) => boolean` callback, including a self-recursive
+  reference into `collectFlowSurveyEditorQuestions`. The extracted module's own self-reference
+  just becomes an ordinary named-function call instead of `this.processTalkForm.bind(this)`.
+  `UIManager.processTalkForm` is now a 10-line shim building an explicit `ProcessTalkFormDeps`
+  object (bound getters/setters, `emit`, `t`, and the two route-editor wrapper methods) per call.
+- **Also moved:** `detectTalkLanguage` (17-line pure function, zero `this.*` coupling, only ever
+  called from `processTalkForm`) — no reason to leave a single-consumer free function behind.
+- **Characterization:** `src/test/unit/talk-form-processor.test.ts` (new, 11 tests) — simple/pair
+  tag-talk creation, tag creation rejected with no keyword, route creation rejected on validator
+  errors, the financial-data guard blocking before validation/emit, a real flow talk built from
+  actual `talk-editor-form-helpers` DOM (question + match answer + required Ignore answer),
+  edit-vs-create emitting `updateTalk` vs `createTalk`, and `detectTalkLanguage`'s per-script
+  detection/fallback (CJK direct-script detection, Latin stopword/diacritic detection for
+  fr/de/es, and the short-title fallback).
+- **Real-browser regression** (targeted, not the full canonical gate — see below):
+  `staged/stage1-single-user/05-talks-edit` (flow create+edit — its own comment already named
+  `detectTalkLanguage` as what it exercises; updated to point at the new file), `staged/
+  stage2-two-user/92-route-shared-builtin-root-branches` (route), and `staged/stage2-two-user/
+  07-tags-checkbox` (tag, via the real editor UI — X1-X8's cross-platform specs all create tag
+  talks through the low-level pair-direct bypass instead, so none of them exercise this code
+  path). All three pass standalone.
+- **Also fixed:** ~13 scattered code comments across `src/shared/`, `src/test/unit/`, and
+  `tests/e2e/` that named `processTalkForm`/`detectTalkLanguage` as living in `ui-manager.ts` —
+  cheap enough to fix immediately, unlike the larger historical-document case in the 2026-07-29
+  consolidation.
+- **Ratchet:** grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding
+  walkthrough, K7 delegate credentials) landed between clusters — each bump was its own commit,
+  not folded into a cluster. This extraction brought `ui-manager.ts` from 9,153 to **8,912** lines
+  (`src/test/unit/ui-manager-size-budget.test.ts` ceiling lowered to match).
+- **Verification:** typecheck/lint clean, production web build succeeds, all 162 unit suites /
+  1,726 tests pass (11 new). Canonical `npm run test:all` run `run-20260908-220720-69284` (25m29s,
+  12 blobs) reported 3 phases with failures under concurrent-wave load: `light` (3 specs: 79-
+  techsupport-survives-restrictive-filters, 29-messaging-semantics, 83-survey-ignore-mid-question),
+  `heavy-staged` (01-login-two-users-headcount), and `cross-browser` (webkit+firefox
+  platform-smoke, both failing on `waitForGunApiReady: .../health not reachable after 90000ms`).
+  Investigated each: all 3 `light`-phase specs and all 4 `29-messaging-semantics` tests pass
+  standalone; `cross-browser`'s failure is a Gun server that never came up under wave 2's 6-way
+  concurrent phase pressure, not an application bug. `01-login-two-users-headcount` alone was the
+  one worth real suspicion (it touches login/headcount, not talk creation, but failed 3/3 times
+  including standalone) — confirmed via `git stash` that it **also fails identically on clean HEAD
+  before this cluster's changes**, ruling it out as a regression. Net: no failure traces to this
+  extraction; all are the same "phase-wave resource pressure" flakiness class cluster #8's own
+  evidence entry already documented (a 12-worker `light` phase plus 6 concurrent wave-2 phases on
+  one machine).
+
+## 2026-09-08 — X5: three-platform network + thread isolation, implemented for real
+
+`tests/e2e/cross-platform/x5-three-platform-network.spec.ts` was a `test.skip`
+stub claiming to need "three clients (website, webapp, native)." Its own
+comment said it mirrors `staged/stage3-three-user/71-thread-isolation-multi` —
+checked that spec and found it already proves the exact same scenario (same
+talk, three users, pair-private threads, per-thread unread badges) with three
+simultaneous Chromium browsers and no native app involved at all.
+
+- Ported 71's bootstrap/seed/assert logic essentially as-is into the
+  cross-platform harness: three independently-launched Chromium browsers
+  (matching X1/X2/X4/X6's explicit browser-lifecycle style, rather than the
+  fixture-managed contexts 71 uses), named Website/Webapp/Native.
+- Same talk id seeds two pair threads (Website↔Webapp, Website↔Native);
+  isolation must come from the pair, not the talk, so their conversation ids
+  must differ. Website writes into the Website↔Webapp thread; Webapp gets a
+  per-thread unread badge that clears on read; Native's thread with Website
+  for the *same* talk stays empty of Webapp's message.
+- Verified stable across 3 consecutive standalone runs (~14s each) and passing
+  alongside X1/X2/X4/X6 in the full `npm run test:e2e:cross-platform` run
+  (X3/X7 correctly still skip — those two are the ones that actually need a
+  real native build).
+- Promoted from "nightly, skipped" to the folder's P0 merge-gate set in
+  `tests/e2e/cross-platform/README.md`, alongside X1/X2/X4/X6. Companion
+  narrative written in `x5-three-platform-network.md` (was a placeholder).
+- `docs/TODO.md` Priority 3's "Enable and pass X5 three-platform thread
+  isolation" bullet removed — done. Of the original X3-X6 nightly batch, only
+  X3 and X7 remain genuinely blocked on native-shell CI runners.
+
+## 2026-09-08 — X6: offline mailbox across platforms, both directions, implemented for real
+
+`tests/e2e/cross-platform/x6-offline-mailbox.spec.ts` was a `test.skip` stub.
+Implemented it the same way X4 was: its actual requirements (offline simulation
++ encrypted-mailbox drain) don't need a native build, and two existing specs
+already prove the mechanism works for one direction.
+
+- Two matched clients via `setupLeanMatchedPair` (`tests/e2e/helpers/
+  fast-match-lean.ts` — the overlay-free helper `staged/stage2-two-user/
+  36-offline-beyond-mailbox-ttl` already uses, avoiding two 10s
+  `ensureConnected()` WebRTC-warm attempts neither side needs here).
+- "Offline" simulated the same way `talks-matching/05-mailbox-offline-response`
+  and spec 36 already do: close the browser context (storageState saved
+  first), later reopen a new context with that same storageState so the
+  reconnecting client is the same identity, not a new one.
+- New contribution beyond specs 05/36 (which each only ever take one side
+  offline): both directions in one continuous run — B offline while A sends
+  and B reconnects+drains, then (reusing the same matched pair/conversation) A
+  offline while B, now reconnected, sends back and A reconnects+drains. Uses
+  the ordinary production `sendConversationMessage` →
+  `WebConversationService.sendMessage` → `postConversationMessageToMailbox` (on
+  WebRTC failure) path (`src/web/app/app.ts`) rather than 05/36's manually
+  constructed envelopes, since X6 isn't testing TTL edge cases — just that
+  both directions actually deliver. Confirms both mailboxes end empty after
+  their respective drains.
+- Verified stable across 3 consecutive standalone runs (~16s each) and passing
+  alongside X1/X2/X4 in the full `npm run test:e2e:cross-platform` run (X3/X5/
+  X7 correctly still skip).
+- Promoted from "nightly, skipped" to the folder's P0 merge-gate set in
+  `tests/e2e/cross-platform/README.md`, alongside X1/X2/X4. Companion narrative
+  written in `x6-offline-mailbox.md` (was a placeholder).
+- `docs/TODO.md` Priority 3's "Enable and pass X6 bidirectional offline/mailbox
+  delivery" bullet removed — done.
+
+## 2026-09-08 — X4: mobile ↔ desktop matching + threads, implemented for real
+
+`tests/e2e/cross-platform/x4-mobile-desktop-threads.spec.ts` was a `test.skip` stub
+since the cross-platform harness was scaffolded; implemented it rather than
+waiting on the CI-runner-wiring bullet in `docs/TODO.md` Priority 3, since X4's
+actual requirements (a mobile-viewport client + a desktop client matching and
+messaging) don't need a native build at all.
+
+- Desktop client: ordinary chromium context on the shared per-worker hub (same
+  pattern as X1/X2). Mobile client: `bootstrapMobileUser`/`setupFastMatchedMobileDm`
+  (`tests/e2e/helpers/mobile-bootstrap.ts`) — a 390×844 viewport with
+  `isMobile`/`hasTouch`, the same helper `staged/stage2-two-user/38` and `39`
+  already use and prove reliable; reused rather than the originally-considered
+  real-WebKit-engine route (untested in the full bootstrap/matching flow — only
+  `platform-smoke`'s lightweight `@smoke` set has run under the `iphone-webkit`
+  WebKit project so far).
+- Match via the existing `setupFastMatchedMobileDm` pair-direct helper, then a
+  thread reply in each direction via `sendConversationMessage`/`waitForMessageVisible`
+  (the same X1/X2 pattern).
+- New contribution beyond what spec 39 already covers (conversation-overlay
+  usability at 390px): after messaging, the mobile client backs out of the
+  conversation (`#back-from-conversation`) and returns to the main chatrooms
+  view, asserting the AppBar/bottom-nav stays usable at 390px — no horizontal
+  clipping, and the create-talk action reachable inline or behind the `⋯`
+  overflow button (`[data-testid="app-bar-overflow-btn"]`) — the same T1/T2
+  contract `platform-smoke` asserts for the `iphone-webkit` device-profile
+  project, exercised here after a real cross-client match+thread.
+- Verified stable across 3 consecutive standalone runs (~14s each) and passing
+  alongside X1/X2 in the full `npm run test:e2e:cross-platform` run (X3/X5-X8
+  correctly still skip).
+- Promoted from "nightly, skipped" to the folder's P0 merge-gate set in
+  `tests/e2e/cross-platform/README.md`, alongside X1/X2. Companion narrative
+  written in `x4-mobile-desktop-threads.md` (was a placeholder).
+- `docs/TODO.md` Priority 3's "Enable and pass X4 mobile↔desktop matching and
+  threads" bullet removed — done.
 
 ## 2026-09-08 — Installed macOS Firefox matrix target
 

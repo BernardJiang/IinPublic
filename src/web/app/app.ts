@@ -3376,6 +3376,12 @@ export class IinPublicApp {
       // docs/TODO.md K7: a delegate answering on their own device publishes this same bundle —
       // the master's own session only learns about it through this subscription, never directly.
       if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) this.refreshDelegateAdminPanel();
+      // K7 race: an asker's conversation can render the delegate's answer message before this
+      // bundle finishes syncing to this device — `filterVerifiedSupportMessages` fails closed
+      // against the (then-stale) cached bundle and drops it, and no further conversation
+      // message ever arrives to trigger a retry. Re-render the open conversation now that the
+      // cache is fresh so that answer doesn't stay hidden indefinitely.
+      this.uiManager.rerenderOpenConversation();
     });
   }
 

@@ -453,7 +453,7 @@ export type CreateFlowOrSurveyTalkViaEditorOpts = {
  * Builds a flow or survey talk through the real Talk Editor form (`.question-item`/`.answer-item`
  * DOM, `talk-editor-form-helpers.ts`) instead of a script-supplied payload — every e2e talk should
  * be created this way. Question/answer ids end up exactly `q_${index}`/`a_${qIndex}_${aIndex}`
- * (`processTalkForm`, ui-manager.ts), fully deterministic from array position, so callers that
+ * (`processTalkForm`, talk-form-processor.ts), fully deterministic from array position, so callers that
  * need to answer by id afterward can compute them without reading back `talkData`.
  */
 export async function createFlowOrSurveyTalkViaEditor(
@@ -572,7 +572,7 @@ export type CreateTagTalkViaEditorOpts = {
 
 /** Builds a tag talk through the real Talk Editor. The real editor hardcodes both the single
  *  question's text (= the title) and its two answer ids (`a_0_match`/`a_0_ignore`) regardless of
- *  author input — `processTalkForm`'s tag branch, ui-manager.ts — so there's nothing else to fill. */
+ *  author input — `processTalkForm`'s tag branch, talk-form-processor.ts — so there's nothing else to fill. */
 export async function createTagTalkViaEditor(
   page: Page,
   opts: CreateTagTalkViaEditorOpts,
