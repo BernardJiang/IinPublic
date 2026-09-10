@@ -903,31 +903,36 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#21 are complete
-(cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`;
-cluster #10, 2026-09-09: `openLinkedDevicesDialog`'s orchestration body → `linked-devices-dialog.ts`,
-alongside the `showLinkedDevicesDialog` renderer it already owned; cluster #11, 2026-09-09:
-`renderCreatorReplies` → new `creator-replies-view.ts`; cluster #12, 2026-09-09:
-`bindTalksRowGestures` → new `talks-row-gestures.ts`; cluster #13, 2026-09-09:
-`saveFlatAnswerHistoryRecord`/`getTalkContentKey` → `answer-history-storage.ts`; cluster #14,
-2026-09-09: `filterVerifiedSupportMessages` → new `verified-support-messages.ts`; cluster #15,
-2026-09-09: `bindDirtyWordEditor` → new `dirty-word-editor.ts`; cluster #16, 2026-09-09:
-`applyMeAnswerFilter` → `answers-view.ts`; cluster #17, 2026-09-09: `displayChatroomMessage` →
-new `chatroom-message-view.ts` and `updateMatchBadge` → new `notification-badges.ts`; cluster
-#18, 2026-09-09: `confirmCapturedQuestionDialog` → new `captured-question-dialog.ts`; cluster
-#19, 2026-09-09: `showTalkTemplatePicker` → new `talk-template-picker.ts`; cluster #20,
-2026-09-09: `showChooseWhoToDmPicker` + `showDmInboxPicker` → new `person-picker-dialogs.ts`;
-cluster #21, 2026-09-09: `confirmBroadcastAudience` → new `broadcast-audience-dialog.ts`). The
-ratchet grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding, K7
-delegate credentials) landed on top between clusters; cluster #9 brought it down to 8,912,
-cluster #10 to 8,784, cluster #11 to 8,584, cluster #12 to 8,482, cluster #13 to 8,378, cluster
-#14 to 8,270, cluster #15 to 8,197, cluster #16 to 8,133, cluster #17 to 8,068, cluster #18 to
-8,030, cluster #19 to 7,984 (crossing under 8,000), cluster #20 to 7,906, cluster #21 to
-**7,834** — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
-`showEditStageNameDialog` (59 lines) was found to have zero callers anywhere in the codebase
-during cluster #17-21's AST-script sweep — likely dead code, left in place rather than removed
-unilaterally (a behavior-removing decision, not an extraction) and flagged here for a deliberate
-call.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#29 are complete.
+Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
+application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
+dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#29
+(2026-09-08/09/10) extracted, in order: talk-editor form processing; linked-devices dialog
+orchestration; the creator-replies list; talks-row gestures; flat answer-history record
+construction; verified support-message filtering; the dirty-word editor; the Me-tab answers
+filter; the chatroom message renderer + notification badge; the captured-question confirm
+dialog; the talk-template picker; the DM/choose-who-to-dm person pickers; the broadcast-audience
+confirm dialog; the notification toast (116 call sites — the widest blast radius of any cluster
+so far); the peer-name cache; the conversation message cards (captured-question/IPFS-attachment);
+the app-bar overflow reflow + system-announcement banner + app-bar chrome setup; the item-details
+popup + question-answer-completion storage; the browser file-save helper; and the talk-broadcast
+toggle. Full per-cluster rationale, characterization evidence, and canonical-gate results are in
+`docs/completed.md` (search "UIManager decomposition cluster"); this section keeps only the
+running ratchet and cross-cluster findings to stay readable as the count grows.
+
+The ratchet grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding,
+K7 delegate credentials) landed on top between clusters, then came down cluster-by-cluster to
+8,912 (#9), 8,784 (#10), 8,584 (#11), 8,482 (#12), 8,378 (#13), 8,270 (#14), 8,197 (#15), 8,133
+(#16), 8,068 (#17), 8,030 (#18), 7,984 (#19, crossing under 8,000), 7,906 (#20), 7,834 (#21),
+7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), and
+**7,518** (#29) — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
+
+Two dead-code findings surfaced along the way, both left in place rather than removed
+unilaterally (deleting a whole feature is a different kind of change than a behavior-preserving
+extraction) and flagged here for a deliberate call: `showEditStageNameDialog` (59 lines, found
+during clusters #17-21) has zero callers anywhere in the codebase; `app-bar.ts` (found during
+cluster #25) defines a complete, differently-shaped `updateOverflow`/`renderAppBar`/
+`AppBarConfig` component system that is not imported anywhere in the app at all.
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
@@ -1351,6 +1356,24 @@ entries and babel preset were never removed.
         passed 4/5 further standalone reruns, consistent with pre-existing reload-timing
         flakiness in that one test rather than a deterministic regression in the byte-for-byte
         preserved badge logic. See `docs/completed.md`.
+      - Clusters #22-#29 evidence: eight more extractions — `showNotification` →
+        `notification-toast.ts` (#22, 116 call sites, the widest blast radius yet, verified with
+        a dedicated real-browser regression before continuing); `getPeerNameCache`/
+        `rememberPeerName` → `peer-name-cache.ts` (#23); `renderCapturedQuestionMessage`/
+        `renderIpfsAttachmentMessage` → `conversation-message-cards.ts` (#24); `syncAppBarOverflow`
+        → `app-bar-overflow.ts` and `showSystemAnnouncement` → `system-announcement-banner.ts`
+        (#25); `showDetailsPopupFor` → `item-details-popup.ts` and
+        `saveQuestionAnswersFromCompletion` → `answer-preferences-storage.ts` (#26);
+        `saveObjectUrlAs` → `browser-file-save.ts` (#27); `setTalkDisabled` →
+        `talk-broadcast-toggle.ts` (#28); `setupAppBarChrome` → added to `app-bar-overflow.ts`
+        (#29). Typecheck/lint clean, both production builds succeed, unit suites grew from
+        173/1,853 to 182/1,933 (~70 new) with zero regressions. Canonical run
+        `run-20260909-235414-74770` (25m21s): `heavy-staged` is green again (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed two already-established rotating specs
+        (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`), neither
+        touching anything in this batch — standalone reruns on an idle machine: `79` passed
+        immediately, `00l` failed once more then passed on a third attempt, consistent with
+        pre-existing flakiness. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1436,7 +1459,14 @@ entries and babel preset were never removed.
     ratchet from 8,133 to 7,834 across the five.~~ Done; `showEditStageNameDialog` found to have
     zero callers and flagged rather than deleted; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-22. Re-measure and choose cluster #22 as a separate commit-sized change; continue to defer
+22. ~~Extract clusters #22-#29 (`showNotification`, `getPeerNameCache`/`rememberPeerName`,
+    `renderCapturedQuestionMessage`/`renderIpfsAttachmentMessage`, `syncAppBarOverflow`,
+    `showSystemAnnouncement`, `showDetailsPopupFor`, `saveQuestionAnswersFromCompletion`,
+    `saveObjectUrlAs`, `setTalkDisabled`, `setupAppBarChrome`), lowering the ratchet from 7,834 to
+    7,518 across the eight.~~ Done; `app-bar.ts`'s entire component system found to be unimported
+    anywhere and flagged rather than deleted; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+23. Re-measure and choose cluster #30 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.

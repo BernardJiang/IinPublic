@@ -1,6 +1,74 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-09
+Last updated: 2026-09-10
+
+## 2026-09-10 — UIManager decomposition clusters #22-#29: eight more low-coupling extractions
+
+Continuing the AST-script-guided sweep from clusters #17-#21. `docs/TODO.md` Priority 6.
+
+- **#22: `showNotification` → new `notification-toast.ts`** (69 lines, 4 refs — `t`,
+  `notificationsSuppressedForE2e`, `showConversationDetail`, `navigateToGraphNode`). By far the
+  widest blast radius of any cluster so far — 116 call sites across `ui-manager.ts`/`app.ts` —
+  kept as a same-name public shim; verified with a dedicated real-browser regression
+  (`91-safety-toast-once-per-day`) before proceeding to further clusters, given the risk.
+- **#23: `getPeerNameCache` + `rememberPeerName` → new `peer-name-cache.ts`** (2+29 lines).
+  Cohesive localStorage-backed peer-name cache with a self-healing sync into stored
+  conversation records; `getMyConversations` passed in as a callback since it stays a
+  `UIManager` method used elsewhere.
+- **#24: `renderCapturedQuestionMessage` + `renderIpfsAttachmentMessage` → new
+  `conversation-message-cards.ts`** (33+33 lines). Both are "render a special message card
+  type inline in the conversation view" functions called from the same
+  `displayConversationMessages` mapping loop; their shared formatter dependencies
+  (`formatTalkRelativeTime`, etc.) stayed on `UIManager` (used elsewhere too) and are passed
+  in as deps.
+- **#25: `syncAppBarOverflow` → new `app-bar-overflow.ts`, `showSystemAnnouncement` → new
+  `system-announcement-banner.ts`** (34+29 lines, both 0 `this.*` refs). Found along the way:
+  `app-bar.ts` (an existing file in this same directory) defines a differently-shaped,
+  class-selector-based `updateOverflow`/`renderAppBar`/`AppBarConfig` component system that
+  turns out to be **completely unimported anywhere in the app** — confirmed via a repo-wide
+  search. Not touched (a dead-code question, not an extraction one — flagged, not deleted, same
+  discipline as `showEditStageNameDialog` in clusters #17-#21); `syncAppBarOverflow` got its own
+  correctly-named new module instead of building on the orphaned file.
+- **#26: `showDetailsPopupFor` → new `item-details-popup.ts`, `saveQuestionAnswersFromCompletion`
+  → `answer-preferences-storage.ts`** (28+29 lines). The latter's doc comment claimed "Called by
+  app when user completes a talk" but a repo-wide search found zero external callers — the
+  comment was stale (superseded when this logic moved inside `completeTalk` at some earlier
+  point); moved to the existing pure-storage module its `setMyQuestionAnswer`/
+  `MyQuestionAnswerEntry` already lived in, taking a `refreshAnswersListIfOpen` callback for its
+  one UI side effect.
+- **#27: `saveObjectUrlAs` → new `browser-file-save.ts`** (28 lines, 0 refs). Generic
+  File-System-Access-API-with-anchor-fallback download helper, unrelated to any specific
+  feature.
+- **#28: `setTalkDisabled` → new `talk-broadcast-toggle.ts`** (29 lines, 3 refs — `emit`, `t`,
+  `displayTalksList`). Public API (called from `app.ts`), kept as a shim. A genuine coordinator
+  (storage write + two `emit`s + DOM patch-in-place-or-fallback-to-full-rerender) rather than a
+  pure renderer, but still cleanly extractable with an explicit deps object.
+- **#29: `setupAppBarChrome` → added to `app-bar-overflow.ts`** (48 lines, 3 refs — `t`,
+  `showBroadcastToGroupDialog`, and a call to `syncAppBarOverflow` which cluster #25 had already
+  moved to this same module, so the two now call each other as plain function calls with no
+  deps-threading needed for that one).
+- **Characterization:** eight new/extended test files, ~70 new tests total — highlights:
+  `notification-toast.test.ts` (16, including uncovering that the original code's if/else-if
+  chain checks `peerId` before `retry`, so a toast carrying both navigates instead of retrying —
+  a pre-existing precedence quirk, not a bug introduced here, documented in its own test rather
+  than silently worked around); `peer-name-cache.test.ts` (10); `conversation-message-cards.test.ts`
+  (10, one fixture bug caught by a failing assertion: counting `captured-question-answer-btn`
+  substring occurrences double-counts each button's class *and* data-testid attribute — fixed to
+  count `<button` tags instead); `browser-file-save.test.ts` (5, covering the save-picker path,
+  its AbortError-cancel path, its fall-through-to-anchor path on a non-abort error, and the
+  anchor-only path when the API is unavailable); `app-bar-overflow.test.ts` (+7 for
+  `setupAppBarChrome`, on top of cluster #25's 7 for `syncAppBarOverflow`).
+- **Ratchet:** `ui-manager.ts` 7,834 → 7,778 (#22) → 7,746 (#23) → 7,708 (#24) → 7,653 (#25) →
+  7,605 (#26) → 7,581 (#27) → 7,560 (#28) → **7,518** (#29) lines.
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (182 suites / 1,933 tests after all eight, ~70 new).
+  Canonical run `run-20260909-235414-74770` (25m21s): `heavy-staged` is **green again**
+  (`rc=0`, confirming the earlier chatroom-manager fix continues to hold); `cross-browser`
+  remains the same pre-existing infra issue; `light` failed two already-established rotating
+  specs (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`),
+  neither touching anything in this batch — reran standalone on an idle machine: `79` passed
+  immediately, `00l` failed once more then passed cleanly on a third attempt, consistent with
+  pre-existing intermittent flakiness rather than a regression.
 
 ## 2026-09-09 — UIManager decomposition clusters #17-#21: five more low-coupling extractions
 
