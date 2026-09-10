@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const UI_MANAGER_LINE_BUDGET = 6_678;
+const UI_MANAGER_LINE_BUDGET = 6_637;
 
 describe('UIManager architecture budget', () => {
   it(`keeps ui-manager.ts at or below ${UI_MANAGER_LINE_BUDGET.toLocaleString()} lines`, () => {

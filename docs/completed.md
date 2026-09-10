@@ -2,6 +2,30 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #54: attachment metadata + media tile
+
+Continuing the AST-script-guided sweep from cluster #53. `docs/TODO.md` Priority 6.
+
+- **#54: `formatAttachmentSize` + `attachmentDownloadFilename` + `attachmentIconForMime` +
+  `renderMediaTile` → new `attachment-metadata.ts`** (~64 lines, 0 `this.*` refs on the three
+  helpers — already pure, previously wired as deps callbacks elsewhere too — and 3 refs on
+  `renderMediaTile`, all satisfied by the three siblings moving with it). Four small,
+  tightly-related attachment-display helpers bundled into one cluster since `renderMediaTile`
+  composes all three of the others.
+- **Characterization:** new `attachment-metadata.test.ts` (29 tests) covering
+  `formatAttachmentSize`'s B/KB/MB thresholds and the zero/negative/NaN empty-string case;
+  `attachmentDownloadFilename`'s already-has-extension passthrough, blank-name fallback, the
+  mime-to-extension table (jpeg/png/gif/webp/avif/svg/pdf/video/audio/text), and the
+  unrecognized-mime passthrough; `attachmentIconForMime`'s full emoji table; and
+  `renderMediaTile`'s image-vs-file-icon branches, name escaping, and the omitted-size-line case
+  for a zero-byte share. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,678 → **6,637** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  202/2,148 to 203/2,177 (29 new) with zero regressions. Canonical run `run-20260910-075309-8324`
+  (25m31s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed two already-established rotating specs (`29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), neither touching media/attachment rendering.
+
 ## 2026-09-10 — UIManager decomposition cluster #53: settings-section drill-down view
 
 Continuing the AST-script-guided sweep from cluster #52. `docs/TODO.md` Priority 6.

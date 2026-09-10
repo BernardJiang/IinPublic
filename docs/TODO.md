@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#53 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#54 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -931,8 +931,10 @@ the zero-dependency mesh-delivery helper `registerTalkForPeer`; and the broadcas
 preview trio (`resolveExpiresAtMs`/`BroadcastAudiencePreview`/
 `getSenderOmittedBroadcastPreviews`); the flow-editor answer-constraint refresh
 (`refreshFlowAnswerConstraints`); the settings-section HTML template (`renderSettingsSection`);
-the content-filter block/hide toast (`showContentFilterToast`); and the settings-section
-drill-down view (`applySettingsSectionView`). Full per-cluster rationale,
+the content-filter block/hide toast (`showContentFilterToast`); the settings-section
+drill-down view (`applySettingsSectionView`); and the attachment metadata/media-tile helpers
+(`formatAttachmentSize`/`attachmentDownloadFilename`/`attachmentIconForMime`/`renderMediaTile`).
+Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -945,7 +947,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 (#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
 7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), 6,710
-(#51), 6,697 (#52), and **6,678** (#53)
+(#51), 6,697 (#52), 6,678 (#53), and **6,637** (#54)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -1604,6 +1606,17 @@ entries and babel preset were never removed.
         (already-established rotating flakes) plus `00m-techsupport-delegate-answers` (new to
         this session's rotation; unrelated to settings-section rendering, reran clean standalone
         1/1). See `docs/completed.md`.
+      - Cluster #54 evidence: `formatAttachmentSize`/`attachmentDownloadFilename`/
+        `attachmentIconForMime`/`renderMediaTile` → new `attachment-metadata.ts`. All three
+        helpers were already pure (0 `this.*` refs, already wired as deps callbacks elsewhere);
+        `renderMediaTile` moved with them since it composes all three. New
+        `attachment-metadata.test.ts` (29 tests), all passed first run. Typecheck/lint clean,
+        both production builds succeed, unit suites grew from 202/2,148 to 203/2,177 with zero
+        regressions. Canonical run `run-20260910-075309-8324` (25m31s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed two
+        already-established rotating specs (`29-messaging-semantics`,
+        `83-survey-ignore-mid-question-not-complete`), neither touching media/attachment
+        rendering. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1755,7 +1768,11 @@ entries and babel preset were never removed.
 36. ~~Extract cluster #53 (`applySettingsSectionView` → new `settings-section-view.ts`), lowering
     the ratchet from 6,697 to 6,678.~~ Done; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-37. Re-measure and choose cluster #54 as a separate commit-sized change; continue to defer
+37. ~~Extract cluster #54 (`formatAttachmentSize`/`attachmentDownloadFilename`/
+    `attachmentIconForMime`/`renderMediaTile` → new `attachment-metadata.ts`), lowering the
+    ratchet from 6,678 to 6,637.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+38. Re-measure and choose cluster #55 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.
