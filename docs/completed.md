@@ -2,6 +2,40 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #43: talk completion
+
+Continuing the AST-script-guided sweep from clusters #40-#42. `docs/TODO.md` Priority 6.
+
+- **#43: `completeTalk` + `saveMyTalk` → new `talk-completion.ts`** (82+19 lines, 5 refs —
+  `getMyTalks`, `saveMyTalk`, `emit`, `showNotification`, `t`). `saveMyTalk` takes a narrower
+  `SaveMyTalkDeps` (`displayTalksList` only); `completeTalk` takes the full `TalkCompletionDeps`
+  (a superset) and calls the extracted `saveMyTalk` directly rather than round-tripping through
+  `UIManager`. `t`'s deps signature is typed `UiTranslationKey`, not `string` — `tsc` caught this
+  immediately (the original code's ternary passes translation-key literals, and the loosely-typed
+  first draft failed to compile against `UiTranslationKey`'s big string-literal union).
+- **Characterization:** new `talk-completion.test.ts` (15 tests) covering: new-entry vs.
+  merge-preserving-role saves in `saveMyTalk`; the Talks-tab-active refresh gate; `completeTalk`'s
+  existing-content-key reuse + sender-union path; the ignore-answer-forces-"answered" /
+  copy-autosave-grants-"copied" / existing-"created"-role-wins role logic; the flat-answer-history
+  side effect; the `withholdFromSender` meta pass-through; and the per-talk-type success
+  notification text. Two authoring mistakes caught by first-run failures: (1) a test assumed
+  `saveMyTalk`'s patch object's own `expiresAt` field persists directly — the real code only ever
+  pulls `expiresAt` from an *existing* entry or `fullTalk.expiresAt`, never from the raw patch, so
+  the assertion was rewritten around role-preservation instead; (2) `getFlatAnswerHistory()`
+  returns a map, not an array — `.length` was `undefined`, fixed to `Object.keys(...).length`.
+- **Ratchet:** `ui-manager.ts` 7,184 → **7,097** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  190/2,029 to 191/2,043 (14 new) with zero regressions. Canonical run
+  `run-20260910-023316-20468` (25m21s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged
+  pre-existing infra issue; `light` failed one already-established rotating spec
+  (`00l-techsupport-faq-cross-user`), unrelated to this batch (no TechSupport/FAQ code touched).
+  Note: the gate was launched via `nohup ... &` combined with `run_in_background: true`, which
+  orphaned it from the tool's own process tracking and produced a false-early "completed"
+  notification after ~10s while the real ~25-minute run continued detached — caught by checking
+  `ps`/`pgrep` for the actual script PID, then waited out for real via a `Monitor` polling that
+  PID rather than trusting the tool's own notification. Filed as product feedback; do not repeat
+  this combination.
+
 ## 2026-09-10 — UIManager decomposition clusters #40-#42: three more extractions
 
 Continuing the AST-script-guided sweep from clusters #36-#39. `docs/TODO.md` Priority 6.

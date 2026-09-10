@@ -10,6 +10,7 @@ import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, escapeHtml, tagAnswerSuffix } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { completeTalk as completeTalkImpl, saveMyTalk as saveMyTalkImpl } from './talk-completion';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
@@ -79,7 +80,6 @@ import {
   clearMyTalks,
   deleteMyTalkEntry,
   getMyTalks,
-  setMyTalks,
   type MyTalkEntry,
 } from './my-talks-storage';
 import {
@@ -4944,81 +4944,12 @@ export class UIManager extends EventEmitter {
     outcome?: 'match' | 'mismatch',
     meta?: { withholdFromSender?: boolean },
   ): void {
-    console.log('✅ Talk completed:', talk.id, answers, outcome);
-
-    const contentKey = getTalkContentKey(talk);
-    const answeredByContent = getAnsweredTalkByContent();
-    const existingTalkId = answeredByContent[contentKey];
-    const myTalks = this.getMyTalks();
-    const authorId = talk.authorId || (talk as any).authorId;
-
-    let talkIdToUse: string;
-    let senders: string[];
-
-    if (existingTalkId && myTalks[existingTalkId]) {
-      talkIdToUse = existingTalkId;
-      const existing = myTalks[existingTalkId];
-      const prevSenders = existing.senders || (existing.fullTalk?.authorId ? [existing.fullTalk.authorId] : []);
-      senders = [...new Set([...prevSenders, authorId].filter(Boolean))];
-    } else {
-      talkIdToUse = talk.id;
-      senders = authorId ? [authorId] : [];
-      answeredByContent[contentKey] = talk.id;
-      try {
-        answeredByContent[computeTalkIdFromTalkData(talk)] = talk.id;
-      } catch {
-        /* keep legacy content key only */
-      }
-      setAnsweredTalkByContent(answeredByContent);
-    }
-
-    const existingEntry = myTalks[talkIdToUse];
-    const wasIgnored = answers.some((answer) => {
-      const answerId = String(answer?.answerId || '').toLowerCase();
-      const answerText = String(answer?.answerText || '').toLowerCase();
-      return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
+    completeTalkImpl(talk, answers, outcome, meta, {
+      t: (key) => this.t(key),
+      emit: (event, payload) => this.emit(event, payload),
+      showNotification: (message, type) => this.showNotification(message, type),
+      displayTalksList: () => this.displayTalksList(),
     });
-    const role = existingEntry?.role === 'copied' ? 'copied'
-               : existingEntry?.role === 'created' ? 'created'
-               : getCopyTalkAutoSave() && !wasIgnored ? 'copied'
-               : 'answered';
-    const completedAnswers = answers.map((answer) => ({
-      questionId: answer.questionId,
-      answerId: answer.answerId,
-      ...(answer.answerText ? { answerText: answer.answerText } : {}),
-      ...(answer.mode ? { mode: answer.mode } : {}),
-    }));
-
-    this.saveMyTalk({
-      talkId: talkIdToUse,
-      title: talk.title,
-      type: talk.type,
-      timestamp: talk.createdAt || new Date().toISOString(),
-      role,
-      // docs/TODO.md §Y1: auto-copy on completion is still just a copy — original authorship
-      // is preserved either way until a real edit happens.
-      fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
-      completedAnswers,
-      outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
-      senders,
-    });
-    saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
-
-    this.emit('talkCompleted', {
-      talkId: talk.id,
-      answers,
-      talkData: talk,
-      ...(meta?.withholdFromSender ? { withholdFromSender: true } : {}),
-    });
-
-    this.showNotification(
-      talk.type === 'flow'
-        ? this.t('responseSubmittedFlow')
-        : talk.type === 'tag'
-          ? this.t('responseSubmittedTag')
-          : this.t('responseSubmittedSurvey'),
-      'success',
-    );
   }
 
   /**
@@ -5249,25 +5180,7 @@ export class UIManager extends EventEmitter {
   // ============================================
 
   private saveMyTalk(talkData: MyTalkEntry): void {
-    const myTalks = getMyTalks();
-    const existing = myTalks[talkData.talkId];
-    const full = talkData.fullTalk;
-    myTalks[talkData.talkId] = {
-      ...existing,
-      ...talkData,
-      disabled: talkData.disabled ?? existing?.disabled ?? false,
-      expiresAt: existing?.expiresAt ?? full?.expiresAt ?? undefined,
-      locationRadiusMiles: existing?.locationRadiusMiles ?? full?.locationRadiusMiles ?? undefined,
-      senders: talkData.senders ?? existing?.senders ?? undefined,
-      lastInteraction: new Date().toISOString(),
-    };
-    setMyTalks(myTalks);
-
-    // Refresh talks list if currently viewing Talks tab
-    const talksView = document.getElementById('talks-view');
-    if (talksView && talksView.classList.contains('active')) {
-      this.displayTalksList();
-    }
+    saveMyTalkImpl(talkData, { displayTalksList: () => this.displayTalksList() });
   }
 
   /** OUT talks eligible for the next broadcast in the current room (respects send history). */
