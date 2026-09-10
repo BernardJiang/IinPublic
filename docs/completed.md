@@ -2,6 +2,74 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition clusters #30-#35: six more extractions, plus a caught near-miss
+
+Continuing the AST-script-guided sweep from clusters #22-#29. `docs/TODO.md` Priority 6.
+
+- **#30: `saveCreatedTalk` → new `talk-creation-storage.ts`** (51 lines, 3 refs —
+  `saveAnswerPreference`, `saveQuestionAnswersFromCompletion`, `displayTalksList`). Previously
+  passed over in cluster #21's pass as a "coordinator, not a pure renderer"; revisited now that
+  its two storage dependencies are themselves already-extracted free functions from clusters
+  #13/#26, making the deps object straightforward to assemble.
+- **#31: `deliveryReasonLabel` + `formatReasonCounts` → new `delivery-reason-labels.ts`** (1+21
+  lines). Kept as same-name shims (4 remaining internal call sites each, including inside the
+  still-deferred `displayTalksList`).
+- **#32: `saveKnownPerson` → `contacts-view.ts`** (28 lines, 3 refs — `currentUser`
+  read/write, `emit`, `displayContactsList`). Added to the existing module that already owns
+  `KnownPerson`-related rendering; verified with a dedicated real-browser regression
+  (`00ae-contacts-stranger-relationship`) given the direct mutation of `currentUser.knownPeople`.
+- **#33: `resolveChatroomTitle` → `chatrooms-view.ts`** (26 lines, 1 ref — `customChatrooms`).
+  Public API (called from `app.ts`). Tests mock `getFlatChatroomList`/`getActiveChatroomHierarchy`
+  directly rather than relying on the real hierarchy content, since both functions traverse the
+  exact same tree — meaning the function's own depth-first tree-search fallback branch is
+  actually dead code for any real, current chatroom id (the flat list already covers the whole
+  tree exhaustively); only reachable via a mocked inconsistency between the two, which is what
+  the test exercises.
+- **#34: `readCreatorReplyFilterState`/`persistCreatorReplyFilterState`/
+  `restoreCreatorReplyFilterState` → `creator-replies-view.ts`** (13+8+25 lines, cohesive
+  localStorage read/write/restore trio for the Creator Replies filter panel, all previously
+  0-1 `this.*` refs). Call sites updated directly (no shims) since each had only 1-3 internal
+  callers.
+- **#35: `updateConversationTransportMode` + `setConversationOnlineStatus` → new
+  `conversation-status-updates.ts`** (28+28 lines, 5 refs each). Both public API (called from
+  `app.ts`), kept as shims.
+- **A caught near-miss, not shipped as a cluster:** re-measuring surfaced
+  `resolveAnswerPreferenceForTalkQuestion` (36 lines) as an apparent 1-ref shim — its only
+  *internal* forwarding call site (into a deps object) could be replaced with a direct closure,
+  seemingly saving the whole method. Removed it, and the full unit suite immediately caught the
+  mistake: `answer-preference-resolution-characterization.test.ts` (from cluster #4, 2026-08-24)
+  calls `ui.resolveAnswerPreferenceForTalkQuestion(...)` **directly** on a `UIManager` instance
+  via `new UIManager() as unknown as PreferenceUi` — a private-method characterization-test
+  pattern established back in cluster #4 that a plain grep of `ui-manager.ts`/`app.ts` alone
+  doesn't surface, and that `npm run test:type` didn't catch either (the test's `ui` binding is
+  cast loosely enough that the missing method was only a *runtime* error, not a compile one).
+  Restored the method verbatim (still delegating to the already-extracted
+  `resolveStoredAnswerPreference`) before re-verifying. **Methodology update recorded in
+  `docs/TODO.md`'s execution rule:** before fully deleting any method (as opposed to moving its
+  body to an extracted module while keeping a delegating shim), grep `src/test/` too, not just
+  `ui-manager.ts`/`app.ts` — a characterization test can hold a private method's only remaining
+  "caller."
+- **Characterization:** six new/extended test files — `talk-creation-storage.test.ts` (9),
+  `delivery-reason-labels.test.ts` (7), `contacts-view.test.ts` (+6 for `saveKnownPerson`),
+  `resolve-chatroom-title.test.ts` (6, using mocked hierarchy functions rather than real tree
+  content — see above), `creator-replies-view.test.ts` (+5 for the filter-state trio),
+  `conversation-status-updates.test.ts` (10). All passed on first run. Real-browser regression:
+  `staged/stage1-single-user/05-talks-edit` + `staged/stage2-two-user/07-tags-checkbox` (talk
+  creation with self-answers, cluster #30), `staged/stage2-two-user/00ae-contacts-stranger-relationship`
+  (cluster #32).
+- **Ratchet:** `ui-manager.ts` 7,518 → 7,481 (#30) → 7,455 (#31) → 7,444 (#32) → 7,422 (#33) →
+  7,375 (#34) → **7,345** (#35) lines. (The near-miss round-tripped back to exactly 7,375 with
+  no net change, so it isn't numbered as its own cluster.)
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (186 suites / 1,976 tests after all six, ~54 net new).
+  Canonical run `run-20260910-002854-85535` (25m26s): `heavy-staged` is green again (`rc=0`);
+  `cross-browser` remains the same pre-existing infra issue; `light` failed three
+  already-established rotating specs (`79-techsupport-survives-restrictive-filters`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching
+  anything in this batch — `29-messaging-semantics` (plausibly related, given the new
+  `conversation-status-updates.ts` online-status logic) reran 3/3 clean standalone on an idle
+  machine.
+
 ## 2026-09-10 — UIManager decomposition clusters #22-#29: eight more low-coupling extractions
 
 Continuing the AST-script-guided sweep from clusters #17-#21. `docs/TODO.md` Priority 6.

@@ -903,10 +903,10 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#29 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#35 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
-dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#29
+dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#35
 (2026-09-08/09/10) extracted, in order: talk-editor form processing; linked-devices dialog
 orchestration; the creator-replies list; talks-row gestures; flat answer-history record
 construction; verified support-message filtering; the dirty-word editor; the Me-tab answers
@@ -915,8 +915,10 @@ dialog; the talk-template picker; the DM/choose-who-to-dm person pickers; the br
 confirm dialog; the notification toast (116 call sites — the widest blast radius of any cluster
 so far); the peer-name cache; the conversation message cards (captured-question/IPFS-attachment);
 the app-bar overflow reflow + system-announcement banner + app-bar chrome setup; the item-details
-popup + question-answer-completion storage; the browser file-save helper; and the talk-broadcast
-toggle. Full per-cluster rationale, characterization evidence, and canonical-gate results are in
+popup + question-answer-completion storage; the browser file-save helper; the talk-broadcast
+toggle; talk-creation storage; delivery-reason labels; known-person saving; chatroom-title
+resolution; the creator-reply filter-state trio; and the conversation transport/online-status
+updates. Full per-cluster rationale, characterization evidence, and canonical-gate results are in
 `docs/completed.md` (search "UIManager decomposition cluster"); this section keeps only the
 running ratchet and cross-cluster findings to stay readable as the count grows.
 
@@ -924,20 +926,30 @@ The ratchet grew from 8,938 (after cluster #8) to 9,153 as legitimate feature wo
 K7 delegate credentials) landed on top between clusters, then came down cluster-by-cluster to
 8,912 (#9), 8,784 (#10), 8,584 (#11), 8,482 (#12), 8,378 (#13), 8,270 (#14), 8,197 (#15), 8,133
 (#16), 8,068 (#17), 8,030 (#18), 7,984 (#19, crossing under 8,000), 7,906 (#20), 7,834 (#21),
-7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), and
-**7,518** (#29) — the current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
+7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
+(#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), and **7,345** (#35) — the
+current enforced ceiling (`src/test/unit/ui-manager-size-budget.test.ts`).
 
 Two dead-code findings surfaced along the way, both left in place rather than removed
 unilaterally (deleting a whole feature is a different kind of change than a behavior-preserving
 extraction) and flagged here for a deliberate call: `showEditStageNameDialog` (59 lines, found
 during clusters #17-21) has zero callers anywhere in the codebase; `app-bar.ts` (found during
 cluster #25) defines a complete, differently-shaped `updateOverflow`/`renderAppBar`/
-`AppBarConfig` component system that is not imported anywhere in the app at all.
+`AppBarConfig` component system that is not imported anywhere in the app at all. A near-miss
+during cluster #35's pass (fully deleting `resolveAnswerPreferenceForTalkQuestion`, which turned
+out to still be a characterization test's direct call target) prompted the execution-rule
+addition below about checking `src/test/` before deleting a method outright.
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
 characterize behavior before moving it, ratchet the size ceiling down after the extraction, and
-run the canonical verification gate before beginning another cluster.
+run the canonical verification gate before beginning another cluster. Before **fully deleting**
+any method (as opposed to moving its body to an extracted module while leaving a delegating
+shim), grep `src/test/` too, not just `ui-manager.ts`/`app.ts` — a characterization test can hold
+a private method's only remaining "caller" via a type-cast pattern (`new UIManager() as unknown
+as SomeInterface`, established in cluster #4) that `npm run test:type` won't catch, since the
+cast makes the missing method only a *runtime* error. Caught once in cluster #35's pass on
+`resolveAnswerPreferenceForTalkQuestion`; see `docs/completed.md` for the full account.
 
 This document captures two issues found during an architecture study of `src/`:
 
@@ -1374,6 +1386,22 @@ entries and babel preset were never removed.
         touching anything in this batch — standalone reruns on an idle machine: `79` passed
         immediately, `00l` failed once more then passed on a third attempt, consistent with
         pre-existing flakiness. See `docs/completed.md`.
+      - Clusters #30-#35 evidence: six more extractions — `saveCreatedTalk` →
+        `talk-creation-storage.ts` (#30); `deliveryReasonLabel`/`formatReasonCounts` →
+        `delivery-reason-labels.ts` (#31); `saveKnownPerson` → `contacts-view.ts` (#32);
+        `resolveChatroomTitle` → `chatrooms-view.ts` (#33); the creator-reply filter-state trio
+        → `creator-replies-view.ts` (#34); `updateConversationTransportMode`/
+        `setConversationOnlineStatus` → `conversation-status-updates.ts` (#35). A near-miss along
+        the way: fully deleting `resolveAnswerPreferenceForTalkQuestion` (seemingly a 1-ref shim)
+        broke `answer-preference-resolution-characterization.test.ts` (cluster #4), which calls
+        it directly via a private-method type-cast pattern `tsc` doesn't catch — restored before
+        shipping; see the execution-rule addition above and `docs/completed.md` for the full
+        account. Typecheck/lint clean, both production builds succeed, unit suites grew from
+        182/1,933 to 186/1,976 (~54 net new) with zero regressions. Canonical run
+        `run-20260910-002854-85535` (25m26s): `heavy-staged` green again; `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs, none touching this batch — `29-messaging-semantics` (plausibly related, given the
+        new online-status logic) reran 3/3 clean standalone. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1466,7 +1494,14 @@ entries and babel preset were never removed.
     7,518 across the eight.~~ Done; `app-bar.ts`'s entire component system found to be unimported
     anywhere and flagged rather than deleted; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-23. Re-measure and choose cluster #30 as a separate commit-sized change; continue to defer
+23. ~~Extract clusters #30-#35 (`saveCreatedTalk`, `deliveryReasonLabel`/`formatReasonCounts`,
+    `saveKnownPerson`, `resolveChatroomTitle`, the creator-reply filter-state trio,
+    `updateConversationTransportMode`/`setConversationOnlineStatus`), lowering the ratchet from
+    7,518 to 7,345 across the six.~~ Done; caught and reverted a near-miss deletion of
+    `resolveAnswerPreferenceForTalkQuestion` (still a characterization-test call target);
+    `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
+    trio remain deferred, unchanged.
+24. Re-measure and choose cluster #36 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.

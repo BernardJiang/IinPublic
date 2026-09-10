@@ -15,7 +15,7 @@ import { normalizeProfileAttributeVisibility } from '../../shared/profile-privac
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, singleNonIgnoreAnswer } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
-import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
+import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -32,6 +32,7 @@ import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './
 import {
   type CustomChatroomRow,
   renderChatroomList as renderChatrooms,
+  resolveChatroomTitle,
   showChatroomDetail as openChatroomDetail,
   syncStatusBroadcastButtonVisibility as syncChatroomBroadcastVisibility,
   updateChatroomMembers as renderChatroomMembers,
@@ -45,6 +46,7 @@ import {
   displayContactsList as renderContactsList,
   openRelationshipDialog,
   renderContactContextSummaryInto,
+  saveKnownPerson as saveKnownPersonImpl,
   showContactsList as openContactsList,
   type ContactsViewDeps,
 } from './contacts-view';
@@ -139,6 +141,12 @@ import { showSystemAnnouncement as renderSystemAnnouncement } from './system-ann
 import { showDetailsPopupFor as renderItemDetailsPopup } from './item-details-popup';
 import { saveObjectUrlAs as saveFileFromObjectUrl } from './browser-file-save';
 import { setTalkDisabled as setTalkDisabledImpl } from './talk-broadcast-toggle';
+import { saveCreatedTalk as saveCreatedTalkImpl } from './talk-creation-storage';
+import { deliveryReasonLabel, formatReasonCounts } from './delivery-reason-labels';
+import {
+  updateConversationTransportMode as updateConversationTransportModeImpl,
+  setConversationOnlineStatus as setConversationOnlineStatusImpl,
+} from './conversation-status-updates';
 import {
   buildRouteSelfAnswers as buildRouteEditorSelfAnswers,
   collectRouteEditorQuestions as collectRouteQuestions,
@@ -186,8 +194,10 @@ import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl, type LinkedDevi
 import {
   renderCreatorReplies as renderCreatorRepliesImpl,
   CREATOR_REPLY_PAGE_SIZE,
+  persistCreatorReplyFilterState,
+  readCreatorReplyFilterState,
+  restoreCreatorReplyFilterState,
   type CreatorReplyRow,
-  type CreatorReplyFilterState,
 } from './creator-replies-view';
 import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-gestures';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
@@ -230,7 +240,6 @@ const LANGUAGE_OPTIONS = [
 ];
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
-const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
  * banner, and is throttled to once per checkpoint per day rather than every occurrence. */
 const SAFETY_TOAST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -585,38 +594,11 @@ export class UIManager extends EventEmitter {
   }
 
   private deliveryReasonLabel(reason: string): string {
-    const translationKey = ({
-      intake_language: 'reasonIntakeLanguage',
-      intake_talk_type: 'reasonIntakeTalkType',
-      intake_min_distance: 'reasonIntakeMinDistance',
-      intake_max_distance: 'reasonIntakeMaxDistance',
-      intake_sent_after: 'reasonIntakeSentAfter',
-      intake_grammar: 'reasonIntakeGrammar',
-      intake_dirty_words: 'reasonIntakeDirtyWords',
-      intake_custom_blocked_terms: 'reasonIntakeCustomTerms',
-      talk_expired: 'reasonTalkExpired',
-      broadcast_disabled: 'reasonBroadcastDisabled',
-      peer_already_sent: 'peerOmitAlreadySent',
-      age_gate: 'reasonAgeGate',
-      blocked_user: 'reasonBlockedUser',
-      broadcast_max_distance: 'reasonBroadcastMaxDistance',
-      tag_targeting: 'reasonTagTargeting',
-      sender_capacity: 'reasonCapacity',
-      symmetric_rate_limit: 'reasonRateLimit',
-      daily_talk_send_rate_limit: 'reasonRateLimit',
-      daily_talk_receive_rate_limit: 'reasonRateLimit',
-      weekly_talk_send_rate_limit: 'reasonRateLimit',
-      weekly_talk_receive_rate_limit: 'reasonRateLimit',
-    } as Record<string, UiTranslationKey>)[reason];
-    return translationKey ? this.t(translationKey) : reason.replace(/_/g, ' ');
+    return deliveryReasonLabel(reason, this.t.bind(this));
   }
 
   private formatReasonCounts(counts: Record<string, number>): string {
-    return Object.entries(counts)
-      .filter(([, count]) => count > 0)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([reason, count]) => `${this.deliveryReasonLabel(reason)}: ${count}`)
-      .join(' · ');
+    return formatReasonCounts(counts, this.t.bind(this));
   }
 
   private applyShellTranslations(): void {
@@ -770,30 +752,7 @@ export class UIManager extends EventEmitter {
    * Title for status bar and headers: custom/business rooms, hierarchy, then formatted id.
    */
   resolveChatroomTitle(chatroomId: string): string {
-    const custom = this.customChatrooms.find((c) => c.id === chatroomId);
-    if (custom) {
-      const icon = custom.type === 'business' ? '🏪' : '💬';
-      return `${icon} ${custom.name}`;
-    }
-    const flat = getFlatChatroomList();
-    const node = flat.find((n) => n.id === chatroomId);
-    if (node) return `${node.icon} ${node.name}`;
-    const findInTree = (node: ReturnType<typeof getActiveChatroomHierarchy>): string | null => {
-      if (node.id === chatroomId) return node.name;
-      if (node.children) {
-        for (const ch of node.children) {
-          const r = findInTree(ch);
-          if (r) return r;
-        }
-      }
-      return null;
-    };
-    const treeName = findInTree(getActiveChatroomHierarchy());
-    if (treeName) return treeName;
-    return chatroomId
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+    return resolveChatroomTitle(chatroomId, this.customChatrooms);
   }
 
   private getMyTalks(): Record<string, any> {
@@ -1142,11 +1101,11 @@ export class UIManager extends EventEmitter {
         this.displayTalksList();
       });
     });
-    this.restoreCreatorReplyFilterState();
+    restoreCreatorReplyFilterState();
     ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
       document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => {
         this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
-        this.persistCreatorReplyFilterState();
+        persistCreatorReplyFilterState();
         // §M1: the panel is normally hidden (display:none) until showCreatorRepliesForTalk
         // opens it — only re-render while it's actually visible.
         if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
@@ -1166,7 +1125,7 @@ export class UIManager extends EventEmitter {
       this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
       this.creatorReplyScopedTalkId = null;
       this.creatorReplyScopedTalkTitle = '';
-      this.persistCreatorReplyFilterState();
+      persistCreatorReplyFilterState();
       if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
         this.renderCreatorReplies();
       }
@@ -2542,20 +2501,6 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  private readCreatorReplyFilterState(): CreatorReplyFilterState {
-    return {
-      query: ((document.getElementById('reply-filter-query') as HTMLInputElement | null)?.value || '').trim(),
-      outcome: (document.getElementById('reply-filter-outcome') as HTMLSelectElement | null)?.value || 'all',
-      relationship: (document.getElementById('reply-filter-relationship') as HTMLSelectElement | null)?.value || 'all',
-      type: (document.getElementById('reply-filter-type') as HTMLSelectElement | null)?.value || 'all',
-      language: (document.getElementById('reply-filter-language') as HTMLSelectElement | null)?.value || 'all',
-      from: (document.getElementById('reply-filter-from') as HTMLInputElement | null)?.value || '',
-      to: (document.getElementById('reply-filter-to') as HTMLInputElement | null)?.value || '',
-      sort: (document.getElementById('reply-sort-order') as HTMLSelectElement | null)?.value || 'recent',
-      group: (document.getElementById('reply-group-order') as HTMLSelectElement | null)?.value || 'none',
-    };
-  }
-
   /** Remembers the Talks tab's direction/type/sort/search/date filters and scroll position
    * across reloads — mirrors the Contacts tab's `iinpublic_contacts_tab_state` pattern. */
   private persistTalksTabState(): void {
@@ -2609,40 +2554,6 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  private persistCreatorReplyFilterState(): void {
-    try {
-      localStorage.setItem(CREATOR_REPLY_FILTERS_KEY, JSON.stringify(this.readCreatorReplyFilterState()));
-    } catch {
-      /* local-only preference persistence is optional */
-    }
-  }
-
-  private restoreCreatorReplyFilterState(): void {
-    let state: Partial<CreatorReplyFilterState> = {};
-    try {
-      const raw = localStorage.getItem(CREATOR_REPLY_FILTERS_KEY);
-      state = raw ? JSON.parse(raw) as Partial<CreatorReplyFilterState> : {};
-    } catch {
-      state = {};
-    }
-    const values: Array<[string, string | undefined]> = [
-      ['reply-filter-query', state.query],
-      ['reply-filter-outcome', state.outcome],
-      ['reply-filter-relationship', state.relationship],
-      ['reply-filter-type', state.type],
-      ['reply-filter-language', state.language],
-      ['reply-filter-from', state.from],
-      ['reply-filter-to', state.to],
-      ['reply-sort-order', state.sort],
-      ['reply-group-order', state.group],
-    ];
-    for (const [id, value] of values) {
-      if (!value) continue;
-      const element = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
-      if (element) element.value = value;
-    }
-  }
-
   private async refreshCreatorReplies(): Promise<void> {
     if (!this.currentUserId) return;
     // P0 step 5: replies derived from localTalkExchanges — no server call to /api/users/:id/replies.
@@ -2679,7 +2590,7 @@ export class UIManager extends EventEmitter {
   private renderCreatorReplies(): void {
     renderCreatorRepliesImpl({
       getRows: () => this.creatorReplyRows,
-      readFilterState: () => this.readCreatorReplyFilterState(),
+      readFilterState: () => readCreatorReplyFilterState(),
       getScopedTalkId: () => this.creatorReplyScopedTalkId,
       getScopedTalkTitle: () => this.creatorReplyScopedTalkTitle,
       clearScope: () => {
@@ -5542,52 +5453,14 @@ export class UIManager extends EventEmitter {
     talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null },
     options: { selfAnswers: { questionId: string; answerId: string }[] },
   ): void {
-    const myTalks = getMyTalks();
-    const uncheckedTag = talk.type === 'tag' && options.selfAnswers.some((answer) => answer.answerId === 'ignore' || answer.answerId.includes('ignore'));
-    myTalks[talk.id] = {
-      ...myTalks[talk.id],
-      talkId: talk.id,
-      title: talk.title,
-      type: talk.type,
-      language: talk.language || 'en',
-      timestamp: new Date().toISOString(),
-      role: 'created',
-      fullTalk: talk,
-      disabled: uncheckedTag,
-      expiresAt: talk.expiresAt ?? undefined,
-      locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
-      lastInteraction: new Date().toISOString(),
-    };
-    setMyTalks(myTalks);
-
-    // Save self-answers to answer preferences (user's answer list) for chatbot/auto-reply
-    const acc: Array<{ questionId: string; answerText?: string }> = [];
-    const completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }> = [];
-    let hasMatchAnswer = false;
-    for (const { questionId, answerId } of options.selfAnswers) {
-      const q = talk.questions?.find((qu: any) => qu.id === questionId);
-      if (!q) continue;
-      const a = q.answers?.find((an: any) => an.id === answerId);
-      if (!a) continue;
-      acc.push({ questionId, answerText: a.text });
-      completedAnswers.push({
-        questionId,
-        answerId,
-        answerText: a.text || '',
-        mode: 'manual',
-      });
-      if (a.isMatch === true) hasMatchAnswer = true;
-      this.saveAnswerPreference(talk, talk.id, q, a.id, a.text || '', acc, 'auto');
-    }
-    if (completedAnswers.length > 0) {
-      this.saveQuestionAnswersFromCompletion(talk, completedAnswers);
-      saveFlatAnswerHistoryRecord(talk.id, talk, completedAnswers, hasMatchAnswer ? 'match' : 'mismatch', []);
-    }
-
-    const talksView = document.getElementById('talks-view');
-    if (talksView?.classList.contains('active')) {
-      this.displayTalksList();
-    }
+    saveCreatedTalkImpl(talk, options, {
+      saveAnswerPreference: (talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode) =>
+        this.saveAnswerPreference(talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode),
+      saveQuestionAnswersFromCompletion: (talkData, answers) => this.saveQuestionAnswersFromCompletion(talkData, answers),
+      saveFlatAnswerHistoryRecord: (talkId, talkArg, completedAnswers, outcome, senders) =>
+        saveFlatAnswerHistoryRecord(talkId, talkArg, completedAnswers, outcome, senders),
+      refreshTalksListIfActive: () => this.displayTalksList(),
+    });
   }
 
   getChatbotTemplate(talkId: string): { answers: any[]; talkData: any } | null {
@@ -6416,23 +6289,11 @@ export class UIManager extends EventEmitter {
       notes?: string;
     },
   ): Promise<void> {
-    if (!this.currentUser) return;
-    const nextEntry: KnownPerson = {
-      userId,
-      labels: details.labels,
-      ...(details.nickname ? { nickname: details.nickname } : {}),
-      ...(details.customLabel ? { customLabel: details.customLabel } : {}),
-      ...(typeof details.rating === 'number' ? { rating: details.rating } : {}),
-      ...(details.notes ? { notes: details.notes } : {}),
-      addedAt: new Date(),
-    };
-    const knownPeople = [
-      ...(this.currentUser.knownPeople || []).filter((entry) => entry.userId !== userId),
-      nextEntry,
-    ];
-    this.currentUser.knownPeople = knownPeople;
-    this.emit('saveKnownPerson', { userId, ...details });
-    this.displayContactsList();
+    saveKnownPersonImpl(userId, details, {
+      getCurrentUser: () => this.currentUser,
+      emit: (event, payload) => this.emit(event, payload),
+      refreshContactsList: () => void this.displayContactsList(),
+    });
   }
 
   private async submitPeerReview(userId: string, rating: number): Promise<void> {
@@ -7054,28 +6915,13 @@ export class UIManager extends EventEmitter {
     transportMode: string,
     transportFallbackReason?: string | null,
   ): void {
-    const conversations = this.getMyConversations();
-    const conversation = conversations[conversationId];
-    if (!conversation) return;
-    conversation.transportMode = transportMode;
-    if (transportFallbackReason !== undefined) {
-      conversation.transportFallbackReason = transportFallbackReason;
-    }
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    if (this.currentConversationId === conversationId) {
-      const transportStatus = document.getElementById('conversation-transport-status');
-      if (transportStatus) {
-        transportStatus.dataset.transportMode = transportMode;
-        transportStatus.textContent = `${this.t('conversationTransport')}: ${this.formatTransportMode(transportMode)}`;
-      }
-      const fallbackStatus = document.getElementById('conversation-fallback-status');
-      if (fallbackStatus) {
-        fallbackStatus.textContent = this.formatTransportFallback(
-          transportMode,
-          conversation.transportFallbackReason,
-        );
-      }
-    }
+    updateConversationTransportModeImpl(conversationId, transportMode, transportFallbackReason, {
+      getMyConversations: () => this.getMyConversations(),
+      getCurrentConversationId: () => this.currentConversationId,
+      t: this.t.bind(this),
+      formatTransportMode: (mode) => this.formatTransportMode(mode),
+      formatTransportFallback: (mode, reason) => this.formatTransportFallback(mode, reason),
+    });
   }
 
   addNewConversation(conversationData: {
@@ -7472,32 +7318,13 @@ export class UIManager extends EventEmitter {
   }
 
   public setConversationOnlineStatus(otherUserIds: Set<string>): void {
-    const conversations = this.getMyConversations();
-    let changed = false;
-    for (const conversation of Object.values(conversations)) {
-      const online = otherUserIds.has(String((conversation as any).otherUserId || ''));
-      if ((conversation as any).online !== online) {
-        (conversation as any).online = online;
-        changed = true;
-      }
-    }
-    if (changed) {
-      localStorage.setItem('myConversations', JSON.stringify(conversations));
-      const meTab = document.querySelector('.nav-btn[data-view="me"]');
-      if (meTab?.classList.contains('active')) this.displayConversationsList();
-    }
-
-    // Same real-presence signal, generalized beyond conversations/TechSupport to every
-    // ordinary contact row (contacts-view.ts) and chatroom member row (chatrooms-view.ts) —
-    // both lists now show the same online/away dot.
-    this.onlineUserIds = otherUserIds;
-    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
-    // getMyConversations()/deriveLocalPeers() read live localStorage, never a stale snapshot,
-    // so a full re-render here is safe (same reasoning as setTechSupportOnlineStatus above).
-    if (contactsTab?.classList.contains('active')) this.displayContactsList();
-    // The chatroom roster is NOT re-rendered from `currentChatroomMembers` here — see
-    // patchTechSupportPresenceIndicators's own comment for why. Patch presence dots in place.
-    this.patchPresenceIndicators();
+    setConversationOnlineStatusImpl(otherUserIds, {
+      getMyConversations: () => this.getMyConversations(),
+      refreshConversationsListIfActive: () => this.displayConversationsList(),
+      setOnlineUserIds: (ids) => { this.onlineUserIds = ids; },
+      refreshContactsListIfActive: () => void this.displayContactsList(),
+      patchPresenceIndicators: () => this.patchPresenceIndicators(),
+    });
   }
 
   private onlineUserIds = new Set<string>();

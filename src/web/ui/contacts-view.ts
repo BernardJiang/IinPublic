@@ -1092,3 +1092,43 @@ export async function showContactDetail(
     false,
   );
 }
+
+/**
+ * Upserts a known-person entry (relationship label, nickname, custom label, rating, notes) on
+ * the current user in place, then notifies listeners (`emit('saveKnownPerson', ...)`, e.g. for
+ * persisting the updated user record) and refreshes the Contacts list.
+ */
+export function saveKnownPerson(
+  userId: string,
+  details: {
+    labels: KnownPerson['labels'];
+    nickname?: string;
+    customLabel?: string;
+    rating?: number;
+    notes?: string;
+  },
+  deps: {
+    getCurrentUser: () => { knownPeople?: KnownPerson[] } | null | undefined;
+    emit: (event: string, payload: unknown) => void;
+    refreshContactsList: () => void;
+  },
+): void {
+  const currentUser = deps.getCurrentUser();
+  if (!currentUser) return;
+  const nextEntry: KnownPerson = {
+    userId,
+    labels: details.labels,
+    ...(details.nickname ? { nickname: details.nickname } : {}),
+    ...(details.customLabel ? { customLabel: details.customLabel } : {}),
+    ...(typeof details.rating === 'number' ? { rating: details.rating } : {}),
+    ...(details.notes ? { notes: details.notes } : {}),
+    addedAt: new Date(),
+  };
+  const knownPeople = [
+    ...(currentUser.knownPeople || []).filter((entry) => entry.userId !== userId),
+    nextEntry,
+  ];
+  currentUser.knownPeople = knownPeople;
+  deps.emit('saveKnownPerson', { userId, ...details });
+  deps.refreshContactsList();
+}
