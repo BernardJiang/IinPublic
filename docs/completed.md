@@ -2,6 +2,31 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #53: settings-section drill-down view
+
+Continuing the AST-script-guided sweep from cluster #52. `docs/TODO.md` Priority 6.
+
+- **#53: `applySettingsSectionView` → new `settings-section-view.ts`** (25 lines, 2 refs —
+  `settingsActiveSectionId` write, self-recursion). Toggles between the settings menu and a
+  single drill-down section; the fallback path (remembered section id no longer rendered) needs
+  to null out `settingsActiveSectionId`, so the extracted function takes a
+  `setSettingsActiveSectionId` deps callback rather than exposing the instance field. 5 call
+  sites in `ui-manager.ts` stay behind the existing `this.applySettingsSectionView(...)` shim,
+  unchanged.
+- **Characterization:** new `settings-section-view.test.ts` (4 tests) covering: the
+  null-sectionId menu-shown/detail-hidden state; a valid sectionId showing only that section with
+  the detail view and back button visible; the missing-section fallback (asserts
+  `setSettingsActiveSectionId(null)` was called, then the menu state); and that missing
+  menu/detail/back-button DOM elements don't throw. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,697 → **6,678** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  201/2,144 to 202/2,148 (4 new) with zero regressions. Canonical run `run-20260910-072427-159`
+  (25m21s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three specs — `00l-techsupport-faq-cross-user` and `29-messaging-semantics`
+  (already-established rotating flakes) plus `00m-techsupport-delegate-answers` (new to this
+  session's rotation; unrelated to settings-section rendering and reran clean standalone, 1/1 in
+  27.3s).
+
 ## 2026-09-10 — UIManager decomposition cluster #52: content-filter toast (+ a caught near-miss)
 
 Continuing the AST-script-guided sweep from cluster #51. `docs/TODO.md` Priority 6.
