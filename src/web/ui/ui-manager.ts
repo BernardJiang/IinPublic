@@ -20,29 +20,16 @@ import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/ch
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
-import {
-  verifyTechSupportGreeting,
-  TECHSUPPORT_GREETING_TEMPLATES,
-  verifySupportAck,
-  TECHSUPPORT_SUPPORT_ACK_TEMPLATES,
-  verifyOnboardingTips,
-  TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES,
-  type GreetingLocale,
-  type SupportAckLocale,
-  type OnboardingTipsLocale,
-} from '../../shared/techsupport-greeting';
-import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
-import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import { renderSupportInboxSection } from './support-inbox-view';
-import { fetchGrantFromCache } from '../services/techsupport-delegate-cache';
+import { filterVerifiedSupportMessages } from './verified-support-messages';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import { renderSupportDelegatesSection } from './support-delegates-view';
 import { renderSupportDelegateOptInSection } from './support-delegate-optin-view';
 import type { GraphNodeTarget } from './graph-navigation';
 import type { StatsDashboard } from '../../shared/talk-stats';
 import { buildStatsDashboard } from '../../shared/talk-stats';
-import { displayAnswersList as renderAnswersList } from './answers-view';
+import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './answers-view';
 import {
   type CustomChatroomRow,
   renderChatroomList as renderChatrooms,
@@ -96,8 +83,8 @@ import {
 } from './my-talks-storage';
 import {
   getFlatAnswerHistory,
-  upsertFlatAnswerHistory,
-  type FlatAnswerHistoryItem,
+  getTalkContentKey,
+  saveFlatAnswerHistoryRecord,
 } from './answer-history-storage';
 import {
   COLOR_SCHEMES,
@@ -175,6 +162,7 @@ import {
   setTalkIntakeFiltersOwner,
 } from './talk-intake-filters';
 import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
+import { bindDirtyWordEditor } from './dirty-word-editor';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
 import { CONFIG } from '../../shared/config';
 import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl, type LinkedDeviceRow } from './linked-devices-dialog';
@@ -1082,15 +1070,15 @@ export class UIManager extends EventEmitter {
       });
     }
     document.querySelectorAll('.me-talk-type-checkbox').forEach((checkbox) => {
-      checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
+      checkbox.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
     });
     document.querySelectorAll('.me-tag-state-checkbox').forEach((checkbox) => {
-      checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
+      checkbox.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
     });
     ['me-outcome-filter', 'me-answer-sort', 'me-answer-date-from', 'me-answer-date-to'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', () => this.applyMeAnswerFilter());
+      document.getElementById(id)?.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
     });
-    document.getElementById('me-answer-filter')?.addEventListener('input', () => this.applyMeAnswerFilter());
+    document.getElementById('me-answer-filter')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
     document.getElementById('me-clear-filters')?.addEventListener('click', () => {
       document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox').forEach((checkbox) => { checkbox.checked = true; });
       document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox').forEach((checkbox) => { checkbox.checked = true; });
@@ -1106,7 +1094,7 @@ export class UIManager extends EventEmitter {
       if (from) from.value = '';
       if (to) to.value = '';
       if (search) search.value = '';
-      this.applyMeAnswerFilter();
+      applyMeAnswerFilter(this.t.bind(this));
     });
 
     // Back to contacts list button
@@ -2156,7 +2144,7 @@ export class UIManager extends EventEmitter {
       if (identityKey && answeredByContent[identityKey]) return false;
       try {
         const latestTalk = cluster?.latestTalk;
-        if (latestTalk && answeredByContent[UIManager.getTalkContentKey(latestTalk)]) return false;
+        if (latestTalk && answeredByContent[getTalkContentKey(latestTalk)]) return false;
         if (latestTalk && answeredByContent[computeTalkIdFromTalkData(latestTalk)]) return false;
       } catch {
         /* keep visible if the cluster cannot be locally identified */
@@ -2894,7 +2882,7 @@ export class UIManager extends EventEmitter {
       },
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       showItemDetailsPopup: this.showDetailsPopupFor.bind(this),
-      getTalkContentKey: UIManager.getTalkContentKey,
+      getTalkContentKey,
       text: this.t.bind(this),
       formatDate: this.formatUiDate.bind(this),
       formatType: this.formatTalkType.bind(this),
@@ -2903,73 +2891,9 @@ export class UIManager extends EventEmitter {
       // filter applied before the remainder lands still reaches the rows that arrive
       // after it — a single call right after renderAnswersList returns (the old
       // behavior) would miss those.
-      onRowsRendered: () => this.applyMeAnswerFilter(),
+      onRowsRendered: () => applyMeAnswerFilter(this.t.bind(this)),
     });
-    document.getElementById('answers-search-input')?.addEventListener('input', () => this.applyMeAnswerFilter());
-  }
-
-  private applyMeAnswerFilter(): void {
-    const activeTypes = Array.from(document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox:checked'))
-      .map((checkbox) => checkbox.value.toLowerCase())
-      .filter(Boolean);
-    const allowedTagStates = Array.from(document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox:checked'))
-      .map((checkbox) => checkbox.value);
-    const query = ((document.getElementById('answers-search-input') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
-    const outcome = (document.getElementById('me-outcome-filter') as HTMLSelectElement | null)?.value || 'all';
-    const sort = (document.getElementById('me-answer-sort') as HTMLSelectElement | null)?.value || 'answered-desc';
-    const answerQuery = ((document.getElementById('me-answer-filter') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
-    const fromDate = (document.getElementById('me-answer-date-from') as HTMLInputElement | null)?.value || '';
-    const toDate = (document.getElementById('me-answer-date-to') as HTMLInputElement | null)?.value || '';
-    const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
-    const toMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
-    let visibleCount = 0;
-
-    document.querySelectorAll<HTMLElement>('#answers-content .answer-talk-item').forEach((item) => {
-      // A merged row can carry more than one contributing talk type (data-talk-type is a
-      // space-separated set) since the same question may have been asked via several talk
-      // types — matches if ANY contributing type is active, rather than requiring one exact type.
-      const talkTypes = String(item.dataset.talkType || 'flow').toLowerCase().split(' ').filter(Boolean);
-      const tagState = String(item.dataset.tagState || '');
-      // docs/TODO.md §LL.2 follow-up: rows no longer have a distinct checkbox-pill CSS class —
-      // whether this row's most-recent variant is a boolean (Checked/Unchecked) tag is now
-      // carried directly in data-tag-state itself (non-empty only for that case; see
-      // renderQuestionRow, answers-view.ts).
-      const isTagRow = tagState !== '';
-      const matchesType = activeTypes.length === 0 ? false : talkTypes.some((type) => activeTypes.includes(type));
-      const matchesTagState = !isTagRow || allowedTagStates.includes(tagState);
-      const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
-      const answeredAt = Number(item.dataset.answeredAt || 0);
-      const matchesAnswer = !answerQuery || String(item.dataset.answerText || '').includes(answerQuery);
-      const matchesDate = answeredAt >= fromMs && answeredAt <= toMs;
-      const visible = matchesType && matchesTagState && matchesQuery && matchesAnswer && matchesDate
-        && (outcome === 'all' || item.dataset.outcome === outcome);
-      item.style.display = visible ? 'flex' : 'none';
-      if (visible) visibleCount += 1;
-    });
-
-    const list = document.getElementById('answers-list');
-    let empty = document.getElementById('answers-filter-empty');
-    if (list && !empty) {
-      empty = document.createElement('div');
-      empty.id = 'answers-filter-empty';
-      empty.style.cssText = 'display:none;padding:20px;text-align:center;color:var(--text-tertiary);border:1px dashed var(--border-strong);border-radius:8px;background:var(--bg-subtle);';
-      empty.textContent = this.t('meNoMatchingAnswers');
-      list.appendChild(empty);
-    }
-    if (list) {
-      const rank = (item: HTMLElement): number => {
-        if (sort === 'answered-asc') return Number(item.dataset.answeredAt || 0);
-        if (sort === 'chatbot-recent') return -Number(item.dataset.chatbotLastUsedAt || 0);
-        if (sort === 'chatbot-count') return -Number(item.dataset.chatbotUseCount || 0);
-        return -Number(item.dataset.answeredAt || 0);
-      };
-      // docs/TODO.md §LL.2 follow-up: rows live directly under the single flat `#answers-list`
-      // now (no more per-talk section containers) — sort them all together.
-      Array.from(list.querySelectorAll<HTMLElement>('.answer-talk-item'))
-        .sort((a, b) => rank(a) - rank(b))
-        .forEach((row) => list.appendChild(row));
-    }
-    if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
+    document.getElementById('answers-search-input')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
   }
 
   /**
@@ -3582,80 +3506,6 @@ export class UIManager extends EventEmitter {
    * Wire the dirty-word list editor (chips + add/remove/reset). `onChange` is the
    * settings `sync()` closure — every mutation re-reads the chips and persists.
    */
-  private bindDirtyWordEditor(onChange: () => void): void {
-    const chips = document.getElementById('dirty-word-chips');
-    const input = document.getElementById('dirty-word-add-input') as HTMLInputElement | null;
-    const addBtn = document.getElementById('dirty-word-add-btn');
-    const resetBtn = document.getElementById('dirty-word-reset-btn');
-    const errorEl = document.getElementById('dirty-word-error');
-    if (!chips) return;
-
-    const showError = (message: string): void => {
-      if (errorEl) errorEl.textContent = message;
-    };
-    const currentWords = (): string[] =>
-      Array.from(chips.querySelectorAll<HTMLElement>('.dirty-word-chip'))
-        .map((el) => el.getAttribute('data-word') || '')
-        .filter(Boolean);
-    const renderChips = (words: string[]): void => {
-      chips.innerHTML = words
-        .map((word) => {
-          const safe = escapeHtml(word);
-          return `<span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${safe}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--bg-subtle);font-size:0.85em;"><span>${safe}</span><button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${safe}" aria-label="remove ${safe}" style="border:none;background:none;cursor:pointer;color:var(--text-tertiary);font-size:1em;line-height:1;padding:0;">✕</button></span>`;
-        })
-        .join('');
-    };
-
-    const addWord = (): void => {
-      if (!input) return;
-      const raw = input.value.trim().toLowerCase();
-      showError('');
-      if (raw.length < 2) {
-        showError(this.t('settingsDirtyWordTooShort'));
-        return;
-      }
-      const existing = currentWords();
-      if (existing.length >= 50) {
-        showError(this.t('settingsDirtyWordLimit'));
-        return;
-      }
-      const [normalized] = normalizeDirtyWords([raw]);
-      if (!normalized) {
-        showError(this.t('settingsDirtyWordTooShort'));
-        return;
-      }
-      if (existing.includes(normalized)) {
-        showError(this.t('settingsDirtyWordDuplicate'));
-        return;
-      }
-      renderChips([...existing, normalized]);
-      input.value = '';
-      onChange();
-    };
-
-    addBtn?.addEventListener('click', addWord);
-    input?.addEventListener('keydown', (event) => {
-      if ((event as KeyboardEvent).key === 'Enter') {
-        event.preventDefault();
-        addWord();
-      }
-    });
-    chips.addEventListener('click', (event) => {
-      const target = (event.target as HTMLElement)?.closest('.dirty-word-chip-remove') as HTMLElement | null;
-      if (!target) return;
-      const word = target.getAttribute('data-word');
-      if (!word) return;
-      showError('');
-      renderChips(currentWords().filter((w) => w !== word));
-      onChange();
-    });
-    resetBtn?.addEventListener('click', () => {
-      showError('');
-      renderChips([...DEFAULT_DIRTY_WORDS]);
-      onChange();
-    });
-  }
-
   /**
    * Open the Identity & devices page (identity architecture WP1). Uses the local display model for
    * the list and the shared pairing protocol for code validation. Pairing-code
@@ -3986,7 +3836,7 @@ export class UIManager extends EventEmitter {
       setDefaultTalkLanguagePreference(value);
     });
     document.getElementById('settings-custom-blocked')?.addEventListener('input', sync);
-    this.bindDirtyWordEditor(sync);
+    bindDirtyWordEditor({ onChange: sync, t: this.t.bind(this) });
     document.getElementById('settings-linked-devices-btn')?.addEventListener('click', () => {
       void this.openLinkedDevicesDialog();
     });
@@ -5562,16 +5412,6 @@ export class UIManager extends EventEmitter {
     }, 0);
   }
 
-  private static getTalkContentKey(talk: any): string {
-    const q = (talk.questions || []).map((qu: any) => ({
-      text: qu.text,
-      answers: (qu.answers || []).map((a: any) => a.text),
-    }));
-    const title = talk.type === 'tag' ? talk.title : '';
-    const loc = talk.locationRadiusMiles != null ? String(talk.locationRadiusMiles) : '';
-    return JSON.stringify({ q, loc, title, type: talk.type });
-  }
-
   private completeTalk(
     talk: any,
     answers: any[],
@@ -5580,7 +5420,7 @@ export class UIManager extends EventEmitter {
   ): void {
     console.log('✅ Talk completed:', talk.id, answers, outcome);
 
-    const contentKey = UIManager.getTalkContentKey(talk);
+    const contentKey = getTalkContentKey(talk);
     const answeredByContent = getAnsweredTalkByContent();
     const existingTalkId = answeredByContent[contentKey];
     const myTalks = this.getMyTalks();
@@ -5636,7 +5476,7 @@ export class UIManager extends EventEmitter {
       outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
       senders,
     });
-    this.saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
+    saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
 
     this.emit('talkCompleted', {
       talkId: talk.id,
@@ -5653,106 +5493,6 @@ export class UIManager extends EventEmitter {
           : this.t('responseSubmittedSurvey'),
       'success',
     );
-  }
-
-  private saveFlatAnswerHistoryRecord(
-    talkId: string,
-    talk: any,
-    completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }>,
-    outcome: 'match' | 'mismatch',
-    senders: string[],
-  ): void {
-    const questions = Array.isArray(talk?.questions) ? talk.questions : [];
-    const talkType = String(talk?.type || '').toLowerCase();
-    const items: FlatAnswerHistoryItem[] = completedAnswers.map((entry, index) => {
-      const question = questions.find((item: any) => String(item?.id || '') === entry.questionId) || {};
-      const answer = Array.isArray(question?.answers)
-        ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
-        : null;
-      // docs/TODO.md §LL.2 follow-up: an embedded tag/Pair-tag question (tagKind/
-      // reciprocalTagContext, not just a literal type:'tag' talk) dissolves into the Me tab as a
-      // tag too. `booleanTag` distinguishes the two sub-kinds within `kind:'tag'` — a self-match
-      // tag has no meaningful answer text of its own (Checked/Unchecked), while a Pair tag's
-      // accepted-answer text ("sell") is the whole point and must be shown, not hidden behind a
-      // boolean. See `findTagPairAncestor`'s doc comment (talk-engine.ts) for what
-      // reciprocalTagContext actually encodes.
-      const isTag = talkType === 'tag' || question?.tagKind === 'simple' || !!question?.reciprocalTagContext;
-      const booleanTag = isTag && !question?.reciprocalTagContext;
-      const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
-      const rawChoice = String(entry.answerText || '').trim();
-      const choice = isTag
-        ? booleanTag
-          ? answer?.isMatch
-            ? 'Checked'
-            : 'Unchecked'
-          : String(answer?.text || '').trim() || 'Ignored'
-        : rawChoice && rawChoice.toLowerCase() !== 'ignore'
-          ? rawChoice
-          : String(answer?.text || '').trim() || 'Ignored';
-      const contextPath = Array.isArray(question?.contextPath)
-        ? question.contextPath.map((step: any, stepIndex: number) => {
-            const questionId = String(step?.questionId || '').trim();
-            const parentQuestion = questions.find((item: any) => String(item?.id || '') === questionId);
-            const answerId = String(step?.answerId || '').trim();
-            const parentAnswer = Array.isArray(parentQuestion?.answers)
-              ? parentQuestion.answers.find((item: any) => String(item?.id || '') === answerId)
-              : null;
-            const questionText = String(parentQuestion?.text || questionId || `Q${stepIndex + 1}`).trim();
-            const answerText = String(parentAnswer?.text || answerId || '?').trim();
-            return `${questionText}→${answerText}`;
-          })
-        : [];
-      const flowContextLabel = completedAnswers
-        .slice(0, index)
-        .map((previousEntry, stepIndex) => {
-          const previousQuestion = questions.find((item: any) => String(item?.id || '') === previousEntry.questionId);
-          const previousAnswer = Array.isArray(previousQuestion?.answers)
-            ? previousQuestion.answers.find((item: any) => String(item?.id || '') === previousEntry.answerId)
-            : null;
-          const previousPrompt = String(previousQuestion?.text || `Q${stepIndex + 1}`).trim();
-          const previousRawChoice = String(previousEntry.answerText || '').trim();
-          const previousChoice = previousRawChoice && previousRawChoice.toLowerCase() !== 'ignore'
-            ? previousRawChoice
-            : String(previousAnswer?.text || '').trim() || 'Ignored';
-          return `${previousPrompt}→${previousChoice}`;
-        })
-        .filter(Boolean)
-        .join(' · ');
-      const contextLabel = talkType === 'tag' || talkType === 'survey'
-        ? ''
-        : talkType === 'flow'
-          ? flowContextLabel
-          : contextPath.join(' · ');
-      const contextHash = talkType === 'tag' || talkType === 'survey'
-        ? ''
-        : String(question?.contextHashId || '').trim();
-      const questionContentId = String(question?.cidId || '').trim();
-      return {
-        questionId: entry.questionId,
-        answerId: entry.answerId,
-        prompt,
-        choice,
-        kind: isTag ? 'tag' : 'question',
-        ...(isTag ? { booleanTag } : {}),
-        contextPath,
-        contextLabel,
-        ...(entry.mode ? { mode: entry.mode } : {}),
-        ...(contextHash ? { contextHash } : {}),
-        ...(questionContentId ? { questionContentId } : {}),
-      };
-    });
-    upsertFlatAnswerHistory({
-      id: `${UIManager.getTalkContentKey(talk)}:${talkId}`,
-      talkId,
-      title: String(talk?.title || 'Answered Talk'),
-      type: String(talk?.type || 'flow'),
-      language: String(talk?.language || 'en').toLowerCase(),
-      outcome,
-      answeredAt: new Date().toISOString(),
-      senderIds: [...new Set(senders.filter(Boolean))],
-      ...(talk?.locationRadiusMiles != null ? { locationRadiusMiles: talk.locationRadiusMiles } : {}),
-      items,
-    });
   }
 
   /**
@@ -6138,7 +5878,7 @@ export class UIManager extends EventEmitter {
     }
     if (completedAnswers.length > 0) {
       this.saveQuestionAnswersFromCompletion(talk, completedAnswers);
-      this.saveFlatAnswerHistoryRecord(talk.id, talk, completedAnswers, hasMatchAnswer ? 'match' : 'mismatch', []);
+      saveFlatAnswerHistoryRecord(talk.id, talk, completedAnswers, hasMatchAnswer ? 'match' : 'mismatch', []);
     }
 
     const talksView = document.getElementById('talks-view');
@@ -7833,101 +7573,6 @@ export class UIManager extends EventEmitter {
     if (composer) composer.style.display = '';
   }
 
-  /**
-   * K2 (docs/TODO.md): authenticity check for a *stored* TechSupport greeting record —
-   * defends against tampering after the write-time verification in
-   * `ensureSupportBootstrapForCurrentUser` (a corrupted downstream write, e.g. from a
-   * compromised peer or a bug, must never render as if it were genuine). Re-derives the
-   * template from the client's own compiled copy (never trusts a stored template string),
-   * and additionally confirms the stored `text` is exactly what that verified template
-   * renders to for the *current* user — closing the gap where `greetingSignature`/
-   * `greetingLocale` are left untouched but `text` itself was altered after signing.
-   *
-   * K5 (docs/TODO.md): same discipline extended to two more TechSupport-authored,
-   * locally-rendered message types — a FAQ auto-answer (`faqSignature`) and the new-question
-   * ack (`ackSignature`) — plus the K2-extended "getting started" tips sequence
-   * (`tipSignature`, one signed bundle per locale covering the whole ordered list). All fail
-   * closed (K2-3): a verify failure drops the message silently, no error toast, no
-   * impersonated message rendered. Everything else passes through unchanged.
-   */
-  private async filterVerifiedSupportMessages(messages: any[]): Promise<any[]> {
-    const stageName = this.currentUser?.stageName || '';
-    const kept: any[] = [];
-    for (const msg of messages) {
-      const isGreeting =
-        typeof msg?.id === 'string' &&
-        msg.id.startsWith('support_welcome_') &&
-        msg.senderId === TECHSUPPORT_ROOT_USER_ID &&
-        !!msg.greetingSignature;
-      const isFaqAnswer = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.faqSignature;
-      const isAck = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.ackSignature;
-      const isTip = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.tipSignature;
-
-      if (isFaqAnswer) {
-        const cached = readCachedFaqBundle();
-        // docs/TODO.md K7: fetchGrant lets a delegate-signed bundle verify here too — the local
-        // grant cache, not a live Gun read, since this render path has no Gun handle of its own.
-        const verifiedBundle = cached ? await verifyFaqBundle(cached, { fetchGrant: fetchGrantFromCache }) : null;
-        if (!verifiedBundle) continue;
-        // The message must be attributed to the exact cached bundle version, not merely
-        // any validly-signed bundle — otherwise a stale message could survive a bundle
-        // rotation with a mismatched answer for the same questionKey.
-        if (verifiedBundle.authorPub !== msg.faqAuthorPub || verifiedBundle.signature !== msg.faqSignature) continue;
-        const entry = verifiedBundle.entries.find((e) => e.questionKey === msg.faqQuestionKey);
-        if (!entry || entry.answer !== String(msg.text || '')) continue;
-        kept.push(msg);
-        continue;
-      }
-
-      if (isAck) {
-        const locale = msg.ackLocale as SupportAckLocale;
-        const verified = await verifySupportAck({
-          locale,
-          template: TECHSUPPORT_SUPPORT_ACK_TEMPLATES[locale],
-          authorPub: msg.ackAuthorPub,
-          signature: msg.ackSignature,
-        });
-        if (!verified) continue;
-        const expectedText = verified.template.replace('{name}', stageName);
-        if (String(msg.text || '') !== expectedText) continue;
-        kept.push(msg);
-        continue;
-      }
-
-      if (isTip) {
-        const locale = msg.tipLocale as OnboardingTipsLocale;
-        const verified = await verifyOnboardingTips({
-          locale,
-          tips: TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES[locale],
-          authorPub: msg.tipAuthorPub,
-          signature: msg.tipSignature,
-        });
-        if (!verified) continue;
-        const expectedText = verified.tips[msg.tipIndex as number];
-        if (expectedText === undefined || String(msg.text || '') !== expectedText) continue;
-        kept.push(msg);
-        continue;
-      }
-
-      if (!isGreeting) {
-        kept.push(msg);
-        continue;
-      }
-      const locale = msg.greetingLocale as GreetingLocale;
-      const verified = await verifyTechSupportGreeting({
-        locale,
-        template: TECHSUPPORT_GREETING_TEMPLATES[locale],
-        authorPub: msg.greetingAuthorPub,
-        signature: msg.greetingSignature,
-      });
-      if (!verified) continue;
-      const expectedText = verified.template.replace('{name}', stageName);
-      if (String(msg.text || '') !== expectedText) continue;
-      kept.push(msg);
-    }
-    return kept;
-  }
-
   async displayConversationMessages(conversationId: string, messages: any[]): Promise<void> {
     if (this.currentConversationId !== conversationId) return;
 
@@ -7938,7 +7583,7 @@ export class UIManager extends EventEmitter {
 
     const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
     if (isSupportChannel) {
-      messages = await this.filterVerifiedSupportMessages(messages);
+      messages = await filterVerifiedSupportMessages(messages, this.currentUser?.stageName || '');
       if (this.currentConversationId !== conversationId) return; // stale by the time verify resolved
     }
 

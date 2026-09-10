@@ -2,6 +2,138 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09 — UIManager decomposition cluster #16: Me-tab answers filter/sort
+
+`applyMeAnswerFilter` (63 lines, 1 `this.*` ref — `this.t`) moved into the existing
+`answers-view.ts` module, which already owns the Me-tab Answers list it filters/sorts
+(`displayAnswersList`/`renderQuestionRow`). `docs/TODO.md` Priority 6, "Current sequence".
+
+- Called from 7 internal sites (checkbox/select/input `change`/`input` listeners plus one
+  `onRowsRendered` deps callback) — all `this.applyMeAnswerFilter()` with no arguments, updated in
+  one `replace_all` pass to `applyMeAnswerFilter(this.t.bind(this))` since the call shape was
+  identical everywhere.
+- Left the file's existing, separate `#answers-search-input` live-filter listener (attached inside
+  `displayAnswersList` itself, dispatching `iinpublic:answers-filter-change`) untouched — it does
+  a simpler text-only filter and is a pre-existing, intentionally distinct code path from the full
+  multi-criteria filter this cluster moved, not something to merge or "fix" during an extraction.
+- **Characterization:** added 12 tests to the existing `src/test/unit/answers-view.test.ts` —
+  talk-type checkbox filtering (including "nothing active → nothing visible"); tag-state filtering
+  applies only to rows that actually carry a tag-state, never to an ordinary question row;
+  search-text and answer-text query filtering; outcome filtering; an inclusive date-range filter;
+  default (`answered-desc`) and explicit `answered-asc` sort ordering; the empty-state placeholder
+  showing only when rows exist but none match (never when there are no rows at all). First run hit
+  3 failures — all a fixture bug, not the extraction: `<select>` elements in the test DOM had only
+  one hardcoded `<option>`, and per the HTML spec, assigning `.value` to a value with no matching
+  `<option>` silently reverts to `""` — fixed by adding every `<option>` the tests actually select.
+  All 12 passed once the fixture had real options.
+- **Ratchet:** `ui-manager.ts` 8,197 → **8,133** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, 167 unit suites / 1,811 tests pass (12 new).
+
+## 2026-09-09 — UIManager decomposition clusters #14-#15: verified support messages + dirty-word editor
+
+Two more zero/near-zero-coupling extractions from the AST measurement script's candidate list
+(cluster #13's entry). `docs/TODO.md` Priority 6, "Current sequence" continuing past step 20.
+
+### Cluster #14: `filterVerifiedSupportMessages` → new `verified-support-messages.ts`
+
+77 lines, 1 `this.*` ref (`currentUser.stageName`), used from exactly one call site
+(`displayConversationMessages`'s support-channel branch — the same method touched earlier today
+for the K7 FAQ-bundle re-render fix, though this extraction doesn't change its logic, only where
+the filter function lives). All of the method's real dependencies
+(`readCachedFaqBundle`/`fetchGrantFromCache`/`verifyFaqBundle`/`verifySupportAck`/
+`verifyOnboardingTips`/`verifyTechSupportGreeting` and their templates/locale types) were already
+free functions imported into `ui-manager.ts` — none were `UIManager` methods — so the whole
+K2/K5/K7 signed-message verification pipeline moved as a single pure async function taking
+`(messages, stageName)`. Every one of those now-unused imports in `ui-manager.ts` was removed
+(confirmed via per-symbol usage count first — each appeared exactly twice: its import and its one
+use inside this method); `TECHSUPPORT_ROOT_USER_ID` stayed imported (9 other uses).
+
+- **Characterization:** `src/test/unit/verified-support-messages.test.ts` (new, 15 tests) — an
+  ordinary message and a greeting-shaped-but-wrong-sender message both pass through untouched;
+  genuine vs. tampered-text vs. wrong-name greeting; genuine vs. forged-signature ack; each tip
+  kept at its correct index, a real tip's text claimed at the wrong index rejected, an
+  out-of-range tip index rejected; a FAQ answer verified against a (mocked)
+  `readCachedFaqBundle()` return value — kept when it matches, dropped when nothing is cached yet
+  (the exact K7 race documented in today's earlier bug-fix entry), dropped on a stale-cache
+  signature mismatch, dropped when the answer text doesn't match the entry recorded under its
+  `questionKey`; and relative message order preserved across a kept/dropped mix. Mocked
+  `techsupport-faq-cache`/`techsupport-delegate-cache` rather than touching `localStorage`
+  directly, since neither module exports a public cache-seeding function. All 15 passed first run.
+
+### Cluster #15: `bindDirtyWordEditor` → new `dirty-word-editor.ts`
+
+73 lines, 1 `this.*` ref (`this.t`, for 3 validation-error strings), called from exactly one site
+inside the still-deferred `bindSettingsControls`. Self-contained chip-editor DOM binding (add/
+remove/reset the Settings "blocked words" list) with its own dedicated `#dirty-word-*` subtree,
+touching nothing else in Settings. Took `{ onChange, t }` as explicit deps — `t` typed
+`(key: UiTranslationKey) => string` (not a bare `string` param: TypeScript's contravariant
+function-parameter check rejected the wider signature against `this.t`'s narrow key-union type,
+caught immediately by `tsc`, not by a passing-then-wrong-at-runtime test).
+
+- **Characterization:** `src/test/unit/dirty-word-editor.test.ts` (new, 9 tests, `@jest-environment
+  jsdom`) — no-op when the chips container is absent; add-by-click and add-by-Enter (not other
+  keys); too-short/duplicate/50-word-limit rejections each show their own error and skip
+  `onChange`; remove-by-chip-button; an error clears on the next successful action; reset restores
+  the compiled default list (and excludes whatever custom word was there before). All 9 passed
+  first run. Real-browser regression: `staged/stage1-single-user/70-dirty-word-list-editor` (the
+  dedicated spec for this exact feature) both cases pass.
+
+### Both clusters
+
+- **Ratchet:** `ui-manager.ts` 8,378 → 8,270 (cluster #14) → **8,197** (cluster #15) lines
+  (`ui-manager-size-budget.test.ts` lowered to match after each).
+- **Verification:** typecheck/lint clean after each, both production builds succeed, full unit
+  suite green throughout (167 suites / 1,799 tests after both, 24 new).
+
+## 2026-09-09 — UIManager decomposition cluster #13: flat answer-history record construction
+
+Extracted `getTalkContentKey` (private static) and `saveFlatAnswerHistoryRecord` (private instance
+method) from `ui-manager.ts` into the existing `answer-history-storage.ts` module, which already
+owned the flat-answer-history storage read/write these two feed. `docs/TODO.md` Priority 6,
+"Current sequence" step 20.
+
+- **Re-measured candidates via a small AST script** (method line span + distinct `this.*`
+  reference count for every `UIManager` method) rather than eyeballing, per the established
+  methodology. `displayTalksList` (685/52), `renderSettingsView` (476/21) +
+  `bindSettingsControls` (361/22), and the conversation-view trio
+  (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) remain
+  deferred exactly as before — still the most entangled. The script surfaced several
+  previously-unlisted near-zero-coupling candidates instead (methods added or grown by recent
+  feature work): `saveFlatAnswerHistoryRecord` (99 lines, 0 `this.*` refs — its only "coupling"
+  was calling the private static `getTalkContentKey`, itself 0 refs), `filterVerifiedSupportMessages`
+  (77/1), `bindDirtyWordEditor` (73/1), `applyMeAnswerFilter` (63/1), `displayChatroomMessage`
+  (42/0), `updateMatchBadge` (37/1) — good candidates for the next several clusters.
+- **Why this pair first:** a zero-coupling pure transform (build a `FlatAnswerHistoryItem[]` from
+  a completed talk's answers, handling tag/flow/route/survey `contextLabel` shaping and the
+  §LL.2 `booleanTag` distinction) plus its zero-coupling static helper, both already logically
+  belonging to the storage module they call into — no new file needed, and the natural home
+  already existed.
+- **Call-site updates:** 4 internal call sites referenced `UIManager.getTalkContentKey`
+  directly (one inside `displayTalksList`, one in a deps-object property forwarded to an
+  already-extracted view, one in `completeTalk`, one inside the extracted method itself) — all
+  switched to the imported free function; 2 call sites (`completeTalk`, and a second
+  match-detection path) switched `this.saveFlatAnswerHistoryRecord(...)` to the plain import.
+- **Characterization:** `src/test/unit/answer-history-storage.test.ts` (new, 15 tests) —
+  content-key stability across unrelated fields, key sensitivity to `locationRadiusMiles`, title
+  folded into the key only for `type: 'tag'`; persisted record id/outcome/senderIds shape,
+  sender-id dedup and falsy-filtering; self-match tag → Checked/Unchecked vs. Pair tag →
+  real answer text (the §LL.2 `booleanTag` distinction); "Ignored" fallback for a missing or
+  literal `"ignore"` answer; flow `contextLabel` built from prior Q→A pairs; route
+  `contextLabel`/`contextPath` from the question's own `contextPath` field; survey always empty
+  `contextLabel`/`contextHash` regardless of a `contextPath`; `contextHash`/`questionContentId`
+  included only when present; `mode` passthrough; `locationRadiusMiles` included only when set.
+  All 15 passed on the first run — a purely mechanical move, no behavior surprises.
+- **Real-browser regression:** `staged/stage1-single-user/05-talks-edit` (flow),
+  `staged/stage2-two-user/92-route-shared-builtin-root-branches` (route),
+  `staged/stage2-two-user/07-tags-checkbox` (tag, both booleanTag branches), and
+  `staged/stage2-two-user/83-survey-ignore-mid-question-not-complete` (survey) all pass —
+  covering every talk-type branch `saveFlatAnswerHistoryRecord` handles.
+- **Ratchet:** `ui-manager.ts` 8,488 → **8,378** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, both production builds succeed, 165 unit suites /
+  1,775 tests pass (15 new).
+
 ## 2026-09-09 — Smaller independent work: containment similarity metric + PMTiles/Protomaps evaluation
 
 Landed both items from `docs/TODO.md`'s "Smaller independent work" section.

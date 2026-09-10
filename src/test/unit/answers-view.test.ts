@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { answerTalkMatchesQuery, buildAnswerItemModels, displayAnswersList, getAnswerDisplayText } from '../../web/ui/answers-view';
+import { answerTalkMatchesQuery, applyMeAnswerFilter, buildAnswerItemModels, displayAnswersList, getAnswerDisplayText } from '../../web/ui/answers-view';
 import {
   appendAutoUse,
   createEmptyExactChatbotMemoryState,
@@ -731,5 +731,167 @@ describe('answers view models', () => {
       expect(modelRows[0].textContent).toContain('ModelX');
       expect(modelRows[0].textContent).toContain('BrandY');
     });
+  });
+});
+
+describe('applyMeAnswerFilter', () => {
+  const t = (key: string): string => (key === 'meNoMatchingAnswers' ? 'No matching answers' : key);
+
+  function row(attrs: Record<string, string>): string {
+    const dataAttrs = Object.entries(attrs)
+      .map(([k, v]) => `data-${k}="${v}"`)
+      .join(' ');
+    return `<div class="answer-talk-item" ${dataAttrs} style="display:flex;"></div>`;
+  }
+
+  function renderFixture(rows: string): void {
+    document.body.innerHTML = `
+      <input type="checkbox" class="me-talk-type-checkbox" value="flow" checked>
+      <input type="checkbox" class="me-talk-type-checkbox" value="tag" checked>
+      <input type="checkbox" class="me-tag-state-checkbox" value="checked" checked>
+      <input type="checkbox" class="me-tag-state-checkbox" value="unchecked">
+      <input type="text" id="answers-search-input">
+      <select id="me-outcome-filter">
+        <option value="all" selected>All</option>
+        <option value="match">Match</option>
+        <option value="mismatch">Mismatch</option>
+      </select>
+      <select id="me-answer-sort">
+        <option value="answered-desc" selected>Newest</option>
+        <option value="answered-asc">Oldest</option>
+        <option value="chatbot-recent">Chatbot recent</option>
+        <option value="chatbot-count">Chatbot count</option>
+      </select>
+      <input type="text" id="me-answer-filter">
+      <input type="date" id="me-answer-date-from">
+      <input type="date" id="me-answer-date-to">
+      <div id="answers-content"><div id="answers-list">${rows}</div></div>
+    `;
+  }
+
+  function visibleIds(): string[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item'))
+      .filter((el) => el.style.display !== 'none')
+      .map((el) => el.getAttribute('data-question-id') || '');
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('shows rows whose talk type matches an active type checkbox', () => {
+    renderFixture(
+      row({ 'question-id': 'q1', 'talk-type': 'flow', outcome: 'match', 'answered-at': '100' }) +
+        row({ 'question-id': 'q2', 'talk-type': 'route', outcome: 'match', 'answered-at': '200' }),
+    );
+    applyMeAnswerFilter(t);
+    expect(visibleIds()).toEqual(['q1']);
+  });
+
+  it('hides everything when no talk-type checkbox is active', () => {
+    renderFixture(row({ 'question-id': 'q1', 'talk-type': 'flow', outcome: 'match', 'answered-at': '100' }));
+    document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox').forEach((cb) => (cb.checked = false));
+    applyMeAnswerFilter(t);
+    expect(visibleIds()).toEqual([]);
+  });
+
+  it('a row with a non-empty tag-state is filtered by the tag-state checkboxes', () => {
+    renderFixture(
+      row({ 'question-id': 'q1', 'talk-type': 'tag', 'tag-state': 'checked', outcome: 'match', 'answered-at': '1' }) +
+        row({ 'question-id': 'q2', 'talk-type': 'tag', 'tag-state': 'unchecked', outcome: 'match', 'answered-at': '2' }),
+    );
+    applyMeAnswerFilter(t);
+    expect(visibleIds()).toEqual(['q1']); // only "checked" tag-state box is checked in the fixture
+  });
+
+  it('a row with no tag-state (an ordinary question, not a tag) is never filtered by tag-state', () => {
+    renderFixture(row({ 'question-id': 'q1', 'talk-type': 'flow', outcome: 'match', 'answered-at': '1' }));
+    document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox').forEach((cb) => (cb.checked = false));
+    applyMeAnswerFilter(t);
+    expect(visibleIds()).toEqual(['q1']);
+  });
+
+  it('filters by the search-text query', () => {
+    renderFixture(
+      row({ 'question-id': 'q1', 'talk-type': 'flow', outcome: 'match', 'answered-at': '1', 'search-text': 'bicycle repair' }) +
+        row({ 'question-id': 'q2', 'talk-type': 'flow', outcome: 'match', 'answered-at': '2', 'search-text': 'car wash' }),
+    );
+    (document.getElementById('answers-search-input') as HTMLInputElement).value = 'bicycle';
+    applyMeAnswerFilter(t);
+    expect(visibleIds()).toEqual(['q1']);
+  });
+
+  it('filters by the answer-text query', () => {
+    renderFixture(
+      row({ 'question-id': 'q1', 'talk-type': 'flow', outcome: 'match', 'answered-at': '1', 'answer-text': 'yes please' }) +
+        row({ 'question-id': 'q2', 'talk-type': 'flow', outcome: 'match', 'answered-at': '2', 'answer-text': 'no thanks' }),
+    );
+    (document.getElementById('me-answer-filter') as HTMLInputElement).value = 'yes';
+    applyMeAnswerFilter(t);
+    expect(visibleIds()).toEqual(['q1']);
+  });
+
+  it('filters by outcome', () => {
+    renderFixture(
+      row({ 'question-id': 'q1', 'talk-type': 'flow', outcome: 'match', 'answered-at': '1' }) +
+        row({ 'question-id': 'q2', 'talk-type': 'flow', outcome: 'mismatch', 'answered-at': '2' }),
+    );
+    (document.getElementById('me-outcome-filter') as HTMLSelectElement).value = 'match';
+    applyMeAnswerFilter(t);
+    expect(visibleIds()).toEqual(['q1']);
+  });
+
+  it('filters by an inclusive date range', () => {
+    const inRange = new Date('2026-06-15T12:00:00Z').getTime();
+    const beforeRange = new Date('2026-01-01T12:00:00Z').getTime();
+    renderFixture(
+      row({ 'question-id': 'in', 'talk-type': 'flow', outcome: 'match', 'answered-at': String(inRange) }) +
+        row({ 'question-id': 'out', 'talk-type': 'flow', outcome: 'match', 'answered-at': String(beforeRange) }),
+    );
+    (document.getElementById('me-answer-date-from') as HTMLInputElement).value = '2026-06-01';
+    (document.getElementById('me-answer-date-to') as HTMLInputElement).value = '2026-06-30';
+    applyMeAnswerFilter(t);
+    expect(visibleIds()).toEqual(['in']);
+  });
+
+  it('sorts visible rows by answered-desc (default), newest first', () => {
+    renderFixture(
+      row({ 'question-id': 'older', 'talk-type': 'flow', outcome: 'match', 'answered-at': '100' }) +
+        row({ 'question-id': 'newer', 'talk-type': 'flow', outcome: 'match', 'answered-at': '200' }),
+    );
+    applyMeAnswerFilter(t);
+    const order = Array.from(document.querySelectorAll('.answer-talk-item')).map((el) =>
+      el.getAttribute('data-question-id'),
+    );
+    expect(order).toEqual(['newer', 'older']);
+  });
+
+  it('sorts by answered-asc when selected', () => {
+    renderFixture(
+      row({ 'question-id': 'older', 'talk-type': 'flow', outcome: 'match', 'answered-at': '100' }) +
+        row({ 'question-id': 'newer', 'talk-type': 'flow', outcome: 'match', 'answered-at': '200' }),
+    );
+    (document.getElementById('me-answer-sort') as HTMLSelectElement).value = 'answered-asc';
+    applyMeAnswerFilter(t);
+    const order = Array.from(document.querySelectorAll('.answer-talk-item')).map((el) =>
+      el.getAttribute('data-question-id'),
+    );
+    expect(order).toEqual(['older', 'newer']);
+  });
+
+  it('shows the empty-state placeholder text only when rows exist but none match', () => {
+    renderFixture(row({ 'question-id': 'q1', 'talk-type': 'flow', outcome: 'match', 'answered-at': '1' }));
+    (document.getElementById('me-outcome-filter') as HTMLSelectElement).value = 'mismatch';
+    applyMeAnswerFilter(t);
+    const empty = document.getElementById('answers-filter-empty')!;
+    expect(empty.style.display).toBe('block');
+    expect(empty.textContent).toBe('No matching answers');
+  });
+
+  it('never shows the empty-state placeholder when there are no rows at all', () => {
+    renderFixture('');
+    applyMeAnswerFilter(t);
+    const empty = document.getElementById('answers-filter-empty')!;
+    expect(empty.style.display).toBe('none');
   });
 });

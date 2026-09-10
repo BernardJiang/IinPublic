@@ -903,15 +903,20 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#12 are complete
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#16 are complete
 (cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`;
 cluster #10, 2026-09-09: `openLinkedDevicesDialog`'s orchestration body → `linked-devices-dialog.ts`,
 alongside the `showLinkedDevicesDialog` renderer it already owned; cluster #11, 2026-09-09:
 `renderCreatorReplies` → new `creator-replies-view.ts`; cluster #12, 2026-09-09:
-`bindTalksRowGestures` → new `talks-row-gestures.ts`). The ratchet grew from 8,938 (after
+`bindTalksRowGestures` → new `talks-row-gestures.ts`; cluster #13, 2026-09-09:
+`saveFlatAnswerHistoryRecord`/`getTalkContentKey` → `answer-history-storage.ts`; cluster #14,
+2026-09-09: `filterVerifiedSupportMessages` → new `verified-support-messages.ts`; cluster #15,
+2026-09-09: `bindDirtyWordEditor` → new `dirty-word-editor.ts`; cluster #16, 2026-09-09:
+`applyMeAnswerFilter` → `answers-view.ts`). The ratchet grew from 8,938 (after
 cluster #8) to 9,153 as legitimate feature work (onboarding, K7 delegate credentials) landed on
 top between clusters; cluster #9 brought it down to 8,912, cluster #10 to 8,784, cluster #11 to
-8,584, cluster #12 to **8,482** — the current enforced ceiling
+8,584, cluster #12 to 8,482, cluster #13 to 8,378, cluster #14 to 8,270, cluster #15 to 8,197,
+cluster #16 to **8,133** — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
@@ -1292,6 +1297,30 @@ entries and babel preset were never removed.
         `heavy-staged` byte-for-byte identical to every prior run, `light` failed 5 different
         TechSupport/messaging/survey specs this time, none touching gesture code — see
         `docs/completed.md`.
+      - Between clusters #12 and #13: that run's `heavy-staged`/`light` failures were investigated
+        for real (not re-filed as the usual phase-wave flakiness) and turned out to be two genuine
+        bugs, both fixed — see docs/completed.md's "Two real bugs fixed" entry. `heavy-staged`'s
+        `01-login-two-users-headcount` failure was a `chatroom-manager.ts` race (a heartbeat/join
+        completing after a newer leave, resurrecting a departed member); `light`'s
+        `00m-techsupport-delegate-answers` failure was the K7 FAQ-bundle cache race (asker-side
+        re-render never retried once the bundle caught up). Both fixed and reverified.
+      - Clusters #13-#16 evidence: four more low-coupling extractions found via a small AST
+        script (method line-span + distinct `this.*` reference count for every `UIManager`
+        method) rather than eyeballing — `saveFlatAnswerHistoryRecord`/`getTalkContentKey` →
+        `answer-history-storage.ts` (#13), `filterVerifiedSupportMessages` → new
+        `verified-support-messages.ts` (#14), `bindDirtyWordEditor` → new `dirty-word-editor.ts`
+        (#15), `applyMeAnswerFilter` → `answers-view.ts` (#16). `displayTalksList`,
+        `renderSettingsView`/`bindSettingsControls`, and the conversation-view trio remain
+        deferred, unchanged. Typecheck/lint clean, both production builds succeed, and unit
+        suites grew from 164/1,752 to 167/1,811 (59 new tests across the four clusters) with zero
+        regressions. Canonical run `run-20260909-220727-52712` (25m27s): `heavy-staged` is
+        **green for the first time** since cluster #9 first hit this streak (`rc=0`, confirming
+        the chatroom-manager fix holds under full concurrent load); `cross-browser` remains the
+        same pre-existing Gun-boot-timeout infra issue; `light` failed one different, unrelated
+        spec each time it was checked (`00l`/`00m`/`83-survey` mid-run under load,
+        `79-techsupport-survives-restrictive-filters` in the full canonical run) — every one
+        confirmed passing standalone once the machine was idle, consistent with load-induced
+        flakiness rather than a regression from any of the four extractions. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1366,7 +1395,12 @@ entries and babel preset were never removed.
     8,482, and close its canonical gate.~~ Done; `showConversationDetail`/`addNewConversation`/
     `syncConversationMessageSummary` (a cohesive but mutually-entangled "conversation view"
     cluster) were re-measured and deferred alongside settings/`displayTalksList`.
-20. Re-measure and choose cluster #13 as a separate commit-sized change; continue to defer
+20. ~~Re-measure via an AST script (method line-span + `this.*` reference count) and extract
+    clusters #13-#16 (`saveFlatAnswerHistoryRecord`/`getTalkContentKey`,
+    `filterVerifiedSupportMessages`, `bindDirtyWordEditor`, `applyMeAnswerFilter`), lowering the
+    ratchet from 8,482 to 8,133 across the four.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+21. Re-measure and choose cluster #17 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.
