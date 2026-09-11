@@ -17,5 +17,14 @@
     "workspaceRoot": "IinPublic.codex-worker",
     "nodeVersion": "24.20.0",
     "nodeArchiveUrl": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-win-x64.zip"
+  },
+  "ubuntu": {
+    "type": "host",
+    "platform": "linux",
+    "sshHost": "ubuntu-test",
+    "workspaceRoot": "IinPublic.codex-worker",
+    "nodeVersion": "24.20.0",
+    "nodeArchiveUrl": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.xz",
+    "display": ":1"
   }
 }

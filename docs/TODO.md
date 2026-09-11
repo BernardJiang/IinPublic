@@ -98,7 +98,7 @@ Implemented and passing for the platform smoke gate.
 - [x] Add a Playwright Firefox project.
 - [ ] Run the existing E2E suite under Firefox.
 - [ ] Fix or document Firefox-specific failures.
-- [ ] Verify Gun.js/P2P behavior under Firefox.
+- [x] Verify Gun.js/P2P behavior under Firefox (installed Firefox ↔ macOS Electron direct-P2P channel).
 - [ ] Verify local storage, IndexedDB, permissions, WebSocket, and reconnect behavior.
 - [x] Add a command such as:
 
@@ -114,6 +114,9 @@ Installed-release coverage is also available through
 `npm run test:e2e:macos-firefox`: its mandatory preflight verifies the Firefox
 application and WebDriver BiDi endpoint before any build, server, or test starts,
 then runs the same platform smoke gate as the `macos-firefox` project.
+`npm run test:e2e:macos-firefox:native` additionally requires a live direct-P2P
+channel between installed Firefox and the local Electron app and verifies messages
+in both directions.
 
 ##### 1.3 Run All Three Browsers
 
@@ -128,7 +131,7 @@ Implemented; all projects contribute to one HTML report.
 
 - [ ] Make test data and ports safe for parallel browser execution.
 - [x] Prevent browser instances from accidentally sharing identities or state unless the test explicitly requires it (fresh context and browser IndexedDB plus server-graph clear per smoke test).
-- [ ] Give each test peer a visible identity such as:
+- [x] Give each test peer a visible identity such as:
   - chromium-alice
   - webkit-bob
   - firefox-eve
@@ -139,10 +142,10 @@ Do not only run the same test independently in each browser. Add scenarios where
 
 - [x] Chromium -> WebKit (first matching-thread slice).
 - [x] WebKit -> Chromium (bidirectional reply in the same slice).
-- [ ] Chromium -> Firefox
-- [ ] Firefox -> Chromium
+- [x] Chromium -> Firefox
+- [x] Firefox -> Chromium
 - [x] WebKit -> Firefox (verified in the seven-runtime physical ring).
-- [ ] Firefox -> WebKit
+- [x] Firefox -> WebKit
 - [x] Three-peer scenario:
   - Chromium
   - WebKit
@@ -160,11 +163,12 @@ Suggested scenarios:
 - [ ] Verify state convergence after reconnection.
 - [ ] Restart one browser and verify persisted identity/state.
 
-Current mixed-engine slice: `chromium-alice` creates a one-question matching
-Talk, `webkit-bob` answers it, and the resulting thread carries one message in
-each direction. The physical matrix additionally proves simultaneous three-engine
-presence and Chromium -> WebKit -> Firefox propagation. The remaining directed
-engine pairs, reconnect, and restart persistence are still open.
+Current mixed-engine slices use explicit `chromium-alice`, `webkit-bob`, and
+`firefox-eve` identities. Chromium ↔ WebKit uses the bundled engines; the installed
+stable Firefox matrix adds Chromium ↔ Firefox and Firefox ↔ WebKit, with a real
+matched thread and messages in both directions for each pair. The physical matrix
+additionally proves simultaneous three-engine presence and Chromium -> WebKit ->
+Firefox propagation. Reconnect and restart persistence remain open.
 
 Milestone:
 
@@ -204,7 +208,7 @@ Test combinations such as:
 - [ ] Chromium -> macOS App
 - [ ] macOS App -> WebKit
 - [ ] WebKit -> macOS App
-- [ ] macOS App -> Firefox
+- [x] macOS App -> Firefox
 - [x] Firefox -> macOS App (verified in the seven-runtime physical ring).
 - [ ] macOS App -> macOS App, using separate test profiles
 
@@ -217,6 +221,10 @@ Suggested scenarios:
 - [ ] Identity persistence.
 - [ ] App restart/reconnect.
 - [x] Browser-to-app state synchronization.
+
+Installed Firefox 155.0.1 ↔ macOS Electron is also verified locally through
+`npm run test:e2e:macos-firefox:native`: both peers appear in Global, establish the
+explicit-relay direct-P2P channel, and deliver messages in both directions.
 
 Milestone:
 
@@ -427,39 +435,59 @@ Ubuntu becomes another remote worker controlled by the Mac mini.
 
 ##### 5.1 Prepare Ubuntu Worker
 
-- [ ] Configure password-free SSH from Mac mini to Ubuntu.
-- [ ] Give Ubuntu a stable hostname/IP.
-- [ ] Verify:
+- [x] Configure password-free SSH from Mac mini to Ubuntu.
+- [x] Give Ubuntu a stable SSH alias (`ubuntu-test`).
+- [x] Verify:
 
 ```bash
-ssh ubuntu-test hostname
+npm run test:e2e:ubuntu:preflight
 ```
 
-- [ ] Install compatible Node.js/npm versions.
-- [ ] Install Playwright dependencies.
-- [ ] Add remote build/start/stop scripts.
-- [ ] Add log and test artifact collection.
+- [x] Install compatible Node.js/npm versions (portable Node 24.20.0 under the remote user home).
+- [x] Install Playwright and IinPublic dependencies in the revision-keyed worker.
+- [x] Add remote build/start/stop scripts.
+- [x] Add log and test artifact collection.
+
+`npm run test:e2e:ubuntu:preflight` always checks SSH, Ubuntu/x86_64, the configured X11
+display, and free disk space before any deploy, build, or test. `npm run
+test:e2e:ubuntu:desktop` deploys the exact controller Git revision over SSH/SCP and returns a
+Playwright blob report to the Mac. The optional worker reports `SKIP` when unavailable; set
+`UBUNTU_E2E_REQUIRED=1` to make unavailability fail CI.
 
 ##### 5.2 Add Ubuntu Browsers
 
-- [ ] Chromium.
+- [x] Chromium (Playwright platform-smoke gate on the real Ubuntu worker).
 - [ ] Firefox.
 - [ ] WebKit through Playwright where applicable.
 
 Run:
 
-- [ ] Browser tests locally on Ubuntu.
+- [x] Browser tests locally on Ubuntu (first Chromium slice).
 - [ ] Ubuntu browser -> Mac browser.
 - [ ] Ubuntu browser -> Windows browser.
 - [ ] Ubuntu browser -> Android.
 
+Verified 2026-09-10: `npm run test:e2e:ubuntu:chromium` passed both platform-smoke
+cases on `ubuntu-test` using display `:1`. This covers all-tab layout/dialog behavior,
+settings persistence across reload, HTTP, WebSocket, localStorage, IndexedDB, and local Gun
+read/write. The browser installation is bounded by a five-minute timeout, and its Playwright
+blob is returned to and merged on the Mac. Firefox, WebKit, and cross-host peer scenarios remain
+open.
+
 ##### 5.3 Add Ubuntu Desktop App
 
-- [ ] Build/install the Linux IinPublic app.
-- [ ] Add isolated test profiles.
-- [ ] Add remote startup/shutdown.
-- [ ] Add desktop UI automation only where required.
-- [ ] Reuse shared scenario logic wherever possible.
+- [x] Build/install the Linux IinPublic app (x64 AppImage, extracted ephemeral installation).
+- [x] Add isolated test profiles.
+- [x] Add remote startup/shutdown.
+- [x] Add desktop UI automation only where required (Playwright Electron).
+- [x] Reuse shared scenario logic wherever possible (shared native-app boot spec and helper).
+
+Verified 2026-09-10 on `ubuntu-test` (`bernard-MS-7B48`, Ubuntu 24.04.4 LTS x86_64):
+the runner built `IinPublic-1.0.27.AppImage`, extracted it without root/FUSE, launched the
+packaged `iinpublic-desktop` executable on display `:1`, and passed the shared embedded-SPA,
+`/health`, `/worker.js`, and Gun static-resource checks. Playwright closed the app, removed the
+ephemeral extraction, and merged the returned report on the Mac. Ubuntu browser and cross-host
+peer scenarios remain open in §§5.2 and 5.4.
 
 ##### 5.4 Full Cross-Platform Scenarios
 
@@ -686,7 +714,7 @@ Keep this exact order unless a specific product requirement forces an earlier de
 1. [ ] macOS Chromium baseline remains green.
 2. [ ] macOS WebKit/Safari.
 3. [x] macOS Firefox (installed stable release smoke gate; broader suite and reconnect coverage remain above).
-4. [ ] Mixed browser tests on Mac.
+4. [x] Mixed browser tests on Mac (all directed Chromium/WebKit/Firefox pairs covered).
 5. [ ] macOS desktop app.
 6. [ ] macOS app + browser tests.
 7. [ ] One Android phone.
@@ -697,9 +725,9 @@ Keep this exact order unless a specific product requirement forces an earlier de
 12. [x] Windows browsers.
 13. [x] Windows desktop app.
 14. [ ] Windows + Mac + Android scenarios.
-15. [ ] Ubuntu remote worker.
+15. [x] Ubuntu remote worker.
 16. [ ] Ubuntu browsers.
-17. [ ] Ubuntu desktop app.
+17. [x] Ubuntu desktop app.
 18. [ ] Full Mac + Android + Windows + Ubuntu matrix.
 19. [ ] Centralized matrix runner.
 20. [ ] Unified reports and artifacts.

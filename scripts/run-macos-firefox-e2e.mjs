@@ -15,6 +15,7 @@ const executablePath = process.env.MACOS_FIREFOX_EXECUTABLE || firefoxConfig?.ex
 const channel = firefoxConfig?.channel || 'moz-firefox';
 const required = process.env.MACOS_FIREFOX_REQUIRED === '1';
 const preflightOnly = process.argv.includes('--preflight');
+const nativeMode = process.argv.includes('--native');
 
 function skipOrFail(message) {
   const prefix = required ? 'FAIL' : 'SKIP';
@@ -70,7 +71,7 @@ if (preflightOnly) {
   process.exit(0);
 }
 
-const build = spawnSync('npm', ['run', 'build:server'], {
+const build = spawnSync('npm', ['run', nativeMode ? 'build:embedded' : 'build:server'], {
   cwd: repoRoot,
   stdio: 'inherit',
   timeout: 5 * 60_000,
@@ -81,9 +82,24 @@ if (build.error || build.status !== 0) {
 }
 
 const playwrightCli = path.join(repoRoot, 'node_modules', 'playwright', 'cli.js');
+const testArgs = nativeMode
+  ? [
+      playwrightCli,
+      'test',
+      '--config=tests/e2e/native-app/playwright.config.ts',
+      'tests/e2e/native-app/02-browser-and-desktop-app-presence.spec.ts',
+    ]
+  : [
+      playwrightCli,
+      'test',
+      'tests/e2e/platform-smoke',
+      'tests/e2e/browser-matrix/02-macos-installed-firefox-talk.spec.ts',
+      '--project=macos-firefox',
+      '--project=macos-firefox-mixed',
+    ];
 const result = spawnSync(
   process.execPath,
-  [playwrightCli, 'test', 'tests/e2e/platform-smoke', '--project=macos-firefox'],
+  testArgs,
   {
     cwd: repoRoot,
     stdio: 'inherit',
@@ -93,6 +109,7 @@ const result = spawnSync(
       E2E_GUN_MEMORY_ONLY: '1',
       E2E_MACOS_FIREFOX: '1',
       MACOS_FIREFOX_EXECUTABLE: executablePath,
+      ...(nativeMode ? { NATIVE_APP_E2E_BROWSER: 'macos-firefox' } : {}),
       PW_WORKERS: '1',
     },
     timeout: 15 * 60_000,

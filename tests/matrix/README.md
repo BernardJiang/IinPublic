@@ -9,6 +9,7 @@ and filesystem paths; platform runners resolve those details here.
 ```bash
 npm run test:e2e:macos-firefox:preflight
 npm run test:e2e:macos-firefox
+npm run test:e2e:macos-firefox:native
 ```
 
 The macOS runner checks the configured Firefox executable and launches a short WebDriver BiDi
@@ -16,8 +17,12 @@ probe before it builds or starts any test server. An unavailable optional browse
 `SKIP` and starts no tests; set `MACOS_FIREFOX_REQUIRED=1` to make that condition fail CI.
 `MACOS_FIREFOX_EXECUTABLE` overrides the configured application path.
 
-The `macos-firefox` project runs the platform smoke gate in the installed stable Firefox release.
-It is distinct from the existing `firefox` project, which uses Playwright's bundled Firefox build.
+The `macos-firefox` project runs the platform smoke gate in the installed stable Firefox release,
+and `macos-firefox-mixed` runs its Chromium ↔ Firefox and Firefox ↔ WebKit matched-thread cases.
+They are distinct from the existing `firefox` project, which uses Playwright's bundled Firefox
+build. The `:native` command reuses the same preflight, launches the local Electron app with an
+isolated profile, and verifies presence plus a bidirectional direct-P2P conversation between the
+installed Firefox release and the macOS app.
 
 ## Windows worker
 
@@ -42,3 +47,26 @@ silent uninstaller. Both modes copy Playwright's blob report back to the Mac and
 bidirectional-message scenario. Desktop reports retain Electron's file log and attach up to ten
 Crashpad artifacts when present. A lockfile hash stamp allows safe dependency reuse only within
 the exact same revision workspace.
+
+## Ubuntu worker
+
+```bash
+npm run test:e2e:ubuntu:preflight
+npm run test:e2e:ubuntu:chromium
+npm run test:e2e:ubuntu:desktop
+```
+
+The Ubuntu runner checks `ubuntu-test` availability, verifies the remote OS/architecture and an
+accessible X11 desktop, and checks free space before it deploys or starts a test. An unavailable
+optional worker reports `SKIP`; set `UBUNTU_E2E_REQUIRED=1` to fail instead.
+`UBUNTU_E2E_SSH_HOST` and `UBUNTU_E2E_DISPLAY` override the configured alias and display.
+
+The runner installs portable Node in the remote user's home, deploys the exact controller Git
+revision into an isolated workspace. The `:chromium` mode gives Playwright's browser installation
+a five-minute timeout, builds the embedded app, and runs the platform-smoke gate in Chromium on
+the existing Ubuntu desktop session. The `:desktop` mode builds the Linux x64 AppImage, extracts
+it without root or FUSE, and launches that packaged executable with an isolated profile through
+Playwright Electron. Blob reports and desktop diagnostics are copied back and merged into the
+Mac's `playwright-report/`. Generated package/staging output is removed afterward; on a new Git
+revision the runner prunes only prior revision directories bearing its private ownership marker,
+which keeps the small worker disk reusable without touching other files.

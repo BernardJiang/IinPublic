@@ -1,6 +1,26 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-09
+Last updated: 2026-09-10
+
+## 2026-09-10 — Ubuntu remote worker, Chromium, and packaged desktop-app gates
+
+- Added `ubuntu-test` to the host matrix and a Mac-controlled SSH runner with a mandatory
+  availability gate. Before any deploy/build/test it verifies password-free SSH, Ubuntu x86_64,
+  the live X11 display, and free disk space; unavailable optional workers report `SKIP`.
+- Pinned portable Node 24.20.0 in the remote user's home and deployed the exact controller Git
+  revision into a revision-keyed workspace. Dependency lock hashes control safe reuse.
+- Added `test:e2e:ubuntu:chromium`, with a five-minute Playwright Chromium installation timeout.
+  Both platform-smoke cases passed on the real Ubuntu desktop: tab/layout/dialog behavior,
+  settings persistence, HTTP, WebSocket, localStorage, IndexedDB, and local Gun read/write.
+- Built the Linux x64 AppImage on Ubuntu, extracted it into an ephemeral test installation so
+  neither root nor FUSE is required, and launched the packaged `iinpublic-desktop` executable
+  through the shared Playwright Electron native-app helper with an isolated user-data directory.
+- Verified on `bernard-MS-7B48` (Ubuntu 24.04.4 LTS x86_64): the shared boot test passed in 3.6s,
+  including the embedded SPA, `/health`, `/worker.js`, and Gun static resource. The runner closed
+  the app, removed the extraction, copied the blob report and Electron diagnostics to the Mac,
+  and merged the HTML report.
+- Commands: `npm run test:e2e:ubuntu:preflight`, `npm run test:e2e:ubuntu:chromium`, and
+  `npm run test:e2e:ubuntu:desktop`.
 
 ## 2026-09-09 — Two real bugs fixed from a `test:all` Playwright report (membership resurrection + K7 FAQ-bundle race)
 
@@ -434,8 +454,17 @@ messaging) don't need a native build at all.
   `test:e2e:macos-firefox[:preflight]` commands. Unlike the existing bundled-Firefox project,
   this target launches `/Applications/Firefox.app` through the `moz-firefox` WebDriver BiDi
   channel.
-- Verified Firefox 155.0.1 preflight and both installed-release platform-smoke cases: UI/settings
-  persistence plus HTTP, WebSocket, localStorage, IndexedDB, and Gun read/write persistence.
+- Added a separate `macos-firefox-mixed` scheduling project so project-level Firefox channel
+  settings cannot leak into explicit Chromium/WebKit launches. Its shared matched-DM scenarios
+  cover Chromium → Firefox, Firefox → Chromium, Firefox → WebKit, and WebKit → Firefox with
+  visible `chromium-alice`, `firefox-eve`, and `webkit-bob` identities.
+- Verified Firefox 155.0.1 preflight and all four installed-release cases in 39.4s: two platform
+  smokes (UI/settings persistence plus HTTP, WebSocket, localStorage, IndexedDB, and Gun
+  read/write) and two bidirectional cross-engine matched threads.
+- Extended the existing Electron/browser native scenario with a browser factory and a reverse
+  app→browser assertion. `test:e2e:macos-firefox:native` reuses the availability gate, builds the
+  embedded app, launches installed Firefox through BiDi, and passed both presence and explicit-
+  relay direct-P2P tests in 37.2s, including Firefox→app and app→Firefox messages.
 
 ## 2026-09-08 — §J: Sync-then-erase (fully landed)
 

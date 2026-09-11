@@ -141,7 +141,6 @@ const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === '1' || process.env.E2E_C
 const MIXED_BROWSER = process.env.E2E_MIXED_BROWSER === '1' || process.env.E2E_MIXED_BROWSER === 'true';
 const WINDOWS_EDGE = process.env.E2E_WINDOWS_EDGE === '1' || process.env.E2E_WINDOWS_EDGE === 'true';
 const MACOS_FIREFOX = process.env.E2E_MACOS_FIREFOX === '1' || process.env.E2E_MACOS_FIREFOX === 'true';
-const MACOS_FIREFOX_EXECUTABLE = process.env.MACOS_FIREFOX_EXECUTABLE;
 
 // Optional port-range offset so concurrent `playwright test` runs don't collide. Matches
 // E2E_PORT_OFFSET in tests/e2e/helpers/ports.ts (default 0). web = 3001+offset+i, gun =
@@ -343,20 +342,27 @@ export default defineConfig({
         // runs Playwright's bundled/patched Firefox build. The matrix runner performs an
         // executable + BiDi preflight before Playwright starts any web server or test.
         ...(MACOS_FIREFOX
-          ? [{
-              name: 'macos-firefox',
-              grep: /@smoke/,
-              testMatch: /platform-smoke\//,
-              use: {
-                ...devices['Desktop Firefox'],
-                channel: 'moz-firefox',
-                headless: true,
-                launchOptions: {
-                  ...nonChromiumLaunchOptions,
-                  ...(MACOS_FIREFOX_EXECUTABLE ? { executablePath: MACOS_FIREFOX_EXECUTABLE } : {}),
+          ? [
+              {
+                name: 'macos-firefox',
+                grep: /@smoke/,
+                testMatch: /platform-smoke\//,
+                use: {
+                  ...devices['Desktop Firefox'],
+                  channel: 'moz-firefox',
+                  headless: true,
+                  launchOptions: nonChromiumLaunchOptions,
                 },
               },
-            }]
+              {
+                // The spec launches Chromium, installed Firefox, and WebKit itself. Keep
+                // the scheduling project Chromium-based so the installed-Firefox channel
+                // does not leak into those explicit cross-engine launches.
+                name: 'macos-firefox-mixed',
+                testMatch: /browser-matrix\/02-macos-installed-firefox-talk\.spec\.ts/,
+                use: { ...devices['Desktop Chrome'], headless: true },
+              },
+            ]
           : []),
         ...(DEVICE_PROFILES
           ? [

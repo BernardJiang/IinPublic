@@ -38,6 +38,11 @@ configured Windows worker before doing any work, builds and silently installs th
 x64 NSIS package there, exercises the installed executable with an isolated test
 profile, and uninstalls it afterward.
 
+`npm run test:e2e:ubuntu:desktop` follows the same controller pattern for the configured
+`ubuntu-test` worker. It builds the Linux x64 AppImage on Ubuntu, extracts the package into an
+ephemeral directory (so FUSE/root are unnecessary), tests the packaged executable, collects the
+remote report and diagnostics, and removes the extracted test installation.
+
 `electron-builder` bundles `dist/server`, `dist/web`, and `node_modules` as
 `extraResources` so the packaged app is self-contained.
 

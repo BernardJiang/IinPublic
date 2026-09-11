@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Page } from '@playwright/test';
+import { chromium, firefox, type Browser, type Page } from '@playwright/test';
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -17,6 +17,19 @@ const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 const WEB_PORT = HUB_GUN_PORT - 8080 + 3001;
 const APP_PORT = 19111;
 const WEBRTC_LAUNCH_ARGS = ['--disable-features=WebRtcHideLocalIpsWithMdns'];
+const INSTALLED_MACOS_FIREFOX = process.env.NATIVE_APP_E2E_BROWSER === 'macos-firefox';
+
+async function launchBrowserPeer(): Promise<Browser> {
+  if (INSTALLED_MACOS_FIREFOX) {
+    return firefox.launch({
+      channel: 'moz-firefox',
+      executablePath:
+        process.env.MACOS_FIREFOX_EXECUTABLE || '/Applications/Firefox.app/Contents/MacOS/firefox',
+      headless: true,
+    });
+  }
+  return chromium.launch({ headless: true, args: WEBRTC_LAUNCH_ARGS });
+}
 
 async function readCurrentPublicUser(page: { evaluate: <T>(fn: () => T | Promise<T>) => Promise<T> }): Promise<Record<string, unknown>> {
   return page.evaluate(() => {
@@ -201,7 +214,7 @@ test.describe('Native app: browser + Electron app shared hub presence', () => {
   });
 
   test('browser user and desktop app user appear together in Global through the shared hub', async () => {
-    browser = await chromium.launch({ headless: true, args: WEBRTC_LAUNCH_ARGS });
+    browser = await launchBrowserPeer();
     const browserUser = await bootstrapBrowserUserOnOrigin(
       browser,
       `http://127.0.0.1:${WEB_PORT}`,
@@ -271,7 +284,7 @@ test.describe('Native app: browser + Electron app shared hub presence', () => {
   });
 
   test('browser user and desktop app user exchange a direct message through explicit relay signaling', async () => {
-    browser = await chromium.launch({ headless: true, args: WEBRTC_LAUNCH_ARGS });
+    browser = await launchBrowserPeer();
     const browserUser = await bootstrapBrowserUserOnOrigin(
       browser,
       `http://127.0.0.1:${WEB_PORT}`,
@@ -363,5 +376,9 @@ test.describe('Native app: browser + Electron app shared hub presence', () => {
     const message = `Explicit relay DM ${Date.now()}`;
     await sendConversationMessage(browserUser.page, message);
     await expect(native.window.locator('#conversation-messages')).toContainText(message, { timeout: 30_000 });
+
+    const reply = `Native app reply ${Date.now()}`;
+    await sendConversationMessage(native.window, reply);
+    await expect(browserUser.page.locator('#conversation-messages')).toContainText(reply, { timeout: 30_000 });
   });
 });
