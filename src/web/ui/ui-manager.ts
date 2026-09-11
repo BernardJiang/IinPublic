@@ -162,6 +162,7 @@ import {
   setConversationOnlineStatus as setConversationOnlineStatusImpl,
 } from './conversation-status-updates';
 import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
+import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
@@ -3869,56 +3870,14 @@ export class UIManager extends EventEmitter {
   }
 
   private showTalkDetail(talkId: string, identityKeyFallback?: string, options?: { preferAnswerView?: boolean; questionId?: string }): void {
-    const raw = (talkId || '').trim();
-    const tid = isValidTalkId(raw) ? raw : '';
-    if (!tid && identityKeyFallback) {
-      this.emit('demandFullTalkByIdentity', {
-        identityKey: identityKeyFallback,
-        callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
-          else this.showNotification(this.t('talksCouldNotLoad'), 'error');
-        },
-      });
-      return;
-    }
-    if (!tid) {
-      this.showNotification(this.t('talksCouldNotOpen'), 'error');
-      return;
-    }
-
-    const myTalks = getMyTalks();
-    const talk = myTalks[tid];
-
-    if (talk) {
-      const preferAnswerView = options?.preferAnswerView && !!talk.fullTalk;
-      if (talk.role === 'created' && !preferAnswerView) {
-        // Open editor for editing
-        this.emit('loadTalkForEdit', { talkId: tid });
-      } else if ((talk.role === 'answered' || talk.role === 'copied' || preferAnswerView) && talk.fullTalk) {
-        // Open response view without auto-answering (avoid instant "Match!" toast when just viewing)
-        this.showTalkResponseDialog(talk.fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
-      } else {
-        this.showNotification(this.tf('talksDetailNotice', { title: talk.title }), 'info');
-      }
-    } else {
-      // Incoming: load by id; if Gun gave a bad id, app retries via identityKey from server API.
-      this.emit('demandFullTalk', {
-        talkId: tid,
-        identityKeyFallback: identityKeyFallback || undefined,
-        callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
-          // TODO §P: a real retry, not a one-shot toast whose copy claims retry it doesn't
-          // perform — clicking re-runs this same lookup (mesh cache/identity-key resolution
-          // may have caught up since the first attempt).
-          else
-            this.showNotification(
-              this.t('talksCouldNotLoadRetry'),
-              'error',
-              { retry: () => this.showTalkDetail(talkId, identityKeyFallback, options) },
-            );
-        },
-      });
-    }
+    showTalkDetailImpl(talkId, identityKeyFallback, options, {
+      emit: (event, payload) => this.emit(event, payload),
+      showTalkResponseDialog: (talk, opts) => this.showTalkResponseDialog(talk, opts),
+      showNotification: (message, type, opts) => this.showNotification(message, type, opts),
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+      showTalkDetail: (id, fallback, opts) => this.showTalkDetail(id, fallback, opts),
+    });
   }
 
   displayConversationsList(): void {

@@ -2,6 +2,36 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #57: talk detail view
+
+Continuing the AST-script-guided sweep from cluster #56. `docs/TODO.md` Priority 6.
+
+- **#57: `showTalkDetail` → new `talk-detail-view.ts`** (52 lines, 6 refs — `emit`,
+  `showTalkResponseDialog`, `showNotification`, `t`, `tf`, self-recursion). Routes a talk-detail
+  open request to one of: an identity-key demand (invalid id + fallback), an error toast (invalid
+  id, no fallback), the talk editor (own created talk), the response dialog in view-only mode
+  (answered/copied/preferred-answer-view), a "not available yet" notice (no `fullTalk` on a role
+  that would otherwise show it), or an incoming-talk demand with a retry-via-self-recursion
+  fallback on lookup failure. The self-recursion needed a `showTalkDetail` deps callback rather
+  than calling itself directly, matching the pattern already used for
+  `displayStatisticsDashboard`/`renderStatisticsDashboard` in cluster #46.
+- **Characterization:** new `talk-detail-view.test.ts` (9 tests) covering all six routing
+  branches plus the incoming-talk retry closure (captured from the `showNotification` call and
+  invoked directly to confirm it re-calls `showTalkDetail` with the original arguments). All
+  passed first run.
+- **Ratchet:** `ui-manager.ts` 6,607 → **6,566** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  203/2,188 to 204/2,197 (9 new) with zero regressions. Canonical run `run-20260910-222704-49770`
+  (25m29s): `cross-browser` unchanged pre-existing infra issue; `heavy-staged` failed for the
+  first time all session (`01-login-two-users-headcount`, a chatroom-headcount timing assertion
+  unrelated to talk-detail routing) — reran clean 3/3 standalone, confirming transient
+  concurrent-load flakiness rather than a regression (this session's first `heavy-staged`
+  non-green result, but the earlier chatroom-manager fix it exists to guard remains intact);
+  `light` failed four specs — `83-survey-ignore-mid-question-not-complete` (already-established)
+  plus three new-to-session ones (`33-mesh-only-delivery-no-server`,
+  `35-concurrent-visit-counter` ×2) that all reran clean standalone (1/1, 2/2), none touching
+  talk-detail/response-dialog code.
+
 ## 2026-09-10 — UIManager decomposition cluster #56: status-bar match-count sync
 
 Continuing the AST-script-guided sweep from cluster #55 (user confirmed continuing the

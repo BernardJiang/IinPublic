@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#56 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#57 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -935,7 +935,8 @@ the content-filter block/hide toast (`showContentFilterToast`); the settings-sec
 drill-down view (`applySettingsSectionView`); and the attachment metadata/media-tile helpers
 (`formatAttachmentSize`/`attachmentDownloadFilename`/`attachmentIconForMime`/`renderMediaTile`);
 `markOtherDealConversationsEnded` (joined cluster #37's `conversation-record-updates.ts`); and
-`syncStatusBarMatchCount` (joined cluster #36's `status-bar.ts`). Full per-cluster rationale,
+`syncStatusBarMatchCount` (joined cluster #36's `status-bar.ts`); and the talk-detail routing
+(`showTalkDetail`). Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -948,7 +949,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 (#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
 7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), 6,710
-(#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), and **6,607** (#56)
+(#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), and **6,566** (#57)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -1637,6 +1638,19 @@ entries and babel preset were never removed.
         `run-20260910-215745-41577` (25m20s): `heavy-staged` green (`rc=0`); `cross-browser`
         unchanged pre-existing infra issue; `light` failed one already-established rotating spec
         (`29-messaging-semantics`), unrelated to status-bar logic. See `docs/completed.md`.
+      - Cluster #57 evidence: `showTalkDetail` → new `talk-detail-view.ts` (6 refs, including a
+        `showTalkDetail` deps callback for its own retry-on-failure self-recursion — same pattern
+        as cluster #46's `displayStatisticsDashboard`). New `talk-detail-view.test.ts` (9 tests),
+        all passed first run. Typecheck/lint clean, both production builds succeed, unit suites
+        grew from 203/2,188 to 204/2,197 with zero regressions. Canonical run
+        `run-20260910-222704-49770` (25m29s): `cross-browser` unchanged pre-existing infra issue;
+        `heavy-staged` failed for the first time all session
+        (`01-login-two-users-headcount`, a chatroom-headcount timing assertion unrelated to
+        talk-detail routing) — reran clean 3/3 standalone, confirming transient concurrent-load
+        flakiness rather than a regression; `light` failed four specs —
+        `83-survey-ignore-mid-question-not-complete` (already-established) plus three new
+        (`33-mesh-only-delivery-no-server`, `35-concurrent-visit-counter` ×2) that all reran
+        clean standalone. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1801,7 +1815,10 @@ entries and babel preset were never removed.
 39. ~~Extract cluster #56 (`syncStatusBarMatchCount` → extended `status-bar.ts`), lowering the
     ratchet from 6,620 to 6,607.~~ Done; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-40. Re-measure and choose cluster #57 as a separate commit-sized change; continue to defer
+40. ~~Extract cluster #57 (`showTalkDetail` → new `talk-detail-view.ts`), lowering the ratchet
+    from 6,607 to 6,566.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`,
+    and the conversation-view trio remain deferred, unchanged.
+41. Re-measure and choose cluster #58 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.
