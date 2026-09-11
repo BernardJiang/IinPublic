@@ -50,6 +50,7 @@
     "test:e2e:windows:desktop": "node scripts/run-windows-e2e.mjs --desktop",
     "test:e2e:ubuntu:preflight": "node scripts/run-ubuntu-e2e.mjs --preflight",
     "test:e2e:ubuntu:chromium": "node scripts/run-ubuntu-e2e.mjs --chromium",
+    "test:e2e:ubuntu:firefox": "node scripts/run-ubuntu-e2e.mjs --firefox",
     "test:e2e:ubuntu:desktop": "node scripts/run-ubuntu-e2e.mjs --desktop",
     "build": "npm run build:web && npm run build:server && npm run build:android && npm run report:connectivity",
     "build:web": "webpack --mode production --config webpack.config.js",

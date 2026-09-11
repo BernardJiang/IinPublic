@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-10
 
-## 2026-09-10 — Ubuntu remote worker, Chromium, and packaged desktop-app gates
+## 2026-09-10 — Ubuntu remote worker, Chromium/Firefox, and packaged desktop-app gates
 
 - Added `ubuntu-test` to the host matrix and a Mac-controlled SSH runner with a mandatory
   availability gate. Before any deploy/build/test it verifies password-free SSH, Ubuntu x86_64,
@@ -12,6 +12,8 @@ Last updated: 2026-09-10
 - Added `test:e2e:ubuntu:chromium`, with a five-minute Playwright Chromium installation timeout.
   Both platform-smoke cases passed on the real Ubuntu desktop: tab/layout/dialog behavior,
   settings persistence, HTTP, WebSocket, localStorage, IndexedDB, and local Gun read/write.
+- Added `test:e2e:ubuntu:firefox` through the same preflight, bounded-install, build, and report
+  path. Both Firefox platform-smoke cases passed on the real Ubuntu desktop in 47.0 seconds.
 - Built the Linux x64 AppImage on Ubuntu, extracted it into an ephemeral test installation so
   neither root nor FUSE is required, and launched the packaged `iinpublic-desktop` executable
   through the shared Playwright Electron native-app helper with an isolated user-data directory.
@@ -19,8 +21,8 @@ Last updated: 2026-09-10
   including the embedded SPA, `/health`, `/worker.js`, and Gun static resource. The runner closed
   the app, removed the extraction, copied the blob report and Electron diagnostics to the Mac,
   and merged the HTML report.
-- Commands: `npm run test:e2e:ubuntu:preflight`, `npm run test:e2e:ubuntu:chromium`, and
-  `npm run test:e2e:ubuntu:desktop`.
+- Commands: `npm run test:e2e:ubuntu:preflight`, `npm run test:e2e:ubuntu:chromium`, `npm run
+  test:e2e:ubuntu:firefox`, and `npm run test:e2e:ubuntu:desktop`.
 
 ## 2026-09-09 — Two real bugs fixed from a `test:all` Playwright report (membership resurrection + K7 FAQ-bundle race)
 

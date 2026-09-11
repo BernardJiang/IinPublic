@@ -457,7 +457,7 @@ Playwright blob report to the Mac. The optional worker reports `SKIP` when unava
 ##### 5.2 Add Ubuntu Browsers
 
 - [x] Chromium (Playwright platform-smoke gate on the real Ubuntu worker).
-- [ ] Firefox.
+- [x] Firefox (Playwright platform-smoke gate on the real Ubuntu worker).
 - [ ] WebKit through Playwright where applicable.
 
 Run:
@@ -467,12 +467,12 @@ Run:
 - [ ] Ubuntu browser -> Windows browser.
 - [ ] Ubuntu browser -> Android.
 
-Verified 2026-09-10: `npm run test:e2e:ubuntu:chromium` passed both platform-smoke
-cases on `ubuntu-test` using display `:1`. This covers all-tab layout/dialog behavior,
-settings persistence across reload, HTTP, WebSocket, localStorage, IndexedDB, and local Gun
-read/write. The browser installation is bounded by a five-minute timeout, and its Playwright
-blob is returned to and merged on the Mac. Firefox, WebKit, and cross-host peer scenarios remain
-open.
+Verified 2026-09-10: `npm run test:e2e:ubuntu:chromium` and `npm run
+test:e2e:ubuntu:firefox` each passed both platform-smoke cases on `ubuntu-test` using display
+`:1`. This covers all-tab layout/dialog behavior, settings persistence across reload, HTTP,
+WebSocket, localStorage, IndexedDB, and local Gun read/write in both engines. Each browser
+installation is bounded by a five-minute timeout, and its Playwright blob is returned to and
+merged on the Mac. WebKit and cross-host peer scenarios remain open.
 
 ##### 5.3 Add Ubuntu Desktop App
 

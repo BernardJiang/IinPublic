@@ -53,6 +53,7 @@ the exact same revision workspace.
 ```bash
 npm run test:e2e:ubuntu:preflight
 npm run test:e2e:ubuntu:chromium
+npm run test:e2e:ubuntu:firefox
 npm run test:e2e:ubuntu:desktop
 ```
 
@@ -62,11 +63,11 @@ optional worker reports `SKIP`; set `UBUNTU_E2E_REQUIRED=1` to fail instead.
 `UBUNTU_E2E_SSH_HOST` and `UBUNTU_E2E_DISPLAY` override the configured alias and display.
 
 The runner installs portable Node in the remote user's home, deploys the exact controller Git
-revision into an isolated workspace. The `:chromium` mode gives Playwright's browser installation
-a five-minute timeout, builds the embedded app, and runs the platform-smoke gate in Chromium on
-the existing Ubuntu desktop session. The `:desktop` mode builds the Linux x64 AppImage, extracts
-it without root or FUSE, and launches that packaged executable with an isolated profile through
-Playwright Electron. Blob reports and desktop diagnostics are copied back and merged into the
-Mac's `playwright-report/`. Generated package/staging output is removed afterward; on a new Git
-revision the runner prunes only prior revision directories bearing its private ownership marker,
-which keeps the small worker disk reusable without touching other files.
+revision into an isolated workspace. The `:chromium` and `:firefox` modes give the matching
+Playwright browser installation a five-minute timeout, build the embedded app, and run the
+platform-smoke gate on the existing Ubuntu desktop session. The `:desktop` mode builds the Linux
+x64 AppImage, extracts it without root or FUSE, and launches that packaged executable with an
+isolated profile through Playwright Electron. Blob reports and desktop diagnostics are copied back
+and merged into the Mac's `playwright-report/`. Generated package/staging output is removed
+afterward; on a new Git revision the runner prunes only prior revision directories bearing its
+private ownership marker, which keeps the small worker disk reusable without touching other files.

@@ -16,6 +16,7 @@ const required = process.env.UBUNTU_E2E_REQUIRED === '1';
 const preflightOnly = process.argv.includes('--preflight');
 const desktopMode = process.argv.includes('--desktop');
 const chromiumMode = process.argv.includes('--chromium');
+const firefoxMode = process.argv.includes('--firefox');
 const sshOptions = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8'];
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
 
@@ -166,9 +167,9 @@ if (preflightOnly) {
   console.log('[ubuntu-e2e] preflight passed; no tests started.');
   process.exit(0);
 }
-if (Number(desktopMode) + Number(chromiumMode) !== 1) {
+if (Number(desktopMode) + Number(chromiumMode) + Number(firefoxMode) !== 1) {
   console.error(
-    '[ubuntu-e2e] specify exactly one of --chromium or --desktop ' +
+    '[ubuntu-e2e] specify exactly one of --chromium, --firefox, or --desktop ' +
       '(or use the matching npm script).',
   );
   process.exit(2);
@@ -176,7 +177,8 @@ if (Number(desktopMode) + Number(chromiumMode) !== 1) {
 
 const shortRevision = revision.slice(0, 12);
 const workspace = `${remote.home}/${hostConfig.workspaceRoot}/${revision}`;
-const modeName = desktopMode ? 'desktop' : 'chromium';
+const browserName = chromiumMode ? 'chromium' : firefoxMode ? 'firefox' : '';
+const modeName = desktopMode ? 'desktop' : browserName;
 const runId = `ubuntu-${modeName}-${shortRevision}-${Date.now()}`;
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-ubuntu-e2e-'));
 const archivePath = path.join(tempDir, `iinpublic-${shortRevision}.tar.gz`);
@@ -265,18 +267,19 @@ cd "$workspace"
 ${shellQuote(nodeExe)} ${shellQuote(npxCli)} playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/01-desktop-app-boots.spec.ts
 `
   : `
-echo '[ubuntu-e2e] ensuring Playwright Chromium is installed (5 minute timeout)'
-timeout --signal=TERM --kill-after=15s 300s ${shellQuote(nodeExe)} ${shellQuote(npxCli)} playwright install chromium
+echo '[ubuntu-e2e] ensuring Playwright ${browserName} is installed (5 minute timeout)'
+timeout --signal=TERM --kill-after=15s 300s ${shellQuote(nodeExe)} ${shellQuote(npxCli)} playwright install ${shellQuote(browserName)}
 ${shellQuote(nodeExe)} ${shellQuote(npmCli)} run build:embedded
 ${displayEnvironment}
 export E2E_GUN_MEMORY_ONLY=1
+export E2E_CROSS_BROWSER=${firefoxMode ? '1' : '0'}
 export E2E_STATIC_WEB=1
 export E2E_VIDEO=off
 export E2E_BLOB=1
 export E2E_RUN_ID=${shellQuote(runId)}
 export PW_WORKERS=1
 cd "$workspace"
-${shellQuote(nodeExe)} ${shellQuote(npxCli)} playwright test tests/e2e/platform-smoke --project=chromium --grep @smoke
+${shellQuote(nodeExe)} ${shellQuote(npxCli)} playwright test tests/e2e/platform-smoke --project=${shellQuote(browserName)} --grep @smoke
 `;
 
 const remoteRun = runRemote(`
@@ -331,6 +334,6 @@ if (remoteRun.error || remoteRun.status !== 0) {
   process.exit(1);
 }
 console.log(
-  `[ubuntu-e2e] ${desktopMode ? 'packaged desktop executable' : 'Chromium platform smoke'} passed on ` +
+  `[ubuntu-e2e] ${desktopMode ? 'packaged desktop executable' : `${browserName} platform smoke`} passed on ` +
     `${remote.hostname}; report: ${path.join(repoRoot, 'playwright-report', 'index.html')}`,
 );
