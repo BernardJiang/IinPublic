@@ -81,7 +81,6 @@ import {
   getAnsweredTalkByContent,
   getExactChatbotMemory,
   saveQuestionAnswersFromCompletion as saveQuestionAnswersFromCompletionStorage,
-  setAnsweredTalkByContent,
 } from './answer-preferences-storage';
 import {
   getSelfTagForQuestionText,
@@ -89,7 +88,6 @@ import {
 } from '../../shared/exact-chatbot-memory';
 import {
   clearMyTalks,
-  deleteMyTalkEntry,
   getMyTalks,
   type MyTalkEntry,
 } from './my-talks-storage';
@@ -165,6 +163,7 @@ import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as sync
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
 import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
+import { deleteMyTalk as deleteMyTalkImpl } from './talk-deletion';
 import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
@@ -5026,26 +5025,13 @@ export class UIManager extends EventEmitter {
   }
 
   private deleteMyTalk(talkId: string): void {
-    const myTalks = deleteMyTalkEntry(talkId);
-    if (!(talkId in myTalks) && Object.keys(myTalks).length === 0) {
-      // already absent; continue to clear answered-by-content links if present
-    }
-    const answeredByContent = getAnsweredTalkByContent();
-    for (const [key, id] of Object.entries(answeredByContent)) {
-      if (id === talkId) {
-        delete answeredByContent[key];
-        setAnsweredTalkByContent(answeredByContent);
-        break;
-      }
-    }
-    this.displayTalksList();
-    this.displayAnswersList();
-    this.showNotification(this.t('talksRemovedFromList'), 'success');
-    // Phase F: notify ledger of withdrawal so peers stop routing this talk
-    this.emit('withdrawTalk', { talkId });
-    // Step 10: hard retraction — flood talk-retracted frame to all holders.
-    // retractTalk carries retractedAt so the responder can order the tombstone.
-    this.emit('retractTalk', { talkId, retractedAt: Date.now() });
+    deleteMyTalkImpl(talkId, {
+      displayTalksList: () => this.displayTalksList(),
+      displayAnswersList: () => this.displayAnswersList(),
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: (key) => this.t(key),
+      emit: (event, payload) => this.emit(event, payload),
+    });
   }
 
   setNotificationsSuppressedForE2e(suppressed: boolean): void {

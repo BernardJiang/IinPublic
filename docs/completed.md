@@ -2,6 +2,30 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #60: talk deletion
+
+Continuing the AST-script-guided sweep from cluster #59. `docs/TODO.md` Priority 6.
+
+- **#60: `deleteMyTalk` → new `talk-deletion.ts`** (22 lines, 5 refs — `displayTalksList`,
+  `displayAnswersList`, `showNotification`, `t`, `emit`). Removes a talk from `myTalks`, cleans up
+  any matching answered-by-content link, refreshes both the talks and answers lists, and emits
+  both a soft `withdrawTalk` and a hard `retractTalk` (with a fresh `retractedAt`) so peers stop
+  routing and existing holders get a tombstone. Dropped a dead no-op `if` block that only
+  contained a comment (checking `!(talkId in myTalks) && myTalks.length === 0` and doing
+  nothing) — a pure simplification, not a behavior change. Two now-unused imports
+  (`deleteMyTalkEntry`, `setAnsweredTalkByContent`) were dropped from `ui-manager.ts`.
+- **Characterization:** new `talk-deletion.test.ts` (7 tests) covering: removing the talk entry;
+  removing the matching answered-by-content link and leaving unrelated ones untouched; the
+  no-matching-link no-op; refreshing both lists; the success notification; and both emitted
+  events including the `retractedAt` timestamp. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,545 → **6,531** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  206/2,207 to 207/2,214 (7 new) with zero regressions. Canonical run `run-20260910-235604-77384`
+  (25m32s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching talk
+  deletion/withdrawal/retraction.
+
 ## 2026-09-10 — UIManager decomposition cluster #59: return-home button sync
 
 Continuing the AST-script-guided sweep from cluster #58. `docs/TODO.md` Priority 6.

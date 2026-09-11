@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#59 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#60 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -937,7 +937,7 @@ drill-down view (`applySettingsSectionView`); and the attachment metadata/media-
 `markOtherDealConversationsEnded` (joined cluster #37's `conversation-record-updates.ts`); and
 `syncStatusBarMatchCount` (joined cluster #36's `status-bar.ts`); the talk-detail routing
 (`showTalkDetail`); and the location-matched-room suggestion banner
-(`showLocationRoomSuggestion`); and the return-home button sync (`syncReturnHomeButton`). Full
+(`showLocationRoomSuggestion`); the return-home button sync (`syncReturnHomeButton`); and talk deletion (`deleteMyTalk`). Full
 per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
@@ -952,7 +952,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
 7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), 6,710
 (#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), 6,566 (#57), and
-6,555 (#58), and **6,545** (#59)
+6,555 (#58), 6,545 (#59), and **6,531** (#60)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -1673,6 +1673,14 @@ entries and babel preset were never removed.
         `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light`
         failed four already-established rotating specs, none touching the return-home button. See
         `docs/completed.md`.
+      - Cluster #60 evidence: `deleteMyTalk` → new `talk-deletion.ts` (5 refs). Dropped a dead
+        no-op `if` block found during extraction (checked a condition then did nothing but hold
+        a comment) — a pure simplification, not a behavior change. New `talk-deletion.test.ts`
+        (7 tests), all passed first run. Typecheck/lint clean, both production builds succeed,
+        unit suites grew from 206/2,207 to 207/2,214 with zero regressions. Canonical run
+        `run-20260910-235604-77384` (25m32s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs, none touching talk deletion/withdrawal/retraction. See `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1846,7 +1854,10 @@ entries and babel preset were never removed.
 42. ~~Extract cluster #59 (`syncReturnHomeButton` → new `return-home-button.ts`), lowering the
     ratchet from 6,555 to 6,545.~~ Done; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-43. Re-measure and choose cluster #60 as a separate commit-sized change; continue to defer
+43. ~~Extract cluster #60 (`deleteMyTalk` → new `talk-deletion.ts`), lowering the ratchet from
+    6,545 to 6,531.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and
+    the conversation-view trio remain deferred, unchanged.
+44. Re-measure and choose cluster #61 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.
