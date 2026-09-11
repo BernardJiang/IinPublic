@@ -164,6 +164,7 @@ import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as sync
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
 import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
+import { updateChatroomInfo as updateChatroomInfoImpl } from './chatroom-info';
 import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
 import { deleteMyTalk as deleteMyTalkImpl } from './talk-deletion';
 import {
@@ -4448,21 +4449,10 @@ export class UIManager extends EventEmitter {
   }
 
   updateChatroomInfo(info: { id: string; name: string } | any): void {
-    // Update current chatroom tracking
-    if (info.id) {
-      this.currentChatroom = info.id;
-    }
-    this.syncStatusBroadcastButtonVisibility();
-
-    const chatroomInfo = document.getElementById('chatroom-info');
-    if (chatroomInfo && info.id && info.name) {
-      chatroomInfo.innerHTML = `
-        <div class="chatroom-title">${info.name}</div>
-        <div class="chatroom-status">Connected</div>
-      `;
-    } else {
-      console.log('Chatroom updated:', info);
-    }
+    updateChatroomInfoImpl(info, {
+      setCurrentChatroom: (id) => { this.currentChatroom = id; },
+      syncStatusBroadcastButtonVisibility: () => this.syncStatusBroadcastButtonVisibility(),
+    });
   }
 
   updateUserInfo(user: User): void {

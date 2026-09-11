@@ -2,6 +2,28 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #63: chatroom info
+
+Continuing the AST-script-guided sweep from cluster #62. `docs/TODO.md` Priority 6.
+
+- **#63: `updateChatroomInfo` → new `chatroom-info.ts`** (17 lines, 2 refs — a `currentChatroom`
+  write, `syncStatusBroadcastButtonVisibility`). Updates the tracked current chatroom id and
+  renders the `#chatroom-info` title/status block, logging instead when the element is missing
+  or `id`/`name` isn't fully populated. The `currentChatroom` write needed a
+  `setCurrentChatroom` deps callback rather than exposing the instance field directly.
+- **Characterization:** new `chatroom-info.test.ts` (6 tests) covering: the tracking update when
+  `info.id` is present vs. absent; the always-runs status-broadcast-visibility sync; the
+  title/status render when both `id` and `name` are present; the log-instead-of-render fallback
+  when `name` is missing; and the same fallback when the `#chatroom-info` element itself is
+  absent. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,504 → **6,494** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  208/2,226 to 209/2,232 (6 new) with zero regressions. Canonical run `run-20260911-012241-1094`
+  (25m27s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching
+  chatroom-info rendering.
+
 ## 2026-09-11 — UIManager decomposition cluster #62: talk-distance-from-author formatting
 
 Continuing the AST-script-guided sweep from cluster #61. `docs/TODO.md` Priority 6.
