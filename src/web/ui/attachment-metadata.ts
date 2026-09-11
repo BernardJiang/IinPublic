@@ -42,6 +42,28 @@ export function attachmentIconForMime(mimeType: string): string {
   return '📎';
 }
 
+export type IpfsSharePayload = { cid: string; link: string; name: string; mimeType: string; sizeBytes: number };
+
+/** Parses a `IPFS_SHARE:<json>` chat-message payload marker into its attachment fields. */
+export function parseIpfsSharePayload(text: string): IpfsSharePayload | null {
+  const raw = String(text || '');
+  if (!raw.startsWith('IPFS_SHARE:')) return null;
+  try {
+    const p = JSON.parse(raw.slice('IPFS_SHARE:'.length));
+    const cid = String(p?.cid || '').trim();
+    if (!cid || p?.kind !== 'ipfs-auto-share-v1') return null;
+    return {
+      cid,
+      link: String(p?.link || `ipfs://${cid}`),
+      name: String(p?.name || 'attachment'),
+      mimeType: String(p?.mimeType || ''),
+      sizeBytes: Number(p?.sizeBytes) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function renderMediaTile(share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number }): string {
   const isImage = share.mimeType.startsWith('image/');
   const safeName = attachmentDownloadFilename(share.name, share.mimeType);

@@ -2,6 +2,7 @@ import {
   attachmentDownloadFilename,
   attachmentIconForMime,
   formatAttachmentSize,
+  parseIpfsSharePayload,
   renderMediaTile,
 } from '../../web/ui/attachment-metadata';
 
@@ -92,5 +93,37 @@ describe('renderMediaTile', () => {
   it('omits the size line when sizeBytes is zero', () => {
     const html = renderMediaTile({ cid: 'c4', link: 'l4', name: 'a.png', mimeType: 'image/png', sizeBytes: 0 });
     expect(html).not.toContain('media-tile-size');
+  });
+});
+
+describe('parseIpfsSharePayload', () => {
+  const marker = (payload: unknown) => `IPFS_SHARE:${JSON.stringify(payload)}`;
+
+  it('returns null for text without the IPFS_SHARE: marker', () => {
+    expect(parseIpfsSharePayload('just a regular message')).toBeNull();
+  });
+
+  it('returns null for malformed JSON after the marker', () => {
+    expect(parseIpfsSharePayload('IPFS_SHARE:{not json')).toBeNull();
+  });
+
+  it('returns null when cid is missing', () => {
+    expect(parseIpfsSharePayload(marker({ kind: 'ipfs-auto-share-v1' }))).toBeNull();
+  });
+
+  it('returns null when kind does not match ipfs-auto-share-v1', () => {
+    expect(parseIpfsSharePayload(marker({ cid: 'bafy1', kind: 'something-else' }))).toBeNull();
+  });
+
+  it('parses a full valid payload', () => {
+    const result = parseIpfsSharePayload(marker({
+      cid: 'bafy1', kind: 'ipfs-auto-share-v1', link: 'ipfs://bafy1', name: 'photo.png', mimeType: 'image/png', sizeBytes: 2048,
+    }));
+    expect(result).toEqual({ cid: 'bafy1', link: 'ipfs://bafy1', name: 'photo.png', mimeType: 'image/png', sizeBytes: 2048 });
+  });
+
+  it('fills in defaults for link/name/mimeType/sizeBytes when absent', () => {
+    const result = parseIpfsSharePayload(marker({ cid: 'bafy2', kind: 'ipfs-auto-share-v1' }));
+    expect(result).toEqual({ cid: 'bafy2', link: 'ipfs://bafy2', name: 'attachment', mimeType: '', sizeBytes: 0 });
   });
 });

@@ -1,6 +1,27 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
+
+## 2026-09-11 — UIManager decomposition cluster #61: IPFS share payload parsing
+
+Continuing the AST-script-guided sweep from cluster #60 (session crossed midnight into
+2026-09-11). `docs/TODO.md` Priority 6.
+
+- **#61: `parseIpfsSharePayload` → extended `attachment-metadata.ts`** (18 lines, 0 `this.*`
+  refs — already pure). Parses an `IPFS_SHARE:<json>` chat-message marker into its attachment
+  fields (cid/link/name/mimeType/sizeBytes), rejecting anything without the marker, malformed
+  JSON, a missing cid, or a `kind` other than `'ipfs-auto-share-v1'`. Joined cluster #54's
+  attachment-metadata module since it's the same domain (IPFS attachment display).
+- **Characterization:** extended `attachment-metadata.test.ts` (+6 tests) covering: no marker;
+  malformed JSON; missing cid; wrong `kind`; a full valid payload; and the
+  link/name/mimeType/sizeBytes defaults when absent. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,531 → **6,517** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  207/2,214 to 207/2,220 (6 new, same suite count since the test file was extended) with zero
+  regressions. Canonical run `run-20260911-002525-85249` (25m27s): `heavy-staged` green (`rc=0`);
+  `cross-browser` unchanged pre-existing infra issue; `light` failed two already-established
+  rotating specs (`79-techsupport-survives-restrictive-filters`,
+  `83-survey-ignore-mid-question-not-complete`), neither touching IPFS share payload parsing.
 
 ## 2026-09-10 — UIManager decomposition cluster #60: talk deletion
 

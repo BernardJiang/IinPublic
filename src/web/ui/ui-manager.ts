@@ -33,6 +33,7 @@ import {
   attachmentDownloadFilename as attachmentDownloadFilenameImpl,
   attachmentIconForMime as attachmentIconForMimeImpl,
   formatAttachmentSize as formatAttachmentSizeImpl,
+  parseIpfsSharePayload as parseIpfsSharePayloadImpl,
   renderMediaTile as renderMediaTileImpl,
 } from './attachment-metadata';
 import { type QAPair } from '../../shared/flattened-answer-keys';
@@ -5780,22 +5781,7 @@ export class UIManager extends EventEmitter {
 
   /** Parse an `IPFS_SHARE:` auto-share message body into its attachment fields. */
   private parseIpfsSharePayload(text: string): { cid: string; link: string; name: string; mimeType: string; sizeBytes: number } | null {
-    const raw = String(text || '');
-    if (!raw.startsWith('IPFS_SHARE:')) return null;
-    try {
-      const p = JSON.parse(raw.slice('IPFS_SHARE:'.length));
-      const cid = String(p?.cid || '').trim();
-      if (!cid || p?.kind !== 'ipfs-auto-share-v1') return null;
-      return {
-        cid,
-        link: String(p?.link || `ipfs://${cid}`),
-        name: String(p?.name || 'attachment'),
-        mimeType: String(p?.mimeType || ''),
-        sizeBytes: Number(p?.sizeBytes) || 0,
-      };
-    } catch {
-      return null;
-    }
+    return parseIpfsSharePayloadImpl(text);
   }
 
   private formatAttachmentSize(bytes: number): string {
