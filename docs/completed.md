@@ -2,6 +2,27 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #67: collect shared attachments
+
+Continuing the AST-script-guided sweep from cluster #66. `docs/TODO.md` Priority 6.
+
+- **#67: `collectSharedAttachments` → extended `attachment-metadata.ts`** (16 lines, 2 refs —
+  `lastConversationMessages`, `parseIpfsSharePayload`). Scans the current conversation's messages
+  for IPFS share payloads, splitting them into media (image/video) vs. other files, deduped by
+  cid, newest first. Calls the already-extracted `parseIpfsSharePayload` directly (from cluster
+  #61, same module) instead of routing back through `ui-manager.ts`'s shim.
+  `lastConversationMessages` (a plain `any[]` field) is passed as a value argument.
+- **Characterization:** extended `attachment-metadata.test.ts` (+5 tests) covering: no messages;
+  messages without a share payload; the media-vs-files split; cid deduplication (first occurrence
+  wins); and newest-first ordering. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,462 → **6,453** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  212/2,246 to 212/2,251 (5 new, same suite count since the test file was extended) with zero
+  regressions. Canonical run `run-20260911-031545-32893` (25m29s): `heavy-staged` green (`rc=0`);
+  `cross-browser` unchanged pre-existing infra issue; `light` failed one already-established
+  rotating spec (`83-survey-ignore-mid-question-not-complete`), unrelated to attachment
+  collection.
+
 ## 2026-09-11 — UIManager decomposition cluster #66: quick-answer incoming tag
 
 Continuing the AST-script-guided sweep from cluster #65. `docs/TODO.md` Priority 6.

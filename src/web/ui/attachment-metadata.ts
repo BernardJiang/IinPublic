@@ -84,3 +84,24 @@ export function renderMediaTile(share: { cid: string; link: string; name: string
     </div>
   `;
 }
+
+/**
+ * Scans the current conversation's messages for IPFS share payloads, splitting them into
+ * media (image/video) vs. other files, deduped by cid, newest first.
+ */
+export function collectSharedAttachments(messages: any[]): {
+  media: IpfsSharePayload[];
+  files: IpfsSharePayload[];
+} {
+  const media: IpfsSharePayload[] = [];
+  const files: IpfsSharePayload[] = [];
+  const seen = new Set<string>();
+  for (const msg of messages || []) {
+    const share = parseIpfsSharePayload(String(msg?.text || ''));
+    if (!share || seen.has(share.cid)) continue;
+    seen.add(share.cid);
+    const isMedia = share.mimeType.startsWith('image/') || share.mimeType.startsWith('video/');
+    (isMedia ? media : files).push(share);
+  }
+  return { media: media.reverse(), files: files.reverse() };
+}

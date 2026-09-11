@@ -1,6 +1,7 @@
 import {
   attachmentDownloadFilename,
   attachmentIconForMime,
+  collectSharedAttachments,
   formatAttachmentSize,
   parseIpfsSharePayload,
   renderMediaTile,
@@ -125,5 +126,47 @@ describe('parseIpfsSharePayload', () => {
   it('fills in defaults for link/name/mimeType/sizeBytes when absent', () => {
     const result = parseIpfsSharePayload(marker({ cid: 'bafy2', kind: 'ipfs-auto-share-v1' }));
     expect(result).toEqual({ cid: 'bafy2', link: 'ipfs://bafy2', name: 'attachment', mimeType: '', sizeBytes: 0 });
+  });
+});
+
+describe('collectSharedAttachments', () => {
+  const shareMsg = (cid: string, mimeType: string) => ({
+    text: `IPFS_SHARE:${JSON.stringify({ cid, kind: 'ipfs-auto-share-v1', mimeType })}`,
+  });
+
+  it('returns empty media/files for no messages', () => {
+    expect(collectSharedAttachments([])).toEqual({ media: [], files: [] });
+  });
+
+  it('ignores messages without an IPFS_SHARE payload', () => {
+    const result = collectSharedAttachments([{ text: 'hello' }, { text: '' }]);
+    expect(result).toEqual({ media: [], files: [] });
+  });
+
+  it('splits image/video into media and everything else into files', () => {
+    const result = collectSharedAttachments([
+      shareMsg('c1', 'image/png'),
+      shareMsg('c2', 'video/mp4'),
+      shareMsg('c3', 'application/pdf'),
+    ]);
+    expect(result.media.map((s) => s.cid)).toEqual(['c2', 'c1']);
+    expect(result.files.map((s) => s.cid)).toEqual(['c3']);
+  });
+
+  it('dedupes by cid, keeping the first occurrence encountered', () => {
+    const result = collectSharedAttachments([
+      shareMsg('c1', 'image/png'),
+      shareMsg('c1', 'image/png'),
+    ]);
+    expect(result.media).toHaveLength(1);
+  });
+
+  it('returns newest-first order (reversed from message order)', () => {
+    const result = collectSharedAttachments([
+      shareMsg('c1', 'image/png'),
+      shareMsg('c2', 'image/png'),
+      shareMsg('c3', 'image/png'),
+    ]);
+    expect(result.media.map((s) => s.cid)).toEqual(['c3', 'c2', 'c1']);
   });
 });

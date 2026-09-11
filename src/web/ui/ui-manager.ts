@@ -32,6 +32,7 @@ import { applySettingsSectionView as applySettingsSectionViewImpl } from './sett
 import {
   attachmentDownloadFilename as attachmentDownloadFilenameImpl,
   attachmentIconForMime as attachmentIconForMimeImpl,
+  collectSharedAttachments as collectSharedAttachmentsImpl,
   formatAttachmentSize as formatAttachmentSizeImpl,
   parseIpfsSharePayload as parseIpfsSharePayloadImpl,
   renderMediaTile as renderMediaTileImpl,
@@ -5898,17 +5899,7 @@ export class UIManager extends EventEmitter {
     media: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }>;
     files: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }>;
   } {
-    const media: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> = [];
-    const files: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> = [];
-    const seen = new Set<string>();
-    for (const msg of this.lastConversationMessages || []) {
-      const share = this.parseIpfsSharePayload(String(msg?.text || ''));
-      if (!share || seen.has(share.cid)) continue;
-      seen.add(share.cid);
-      const isMedia = share.mimeType.startsWith('image/') || share.mimeType.startsWith('video/');
-      (isMedia ? media : files).push(share);
-    }
-    return { media: media.reverse(), files: files.reverse() };
+    return collectSharedAttachmentsImpl(this.lastConversationMessages);
   }
 
   /** http(s):// URLs found in plain text messages of the open conversation, newest first. */

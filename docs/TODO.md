@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#66 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#67 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -941,8 +941,9 @@ drill-down view (`applySettingsSectionView`); and the attachment metadata/media-
 share payload parsing (`parseIpfsSharePayload`, joined cluster #54's `attachment-metadata.ts`);
 talk-distance-from-author formatting (`formatTalkDistanceFromAuthor`); chatroom info
 (`updateChatroomInfo`); current-chatroom sync (`setCurrentChatroomId`); the navigate-to-my-answer scroll/highlight
-(`navigateToMyAnswerForTalk`); and quick-answer incoming tag (`quickAnswerIncomingTag`). Full
-per-cluster rationale,
+(`navigateToMyAnswerForTalk`); quick-answer incoming tag (`quickAnswerIncomingTag`); and shared-attachment collection
+(`collectSharedAttachments`, joined cluster #54's `attachment-metadata.ts`). Full per-cluster
+rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -957,7 +958,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), 6,710
 (#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), 6,566 (#57), and
 6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
-6,472 (#65), and **6,462** (#66)
+6,472 (#65), 6,462 (#66), and **6,453** (#67)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -1735,7 +1736,20 @@ entries and babel preset were never removed.
         `run-20260911-024749-25080` (25m24s): `heavy-staged` green (`rc=0`); `cross-browser`
         unchanged pre-existing infra issue; `light` failed three already-established rotating
         specs, none touching quick-answer-incoming-tag flow. See `docs/completed.md`.
-- [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
+      - Cluster #67 evidence: `collectSharedAttachments` → extended `attachment-metadata.ts` (2
+        refs — `lastConversationMessages`, `parseIpfsSharePayload`, the latter called directly
+        rather than through `ui-manager.ts`'s shim). Extended `attachment-metadata.test.ts` (+5
+        tests), all passed first run. Typecheck/lint clean, both production builds succeed, unit
+        suites grew from 212/2,246 to 212/2,251 with zero regressions. Canonical run
+        `run-20260911-031545-32893` (25m29s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed one already-established rotating spec,
+        unrelated to attachment collection. See `docs/completed.md`.
+      - **Session pause after cluster #67:** the user asked what was taking so long (this
+        session's incremental-cluster cycle had run for many hours, each cluster gated by a
+        ~25-minute canonical `test:all` run before committing). Given the choice to finish the
+        in-flight cluster and stop, finish here or keep the deferred giants
+        (`displayTalksList`/`renderSettingsView`/`bindSettingsControls`/`showConversationDetail`/
+        the conversation-view trio) and the thinning candidate pool for a future session.
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
 
@@ -1929,10 +1943,13 @@ entries and babel preset were never removed.
 49. ~~Extract cluster #66 (`quickAnswerIncomingTag` → new `quick-answer-incoming-tag.ts`),
     lowering the ratchet from 6,472 to 6,462.~~ Done; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-50. Re-measure and choose cluster #67 as a separate commit-sized change; continue to defer
-    `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
-    trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
-    their ownership boundaries are reduced.
+50. ~~Extract cluster #67 (`collectSharedAttachments` → extended `attachment-metadata.ts`),
+    lowering the ratchet from 6,462 to 6,453.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+    **Session paused here** at the user's request (asked what was taking so long after many
+    hours of one-cluster-at-a-time gating); resume with cluster #68 by re-running the AST
+    measurement script (`docs/TODO.md`'s "Current sequence" pattern above) — the remaining
+    candidate pool is thin (mostly ratio <8, widely-coupled, or the deferred giants themselves).
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React
