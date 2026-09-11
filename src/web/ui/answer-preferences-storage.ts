@@ -22,6 +22,7 @@ import {
   createEmptyTagOppositePairRegistryState,
   type TagOppositePairRegistryState,
 } from '../../shared/tag-opposite-pairs';
+import { normalizeQuestionKey } from '../../shared/user-utils';
 
 export type AnswerPreferenceMap = Record<string, AnswerPreferenceEntry>;
 
@@ -143,4 +144,40 @@ export function setMyQuestionAnswer(key: string, value: MyQuestionAnswerEntry): 
   const all = getMyQuestionAnswers();
   all[key] = value;
   writeJsonMap('myQuestionAnswers', all);
+}
+
+/**
+ * Called when a user completes a talk: saves each question-answer to `myQuestionAnswers`
+ * (keyed by normalized question text; last wins). `refreshAnswersListIfOpen` lets the caller
+ * re-render the Me-tab Answers list only when it's the currently active view.
+ */
+export function saveQuestionAnswersFromCompletion(
+  talkData: { questions?: Array<{ id: string; text?: string }> },
+  answers: Array<{ questionId: string; answerId: string; answerText?: string }>,
+  location: { latitude: number; longitude: number } | undefined,
+  refreshAnswersListIfOpen: () => void,
+): void {
+  const locationStr = location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : undefined;
+  const timestamp = new Date().toISOString();
+  const questions = talkData.questions || [];
+  for (const a of answers) {
+    const q = questions.find((qu: any) => qu.id === a.questionId);
+    const questionText = q?.text?.trim() || '';
+    if (!questionText) continue;
+    const key = normalizeQuestionKey(questionText);
+    const isIgnored = a.answerText === 'ignore' || !a.answerText;
+    const entry: MyQuestionAnswerEntry = {
+      questionText,
+      answerId: a.answerId,
+      answerText: isIgnored ? '' : (a.answerText || ''),
+      isIgnored,
+      timestamp,
+    };
+    if (locationStr != null) entry.location = locationStr;
+    setMyQuestionAnswer(key, entry);
+  }
+  const meView = document.getElementById('me-view');
+  if (meView?.classList.contains('active')) {
+    refreshAnswersListIfOpen();
+  }
 }

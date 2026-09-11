@@ -931,21 +931,95 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#12 are complete
-(cluster #9, 2026-09-08: `processTalkForm` + `detectTalkLanguage` → `talk-form-processor.ts`;
-cluster #10, 2026-09-09: `openLinkedDevicesDialog`'s orchestration body → `linked-devices-dialog.ts`,
-alongside the `showLinkedDevicesDialog` renderer it already owned; cluster #11, 2026-09-09:
-`renderCreatorReplies` → new `creator-replies-view.ts`; cluster #12, 2026-09-09:
-`bindTalksRowGestures` → new `talks-row-gestures.ts`). The ratchet grew from 8,938 (after
-cluster #8) to 9,153 as legitimate feature work (onboarding, K7 delegate credentials) landed on
-top between clusters; cluster #9 brought it down to 8,912, cluster #10 to 8,784, cluster #11 to
-8,584, cluster #12 to **8,482** — the current enforced ceiling
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#67 are complete.
+Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
+application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
+dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
+(2026-09-08/09/10) extracted, in order: talk-editor form processing; linked-devices dialog
+orchestration; the creator-replies list; talks-row gestures; flat answer-history record
+construction; verified support-message filtering; the dirty-word editor; the Me-tab answers
+filter; the chatroom message renderer + notification badge; the captured-question confirm
+dialog; the talk-template picker; the DM/choose-who-to-dm person pickers; the broadcast-audience
+confirm dialog; the notification toast (116 call sites — the widest blast radius of any cluster
+so far); the peer-name cache; the conversation message cards (captured-question/IPFS-attachment);
+the app-bar overflow reflow + system-announcement banner + app-bar chrome setup; the item-details
+popup + question-answer-completion storage; the browser file-save helper; the talk-broadcast
+toggle; talk-creation storage (+ copy-answered-talk); delivery-reason labels; known-person
+saving; chatroom-title resolution; the creator-reply filter-state trio; the conversation
+transport/online-status updates; the status bar; the conversation-withdrawn/ended record-update
+pair; the quick-ignore/quick-copy incoming-talk gesture actions; the tag-answer-suffix formatter
+pair; the incoming-talk notification display; block/unblock (`setBlocked`); talk completion
+(`completeTalk`/`saveMyTalk`); the app-download banner (`detectDownloadPlatform`/
+`renderAppDownloadBanner`); the answer-preferences dialog + its mutation logic
+(`showPreferencesDialog`/`normalizePreferenceMode`/`applyPreferenceModeToExactMemory`/
+`deleteAnswerPreference`); the local-statistics dashboard (`displayContextualStatistics`/
+`displayStatisticsDashboard`/`renderStatisticsDashboard`); IPFS attachment hydration
+(`hydrateAttachmentImages`); the erase-device confirm-dialog wiring (`openEraseDeviceDialog`); and
+the zero-dependency mesh-delivery helper `registerTalkForPeer`; and the broadcast-audience
+preview trio (`resolveExpiresAtMs`/`BroadcastAudiencePreview`/
+`getSenderOmittedBroadcastPreviews`); the flow-editor answer-constraint refresh
+(`refreshFlowAnswerConstraints`); the settings-section HTML template (`renderSettingsSection`);
+the content-filter block/hide toast (`showContentFilterToast`); the settings-section
+drill-down view (`applySettingsSectionView`); and the attachment metadata/media-tile helpers
+(`formatAttachmentSize`/`attachmentDownloadFilename`/`attachmentIconForMime`/`renderMediaTile`);
+`markOtherDealConversationsEnded` (joined cluster #37's `conversation-record-updates.ts`); and
+`syncStatusBarMatchCount` (joined cluster #36's `status-bar.ts`); the talk-detail routing
+(`showTalkDetail`); and the location-matched-room suggestion banner
+(`showLocationRoomSuggestion`); the return-home button sync (`syncReturnHomeButton`); talk deletion (`deleteMyTalk`); IPFS
+share payload parsing (`parseIpfsSharePayload`, joined cluster #54's `attachment-metadata.ts`);
+talk-distance-from-author formatting (`formatTalkDistanceFromAuthor`); chatroom info
+(`updateChatroomInfo`); current-chatroom sync (`setCurrentChatroomId`); the navigate-to-my-answer scroll/highlight
+(`navigateToMyAnswerForTalk`); quick-answer incoming tag (`quickAnswerIncomingTag`); and shared-attachment collection
+(`collectSharedAttachments`, joined cluster #54's `attachment-metadata.ts`). Full per-cluster
+rationale,
+characterization evidence, and canonical-gate results are in `docs/completed.md` (search
+"UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
+findings to stay readable as the count grows.
+
+The ratchet grew from 8,938 (after cluster #8) to 9,153 as legitimate feature work (onboarding,
+K7 delegate credentials) landed on top between clusters, then came down cluster-by-cluster to
+8,912 (#9), 8,784 (#10), 8,584 (#11), 8,482 (#12), 8,378 (#13), 8,270 (#14), 8,197 (#15), 8,133
+(#16), 8,068 (#17), 8,030 (#18), 7,984 (#19, crossing under 8,000), 7,906 (#20), 7,834 (#21),
+7,778 (#22), 7,746 (#23), 7,708 (#24), 7,653 (#25), 7,605 (#26), 7,581 (#27), 7,560 (#28), 7,518
+(#29), 7,481 (#30), 7,455 (#31), 7,444 (#32), 7,422 (#33), 7,375 (#34), 7,345 (#35), 7,332 (#36),
+7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
+7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), 6,710
+(#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), 6,566 (#57), and
+6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
+6,472 (#65), 6,462 (#66), and **6,453** (#67)
+— the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
+
+Three dead-code findings surfaced along the way, all left in place (logic-wise) rather than
+removed unilaterally (deleting a whole feature is a different kind of change than a
+behavior-preserving extraction) and flagged here for a deliberate call: `showEditStageNameDialog`
+(59 lines, found during clusters #17-21) has zero callers anywhere in the codebase; `app-bar.ts`
+(found during cluster #25) defines a complete, differently-shaped `updateOverflow`/`renderAppBar`/
+`AppBarConfig` component system that is not imported anywhere in the app at all;
+`displayStatisticsDashboard`/`renderStatisticsDashboard` (found during cluster #46, when
+extracting them into `local-statistics.ts` broke the mutual-recursion self-reference that had
+been masking this from `tsc`'s unused-locals check) are never called from outside their own
+`onRefresh` cycle, and no code anywhere creates the `#statistics-content` container they render
+into — the logic is fully preserved and tested in `local-statistics.ts`, but the now-orphaned
+`ui-manager.ts` shim for `displayStatisticsDashboard` had to be removed since it no longer
+compiled. A near-miss
+during cluster #35's pass (fully deleting `resolveAnswerPreferenceForTalkQuestion`, which turned
+out to still be a characterization test's direct call target) prompted the execution-rule
+addition below about checking `src/test/` before deleting a method outright.
 **Written:** 2026-08-18; execution plan refreshed 2026-08-23 against merged `dev.codex` after
 `origin/dev.claude` was merged at `28e92eca`.
 **Execution rule:** work one cohesive cluster at a time. Preserve the public `UIManager` contract,
 characterize behavior before moving it, ratchet the size ceiling down after the extraction, and
-run the canonical verification gate before beginning another cluster.
+run the canonical verification gate before beginning another cluster. Before **fully deleting**
+any method (as opposed to moving its body to an extracted module while leaving a delegating
+shim), grep `src/test/` too, not just `ui-manager.ts`/`app.ts` — a characterization test can hold
+a private method's only remaining "caller" via a type-cast pattern (`new UIManager() as unknown
+as SomeInterface`, established in cluster #4) that `npm run test:type` won't catch, since the
+cast makes the missing method only a *runtime* error. Caught in cluster #35's pass on
+`resolveAnswerPreferenceForTalkQuestion` (shipped, then reverted after a failing test run) and
+again in cluster #52's pass on `saveAnswerPreference` (caught by the grep *before* running
+anything, so the attempt was reverted with zero test churn — see `docs/completed.md` for both
+accounts).
 
 This document captures two issues found during an architecture study of `src/`:
 
@@ -1320,7 +1394,390 @@ entries and babel preset were never removed.
         `heavy-staged` byte-for-byte identical to every prior run, `light` failed 5 different
         TechSupport/messaging/survey specs this time, none touching gesture code — see
         `docs/completed.md`.
-- [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
+      - Between clusters #12 and #13: that run's `heavy-staged`/`light` failures were investigated
+        for real (not re-filed as the usual phase-wave flakiness) and turned out to be two genuine
+        bugs, both fixed — see docs/completed.md's "Two real bugs fixed" entry. `heavy-staged`'s
+        `01-login-two-users-headcount` failure was a `chatroom-manager.ts` race (a heartbeat/join
+        completing after a newer leave, resurrecting a departed member); `light`'s
+        `00m-techsupport-delegate-answers` failure was the K7 FAQ-bundle cache race (asker-side
+        re-render never retried once the bundle caught up). Both fixed and reverified.
+      - Clusters #13-#16 evidence: four more low-coupling extractions found via a small AST
+        script (method line-span + distinct `this.*` reference count for every `UIManager`
+        method) rather than eyeballing — `saveFlatAnswerHistoryRecord`/`getTalkContentKey` →
+        `answer-history-storage.ts` (#13), `filterVerifiedSupportMessages` → new
+        `verified-support-messages.ts` (#14), `bindDirtyWordEditor` → new `dirty-word-editor.ts`
+        (#15), `applyMeAnswerFilter` → `answers-view.ts` (#16). `displayTalksList`,
+        `renderSettingsView`/`bindSettingsControls`, and the conversation-view trio remain
+        deferred, unchanged. Typecheck/lint clean, both production builds succeed, and unit
+        suites grew from 164/1,752 to 167/1,811 (59 new tests across the four clusters) with zero
+        regressions. Canonical run `run-20260909-220727-52712` (25m27s): `heavy-staged` is
+        **green for the first time** since cluster #9 first hit this streak (`rc=0`, confirming
+        the chatroom-manager fix holds under full concurrent load); `cross-browser` remains the
+        same pre-existing Gun-boot-timeout infra issue; `light` failed one different, unrelated
+        spec each time it was checked (`00l`/`00m`/`83-survey` mid-run under load,
+        `79-techsupport-survives-restrictive-filters` in the full canonical run) — every one
+        confirmed passing standalone once the machine was idle, consistent with load-induced
+        flakiness rather than a regression from any of the four extractions. See `docs/completed.md`.
+      - Clusters #17-#21 evidence: five more extractions from the same AST-script sweep —
+        `displayChatroomMessage` → `chatroom-message-view.ts` and `updateMatchBadge` →
+        `notification-badges.ts` (#17), `confirmCapturedQuestionDialog` →
+        `captured-question-dialog.ts` (#18), `showTalkTemplatePicker` → `talk-template-picker.ts`
+        (#19), `showChooseWhoToDmPicker`/`showDmInboxPicker` → `person-picker-dialogs.ts` (#20),
+        `confirmBroadcastAudience` → `broadcast-audience-dialog.ts` (#21).
+        `showEditStageNameDialog` was found to have zero callers anywhere — flagged, not deleted
+        (see this section's status paragraph above). Typecheck/lint clean, both production builds
+        succeed, unit suites grew from 167/1,811 to 173/1,853 (42 new) with zero regressions.
+        Canonical run `run-20260909-223829-62705` (25m27s): `cross-browser` unchanged
+        pre-existing infra issue; `heavy-staged` failed `01-login-two-users-headcount` again at
+        the same assertion as before today's earlier chatroom-manager fix, but 5/5 standalone
+        reruns on an idle machine passed — a much rarer residual of that race under extreme
+        concurrent multi-phase load, not a "clusters #17-#21 broke it" regression (none of the
+        five touch server code); `light` failed 4 different specs, one
+        (`29-messaging-semantics`'s "unread badge lifecycle" case) plausibly related to cluster
+        #17's badge extraction and investigated specifically — failed standalone once, then
+        passed 4/5 further standalone reruns, consistent with pre-existing reload-timing
+        flakiness in that one test rather than a deterministic regression in the byte-for-byte
+        preserved badge logic. See `docs/completed.md`.
+      - Clusters #22-#29 evidence: eight more extractions — `showNotification` →
+        `notification-toast.ts` (#22, 116 call sites, the widest blast radius yet, verified with
+        a dedicated real-browser regression before continuing); `getPeerNameCache`/
+        `rememberPeerName` → `peer-name-cache.ts` (#23); `renderCapturedQuestionMessage`/
+        `renderIpfsAttachmentMessage` → `conversation-message-cards.ts` (#24); `syncAppBarOverflow`
+        → `app-bar-overflow.ts` and `showSystemAnnouncement` → `system-announcement-banner.ts`
+        (#25); `showDetailsPopupFor` → `item-details-popup.ts` and
+        `saveQuestionAnswersFromCompletion` → `answer-preferences-storage.ts` (#26);
+        `saveObjectUrlAs` → `browser-file-save.ts` (#27); `setTalkDisabled` →
+        `talk-broadcast-toggle.ts` (#28); `setupAppBarChrome` → added to `app-bar-overflow.ts`
+        (#29). Typecheck/lint clean, both production builds succeed, unit suites grew from
+        173/1,853 to 182/1,933 (~70 new) with zero regressions. Canonical run
+        `run-20260909-235414-74770` (25m21s): `heavy-staged` is green again (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed two already-established rotating specs
+        (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`), neither
+        touching anything in this batch — standalone reruns on an idle machine: `79` passed
+        immediately, `00l` failed once more then passed on a third attempt, consistent with
+        pre-existing flakiness. See `docs/completed.md`.
+      - Clusters #30-#35 evidence: six more extractions — `saveCreatedTalk` →
+        `talk-creation-storage.ts` (#30); `deliveryReasonLabel`/`formatReasonCounts` →
+        `delivery-reason-labels.ts` (#31); `saveKnownPerson` → `contacts-view.ts` (#32);
+        `resolveChatroomTitle` → `chatrooms-view.ts` (#33); the creator-reply filter-state trio
+        → `creator-replies-view.ts` (#34); `updateConversationTransportMode`/
+        `setConversationOnlineStatus` → `conversation-status-updates.ts` (#35). A near-miss along
+        the way: fully deleting `resolveAnswerPreferenceForTalkQuestion` (seemingly a 1-ref shim)
+        broke `answer-preference-resolution-characterization.test.ts` (cluster #4), which calls
+        it directly via a private-method type-cast pattern `tsc` doesn't catch — restored before
+        shipping; see the execution-rule addition above and `docs/completed.md` for the full
+        account. Typecheck/lint clean, both production builds succeed, unit suites grew from
+        182/1,933 to 186/1,976 (~54 net new) with zero regressions. Canonical run
+        `run-20260910-002854-85535` (25m26s): `heavy-staged` green again; `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs, none touching this batch — `29-messaging-semantics` (plausibly related, given the
+        new online-status logic) reran 3/3 clean standalone. See `docs/completed.md`.
+      - Clusters #36-#39 evidence: four more extractions — `updateStatusBar` → new
+        `status-bar.ts` (#36); `markConversationWithdrawn`/`markConversationEnded` → new
+        `conversation-record-updates.ts` (#37, a near-identical sibling pair sharing one
+        refresh helper); `copyAnsweredTalkToTalks` → added to `talk-creation-storage.ts` (#38);
+        `quickIgnoreIncomingTalk`/`quickCopyIncomingTalk` → new
+        `quick-incoming-talk-actions.ts` (#39, another sibling pair sharing one
+        full-talk-resolution helper). Typecheck/lint clean, both production builds succeed, unit
+        suites grew from 186/1,976 to 189/2,007 (31 new) with zero regressions. Canonical run
+        `run-20260910-012626-3551` (25m26s): `heavy-staged` green again; `cross-browser`
+        unchanged pre-existing infra issue; `light` failed four already-established rotating
+        specs (the same set seen rotating through several of today's earlier runs), none
+        touching this batch. See `docs/completed.md`.
+      - Clusters #40-#42 evidence: three more extractions — `tagAnswerSuffix`/
+        `renderTagAnswerSuffixHtml` → added to `ui-formatters.ts` (#40); `displayIncomingTalk` →
+        new `incoming-talk-notification.ts` (#41); `setBlocked` → added to `contacts-view.ts`
+        (#42, block/unblock network call + `currentUser.blockedUserIds` mutation). One
+        test-authoring mistake caught and fixed in `ui-formatters.test.ts` (a fallthrough-case
+        test wrongly predicted empty output; corrected to expect `?sell` after running). Typecheck/
+        lint clean, both production builds succeed, unit suites grew from 189/2,007 to 190/2,029
+        with zero regressions. Canonical run `run-20260910-015954-12212` (25m26s): `heavy-staged`
+        green again (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed
+        two already-established rotating specs (`00l-techsupport-faq-cross-user`,
+        `83-survey-ignore-mid-question-not-complete`), neither touching this batch. See
+        `docs/completed.md`.
+      - Cluster #43 evidence: `completeTalk`/`saveMyTalk` → new `talk-completion.ts`
+        (`saveMyTalk` takes a narrower `SaveMyTalkDeps`; `completeTalk` takes the full
+        `TalkCompletionDeps` superset and calls the extracted `saveMyTalk` directly). New
+        `talk-completion.test.ts` (15 tests); two authoring mistakes caught and fixed on first
+        run (an `expiresAt`-persists-from-patch assumption that doesn't match the real
+        existing/fullTalk-only precedence; `getFlatAnswerHistory()` returns a map, not an array,
+        so `.length` was `undefined`). Typecheck/lint clean, both production builds succeed, unit
+        suites grew from 190/2,029 to 191/2,043 with zero regressions. Canonical run
+        `run-20260910-023316-20468` (25m21s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed one already-established rotating spec
+        (`00l-techsupport-faq-cross-user`), unrelated to this batch. See `docs/completed.md`.
+      - Cluster #44 evidence: `detectDownloadPlatform`/`renderAppDownloadBanner` → new
+        `app-download-banner.ts` (the `applySettingsSectionView(this.settingsActiveSectionId =
+        ...)` write-then-render pair collapsed into one `openDownloadAppSettingsSection` deps
+        callback rather than exposing the instance field). New `app-download-banner.test.ts` (17
+        tests), all passed first run. Typecheck/lint clean, both production builds succeed, unit
+        suites grew from 191/2,043 to 192/2,059 with zero regressions. Canonical run
+        `run-20260910-030155-28427` (25m28s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed two specs —
+        `83-survey-ignore-mid-question-not-complete` (already-established rotating flake) and
+        `33-mobile-chatroom-hierarchy` (new to the rotation; confirmed pre-existing and unrelated
+        to this batch by reproducing it 2/4 standalone against the committed cluster #43
+        baseline — a `scrollIntoViewIfNeeded` race in the chatroom-item list, unrelated to the
+        app-download banner). See `docs/completed.md`.
+      - Cluster #45 evidence: `showPreferencesDialog`/`normalizePreferenceMode`/
+        `applyPreferenceModeToExactMemory`/`deleteAnswerPreference` → new
+        `answer-preference-mutations.ts` (all four were called only from within this one block,
+        so dialog-wiring glue and its mutation logic moved together). New
+        `answer-preference-mutations.test.ts` (21 tests, `jest.mock`s `preferences-dialog.ts` to
+        capture the wired options object without the real DOM renderer). One authoring mistake
+        caught and fixed on first run (a test wrongly assumed deleting a preference in `'manual'`
+        mode creates an exact-chatbot-memory entry — it only ever clears one — rewritten to
+        establish a permanent-mode entry first, then assert the delete clears it). Typecheck/lint
+        clean, both production builds succeed, unit suites grew from 192/2,059 to 193/2,080 with
+        zero regressions. Canonical run `run-20260910-033339-36852` (25m31s): `heavy-staged`
+        green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed three
+        already-established rotating specs (`00l-techsupport-faq-cross-user`,
+        `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching
+        this batch — `00l-techsupport-faq-cross-user` got a closer look since this cluster
+        touches exact-chatbot-memory writes, reran clean standalone (1/1). See
+        `docs/completed.md`.
+      - Cluster #46 evidence: `displayContextualStatistics`/`displayStatisticsDashboard`/
+        `renderStatisticsDashboard` → new `local-statistics.ts`. Extracting the latter two exposed
+        a third dead-code finding (see the paragraph above) — their `onRefresh`-driven
+        mutual-recursion had masked from `tsc` that neither is ever called from outside that
+        cycle, so the now-uncompilable `ui-manager.ts` shim for `displayStatisticsDashboard` was
+        removed while its logic stays intact and tested in `local-statistics.ts`;
+        `displayContextualStatistics` is genuinely live (contacts-view stats strip + one other
+        call site) and kept its shim. New `local-statistics.test.ts` (9 tests), all passed first
+        run. Typecheck/lint clean, both production builds succeed, unit suites grew from
+        193/2,080 to 194/2,089 with zero regressions. Canonical run `run-20260910-040457-44880`
+        (25m16s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra
+        issue; `light` failed one already-established rotating spec (`29-messaging-semantics`),
+        unrelated to this batch. See `docs/completed.md`.
+      - Cluster #47 evidence: `hydrateAttachmentImages` → new `attachment-hydration.ts`.
+        `openLightbox` stayed in `ui-manager.ts` (it mutates the shared `lightboxTarget` instance
+        field that `closeLightbox` and the lightbox-close/download wiring also touch) and is
+        passed through as a deps callback. New `attachment-hydration.test.ts` (9 tests), all
+        passed first run. Typecheck/lint clean, both production builds succeed, unit suites grew
+        from 194/2,089 to 195/2,098 with zero regressions. Canonical run
+        `run-20260910-043301-52712` (25m16s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed one already-established rotating spec
+        (`29-messaging-semantics`), unrelated to this batch. See `docs/completed.md`.
+      - Cluster #48 evidence: `openEraseDeviceDialog` → new `erase-device-flow.ts`.
+        `exactOptionalPropertyTypes` required spelling the two optional callback deps
+        (`identityLinkUnlinker`, `deviceHandoffSync`) as `(...) => ... | undefined` explicitly,
+        not just `?:` — `tsc` caught the omission immediately. New `erase-device-flow.test.ts`
+        (11 tests, `jest.mock`s both `erase-device-dialog.ts` and `device-wipe.ts` to avoid a real
+        storage wipe or `location.reload()`), all passed first run. Typecheck/lint clean, both
+        production builds succeed, unit suites grew from 195/2,098 to 196/2,109 with zero
+        regressions. Canonical run `run-20260910-050144-60704` (25m27s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed five
+        already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+        `79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`,
+        `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`) — a
+        heavier-than-usual batch but all repeat names from this session's rotation, none touching
+        erase-device/localStorage logic. See `docs/completed.md`.
+      - Cluster #49 evidence: `registerTalkForPeer` → new `talk-peer-registration.ts` (0
+        `this.*` refs). Initially looked orphaned — no direct-call grep hit in `ui-manager.ts` —
+        until a repo-wide search found it wired as a deps callback into `user-detail-view.ts` via
+        `.bind(this)`; genuinely live, just not call-site-visible. Since it had zero instance
+        deps, the `ui-manager.ts` wiring now references the extracted free function directly and
+        the private shim was deleted outright rather than kept as bind-only indirection.
+        `getSenderOmittedBroadcastPreviews` (next on the candidate list, also 0 refs) was left
+        for a later cluster — it shares `resolveExpiresAtMs` and the `BroadcastAudiencePreview`
+        type (both still defined in `ui-manager.ts`, with `broadcast-audience-dialog.ts` already
+        importing the type *backwards* from `ui-manager.ts`) with other call sites, so a clean
+        extraction needs those relocated to a shared module first. New
+        `talk-peer-registration.test.ts` (5 tests), all passed first run. Typecheck/lint clean,
+        both production builds succeed, unit suites grew from 196/2,109 to 197/2,114 with zero
+        regressions. Canonical run `run-20260910-053006-68618` (25m24s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed one
+        already-established rotating spec (`29-messaging-semantics`), unrelated to this batch —
+        `user-detail-view.ts`'s own unit tests stayed green. See `docs/completed.md`.
+      - Cluster #50 evidence: `resolveExpiresAtMs`/`BroadcastAudiencePreview`/
+        `getSenderOmittedBroadcastPreviews` → new `broadcast-audience-preview.ts`. Did the
+        relocation groundwork flagged in cluster #49 first — both symbols lived in
+        `ui-manager.ts` with `broadcast-audience-dialog.ts` importing the type *backwards* from
+        it; fixed that plus `app.ts`'s import and, caught by grepping `src/test/` per the
+        standing execution rule, `broadcast-audience-dialog.test.ts`'s import too. With the
+        groundwork done, `getSenderOmittedBroadcastPreviews` moved cleanly; its `ui-manager.ts`
+        public method is now a one-line shim (kept for `app.ts`'s external call). New
+        `broadcast-audience-preview.test.ts` (13 tests), all passed first run; the import-fixed
+        `broadcast-audience-dialog.test.ts` stayed green. Typecheck/lint clean, both production
+        builds succeed, unit suites grew from 197/2,114 to 198/2,127 with zero regressions.
+        Canonical run `run-20260910-055849-76503` (25m26s): `heavy-staged` green (`rc=0`);
+        `cross-browser` unchanged pre-existing infra issue; `light` failed three
+        already-established rotating specs (`00l-techsupport-faq-cross-user`,
+        `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching
+        this batch. See `docs/completed.md`.
+      - Cluster #51 evidence: `refreshFlowAnswerConstraints` → new `flow-answer-constraints.ts`
+        (1 ref) and `renderSettingsSection` → new `settings-section-template.ts` (0 refs, fully
+        pure HTML templating with 14 call sites all inside the deferred `renderSettingsView`
+        giant — extracting the template doesn't require touching that giant). New
+        `flow-answer-constraints.test.ts` (7 tests) and `settings-section-template.test.ts` (5
+        tests), all 12 passed first run. Typecheck/lint clean, both production builds succeed,
+        unit suites grew from 198/2,127 to 200/2,139 with zero regressions. Canonical run
+        `run-20260910-062712-84322` (25m24s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+        `83-survey-ignore-mid-question-not-complete`), none touching flow-editor or settings
+        rendering. See `docs/completed.md`.
+      - Cluster #52 evidence: first attempted inlining `saveAnswerPreference`'s three call sites
+        to call `persistAnswerPreference` directly and deleting the wrapper — grepping
+        `src/test/` per the execution rule caught `answer-preference-resolution-
+        characterization.test.ts:190` calling `ui.saveAnswerPreference(...)` directly via the
+        same `PreferenceUi` type-cast pattern behind cluster #35's near-miss; reverted before
+        running anything (`git diff --stat` confirmed byte-identical to the last commit), no
+        ratchet change for that attempt. Shipped `showContentFilterToast` → new
+        `content-filter-toast.ts` instead (2 refs). New `content-filter-toast.test.ts` (5 tests),
+        all passed first run. Typecheck/lint clean, both production builds succeed, unit suites
+        grew from 200/2,139 to 201/2,144 with zero regressions. Canonical run
+        `run-20260910-065622-92271` (25m29s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+        `83-survey-ignore-mid-question-not-complete`), none touching content-filter logic. See
+        `docs/completed.md`.
+      - Cluster #53 evidence: `applySettingsSectionView` → new `settings-section-view.ts` (2
+        refs — a `settingsActiveSectionId` write and self-recursion). The fallback path (a
+        remembered section id no longer rendered) needs to null out the instance field, so the
+        extracted function takes a `setSettingsActiveSectionId` deps callback instead of exposing
+        the field. New `settings-section-view.test.ts` (4 tests), all passed first run.
+        Typecheck/lint clean, both production builds succeed, unit suites grew from 201/2,144 to
+        202/2,148 with zero regressions. Canonical run `run-20260910-072427-159` (25m21s):
+        `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light`
+        failed three specs — `00l-techsupport-faq-cross-user` and `29-messaging-semantics`
+        (already-established rotating flakes) plus `00m-techsupport-delegate-answers` (new to
+        this session's rotation; unrelated to settings-section rendering, reran clean standalone
+        1/1). See `docs/completed.md`.
+      - Cluster #54 evidence: `formatAttachmentSize`/`attachmentDownloadFilename`/
+        `attachmentIconForMime`/`renderMediaTile` → new `attachment-metadata.ts`. All three
+        helpers were already pure (0 `this.*` refs, already wired as deps callbacks elsewhere);
+        `renderMediaTile` moved with them since it composes all three. New
+        `attachment-metadata.test.ts` (29 tests), all passed first run. Typecheck/lint clean,
+        both production builds succeed, unit suites grew from 202/2,148 to 203/2,177 with zero
+        regressions. Canonical run `run-20260910-075309-8324` (25m31s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed two
+        already-established rotating specs (`29-messaging-semantics`,
+        `83-survey-ignore-mid-question-not-complete`), neither touching media/attachment
+        rendering. See `docs/completed.md`.
+      - Cluster #55 evidence: `markOtherDealConversationsEnded` → extended
+        `conversation-record-updates.ts` (4 refs). Its tail exactly matched cluster #37's
+        `refreshAfterConversationRecordChange` helper, so it reused the existing
+        `ConversationRecordUpdateDeps` type and `ui-manager.ts`'s already-wired
+        `conversationRecordUpdateDeps()` builder — no new deps plumbing needed. Extended
+        `conversation-record-updates.test.ts` (+6 tests), all passed first run. Typecheck/lint
+        clean, both production builds succeed, unit suites grew from 203/2,177 to 203/2,183 with
+        zero regressions. Canonical run `run-20260910-082146-16155` (25m18s): `heavy-staged`
+        green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed one
+        already-established rotating spec (`79-techsupport-survives-restrictive-filters`),
+        unrelated to deal-confirmation conversation state. See `docs/completed.md`.
+      - Cluster #56 evidence: `syncStatusBarMatchCount` → extended `status-bar.ts` (2 refs). A
+        close sibling of cluster #36's `updateStatusBar`, so it reused the existing
+        `UpdateStatusBarDeps` type directly. Extended `status-bar.test.ts` (+5 tests), all
+        passed first run. Typecheck/lint clean, both production builds succeed, unit suites
+        grew from 203/2,183 to 203/2,188 with zero regressions. Canonical run
+        `run-20260910-215745-41577` (25m20s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed one already-established rotating spec
+        (`29-messaging-semantics`), unrelated to status-bar logic. See `docs/completed.md`.
+      - Cluster #57 evidence: `showTalkDetail` → new `talk-detail-view.ts` (6 refs, including a
+        `showTalkDetail` deps callback for its own retry-on-failure self-recursion — same pattern
+        as cluster #46's `displayStatisticsDashboard`). New `talk-detail-view.test.ts` (9 tests),
+        all passed first run. Typecheck/lint clean, both production builds succeed, unit suites
+        grew from 203/2,188 to 204/2,197 with zero regressions. Canonical run
+        `run-20260910-222704-49770` (25m29s): `cross-browser` unchanged pre-existing infra issue;
+        `heavy-staged` failed for the first time all session
+        (`01-login-two-users-headcount`, a chatroom-headcount timing assertion unrelated to
+        talk-detail routing) — reran clean 3/3 standalone, confirming transient concurrent-load
+        flakiness rather than a regression; `light` failed four specs —
+        `83-survey-ignore-mid-question-not-complete` (already-established) plus three new
+        (`33-mesh-only-delivery-no-server`, `35-concurrent-visit-counter` ×2) that all reran
+        clean standalone. See `docs/completed.md`.
+      - Cluster #58 evidence: `showLocationRoomSuggestion` → new `location-room-suggestion.ts`
+        (2 refs). A dismissible banner suggesting a location-matched chatroom, replacing any
+        existing banner rather than stacking a second one. New `location-room-suggestion.test.ts`
+        (5 tests), all passed first run. Typecheck/lint clean, both production builds succeed,
+        unit suites grew from 204/2,197 to 205/2,202 with zero regressions. Canonical run
+        `run-20260910-225738-58713` (25m19s): `heavy-staged` green again (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed two already-established rotating specs
+        (`33-mobile-chatroom-hierarchy`, `29-messaging-semantics`), neither touching the banner.
+        See `docs/completed.md`.
+      - Cluster #59 evidence: `syncReturnHomeButton` → new `return-home-button.ts` (3 refs —
+        `getHomeChatroomId`, `currentChatroom`, `resolveChatroomTitle`). `getHomeChatroomId`
+        itself has its own instance deps (`travelModeActive`/`travelHomeChatroomId`/
+        `currentLocation`), so it stayed in `ui-manager.ts` and is passed through as a deps
+        callback. New `return-home-button.test.ts` (5 tests), all passed first run.
+        Typecheck/lint clean, both production builds succeed, unit suites grew from 205/2,202 to
+        206/2,207 with zero regressions. Canonical run `run-20260910-232634-68210` (25m26s):
+        `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light`
+        failed four already-established rotating specs, none touching the return-home button. See
+        `docs/completed.md`.
+      - Cluster #60 evidence: `deleteMyTalk` → new `talk-deletion.ts` (5 refs). Dropped a dead
+        no-op `if` block found during extraction (checked a condition then did nothing but hold
+        a comment) — a pure simplification, not a behavior change. New `talk-deletion.test.ts`
+        (7 tests), all passed first run. Typecheck/lint clean, both production builds succeed,
+        unit suites grew from 206/2,207 to 207/2,214 with zero regressions. Canonical run
+        `run-20260910-235604-77384` (25m32s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs, none touching talk deletion/withdrawal/retraction. See `docs/completed.md`.
+      - Cluster #61 evidence: `parseIpfsSharePayload` → extended `attachment-metadata.ts` (0
+        refs, already pure). Extended `attachment-metadata.test.ts` (+6 tests), all passed first
+        run. Typecheck/lint clean, both production builds succeed, unit suites grew from
+        207/2,214 to 207/2,220 with zero regressions. Canonical run
+        `run-20260911-002525-85249` (25m27s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed two already-established rotating
+        specs, neither touching IPFS share payload parsing. See `docs/completed.md`.
+      - Cluster #62 evidence: `formatTalkDistanceFromAuthor` → new `talk-distance.ts` (1 ref —
+        `currentLocation`, passed as a plain value argument since the function only reads it
+        once). New `talk-distance.test.ts` (6 tests), all passed first run. Typecheck/lint clean,
+        both production builds succeed, unit suites grew from 207/2,220 to 208/2,226 with zero
+        regressions. Canonical run `run-20260911-005505-93070` (25m20s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed two
+        already-established rotating specs, neither touching talk-distance formatting. See
+        `docs/completed.md`.
+      - Cluster #63 evidence: `updateChatroomInfo` → new `chatroom-info.ts` (2 refs — a
+        `currentChatroom` write, `syncStatusBroadcastButtonVisibility`). The write needed a
+        `setCurrentChatroom` deps callback rather than exposing the field directly. New
+        `chatroom-info.test.ts` (6 tests), all passed first run. Typecheck/lint clean, both
+        production builds succeed, unit suites grew from 208/2,226 to 209/2,232 with zero
+        regressions. Canonical run `run-20260911-012241-1094` (25m27s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed three
+        already-established rotating specs, none touching chatroom-info rendering. See
+        `docs/completed.md`.
+      - Cluster #64 evidence: `setCurrentChatroomId` → new `current-chatroom.ts` (5 refs). New
+        `current-chatroom.test.ts` (5 tests), all passed first run. Typecheck/lint clean, both
+        production builds succeed, unit suites grew from 209/2,232 to 210/2,237 with zero
+        regressions. Canonical run `run-20260911-015026-9011` (25m18s): `heavy-staged` green
+        (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed three specs,
+        including `33-mobile-chatroom-hierarchy` — since this cluster touches chatroom
+        navigation, gave it extra scrutiny (bisected against the pre-cluster-64 baseline, then
+        ran 6 total standalone reps landing at 4/6 failed, matching the spec's documented ~50%
+        pre-existing flake rate from cluster #44, not a regression) plus a line-by-line diff
+        confirming the extraction is behaviorally identical. See `docs/completed.md`.
+      - Cluster #65 evidence: `navigateToMyAnswerForTalk` → new `navigate-to-answer.ts` (0
+        refs, already pure). New `navigate-to-answer.test.ts` (4 tests), all passed first run.
+        Typecheck/lint clean, both production builds succeed, unit suites grew from 210/2,237 to
+        211/2,241 with zero regressions. Canonical run `run-20260911-022005-17303` (25m20s):
+        `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light`
+        failed one already-established rotating spec, unrelated to navigate-to-answer. See
+        `docs/completed.md`.
+      - Cluster #66 evidence: `quickAnswerIncomingTag` → new `quick-answer-incoming-tag.ts` (4
+        refs). `isValidTalkId` dropped out of `ui-manager.ts`'s own imports entirely — this was
+        its last call site there. New `quick-answer-incoming-tag.test.ts` (5 tests), all passed
+        first run. Typecheck/lint clean, both production builds succeed, unit suites grew from
+        211/2,241 to 212/2,246 with zero regressions. Canonical run
+        `run-20260911-024749-25080` (25m24s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed three already-established rotating
+        specs, none touching quick-answer-incoming-tag flow. See `docs/completed.md`.
+      - Cluster #67 evidence: `collectSharedAttachments` → extended `attachment-metadata.ts` (2
+        refs — `lastConversationMessages`, `parseIpfsSharePayload`, the latter called directly
+        rather than through `ui-manager.ts`'s shim). Extended `attachment-metadata.test.ts` (+5
+        tests), all passed first run. Typecheck/lint clean, both production builds succeed, unit
+        suites grew from 212/2,246 to 212/2,251 with zero regressions. Canonical run
+        `run-20260911-031545-32893` (25m29s): `heavy-staged` green (`rc=0`); `cross-browser`
+        unchanged pre-existing infra issue; `light` failed one already-established rotating spec,
+        unrelated to attachment collection. See `docs/completed.md`.
+      - **Session pause after cluster #67:** the user asked what was taking so long (this
+        session's incremental-cluster cycle had run for many hours, each cluster gated by a
+        ~25-minute canonical `test:all` run before committing). Given the choice to finish the
+        in-flight cluster and stop, finish here or keep the deferred giants
+        (`displayTalksList`/`renderSettingsView`/`bindSettingsControls`/`showConversationDetail`/
+        the conversation-view trio) and the thinning candidate pool for a future session.
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
 
@@ -1394,10 +1851,133 @@ entries and babel preset were never removed.
     8,482, and close its canonical gate.~~ Done; `showConversationDetail`/`addNewConversation`/
     `syncConversationMessageSummary` (a cohesive but mutually-entangled "conversation view"
     cluster) were re-measured and deferred alongside settings/`displayTalksList`.
-20. Re-measure and choose cluster #13 as a separate commit-sized change; continue to defer
-    `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
-    trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
-    their ownership boundaries are reduced.
+20. ~~Re-measure via an AST script (method line-span + `this.*` reference count) and extract
+    clusters #13-#16 (`saveFlatAnswerHistoryRecord`/`getTalkContentKey`,
+    `filterVerifiedSupportMessages`, `bindDirtyWordEditor`, `applyMeAnswerFilter`), lowering the
+    ratchet from 8,482 to 8,133 across the four.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+21. ~~Extract clusters #17-#21 (`displayChatroomMessage`, `updateMatchBadge`,
+    `confirmCapturedQuestionDialog`, `showTalkTemplatePicker`,
+    `showChooseWhoToDmPicker`/`showDmInboxPicker`, `confirmBroadcastAudience`), lowering the
+    ratchet from 8,133 to 7,834 across the five.~~ Done; `showEditStageNameDialog` found to have
+    zero callers and flagged rather than deleted; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+22. ~~Extract clusters #22-#29 (`showNotification`, `getPeerNameCache`/`rememberPeerName`,
+    `renderCapturedQuestionMessage`/`renderIpfsAttachmentMessage`, `syncAppBarOverflow`,
+    `showSystemAnnouncement`, `showDetailsPopupFor`, `saveQuestionAnswersFromCompletion`,
+    `saveObjectUrlAs`, `setTalkDisabled`, `setupAppBarChrome`), lowering the ratchet from 7,834 to
+    7,518 across the eight.~~ Done; `app-bar.ts`'s entire component system found to be unimported
+    anywhere and flagged rather than deleted; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+23. ~~Extract clusters #30-#35 (`saveCreatedTalk`, `deliveryReasonLabel`/`formatReasonCounts`,
+    `saveKnownPerson`, `resolveChatroomTitle`, the creator-reply filter-state trio,
+    `updateConversationTransportMode`/`setConversationOnlineStatus`), lowering the ratchet from
+    7,518 to 7,345 across the six.~~ Done; caught and reverted a near-miss deletion of
+    `resolveAnswerPreferenceForTalkQuestion` (still a characterization-test call target);
+    `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
+    trio remain deferred, unchanged.
+24. ~~Extract clusters #36-#39 (`updateStatusBar`, the `markConversationWithdrawn`/
+    `markConversationEnded` pair, `copyAnsweredTalkToTalks`, the `quickIgnoreIncomingTalk`/
+    `quickCopyIncomingTalk` pair), lowering the ratchet from 7,345 to 7,233 across the four.~~
+    Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the
+    conversation-view trio remain deferred, unchanged.
+25. ~~Extract clusters #40-#42 (`tagAnswerSuffix`/`renderTagAnswerSuffixHtml`,
+    `displayIncomingTalk`, `setBlocked`), lowering the ratchet from 7,233 to 7,184 across the
+    three.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the
+    conversation-view trio remain deferred, unchanged.
+26. ~~Extract cluster #43 (`completeTalk`/`saveMyTalk` → new `talk-completion.ts`), lowering the
+    ratchet from 7,184 to 7,097.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+27. ~~Extract cluster #44 (`detectDownloadPlatform`/`renderAppDownloadBanner` → new
+    `app-download-banner.ts`), lowering the ratchet from 7,097 to 7,027.~~ Done;
+    `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
+    trio remain deferred, unchanged.
+28. ~~Extract cluster #45 (`showPreferencesDialog`/`normalizePreferenceMode`/
+    `applyPreferenceModeToExactMemory`/`deleteAnswerPreference` → new
+    `answer-preference-mutations.ts`), lowering the ratchet from 7,027 to 6,919.~~ Done;
+    `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
+    trio remain deferred, unchanged.
+29. ~~Extract cluster #46 (`displayContextualStatistics`/`displayStatisticsDashboard`/
+    `renderStatisticsDashboard` → new `local-statistics.ts`), lowering the ratchet from 6,919 to
+    6,858.~~ Done; found a third dead-code case (`displayStatisticsDashboard`/
+    `renderStatisticsDashboard`, see the dead-code paragraph above); `displayTalksList`,
+    `renderSettingsView`/`bindSettingsControls`, and the conversation-view trio remain deferred,
+    unchanged.
+30. ~~Extract cluster #47 (`hydrateAttachmentImages` → new `attachment-hydration.ts`), lowering
+    the ratchet from 6,858 to 6,830.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+31. ~~Extract cluster #48 (`openEraseDeviceDialog` → new `erase-device-flow.ts`), lowering the
+    ratchet from 6,830 to 6,802.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+32. ~~Extract cluster #49 (`registerTalkForPeer` → new `talk-peer-registration.ts`), lowering the
+    ratchet from 6,802 to 6,779.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+33. ~~Extract cluster #50 (relocate `resolveExpiresAtMs`/`BroadcastAudiencePreview` out of
+    `ui-manager.ts`, then `getSenderOmittedBroadcastPreviews` → new
+    `broadcast-audience-preview.ts`), lowering the ratchet from 6,779 to 6,742.~~ Done;
+    `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
+    trio remain deferred, unchanged.
+34. ~~Extract cluster #51 (`refreshFlowAnswerConstraints` → new `flow-answer-constraints.ts`;
+    `renderSettingsSection` → new `settings-section-template.ts`), lowering the ratchet from
+    6,742 to 6,710.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and
+    the conversation-view trio remain deferred, unchanged.
+35. ~~Extract cluster #52 (`showContentFilterToast` → new `content-filter-toast.ts`), lowering
+    the ratchet from 6,710 to 6,697.~~ Done; caught and reverted a near-miss attempt to inline
+    `saveAnswerPreference` before it touched any tests; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+36. ~~Extract cluster #53 (`applySettingsSectionView` → new `settings-section-view.ts`), lowering
+    the ratchet from 6,697 to 6,678.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+37. ~~Extract cluster #54 (`formatAttachmentSize`/`attachmentDownloadFilename`/
+    `attachmentIconForMime`/`renderMediaTile` → new `attachment-metadata.ts`), lowering the
+    ratchet from 6,678 to 6,637.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+38. ~~Extract cluster #55 (`markOtherDealConversationsEnded` → extended
+    `conversation-record-updates.ts`), lowering the ratchet from 6,637 to 6,620.~~ Done;
+    `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and the conversation-view
+    trio remain deferred, unchanged. Checked in with the user on how to proceed given the
+    thinning candidate pool — chose to keep grinding small clusters rather than tackle a
+    deferred giant yet.
+39. ~~Extract cluster #56 (`syncStatusBarMatchCount` → extended `status-bar.ts`), lowering the
+    ratchet from 6,620 to 6,607.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+40. ~~Extract cluster #57 (`showTalkDetail` → new `talk-detail-view.ts`), lowering the ratchet
+    from 6,607 to 6,566.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`,
+    and the conversation-view trio remain deferred, unchanged.
+41. ~~Extract cluster #58 (`showLocationRoomSuggestion` → new `location-room-suggestion.ts`),
+    lowering the ratchet from 6,566 to 6,555.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+42. ~~Extract cluster #59 (`syncReturnHomeButton` → new `return-home-button.ts`), lowering the
+    ratchet from 6,555 to 6,545.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+43. ~~Extract cluster #60 (`deleteMyTalk` → new `talk-deletion.ts`), lowering the ratchet from
+    6,545 to 6,531.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`, and
+    the conversation-view trio remain deferred, unchanged.
+44. ~~Extract cluster #61 (`parseIpfsSharePayload` → extended `attachment-metadata.ts`),
+    lowering the ratchet from 6,531 to 6,517.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+45. ~~Extract cluster #62 (`formatTalkDistanceFromAuthor` → new `talk-distance.ts`), lowering
+    the ratchet from 6,517 to 6,504.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+46. ~~Extract cluster #63 (`updateChatroomInfo` → new `chatroom-info.ts`), lowering the ratchet
+    from 6,504 to 6,494.~~ Done; `displayTalksList`, `renderSettingsView`/`bindSettingsControls`,
+    and the conversation-view trio remain deferred, unchanged.
+47. ~~Extract cluster #64 (`setCurrentChatroomId` → new `current-chatroom.ts`), lowering the
+    ratchet from 6,494 to 6,485.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+48. ~~Extract cluster #65 (`navigateToMyAnswerForTalk` → new `navigate-to-answer.ts`), lowering
+    the ratchet from 6,485 to 6,472.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+49. ~~Extract cluster #66 (`quickAnswerIncomingTag` → new `quick-answer-incoming-tag.ts`),
+    lowering the ratchet from 6,472 to 6,462.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+50. ~~Extract cluster #67 (`collectSharedAttachments` → extended `attachment-metadata.ts`),
+    lowering the ratchet from 6,462 to 6,453.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+    **Session paused here** at the user's request (asked what was taking so long after many
+    hours of one-cluster-at-a-time gating); resume with cluster #68 by re-running the AST
+    measurement script (`docs/TODO.md`'s "Current sequence" pattern above) — the remaining
+    candidate pool is thin (mostly ratio <8, widely-coupled, or the deferred giants themselves).
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React
@@ -1543,17 +2123,8 @@ as a presumed cure for unmeasured slowness.
 ## Smaller independent work
 
 (2026-08-23 batch — R4/R5/FF measured, no action needed at current scale; Z/CC/sendBulkTalk/
-authorship/architecture-prose landed. See `docs/completed.md`.)
-
-- [ ] Consider an asymmetric/containment similarity metric for tag-based user similarity, because
-  "50 of Eve's 50 tags match Adam" conveys information symmetric Jaccard/cosine may not fully
-  capture. Does not block the already-shipped symmetric-metric implementation
-  (`jaccardSimilarity()`/`cosineSimilarity()`, `FindSimilarIndex.topK({ metric })`). Former
-  `docs/TODO_item.md`, folded in 2026-09-08.
-- [ ] Later evaluate PMTiles/Protomaps for the chatroom map view if offline, self-hosted, or
-  decentralized map tile distribution becomes useful; the shipped map view currently uses the
-  OSM-based OpenFreeMap Liberty vector style (overridable via `IINPUBLIC_MAP_STYLE_URL`). Former
-  `docs/iinpublic_map_chatrooms_todo.md`, folded in 2026-09-08.
+authorship/architecture-prose landed. Asymmetric/containment similarity metric and PMTiles/
+Protomaps evaluation landed 2026-09-09. See `docs/completed.md`.)
 
 ## Deferred product decisions
 

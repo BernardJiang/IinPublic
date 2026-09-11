@@ -1,7 +1,1138 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #67: collect shared attachments
+
+Continuing the AST-script-guided sweep from cluster #66. `docs/TODO.md` Priority 6.
+
+- **#67: `collectSharedAttachments` → extended `attachment-metadata.ts`** (16 lines, 2 refs —
+  `lastConversationMessages`, `parseIpfsSharePayload`). Scans the current conversation's messages
+  for IPFS share payloads, splitting them into media (image/video) vs. other files, deduped by
+  cid, newest first. Calls the already-extracted `parseIpfsSharePayload` directly (from cluster
+  #61, same module) instead of routing back through `ui-manager.ts`'s shim.
+  `lastConversationMessages` (a plain `any[]` field) is passed as a value argument.
+- **Characterization:** extended `attachment-metadata.test.ts` (+5 tests) covering: no messages;
+  messages without a share payload; the media-vs-files split; cid deduplication (first occurrence
+  wins); and newest-first ordering. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,462 → **6,453** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  212/2,246 to 212/2,251 (5 new, same suite count since the test file was extended) with zero
+  regressions. Canonical run `run-20260911-031545-32893` (25m29s): `heavy-staged` green (`rc=0`);
+  `cross-browser` unchanged pre-existing infra issue; `light` failed one already-established
+  rotating spec (`83-survey-ignore-mid-question-not-complete`), unrelated to attachment
+  collection.
+
+## 2026-09-11 — UIManager decomposition cluster #66: quick-answer incoming tag
+
+Continuing the AST-script-guided sweep from cluster #65. `docs/TODO.md` Priority 6.
+
+- **#66: `quickAnswerIncomingTag` → new `quick-answer-incoming-tag.ts`** (19 lines, 4 refs —
+  `emit`, `showNotification`, `t`, `quickCompleteTagTalk`). Resolves an incoming tag-talk's full
+  body (by valid id, or by identity-key fallback when the id looks bad) and completes it with the
+  given checked state once loaded, erroring out when the id is unusable or the lookup fails.
+  `isValidTalkId` dropped out of `ui-manager.ts`'s own imports entirely — this was its last call
+  site there.
+- **Characterization:** new `quick-answer-incoming-tag.test.ts` (5 tests) covering: the
+  identity-key-fallback demand path for an invalid id; the error-with-no-fallback path; the
+  valid-id demand path (identityKeyFallback passed through); completing the tag talk once the
+  full body arrives; and the error-and-no-completion path when the lookup fails. All passed first
+  run.
+- **Ratchet:** `ui-manager.ts` 6,472 → **6,462** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  211/2,241 to 212/2,246 (5 new) with zero regressions. Canonical run `run-20260911-024749-25080`
+  (25m24s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs
+  (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`), none touching quick-answer-incoming-tag flow.
+
+## 2026-09-11 — UIManager decomposition cluster #65: navigate-to-my-answer scroll/highlight
+
+Continuing the AST-script-guided sweep from cluster #64. `docs/TODO.md` Priority 6.
+
+- **#65: `navigateToMyAnswerForTalk` → new `navigate-to-answer.ts`** (17 lines, 0 `this.*` refs
+  — already pure). Closes the talk-response modal, switches to the Me tab, then (after a
+  zero-delay `setTimeout` for the tab's render to land) scrolls to and briefly highlights every
+  answered-talk row whose `data-talk-ids` variant set includes the given `talkId`.
+- **Characterization:** new `navigate-to-answer.test.ts` (4 tests) covering: removing the
+  talk-response modal; clicking the Me nav button; the scroll-into-view + highlight-then-clear
+  cycle across multiple matching rows (including a merged row matching via its variant set) using
+  real timers and awaited delays; and the no-matching-row no-op. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,485 → **6,472** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  210/2,237 to 211/2,241 (4 new) with zero regressions. Canonical run `run-20260911-022005-17303`
+  (25m20s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed one already-established rotating spec (`00l-techsupport-faq-cross-user`),
+  unrelated to navigate-to-answer.
+
+## 2026-09-11 — UIManager decomposition cluster #64: current-chatroom sync
+
+Continuing the AST-script-guided sweep from cluster #63. `docs/TODO.md` Priority 6.
+
+- **#64: `setCurrentChatroomId` → new `current-chatroom.ts`** (19 lines, 5 refs — a
+  `currentChatroom` write, `renderChatroomList`, `resolveChatroomTitle`, `t`,
+  `syncReturnHomeButton`). No-ops on a blank id; otherwise tracks the new current chatroom,
+  re-renders the chatroom list, refreshes the open detail panel's title/status/loading-members
+  text if it's visible, and syncs the return-home button. The `currentChatroom` write needed a
+  `setCurrentChatroom` deps callback rather than exposing the instance field directly.
+- **Characterization:** new `current-chatroom.test.ts` (5 tests) covering: the blank-id no-op;
+  the always-runs tracking/list-render/return-home-sync; the detail-panel-not-visible no-touch
+  case; the detail-panel-visible full update (title/status/members-loading text); and that
+  missing inner detail-panel elements don't throw. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,494 → **6,485** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  209/2,232 to 210/2,237 (5 new) with zero regressions. Canonical run `run-20260911-015026-9011`
+  (25m18s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three specs — `00l-techsupport-faq-cross-user` and `29-messaging-semantics`
+  (already-established rotating flakes) plus `33-mobile-chatroom-hierarchy`, the pre-existing
+  `scrollIntoViewIfNeeded` DOM race first documented in cluster #44. Given this cluster directly
+  touches chatroom navigation, gave it closer scrutiny than usual: an initial 2/2-standalone-fail
+  vs. 2/2-pass-on-the-pre-cluster-64-baseline split looked concerning, so ran 4 more iterations
+  with the cluster #64 diff applied — landed at 4/6 failed overall, matching the spec's
+  documented ~50% coin-flip rate baseline, not a regression signature. A line-by-line diff of the
+  extraction also confirms it's a byte-faithful behavioral copy (same operation order: track →
+  re-render list → conditionally update the detail panel → sync the return-home button).
+
+## 2026-09-11 — UIManager decomposition cluster #63: chatroom info
+
+Continuing the AST-script-guided sweep from cluster #62. `docs/TODO.md` Priority 6.
+
+- **#63: `updateChatroomInfo` → new `chatroom-info.ts`** (17 lines, 2 refs — a `currentChatroom`
+  write, `syncStatusBroadcastButtonVisibility`). Updates the tracked current chatroom id and
+  renders the `#chatroom-info` title/status block, logging instead when the element is missing
+  or `id`/`name` isn't fully populated. The `currentChatroom` write needed a
+  `setCurrentChatroom` deps callback rather than exposing the instance field directly.
+- **Characterization:** new `chatroom-info.test.ts` (6 tests) covering: the tracking update when
+  `info.id` is present vs. absent; the always-runs status-broadcast-visibility sync; the
+  title/status render when both `id` and `name` are present; the log-instead-of-render fallback
+  when `name` is missing; and the same fallback when the `#chatroom-info` element itself is
+  absent. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,504 → **6,494** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  208/2,226 to 209/2,232 (6 new) with zero regressions. Canonical run `run-20260911-012241-1094`
+  (25m27s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching
+  chatroom-info rendering.
+
+## 2026-09-11 — UIManager decomposition cluster #62: talk-distance-from-author formatting
+
+Continuing the AST-script-guided sweep from cluster #61. `docs/TODO.md` Priority 6.
+
+- **#62: `formatTalkDistanceFromAuthor` → new `talk-distance.ts`** (17 lines, 1 ref —
+  `currentLocation`). Formats a talk author's distance from the viewer's current GPS location as
+  "<0.1 mi" / "~N.N mi" / "~N mi" bands, returning empty when either location is missing or the
+  author's coordinates aren't numeric. `currentLocation` (a `GPSCoordinate | undefined` instance
+  field) is passed as a plain value argument rather than a deps callback, since the function
+  doesn't need to read it more than once.
+- **Characterization:** new `talk-distance.test.ts` (6 tests) covering: no current location; no
+  author location; non-numeric author coordinates; the "<0.1 mi" very-close band; the
+  one-decimal sub-10-mile band; and the rounded-to-nearest-mile 10+-mile band (using real
+  lat/long pairs at roughly known separations). All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,517 → **6,504** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  207/2,220 to 208/2,226 (6 new) with zero regressions. Canonical run `run-20260911-005505-93070`
+  (25m20s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed two already-established rotating specs
+  (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`), neither touching
+  talk-distance formatting.
+
+## 2026-09-11 — UIManager decomposition cluster #61: IPFS share payload parsing
+
+Continuing the AST-script-guided sweep from cluster #60 (session crossed midnight into
+2026-09-11). `docs/TODO.md` Priority 6.
+
+- **#61: `parseIpfsSharePayload` → extended `attachment-metadata.ts`** (18 lines, 0 `this.*`
+  refs — already pure). Parses an `IPFS_SHARE:<json>` chat-message marker into its attachment
+  fields (cid/link/name/mimeType/sizeBytes), rejecting anything without the marker, malformed
+  JSON, a missing cid, or a `kind` other than `'ipfs-auto-share-v1'`. Joined cluster #54's
+  attachment-metadata module since it's the same domain (IPFS attachment display).
+- **Characterization:** extended `attachment-metadata.test.ts` (+6 tests) covering: no marker;
+  malformed JSON; missing cid; wrong `kind`; a full valid payload; and the
+  link/name/mimeType/sizeBytes defaults when absent. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,531 → **6,517** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  207/2,214 to 207/2,220 (6 new, same suite count since the test file was extended) with zero
+  regressions. Canonical run `run-20260911-002525-85249` (25m27s): `heavy-staged` green (`rc=0`);
+  `cross-browser` unchanged pre-existing infra issue; `light` failed two already-established
+  rotating specs (`79-techsupport-survives-restrictive-filters`,
+  `83-survey-ignore-mid-question-not-complete`), neither touching IPFS share payload parsing.
+
+## 2026-09-10 — UIManager decomposition cluster #60: talk deletion
+
+Continuing the AST-script-guided sweep from cluster #59. `docs/TODO.md` Priority 6.
+
+- **#60: `deleteMyTalk` → new `talk-deletion.ts`** (22 lines, 5 refs — `displayTalksList`,
+  `displayAnswersList`, `showNotification`, `t`, `emit`). Removes a talk from `myTalks`, cleans up
+  any matching answered-by-content link, refreshes both the talks and answers lists, and emits
+  both a soft `withdrawTalk` and a hard `retractTalk` (with a fresh `retractedAt`) so peers stop
+  routing and existing holders get a tombstone. Dropped a dead no-op `if` block that only
+  contained a comment (checking `!(talkId in myTalks) && myTalks.length === 0` and doing
+  nothing) — a pure simplification, not a behavior change. Two now-unused imports
+  (`deleteMyTalkEntry`, `setAnsweredTalkByContent`) were dropped from `ui-manager.ts`.
+- **Characterization:** new `talk-deletion.test.ts` (7 tests) covering: removing the talk entry;
+  removing the matching answered-by-content link and leaving unrelated ones untouched; the
+  no-matching-link no-op; refreshing both lists; the success notification; and both emitted
+  events including the `retractedAt` timestamp. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,545 → **6,531** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  206/2,207 to 207/2,214 (7 new) with zero regressions. Canonical run `run-20260910-235604-77384`
+  (25m32s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching talk
+  deletion/withdrawal/retraction.
+
+## 2026-09-10 — UIManager decomposition cluster #59: return-home button sync
+
+Continuing the AST-script-guided sweep from cluster #58. `docs/TODO.md` Priority 6.
+
+- **#59: `syncReturnHomeButton` → new `return-home-button.ts`** (18 lines, 3 refs —
+  `getHomeChatroomId`, `currentChatroom`, `resolveChatroomTitle`). Disables the return-home
+  button and shows "Already in your home room" when the active room is already home; otherwise
+  enables it with a "Return to ⟨room⟩" tooltip, falling back to `window.__iinpublic_app`'s
+  chatroom service if `currentChatroom` is blank. `getHomeChatroomId` itself has its own instance
+  dependencies (`travelModeActive`/`travelHomeChatroomId`/`currentLocation`), so it stayed in
+  `ui-manager.ts` and is passed through as a deps callback rather than moved.
+- **Characterization:** new `return-home-button.test.ts` (5 tests) covering: the missing-button
+  no-op; the disabled/already-home state; the enabled/return-to state with the resolved room
+  title; the app-level chatroom-service fallback when `currentChatroom` is blank; and the
+  default-to-"global" case when neither is available. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,555 → **6,545** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  205/2,202 to 206/2,207 (5 new) with zero regressions. Canonical run `run-20260910-232634-68210`
+  (25m26s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed four already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+  `79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), none touching the return-home button.
+
+## 2026-09-10 — UIManager decomposition cluster #58: location room suggestion
+
+Continuing the AST-script-guided sweep from cluster #57. `docs/TODO.md` Priority 6.
+
+- **#58: `showLocationRoomSuggestion` → new `location-room-suggestion.ts`** (18 lines, 2 refs —
+  `t`, `tf`). A dismissible banner suggesting a location-matched chatroom, replacing any existing
+  banner rather than stacking a second one.
+- **Characterization:** new `location-room-suggestion.test.ts` (5 tests) covering: the
+  missing-host no-op; the suggested room name rendering into the banner; replacing rather than
+  stacking a second banner; the join click removing the banner and calling `onJoin`; and the
+  dismiss click removing the banner without calling `onJoin`. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,566 → **6,555** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  204/2,197 to 205/2,202 (5 new) with zero regressions. Canonical run `run-20260910-225738-58713`
+  (25m19s): `heavy-staged` green again (`rc=0`); `cross-browser` unchanged pre-existing infra
+  issue; `light` failed two already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+  `29-messaging-semantics`), neither touching the location-room-suggestion banner.
+
+## 2026-09-10 — UIManager decomposition cluster #57: talk detail view
+
+Continuing the AST-script-guided sweep from cluster #56. `docs/TODO.md` Priority 6.
+
+- **#57: `showTalkDetail` → new `talk-detail-view.ts`** (52 lines, 6 refs — `emit`,
+  `showTalkResponseDialog`, `showNotification`, `t`, `tf`, self-recursion). Routes a talk-detail
+  open request to one of: an identity-key demand (invalid id + fallback), an error toast (invalid
+  id, no fallback), the talk editor (own created talk), the response dialog in view-only mode
+  (answered/copied/preferred-answer-view), a "not available yet" notice (no `fullTalk` on a role
+  that would otherwise show it), or an incoming-talk demand with a retry-via-self-recursion
+  fallback on lookup failure. The self-recursion needed a `showTalkDetail` deps callback rather
+  than calling itself directly, matching the pattern already used for
+  `displayStatisticsDashboard`/`renderStatisticsDashboard` in cluster #46.
+- **Characterization:** new `talk-detail-view.test.ts` (9 tests) covering all six routing
+  branches plus the incoming-talk retry closure (captured from the `showNotification` call and
+  invoked directly to confirm it re-calls `showTalkDetail` with the original arguments). All
+  passed first run.
+- **Ratchet:** `ui-manager.ts` 6,607 → **6,566** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  203/2,188 to 204/2,197 (9 new) with zero regressions. Canonical run `run-20260910-222704-49770`
+  (25m29s): `cross-browser` unchanged pre-existing infra issue; `heavy-staged` failed for the
+  first time all session (`01-login-two-users-headcount`, a chatroom-headcount timing assertion
+  unrelated to talk-detail routing) — reran clean 3/3 standalone, confirming transient
+  concurrent-load flakiness rather than a regression (this session's first `heavy-staged`
+  non-green result, but the earlier chatroom-manager fix it exists to guard remains intact);
+  `light` failed four specs — `83-survey-ignore-mid-question-not-complete` (already-established)
+  plus three new-to-session ones (`33-mesh-only-delivery-no-server`,
+  `35-concurrent-visit-counter` ×2) that all reran clean standalone (1/1, 2/2), none touching
+  talk-detail/response-dialog code.
+
+## 2026-09-10 — UIManager decomposition cluster #56: status-bar match-count sync
+
+Continuing the AST-script-guided sweep from cluster #55 (user confirmed continuing the
+incremental-cluster approach over tackling a deferred giant). `docs/TODO.md` Priority 6.
+
+- **#56: `syncStatusBarMatchCount` → extended `status-bar.ts`** (19 lines, 2 refs — `tf`,
+  `getTotalMatches`). A close sibling of cluster #36's `updateStatusBar` (both read/write
+  `#status-bar-text`, both need `tf`/`getTotalMatches`), so it reused the existing
+  `UpdateStatusBarDeps` type directly rather than defining a new one.
+- **Characterization:** extended `status-bar.test.ts` (+5 tests) covering: the
+  missing-status-bar-element no-op; reusing the `data-status-bar-base` stashed by
+  `updateStatusBar` and appending a fresh match count; the legacy-suffix-stripping fallback when
+  no base is stashed; the base-alone rendering when there are no matches; and the singular vs.
+  plural match text. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,620 → **6,607** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  203/2,183 to 203/2,188 (5 new, same suite count since the test file was extended) with zero
+  regressions. Canonical run `run-20260910-215745-41577` (25m20s): `heavy-staged` green (`rc=0`);
+  `cross-browser` unchanged pre-existing infra issue; `light` failed one already-established
+  rotating spec (`29-messaging-semantics`), unrelated to status-bar logic.
+
+## 2026-09-10 — UIManager decomposition cluster #55: other-deal-conversations-ended
+
+Continuing the AST-script-guided sweep from cluster #54. `docs/TODO.md` Priority 6.
+
+- **#55: `markOtherDealConversationsEnded` → extended `conversation-record-updates.ts`** (21
+  lines, 4 refs — `getMyConversations`, `updateMatchBadge`, `syncStatusBarMatchCount`,
+  `displayConversationsList`). Its tail exactly matched cluster #37's
+  `refreshAfterConversationRecordChange` helper (update badge → sync status-bar match count →
+  refresh the conversations list only if the Me tab is active), so it joined
+  `markConversationWithdrawn`/`markConversationEnded` in the same module and reused both the
+  existing `ConversationRecordUpdateDeps` type and the already-wired
+  `this.conversationRecordUpdateDeps()` deps-builder in `ui-manager.ts` — no new deps plumbing
+  needed at all.
+- **Characterization:** extended `conversation-record-updates.test.ts` (+6 tests) covering:
+  ignoring every other conversation for the same talkId while leaving the kept one untouched;
+  skipping a different talkId entirely; skipping conversations already `ignored`/`withdrawn`;
+  the no-op-when-nothing-changed case (no localStorage write, no badge/status-bar refresh); the
+  persist-and-refresh-badge/status-bar-always case; and the Me-tab-active list-refresh case. All
+  passed first run.
+- **Ratchet:** `ui-manager.ts` 6,637 → **6,620** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  203/2,177 to 203/2,183 (6 new, same suite count since the test file was extended rather than
+  added) with zero regressions. Canonical run `run-20260910-082146-16155` (25m18s): `heavy-staged`
+  green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light` failed one
+  already-established rotating spec (`79-techsupport-survives-restrictive-filters`), unrelated to
+  deal-confirmation conversation state.
+
+## 2026-09-10 — UIManager decomposition cluster #54: attachment metadata + media tile
+
+Continuing the AST-script-guided sweep from cluster #53. `docs/TODO.md` Priority 6.
+
+- **#54: `formatAttachmentSize` + `attachmentDownloadFilename` + `attachmentIconForMime` +
+  `renderMediaTile` → new `attachment-metadata.ts`** (~64 lines, 0 `this.*` refs on the three
+  helpers — already pure, previously wired as deps callbacks elsewhere too — and 3 refs on
+  `renderMediaTile`, all satisfied by the three siblings moving with it). Four small,
+  tightly-related attachment-display helpers bundled into one cluster since `renderMediaTile`
+  composes all three of the others.
+- **Characterization:** new `attachment-metadata.test.ts` (29 tests) covering
+  `formatAttachmentSize`'s B/KB/MB thresholds and the zero/negative/NaN empty-string case;
+  `attachmentDownloadFilename`'s already-has-extension passthrough, blank-name fallback, the
+  mime-to-extension table (jpeg/png/gif/webp/avif/svg/pdf/video/audio/text), and the
+  unrecognized-mime passthrough; `attachmentIconForMime`'s full emoji table; and
+  `renderMediaTile`'s image-vs-file-icon branches, name escaping, and the omitted-size-line case
+  for a zero-byte share. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,678 → **6,637** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  202/2,148 to 203/2,177 (29 new) with zero regressions. Canonical run `run-20260910-075309-8324`
+  (25m31s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed two already-established rotating specs (`29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), neither touching media/attachment rendering.
+
+## 2026-09-10 — UIManager decomposition cluster #53: settings-section drill-down view
+
+Continuing the AST-script-guided sweep from cluster #52. `docs/TODO.md` Priority 6.
+
+- **#53: `applySettingsSectionView` → new `settings-section-view.ts`** (25 lines, 2 refs —
+  `settingsActiveSectionId` write, self-recursion). Toggles between the settings menu and a
+  single drill-down section; the fallback path (remembered section id no longer rendered) needs
+  to null out `settingsActiveSectionId`, so the extracted function takes a
+  `setSettingsActiveSectionId` deps callback rather than exposing the instance field. 5 call
+  sites in `ui-manager.ts` stay behind the existing `this.applySettingsSectionView(...)` shim,
+  unchanged.
+- **Characterization:** new `settings-section-view.test.ts` (4 tests) covering: the
+  null-sectionId menu-shown/detail-hidden state; a valid sectionId showing only that section with
+  the detail view and back button visible; the missing-section fallback (asserts
+  `setSettingsActiveSectionId(null)` was called, then the menu state); and that missing
+  menu/detail/back-button DOM elements don't throw. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,697 → **6,678** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  201/2,144 to 202/2,148 (4 new) with zero regressions. Canonical run `run-20260910-072427-159`
+  (25m21s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three specs — `00l-techsupport-faq-cross-user` and `29-messaging-semantics`
+  (already-established rotating flakes) plus `00m-techsupport-delegate-answers` (new to this
+  session's rotation; unrelated to settings-section rendering and reran clean standalone, 1/1 in
+  27.3s).
+
+## 2026-09-10 — UIManager decomposition cluster #52: content-filter toast (+ a caught near-miss)
+
+Continuing the AST-script-guided sweep from cluster #51. `docs/TODO.md` Priority 6.
+
+- **Caught near-miss, no code shipped:** first attempted a different change this cluster —
+  inlining `saveAnswerPreference`'s three internal call sites to call the already-extracted
+  `persistAnswerPreference` directly and deleting the wrapper method (it was already a thin
+  1-ref shim, so this looked like a pure simplification with no new file needed). Deleting the
+  method broke `answer-preference-resolution-characterization.test.ts:190`, which calls
+  `ui.saveAnswerPreference(...)` directly via the same `PreferenceUi` type-cast pattern behind
+  cluster #35's near-miss on `resolveAnswerPreferenceForTalkQuestion`. Caught by the standing
+  "grep `src/test/` before deleting any method" execution rule *before* running the test suite
+  this time — reverted the edit immediately (`git diff --stat` confirmed byte-identical to the
+  last commit) rather than shipping and having to fix it after a failing run. No ratchet change,
+  no commit for this abandoned attempt.
+- **#52: `showContentFilterToast` → new `content-filter-toast.ts`** (19 lines, 2 refs — `t`,
+  `showNotification`). Builds the blocked/hidden-message toast for the three content-filter
+  reasons (financial data — same message both directions per FR-FIN-4, dirty words — word-suffix
+  on send only, grammar fallback), each with its own `data-content-filter-notification` attribute
+  for E2E assertions.
+- **Characterization:** new `content-filter-toast.test.ts` (5 tests) covering the
+  same-message-both-directions financial-data case, the word-suffix-present-vs-absent dirty-words
+  cases, the hidden-vs-blocked direction difference, and the grammar fallback for both
+  directions. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,710 → **6,697** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  200/2,139 to 201/2,144 (5 new) with zero regressions. Canonical run `run-20260910-065622-92271`
+  (25m29s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs
+  (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), none touching content-filter logic.
+
+## 2026-09-10 — UIManager decomposition cluster #51: flow constraints + settings section template
+
+Continuing the AST-script-guided sweep from cluster #50. `docs/TODO.md` Priority 6.
+
+- **#51: `refreshFlowAnswerConstraints` → new `flow-answer-constraints.ts`** (22 lines, 1 ref —
+  `t`) and **`renderSettingsSection` → new `settings-section-template.ts`** (21 lines, 0 refs —
+  fully pure HTML templating). Two small, unrelated utilities bundled into one cluster since each
+  is trivially self-contained. `renderSettingsSection` has 14 call sites, all inside the deferred
+  `renderSettingsView` giant — extracting the pure template function doesn't require touching
+  `renderSettingsView` itself, since both call sites and the extraction stay behind the same
+  `this.renderSettingsSection(...)` shim.
+- **Characterization:** new `flow-answer-constraints.test.ts` (7 tests: selects always stay
+  enabled, the tooltip lands on every row but the first for `'flow'` only, no tooltip for other
+  talk types, a stale tooltip clears on re-render, a previously-disabled ignore option
+  re-enables, a container-less question item no-ops, and multiple question items are handled
+  independently) and `settings-section-template.test.ts` (5 tests: title/body rendering, the
+  optional id/subtitle/action branches, and the danger-vs-normal color swap). All 12 passed first
+  run.
+- **Ratchet:** `ui-manager.ts` 6,742 → **6,710** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  198/2,127 to 200/2,139 (12 new) with zero regressions. Canonical run `run-20260910-062712-84322`
+  (25m24s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs
+  (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), none touching flow-editor or settings rendering.
+
+## 2026-09-10 — UIManager decomposition cluster #50: broadcast-audience preview
+
+Continuing the AST-script-guided sweep from cluster #49, completing the groundwork flagged in
+that cluster's entry. `docs/TODO.md` Priority 6.
+
+- **#50: `resolveExpiresAtMs` + `BroadcastAudiencePreview` + `getSenderOmittedBroadcastPreviews`
+  → new `broadcast-audience-preview.ts`.** This cluster did the relocation groundwork flagged in
+  #49 first: `resolveExpiresAtMs` (a module-level helper) and `BroadcastAudiencePreview` (an
+  exported type) both lived in `ui-manager.ts` with call sites/importers scattered across three
+  other files, including `broadcast-audience-dialog.ts` importing the type **backwards** from
+  `ui-manager.ts`. Moved both to the new module; updated `broadcast-audience-dialog.ts`, `app.ts`,
+  and — caught by grepping `src/test/` per the standing execution rule —
+  `broadcast-audience-dialog.test.ts` to import `BroadcastAudiencePreview` from the new module
+  instead of `ui-manager.ts`. With that groundwork in place, `getSenderOmittedBroadcastPreviews`
+  (0 `this.*` refs, flagged last cluster) moved cleanly; its `ui-manager.ts` public method is now
+  a one-line shim (kept because `app.ts` calls it externally).
+- **Characterization:** new `broadcast-audience-preview.test.ts` (13 tests) covering
+  `resolveExpiresAtMs`'s numeric/ISO-string/blank/non-string branches, and
+  `getSenderOmittedBroadcastPreviews`'s role filter (created/copied only), the
+  disabled/expired/both-reasons flagging, the fullTalk.expiresAt fallback, the
+  title/fullTalk.title/talkId fallback chain, and title-sorted output. All passed first run.
+  `broadcast-audience-dialog.test.ts` (import-path fix only) stayed green.
+- **Ratchet:** `ui-manager.ts` 6,779 → **6,742** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  197/2,114 to 198/2,127 (13 new) with zero regressions. Canonical run `run-20260910-055849-76503`
+  (25m26s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching this
+  batch.
+
+## 2026-09-10 — UIManager decomposition cluster #49: talk-peer registration
+
+Continuing the AST-script-guided sweep from cluster #48. `docs/TODO.md` Priority 6.
+
+- **#49: `registerTalkForPeer` → new `talk-peer-registration.ts`** (22 lines, 0 `this.*` refs).
+  Zero-dependency mesh-delivery helper (reads only `window.__iinpublic_app` — a global, not
+  instance state); it looked orphaned at first grep (no `registerTalkForPeer(` call site found in
+  `ui-manager.ts`) until a broader repo-wide search showed it's wired as a deps callback into
+  `user-detail-view.ts` at `registerTalkForPeer: this.registerTalkForPeer.bind(this)` — very much
+  alive, just referenced by `.bind(this)` rather than a direct call. Since the method had no
+  instance dependencies at all, the `ui-manager.ts` wiring now references the extracted free
+  function directly (`registerTalkForPeer,`) instead of keeping a `private` shim to `.bind` — the
+  private method was deleted outright rather than kept as a pass-through, since a bind-only shim
+  with zero own logic would just be indirection.
+  - **Deferred, not extracted this cluster:** `getSenderOmittedBroadcastPreviews` (0 refs, next
+    on the candidate list) shares `resolveExpiresAtMs` (defined in `ui-manager.ts`) and the
+    `BroadcastAudiencePreview` type (exported from `ui-manager.ts`, already imported *backwards*
+    by `broadcast-audience-dialog.ts`) with three other call sites still in `ui-manager.ts` —
+    extracting it cleanly needs those two relocated to a small shared module first so neither
+    file imports from the other. Left as groundwork for a future cluster rather than rushed into
+    this one.
+- **Characterization:** new `talk-peer-registration.test.ts` (5 tests) covering: routing through
+  `app.sendDirectTalkToPeer` when the mesh app is available; the no-op-and-warn path for three
+  different "unavailable" shapes (no `__iinpublic_app` at all, `getApp()` returning an object
+  without the method, `getApp()` itself returning `undefined`); and that a rejection from
+  `sendDirectTalkToPeer` propagates rather than being swallowed. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,802 → **6,779** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  196/2,109 to 197/2,114 (5 new) with zero regressions. Canonical run `run-20260910-053006-68618`
+  (25m24s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed one already-established rotating spec (`29-messaging-semantics`), unrelated to
+  this batch — `user-detail-view.ts`'s two `registerTalkForPeer` call sites are untouched by this
+  extraction, and its own unit tests stayed green.
+
+## 2026-09-10 — UIManager decomposition cluster #48: erase-device flow
+
+Continuing the AST-script-guided sweep from cluster #47. `docs/TODO.md` Priority 6.
+
+- **#48: `openEraseDeviceDialog` → new `erase-device-flow.ts`** (34 lines, 3 refs — `t`,
+  `identityLinkUnlinker`, `deviceHandoffSync`). Reads `iinpublic_linked_devices` from
+  localStorage, filters to graph-verified `state: 'linked'` rows only (historical
+  Removed/Invalid rows must not imply a receiver is available), and wires the confirm dialog's
+  `onErase` (best-effort link revocation via `identityLinkUnlinker`, then `eraseDevice`) and
+  optional `onSyncFirst` (only present when both `deviceHandoffSync` and a linked device exist).
+  `exactOptionalPropertyTypes` required spelling the two optional callback deps as
+  `(...) => ... | undefined` explicitly, not just `?:` — `tsc` caught the omission immediately.
+- **Characterization:** new `erase-device-flow.test.ts` (11 tests, `jest.mock`s both
+  `erase-device-dialog.ts` and `device-wipe.ts` to capture the wired options/hooks without
+  triggering a real storage wipe or `location.reload()`) covering: the empty/no-linked-device
+  case; the Removed/Invalid-rows-don't-count filter; reporting the first linked device's stage
+  name; malformed-JSON tolerance; the `text()` fallback-vs-translated-value branches; `onErase`'s
+  `revokeLinks` hook calling `identityLinkUnlinker` for every linked device best-effort (verified
+  by capturing the hooks object passed to the mocked `eraseDevice` and invoking `revokeLinks`
+  directly, since the mock itself doesn't); erasing without a configured unlinker; and all three
+  `onSyncFirst` presence/absence/wiring cases. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,830 → **6,802** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  195/2,098 to 196/2,109 (11 new) with zero regressions. Canonical run `run-20260910-050144-60704`
+  (25m27s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed five already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+  `79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`) — a heavier-than-usual
+  batch but all repeat names from this session's rotation, none touching erase-device/localStorage
+  logic.
+
+## 2026-09-10 — UIManager decomposition cluster #47: attachment hydration
+
+Continuing the AST-script-guided sweep from cluster #46. `docs/TODO.md` Priority 6.
+
+- **#47: `hydrateAttachmentImages` → new `attachment-hydration.ts`** (36 lines, 3 refs —
+  `sharedAttachmentResolver`, `saveObjectUrlAs`, `openLightbox`). Turns IPFS attachment cards into
+  click-to-view (image) / click-to-save (file) elements once local bytes resolve. `openLightbox`
+  itself stayed in `ui-manager.ts` (it mutates the shared `lightboxTarget` instance field that
+  `closeLightbox` and the lightbox-close/download button wiring also touch) and is passed through
+  as a deps callback rather than moved.
+- **Characterization:** new `attachment-hydration.test.ts` (9 tests) covering: the
+  no-resolver-configured and already-`localReady` no-op guards; the resolve-then-reveal path
+  (image visible, loading indicator hidden, download link shown); the still-loading outcomes for
+  both a null-resolving and a rejecting resolver; the image-card-opens-lightbox vs.
+  non-image-card-saves click routing; the small download link always saving regardless of card
+  type; and multi-card hydration. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,858 → **6,830** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  194/2,089 to 195/2,098 (9 new) with zero regressions. Canonical run `run-20260910-043301-52712`
+  (25m16s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed one already-established rotating spec (`29-messaging-semantics`), unrelated to
+  this batch.
+
+## 2026-09-10 — UIManager decomposition cluster #46: local statistics (+ a dead-code finding)
+
+Continuing the AST-script-guided sweep from cluster #45. `docs/TODO.md` Priority 6.
+
+- **#46: `displayContextualStatistics` + `displayStatisticsDashboard` + `renderStatisticsDashboard`
+  → new `local-statistics.ts`** (25+39+7 lines, 3 refs on the two dashboard methods —
+  `apiBase`/`currentUserId`/`renderStatisticsDashboard`; `displayContextualStatistics` shares the
+  same storage/stats-building imports so it moved along with them). Both methods build a
+  dashboard from `readLocalTalkExchanges`/`buildAllLocalTalkResponses`/`buildStatsDashboard`; only
+  `displayContextualStatistics` is actually reachable from the live UI (the contacts-view stats
+  strip and one other call site) — it kept its `ui-manager.ts` shim.
+- **Dead-code finding:** extracting `displayStatisticsDashboard`/`renderStatisticsDashboard`
+  exposed that neither was ever called from outside their own mutual-recursion loop (the
+  `onRefresh` callback the render function wires up calls back into
+  `displayStatisticsDashboard`). Before this cluster, that self-reference kept both methods
+  looking "used" to `tsc`'s unused-locals check; once the pair moved into their own module
+  together, `tsc` correctly flagged the now-genuinely-orphaned `ui-manager.ts` shim (nothing
+  outside the pair ever calls it, and no code anywhere creates a `#statistics-content` container
+  to render into — confirmed by grepping the whole repo, including `tests/e2e/`, for that id and
+  for both function names). Per the established policy (`showEditStageNameDialog`, `app-bar.ts`),
+  the underlying logic was not deleted — it's fully preserved and tested in `local-statistics.ts`
+  — but the now-uncompilable `ui-manager.ts` delegating shim for `displayStatisticsDashboard` was
+  removed, since keeping a broken shim isn't an option and the extraction is what revealed this
+  particular piece of dead code rather than creating it. Flagged in `docs/TODO.md` alongside the
+  other two findings for a deliberate call on whether to wire this feature up or delete it
+  outright.
+- **Characterization:** new `local-statistics.test.ts` (9 tests) covering
+  `displayContextualStatistics`'s missing-element/empty-exchanges/populated/dashboard-build-throws
+  paths, and `displayStatisticsDashboard`'s missing-container guard, blank-vs-set-`apiBase`
+  fetch behavior (both URLs, and the unreachable-API fallback), and that the rendered dashboard's
+  refresh affordance doesn't throw when clicked. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,919 → **6,858** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  193/2,080 to 194/2,089 (9 new) with zero regressions. Canonical run `run-20260910-040457-44880`
+  (25m16s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed one already-established rotating spec (`29-messaging-semantics`), unrelated to
+  this batch.
+
+## 2026-09-10 — UIManager decomposition cluster #45: answer-preference mutations
+
+Continuing the AST-script-guided sweep from cluster #44. `docs/TODO.md` Priority 6.
+
+- **#45: `showPreferencesDialog` + `normalizePreferenceMode` + `applyPreferenceModeToExactMemory`
+  + `deleteAnswerPreference` → new `answer-preference-mutations.ts`** (104 lines total, 6 refs —
+  `applyPreferenceModeToExactMemory`, `normalizePreferenceMode`, `showNotification`, `t`,
+  `deleteAnswerPreference`, `formatUiDate`). All three helper methods were called only from within
+  this one block, so the whole cluster (dialog-wiring glue + its mutation logic) moved together
+  rather than being split. The new `openAnswerPreferencesDialog(deps)` wraps the existing
+  `preferences-dialog.ts`'s pure `showPreferencesDialog` renderer (unchanged, not touched by this
+  cluster) with the storage/exact-chatbot-memory mutation logic. `ui-manager.ts`'s
+  `showPreferencesDialog()` public method is now a 5-line shim. Six now-unused imports
+  (`clearAnswerPreferences`, `setAnswerPreferences`, `getFlattenedAnswerPreferences`,
+  `setFlattenedAnswerPreferences`, `setExactChatbotMemory`, `makeQuestionId`,
+  `savePermanentAnswer`, `saveSuppressedQuestion`, `saveTemporaryAnswer`, the `AnswerPreferenceUiMode`/
+  `AnswerPreferenceEntry`/`AnswerPreferenceMap` type imports, and the old `openPreferencesDialog`
+  import) were dropped from `ui-manager.ts`.
+- **Characterization:** new `answer-preference-mutations.test.ts` (21 tests, one `jest.mock` of
+  `preferences-dialog.ts` to capture the options object `openAnswerPreferencesDialog` builds
+  without needing the real DOM renderer) covering: the mode-normalization table; each
+  `applyPreferenceModeToExactMemory` branch (blank-questionText no-op, permanent, suppressed, and
+  manual clearing both the language-scoped and English-fallback keys); `deleteAnswerPreference`'s
+  regular-vs-`flat_`-prefixed routing and its no-op-on-missing-key case; and
+  `openAnswerPreferencesDialog`'s preference-map merge, update/delete/clear wiring plus
+  notification text, and the direct `notify`/`text`/`formatDate` pass-through. One authoring
+  mistake caught and fixed on first run: a test assumed deleting a preference in `'manual'` mode
+  creates an exact-chatbot-memory user entry — it doesn't (manual mode only ever *deletes* an
+  existing entry) — rewritten to first establish a permanent-mode entry, then assert it's cleared
+  by the delete.
+- **Ratchet:** `ui-manager.ts` 7,027 → **6,919** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  192/2,059 to 193/2,080 (21 new) with zero regressions. Canonical run `run-20260910-033339-36852`
+  (25m31s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching this
+  batch — `00l-techsupport-faq-cross-user` got a closer look since this cluster touches
+  exact-chatbot-memory writes, and reran clean standalone (21.6s, 1/1).
+
+## 2026-09-10 — UIManager decomposition cluster #44: app-download banner
+
+Continuing the AST-script-guided sweep from cluster #43. `docs/TODO.md` Priority 6.
+
+- **#44: `detectDownloadPlatform` + `renderAppDownloadBanner` → new `app-download-banner.ts`**
+  (18+63 lines, 6 refs — `detectDownloadPlatform`, `apiBase`, `t`, `tf`, `applySettingsSectionView`,
+  `settingsActiveSectionId`). `detectDownloadPlatform` is a pure UA-sniffing function with zero
+  `this.*` dependencies and only one call site, so it moved as a plain export alongside the
+  banner. The `applySettingsSectionView(this.settingsActiveSectionId = ...)` write-then-render
+  pair collapsed into a single `openDownloadAppSettingsSection` deps callback rather than exposing
+  the instance field to the extracted module.
+- **Characterization:** new `app-download-banner.test.ts` (17 tests) — `detectDownloadPlatform`
+  across Android/iOS/Windows/Mac/Linux/unknown UAs plus the touch-capable-Mac-reports-as-iOS
+  iPadOS-13+ quirk; `renderAppDownloadBanner`'s Electron/native-host/already-dismissed/
+  already-present skip guards; the download-link vs. "see options" fallback branches (including
+  an unreachable-downloads-API path); and both the dismiss and "see options" click handlers. All
+  passed first run.
+- **Ratchet:** `ui-manager.ts` 7,097 → **7,027** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  191/2,043 to 192/2,059 (16 new) with zero regressions. Canonical run `run-20260910-030155-28427`
+  (25m28s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed two specs — `83-survey-ignore-mid-question-not-complete` (already-established
+  rotating flake) and `33-mobile-chatroom-hierarchy` (new to this session's rotation; confirmed
+  pre-existing and unrelated to this batch by reproducing it 2/4 standalone against the committed
+  cluster #43 baseline, i.e. before this batch's diff even existed — a `scrollIntoViewIfNeeded`
+  race in the chatroom-item list, nothing to do with the app-download banner).
+
+## 2026-09-10 — UIManager decomposition cluster #43: talk completion
+
+Continuing the AST-script-guided sweep from clusters #40-#42. `docs/TODO.md` Priority 6.
+
+- **#43: `completeTalk` + `saveMyTalk` → new `talk-completion.ts`** (82+19 lines, 5 refs —
+  `getMyTalks`, `saveMyTalk`, `emit`, `showNotification`, `t`). `saveMyTalk` takes a narrower
+  `SaveMyTalkDeps` (`displayTalksList` only); `completeTalk` takes the full `TalkCompletionDeps`
+  (a superset) and calls the extracted `saveMyTalk` directly rather than round-tripping through
+  `UIManager`. `t`'s deps signature is typed `UiTranslationKey`, not `string` — `tsc` caught this
+  immediately (the original code's ternary passes translation-key literals, and the loosely-typed
+  first draft failed to compile against `UiTranslationKey`'s big string-literal union).
+- **Characterization:** new `talk-completion.test.ts` (15 tests) covering: new-entry vs.
+  merge-preserving-role saves in `saveMyTalk`; the Talks-tab-active refresh gate; `completeTalk`'s
+  existing-content-key reuse + sender-union path; the ignore-answer-forces-"answered" /
+  copy-autosave-grants-"copied" / existing-"created"-role-wins role logic; the flat-answer-history
+  side effect; the `withholdFromSender` meta pass-through; and the per-talk-type success
+  notification text. Two authoring mistakes caught by first-run failures: (1) a test assumed
+  `saveMyTalk`'s patch object's own `expiresAt` field persists directly — the real code only ever
+  pulls `expiresAt` from an *existing* entry or `fullTalk.expiresAt`, never from the raw patch, so
+  the assertion was rewritten around role-preservation instead; (2) `getFlatAnswerHistory()`
+  returns a map, not an array — `.length` was `undefined`, fixed to `Object.keys(...).length`.
+- **Ratchet:** `ui-manager.ts` 7,184 → **7,097** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  190/2,029 to 191/2,043 (14 new) with zero regressions. Canonical run
+  `run-20260910-023316-20468` (25m21s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged
+  pre-existing infra issue; `light` failed one already-established rotating spec
+  (`00l-techsupport-faq-cross-user`), unrelated to this batch (no TechSupport/FAQ code touched).
+  Note: the gate was launched via `nohup ... &` combined with `run_in_background: true`, which
+  orphaned it from the tool's own process tracking and produced a false-early "completed"
+  notification after ~10s while the real ~25-minute run continued detached — caught by checking
+  `ps`/`pgrep` for the actual script PID, then waited out for real via a `Monitor` polling that
+  PID rather than trusting the tool's own notification. Filed as product feedback; do not repeat
+  this combination.
+
+## 2026-09-10 — UIManager decomposition clusters #40-#42: three more extractions
+
+Continuing the AST-script-guided sweep from clusters #36-#39. `docs/TODO.md` Priority 6.
+
+- **#40: `tagAnswerSuffix` + `renderTagAnswerSuffixHtml` → `ui-formatters.ts`** (23+3 lines, 1
+  ref). A pure "?answer" title-suffix renderer for a tag/Pair-tag row, added to the existing
+  generic formatters module (already home to `escapeHtml` and friends) rather than a new file.
+  Its `singleNonIgnoreAnswer` dependency (`shared/talk-engine.ts`) moved with it — imported
+  directly by `ui-formatters.ts` rather than threaded as a parameter, since it's itself a pure
+  function with no circularity risk.
+- **#41: `displayIncomingTalk` → new `incoming-talk-notification.ts`** (25 lines, 4 refs —
+  `showNotification`, `tf`, `flashMemberForNewTalk`, `displayTalksList`). Public API (3 external
+  call sites in `app.ts`), kept as a shim.
+- **#42: `setBlocked` → `contacts-view.ts`** (24 lines, 5 refs — `currentUser` read/write,
+  `apiBase`, `currentUserId`, `emit`, `displayContactsList`). Grouped with cluster #32's
+  `saveKnownPerson` in the same module; verified with a dedicated real-browser regression
+  (`15a-blocking-unblock-resumes-talk-delivery`) given the network call + direct
+  `currentUser.blockedUserIds` mutation.
+- **Characterization:** three new/extended test files — `ui-formatters.test.ts` (+9 for
+  `tagAnswerSuffix`, one authoring mistake caught by a failing assertion: a test predicted a
+  fall-through case would render empty, but the fixture's talk title and matched-answer text
+  were actually different strings, so a suffix correctly renders — fixed the test's own
+  expectation once traced through), `incoming-talk-notification.test.ts` (5),
+  `contacts-view.test.ts` (+8 for `setBlocked`, covering the block/unblock HTTP methods and
+  URLs, the skip-network-call path when `apiBase`/`currentUserId` are unset, a non-ok response
+  throwing, deduped add vs. filtered remove on `blockedUserIds`, and the emit/refresh side
+  effects). All passed after the one fix. Real-browser regression:
+  `staged/stage2-two-user/15a-blocking-unblock-resumes-talk-delivery.spec.ts`.
+- **Ratchet:** `ui-manager.ts` 7,233 → 7,205 (#40) → 7,198 (#41) → **7,184** (#42) lines.
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (190 suites / 2,029 tests after all three, 22 new).
+  Canonical run `run-20260910-015954-12212` (25m26s): `heavy-staged` is green again (`rc=0`);
+  `cross-browser` remains the same pre-existing infra issue; `light` failed two
+  already-established rotating specs (`00l-techsupport-faq-cross-user`,
+  `83-survey-ignore-mid-question-not-complete`), neither touching this batch.
+
+## 2026-09-10 — UIManager decomposition clusters #36-#39: four more extractions, two of them sibling pairs
+
+Continuing the AST-script-guided sweep from clusters #30-#35. `docs/TODO.md` Priority 6.
+
+- **#36: `updateStatusBar` → new `status-bar.ts`** (25 lines, 2 refs — `tf`, `getTotalMatches`).
+  Public API (8 external call sites in `app.ts`), kept as a shim; its unused `_stageName`
+  parameter (already unused before this extraction) stays on the shim for signature stability.
+- **#37: `markConversationWithdrawn` + `markConversationEnded` → new
+  `conversation-record-updates.ts`** (32+23 lines). A near-identical sibling pair — both find a
+  conversation by `otherUserId`+`talkId` (with their own distinct fallback match), mutate its
+  status/timestamp/lastMessage, persist, and refresh badge/status-bar/list — factored around one
+  shared `refreshAfterConversationRecordChange` helper.
+- **#38: `copyAnsweredTalkToTalks` → added to `talk-creation-storage.ts`** (28 lines, 5 refs).
+  Grouped with cluster #30's `saveCreatedTalk` in the same module — both are "persist a talk
+  into `myTalks`, with notification/re-render side effects" operations.
+- **#39: `quickIgnoreIncomingTalk` + `quickCopyIncomingTalk` → new
+  `quick-incoming-talk-actions.ts`** (29+37 lines). Another sibling pair — both are talks-row
+  swipe-gesture handlers (cluster #12's `talks-row-gestures.ts` deps) that resolve an incoming
+  cluster's full Talk object the same asynchronous way, via one shared
+  `resolveIncomingFullTalk` helper, then diverge (ignore-and-complete vs. copy-without-completing).
+- **Characterization:** four new/extended test files — `status-bar.test.ts` (8),
+  `conversation-record-updates.test.ts` (8), `talk-creation-storage.test.ts` (+4 for
+  `copyAnsweredTalkToTalks`), `quick-incoming-talk-actions.test.ts` (11 — one fixture bug caught
+  by a failing assertion: the original draft used arbitrary strings like `'t1'` as talk ids, but
+  `isValidTalkId` requires an actual UUID/content-hash/CIDv1 shape, so the "valid talkId" branch
+  was silently never exercised until switched to a real UUID fixture). All passed once fixed.
+  Real-browser regression: `staged/stage2-two-user/00-broadcast-deletion-mid-broadcast.spec.ts`
+  (talk retraction, cluster #37).
+- **Ratchet:** `ui-manager.ts` 7,345 → 7,332 (#36) → 7,301 (#37) → 7,285 (#38) → **7,233** (#39)
+  lines.
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (189 suites / 2,007 tests after all four, 31 new).
+  Canonical run `run-20260910-012626-3551` (25m26s): `heavy-staged` is green again (`rc=0`);
+  `cross-browser` remains the same pre-existing infra issue; `light` failed four
+  already-established rotating specs (`79-techsupport-survives-restrictive-filters`,
+  `00l-techsupport-faq-cross-user`, `29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), the same set seen rotating through several of
+  today's earlier runs — none touch anything in this batch.
+
+## 2026-09-10 — UIManager decomposition clusters #30-#35: six more extractions, plus a caught near-miss
+
+Continuing the AST-script-guided sweep from clusters #22-#29. `docs/TODO.md` Priority 6.
+
+- **#30: `saveCreatedTalk` → new `talk-creation-storage.ts`** (51 lines, 3 refs —
+  `saveAnswerPreference`, `saveQuestionAnswersFromCompletion`, `displayTalksList`). Previously
+  passed over in cluster #21's pass as a "coordinator, not a pure renderer"; revisited now that
+  its two storage dependencies are themselves already-extracted free functions from clusters
+  #13/#26, making the deps object straightforward to assemble.
+- **#31: `deliveryReasonLabel` + `formatReasonCounts` → new `delivery-reason-labels.ts`** (1+21
+  lines). Kept as same-name shims (4 remaining internal call sites each, including inside the
+  still-deferred `displayTalksList`).
+- **#32: `saveKnownPerson` → `contacts-view.ts`** (28 lines, 3 refs — `currentUser`
+  read/write, `emit`, `displayContactsList`). Added to the existing module that already owns
+  `KnownPerson`-related rendering; verified with a dedicated real-browser regression
+  (`00ae-contacts-stranger-relationship`) given the direct mutation of `currentUser.knownPeople`.
+- **#33: `resolveChatroomTitle` → `chatrooms-view.ts`** (26 lines, 1 ref — `customChatrooms`).
+  Public API (called from `app.ts`). Tests mock `getFlatChatroomList`/`getActiveChatroomHierarchy`
+  directly rather than relying on the real hierarchy content, since both functions traverse the
+  exact same tree — meaning the function's own depth-first tree-search fallback branch is
+  actually dead code for any real, current chatroom id (the flat list already covers the whole
+  tree exhaustively); only reachable via a mocked inconsistency between the two, which is what
+  the test exercises.
+- **#34: `readCreatorReplyFilterState`/`persistCreatorReplyFilterState`/
+  `restoreCreatorReplyFilterState` → `creator-replies-view.ts`** (13+8+25 lines, cohesive
+  localStorage read/write/restore trio for the Creator Replies filter panel, all previously
+  0-1 `this.*` refs). Call sites updated directly (no shims) since each had only 1-3 internal
+  callers.
+- **#35: `updateConversationTransportMode` + `setConversationOnlineStatus` → new
+  `conversation-status-updates.ts`** (28+28 lines, 5 refs each). Both public API (called from
+  `app.ts`), kept as shims.
+- **A caught near-miss, not shipped as a cluster:** re-measuring surfaced
+  `resolveAnswerPreferenceForTalkQuestion` (36 lines) as an apparent 1-ref shim — its only
+  *internal* forwarding call site (into a deps object) could be replaced with a direct closure,
+  seemingly saving the whole method. Removed it, and the full unit suite immediately caught the
+  mistake: `answer-preference-resolution-characterization.test.ts` (from cluster #4, 2026-08-24)
+  calls `ui.resolveAnswerPreferenceForTalkQuestion(...)` **directly** on a `UIManager` instance
+  via `new UIManager() as unknown as PreferenceUi` — a private-method characterization-test
+  pattern established back in cluster #4 that a plain grep of `ui-manager.ts`/`app.ts` alone
+  doesn't surface, and that `npm run test:type` didn't catch either (the test's `ui` binding is
+  cast loosely enough that the missing method was only a *runtime* error, not a compile one).
+  Restored the method verbatim (still delegating to the already-extracted
+  `resolveStoredAnswerPreference`) before re-verifying. **Methodology update recorded in
+  `docs/TODO.md`'s execution rule:** before fully deleting any method (as opposed to moving its
+  body to an extracted module while keeping a delegating shim), grep `src/test/` too, not just
+  `ui-manager.ts`/`app.ts` — a characterization test can hold a private method's only remaining
+  "caller."
+- **Characterization:** six new/extended test files — `talk-creation-storage.test.ts` (9),
+  `delivery-reason-labels.test.ts` (7), `contacts-view.test.ts` (+6 for `saveKnownPerson`),
+  `resolve-chatroom-title.test.ts` (6, using mocked hierarchy functions rather than real tree
+  content — see above), `creator-replies-view.test.ts` (+5 for the filter-state trio),
+  `conversation-status-updates.test.ts` (10). All passed on first run. Real-browser regression:
+  `staged/stage1-single-user/05-talks-edit` + `staged/stage2-two-user/07-tags-checkbox` (talk
+  creation with self-answers, cluster #30), `staged/stage2-two-user/00ae-contacts-stranger-relationship`
+  (cluster #32).
+- **Ratchet:** `ui-manager.ts` 7,518 → 7,481 (#30) → 7,455 (#31) → 7,444 (#32) → 7,422 (#33) →
+  7,375 (#34) → **7,345** (#35) lines. (The near-miss round-tripped back to exactly 7,375 with
+  no net change, so it isn't numbered as its own cluster.)
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (186 suites / 1,976 tests after all six, ~54 net new).
+  Canonical run `run-20260910-002854-85535` (25m26s): `heavy-staged` is green again (`rc=0`);
+  `cross-browser` remains the same pre-existing infra issue; `light` failed three
+  already-established rotating specs (`79-techsupport-survives-restrictive-filters`,
+  `29-messaging-semantics`, `83-survey-ignore-mid-question-not-complete`), none touching
+  anything in this batch — `29-messaging-semantics` (plausibly related, given the new
+  `conversation-status-updates.ts` online-status logic) reran 3/3 clean standalone on an idle
+  machine.
+
+## 2026-09-10 — UIManager decomposition clusters #22-#29: eight more low-coupling extractions
+
+Continuing the AST-script-guided sweep from clusters #17-#21. `docs/TODO.md` Priority 6.
+
+- **#22: `showNotification` → new `notification-toast.ts`** (69 lines, 4 refs — `t`,
+  `notificationsSuppressedForE2e`, `showConversationDetail`, `navigateToGraphNode`). By far the
+  widest blast radius of any cluster so far — 116 call sites across `ui-manager.ts`/`app.ts` —
+  kept as a same-name public shim; verified with a dedicated real-browser regression
+  (`91-safety-toast-once-per-day`) before proceeding to further clusters, given the risk.
+- **#23: `getPeerNameCache` + `rememberPeerName` → new `peer-name-cache.ts`** (2+29 lines).
+  Cohesive localStorage-backed peer-name cache with a self-healing sync into stored
+  conversation records; `getMyConversations` passed in as a callback since it stays a
+  `UIManager` method used elsewhere.
+- **#24: `renderCapturedQuestionMessage` + `renderIpfsAttachmentMessage` → new
+  `conversation-message-cards.ts`** (33+33 lines). Both are "render a special message card
+  type inline in the conversation view" functions called from the same
+  `displayConversationMessages` mapping loop; their shared formatter dependencies
+  (`formatTalkRelativeTime`, etc.) stayed on `UIManager` (used elsewhere too) and are passed
+  in as deps.
+- **#25: `syncAppBarOverflow` → new `app-bar-overflow.ts`, `showSystemAnnouncement` → new
+  `system-announcement-banner.ts`** (34+29 lines, both 0 `this.*` refs). Found along the way:
+  `app-bar.ts` (an existing file in this same directory) defines a differently-shaped,
+  class-selector-based `updateOverflow`/`renderAppBar`/`AppBarConfig` component system that
+  turns out to be **completely unimported anywhere in the app** — confirmed via a repo-wide
+  search. Not touched (a dead-code question, not an extraction one — flagged, not deleted, same
+  discipline as `showEditStageNameDialog` in clusters #17-#21); `syncAppBarOverflow` got its own
+  correctly-named new module instead of building on the orphaned file.
+- **#26: `showDetailsPopupFor` → new `item-details-popup.ts`, `saveQuestionAnswersFromCompletion`
+  → `answer-preferences-storage.ts`** (28+29 lines). The latter's doc comment claimed "Called by
+  app when user completes a talk" but a repo-wide search found zero external callers — the
+  comment was stale (superseded when this logic moved inside `completeTalk` at some earlier
+  point); moved to the existing pure-storage module its `setMyQuestionAnswer`/
+  `MyQuestionAnswerEntry` already lived in, taking a `refreshAnswersListIfOpen` callback for its
+  one UI side effect.
+- **#27: `saveObjectUrlAs` → new `browser-file-save.ts`** (28 lines, 0 refs). Generic
+  File-System-Access-API-with-anchor-fallback download helper, unrelated to any specific
+  feature.
+- **#28: `setTalkDisabled` → new `talk-broadcast-toggle.ts`** (29 lines, 3 refs — `emit`, `t`,
+  `displayTalksList`). Public API (called from `app.ts`), kept as a shim. A genuine coordinator
+  (storage write + two `emit`s + DOM patch-in-place-or-fallback-to-full-rerender) rather than a
+  pure renderer, but still cleanly extractable with an explicit deps object.
+- **#29: `setupAppBarChrome` → added to `app-bar-overflow.ts`** (48 lines, 3 refs — `t`,
+  `showBroadcastToGroupDialog`, and a call to `syncAppBarOverflow` which cluster #25 had already
+  moved to this same module, so the two now call each other as plain function calls with no
+  deps-threading needed for that one).
+- **Characterization:** eight new/extended test files, ~70 new tests total — highlights:
+  `notification-toast.test.ts` (16, including uncovering that the original code's if/else-if
+  chain checks `peerId` before `retry`, so a toast carrying both navigates instead of retrying —
+  a pre-existing precedence quirk, not a bug introduced here, documented in its own test rather
+  than silently worked around); `peer-name-cache.test.ts` (10); `conversation-message-cards.test.ts`
+  (10, one fixture bug caught by a failing assertion: counting `captured-question-answer-btn`
+  substring occurrences double-counts each button's class *and* data-testid attribute — fixed to
+  count `<button` tags instead); `browser-file-save.test.ts` (5, covering the save-picker path,
+  its AbortError-cancel path, its fall-through-to-anchor path on a non-abort error, and the
+  anchor-only path when the API is unavailable); `app-bar-overflow.test.ts` (+7 for
+  `setupAppBarChrome`, on top of cluster #25's 7 for `syncAppBarOverflow`).
+- **Ratchet:** `ui-manager.ts` 7,834 → 7,778 (#22) → 7,746 (#23) → 7,708 (#24) → 7,653 (#25) →
+  7,605 (#26) → 7,581 (#27) → 7,560 (#28) → **7,518** (#29) lines.
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (182 suites / 1,933 tests after all eight, ~70 new).
+  Canonical run `run-20260909-235414-74770` (25m21s): `heavy-staged` is **green again**
+  (`rc=0`, confirming the earlier chatroom-manager fix continues to hold); `cross-browser`
+  remains the same pre-existing infra issue; `light` failed two already-established rotating
+  specs (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`),
+  neither touching anything in this batch — reran standalone on an idle machine: `79` passed
+  immediately, `00l` failed once more then passed cleanly on a third attempt, consistent with
+  pre-existing intermittent flakiness rather than a regression.
+
+## 2026-09-09 — UIManager decomposition clusters #17-#21: five more low-coupling extractions
+
+Continuing the AST-script-guided sweep from clusters #13-#16. `docs/TODO.md` Priority 6.
+
+- **#17: `displayChatroomMessage` → new `chatroom-message-view.ts`** (42 lines, 0 `this.*` refs).
+  Public API — called externally from `app.ts` — so `UIManager.displayChatroomMessage` stays as a
+  1-line delegating shim (`renderChatroomMessage(message)`) preserving the exact signature.
+- **#17: `updateMatchBadge` → new `notification-badges.ts`** (37 lines, 1 ref —
+  `getMyConversations`). Called from 8 internal sites; kept as a same-name public shim rather than
+  updating every call site, since it was already the established pattern for widely-called
+  methods (e.g. cluster #9's `processTalkForm`).
+- **#18: `confirmCapturedQuestionDialog` → new `captured-question-dialog.ts`** (42 lines, 1 ref —
+  `this.t`). docs/TODO.md §V capture-confirm modal; one internal caller.
+- **#19: `showTalkTemplatePicker` → new `talk-template-picker.ts`** (52 lines, 2 refs — `this.t`,
+  `this.showTalkEditorDialog`). The "+ Create Talk" template chooser. `TALK_TEMPLATES` was
+  imported into `ui-manager.ts` for this method alone — the import moved with the method instead
+  of staying behind unused.
+- **#20: `showChooseWhoToDmPicker` + `showDmInboxPicker` → new `person-picker-dialogs.ts`** (52 +
+  38 lines). Genuinely cohesive, not just co-sized: `showDmInboxPicker`'s own doc comment already
+  said "Modeled on `showChooseWhoToDmPicker`'s modal skeleton" — both are "pick a person from a
+  list, navigate to them" modals sharing the same `navigateToGraphNode('person', ...)` destination
+  and a near-identical row-binding shape, factored into one shared `bindPersonPickerRows` helper
+  in the new module.
+- **#21: `confirmBroadcastAudience` → new `broadcast-audience-dialog.ts`** (81 lines, 4 refs —
+  `t`/`tf`/`deliveryReasonLabel`/`formatReasonCounts`). Public API (called from `app.ts`'s bulk-send
+  flow) — kept as a delegating shim. `deliveryReasonLabel`/`formatReasonCounts` stayed as
+  `UIManager` methods (used in 3 other unrelated places) and are passed in as explicit deps rather
+  than moved. The `BroadcastAudiencePreview` type stayed exported from `ui-manager.ts` (app.ts
+  already imports it from there) — the new module imports it with `import type`, which erases at
+  compile time and doesn't create a runtime circular dependency.
+- **Also noted, not acted on:** `showEditStageNameDialog` (59 lines) has zero callers anywhere in
+  the codebase (`app.ts`, `ui-manager.ts`, tests) — likely dead code, but deleting a whole feature
+  is a different kind of change than a behavior-preserving extraction, so it was left in place
+  rather than removed unilaterally. Flagged here for a deliberate decision, not silently dropped.
+- **Characterization:** four new test files — `chatroom-message-view.test.ts` (5 tests: no-op
+  without a container, bubble render + welcome-placeholder clear, own-vs-other-message styling,
+  dedup by id, hostile-text escaping), `notification-badges.test.ts` (6: no badge at zero,
+  counts only unread+non-support, 99+ cap, badge removal when count drops to zero, no duplicate
+  badge across repeated calls, no-op with neither target element), `captured-question-dialog.test.ts`
+  (6), `talk-template-picker.test.ts` (6), `person-picker-dialogs.test.ts` (9 — including one
+  fixture-methodology lesson: checking `document.body.innerHTML` for escaped `<`/`>` inside an
+  HTML *attribute* value is unreliable, since jsdom's own serializer omits unnecessary escapes for
+  characters that aren't dangerous in that context on round-trip; the real check is that no
+  `<script>` element exists and the visible text renders as inert text, not markup), and
+  `broadcast-audience-dialog.test.ts` (10). All passed on first or second run (only the one
+  jsdom-serialization fixture issue above, not an extraction bug).
+- **Ratchet:** `ui-manager.ts` 8,133 → 8,068 (#17) → 8,030 (#18) → 7,984 (#19) → 7,906 (#20) →
+  **7,834** (#21) lines — crossed under 8,000 during #19.
+- **Verification:** typecheck/lint clean after each, both production builds succeed throughout,
+  full unit suite green after every cluster (173 suites / 1,853 tests after all five, 42 new).
+  Canonical run `run-20260909-223829-62705` (25m27s): `cross-browser` remains the known
+  pre-existing Gun-boot-timeout infra issue; `heavy-staged` failed
+  `01-login-two-users-headcount` at the same line as before today's earlier chatroom-manager
+  fix — but 5/5 standalone reruns on an idle machine all passed, meaning this is now a much
+  rarer residual instance of that race under extreme concurrent multi-phase load rather than
+  the "always fails" bug fixed earlier (the guard reads current state right before writing,
+  narrowing the race window to almost nothing, but cannot close it to zero without a stronger
+  mechanism like an atomic conditional write — out of scope today; flagged for awareness, not a
+  regression from clusters #17-#21, none of which touch server code at all). `light` failed 4
+  different specs, none touching anything extracted today except
+  `29-messaging-semantics`'s "unread badge lifecycle" case (plausibly cluster #17's
+  `renderMatchBadge`) — investigated specifically: failed standalone once, then passed 4/5
+  further standalone reruns (alone and as part of its full 3-test file), consistent with
+  pre-existing reload/timing flakiness in that one test rather than a deterministic regression
+  in the byte-for-byte-preserved badge logic. The other three (`33-mobile-chatroom-hierarchy`'s
+  DOM-detachment scroll flake, `00l`, `83-survey`) are unrelated to anything touched today.
+
+## 2026-09-09 — UIManager decomposition cluster #16: Me-tab answers filter/sort
+
+`applyMeAnswerFilter` (63 lines, 1 `this.*` ref — `this.t`) moved into the existing
+`answers-view.ts` module, which already owns the Me-tab Answers list it filters/sorts
+(`displayAnswersList`/`renderQuestionRow`). `docs/TODO.md` Priority 6, "Current sequence".
+
+- Called from 7 internal sites (checkbox/select/input `change`/`input` listeners plus one
+  `onRowsRendered` deps callback) — all `this.applyMeAnswerFilter()` with no arguments, updated in
+  one `replace_all` pass to `applyMeAnswerFilter(this.t.bind(this))` since the call shape was
+  identical everywhere.
+- Left the file's existing, separate `#answers-search-input` live-filter listener (attached inside
+  `displayAnswersList` itself, dispatching `iinpublic:answers-filter-change`) untouched — it does
+  a simpler text-only filter and is a pre-existing, intentionally distinct code path from the full
+  multi-criteria filter this cluster moved, not something to merge or "fix" during an extraction.
+- **Characterization:** added 12 tests to the existing `src/test/unit/answers-view.test.ts` —
+  talk-type checkbox filtering (including "nothing active → nothing visible"); tag-state filtering
+  applies only to rows that actually carry a tag-state, never to an ordinary question row;
+  search-text and answer-text query filtering; outcome filtering; an inclusive date-range filter;
+  default (`answered-desc`) and explicit `answered-asc` sort ordering; the empty-state placeholder
+  showing only when rows exist but none match (never when there are no rows at all). First run hit
+  3 failures — all a fixture bug, not the extraction: `<select>` elements in the test DOM had only
+  one hardcoded `<option>`, and per the HTML spec, assigning `.value` to a value with no matching
+  `<option>` silently reverts to `""` — fixed by adding every `<option>` the tests actually select.
+  All 12 passed once the fixture had real options.
+- **Ratchet:** `ui-manager.ts` 8,197 → **8,133** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, 167 unit suites / 1,811 tests pass (12 new).
+
+## 2026-09-09 — UIManager decomposition clusters #14-#15: verified support messages + dirty-word editor
+
+Two more zero/near-zero-coupling extractions from the AST measurement script's candidate list
+(cluster #13's entry). `docs/TODO.md` Priority 6, "Current sequence" continuing past step 20.
+
+### Cluster #14: `filterVerifiedSupportMessages` → new `verified-support-messages.ts`
+
+77 lines, 1 `this.*` ref (`currentUser.stageName`), used from exactly one call site
+(`displayConversationMessages`'s support-channel branch — the same method touched earlier today
+for the K7 FAQ-bundle re-render fix, though this extraction doesn't change its logic, only where
+the filter function lives). All of the method's real dependencies
+(`readCachedFaqBundle`/`fetchGrantFromCache`/`verifyFaqBundle`/`verifySupportAck`/
+`verifyOnboardingTips`/`verifyTechSupportGreeting` and their templates/locale types) were already
+free functions imported into `ui-manager.ts` — none were `UIManager` methods — so the whole
+K2/K5/K7 signed-message verification pipeline moved as a single pure async function taking
+`(messages, stageName)`. Every one of those now-unused imports in `ui-manager.ts` was removed
+(confirmed via per-symbol usage count first — each appeared exactly twice: its import and its one
+use inside this method); `TECHSUPPORT_ROOT_USER_ID` stayed imported (9 other uses).
+
+- **Characterization:** `src/test/unit/verified-support-messages.test.ts` (new, 15 tests) — an
+  ordinary message and a greeting-shaped-but-wrong-sender message both pass through untouched;
+  genuine vs. tampered-text vs. wrong-name greeting; genuine vs. forged-signature ack; each tip
+  kept at its correct index, a real tip's text claimed at the wrong index rejected, an
+  out-of-range tip index rejected; a FAQ answer verified against a (mocked)
+  `readCachedFaqBundle()` return value — kept when it matches, dropped when nothing is cached yet
+  (the exact K7 race documented in today's earlier bug-fix entry), dropped on a stale-cache
+  signature mismatch, dropped when the answer text doesn't match the entry recorded under its
+  `questionKey`; and relative message order preserved across a kept/dropped mix. Mocked
+  `techsupport-faq-cache`/`techsupport-delegate-cache` rather than touching `localStorage`
+  directly, since neither module exports a public cache-seeding function. All 15 passed first run.
+
+### Cluster #15: `bindDirtyWordEditor` → new `dirty-word-editor.ts`
+
+73 lines, 1 `this.*` ref (`this.t`, for 3 validation-error strings), called from exactly one site
+inside the still-deferred `bindSettingsControls`. Self-contained chip-editor DOM binding (add/
+remove/reset the Settings "blocked words" list) with its own dedicated `#dirty-word-*` subtree,
+touching nothing else in Settings. Took `{ onChange, t }` as explicit deps — `t` typed
+`(key: UiTranslationKey) => string` (not a bare `string` param: TypeScript's contravariant
+function-parameter check rejected the wider signature against `this.t`'s narrow key-union type,
+caught immediately by `tsc`, not by a passing-then-wrong-at-runtime test).
+
+- **Characterization:** `src/test/unit/dirty-word-editor.test.ts` (new, 9 tests, `@jest-environment
+  jsdom`) — no-op when the chips container is absent; add-by-click and add-by-Enter (not other
+  keys); too-short/duplicate/50-word-limit rejections each show their own error and skip
+  `onChange`; remove-by-chip-button; an error clears on the next successful action; reset restores
+  the compiled default list (and excludes whatever custom word was there before). All 9 passed
+  first run. Real-browser regression: `staged/stage1-single-user/70-dirty-word-list-editor` (the
+  dedicated spec for this exact feature) both cases pass.
+
+### Both clusters
+
+- **Ratchet:** `ui-manager.ts` 8,378 → 8,270 (cluster #14) → **8,197** (cluster #15) lines
+  (`ui-manager-size-budget.test.ts` lowered to match after each).
+- **Verification:** typecheck/lint clean after each, both production builds succeed, full unit
+  suite green throughout (167 suites / 1,799 tests after both, 24 new).
+
+## 2026-09-09 — UIManager decomposition cluster #13: flat answer-history record construction
+
+Extracted `getTalkContentKey` (private static) and `saveFlatAnswerHistoryRecord` (private instance
+method) from `ui-manager.ts` into the existing `answer-history-storage.ts` module, which already
+owned the flat-answer-history storage read/write these two feed. `docs/TODO.md` Priority 6,
+"Current sequence" step 20.
+
+- **Re-measured candidates via a small AST script** (method line span + distinct `this.*`
+  reference count for every `UIManager` method) rather than eyeballing, per the established
+  methodology. `displayTalksList` (685/52), `renderSettingsView` (476/21) +
+  `bindSettingsControls` (361/22), and the conversation-view trio
+  (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) remain
+  deferred exactly as before — still the most entangled. The script surfaced several
+  previously-unlisted near-zero-coupling candidates instead (methods added or grown by recent
+  feature work): `saveFlatAnswerHistoryRecord` (99 lines, 0 `this.*` refs — its only "coupling"
+  was calling the private static `getTalkContentKey`, itself 0 refs), `filterVerifiedSupportMessages`
+  (77/1), `bindDirtyWordEditor` (73/1), `applyMeAnswerFilter` (63/1), `displayChatroomMessage`
+  (42/0), `updateMatchBadge` (37/1) — good candidates for the next several clusters.
+- **Why this pair first:** a zero-coupling pure transform (build a `FlatAnswerHistoryItem[]` from
+  a completed talk's answers, handling tag/flow/route/survey `contextLabel` shaping and the
+  §LL.2 `booleanTag` distinction) plus its zero-coupling static helper, both already logically
+  belonging to the storage module they call into — no new file needed, and the natural home
+  already existed.
+- **Call-site updates:** 4 internal call sites referenced `UIManager.getTalkContentKey`
+  directly (one inside `displayTalksList`, one in a deps-object property forwarded to an
+  already-extracted view, one in `completeTalk`, one inside the extracted method itself) — all
+  switched to the imported free function; 2 call sites (`completeTalk`, and a second
+  match-detection path) switched `this.saveFlatAnswerHistoryRecord(...)` to the plain import.
+- **Characterization:** `src/test/unit/answer-history-storage.test.ts` (new, 15 tests) —
+  content-key stability across unrelated fields, key sensitivity to `locationRadiusMiles`, title
+  folded into the key only for `type: 'tag'`; persisted record id/outcome/senderIds shape,
+  sender-id dedup and falsy-filtering; self-match tag → Checked/Unchecked vs. Pair tag →
+  real answer text (the §LL.2 `booleanTag` distinction); "Ignored" fallback for a missing or
+  literal `"ignore"` answer; flow `contextLabel` built from prior Q→A pairs; route
+  `contextLabel`/`contextPath` from the question's own `contextPath` field; survey always empty
+  `contextLabel`/`contextHash` regardless of a `contextPath`; `contextHash`/`questionContentId`
+  included only when present; `mode` passthrough; `locationRadiusMiles` included only when set.
+  All 15 passed on the first run — a purely mechanical move, no behavior surprises.
+- **Real-browser regression:** `staged/stage1-single-user/05-talks-edit` (flow),
+  `staged/stage2-two-user/92-route-shared-builtin-root-branches` (route),
+  `staged/stage2-two-user/07-tags-checkbox` (tag, both booleanTag branches), and
+  `staged/stage2-two-user/83-survey-ignore-mid-question-not-complete` (survey) all pass —
+  covering every talk-type branch `saveFlatAnswerHistoryRecord` handles.
+- **Ratchet:** `ui-manager.ts` 8,488 → **8,378** lines (`ui-manager-size-budget.test.ts` lowered
+  to match).
+- **Verification:** typecheck/lint clean, both production builds succeed, 165 unit suites /
+  1,775 tests pass (15 new).
+
+## 2026-09-09 — Smaller independent work: containment similarity metric + PMTiles/Protomaps evaluation
+
+Landed both items from `docs/TODO.md`'s "Smaller independent work" section.
+
+### Asymmetric/containment tag-similarity metric
+
+The existing `jaccardSimilarity`/`cosineSimilarity` (`src/shared/find-similar.ts`) are both
+symmetric — `score(A,B) === score(B,A)` always — which loses information the TODO called out:
+"50 of Eve's 50 tags match Adam" means Eve is *entirely* covered by Adam, but Adam (with 100 tags)
+is only half covered by Eve; a symmetric metric reports the same ~0.33-0.5-ish number either way.
+
+- Added `containmentSimilarity`/`containmentFromSets`: `|A ∩ B| / |A|`, the fraction of the FIRST
+  argument's tags also held by the second — genuinely asymmetric, same "pick a direction
+  deliberately" discipline as the existing `viewer-standard` combine policy. Registered as
+  `'containment'` in `TagSimilarityMetricId`/`TAG_SIMILARITY_METRICS`, and wired into
+  `FindSimilarIndex.similarity()`/`.topK({ metric: 'containment' })` via a new
+  `TAG_SIMILARITY_FROM_SETS` lookup table (replacing the old two-way jaccard/cosine ternary in
+  `topK`'s hot path, so adding a third metric there was a net simplification, not a bigger branch).
+- Does not touch the already-shipped `matchScore`/combine-policy weighted path or any UI — this
+  is a library-level capability addition, matching the TODO's own framing
+  ("does not block the already-shipped symmetric-metric implementation").
+- **Tests:** `src/test/unit/tag-similarity.test.ts` — added `containment` to the shared
+  cross-metric table (identical/disjoint/empty sets, repeated array entries, weight-map inputs,
+  all pass unchanged since those cases are symmetric-safe); a dedicated test proving the
+  asymmetry using the file's own Adam/Eve/Bob/Alice fixtures
+  (`containmentSimilarity(eve, adam) === 1` vs `containmentSimilarity(adam, eve) ≈ 0.5`, while
+  jaccard/cosine give the same value either direction); and a `FindSimilarIndex` integration test
+  showing `topK({ metric: 'containment' })` ties Eve/Bob/Alice at 0.5 (they each share exactly 50
+  of Adam's 100 tags) where jaccard/cosine rank them apart — the bounded top-K heap's existing
+  userId-based tiebreak resolves the tie deterministically (alphabetically ascending, confirmed by
+  running the test rather than assumed — the first draft had this backwards).
+
+### PMTiles/Protomaps evaluation for the chatroom map view
+
+The TODO asked to evaluate PMTiles/Protomaps "if offline, self-hosted, or decentralized map tile
+distribution becomes useful." Conclusion: it's a good fit for this app's self-hosted-VPS story,
+and the enabling change is small enough to land now rather than leave purely as a research note.
+
+- `CHATROOM_MAP_STYLE_URL` (`src/shared/config.ts`) was already self-hoster-overridable via
+  `IINPUBLIC_MAP_STYLE_URL` — the missing piece was that MapLibre GL has no built-in understanding
+  of `pmtiles://` URLs, so an override pointing at a self-hosted style.json that uses a
+  `pmtiles://` source would have silently failed to load tiles.
+- Added the `pmtiles` npm package (Protomaps' own client library) and registered its `Protocol` in
+  `chatroom-map-view.ts`'s existing lazy `loadMapLibre()` loader, alongside the existing
+  worker-URL setup. Registering the protocol is a no-op unless a style/source actually references
+  `pmtiles://`, so this changes nothing for the default shipped style (OpenFreeMap Liberty) —
+  purely additive. A self-hoster can now point `IINPUBLIC_MAP_STYLE_URL` at their own style.json
+  referencing a single static `.pmtiles` archive (servable from the same box, or IPFS, that
+  already hosts everything else in this app) with **no tile server required at all** — exactly
+  the "self-hosted/decentralized" framing the TODO asked about.
+- Did not download or host an actual `.pmtiles` archive (multi-hundred-MB to multi-GB even for a
+  single-region extract) — out of scope for a library-level enabling change, and a real hosting
+  decision for the user's own OVH VPS storage/bandwidth, not something to commit to unilaterally.
+- **Verification:** typecheck/lint clean (the file's two pre-existing `no-var-requires` lint
+  errors, for the unrelated webpack `?maplibreWorkerAsset` loader query syntax, were confirmed via
+  `git stash` to predate this change). Production web build succeeds — `pmtiles` bundles into the
+  already-lazy-loaded map chunk, not the main bundle. All 7 map-touching E2E specs pass
+  (`52-appbar-overflow-responsive`, `53-chatroom-navigation`, including the real map-render/
+  marker-click case). Full unit suite (164 suites / 1,760 tests, 8 new) passes.
 ## 2026-09-10 — Ubuntu remote worker, Chromium/Firefox, and packaged desktop-app gates
 
 - Added `ubuntu-test` to the host matrix and a Mac-controlled SSH runner with a mandatory

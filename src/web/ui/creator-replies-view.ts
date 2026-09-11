@@ -40,6 +40,59 @@ export type CreatorReplyFilterState = {
   group: string;
 };
 
+const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
+
+/** Reads the current value of every reply-filter/sort control directly from the DOM. */
+export function readCreatorReplyFilterState(): CreatorReplyFilterState {
+  return {
+    query: ((document.getElementById('reply-filter-query') as HTMLInputElement | null)?.value || '').trim(),
+    outcome: (document.getElementById('reply-filter-outcome') as HTMLSelectElement | null)?.value || 'all',
+    relationship: (document.getElementById('reply-filter-relationship') as HTMLSelectElement | null)?.value || 'all',
+    type: (document.getElementById('reply-filter-type') as HTMLSelectElement | null)?.value || 'all',
+    language: (document.getElementById('reply-filter-language') as HTMLSelectElement | null)?.value || 'all',
+    from: (document.getElementById('reply-filter-from') as HTMLInputElement | null)?.value || '',
+    to: (document.getElementById('reply-filter-to') as HTMLInputElement | null)?.value || '',
+    sort: (document.getElementById('reply-sort-order') as HTMLSelectElement | null)?.value || 'recent',
+    group: (document.getElementById('reply-group-order') as HTMLSelectElement | null)?.value || 'none',
+  };
+}
+
+/** Persists the current reply-filter/sort control values across reloads. */
+export function persistCreatorReplyFilterState(): void {
+  try {
+    localStorage.setItem(CREATOR_REPLY_FILTERS_KEY, JSON.stringify(readCreatorReplyFilterState()));
+  } catch {
+    /* local-only preference persistence is optional */
+  }
+}
+
+/** Restores every reply-filter/sort control's DOM value from the last-persisted state. */
+export function restoreCreatorReplyFilterState(): void {
+  let state: Partial<CreatorReplyFilterState> = {};
+  try {
+    const raw = localStorage.getItem(CREATOR_REPLY_FILTERS_KEY);
+    state = raw ? JSON.parse(raw) as Partial<CreatorReplyFilterState> : {};
+  } catch {
+    state = {};
+  }
+  const values: Array<[string, string | undefined]> = [
+    ['reply-filter-query', state.query],
+    ['reply-filter-outcome', state.outcome],
+    ['reply-filter-relationship', state.relationship],
+    ['reply-filter-type', state.type],
+    ['reply-filter-language', state.language],
+    ['reply-filter-from', state.from],
+    ['reply-filter-to', state.to],
+    ['reply-sort-order', state.sort],
+    ['reply-group-order', state.group],
+  ];
+  for (const [id, value] of values) {
+    if (!value) continue;
+    const element = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+    if (element) element.value = value;
+  }
+}
+
 export interface RenderCreatorRepliesDeps {
   getRows: () => CreatorReplyRow[];
   readFilterState: () => CreatorReplyFilterState;

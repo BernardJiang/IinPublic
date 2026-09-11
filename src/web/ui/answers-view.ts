@@ -614,3 +614,76 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     window.dispatchEvent(new CustomEvent('iinpublic:answers-filter-change'));
   });
 }
+
+/**
+ * Applies every Me-tab Answers filter/sort control (talk-type checkboxes, §LL.2 tag-state
+ * checkboxes, free-text search, answer-text search, outcome, date range) and re-sorts the
+ * already-rendered `.answer-talk-item` rows in place, toggling an empty-state placeholder
+ * when nothing matches. Reads its own filter-control values directly from the DOM — this is
+ * the multi-criteria filter bound to the full control panel, distinct from the standalone
+ * live search-input listener `displayAnswersList` attaches above (which only handles a plain
+ * text query and is intentionally left as-is; not this function's concern).
+ */
+export function applyMeAnswerFilter(t: (key: UiTranslationKey) => string): void {
+  const activeTypes = Array.from(document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox:checked'))
+    .map((checkbox) => checkbox.value.toLowerCase())
+    .filter(Boolean);
+  const allowedTagStates = Array.from(document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox:checked'))
+    .map((checkbox) => checkbox.value);
+  const query = ((document.getElementById('answers-search-input') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
+  const outcome = (document.getElementById('me-outcome-filter') as HTMLSelectElement | null)?.value || 'all';
+  const sort = (document.getElementById('me-answer-sort') as HTMLSelectElement | null)?.value || 'answered-desc';
+  const answerQuery = ((document.getElementById('me-answer-filter') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
+  const fromDate = (document.getElementById('me-answer-date-from') as HTMLInputElement | null)?.value || '';
+  const toDate = (document.getElementById('me-answer-date-to') as HTMLInputElement | null)?.value || '';
+  const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
+  const toMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
+  let visibleCount = 0;
+
+  document.querySelectorAll<HTMLElement>('#answers-content .answer-talk-item').forEach((item) => {
+    // A merged row can carry more than one contributing talk type (data-talk-type is a
+    // space-separated set) since the same question may have been asked via several talk
+    // types — matches if ANY contributing type is active, rather than requiring one exact type.
+    const talkTypes = String(item.dataset.talkType || 'flow').toLowerCase().split(' ').filter(Boolean);
+    const tagState = String(item.dataset.tagState || '');
+    // docs/TODO.md §LL.2 follow-up: rows no longer have a distinct checkbox-pill CSS class —
+    // whether this row's most-recent variant is a boolean (Checked/Unchecked) tag is now
+    // carried directly in data-tag-state itself (non-empty only for that case; see
+    // renderQuestionRow, answers-view.ts).
+    const isTagRow = tagState !== '';
+    const matchesType = activeTypes.length === 0 ? false : talkTypes.some((type) => activeTypes.includes(type));
+    const matchesTagState = !isTagRow || allowedTagStates.includes(tagState);
+    const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
+    const answeredAt = Number(item.dataset.answeredAt || 0);
+    const matchesAnswer = !answerQuery || String(item.dataset.answerText || '').includes(answerQuery);
+    const matchesDate = answeredAt >= fromMs && answeredAt <= toMs;
+    const visible = matchesType && matchesTagState && matchesQuery && matchesAnswer && matchesDate
+      && (outcome === 'all' || item.dataset.outcome === outcome);
+    item.style.display = visible ? 'flex' : 'none';
+    if (visible) visibleCount += 1;
+  });
+
+  const list = document.getElementById('answers-list');
+  let empty = document.getElementById('answers-filter-empty');
+  if (list && !empty) {
+    empty = document.createElement('div');
+    empty.id = 'answers-filter-empty';
+    empty.style.cssText = 'display:none;padding:20px;text-align:center;color:var(--text-tertiary);border:1px dashed var(--border-strong);border-radius:8px;background:var(--bg-subtle);';
+    empty.textContent = t('meNoMatchingAnswers');
+    list.appendChild(empty);
+  }
+  if (list) {
+    const rank = (item: HTMLElement): number => {
+      if (sort === 'answered-asc') return Number(item.dataset.answeredAt || 0);
+      if (sort === 'chatbot-recent') return -Number(item.dataset.chatbotLastUsedAt || 0);
+      if (sort === 'chatbot-count') return -Number(item.dataset.chatbotUseCount || 0);
+      return -Number(item.dataset.answeredAt || 0);
+    };
+    // docs/TODO.md §LL.2 follow-up: rows live directly under the single flat `#answers-list`
+    // now (no more per-talk section containers) — sort them all together.
+    Array.from(list.querySelectorAll<HTMLElement>('.answer-talk-item'))
+      .sort((a, b) => rank(a) - rank(b))
+      .forEach((row) => list.appendChild(row));
+  }
+  if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
+}

@@ -3,6 +3,9 @@
 import {
   renderCreatorReplies,
   CREATOR_REPLY_PAGE_SIZE,
+  persistCreatorReplyFilterState,
+  readCreatorReplyFilterState,
+  restoreCreatorReplyFilterState,
   type CreatorReplyRow,
   type CreatorReplyFilterState,
   type RenderCreatorRepliesDeps,
@@ -210,5 +213,78 @@ describe('renderCreatorReplies (UIManager decomposition cluster #11)', () => {
     expect(document.querySelectorAll('.creator-reply-row')).toHaveLength(1);
     expect(document.body.textContent).toContain('Alice');
     expect(document.body.textContent).not.toContain('Bob');
+  });
+});
+
+describe('creator reply filter state persistence', () => {
+  function renderFilterFixture(): void {
+    document.body.innerHTML = `
+      <input id="reply-filter-query">
+      <select id="reply-filter-outcome"><option value="all" selected>All</option><option value="match">Match</option></select>
+      <select id="reply-filter-relationship"><option value="all" selected>All</option><option value="partner">Partner</option></select>
+      <select id="reply-filter-type"><option value="all" selected>All</option><option value="flow">Flow</option></select>
+      <select id="reply-filter-language"><option value="all" selected>All</option><option value="en">English</option></select>
+      <input id="reply-filter-from">
+      <input id="reply-filter-to">
+      <select id="reply-sort-order"><option value="recent" selected>Recent</option><option value="oldest">Oldest</option></select>
+      <select id="reply-group-order"><option value="none" selected>None</option><option value="talk">Talk</option></select>
+    `;
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    renderFilterFixture();
+  });
+
+  it('readCreatorReplyFilterState reads every control\'s current DOM value', () => {
+    (document.getElementById('reply-filter-query') as HTMLInputElement).value = '  bicycle  ';
+    (document.getElementById('reply-filter-outcome') as HTMLSelectElement).value = 'match';
+    (document.getElementById('reply-sort-order') as HTMLSelectElement).value = 'oldest';
+    expect(readCreatorReplyFilterState()).toEqual({
+      query: 'bicycle',
+      outcome: 'match',
+      relationship: 'all',
+      type: 'all',
+      language: 'all',
+      from: '',
+      to: '',
+      sort: 'oldest',
+      group: 'none',
+    });
+  });
+
+  it('persistCreatorReplyFilterState + restoreCreatorReplyFilterState round-trip through localStorage', () => {
+    (document.getElementById('reply-filter-query') as HTMLInputElement).value = 'bicycle';
+    (document.getElementById('reply-filter-outcome') as HTMLSelectElement).value = 'match';
+    (document.getElementById('reply-sort-order') as HTMLSelectElement).value = 'oldest';
+    persistCreatorReplyFilterState();
+
+    renderFilterFixture(); // fresh, default-valued controls simulating a reload
+    restoreCreatorReplyFilterState();
+
+    expect((document.getElementById('reply-filter-query') as HTMLInputElement).value).toBe('bicycle');
+    expect((document.getElementById('reply-filter-outcome') as HTMLSelectElement).value).toBe('match');
+    expect((document.getElementById('reply-sort-order') as HTMLSelectElement).value).toBe('oldest');
+  });
+
+  it('restoreCreatorReplyFilterState leaves defaults untouched when nothing was ever persisted', () => {
+    restoreCreatorReplyFilterState();
+    expect((document.getElementById('reply-filter-query') as HTMLInputElement).value).toBe('');
+    expect((document.getElementById('reply-filter-outcome') as HTMLSelectElement).value).toBe('all');
+  });
+
+  it('restoreCreatorReplyFilterState does not throw on malformed stored JSON', () => {
+    localStorage.setItem('creatorReplyFilterState', 'not json');
+    expect(() => restoreCreatorReplyFilterState()).not.toThrow();
+    expect((document.getElementById('reply-filter-query') as HTMLInputElement).value).toBe('');
+  });
+
+  it('restoreCreatorReplyFilterState never sets a control to an empty stored value', () => {
+    (document.getElementById('reply-filter-query') as HTMLInputElement).value = 'stale-value';
+    localStorage.setItem('creatorReplyFilterState', JSON.stringify({ query: '', outcome: 'match' }));
+    restoreCreatorReplyFilterState();
+    // Falsy stored value is skipped, so the control keeps whatever it already had.
+    expect((document.getElementById('reply-filter-query') as HTMLInputElement).value).toBe('stale-value');
+    expect((document.getElementById('reply-filter-outcome') as HTMLSelectElement).value).toBe('match');
   });
 });

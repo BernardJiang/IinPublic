@@ -1,4 +1,4 @@
-import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import { getActiveChatroomHierarchy, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { UiTranslationKey } from './ui-translations';
@@ -556,4 +556,36 @@ async function loadMemberStats(
   }
   // Re-render with stats (sorted)
   renderMemberList(container, members, deps, statsMap);
+}
+
+/**
+ * Resolves a chatroom id to its display title: a custom room (🏪/💬 + name), then the flat
+ * hierarchy list's icon + name, then a depth-first search of the tree (for a room present in
+ * the tree but not the flat list), then a title-cased fallback derived from the id itself.
+ */
+export function resolveChatroomTitle(chatroomId: string, customChatrooms: readonly CustomChatroomRow[]): string {
+  const custom = customChatrooms.find((c) => c.id === chatroomId);
+  if (custom) {
+    const icon = custom.type === 'business' ? '🏪' : '💬';
+    return `${icon} ${custom.name}`;
+  }
+  const flat = getFlatChatroomList();
+  const node = flat.find((n) => n.id === chatroomId);
+  if (node) return `${node.icon} ${node.name}`;
+  const findInTree = (node: ReturnType<typeof getActiveChatroomHierarchy>): string | null => {
+    if (node.id === chatroomId) return node.name;
+    if (node.children) {
+      for (const ch of node.children) {
+        const r = findInTree(ch);
+        if (r) return r;
+      }
+    }
+    return null;
+  };
+  const treeName = findInTree(getActiveChatroomHierarchy());
+  if (treeName) return treeName;
+  return chatroomId
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }

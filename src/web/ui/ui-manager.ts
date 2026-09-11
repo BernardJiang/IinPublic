@@ -7,45 +7,57 @@ import {
   type Tag,
 } from '../../shared/types';
 import { EventEmitter } from 'events';
-import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
-import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
+import { formatTimeAgo, formatExpiration, escapeHtml, tagAnswerSuffix } from './ui-formatters';
+import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { completeTalk as completeTalkImpl, saveMyTalk as saveMyTalkImpl } from './talk-completion';
+import { renderAppDownloadBanner as renderAppDownloadBannerImpl } from './app-download-banner';
+import { openAnswerPreferencesDialog } from './answer-preference-mutations';
+import {
+  displayContextualStatistics as displayContextualStatisticsImpl,
+  type LocalStatisticsDeps,
+} from './local-statistics';
+import { hydrateAttachmentImages as hydrateAttachmentImagesImpl } from './attachment-hydration';
+import { openEraseDeviceDialog as openEraseDeviceDialogImpl } from './erase-device-flow';
+import { registerTalkForPeer } from './talk-peer-registration';
+import {
+  resolveExpiresAtMs,
+  type BroadcastAudiencePreview,
+  getSenderOmittedBroadcastPreviews as getSenderOmittedBroadcastPreviewsImpl,
+} from './broadcast-audience-preview';
+import { refreshFlowAnswerConstraints as refreshFlowAnswerConstraintsImpl } from './flow-answer-constraints';
+import { renderSettingsSection as renderSettingsSectionImpl } from './settings-section-template';
+import { showContentFilterToast as showContentFilterToastImpl } from './content-filter-toast';
+import { applySettingsSectionView as applySettingsSectionViewImpl } from './settings-section-view';
+import {
+  attachmentDownloadFilename as attachmentDownloadFilenameImpl,
+  attachmentIconForMime as attachmentIconForMimeImpl,
+  collectSharedAttachments as collectSharedAttachmentsImpl,
+  formatAttachmentSize as formatAttachmentSizeImpl,
+  parseIpfsSharePayload as parseIpfsSharePayloadImpl,
+  renderMediaTile as renderMediaTileImpl,
+} from './attachment-metadata';
 import { type QAPair } from '../../shared/flattened-answer-keys';
-import { normalizeQuestionKey } from '../../shared/user-utils';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
-import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage, singleNonIgnoreAnswer } from '../../shared/talk-engine';
+import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
-import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
+import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
-import {
-  verifyTechSupportGreeting,
-  TECHSUPPORT_GREETING_TEMPLATES,
-  verifySupportAck,
-  TECHSUPPORT_SUPPORT_ACK_TEMPLATES,
-  verifyOnboardingTips,
-  TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES,
-  type GreetingLocale,
-  type SupportAckLocale,
-  type OnboardingTipsLocale,
-} from '../../shared/techsupport-greeting';
-import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
-import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import { renderSupportInboxSection } from './support-inbox-view';
-import { fetchGrantFromCache } from '../services/techsupport-delegate-cache';
+import { filterVerifiedSupportMessages } from './verified-support-messages';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import { renderSupportDelegatesSection } from './support-delegates-view';
 import { renderSupportDelegateOptInSection } from './support-delegate-optin-view';
 import type { GraphNodeTarget } from './graph-navigation';
-import type { StatsDashboard } from '../../shared/talk-stats';
-import { buildStatsDashboard } from '../../shared/talk-stats';
-import { displayAnswersList as renderAnswersList } from './answers-view';
+import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './answers-view';
 import {
   type CustomChatroomRow,
   renderChatroomList as renderChatrooms,
+  resolveChatroomTitle,
   showChatroomDetail as openChatroomDetail,
   syncStatusBroadcastButtonVisibility as syncChatroomBroadcastVisibility,
   updateChatroomMembers as renderChatroomMembers,
@@ -59,45 +71,32 @@ import {
   displayContactsList as renderContactsList,
   openRelationshipDialog,
   renderContactContextSummaryInto,
+  saveKnownPerson as saveKnownPersonImpl,
+  setBlocked as setBlockedImpl,
   showContactsList as openContactsList,
   type ContactsViewDeps,
 } from './contacts-view';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
 import { applyConnectivityPreset, connectivityDiagnosticsText, loadConnectivitySettings, saveConnectivitySettings, type ConnectivityDiagnostics, type ConnectivityPreset } from './connectivity-settings';
 import {
-  clearAnswerPreferences,
   getAnswerPreferences,
   getAnsweredTalkByContent,
   getExactChatbotMemory,
-  getFlattenedAnswerPreferences,
-  setAnswerPreferences,
-  setAnsweredTalkByContent,
-  setExactChatbotMemory,
-  setFlattenedAnswerPreferences,
-  setMyQuestionAnswer,
-  type AnswerPreferenceEntry,
-  type AnswerPreferenceMap,
-  type MyQuestionAnswerEntry,
+  saveQuestionAnswersFromCompletion as saveQuestionAnswersFromCompletionStorage,
 } from './answer-preferences-storage';
 import {
   getSelfTagForQuestionText,
   LOCAL_EXACT_CHATBOT_USER_ID,
-  makeQuestionId,
-  savePermanentAnswer,
-  saveSuppressedQuestion,
-  saveTemporaryAnswer,
 } from '../../shared/exact-chatbot-memory';
 import {
   clearMyTalks,
-  deleteMyTalkEntry,
   getMyTalks,
-  setMyTalks,
   type MyTalkEntry,
 } from './my-talks-storage';
 import {
   getFlatAnswerHistory,
-  upsertFlatAnswerHistory,
-  type FlatAnswerHistoryItem,
+  getTalkContentKey,
+  saveFlatAnswerHistoryRecord,
 } from './answer-history-storage';
 import {
   COLOR_SCHEMES,
@@ -123,7 +122,6 @@ import {
 } from './ui-settings-storage';
 import { showWalkthroughDialog } from './onboarding-walkthrough';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
-import { showPreferencesDialog as openPreferencesDialog, type AnswerPreferenceUiMode } from './preferences-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
 import {
   addAnswerToQuestion as addTalkEditorAnswerToQuestion,
@@ -137,7 +135,53 @@ import {
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
-import { TALK_TEMPLATES } from './talk-templates';
+import { showTalkTemplatePicker as renderTalkTemplatePicker } from './talk-template-picker';
+import {
+  showChooseWhoToDmPicker as renderChooseWhoToDmPicker,
+  showDmInboxPicker as renderDmInboxPicker,
+} from './person-picker-dialogs';
+import { confirmBroadcastAudience as renderConfirmBroadcastAudience } from './broadcast-audience-dialog';
+import { showNotification as renderNotificationToast, type NotificationOptions } from './notification-toast';
+import { getPeerNameCache, rememberPeerName } from './peer-name-cache';
+import {
+  renderCapturedQuestionMessage as renderCapturedQuestionMessageCard,
+  renderIpfsAttachmentMessage as renderIpfsAttachmentMessageCard,
+} from './conversation-message-cards';
+import { syncAppBarOverflow, setupAppBarChrome } from './app-bar-overflow';
+import { showSystemAnnouncement as renderSystemAnnouncement } from './system-announcement-banner';
+import { showDetailsPopupFor as renderItemDetailsPopup } from './item-details-popup';
+import { saveObjectUrlAs as saveFileFromObjectUrl } from './browser-file-save';
+import { setTalkDisabled as setTalkDisabledImpl } from './talk-broadcast-toggle';
+import {
+  saveCreatedTalk as saveCreatedTalkImpl,
+  copyAnsweredTalkToTalks as copyAnsweredTalkToTalksImpl,
+} from './talk-creation-storage';
+import { deliveryReasonLabel, formatReasonCounts } from './delivery-reason-labels';
+import {
+  updateConversationTransportMode as updateConversationTransportModeImpl,
+  setConversationOnlineStatus as setConversationOnlineStatusImpl,
+} from './conversation-status-updates';
+import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
+import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
+import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
+import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
+import { updateChatroomInfo as updateChatroomInfoImpl } from './chatroom-info';
+import { setCurrentChatroomId as setCurrentChatroomIdImpl } from './current-chatroom';
+import { navigateToMyAnswerForTalk as navigateToMyAnswerForTalkImpl } from './navigate-to-answer';
+import { quickAnswerIncomingTag as quickAnswerIncomingTagImpl } from './quick-answer-incoming-tag';
+import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
+import { deleteMyTalk as deleteMyTalkImpl } from './talk-deletion';
+import {
+  markConversationWithdrawn as markConversationWithdrawnImpl,
+  markConversationEnded as markConversationEndedImpl,
+  markOtherDealConversationsEnded as markOtherDealConversationsEndedImpl,
+  type ConversationRecordUpdateDeps,
+} from './conversation-record-updates';
+import {
+  quickIgnoreIncomingTalk as quickIgnoreIncomingTalkImpl,
+  quickCopyIncomingTalk as quickCopyIncomingTalkImpl,
+} from './quick-incoming-talk-actions';
+import { displayIncomingTalk as displayIncomingTalkImpl } from './incoming-talk-notification';
 import {
   buildRouteSelfAnswers as buildRouteEditorSelfAnswers,
   collectRouteEditorQuestions as collectRouteQuestions,
@@ -148,7 +192,6 @@ import { renderRouteEditor as renderRouteEditorController } from './route-editor
 import { processTalkForm as processTalkFormImpl } from './talk-form-processor';
 import { fetchDownloadManifest, renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { showSurveyStatisticsDialog } from './survey-statistics-dialog';
-import { renderStatisticsDashboard as renderLocalStatisticsDashboard } from './statistics-dashboard';
 import { showEditProfileDialog as openEditProfileDialog } from './edit-profile-dialog';
 import { refreshStorageInspector as renderStorageInspector } from './storage-inspector';
 import {
@@ -164,7 +207,6 @@ import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationK
 import {
   deriveLocalCreatorReplies,
   readLocalTalkExchanges,
-  buildAllLocalTalkResponses,
 } from '../services/local-peer-derivation';
 import {
   filterIncomingTalkClusters,
@@ -175,28 +217,26 @@ import {
   setTalkIntakeFiltersOwner,
 } from './talk-intake-filters';
 import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
+import { bindDirtyWordEditor } from './dirty-word-editor';
+import { renderChatroomMessage } from './chatroom-message-view';
+import { renderMatchBadge } from './notification-badges';
+import { confirmCapturedQuestionDialog as confirmCapturedQuestionDialogView } from './captured-question-dialog';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
 import { CONFIG } from '../../shared/config';
-import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl, type LinkedDeviceRow } from './linked-devices-dialog';
+import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl } from './linked-devices-dialog';
 import {
   renderCreatorReplies as renderCreatorRepliesImpl,
   CREATOR_REPLY_PAGE_SIZE,
+  persistCreatorReplyFilterState,
+  readCreatorReplyFilterState,
+  restoreCreatorReplyFilterState,
   type CreatorReplyRow,
-  type CreatorReplyFilterState,
 } from './creator-replies-view';
 import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-gestures';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
-import { showEraseDeviceDialog } from './erase-device-dialog';
-import { eraseDevice } from '../services/device-wipe';
 import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { buildTagIdentityKeys } from '../../shared/talk-ledger';
-
-function resolveExpiresAtMs(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string' && value.trim()) return new Date(value).getTime();
-  return Number.NaN;
-}
 
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
 // Settings → Appearance: decorative swatch + label per scheme, matching the
@@ -225,7 +265,6 @@ const LANGUAGE_OPTIONS = [
 ];
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
-const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
  * banner, and is throttled to once per checkpoint per day rather than every occurrence. */
 const SAFETY_TOAST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -239,22 +278,6 @@ function shouldShowCooldownToast(storageKey: string): boolean {
 }
 /** TODO §R2: first-chunk size for the Talks tab's OUT/IN lists, same precedent as above. */
 const TALKS_FIRST_CHUNK_SIZE = 25;
-
-export type BroadcastAudiencePreview = {
-  talkId: string;
-  title: string;
-  totalCandidates: number;
-  eligibleReceivers: number;
-  /** Server preview ids (P0 mesh uses this instead of registering on hub). */
-  eligibleReceiverIds?: string[];
-  rejectedByCounts: Record<string, number>;
-  eligibleReceiverNames?: string[];
-  rejectedReceiverDetails?: Array<{ name: string; rejectedBy: string[] }>;
-  supportExcludedCount?: number;
-  previewUnavailable?: boolean;
-  /** Sender-side omission: talk cannot be broadcast or peer-sent (expired/disabled). */
-  senderOmittedBy?: string[];
-};
 
 type PublicProfileFoundationReader = (userId: string) => Promise<{
   headshot?: string | null;
@@ -479,50 +502,8 @@ export class UIManager extends EventEmitter {
   // exactly one real answer — same shape the old root-level `selfTag`/`preferenceSet` fields
   // used to carry, now expressed as an ordinary question instead of talk-level metadata), else a
   // `type: 'tag'` talk's own (title, match-answer) pair (§LL: a tag is just 1 question/1 answer).
-  private tagAnswerSuffix(talk: {
-    title?: string;
-    questions?: Array<{ text?: string; reciprocalTagContext?: boolean; answers?: Array<{ text?: string; isMatch?: boolean; isIgnore?: boolean }> }>;
-    fullTalk?: {
-      title?: string;
-      questions?: Array<{ text?: string; reciprocalTagContext?: boolean; answers?: Array<{ text?: string; isMatch?: boolean; isIgnore?: boolean }> }>;
-    };
-  }): string {
-    const questions = talk?.questions ?? talk?.fullTalk?.questions;
-    const rootQuestion = Array.isArray(questions) ? questions[0] : undefined;
-    if (rootQuestion?.reciprocalTagContext) {
-      const only = singleNonIgnoreAnswer(rootQuestion);
-      const declaredAnswer = only?.text;
-      const keyword = rootQuestion.text;
-      if (keyword && declaredAnswer) {
-        return declaredAnswer === keyword ? '' : this.renderTagAnswerSuffixHtml(declaredAnswer);
-      }
-    }
-    const keyword = talk?.title ?? talk?.fullTalk?.title;
-    const matchAnswerText = rootQuestion?.answers?.find((a) => a?.isMatch)?.text;
-    if (!keyword || !matchAnswerText || matchAnswerText === keyword) return '';
-    return this.renderTagAnswerSuffixHtml(matchAnswerText);
-  }
-
-  private renderTagAnswerSuffixHtml(answer: string): string {
-    return `<span class="talk-tag-answer-suffix" style="color:var(--text-tertiary);font-weight:400;margin-left:2px;">?${escapeHtml(answer)}</span>`;
-  }
-
   private formatTalkDistanceFromAuthor(authorLocation: { latitude?: number; longitude?: number } | null | undefined): string {
-    if (!this.currentLocation || !authorLocation) return '';
-    const latitude = Number(authorLocation.latitude);
-    const longitude = Number(authorLocation.longitude);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
-    const meters = LocationPrivacy.calculateDistance(this.currentLocation, {
-      latitude,
-      longitude,
-      accuracy: 100,
-      timestamp: new Date(),
-    });
-    const miles = meters / 1609.344;
-    if (!Number.isFinite(miles)) return '';
-    if (miles < 0.1) return '<0.1 mi';
-    if (miles < 10) return `~${miles.toFixed(1)} mi`;
-    return `~${Math.round(miles)} mi`;
+    return formatTalkDistanceFromAuthorImpl(authorLocation, this.currentLocation);
   }
 
   private formatTalkExpiryTone(expiresAt: unknown): 'neutral' | 'green' | 'amber' | 'red' {
@@ -580,38 +561,11 @@ export class UIManager extends EventEmitter {
   }
 
   private deliveryReasonLabel(reason: string): string {
-    const translationKey = ({
-      intake_language: 'reasonIntakeLanguage',
-      intake_talk_type: 'reasonIntakeTalkType',
-      intake_min_distance: 'reasonIntakeMinDistance',
-      intake_max_distance: 'reasonIntakeMaxDistance',
-      intake_sent_after: 'reasonIntakeSentAfter',
-      intake_grammar: 'reasonIntakeGrammar',
-      intake_dirty_words: 'reasonIntakeDirtyWords',
-      intake_custom_blocked_terms: 'reasonIntakeCustomTerms',
-      talk_expired: 'reasonTalkExpired',
-      broadcast_disabled: 'reasonBroadcastDisabled',
-      peer_already_sent: 'peerOmitAlreadySent',
-      age_gate: 'reasonAgeGate',
-      blocked_user: 'reasonBlockedUser',
-      broadcast_max_distance: 'reasonBroadcastMaxDistance',
-      tag_targeting: 'reasonTagTargeting',
-      sender_capacity: 'reasonCapacity',
-      symmetric_rate_limit: 'reasonRateLimit',
-      daily_talk_send_rate_limit: 'reasonRateLimit',
-      daily_talk_receive_rate_limit: 'reasonRateLimit',
-      weekly_talk_send_rate_limit: 'reasonRateLimit',
-      weekly_talk_receive_rate_limit: 'reasonRateLimit',
-    } as Record<string, UiTranslationKey>)[reason];
-    return translationKey ? this.t(translationKey) : reason.replace(/_/g, ' ');
+    return deliveryReasonLabel(reason, this.t.bind(this));
   }
 
   private formatReasonCounts(counts: Record<string, number>): string {
-    return Object.entries(counts)
-      .filter(([, count]) => count > 0)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([reason, count]) => `${this.deliveryReasonLabel(reason)}: ${count}`)
-      .join(' · ');
+    return formatReasonCounts(counts, this.t.bind(this));
   }
 
   private applyShellTranslations(): void {
@@ -719,22 +673,11 @@ export class UIManager extends EventEmitter {
   }
 
   private syncReturnHomeButton(): void {
-    const btn = document.getElementById('return-home-btn') as HTMLButtonElement | null;
-    if (!btn) return;
-    const home = this.getHomeChatroomId();
-    let effectiveRoom = this.currentChatroom;
-    if (!effectiveRoom) {
-      const fromApp = (
-        window as unknown as {
-          __iinpublic_app?: { getApp: () => { chatroomService?: { getCurrentChatroomId: () => string } } };
-        }
-      ).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.();
-      if (fromApp) effectiveRoom = fromApp;
-    }
-    effectiveRoom = effectiveRoom || 'global';
-    const away = effectiveRoom !== home;
-    btn.disabled = !away;
-    btn.title = away ? `Return to ${this.resolveChatroomTitle(home)}` : 'Already in your home room';
+    syncReturnHomeButtonImpl({
+      getHomeChatroomId: () => this.getHomeChatroomId(),
+      currentChatroom: this.currentChatroom,
+      resolveChatroomTitle: (chatroomId) => this.resolveChatroomTitle(chatroomId),
+    });
   }
 
   setCustomChatroomsFromServer(rows: CustomChatroomRow[]): void {
@@ -765,30 +708,7 @@ export class UIManager extends EventEmitter {
    * Title for status bar and headers: custom/business rooms, hierarchy, then formatted id.
    */
   resolveChatroomTitle(chatroomId: string): string {
-    const custom = this.customChatrooms.find((c) => c.id === chatroomId);
-    if (custom) {
-      const icon = custom.type === 'business' ? '🏪' : '💬';
-      return `${icon} ${custom.name}`;
-    }
-    const flat = getFlatChatroomList();
-    const node = flat.find((n) => n.id === chatroomId);
-    if (node) return `${node.icon} ${node.name}`;
-    const findInTree = (node: ReturnType<typeof getActiveChatroomHierarchy>): string | null => {
-      if (node.id === chatroomId) return node.name;
-      if (node.children) {
-        for (const ch of node.children) {
-          const r = findInTree(ch);
-          if (r) return r;
-        }
-      }
-      return null;
-    };
-    const treeName = findInTree(getActiveChatroomHierarchy());
-    if (treeName) return treeName;
-    return chatroomId
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+    return resolveChatroomTitle(chatroomId, this.customChatrooms);
   }
 
   private getMyTalks(): Record<string, any> {
@@ -904,52 +824,10 @@ export class UIManager extends EventEmitter {
    * measurement, and the mobile "Filters ▾" disclosure toggles (redesign §1–§3, §6).
    */
   private setupAppBarChrome(): void {
-    const overflowBtn = document.getElementById('app-bar-overflow-btn');
-    const panel = document.getElementById('app-bar-overflow-panel');
-    if (overflowBtn && panel) {
-      overflowBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        panel.classList.toggle('open');
-      });
-      document.addEventListener('click', (event) => {
-        if (!panel.classList.contains('open')) return;
-        const target = event.target;
-        if (target instanceof Node && (panel.contains(target) || overflowBtn.contains(target))) return;
-        panel.classList.remove('open');
-      });
-      document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') panel.classList.remove('open');
-      });
-      // Action buttons keep working from inside the panel (same elements, same
-      // listeners); close the panel on any action click. Capture phase, because
-      // some button handlers stopPropagation.
-      panel.addEventListener(
-        'click',
-        (event) => {
-          const target = event.target;
-          if (target instanceof Element && target.closest('.app-bar-action-btn')) {
-            panel.classList.remove('open');
-          }
-        },
-        true,
-      );
-    }
-    window.addEventListener('resize', () => this.syncAppBarOverflow());
-    // Mobile filter disclosure: every .filter-bar-toggle opens its sibling content panel.
-    document.querySelectorAll<HTMLButtonElement>('.filter-bar-toggle').forEach((toggle) => {
-      toggle.addEventListener('click', () => {
-        const content = toggle.parentElement?.querySelector<HTMLElement>('.filter-bar-content');
-        if (!content) return;
-        const open = content.classList.toggle('open');
-        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-        toggle.textContent = open ? `${this.t('filters')} ▴` : `${this.t('filters')} ▾`;
-      });
+    setupAppBarChrome({
+      t: this.t.bind(this),
+      showBroadcastToGroupDialog: () => this.showBroadcastToGroupDialog(),
     });
-    // docs/TODO.md §U — broadcast to a contact group, from the Contacts tab.
-    document.getElementById('contacts-broadcast-group-btn')?.addEventListener('click', () => {
-      this.showBroadcastToGroupDialog();
-    });
-    this.syncAppBarOverflow();
   }
 
   /**
@@ -971,38 +849,7 @@ export class UIManager extends EventEmitter {
    * lowest priority first (the active Tree/Map controls stay inline longest).
    */
   private syncAppBarOverflow(): void {
-    const bar = document.getElementById('top-header');
-    const inlineZone = document.getElementById('app-bar-actions');
-    const menu = document.getElementById('app-bar-overflow-menu');
-    const panel = document.getElementById('app-bar-overflow-panel');
-    if (!bar || !inlineZone || !menu || !panel) return;
-    const all = [
-      ...Array.from(inlineZone.querySelectorAll<HTMLElement>('.app-bar-action-btn')),
-      ...Array.from(panel.querySelectorAll<HTMLElement>('.app-bar-action-btn')),
-    ].sort((a, b) => Number(a.dataset.appbarPriority || 0) - Number(b.dataset.appbarPriority || 0));
-    for (const btn of all) inlineZone.appendChild(btn);
-    const active = all.filter((btn) => !btn.classList.contains('appbar-view-hidden') && btn.style.display !== 'none');
-    const BTN_W = 40;
-    const CENTER_MIN = 150;
-    const LEFT_W = 40;
-    const PADDING = 30;
-    const barWidth = bar.clientWidth;
-    if (!barWidth) {
-      menu.style.display = 'none';
-      return;
-    }
-    const available = barWidth - LEFT_W - CENTER_MIN - PADDING - BTN_W;
-    const overflowing: HTMLElement[] = [];
-    let used = 0;
-    for (const btn of active) {
-      used += BTN_W;
-      if (used > available) overflowing.push(btn);
-    }
-    // If everything fits once the ⋯ slot is reclaimed, keep it all inline.
-    if (overflowing.length > 0 && active.length * BTN_W <= available + BTN_W) overflowing.length = 0;
-    for (const btn of overflowing) panel.appendChild(btn);
-    menu.style.display = overflowing.length > 0 ? 'flex' : 'none';
-    if (overflowing.length === 0) panel.classList.remove('open');
+    syncAppBarOverflow();
   }
 
   private setupEventListeners(): void {
@@ -1082,15 +929,15 @@ export class UIManager extends EventEmitter {
       });
     }
     document.querySelectorAll('.me-talk-type-checkbox').forEach((checkbox) => {
-      checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
+      checkbox.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
     });
     document.querySelectorAll('.me-tag-state-checkbox').forEach((checkbox) => {
-      checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
+      checkbox.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
     });
     ['me-outcome-filter', 'me-answer-sort', 'me-answer-date-from', 'me-answer-date-to'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', () => this.applyMeAnswerFilter());
+      document.getElementById(id)?.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
     });
-    document.getElementById('me-answer-filter')?.addEventListener('input', () => this.applyMeAnswerFilter());
+    document.getElementById('me-answer-filter')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
     document.getElementById('me-clear-filters')?.addEventListener('click', () => {
       document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox').forEach((checkbox) => { checkbox.checked = true; });
       document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox').forEach((checkbox) => { checkbox.checked = true; });
@@ -1106,7 +953,7 @@ export class UIManager extends EventEmitter {
       if (from) from.value = '';
       if (to) to.value = '';
       if (search) search.value = '';
-      this.applyMeAnswerFilter();
+      applyMeAnswerFilter(this.t.bind(this));
     });
 
     // Back to contacts list button
@@ -1210,11 +1057,11 @@ export class UIManager extends EventEmitter {
         this.displayTalksList();
       });
     });
-    this.restoreCreatorReplyFilterState();
+    restoreCreatorReplyFilterState();
     ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
       document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => {
         this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
-        this.persistCreatorReplyFilterState();
+        persistCreatorReplyFilterState();
         // §M1: the panel is normally hidden (display:none) until showCreatorRepliesForTalk
         // opens it — only re-render while it's actually visible.
         if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
@@ -1234,7 +1081,7 @@ export class UIManager extends EventEmitter {
       this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
       this.creatorReplyScopedTalkId = null;
       this.creatorReplyScopedTalkTitle = '';
-      this.persistCreatorReplyFilterState();
+      persistCreatorReplyFilterState();
       if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
         this.renderCreatorReplies();
       }
@@ -1690,100 +1537,18 @@ export class UIManager extends EventEmitter {
    * the same `navigateToGraphNode` 'person' destination N1/item 6 already settled on.
    */
   private showChooseWhoToDmPicker(people: Array<{ id: string; name: string }>): void {
-    document.getElementById('talk-dm-picker-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'talk-dm-picker-modal';
-    modal.className = 'modal-overlay';
-    const rows = people
-      .map(
-        (person) => `
-      <div class="talk-dm-picker-row" data-user-id="${escapeHtml(person.id)}" data-user-name="${escapeHtml(person.name)}" style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--bg-muted);border-radius:8px;margin-bottom:6px;cursor:pointer;">
-        <span style="font-weight:600;">${escapeHtml(person.name)}</span>
-      </div>
-    `,
-      )
-      .join('');
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:380px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('talksChooseWhoToDm')}</h2>
-          <button class="close-button" id="close-talk-dm-picker">&times;</button>
-        </div>
-        <div style="padding:16px;">${rows}</div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    const close = () => modal.remove();
-    document.getElementById('close-talk-dm-picker')?.addEventListener('click', close);
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) close();
-    });
-    modal.querySelectorAll<HTMLElement>('.talk-dm-picker-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const id = row.dataset.userId || '';
-        const name = row.dataset.userName || '';
-        close();
-        if (id) this.navigateToGraphNode({ type: 'person', id, name });
-      });
+    renderChooseWhoToDmPicker(people, {
+      t: this.t.bind(this),
+      navigateToPerson: (person) => this.navigateToGraphNode(person),
     });
   }
 
-  /**
-   * TODO §N2: the "no matter which tab" affordance — reachable from every tab via #dm-inbox-btn
-   * (badge-driven off the same aggregate unread count updateMatchBadge computes), lists senders
-   * with unread messages sorted most-recent-first. Modeled on showChooseWhoToDmPicker's modal
-   * skeleton; picking a row navigates via the same navigateToGraphNode 'person' destination.
-   */
   private showDmInboxPicker(): void {
-    document.getElementById('dm-inbox-modal')?.remove();
-    const conversations = this.getMyConversations();
-    const unread = Object.entries(conversations)
-      .filter(([, conv]: [string, any]) => conv?.unread && conv.supportChannel !== true && conv.otherUserId)
-      .map(([, conv]: [string, any]) => ({
-        id: String(conv.otherUserId),
-        name: this.getPeerName(conv.otherUserId, conv.otherUserName),
-        unreadCount: Number(conv.unreadCount || 0) || 1,
-        lastMessageTime: conv.lastMessageTime || conv.createdAt || '',
-      }))
-      .sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
-
-    const modal = document.createElement('div');
-    modal.id = 'dm-inbox-modal';
-    modal.className = 'modal-overlay';
-    const rows = unread.length > 0
-      ? unread
-          .map(
-            (person) => `
-      <div class="dm-inbox-row" data-user-id="${escapeHtml(person.id)}" data-user-name="${escapeHtml(person.name)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;background:var(--bg-muted);border-radius:8px;margin-bottom:6px;cursor:pointer;">
-        <span style="font-weight:600;">${escapeHtml(person.name)}</span>
-        <span class="notification-badge" style="position:static;">${person.unreadCount > 99 ? '99+' : person.unreadCount}</span>
-      </div>
-    `,
-          )
-          .join('')
-      : `<p style="text-align:center;color:#999;padding:16px 0;">${this.t('dmInboxEmpty')}</p>`;
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:380px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('dmInboxTitle')}</h2>
-          <button class="close-button" id="close-dm-inbox-modal">&times;</button>
-        </div>
-        <div style="padding:16px;">${rows}</div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    const close = () => modal.remove();
-    document.getElementById('close-dm-inbox-modal')?.addEventListener('click', close);
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) close();
-    });
-    modal.querySelectorAll<HTMLElement>('.dm-inbox-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const id = row.dataset.userId || '';
-        const name = row.dataset.userName || '';
-        close();
-        if (id) this.navigateToGraphNode({ type: 'person', id, name });
-      });
+    renderDmInboxPicker({
+      t: this.t.bind(this),
+      navigateToPerson: (person) => this.navigateToGraphNode(person),
+      getMyConversations: () => this.getMyConversations(),
+      getPeerName: (userId, fallbackName) => this.getPeerName(userId, fallbackName),
     });
   }
 
@@ -1794,32 +1559,7 @@ export class UIManager extends EventEmitter {
    * across a reparent. Moves it back to its original row on close, restoring display:none.
    */
   private showDetailsPopupFor(detailsEl: HTMLElement, originalParent: HTMLElement): void {
-    document.getElementById('item-details-popup')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'item-details-popup';
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:480px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('talksDetails')}</h2>
-          <button class="close-button" id="close-item-details-popup">&times;</button>
-        </div>
-        <div class="item-details-popup-body" style="padding:16px;"></div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    const body = modal.querySelector('.item-details-popup-body') as HTMLElement;
-    body.appendChild(detailsEl);
-    detailsEl.style.display = 'block';
-    const close = () => {
-      detailsEl.style.display = 'none';
-      originalParent.appendChild(detailsEl);
-      modal.remove();
-    };
-    document.getElementById('close-item-details-popup')?.addEventListener('click', close);
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) close();
-    });
+    renderItemDetailsPopup(detailsEl, originalParent, this.t.bind(this));
   }
 
 
@@ -1973,23 +1713,13 @@ export class UIManager extends EventEmitter {
    * the chatroom list highlight to stay in sync.
    */
   setCurrentChatroomId(chatroomId: string): void {
-    if (!chatroomId) return;
-    this.currentChatroom = chatroomId;
-    this.renderChatroomList();
-    const detailContainer = document.getElementById('chatroom-detail-container');
-    if (detailContainer && detailContainer.style.display !== 'none') {
-      const roomName = this.resolveChatroomTitle(chatroomId);
-      const chatroomTitle = document.getElementById('current-chatroom-title');
-      const chatroomStatus = document.getElementById('current-chatroom-status');
-      if (chatroomTitle) chatroomTitle.textContent = roomName;
-      if (chatroomStatus) chatroomStatus.textContent = this.t('chatroomLoadingMembers');
-      const membersList = document.getElementById('chatroom-members-list');
-      if (membersList) {
-        membersList.innerHTML =
-          `<div style="padding: 20px; text-align: center; color: #999;">${escapeHtml(this.t('chatroomLoadingOnlineUsers'))}</div>`;
-      }
-    }
-    this.syncReturnHomeButton();
+    setCurrentChatroomIdImpl(chatroomId, {
+      setCurrentChatroom: (id) => { this.currentChatroom = id; },
+      renderChatroomList: () => this.renderChatroomList(),
+      resolveChatroomTitle: (id) => this.resolveChatroomTitle(id),
+      t: (key) => this.t(key),
+      syncReturnHomeButton: () => this.syncReturnHomeButton(),
+    });
   }
 
   displayTalksList(): void {
@@ -2156,7 +1886,7 @@ export class UIManager extends EventEmitter {
       if (identityKey && answeredByContent[identityKey]) return false;
       try {
         const latestTalk = cluster?.latestTalk;
-        if (latestTalk && answeredByContent[UIManager.getTalkContentKey(latestTalk)]) return false;
+        if (latestTalk && answeredByContent[getTalkContentKey(latestTalk)]) return false;
         if (latestTalk && answeredByContent[computeTalkIdFromTalkData(latestTalk)]) return false;
       } catch {
         /* keep visible if the cluster cannot be locally identified */
@@ -2332,7 +2062,7 @@ export class UIManager extends EventEmitter {
           <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(this.t('talksTagChecked'))}">
             <input type="checkbox" class="talk-tag-checkbox talk-tag-out-checkbox" data-talk-id="${escapeHtml(talkId)}" checked>
           </label>
-          <span class="talk-tag-text">${escapeHtml(talk.title)}${this.tagAnswerSuffix(talk)}</span>
+          <span class="talk-tag-text">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</span>
         </div>
       `;
                   }
@@ -2354,7 +2084,7 @@ export class UIManager extends EventEmitter {
               <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
               <span aria-hidden="true">${typeIcon}</span>
             </label>
-            <div class="talk-item-title">${escapeHtml(talk.title)}${this.tagAnswerSuffix(talk)}</div>
+            <div class="talk-item-title">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</div>
             <span class="talk-item-chevron" aria-hidden="true">›</span>
           </div>
           <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
@@ -2717,20 +2447,6 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  private readCreatorReplyFilterState(): CreatorReplyFilterState {
-    return {
-      query: ((document.getElementById('reply-filter-query') as HTMLInputElement | null)?.value || '').trim(),
-      outcome: (document.getElementById('reply-filter-outcome') as HTMLSelectElement | null)?.value || 'all',
-      relationship: (document.getElementById('reply-filter-relationship') as HTMLSelectElement | null)?.value || 'all',
-      type: (document.getElementById('reply-filter-type') as HTMLSelectElement | null)?.value || 'all',
-      language: (document.getElementById('reply-filter-language') as HTMLSelectElement | null)?.value || 'all',
-      from: (document.getElementById('reply-filter-from') as HTMLInputElement | null)?.value || '',
-      to: (document.getElementById('reply-filter-to') as HTMLInputElement | null)?.value || '',
-      sort: (document.getElementById('reply-sort-order') as HTMLSelectElement | null)?.value || 'recent',
-      group: (document.getElementById('reply-group-order') as HTMLSelectElement | null)?.value || 'none',
-    };
-  }
-
   /** Remembers the Talks tab's direction/type/sort/search/date filters and scroll position
    * across reloads — mirrors the Contacts tab's `iinpublic_contacts_tab_state` pattern. */
   private persistTalksTabState(): void {
@@ -2784,40 +2500,6 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  private persistCreatorReplyFilterState(): void {
-    try {
-      localStorage.setItem(CREATOR_REPLY_FILTERS_KEY, JSON.stringify(this.readCreatorReplyFilterState()));
-    } catch {
-      /* local-only preference persistence is optional */
-    }
-  }
-
-  private restoreCreatorReplyFilterState(): void {
-    let state: Partial<CreatorReplyFilterState> = {};
-    try {
-      const raw = localStorage.getItem(CREATOR_REPLY_FILTERS_KEY);
-      state = raw ? JSON.parse(raw) as Partial<CreatorReplyFilterState> : {};
-    } catch {
-      state = {};
-    }
-    const values: Array<[string, string | undefined]> = [
-      ['reply-filter-query', state.query],
-      ['reply-filter-outcome', state.outcome],
-      ['reply-filter-relationship', state.relationship],
-      ['reply-filter-type', state.type],
-      ['reply-filter-language', state.language],
-      ['reply-filter-from', state.from],
-      ['reply-filter-to', state.to],
-      ['reply-sort-order', state.sort],
-      ['reply-group-order', state.group],
-    ];
-    for (const [id, value] of values) {
-      if (!value) continue;
-      const element = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
-      if (element) element.value = value;
-    }
-  }
-
   private async refreshCreatorReplies(): Promise<void> {
     if (!this.currentUserId) return;
     // P0 step 5: replies derived from localTalkExchanges — no server call to /api/users/:id/replies.
@@ -2854,7 +2536,7 @@ export class UIManager extends EventEmitter {
   private renderCreatorReplies(): void {
     renderCreatorRepliesImpl({
       getRows: () => this.creatorReplyRows,
-      readFilterState: () => this.readCreatorReplyFilterState(),
+      readFilterState: () => readCreatorReplyFilterState(),
       getScopedTalkId: () => this.creatorReplyScopedTalkId,
       getScopedTalkTitle: () => this.creatorReplyScopedTalkTitle,
       clearScope: () => {
@@ -2894,7 +2576,7 @@ export class UIManager extends EventEmitter {
       },
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       showItemDetailsPopup: this.showDetailsPopupFor.bind(this),
-      getTalkContentKey: UIManager.getTalkContentKey,
+      getTalkContentKey,
       text: this.t.bind(this),
       formatDate: this.formatUiDate.bind(this),
       formatType: this.formatTalkType.bind(this),
@@ -2903,73 +2585,9 @@ export class UIManager extends EventEmitter {
       // filter applied before the remainder lands still reaches the rows that arrive
       // after it — a single call right after renderAnswersList returns (the old
       // behavior) would miss those.
-      onRowsRendered: () => this.applyMeAnswerFilter(),
+      onRowsRendered: () => applyMeAnswerFilter(this.t.bind(this)),
     });
-    document.getElementById('answers-search-input')?.addEventListener('input', () => this.applyMeAnswerFilter());
-  }
-
-  private applyMeAnswerFilter(): void {
-    const activeTypes = Array.from(document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox:checked'))
-      .map((checkbox) => checkbox.value.toLowerCase())
-      .filter(Boolean);
-    const allowedTagStates = Array.from(document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox:checked'))
-      .map((checkbox) => checkbox.value);
-    const query = ((document.getElementById('answers-search-input') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
-    const outcome = (document.getElementById('me-outcome-filter') as HTMLSelectElement | null)?.value || 'all';
-    const sort = (document.getElementById('me-answer-sort') as HTMLSelectElement | null)?.value || 'answered-desc';
-    const answerQuery = ((document.getElementById('me-answer-filter') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
-    const fromDate = (document.getElementById('me-answer-date-from') as HTMLInputElement | null)?.value || '';
-    const toDate = (document.getElementById('me-answer-date-to') as HTMLInputElement | null)?.value || '';
-    const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
-    const toMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
-    let visibleCount = 0;
-
-    document.querySelectorAll<HTMLElement>('#answers-content .answer-talk-item').forEach((item) => {
-      // A merged row can carry more than one contributing talk type (data-talk-type is a
-      // space-separated set) since the same question may have been asked via several talk
-      // types — matches if ANY contributing type is active, rather than requiring one exact type.
-      const talkTypes = String(item.dataset.talkType || 'flow').toLowerCase().split(' ').filter(Boolean);
-      const tagState = String(item.dataset.tagState || '');
-      // docs/TODO.md §LL.2 follow-up: rows no longer have a distinct checkbox-pill CSS class —
-      // whether this row's most-recent variant is a boolean (Checked/Unchecked) tag is now
-      // carried directly in data-tag-state itself (non-empty only for that case; see
-      // renderQuestionRow, answers-view.ts).
-      const isTagRow = tagState !== '';
-      const matchesType = activeTypes.length === 0 ? false : talkTypes.some((type) => activeTypes.includes(type));
-      const matchesTagState = !isTagRow || allowedTagStates.includes(tagState);
-      const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
-      const answeredAt = Number(item.dataset.answeredAt || 0);
-      const matchesAnswer = !answerQuery || String(item.dataset.answerText || '').includes(answerQuery);
-      const matchesDate = answeredAt >= fromMs && answeredAt <= toMs;
-      const visible = matchesType && matchesTagState && matchesQuery && matchesAnswer && matchesDate
-        && (outcome === 'all' || item.dataset.outcome === outcome);
-      item.style.display = visible ? 'flex' : 'none';
-      if (visible) visibleCount += 1;
-    });
-
-    const list = document.getElementById('answers-list');
-    let empty = document.getElementById('answers-filter-empty');
-    if (list && !empty) {
-      empty = document.createElement('div');
-      empty.id = 'answers-filter-empty';
-      empty.style.cssText = 'display:none;padding:20px;text-align:center;color:var(--text-tertiary);border:1px dashed var(--border-strong);border-radius:8px;background:var(--bg-subtle);';
-      empty.textContent = this.t('meNoMatchingAnswers');
-      list.appendChild(empty);
-    }
-    if (list) {
-      const rank = (item: HTMLElement): number => {
-        if (sort === 'answered-asc') return Number(item.dataset.answeredAt || 0);
-        if (sort === 'chatbot-recent') return -Number(item.dataset.chatbotLastUsedAt || 0);
-        if (sort === 'chatbot-count') return -Number(item.dataset.chatbotUseCount || 0);
-        return -Number(item.dataset.answeredAt || 0);
-      };
-      // docs/TODO.md §LL.2 follow-up: rows live directly under the single flat `#answers-list`
-      // now (no more per-talk section containers) — sort them all together.
-      Array.from(list.querySelectorAll<HTMLElement>('.answer-talk-item'))
-        .sort((a, b) => rank(a) - rank(b))
-        .forEach((row) => list.appendChild(row));
-    }
-    if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
+    document.getElementById('answers-search-input')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
   }
 
   /**
@@ -2986,22 +2604,7 @@ export class UIManager extends EventEmitter {
     opts: { id?: string; title: string; subtitle?: string; action?: string; danger?: boolean },
     bodyHtml: string,
   ): string {
-    // A plain header, not a collapsible <details>/<summary>: now that the drill-down (see
-    // applySettingsSectionView) shows exactly one section at a time, a second, independent
-    // collapse control on top of that would be redundant and just a way to accidentally hide
-    // the only content on the page.
-    return `
-      <div class="settings-section" ${opts.id ? `id="${opts.id}"` : ''} style="background:var(--surface);border:1px solid ${opts.danger ? 'var(--danger-border)' : 'var(--border)'};border-radius:8px;">
-        <div class="settings-section-summary" style="padding:16px;">
-          <div style="font-weight:700;color:${opts.danger ? 'var(--danger-hover)' : 'var(--text-primary)'};display:inline;">${opts.title}</div>
-          ${opts.subtitle ? `<div style="font-size:0.82em;color:var(--text-tertiary);margin-top:2px;">${opts.subtitle}</div>` : ''}
-        </div>
-        <div class="settings-section-body" style="padding:0 16px 16px 16px;">
-          ${opts.action ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">${opts.action}</div>` : ''}
-          ${bodyHtml}
-        </div>
-      </div>
-    `;
+    return renderSettingsSectionImpl(opts, bodyHtml);
   }
 
   private renderSettingsView(user: User): void {
@@ -3488,29 +3091,9 @@ export class UIManager extends EventEmitter {
    * restore whichever page the user was on (e.g. a language change re-renders the whole view).
    */
   private applySettingsSectionView(sectionId: string | null): void {
-    const menu = document.getElementById('settings-menu-container');
-    const detail = document.getElementById('settings-detail-container');
-    const backBtn = document.getElementById('back-to-settings-menu') as HTMLElement | null;
-    const sections = document.querySelectorAll<HTMLElement>('#settings-detail-container .settings-section');
-    const target = sectionId ? document.getElementById(sectionId) : null;
-    if (sectionId && !target) {
-      // The remembered section no longer exists in this render (shouldn't happen — the same 9
-      // ids are always rendered — but fall back to the menu rather than show a blank detail).
-      this.settingsActiveSectionId = null;
-      this.applySettingsSectionView(null);
-      return;
-    }
-    if (target) {
-      sections.forEach((section) => { section.style.display = section === target ? '' : 'none'; });
-      if (menu) menu.style.display = 'none';
-      if (detail) detail.style.display = 'block';
-      if (backBtn) backBtn.style.display = 'inline-flex';
-    } else {
-      sections.forEach((section) => { section.style.display = ''; });
-      if (menu) menu.style.display = '';
-      if (detail) detail.style.display = 'none';
-      if (backBtn) backBtn.style.display = 'none';
-    }
+    applySettingsSectionViewImpl(sectionId, {
+      setSettingsActiveSectionId: (id) => { this.settingsActiveSectionId = id; },
+    });
   }
 
   /**
@@ -3546,24 +3129,10 @@ export class UIManager extends EventEmitter {
   }
 
   private showContentFilterToast(result: MessageFilterResult, direction: 'send' | 'receive'): void {
-    let text: string;
-    let attr: string;
-    if (result.reason === 'financial_data') {
-      // Mandatory, non-configurable (FR-FIN-2) — same message on both paths since a
-      // financial-data hit is never rendered for the receiver either (FR-FIN-4).
-      text = this.t('messageBlockedFinancialData');
-      attr = direction === 'send' ? 'financial-send' : 'financial-receive';
-    } else if (result.reason === 'dirty_words') {
-      text =
-        direction === 'send'
-          ? `${this.t('messageBlockedDirtyWord')}${result.word ? ` ('${result.word}')` : ''}`
-          : this.t('messageHiddenDirtyWord');
-      attr = direction === 'send' ? 'send' : 'receive';
-    } else {
-      text = direction === 'send' ? this.t('messageBlockedGrammar') : this.t('messageHiddenGrammar');
-      attr = direction === 'send' ? 'grammar-send' : 'grammar-receive';
-    }
-    this.showNotification(text, 'error', { contentFilter: attr });
+    showContentFilterToastImpl(result, direction, {
+      t: (key) => this.t(key),
+      showNotification: (message, type, options) => this.showNotification(message, type, options),
+    });
   }
 
   /** T1 (spec §7.4 FR-FIN-1): before a talk is sent/broadcast, at most once per day. */
@@ -3582,80 +3151,6 @@ export class UIManager extends EventEmitter {
    * Wire the dirty-word list editor (chips + add/remove/reset). `onChange` is the
    * settings `sync()` closure — every mutation re-reads the chips and persists.
    */
-  private bindDirtyWordEditor(onChange: () => void): void {
-    const chips = document.getElementById('dirty-word-chips');
-    const input = document.getElementById('dirty-word-add-input') as HTMLInputElement | null;
-    const addBtn = document.getElementById('dirty-word-add-btn');
-    const resetBtn = document.getElementById('dirty-word-reset-btn');
-    const errorEl = document.getElementById('dirty-word-error');
-    if (!chips) return;
-
-    const showError = (message: string): void => {
-      if (errorEl) errorEl.textContent = message;
-    };
-    const currentWords = (): string[] =>
-      Array.from(chips.querySelectorAll<HTMLElement>('.dirty-word-chip'))
-        .map((el) => el.getAttribute('data-word') || '')
-        .filter(Boolean);
-    const renderChips = (words: string[]): void => {
-      chips.innerHTML = words
-        .map((word) => {
-          const safe = escapeHtml(word);
-          return `<span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${safe}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--bg-subtle);font-size:0.85em;"><span>${safe}</span><button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${safe}" aria-label="remove ${safe}" style="border:none;background:none;cursor:pointer;color:var(--text-tertiary);font-size:1em;line-height:1;padding:0;">✕</button></span>`;
-        })
-        .join('');
-    };
-
-    const addWord = (): void => {
-      if (!input) return;
-      const raw = input.value.trim().toLowerCase();
-      showError('');
-      if (raw.length < 2) {
-        showError(this.t('settingsDirtyWordTooShort'));
-        return;
-      }
-      const existing = currentWords();
-      if (existing.length >= 50) {
-        showError(this.t('settingsDirtyWordLimit'));
-        return;
-      }
-      const [normalized] = normalizeDirtyWords([raw]);
-      if (!normalized) {
-        showError(this.t('settingsDirtyWordTooShort'));
-        return;
-      }
-      if (existing.includes(normalized)) {
-        showError(this.t('settingsDirtyWordDuplicate'));
-        return;
-      }
-      renderChips([...existing, normalized]);
-      input.value = '';
-      onChange();
-    };
-
-    addBtn?.addEventListener('click', addWord);
-    input?.addEventListener('keydown', (event) => {
-      if ((event as KeyboardEvent).key === 'Enter') {
-        event.preventDefault();
-        addWord();
-      }
-    });
-    chips.addEventListener('click', (event) => {
-      const target = (event.target as HTMLElement)?.closest('.dirty-word-chip-remove') as HTMLElement | null;
-      if (!target) return;
-      const word = target.getAttribute('data-word');
-      if (!word) return;
-      showError('');
-      renderChips(currentWords().filter((w) => w !== word));
-      onChange();
-    });
-    resetBtn?.addEventListener('click', () => {
-      showError('');
-      renderChips([...DEFAULT_DIRTY_WORDS]);
-      onChange();
-    });
-  }
-
   /**
    * Open the Identity & devices page (identity architecture WP1). Uses the local display model for
    * the list and the shared pairing protocol for code validation. Pairing-code
@@ -3702,37 +3197,10 @@ export class UIManager extends EventEmitter {
    * wipe clears all device storage and reloads to a fresh boot.
    */
   private openEraseDeviceDialog(): void {
-    let linked: LinkedDeviceRow[] = [];
-    try {
-      const arr = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
-      // Only graph-verified active links are eligible sync/revocation targets.
-      // Historical Removed/Invalid rows must not imply a receiver is available.
-      linked = Array.isArray(arr)
-        ? arr.filter((row: LinkedDeviceRow) => row.state === 'linked')
-        : [];
-    } catch {
-      linked = [];
-    }
-    showEraseDeviceDialog({
-      text: (key: string, fallback?: string) => {
-        const value = this.t(key as any);
-        return value && value !== key ? value : (fallback ?? key);
-      },
-      hasLinkedDevice: linked.length > 0,
-      ...(linked[0]?.stageName ? { linkedDeviceName: linked[0].stageName } : {}),
-      onErase: async () => {
-        await eraseDevice({
-          revokeLinks: async () => {
-            if (this.identityLinkUnlinker) {
-              for (const r of linked) await this.identityLinkUnlinker(r.pub).catch(() => {});
-            }
-          },
-        });
-      },
-      ...(this.deviceHandoffSync && linked[0]?.pub
-        ? { onSyncFirst: (progress: (category: import('../../shared/device-handoff').HandoffCategory) => void) =>
-            this.deviceHandoffSync!(linked[0].pub, progress) }
-        : {}),
+    openEraseDeviceDialogImpl({
+      t: (key) => this.t(key as any),
+      identityLinkUnlinker: this.identityLinkUnlinker,
+      deviceHandoffSync: this.deviceHandoffSync,
     });
   }
 
@@ -3986,7 +3454,7 @@ export class UIManager extends EventEmitter {
       setDefaultTalkLanguagePreference(value);
     });
     document.getElementById('settings-custom-blocked')?.addEventListener('input', sync);
-    this.bindDirtyWordEditor(sync);
+    bindDirtyWordEditor({ onChange: sync, t: this.t.bind(this) });
     document.getElementById('settings-linked-devices-btn')?.addEventListener('click', () => {
       void this.openLinkedDevicesDialog();
     });
@@ -4230,107 +3698,27 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  private localStatisticsDeps(): LocalStatisticsDeps {
+    return {
+      apiBase: this.apiBase,
+      currentUserId: this.currentUserId,
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+    };
+  }
+
   private displayContextualStatistics(elementId: string, prefix = ''): void {
-    const element = document.getElementById(elementId);
-    if (!element) return;
-    try {
-      const exchanges = readLocalTalkExchanges();
-      const responsesByTalk = buildAllLocalTalkResponses(exchanges);
-      const dashboard = buildStatsDashboard({
-        responsesByTalk,
-        ...(this.currentUserId && { viewerId: this.currentUserId }),
-      });
-      const totals = dashboard.totals || { talks: 0, responses: 0, matches: 0, ignores: 0, matchRate: 0 };
-      const room = dashboard.chatrooms?.regions?.[0];
-      const roomText = room
-        ? this.tf('contextualStatsRoom', { room: room.masked ? this.t('contextualStatsHidden') : room.region })
-        : '';
-      element.textContent = prefix + this.tf('contextualStatsSummary', {
-        responses: totals.responses,
-        matches: totals.matches,
-        rate: totals.matchRate,
-        room: roomText,
-      });
-    } catch {
-      element.textContent = prefix + this.t('contextualStatsEmpty');
-    }
+    displayContextualStatisticsImpl(elementId, prefix, this.localStatisticsDeps());
   }
 
-  private async displayStatisticsDashboard(): Promise<void> {
-    const container = document.getElementById('statistics-content');
-    if (!container) return;
-    container.innerHTML = '<div style="padding:20px;color:var(--text-tertiary);">Building local statistics…</div>';
-
-    // Build local dashboard from LocalTalkExchanges (all talk types).
-    const exchanges = readLocalTalkExchanges();
-    const responsesByTalk = buildAllLocalTalkResponses(exchanges);
-
-    // Best-effort: fetch broadcast-tag popularity from server to augment the dashboard.
-    let broadcastTagPopularity: Array<{ id: string; count: number }> | undefined;
-    let broadcastTagTrends: { days: string[]; tags: Array<{ id: string; total: number; byDay: number[] }> } | undefined;
-    const base = (this.apiBase || '').trim();
-    if (base) {
-      try {
-        const [tagRes, trendRes] = await Promise.all([
-          fetch(`${base}/api/stats/broadcast-tags`, { cache: 'no-store' }),
-          fetch(`${base}/api/stats/broadcast-tags/trends`, { cache: 'no-store' }),
-        ]);
-        if (tagRes.ok) {
-          const tagData = (await tagRes.json()) as { tags?: Array<{ id: string; count: number }> };
-          broadcastTagPopularity = tagData.tags ?? [];
-        }
-        if (trendRes.ok) {
-          broadcastTagTrends = await trendRes.json() as { days: string[]; tags: Array<{ id: string; total: number; byDay: number[] }> };
-        }
-      } catch {
-        // Ignore — broadcast tags are supplementary
-      }
-    }
-
-    const dashboard = buildStatsDashboard({
-      responsesByTalk,
-      ...(broadcastTagPopularity !== undefined && { broadcastTagPopularity }),
-      ...(broadcastTagTrends !== undefined && { broadcastTagTrends }),
-      ...(this.currentUserId && { viewerId: this.currentUserId }),
-    });
-    this.renderStatisticsDashboard(container, dashboard);
-  }
-
-  private renderStatisticsDashboard(container: HTMLElement, dashboard: StatsDashboard): void {
-    renderLocalStatisticsDashboard({
-      container,
-      dashboard,
-      text: (key) => this.t(key),
-      onRefresh: () => this.displayStatisticsDashboard(),
-    });
-  }
   private copyAnsweredTalkToTalks(talkId: string): void {
-    const myTalks = getMyTalks();
-    const talk = myTalks[talkId];
-    if (!talk?.fullTalk) {
-      this.showNotification(this.t('talksDataNotFound'), 'error');
-      return;
-    }
-    if (talk.role === 'copied') {
-      this.showNotification(this.t('talksAlreadyCopied'), 'info');
-      return;
-    }
-    this.saveMyTalk({
-      talkId,
-      title: talk.title,
-      type: talk.type,
-      timestamp: talk.lastInteraction || new Date().toISOString(),
-      role: 'copied',
-      // docs/TODO.md §Y1: a copy is not authorship — keep the original sender as authorId
-      // until the user actually edits the content through the revise-mints-new-id path.
-      fullTalk: talk.fullTalk,
-      completedAnswers: talk.completedAnswers,
-      outcome: talk.outcome,
-      senders: talk.senders,
+    copyAnsweredTalkToTalksImpl(talkId, {
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: this.t.bind(this),
+      saveMyTalk: (talkData) => this.saveMyTalk(talkData),
+      refreshTalksList: () => this.displayTalksList(),
+      refreshAnswersList: () => this.displayAnswersList(),
     });
-    this.showNotification(this.t('talksCopiedToList'), 'success');
-    this.displayTalksList();
-    this.displayAnswersList();
   }
 
   /** Resolve a concrete talk UUID for an incoming cluster (Gun may reshape talkIds). */
@@ -4339,23 +3727,12 @@ export class UIManager extends EventEmitter {
   }
 
   private quickAnswerIncomingTag(talkId: string, identityKeyFallback: string | undefined, checked: boolean): void {
-    const finish = (fullTalk: any): void => {
-      if (!fullTalk) {
-        this.showNotification(this.t('talksCouldNotLoad'), 'error');
-        return;
-      }
-      this.quickCompleteTagTalk(fullTalk, checked);
-    };
-    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
-    if (!tid && identityKeyFallback) {
-      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
-      return;
-    }
-    if (!tid) {
-      this.showNotification(this.t('talksCouldNotOpen'), 'error');
-      return;
-    }
-    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+    quickAnswerIncomingTagImpl(talkId, identityKeyFallback, checked, {
+      emit: (event, payload) => this.emit(event, payload),
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: (key) => this.t(key),
+      quickCompleteTagTalk: (talk, checked) => this.quickCompleteTagTalk(talk, checked),
+    });
   }
 
   private quickCompleteTagTalk(talk: any, checked: boolean): void {
@@ -4399,81 +3776,25 @@ export class UIManager extends EventEmitter {
    * immediately either way, so which one is recorded is not semantically meaningful.
    */
   private quickIgnoreIncomingTalk(talkId: string, identityKeyFallback?: string): void {
-    const finish = (fullTalk: any): void => {
-      if (!fullTalk) {
-        this.showNotification(this.t('talksCouldNotLoad'), 'error');
-        return;
-      }
-      const question = Array.isArray(fullTalk.questions) ? fullTalk.questions[0] : null;
-      const answers = question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
-      if (question) {
-        this.saveAnswerPreference(
-          fullTalk, fullTalk.id, question, 'ignore', 'ignore',
-          answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
-          'suppressed',
-        );
-      }
-      this.showNotification(this.t('responseTalkIgnored'), 'info');
-      this.completeTalk(fullTalk, answers, 'mismatch', { withholdFromSender: true });
-    };
-    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
-    if (!tid && identityKeyFallback) {
-      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
-      return;
-    }
-    if (!tid) {
-      this.showNotification(this.t('talksCouldNotOpen'), 'error');
-      return;
-    }
-    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+    quickIgnoreIncomingTalkImpl(talkId, identityKeyFallback, {
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: this.t.bind(this),
+      saveAnswerPreference: (talk, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode) =>
+        this.saveAnswerPreference(talk, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode),
+      completeTalk: (talk, answers, outcome, meta) => this.completeTalk(talk, answers, outcome, meta),
+      emit: (event, payload) => this.emit(event, payload),
+    });
   }
 
-  /**
-   * Row gesture (drag down): copies an incoming talk into the user's own outgoing list
-   * *without* answering it — distinct from `copyAnsweredTalkToTalks`, which only works on
-   * an already-answered `myTalks` entry. A live incoming cluster has no `myTalks[talkId]`
-   * row yet and no `.latestTalk` full-Talk object (only `.latestTalkId`/`.questionsJson`
-   * on the wire type), so the full talk has to be resolved the same asynchronous way
-   * `quickAnswerIncomingTag` does it, then saved directly with role 'copied' — bypassing
-   * `completeTalk` entirely so the sender is never notified and the incoming cluster
-   * stays in the inbox exactly as it was.
-   */
   private quickCopyIncomingTalk(talkId: string, identityKeyFallback: string | undefined, cluster?: any): void {
-    const existing = talkId ? this.getMyTalks()[talkId] : undefined;
-    if (existing?.role === 'copied') {
-      this.showNotification(this.t('talksAlreadyCopied'), 'info');
-      return;
-    }
-    const finish = (fullTalk: any): void => {
-      if (!fullTalk) {
-        this.showNotification(this.t('talksCouldNotLoad'), 'error');
-        return;
-      }
-      const senders = cluster?.senders && typeof cluster.senders === 'object'
-        ? Array.from(new Set(Object.values(cluster.senders).map((s: any) => String(s?.senderId || '')).filter(Boolean)))
-        : undefined;
-      this.saveMyTalk({
-        talkId: fullTalk.id || talkId,
-        title: fullTalk.title,
-        type: fullTalk.type,
-        timestamp: new Date().toISOString(),
-        role: 'copied',
-        fullTalk,
-        ...(senders && senders.length > 0 ? { senders } : {}),
-      });
-      this.showNotification(this.t('talksCopiedToList'), 'success');
-      this.displayTalksList();
-    };
-    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
-    if (!tid && identityKeyFallback) {
-      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
-      return;
-    }
-    if (!tid) {
-      this.showNotification(this.t('talksCouldNotOpen'), 'error');
-      return;
-    }
-    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+    quickCopyIncomingTalkImpl(talkId, identityKeyFallback, cluster, {
+      getMyTalks: () => this.getMyTalks(),
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: this.t.bind(this),
+      saveMyTalk: (talkData) => this.saveMyTalk(talkData),
+      refreshTalksList: () => this.displayTalksList(),
+      emit: (event, payload) => this.emit(event, payload),
+    });
   }
 
   /**
@@ -4511,56 +3832,14 @@ export class UIManager extends EventEmitter {
   }
 
   private showTalkDetail(talkId: string, identityKeyFallback?: string, options?: { preferAnswerView?: boolean; questionId?: string }): void {
-    const raw = (talkId || '').trim();
-    const tid = isValidTalkId(raw) ? raw : '';
-    if (!tid && identityKeyFallback) {
-      this.emit('demandFullTalkByIdentity', {
-        identityKey: identityKeyFallback,
-        callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
-          else this.showNotification(this.t('talksCouldNotLoad'), 'error');
-        },
-      });
-      return;
-    }
-    if (!tid) {
-      this.showNotification(this.t('talksCouldNotOpen'), 'error');
-      return;
-    }
-
-    const myTalks = getMyTalks();
-    const talk = myTalks[tid];
-
-    if (talk) {
-      const preferAnswerView = options?.preferAnswerView && !!talk.fullTalk;
-      if (talk.role === 'created' && !preferAnswerView) {
-        // Open editor for editing
-        this.emit('loadTalkForEdit', { talkId: tid });
-      } else if ((talk.role === 'answered' || talk.role === 'copied' || preferAnswerView) && talk.fullTalk) {
-        // Open response view without auto-answering (avoid instant "Match!" toast when just viewing)
-        this.showTalkResponseDialog(talk.fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
-      } else {
-        this.showNotification(this.tf('talksDetailNotice', { title: talk.title }), 'info');
-      }
-    } else {
-      // Incoming: load by id; if Gun gave a bad id, app retries via identityKey from server API.
-      this.emit('demandFullTalk', {
-        talkId: tid,
-        identityKeyFallback: identityKeyFallback || undefined,
-        callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
-          // TODO §P: a real retry, not a one-shot toast whose copy claims retry it doesn't
-          // perform — clicking re-runs this same lookup (mesh cache/identity-key resolution
-          // may have caught up since the first attempt).
-          else
-            this.showNotification(
-              this.t('talksCouldNotLoadRetry'),
-              'error',
-              { retry: () => this.showTalkDetail(talkId, identityKeyFallback, options) },
-            );
-        },
-      });
-    }
+    showTalkDetailImpl(talkId, identityKeyFallback, options, {
+      emit: (event, payload) => this.emit(event, payload),
+      showTalkResponseDialog: (talk, opts) => this.showTalkResponseDialog(talk, opts),
+      showNotification: (message, type, opts) => this.showNotification(message, type, opts),
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+      showTalkDetail: (id, fallback, opts) => this.showTalkDetail(id, fallback, opts),
+    });
   }
 
   displayConversationsList(): void {
@@ -5153,21 +4432,10 @@ export class UIManager extends EventEmitter {
   }
 
   updateChatroomInfo(info: { id: string; name: string } | any): void {
-    // Update current chatroom tracking
-    if (info.id) {
-      this.currentChatroom = info.id;
-    }
-    this.syncStatusBroadcastButtonVisibility();
-
-    const chatroomInfo = document.getElementById('chatroom-info');
-    if (chatroomInfo && info.id && info.name) {
-      chatroomInfo.innerHTML = `
-        <div class="chatroom-title">${info.name}</div>
-        <div class="chatroom-status">Connected</div>
-      `;
-    } else {
-      console.log('Chatroom updated:', info);
-    }
+    updateChatroomInfoImpl(info, {
+      setCurrentChatroom: (id) => { this.currentChatroom = id; },
+      syncStatusBroadcastButtonVisibility: () => this.syncStatusBroadcastButtonVisibility(),
+    });
   }
 
   updateUserInfo(user: User): void {
@@ -5190,46 +4458,7 @@ export class UIManager extends EventEmitter {
    * instead (the caller falls through to the normal send path on `false`).
    */
   confirmCapturedQuestionDialog(parsed: { question: string; answers: string[] }): Promise<boolean> {
-    document.getElementById('capture-question-confirm-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'capture-question-confirm-modal';
-    modal.dataset.testid = 'capture-question-confirm-modal';
-    modal.className = 'modal-overlay';
-    // This dialog is opened from *inside* an already-open conversation detail overlay
-    // (z-index 1001), which sits above .modal-overlay's own default (1000) — found via
-    // real E2E run (docs/TODO.md §V), matching the z-index tier the media lightbox
-    // already uses for the same "float above an open conversation" requirement.
-    modal.style.zIndex = '2000';
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:420px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('captureConfirmTitle')}</h2>
-          <p>${this.t('captureConfirmHelp')}</p>
-        </div>
-        <div style="padding:10px 0;">
-          <div style="font-weight:600;">${escapeHtml(parsed.question)}</div>
-          <ul style="margin:8px 0 0;padding-left:20px;font-size:0.9em;color:var(--text-secondary);">
-            ${parsed.answers.map((a) => `<li>${escapeHtml(a)}</li>`).join('')}
-          </ul>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn" data-testid="capture-question-confirm-decline">${this.t('captureConfirmDecline')}</button>
-          <button type="button" class="btn primary-btn" data-testid="capture-question-confirm-accept">${this.t('captureConfirmAccept')}</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    return new Promise<boolean>((resolve) => {
-      const finish = (confirmed: boolean): void => {
-        modal.remove();
-        resolve(confirmed);
-      };
-      modal.querySelector('[data-testid="capture-question-confirm-accept"]')?.addEventListener('click', () => finish(true));
-      modal.querySelector('[data-testid="capture-question-confirm-decline"]')?.addEventListener('click', () => finish(false));
-      modal.addEventListener('click', (event) => {
-        if (event.target === modal) finish(false);
-      });
-    });
+    return confirmCapturedQuestionDialogView(parsed, this.t.bind(this));
   }
 
   /**
@@ -5340,84 +4569,11 @@ export class UIManager extends EventEmitter {
   }
 
   confirmBroadcastAudience(previews: BroadcastAudiencePreview[]): Promise<boolean> {
-    document.getElementById('broadcast-preamble-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'broadcast-preamble-modal';
-    modal.dataset.testid = 'broadcast-preamble-modal';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:5000;background:rgba(15,23,42,0.48);display:flex;align-items:center;justify-content:center;padding:20px;';
-    const knownPreviews = previews.filter((preview) => !preview.previewUnavailable);
-    const deliveryCount = knownPreviews.reduce((count, preview) => count + preview.eligibleReceivers, 0);
-    const candidateCount = knownPreviews.reduce((count, preview) => count + preview.totalCandidates, 0);
-    const supportExcludedCount = knownPreviews.reduce((count, preview) => count + (preview.supportExcludedCount || 0), 0);
-    const excludedCount = Math.max(0, candidateCount - deliveryCount) + supportExcludedCount;
-    const hasUnavailable = knownPreviews.length !== previews.length;
-    const rows = previews.map((preview) => {
-      if (preview.senderOmittedBy?.length) {
-        const reasonText = preview.senderOmittedBy
-          .map((reason) => this.deliveryReasonLabel(reason))
-          .join(' · ');
-        return `
-          <div class="broadcast-preview-row broadcast-preview-row-omitted" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--danger-border);border-radius:10px;background:var(--danger-soft);">
-            <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-            <div style="font-size:0.88em;color:var(--danger-hover);margin-top:4px;">0 ${this.t('broadcastPreviewEligible')} · ${this.t('broadcastPreviewSenderOmitted')}</div>
-            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(reasonText)}</div>
-          </div>
-        `;
-      }
-      if (preview.previewUnavailable) {
-        return `
-          <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--border);border-radius:10px;">
-            <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${this.t('broadcastPreviewUnavailable')}</div>
-          </div>
-        `;
-      }
-      const reasonText = this.formatReasonCounts(preview.rejectedByCounts);
-      const recipientText = (preview.eligibleReceiverNames || []).join(', ') || this.t('broadcastPreviewNone');
-      const rejectedDetailText = (preview.rejectedReceiverDetails || [])
-        .map(({ name, rejectedBy }) => {
-          const reasonCounts = Object.fromEntries(rejectedBy.map((reason) => [reason, 1]));
-          return `${name}: ${this.formatReasonCounts(reasonCounts)}`;
-        })
-        .join('; ');
-      const perTalkExcluded = Math.max(0, preview.totalCandidates - preview.eligibleReceivers)
-        + (preview.supportExcludedCount || 0);
-      return `
-        <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--border);border-radius:10px;">
-          <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-          <div style="font-size:0.88em;color:var(--text-secondary);margin-top:4px;">${preview.eligibleReceivers} ${this.t('broadcastPreviewEligible')} · ${perTalkExcluded} ${this.t('broadcastPreviewExcluded')}</div>
-          <div class="broadcast-preview-recipients" style="font-size:0.82em;color:var(--text-secondary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewRecipients', { names: recipientText }))}</div>
-          ${reasonText ? `<div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(reasonText)}</div>` : ''}
-          ${rejectedDetailText ? `<div class="broadcast-preview-skipped" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSkipped', { details: rejectedDetailText }))}</div>` : ''}
-          ${preview.supportExcludedCount ? `<div class="broadcast-preview-support" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSupportExcluded', { count: preview.supportExcludedCount }))}</div>` : ''}
-        </div>
-      `;
-    }).join('');
-    modal.innerHTML = `
-      <div style="width:min(620px,96vw);max-height:90vh;overflow:auto;background:var(--surface);border-radius:16px;box-shadow:0 18px 55px rgba(15,23,42,0.2);">
-        <div style="padding:18px;border-bottom:1px solid var(--border);">
-          <div style="font-size:1.05em;font-weight:700;">${this.t('broadcastPreviewTitle')}</div>
-          <div style="font-size:0.88em;color:var(--text-tertiary);margin-top:5px;">${this.t('broadcastPreviewHelp')}</div>
-          <span class="broadcast-chip" style="display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent-hover);font-size:0.82em;">${this.tf(previews.length === 1 ? 'talksCountOne' : 'talksCount', { count: previews.length })} · ${deliveryCount} ${this.t('broadcastPreviewEligible')} · ${excludedCount} ${this.t('broadcastPreviewExcluded')}${hasUnavailable ? ` · ${this.t('broadcastPreviewFinalCheck')}` : ''}</span>
-        </div>
-        <div style="display:grid;gap:8px;padding:14px;">${rows}</div>
-        <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid var(--border);">
-          <button class="btn" type="button" data-testid="broadcast-preamble-cancel">${this.t('broadcastPreviewCancel')}</button>
-          <button class="btn primary-btn" type="button" data-testid="broadcast-preamble-send">${this.t('broadcastPreviewSend')}</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    return new Promise<boolean>((resolve) => {
-      const finish = (confirmed: boolean) => {
-        modal.remove();
-        resolve(confirmed);
-      };
-      modal.querySelector('[data-testid="broadcast-preamble-send"]')?.addEventListener('click', () => finish(true));
-      modal.querySelector('[data-testid="broadcast-preamble-cancel"]')?.addEventListener('click', () => finish(false));
-      modal.addEventListener('click', (event) => {
-        if (event.target === modal) finish(false);
-      });
+    return renderConfirmBroadcastAudience(previews, {
+      t: this.t.bind(this),
+      tf: this.tf.bind(this),
+      deliveryReasonLabel: this.deliveryReasonLabel.bind(this),
+      formatReasonCounts: this.formatReasonCounts.bind(this),
     });
   }
 
@@ -5427,44 +4583,17 @@ export class UIManager extends EventEmitter {
     memberCount: number,
     totalMatches?: number,
   ): void {
-    const statusBarText = document.getElementById('status-bar-text');
-
-    if (statusBarText) {
-      const userText = this.tf(memberCount === 1 ? 'statusBarUser' : 'statusBarUsers', { count: memberCount });
-      const base = `${chatroomName} · ${userText}`;
-      statusBarText.dataset.statusBarBase = base;
-      const localTotalMatches = this.getTotalMatches();
-      const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
-      let text = base;
-      if (effectiveTotalMatches > 0) {
-        const matchText = this.tf(
-          effectiveTotalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
-          { count: effectiveTotalMatches },
-        );
-        text += ` · ${matchText}`;
-      }
-      statusBarText.textContent = text;
-    }
+    updateStatusBarImpl(chatroomName, memberCount, totalMatches, {
+      tf: this.tf.bind(this),
+      getTotalMatches: () => this.getTotalMatches(),
+    });
   }
 
   private syncStatusBarMatchCount(): void {
-    const statusBarText = document.getElementById('status-bar-text');
-    if (!statusBarText) return;
-    // Use data attribute set by updateStatusBar; fall back to stripping legacy English suffix.
-    const base =
-      statusBarText.dataset.statusBarBase ||
-      statusBarText.textContent?.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim() ||
-      '';
-    const totalMatches = this.getTotalMatches();
-    if (totalMatches > 0) {
-      const matchText = this.tf(
-        totalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
-        { count: totalMatches },
-      );
-      statusBarText.textContent = `${base} · ${matchText}`;
-    } else {
-      statusBarText.textContent = base;
-    }
+    syncStatusBarMatchCountImpl({
+      tf: this.tf.bind(this),
+      getTotalMatches: () => this.getTotalMatches(),
+    });
   }
 
   getTotalMatches(): number {
@@ -5492,20 +4621,12 @@ export class UIManager extends EventEmitter {
     isOwnTalk: boolean;
     fullTalk: any;
   }): void {
-    // Do not auto-save to myTalks. Rely on the backend incomingTalkClusters instead.
-
-    // Show a notification for received talks and flash the author's icon in member list
-    if (!talk.isOwnTalk) {
-      this.showNotification(this.tf('newTalkNotification', { name: talk.authorName, title: talk.title }), 'info');
-      const authorId = talk.fullTalk?.authorId;
-      if (authorId) this.flashMemberForNewTalk(authorId);
-    }
-
-    // Refresh the talks list if the Talks tab is currently active
-    const talksTab = document.getElementById('tab-talks');
-    if (talksTab?.classList.contains('active')) {
-      this.displayTalksList();
-    }
+    displayIncomingTalkImpl(talk, {
+      showNotification: (message, type) => this.showNotification(message, type),
+      tf: this.tf.bind(this),
+      flashMemberForNewTalk: (authorId) => this.flashMemberForNewTalk(authorId),
+      refreshTalksListIfActive: () => this.displayTalksList(),
+    });
   }
 
   showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string; targetQuestionId?: string }): void {
@@ -5545,31 +4666,7 @@ export class UIManager extends EventEmitter {
    * the reverse of P's Q&A → Talk `showTalkDetailAsAnswer` direction, same talkId join.
    */
   private navigateToMyAnswerForTalk(talkId: string): void {
-    document.getElementById('talk-response-modal')?.remove();
-    (document.querySelector('.nav-btn[data-view="me"]') as HTMLElement | null)?.click();
-    window.setTimeout(() => {
-      // Merged rows can represent more than one contributing talk (data-talk-ids is a
-      // space-separated set), so this matches any row that lists talkId among its variants,
-      // not just a row whose sole identity equals talkId.
-      const rows = document.querySelectorAll<HTMLElement>(`.answer-talk-item[data-talk-ids~="${talkId}"]`);
-      const first = rows[0];
-      if (!first) return;
-      first.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      rows.forEach((row) => {
-        row.classList.add('answer-item-highlighted');
-        window.setTimeout(() => row.classList.remove('answer-item-highlighted'), 2000);
-      });
-    }, 0);
-  }
-
-  private static getTalkContentKey(talk: any): string {
-    const q = (talk.questions || []).map((qu: any) => ({
-      text: qu.text,
-      answers: (qu.answers || []).map((a: any) => a.text),
-    }));
-    const title = talk.type === 'tag' ? talk.title : '';
-    const loc = talk.locationRadiusMiles != null ? String(talk.locationRadiusMiles) : '';
-    return JSON.stringify({ q, loc, title, type: talk.type });
+    navigateToMyAnswerForTalkImpl(talkId);
   }
 
   private completeTalk(
@@ -5578,180 +4675,11 @@ export class UIManager extends EventEmitter {
     outcome?: 'match' | 'mismatch',
     meta?: { withholdFromSender?: boolean },
   ): void {
-    console.log('✅ Talk completed:', talk.id, answers, outcome);
-
-    const contentKey = UIManager.getTalkContentKey(talk);
-    const answeredByContent = getAnsweredTalkByContent();
-    const existingTalkId = answeredByContent[contentKey];
-    const myTalks = this.getMyTalks();
-    const authorId = talk.authorId || (talk as any).authorId;
-
-    let talkIdToUse: string;
-    let senders: string[];
-
-    if (existingTalkId && myTalks[existingTalkId]) {
-      talkIdToUse = existingTalkId;
-      const existing = myTalks[existingTalkId];
-      const prevSenders = existing.senders || (existing.fullTalk?.authorId ? [existing.fullTalk.authorId] : []);
-      senders = [...new Set([...prevSenders, authorId].filter(Boolean))];
-    } else {
-      talkIdToUse = talk.id;
-      senders = authorId ? [authorId] : [];
-      answeredByContent[contentKey] = talk.id;
-      try {
-        answeredByContent[computeTalkIdFromTalkData(talk)] = talk.id;
-      } catch {
-        /* keep legacy content key only */
-      }
-      setAnsweredTalkByContent(answeredByContent);
-    }
-
-    const existingEntry = myTalks[talkIdToUse];
-    const wasIgnored = answers.some((answer) => {
-      const answerId = String(answer?.answerId || '').toLowerCase();
-      const answerText = String(answer?.answerText || '').toLowerCase();
-      return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
-    });
-    const role = existingEntry?.role === 'copied' ? 'copied'
-               : existingEntry?.role === 'created' ? 'created'
-               : getCopyTalkAutoSave() && !wasIgnored ? 'copied'
-               : 'answered';
-    const completedAnswers = answers.map((answer) => ({
-      questionId: answer.questionId,
-      answerId: answer.answerId,
-      ...(answer.answerText ? { answerText: answer.answerText } : {}),
-      ...(answer.mode ? { mode: answer.mode } : {}),
-    }));
-
-    this.saveMyTalk({
-      talkId: talkIdToUse,
-      title: talk.title,
-      type: talk.type,
-      timestamp: talk.createdAt || new Date().toISOString(),
-      role,
-      // docs/TODO.md §Y1: auto-copy on completion is still just a copy — original authorship
-      // is preserved either way until a real edit happens.
-      fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
-      completedAnswers,
-      outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
-      senders,
-    });
-    this.saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
-
-    this.emit('talkCompleted', {
-      talkId: talk.id,
-      answers,
-      talkData: talk,
-      ...(meta?.withholdFromSender ? { withholdFromSender: true } : {}),
-    });
-
-    this.showNotification(
-      talk.type === 'flow'
-        ? this.t('responseSubmittedFlow')
-        : talk.type === 'tag'
-          ? this.t('responseSubmittedTag')
-          : this.t('responseSubmittedSurvey'),
-      'success',
-    );
-  }
-
-  private saveFlatAnswerHistoryRecord(
-    talkId: string,
-    talk: any,
-    completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }>,
-    outcome: 'match' | 'mismatch',
-    senders: string[],
-  ): void {
-    const questions = Array.isArray(talk?.questions) ? talk.questions : [];
-    const talkType = String(talk?.type || '').toLowerCase();
-    const items: FlatAnswerHistoryItem[] = completedAnswers.map((entry, index) => {
-      const question = questions.find((item: any) => String(item?.id || '') === entry.questionId) || {};
-      const answer = Array.isArray(question?.answers)
-        ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
-        : null;
-      // docs/TODO.md §LL.2 follow-up: an embedded tag/Pair-tag question (tagKind/
-      // reciprocalTagContext, not just a literal type:'tag' talk) dissolves into the Me tab as a
-      // tag too. `booleanTag` distinguishes the two sub-kinds within `kind:'tag'` — a self-match
-      // tag has no meaningful answer text of its own (Checked/Unchecked), while a Pair tag's
-      // accepted-answer text ("sell") is the whole point and must be shown, not hidden behind a
-      // boolean. See `findTagPairAncestor`'s doc comment (talk-engine.ts) for what
-      // reciprocalTagContext actually encodes.
-      const isTag = talkType === 'tag' || question?.tagKind === 'simple' || !!question?.reciprocalTagContext;
-      const booleanTag = isTag && !question?.reciprocalTagContext;
-      const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
-      const rawChoice = String(entry.answerText || '').trim();
-      const choice = isTag
-        ? booleanTag
-          ? answer?.isMatch
-            ? 'Checked'
-            : 'Unchecked'
-          : String(answer?.text || '').trim() || 'Ignored'
-        : rawChoice && rawChoice.toLowerCase() !== 'ignore'
-          ? rawChoice
-          : String(answer?.text || '').trim() || 'Ignored';
-      const contextPath = Array.isArray(question?.contextPath)
-        ? question.contextPath.map((step: any, stepIndex: number) => {
-            const questionId = String(step?.questionId || '').trim();
-            const parentQuestion = questions.find((item: any) => String(item?.id || '') === questionId);
-            const answerId = String(step?.answerId || '').trim();
-            const parentAnswer = Array.isArray(parentQuestion?.answers)
-              ? parentQuestion.answers.find((item: any) => String(item?.id || '') === answerId)
-              : null;
-            const questionText = String(parentQuestion?.text || questionId || `Q${stepIndex + 1}`).trim();
-            const answerText = String(parentAnswer?.text || answerId || '?').trim();
-            return `${questionText}→${answerText}`;
-          })
-        : [];
-      const flowContextLabel = completedAnswers
-        .slice(0, index)
-        .map((previousEntry, stepIndex) => {
-          const previousQuestion = questions.find((item: any) => String(item?.id || '') === previousEntry.questionId);
-          const previousAnswer = Array.isArray(previousQuestion?.answers)
-            ? previousQuestion.answers.find((item: any) => String(item?.id || '') === previousEntry.answerId)
-            : null;
-          const previousPrompt = String(previousQuestion?.text || `Q${stepIndex + 1}`).trim();
-          const previousRawChoice = String(previousEntry.answerText || '').trim();
-          const previousChoice = previousRawChoice && previousRawChoice.toLowerCase() !== 'ignore'
-            ? previousRawChoice
-            : String(previousAnswer?.text || '').trim() || 'Ignored';
-          return `${previousPrompt}→${previousChoice}`;
-        })
-        .filter(Boolean)
-        .join(' · ');
-      const contextLabel = talkType === 'tag' || talkType === 'survey'
-        ? ''
-        : talkType === 'flow'
-          ? flowContextLabel
-          : contextPath.join(' · ');
-      const contextHash = talkType === 'tag' || talkType === 'survey'
-        ? ''
-        : String(question?.contextHashId || '').trim();
-      const questionContentId = String(question?.cidId || '').trim();
-      return {
-        questionId: entry.questionId,
-        answerId: entry.answerId,
-        prompt,
-        choice,
-        kind: isTag ? 'tag' : 'question',
-        ...(isTag ? { booleanTag } : {}),
-        contextPath,
-        contextLabel,
-        ...(entry.mode ? { mode: entry.mode } : {}),
-        ...(contextHash ? { contextHash } : {}),
-        ...(questionContentId ? { questionContentId } : {}),
-      };
-    });
-    upsertFlatAnswerHistory({
-      id: `${UIManager.getTalkContentKey(talk)}:${talkId}`,
-      talkId,
-      title: String(talk?.title || 'Answered Talk'),
-      type: String(talk?.type || 'flow'),
-      language: String(talk?.language || 'en').toLowerCase(),
-      outcome,
-      answeredAt: new Date().toISOString(),
-      senderIds: [...new Set(senders.filter(Boolean))],
-      ...(talk?.locationRadiusMiles != null ? { locationRadiusMiles: talk.locationRadiusMiles } : {}),
-      items,
+    completeTalkImpl(talk, answers, outcome, meta, {
+      t: (key) => this.t(key),
+      emit: (event, payload) => this.emit(event, payload),
+      showNotification: (message, type) => this.showNotification(message, type),
+      displayTalksList: () => this.displayTalksList(),
     });
   }
 
@@ -5851,29 +4779,7 @@ export class UIManager extends EventEmitter {
     answers: Array<{ questionId: string; answerId: string; answerText?: string }>,
     location?: { latitude: number; longitude: number },
   ): void {
-    const locationStr = location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : undefined;
-    const timestamp = new Date().toISOString();
-    const questions = talkData.questions || [];
-    for (const a of answers) {
-      const q = questions.find((qu: any) => qu.id === a.questionId);
-      const questionText = q?.text?.trim() || '';
-      if (!questionText) continue;
-      const key = normalizeQuestionKey(questionText);
-      const isIgnored = a.answerText === 'ignore' || !a.answerText;
-      const entry: MyQuestionAnswerEntry = {
-        questionText,
-        answerId: a.answerId,
-        answerText: isIgnored ? '' : (a.answerText || ''),
-        isIgnored,
-        timestamp,
-      };
-      if (locationStr != null) entry.location = locationStr;
-      setMyQuestionAnswer(key, entry);
-    }
-    const meView = document.getElementById('me-view');
-    if (meView?.classList.contains('active')) {
-      this.displayAnswersList();
-    }
+    saveQuestionAnswersFromCompletionStorage(talkData, answers, location, () => this.displayAnswersList());
   }
 
   /** Shows the first-run walkthrough once per device, after boot finishes. No-op on replay. */
@@ -5896,108 +4802,11 @@ export class UIManager extends EventEmitter {
   }
 
   showPreferencesDialog(): void {
-    openPreferencesDialog({
-      getPreferences: () => ({
-        ...getAnswerPreferences(),
-        ...getFlattenedAnswerPreferences(),
-      }),
-      escapeHtml: escapeHtml,
-      updateAnswer: (key, answerId, answerText) => {
-        if (key.startsWith('flat_')) {
-          const prefs = getFlattenedAnswerPreferences();
-          if (!prefs[key]) return;
-          prefs[key].answerId = answerId;
-          prefs[key].answerText = answerText;
-          prefs[key].timestamp = new Date().toISOString();
-          setFlattenedAnswerPreferences(prefs);
-          this.applyPreferenceModeToExactMemory(prefs[key], this.normalizePreferenceMode(prefs[key].mode));
-        } else {
-          const prefs = getAnswerPreferences();
-          if (!prefs[key]) return;
-          prefs[key].answerId = answerId;
-          prefs[key].answerText = answerText;
-          prefs[key].timestamp = new Date().toISOString();
-          setAnswerPreferences(prefs);
-          this.applyPreferenceModeToExactMemory(prefs[key], this.normalizePreferenceMode(prefs[key].mode));
-        }
-        this.showNotification(this.t('preferencesAnswerUpdated'), 'success');
-      },
-      updateMode: (key, mode) => {
-        const prefs: AnswerPreferenceMap = key.startsWith('flat_')
-          ? getFlattenedAnswerPreferences()
-          : getAnswerPreferences();
-        if (!prefs[key]) return;
-        prefs[key].mode = mode;
-        prefs[key].timestamp = new Date().toISOString();
-        if (key.startsWith('flat_')) {
-          setFlattenedAnswerPreferences(prefs);
-        } else {
-          setAnswerPreferences(prefs);
-        }
-        this.applyPreferenceModeToExactMemory(prefs[key], mode);
-        const noticeKey: Record<AnswerPreferenceUiMode, UiTranslationKey> = {
-          manual: 'preferencesModeChangedManual',
-          temporary: 'preferencesModeChangedTemporary',
-          permanent: 'preferencesModeChangedPermanent',
-          suppressed: 'preferencesModeChangedSuppressed',
-        };
-        this.showNotification(this.t(noticeKey[mode]), 'success');
-      },
-      deletePreference: (key) => {
-        this.deleteAnswerPreference(key);
-        this.showNotification(this.t('preferencesAnswerDeleted'), 'success');
-      },
-      clearAll: () => {
-        clearAnswerPreferences();
-        this.showNotification(this.t('preferencesAnswersCleared'), 'success');
-      },
-      notify: this.showNotification.bind(this),
-      text: this.t.bind(this),
-      formatDate: this.formatUiDate.bind(this),
+    openAnswerPreferencesDialog({
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: (key) => this.t(key),
+      formatUiDate: (date) => this.formatUiDate(date),
     });
-  }
-
-  private normalizePreferenceMode(mode: string): AnswerPreferenceUiMode {
-    if (mode === 'auto' || mode === 'temporary') return 'temporary';
-    if (mode === 'permanent' || mode === 'suppressed') return mode;
-    return 'manual';
-  }
-
-  private applyPreferenceModeToExactMemory(pref: AnswerPreferenceEntry, mode: AnswerPreferenceUiMode): void {
-    const questionText = String(pref.questionText || '').trim();
-    if (!questionText) return;
-    const exactMemory = getExactChatbotMemory();
-    const language = String(pref.language || 'en').toLowerCase();
-    if (mode === 'manual') {
-      const userMemory = exactMemory.users[LOCAL_EXACT_CHATBOT_USER_ID];
-      if (userMemory) {
-        delete userMemory[makeQuestionId(questionText, { language })];
-        if (language === 'en') delete userMemory[makeQuestionId(questionText)];
-      }
-    } else if (mode === 'suppressed') {
-      saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, questionText, undefined, { language });
-    } else if (mode === 'permanent') {
-      savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, questionText, pref.answerText, undefined, { language });
-    } else {
-      saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, questionText, pref.answerText, undefined, { language });
-    }
-    setExactChatbotMemory(exactMemory);
-  }
-
-  private deleteAnswerPreference(key: string): void {
-    if (key.startsWith('flat_')) {
-      const flat = getFlattenedAnswerPreferences();
-      const pref = flat[key];
-      delete flat[key];
-      setFlattenedAnswerPreferences(flat);
-      if (pref) this.applyPreferenceModeToExactMemory(pref, 'manual');
-      return;
-    }
-    const preferences = getAnswerPreferences();
-    const pref = preferences[key];
-    delete preferences[key];
-    setAnswerPreferences(preferences);
-    if (pref) this.applyPreferenceModeToExactMemory(pref, 'manual');
   }
 
   // ============================================
@@ -6005,25 +4814,7 @@ export class UIManager extends EventEmitter {
   // ============================================
 
   private saveMyTalk(talkData: MyTalkEntry): void {
-    const myTalks = getMyTalks();
-    const existing = myTalks[talkData.talkId];
-    const full = talkData.fullTalk;
-    myTalks[talkData.talkId] = {
-      ...existing,
-      ...talkData,
-      disabled: talkData.disabled ?? existing?.disabled ?? false,
-      expiresAt: existing?.expiresAt ?? full?.expiresAt ?? undefined,
-      locationRadiusMiles: existing?.locationRadiusMiles ?? full?.locationRadiusMiles ?? undefined,
-      senders: talkData.senders ?? existing?.senders ?? undefined,
-      lastInteraction: new Date().toISOString(),
-    };
-    setMyTalks(myTalks);
-
-    // Refresh talks list if currently viewing Talks tab
-    const talksView = document.getElementById('talks-view');
-    if (talksView && talksView.classList.contains('active')) {
-      this.displayTalksList();
-    }
+    saveMyTalkImpl(talkData, { displayTalksList: () => this.displayTalksList() });
   }
 
   /** OUT talks eligible for the next broadcast in the current room (respects send history). */
@@ -6054,27 +4845,7 @@ export class UIManager extends EventEmitter {
 
   /** OUT talks omitted from broadcast/peer send because they are disabled or expired. */
   getSenderOmittedBroadcastPreviews(): BroadcastAudiencePreview[] {
-    const myTalks = getMyTalks();
-    const now = Date.now();
-    const previews: BroadcastAudiencePreview[] = [];
-    for (const [talkId, talk] of Object.entries(myTalks)) {
-      if (talk?.role !== 'created' && talk?.role !== 'copied') continue;
-      const omittedBy: string[] = [];
-      if (talk?.disabled) omittedBy.push('broadcast_disabled');
-      const expiresAt = talk?.expiresAt ?? talk?.fullTalk?.expiresAt;
-      const expiresAtMs = resolveExpiresAtMs(expiresAt);
-      if (Number.isFinite(expiresAtMs) && now > expiresAtMs) omittedBy.push('talk_expired');
-      if (omittedBy.length === 0) continue;
-      previews.push({
-        talkId,
-        title: String(talk?.title || talk?.fullTalk?.title || talkId),
-        totalCandidates: 0,
-        eligibleReceivers: 0,
-        rejectedByCounts: Object.fromEntries(omittedBy.map((reason) => [reason, 1])),
-        senderOmittedBy: omittedBy,
-      });
-    }
-    return previews.sort((a, b) => a.title.localeCompare(b.title));
+    return getSenderOmittedBroadcastPreviewsImpl();
   }
 
   /**
@@ -6099,52 +4870,14 @@ export class UIManager extends EventEmitter {
     talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null },
     options: { selfAnswers: { questionId: string; answerId: string }[] },
   ): void {
-    const myTalks = getMyTalks();
-    const uncheckedTag = talk.type === 'tag' && options.selfAnswers.some((answer) => answer.answerId === 'ignore' || answer.answerId.includes('ignore'));
-    myTalks[talk.id] = {
-      ...myTalks[talk.id],
-      talkId: talk.id,
-      title: talk.title,
-      type: talk.type,
-      language: talk.language || 'en',
-      timestamp: new Date().toISOString(),
-      role: 'created',
-      fullTalk: talk,
-      disabled: uncheckedTag,
-      expiresAt: talk.expiresAt ?? undefined,
-      locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
-      lastInteraction: new Date().toISOString(),
-    };
-    setMyTalks(myTalks);
-
-    // Save self-answers to answer preferences (user's answer list) for chatbot/auto-reply
-    const acc: Array<{ questionId: string; answerText?: string }> = [];
-    const completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }> = [];
-    let hasMatchAnswer = false;
-    for (const { questionId, answerId } of options.selfAnswers) {
-      const q = talk.questions?.find((qu: any) => qu.id === questionId);
-      if (!q) continue;
-      const a = q.answers?.find((an: any) => an.id === answerId);
-      if (!a) continue;
-      acc.push({ questionId, answerText: a.text });
-      completedAnswers.push({
-        questionId,
-        answerId,
-        answerText: a.text || '',
-        mode: 'manual',
-      });
-      if (a.isMatch === true) hasMatchAnswer = true;
-      this.saveAnswerPreference(talk, talk.id, q, a.id, a.text || '', acc, 'auto');
-    }
-    if (completedAnswers.length > 0) {
-      this.saveQuestionAnswersFromCompletion(talk, completedAnswers);
-      this.saveFlatAnswerHistoryRecord(talk.id, talk, completedAnswers, hasMatchAnswer ? 'match' : 'mismatch', []);
-    }
-
-    const talksView = document.getElementById('talks-view');
-    if (talksView?.classList.contains('active')) {
-      this.displayTalksList();
-    }
+    saveCreatedTalkImpl(talk, options, {
+      saveAnswerPreference: (talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode) =>
+        this.saveAnswerPreference(talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode),
+      saveQuestionAnswersFromCompletion: (talkData, answers) => this.saveQuestionAnswersFromCompletion(talkData, answers),
+      saveFlatAnswerHistoryRecord: (talkId, talkArg, completedAnswers, outcome, senders) =>
+        saveFlatAnswerHistoryRecord(talkId, talkArg, completedAnswers, outcome, senders),
+      refreshTalksListIfActive: () => this.displayTalksList(),
+    });
   }
 
   getChatbotTemplate(talkId: string): { answers: any[]; talkData: any } | null {
@@ -6191,33 +4924,11 @@ export class UIManager extends EventEmitter {
    * and will not be sent to anyone when broadcasting.
    */
   setTalkDisabled(talkId: string, disabled: boolean): void {
-    const myTalks = getMyTalks();
-    if (!myTalks[talkId]) return;
-    myTalks[talkId].disabled = !!disabled;
-    setMyTalks(myTalks);
-    // Phase F: disabling broadcast = withdrawing the talk from active delivery
-    if (disabled) {
-      this.emit('withdrawTalk', { talkId });
-      // Step 10: tag-uncheck is a hard retraction — flood the tombstone so responders
-      // learn the talk is gone even if they are offline at this moment.
-      this.emit('retractTalk', { talkId, retractedAt: Date.now() });
-    }
-    // Patch visible rows so checkboxes stay in DOM and keep responding (no full list re-render)
-    const talksList = document.getElementById('talks-list');
-    const rows = talksList?.querySelectorAll(`.talk-list-item[data-talk-id="${talkId}"]`);
-    if (rows && rows.length > 0) {
-      rows.forEach((row) => {
-        const item = row as HTMLElement;
-        item.classList.toggle('talk-broadcast-disabled', !!disabled);
-        item.classList.toggle('talk-broadcast-enabled', !disabled);
-        const checkbox = row.querySelector('.talk-broadcast-toggle-checkbox') as HTMLInputElement | null;
-        if (checkbox) checkbox.checked = !disabled;
-        const badge = checkbox?.closest('.talk-icon-badge') as HTMLElement | null;
-        if (badge) badge.title = disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn');
-      });
-    } else {
-      this.displayTalksList();
-    }
+    setTalkDisabledImpl(talkId, disabled, {
+      emit: (event, payload) => this.emit(event, payload),
+      t: this.t.bind(this),
+      displayTalksList: () => this.displayTalksList(),
+    });
   }
 
   /**
@@ -6261,26 +4972,13 @@ export class UIManager extends EventEmitter {
   }
 
   private deleteMyTalk(talkId: string): void {
-    const myTalks = deleteMyTalkEntry(talkId);
-    if (!(talkId in myTalks) && Object.keys(myTalks).length === 0) {
-      // already absent; continue to clear answered-by-content links if present
-    }
-    const answeredByContent = getAnsweredTalkByContent();
-    for (const [key, id] of Object.entries(answeredByContent)) {
-      if (id === talkId) {
-        delete answeredByContent[key];
-        setAnsweredTalkByContent(answeredByContent);
-        break;
-      }
-    }
-    this.displayTalksList();
-    this.displayAnswersList();
-    this.showNotification(this.t('talksRemovedFromList'), 'success');
-    // Phase F: notify ledger of withdrawal so peers stop routing this talk
-    this.emit('withdrawTalk', { talkId });
-    // Step 10: hard retraction — flood talk-retracted frame to all holders.
-    // retractTalk carries retractedAt so the responder can order the tombstone.
-    this.emit('retractTalk', { talkId, retractedAt: Date.now() });
+    deleteMyTalkImpl(talkId, {
+      displayTalksList: () => this.displayTalksList(),
+      displayAnswersList: () => this.displayAnswersList(),
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: (key) => this.t(key),
+      emit: (event, payload) => this.emit(event, payload),
+    });
   }
 
   setNotificationsSuppressedForE2e(suppressed: boolean): void {
@@ -6293,204 +4991,38 @@ export class UIManager extends EventEmitter {
   showNotification(
     message: string,
     type: 'success' | 'error' | 'info' | 'warning' = 'info',
-    options?: { persistent?: boolean; conversationId?: string; contentFilter?: string; peerId?: string; peerName?: string; retry?: () => void; safetyToast?: 'pre-send' | 'post-match' },
+    options?: NotificationOptions,
   ): void {
-    if (this.notificationsSuppressedForE2e) return;
-
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.textContent = message;
-    // Content-filter toasts (redesign §9) carry a marker so E2E can assert the
-    // send/receive block without matching on translated text.
-    if (options?.contentFilter) {
-      notification.dataset.contentFilterNotification = options.contentFilter;
-    }
-    // FR-FIN-1 safety-reminder toasts (TODO §CC): marker so E2E can assert the
-    // once-per-day cooldown without matching on translated text.
-    if (options?.safetyToast) {
-      notification.dataset.safetyToast = options.safetyToast;
-    }
-
-    // Match! notices keep their marker attribute (E2E asserts on it) but are no longer
-    // durable: every toast auto-dismisses — Match! after 8s, everything else after 3s
-    // (redesign §4, rule G1). `options.persistent` stays as a caller override for the
-    // marker only — e.g. the "can now chat" banner starts with the Match! prefix but is
-    // an ordinary toast.
-    const isMatchNotification =
-      options?.persistent ??
-      (message.startsWith(this.t('talksMatchNoticePrefix')) ||
-        message === this.t('responseMatch') ||
-        message === this.t('responseMatchAuto'));
-    if (isMatchNotification) {
-      notification.dataset.matchNotification = 'true';
-    }
-    // All toasts are click-to-dismiss; a Match! toast with a conversation navigates to it
-    // on click (rule N6). A DM-arrival toast (TODO §N1) navigates through the graph-node
-    // dispatcher's 'person' destination instead — the same "land on ⟨Conv⟩ with ⟨User⟩
-    // underneath" convention every other click-to-a-person surface uses (N2a), so N2/N3/O
-    // can all reuse this one settled destination rather than each picking their own. A
-    // retry-capable toast (TODO §P) re-attempts the failed lookup on click instead of just
-    // dismissing — real recovery, not a copy that promises retry it doesn't perform.
-    notification.style.cursor = 'pointer';
-    if (options?.retry) notification.dataset.retryable = 'true';
-    notification.addEventListener('click', () => {
-      if (document.body.contains(notification)) document.body.removeChild(notification);
-      if (isMatchNotification && options?.conversationId) {
-        this.showConversationDetail(options.conversationId);
-      } else if (options?.peerId) {
-        this.navigateToGraphNode({ type: 'person', id: options.peerId, name: options.peerName || '' });
-      } else if (options?.retry) {
-        options.retry();
-      }
+    renderNotificationToast(message, type, options, {
+      isSuppressedForE2e: () => this.notificationsSuppressedForE2e,
+      t: this.t.bind(this),
+      openConversation: (conversationId) => this.showConversationDetail(conversationId),
+      navigateToPerson: (person) => this.navigateToGraphNode(person),
     });
-
-    document.body.appendChild(notification);
-
-    const hideAfter = isMatchNotification
-      ? 8000
-      : message === this.t('chatroomNoTalksToBroadcast')
-        ? 10000
-        : options?.retry
-          ? 8000
-          : 3000;
-    setTimeout(() => {
-      if (document.body.contains(notification)) {
-        document.body.removeChild(notification);
-      }
-    }, hideAfter);
   }
 
   /** Offer the most specific privacy-safe location room without moving the user implicitly. */
   showLocationRoomSuggestion(roomName: string, onJoin: () => void): void {
-    document.getElementById('location-room-suggestion')?.remove();
-    const host = document.getElementById('chatroom-list-container');
-    if (!host) return;
-    const banner = document.createElement('div');
-    banner.id = 'location-room-suggestion';
-    banner.className = 'location-room-suggestion';
-    banner.innerHTML = `
-      <span>${escapeHtml(this.tf('locationSuggestedRoom', { room: roomName }))}</span>
-      <button type="button" data-action="join">${escapeHtml(this.t('locationSuggestedRoomJoin'))}</button>
-      <button type="button" data-action="dismiss" aria-label="Dismiss">×</button>`;
-    banner.querySelector<HTMLButtonElement>('[data-action="join"]')?.addEventListener('click', () => {
-      banner.remove();
-      onJoin();
+    showLocationRoomSuggestionImpl(roomName, onJoin, {
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
     });
-    banner.querySelector<HTMLButtonElement>('[data-action="dismiss"]')?.addEventListener('click', () => banner.remove());
-    host.prepend(banner);
   }
 
   showSystemAnnouncement(announcement: { id: string; text: string }): void {
-    const dismissedKey = `iinpublic_dismissed_announcement:${announcement.id}`;
-    if (localStorage.getItem(dismissedKey) || document.getElementById(`system-announcement-${announcement.id}`)) return;
-    const host = document.getElementById('chatroom-list-container');
-    if (!host) return;
-    let list = document.getElementById('system-announcements');
-    if (!list) {
-      list = document.createElement('div');
-      list.id = 'system-announcements';
-      list.className = 'system-announcements';
-      host.prepend(list);
-    }
-    const banner = document.createElement('div');
-    banner.id = `system-announcement-${announcement.id}`;
-    banner.className = 'system-announcement';
-    const text = document.createElement('span');
-    text.textContent = announcement.text;
-    const dismiss = document.createElement('button');
-    dismiss.type = 'button';
-    dismiss.setAttribute('aria-label', 'Dismiss announcement');
-    dismiss.textContent = '×';
-    dismiss.addEventListener('click', () => {
-      localStorage.setItem(dismissedKey, '1');
-      banner.remove();
-      if (!list?.children.length) list.remove();
-    });
-    banner.append(text, dismiss);
-    list.append(banner);
+    renderSystemAnnouncement(announcement);
   }
 
   /** Best-effort OS sniff for the app-download banner; unmatched UAs fall through to null (no dead link). */
-  private detectDownloadPlatform(): 'mac' | 'windows' | 'linux' | 'android' | 'ios' | null {
-    const ua = navigator.userAgent || '';
-    if (/Android/i.test(ua)) return 'android';
-    if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
-    if (/Win(dows)?(NT)?/i.test(ua)) return 'windows';
-    // iPadOS 13+ reports as Mac Safari but exposes touch points.
-    if (/Mac/i.test(ua) && navigator.maxTouchPoints > 1) return 'ios';
-    if (/Mac/i.test(ua)) return 'mac';
-    if (/Linux|X11/i.test(ua)) return 'linux';
-    return null;
-  }
-
-  /**
-   * §19.2: a plain browser tab pointed at the relay hub is a first-class client, not just an
-   * app-download landing page — but we still want to point desktop-capable visitors at the
-   * native app when one exists. Skipped entirely inside the packaged Electron shell, which
-   * reports 'Electron' in its UA.
-   */
   async renderAppDownloadBanner(): Promise<void> {
-    const nativeHost = (window as unknown as {
-      iinpublicNative?: { version?: string; platform?: string };
-    }).iinpublicNative;
-    const nativePlatform = new URLSearchParams(window.location.search).get('native_platform');
-    // Electron identifies itself through both its preload bridge and UA. Mobile shells use a
-    // query marker because their UI is served by the embedded loopback node inside a WebView.
-    // Neither is a web-version visitor and neither should be invited to download itself.
-    if (nativeHost?.platform || nativePlatform || /Electron/i.test(navigator.userAgent || '')) return;
-    if (sessionStorage.getItem('iinpublic_dismissed_app_download_banner')) return;
-    const shell = document.querySelector('.app-container');
-    if (!shell || document.getElementById('app-download-banner')) return;
-
-    const platform = this.detectDownloadPlatform();
-    let downloadUrl: string | null = null;
-    if (platform && this.apiBase) {
-      try {
-        const res = await fetch(`${this.apiBase}/api/downloads`, { cache: 'no-store' });
-        if (res.ok) {
-          const manifest = (await res.json()) as Record<string, string | null>;
-          downloadUrl = manifest[platform] || null;
-        }
-      } catch {
-        // Offline/unreachable API — banner still renders with the "unavailable" state below.
-      }
-    }
-
-    const platformLabel = platform === 'mac'
-      ? 'Mac'
-      : platform === 'windows'
-        ? 'Windows'
-        : platform === 'linux'
-          ? 'Linux'
-          : platform === 'android'
-            ? 'Android'
-            : platform === 'ios'
-              ? 'iPhone/iPad'
-              : '';
-    const banner = document.createElement('div');
-    banner.id = 'app-download-banner';
-    banner.className = 'app-download-banner';
-    // No dead-end "not available" copy — IinPublic really does ship native Mac/Windows/Android
-    // apps (this build just isn't published for the visitor's platform yet); route them to the
-    // Settings "Download the app" section instead, where every platform's real status shows.
-    banner.innerHTML = `
-      <span class="app-download-banner-text">${escapeHtml(this.t('appDownloadBannerText'))}</span>
-      ${downloadUrl
-        ? `<a class="app-download-banner-link" href="${escapeHtml(downloadUrl)}" download>${escapeHtml(this.tf('appDownloadBannerGetApp', { platform: platformLabel }))}</a>`
-        : `<button type="button" class="app-download-banner-link app-download-banner-see-options" data-action="see-options">${escapeHtml(this.t('appDownloadBannerSeeOptions'))}</button>`}
-      <button type="button" class="app-download-banner-dismiss" aria-label="${escapeHtml(this.t('appDownloadBannerDismiss'))}">×</button>`;
-    // The settings nav click handler always resets settingsActiveSectionId to null before its
-    // own synchronous render, so the drill-down below has to happen AFTER that click resolves.
-    banner.querySelector('[data-action="see-options"]')?.addEventListener('click', () => {
-      banner.remove();
-      (document.querySelector('.nav-btn[data-view="settings"]') as HTMLElement | null)?.click();
-      this.applySettingsSectionView((this.settingsActiveSectionId = 'settings-section-download-app'));
+    await renderAppDownloadBannerImpl({
+      apiBase: this.apiBase,
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+      openDownloadAppSettingsSection: () => {
+        this.applySettingsSectionView((this.settingsActiveSectionId = 'settings-section-download-app'));
+      },
     });
-    banner.querySelector('.app-download-banner-dismiss')?.addEventListener('click', () => {
-      sessionStorage.setItem('iinpublic_dismissed_app_download_banner', '1');
-      banner.remove();
-    });
-    shell.prepend(banner);
   }
 
   private appDownloadTextDeps(): AppDownloadTextDeps {
@@ -6534,40 +5066,7 @@ export class UIManager extends EventEmitter {
     timestamp: string;
     isOwnMessage: boolean;
   }): void {
-    const messagesContainer = document.getElementById('messages-container');
-    if (!messagesContainer) return;
-
-    // Check if message already exists to avoid duplicates
-    if (document.getElementById(`msg-${message.id}`)) {
-      return;
-    }
-
-    // Clear welcome message if it exists
-    const welcomeMsg = messagesContainer.querySelector('.text-center.p-20');
-    if (welcomeMsg) {
-      welcomeMsg.remove();
-    }
-
-    const messageTime = new Date(message.timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    const messageDiv = document.createElement('div');
-    messageDiv.id = `msg-${message.id}`;
-    messageDiv.className = `message ${message.isOwnMessage ? 'sent' : ''}`;
-    messageDiv.innerHTML = `
-      <div class="message-bubble">
-        ${!message.isOwnMessage ? `<div style="font-weight: bold; font-size: 0.85em; margin-bottom: 4px; color: var(--accent);">${escapeHtml(message.senderName)}</div>` : ''}
-        <div>${escapeHtml(message.text)}</div>
-        <div class="message-time">${messageTime}</div>
-      </div>
-    `;
-
-    messagesContainer.appendChild(messageDiv);
-
-    // Auto-scroll to bottom
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    renderChatroomMessage(message);
   }
 
   /**
@@ -6580,55 +5079,9 @@ export class UIManager extends EventEmitter {
    * arrow visual language (main.css) rather than inventing a new one.
    */
   private showTalkTemplatePicker(): void {
-    document.getElementById('talk-template-picker-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'talk-template-picker-modal';
-    modal.className = 'modal-overlay';
-    const templateRows = TALK_TEMPLATES.map(
-      (template) => `
-      <div class="chatroom-item talk-template-row" data-testid="talk-template-${template.id}" data-template-id="${template.id}">
-        <div class="chatroom-icon">${template.icon}</div>
-        <div class="chatroom-info">
-          <div class="chatroom-name">${escapeHtml(this.t(template.labelKey))}</div>
-          <div class="chatroom-description">${escapeHtml(this.t(template.descKey))}</div>
-        </div>
-        <div class="chatroom-arrow">›</div>
-      </div>
-    `,
-    ).join('');
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:440px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('talkTemplatePickerTitle')}</h2>
-          <button class="close-button" id="close-talk-template-picker">&times;</button>
-        </div>
-        <p style="padding:0 20px;margin:0 0 12px;color:var(--text-secondary);font-size:0.9em;">${escapeHtml(this.t('talkTemplatePickerSubtitle'))}</p>
-        <div style="padding:0 20px 20px;">
-          ${templateRows}
-          <div class="chatroom-item talk-template-row" data-testid="talk-template-scratch" data-template-id="scratch">
-            <div class="chatroom-icon">✏️</div>
-            <div class="chatroom-info">
-              <div class="chatroom-name">${escapeHtml(this.t('talkTemplateScratch'))}</div>
-              <div class="chatroom-description">${escapeHtml(this.t('talkTemplateScratchDesc'))}</div>
-            </div>
-            <div class="chatroom-arrow">›</div>
-          </div>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    const close = () => modal.remove();
-    document.getElementById('close-talk-template-picker')?.addEventListener('click', close);
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) close();
-    });
-    modal.querySelectorAll<HTMLElement>('.talk-template-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const templateId = row.dataset.templateId || '';
-        close();
-        const template = TALK_TEMPLATES.find((t) => t.id === templateId);
-        this.showTalkEditorDialog(template?.build());
-      });
+    renderTalkTemplatePicker({
+      t: this.t.bind(this),
+      openEditor: (existingTalk) => this.showTalkEditorDialog(existingTalk),
     });
   }
 
@@ -6727,26 +5180,7 @@ export class UIManager extends EventEmitter {
    * lifting is done by TalkAutofix + TalkValidator before save.
    */
   private refreshFlowAnswerConstraints(type: string): void {
-    const questionItems = document.querySelectorAll('.question-item');
-    questionItems.forEach((item) => {
-      const answersContainer = item.querySelector('.answers-container');
-      if (!answersContainer) return;
-      const answerItems = answersContainer.querySelectorAll('.answer-item');
-      answerItems.forEach((answerItem, aIdx) => {
-        const select = answerItem.querySelector('.answer-next') as HTMLSelectElement | null;
-        if (!select) return;
-        // Always keep the select enabled so Playwright / keyboard users can
-        // interact with every row. Reset any stale lock-state from previous
-        // renders.
-        select.disabled = false;
-        const ignoreOpt = select.querySelector('option[value="ignore"]') as HTMLOptionElement | null;
-        if (ignoreOpt) ignoreOpt.disabled = false;
-        select.removeAttribute('title');
-        if (type === 'flow' && aIdx > 0) {
-          select.title = this.t('editorFlowConstraint');
-        }
-      });
-    });
+    refreshFlowAnswerConstraintsImpl(type, { t: (key) => this.t(key) });
   }
 
   /** Mutable editor state; pure initialization/serialization lives in route-editor-model.ts. */
@@ -7003,7 +5437,7 @@ export class UIManager extends EventEmitter {
       getCurrentInterests: () => Array.isArray(this.currentUser?.interests) ? this.currentUser!.interests : [],
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
       showConversationDetail: this.showConversationDetail.bind(this),
-      registerTalkForPeer: this.registerTalkForPeer.bind(this),
+      registerTalkForPeer,
       isBlockedByMe: this.isBlockedByMe.bind(this),
       setBlocked: this.setBlocked.bind(this),
       isSupportContact: (candidateId: string) => candidateId === TECHSUPPORT_ROOT_USER_ID,
@@ -7157,23 +5591,11 @@ export class UIManager extends EventEmitter {
       notes?: string;
     },
   ): Promise<void> {
-    if (!this.currentUser) return;
-    const nextEntry: KnownPerson = {
-      userId,
-      labels: details.labels,
-      ...(details.nickname ? { nickname: details.nickname } : {}),
-      ...(details.customLabel ? { customLabel: details.customLabel } : {}),
-      ...(typeof details.rating === 'number' ? { rating: details.rating } : {}),
-      ...(details.notes ? { notes: details.notes } : {}),
-      addedAt: new Date(),
-    };
-    const knownPeople = [
-      ...(this.currentUser.knownPeople || []).filter((entry) => entry.userId !== userId),
-      nextEntry,
-    ];
-    this.currentUser.knownPeople = knownPeople;
-    this.emit('saveKnownPerson', { userId, ...details });
-    this.displayContactsList();
+    saveKnownPersonImpl(userId, details, {
+      getCurrentUser: () => this.currentUser,
+      emit: (event, payload) => this.emit(event, payload),
+      refreshContactsList: () => void this.displayContactsList(),
+    });
   }
 
   private async submitPeerReview(userId: string, rating: number): Promise<void> {
@@ -7185,28 +5607,13 @@ export class UIManager extends EventEmitter {
   }
 
   private async setBlocked(userId: string, blocked: boolean): Promise<void> {
-    if (!this.currentUser) return;
-    if (this.apiBase && this.currentUserId) {
-      const url = blocked
-        ? `${this.apiBase}/api/users/${encodeURIComponent(this.currentUserId)}/blocks`
-        : `${this.apiBase}/api/users/${encodeURIComponent(this.currentUserId)}/blocks/${encodeURIComponent(userId)}`;
-      const response = await fetch(
-        url,
-        blocked
-          ? {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ targetId: userId }),
-            }
-          : { method: 'DELETE' },
-      );
-      if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
-    }
-    this.currentUser.blockedUserIds = blocked
-      ? Array.from(new Set([...(this.currentUser.blockedUserIds || []), userId]))
-      : (this.currentUser.blockedUserIds || []).filter((candidate) => candidate !== userId);
-    this.emit('setUserBlocked', { userId, blocked });
-    this.displayContactsList();
+    return setBlockedImpl(userId, blocked, {
+      getCurrentUser: () => this.currentUser,
+      apiBase: this.apiBase,
+      currentUserId: this.currentUserId,
+      emit: (event, payload) => this.emit(event, payload),
+      refreshContactsList: () => void this.displayContactsList(),
+    });
   }
 
   private getPeerName(userId: string, fallbackName?: string): string {
@@ -7270,106 +5677,15 @@ export class UIManager extends EventEmitter {
   }
 
   private getPeerNameCache(): Record<string, string> {
-    try {
-      const raw = localStorage.getItem('peerNameCache');
-      return raw ? JSON.parse(raw) as Record<string, string> : {};
-    } catch {
-      return {};
-    }
+    return getPeerNameCache();
   }
 
   private rememberPeerName(userId: string, stageName: string): void {
-    const trimmedId = String(userId || '').trim();
-    const trimmedName = String(stageName || '').trim();
-    if (!trimmedId || !trimmedName) return;
-    const cache = this.getPeerNameCache();
-    if (cache[trimmedId] === trimmedName) return;
-    cache[trimmedId] = trimmedName;
-    localStorage.setItem('peerNameCache', JSON.stringify(cache));
-    // Self-heal recorded names: conversation records embed the peer name captured at match
-    // time; when a fresher name resolves (rename observed via the live roster), sync it into
-    // stored conversations so the conversation list, contact derivation, and anything that
-    // reads `myConversations` from localStorage all converge on the current name.
-    try {
-      const conversations = this.getMyConversations() as Record<string, any>;
-      let changed = false;
-      for (const conversation of Object.values(conversations)) {
-        if (
-          conversation &&
-          conversation.otherUserId === trimmedId &&
-          conversation.supportChannel !== true &&
-          conversation.otherUserName !== trimmedName
-        ) {
-          conversation.otherUserName = trimmedName;
-          changed = true;
-        }
-      }
-      if (changed) localStorage.setItem('myConversations', JSON.stringify(conversations));
-    } catch {
-      /* name sync is best-effort — never break the caller's render */
-    }
-  }
-
-  private async registerTalkForPeer(talkId: string, talkData: any, peerId: string, peerName: string): Promise<void> {
-    // P0 step 7: server talk delivery removed. Always route via mesh (sendDirectTalkToPeer).
-    const app = (
-      window as unknown as {
-        __iinpublic_app?: {
-          getApp: () => {
-            sendDirectTalkToPeer?: (
-              talkId: string,
-              talkData: unknown,
-              peerId: string,
-              peerName: string,
-            ) => Promise<void>;
-          };
-        };
-      }
-    ).__iinpublic_app?.getApp?.();
-    if (app?.sendDirectTalkToPeer) {
-      await app.sendDirectTalkToPeer(talkId, talkData, peerId, peerName);
-      return;
-    }
-    // No mesh connection available — no-op (star path removed).
-    console.warn('registerTalkForPeer: sendDirectTalkToPeer unavailable, skipping delivery to', peerId);
+    rememberPeerName(userId, stageName, () => this.getMyConversations());
   }
 
   updateMatchBadge(): void {
-    // Count unread conversations
-    const conversations = this.getMyConversations();
-    const unreadCount = Object.values(conversations).filter((conv: any) => {
-      return conv?.unread && conv.supportChannel !== true;
-    }).length;
-
-    // Update badge on Me tab
-    const meTab = document.querySelector('.nav-btn[data-view="me"] .nav-icon');
-    if (meTab) {
-      // Remove existing badge
-      const existingBadge = meTab.querySelector('.notification-badge');
-      if (existingBadge) existingBadge.remove();
-
-      // Add new badge if there are unread conversations
-      if (unreadCount > 0) {
-        const badge = document.createElement('span');
-        badge.className = 'notification-badge';
-        badge.textContent = unreadCount > 99 ? '99+' : unreadCount.toString();
-        meTab.appendChild(badge);
-      }
-    }
-
-    // TODO §N2: same aggregate count badges the always-visible DM inbox icon, reachable from
-    // every tab (unlike the Me-tab badge above, which only shows while on the Me tab).
-    const dmInboxBtn = document.getElementById('dm-inbox-btn');
-    if (dmInboxBtn) {
-      const existingBadge = dmInboxBtn.querySelector('.notification-badge');
-      if (existingBadge) existingBadge.remove();
-      if (unreadCount > 0) {
-        const badge = document.createElement('span');
-        badge.className = 'notification-badge';
-        badge.textContent = unreadCount > 99 ? '99+' : unreadCount.toString();
-        dmInboxBtn.appendChild(badge);
-      }
-    }
+    renderMatchBadge(this.getMyConversations());
   }
 
   /** True when a message belongs to the currently open thread scope (DM vs per-talk). */
@@ -7411,64 +5727,19 @@ export class UIManager extends EventEmitter {
 
   /** Parse an `IPFS_SHARE:` auto-share message body into its attachment fields. */
   private parseIpfsSharePayload(text: string): { cid: string; link: string; name: string; mimeType: string; sizeBytes: number } | null {
-    const raw = String(text || '');
-    if (!raw.startsWith('IPFS_SHARE:')) return null;
-    try {
-      const p = JSON.parse(raw.slice('IPFS_SHARE:'.length));
-      const cid = String(p?.cid || '').trim();
-      if (!cid || p?.kind !== 'ipfs-auto-share-v1') return null;
-      return {
-        cid,
-        link: String(p?.link || `ipfs://${cid}`),
-        name: String(p?.name || 'attachment'),
-        mimeType: String(p?.mimeType || ''),
-        sizeBytes: Number(p?.sizeBytes) || 0,
-      };
-    } catch {
-      return null;
-    }
+    return parseIpfsSharePayloadImpl(text);
   }
 
   private formatAttachmentSize(bytes: number): string {
-    if (!Number.isFinite(bytes) || bytes <= 0) return '';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return formatAttachmentSizeImpl(bytes);
   }
 
-  /**
-   * A safe download filename: keep the sender's name if it already has an extension, otherwise
-   * append one derived from the mime type. Without an extension the OS saves an unopenable
-   * blob-UUID file (macOS can't tell a `d393a824-…` file is a PNG).
-   */
   private attachmentDownloadFilename(rawName: string, mimeType: string): string {
-    const base = String(rawName || '').trim() || 'download';
-    if (/\.[a-z0-9]{1,6}$/i.test(base)) return base;
-    const m = String(mimeType || '').toLowerCase();
-    const ext = m === 'image/jpeg' ? 'jpg'
-      : m === 'image/png' ? 'png'
-      : m === 'image/gif' ? 'gif'
-      : m === 'image/webp' ? 'webp'
-      : m === 'image/avif' ? 'avif'
-      : m === 'image/svg+xml' ? 'svg'
-      : m === 'application/pdf' ? 'pdf'
-      : m.startsWith('video/') ? (m.split('/')[1] || 'mp4')
-      : m.startsWith('audio/') ? (m.split('/')[1] || 'mp3')
-      : m.startsWith('text/') ? 'txt'
-      : '';
-    return ext ? `${base}.${ext}` : base;
+    return attachmentDownloadFilenameImpl(rawName, mimeType);
   }
 
-  /** Emoji cue by media type — messenger-style icon for the attachment card. */
   private attachmentIconForMime(mimeType: string): string {
-    const m = String(mimeType || '').toLowerCase();
-    if (m.startsWith('image/')) return '🖼️';
-    if (m.startsWith('video/')) return '🎬';
-    if (m.startsWith('audio/')) return '🎵';
-    if (m === 'application/pdf') return '📕';
-    if (m.startsWith('text/') || m.includes('word') || m.includes('document') || m.includes('sheet') || m.includes('presentation')) return '📄';
-    if (m.includes('zip') || m.includes('compressed') || m.includes('tar')) return '🗜️';
-    return '📎';
+    return attachmentIconForMimeImpl(mimeType);
   }
 
   /**
@@ -7524,32 +5795,10 @@ export class UIManager extends EventEmitter {
     timestamp: unknown,
     messageId: string,
   ): string {
-    const alreadyAnswered = this.answeredCaptureChipMessageIds.has(messageId);
-    const question = escapeHtml(payload.question);
-    const buttons = payload.answers
-      .map((answer, index) => `
-        <button
-          type="button"
-          class="captured-question-answer-btn"
-          data-testid="captured-question-answer-btn"
-          data-message-id="${escapeHtml(messageId)}"
-          data-answer-index="${index}"
-          data-answer-text="${escapeHtml(answer)}"
-          ${alreadyAnswered ? 'disabled' : ''}
-        >${escapeHtml(answer)}</button>
-      `)
-      .join('');
-    return `
-      <div class="message ${isOwn ? 'message-own' : 'message-other'}">
-        <div class="message-content">
-          <div class="captured-question-card${alreadyAnswered ? ' captured-question-answered' : ''}" data-testid="captured-question-card" data-message-id="${escapeHtml(messageId)}">
-            <div class="captured-question-text">${question}</div>
-            <div class="captured-question-answers">${buttons}</div>
-          </div>
-          <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
-        </div>
-      </div>
-    `;
+    return renderCapturedQuestionMessageCard(payload, isOwn, timestamp, messageId, {
+      isAlreadyAnswered: (id) => this.answeredCaptureChipMessageIds.has(id),
+      formatTalkRelativeTime: (date) => this.formatTalkRelativeTime(date),
+    });
   }
 
   /**
@@ -7562,33 +5811,13 @@ export class UIManager extends EventEmitter {
     isOwn: boolean,
     timestamp: unknown,
   ): string {
-    const isImage = share.mimeType.startsWith('image/');
-    const icon = this.attachmentIconForMime(share.mimeType);
-    const safeName = this.attachmentDownloadFilename(share.name, share.mimeType);
-    const name = escapeHtml(safeName);
-    const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
-    const cid = escapeHtml(share.cid);
-    const mime = escapeHtml(share.mimeType);
-    const downloadLabel = escapeHtml(this.t('attachmentDownload'));
-    const lead = isImage
-      ? `<img class="ipfs-attachment-img ipfs-attachment-thumb" alt="${name}" hidden />`
-      : `<span class="ipfs-attachment-icon">${icon}</span>`;
-    return `
-      <div class="message ${isOwn ? 'message-own' : 'message-other'}">
-        <div class="message-content">
-          <div class="ipfs-attachment ipfs-attachment-chip${isImage ? ' ipfs-attachment-chip-image' : ''}" data-testid="ipfs-attachment" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}" title="${name}">
-            ${lead}
-            <span class="ipfs-attachment-meta">
-              <span class="ipfs-attachment-name">${name}</span>
-              ${size ? `<span class="ipfs-attachment-size">${size}</span>` : ''}
-              <span class="ipfs-attachment-loading" aria-hidden="true">⏳</span>
-              <a class="ipfs-attachment-download" download="${name}" title="${downloadLabel}" aria-label="${downloadLabel}" hidden>⬇</a>
-            </span>
-          </div>
-          <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
-        </div>
-      </div>
-    `;
+    return renderIpfsAttachmentMessageCard(share, isOwn, timestamp, {
+      attachmentIconForMime: (mimeType) => this.attachmentIconForMime(mimeType),
+      attachmentDownloadFilename: (name, mimeType) => this.attachmentDownloadFilename(name, mimeType),
+      formatAttachmentSize: (sizeBytes) => this.formatAttachmentSize(sizeBytes),
+      t: this.t.bind(this),
+      formatTalkRelativeTime: (date) => this.formatTalkRelativeTime(date),
+    });
   }
 
   /** URL/name of the photo currently open in the lightbox (for its Download button). */
@@ -7630,32 +5859,7 @@ export class UIManager extends EventEmitter {
    * never dropped as an unopenable blob-UUID). Fall back to an <a download> anchor.
    */
   private async saveObjectUrlAs(objectUrl: string, name: string, mimeType: string): Promise<void> {
-    const anySelf = window as unknown as { showSaveFilePicker?: (opts: unknown) => Promise<unknown> };
-    if (typeof anySelf.showSaveFilePicker === 'function') {
-      try {
-        const dot = name.lastIndexOf('.');
-        const ext = dot > 0 ? name.slice(dot) : '';
-        const handle = await anySelf.showSaveFilePicker({
-          suggestedName: name,
-          ...(ext ? { types: [{ description: 'File', accept: { [mimeType || 'application/octet-stream']: [ext] } }] } : {}),
-        }) as { createWritable: () => Promise<{ write: (d: Blob) => Promise<void>; close: () => Promise<void> }> };
-        const blob = await (await fetch(objectUrl)).blob();
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        return;
-      } catch (err) {
-        // User cancelled the picker, or it's unavailable — fall through to the anchor.
-        if ((err as Error)?.name === 'AbortError') return;
-      }
-    }
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = name;
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    return saveFileFromObjectUrl(objectUrl, name, mimeType);
   }
 
   /**
@@ -7664,39 +5868,10 @@ export class UIManager extends EventEmitter {
    * click-to-save under the real filename once the bytes arrive.
    */
   private hydrateAttachmentImages(container: HTMLElement): void {
-    if (!this.sharedAttachmentResolver) return;
-    const cards = container.querySelectorAll('.ipfs-attachment[data-ipfs-cid]');
-    cards.forEach((cardEl) => {
-      const card = cardEl as HTMLElement;
-      if (card.dataset.localReady === '1') return; // already using local bytes
-      const cid = card.getAttribute('data-ipfs-cid') || '';
-      const mime = card.getAttribute('data-ipfs-mime') || '';
-      const name = card.getAttribute('data-ipfs-name') || 'download';
-      const img = card.querySelector('img.ipfs-attachment-img') as HTMLImageElement | null;
-      const dl = card.querySelector('a.ipfs-attachment-download') as HTMLAnchorElement | null;
-      let objectUrl = '';
-      const isImage = mime.startsWith('image/');
-      const save = (e: Event) => { e.preventDefault(); e.stopPropagation(); void this.saveObjectUrlAs(objectUrl, name, mime); };
-      const view = (e: Event) => { e.stopPropagation(); this.openLightbox(objectUrl, name, mime); };
-      void this.sharedAttachmentResolver!(cid, mime).then((url) => {
-        if (!url) return; // bytes not here yet — a later fetch/re-render resolves it
-        objectUrl = url;
-        card.dataset.localReady = '1';
-        card.style.cursor = 'pointer';
-        // Images open the in-app viewer on tap; files download on tap.
-        card.onclick = isImage ? view : save;
-        const loading = card.querySelector('.ipfs-attachment-loading') as HTMLElement | null;
-        if (loading) loading.hidden = true;
-        if (img) {
-          img.src = url;
-          img.hidden = false;
-        }
-        // The small Download link always saves the file.
-        if (dl) {
-          dl.hidden = false;
-          dl.onclick = save;
-        }
-      }).catch(() => { /* leave the loading state; a later fetch/re-render can resolve it */ });
+    hydrateAttachmentImagesImpl(container, {
+      sharedAttachmentResolver: this.sharedAttachmentResolver,
+      saveObjectUrlAs: (objectUrl, name, mimeType) => this.saveObjectUrlAs(objectUrl, name, mimeType),
+      openLightbox: (url, name, mime) => this.openLightbox(url, name, mime),
     });
   }
 
@@ -7724,17 +5899,7 @@ export class UIManager extends EventEmitter {
     media: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }>;
     files: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }>;
   } {
-    const media: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> = [];
-    const files: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> = [];
-    const seen = new Set<string>();
-    for (const msg of this.lastConversationMessages || []) {
-      const share = this.parseIpfsSharePayload(String(msg?.text || ''));
-      if (!share || seen.has(share.cid)) continue;
-      seen.add(share.cid);
-      const isMedia = share.mimeType.startsWith('image/') || share.mimeType.startsWith('video/');
-      (isMedia ? media : files).push(share);
-    }
-    return { media: media.reverse(), files: files.reverse() };
+    return collectSharedAttachmentsImpl(this.lastConversationMessages);
   }
 
   /** http(s):// URLs found in plain text messages of the open conversation, newest first. */
@@ -7754,24 +5919,7 @@ export class UIManager extends EventEmitter {
   }
 
   private renderMediaTile(share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number }): string {
-    const isImage = share.mimeType.startsWith('image/');
-    const safeName = this.attachmentDownloadFilename(share.name, share.mimeType);
-    const name = escapeHtml(safeName);
-    const cid = escapeHtml(share.cid);
-    const mime = escapeHtml(share.mimeType);
-    const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
-    const icon = this.attachmentIconForMime(share.mimeType);
-    const thumb = isImage
-      ? `<img class="ipfs-attachment-img media-tile-img" alt="${name}" hidden />`
-      : `<div class="media-tile-fileicon">${icon}</div>`;
-    return `
-      <div class="conversation-media-tile ipfs-attachment" data-testid="media-tile" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}" title="${name}">
-        ${thumb}
-        <a class="ipfs-attachment-download media-tile-download" download="${name}" hidden>⬇</a>
-        <div class="media-tile-name">${name}</div>
-        ${size ? `<div class="media-tile-size">${size}</div>` : ''}
-      </div>
-    `;
+    return renderMediaTileImpl(share);
   }
 
   private renderMediaLinkRow(url: string): string {
@@ -7833,101 +5981,6 @@ export class UIManager extends EventEmitter {
     if (composer) composer.style.display = '';
   }
 
-  /**
-   * K2 (docs/TODO.md): authenticity check for a *stored* TechSupport greeting record —
-   * defends against tampering after the write-time verification in
-   * `ensureSupportBootstrapForCurrentUser` (a corrupted downstream write, e.g. from a
-   * compromised peer or a bug, must never render as if it were genuine). Re-derives the
-   * template from the client's own compiled copy (never trusts a stored template string),
-   * and additionally confirms the stored `text` is exactly what that verified template
-   * renders to for the *current* user — closing the gap where `greetingSignature`/
-   * `greetingLocale` are left untouched but `text` itself was altered after signing.
-   *
-   * K5 (docs/TODO.md): same discipline extended to two more TechSupport-authored,
-   * locally-rendered message types — a FAQ auto-answer (`faqSignature`) and the new-question
-   * ack (`ackSignature`) — plus the K2-extended "getting started" tips sequence
-   * (`tipSignature`, one signed bundle per locale covering the whole ordered list). All fail
-   * closed (K2-3): a verify failure drops the message silently, no error toast, no
-   * impersonated message rendered. Everything else passes through unchanged.
-   */
-  private async filterVerifiedSupportMessages(messages: any[]): Promise<any[]> {
-    const stageName = this.currentUser?.stageName || '';
-    const kept: any[] = [];
-    for (const msg of messages) {
-      const isGreeting =
-        typeof msg?.id === 'string' &&
-        msg.id.startsWith('support_welcome_') &&
-        msg.senderId === TECHSUPPORT_ROOT_USER_ID &&
-        !!msg.greetingSignature;
-      const isFaqAnswer = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.faqSignature;
-      const isAck = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.ackSignature;
-      const isTip = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.tipSignature;
-
-      if (isFaqAnswer) {
-        const cached = readCachedFaqBundle();
-        // docs/TODO.md K7: fetchGrant lets a delegate-signed bundle verify here too — the local
-        // grant cache, not a live Gun read, since this render path has no Gun handle of its own.
-        const verifiedBundle = cached ? await verifyFaqBundle(cached, { fetchGrant: fetchGrantFromCache }) : null;
-        if (!verifiedBundle) continue;
-        // The message must be attributed to the exact cached bundle version, not merely
-        // any validly-signed bundle — otherwise a stale message could survive a bundle
-        // rotation with a mismatched answer for the same questionKey.
-        if (verifiedBundle.authorPub !== msg.faqAuthorPub || verifiedBundle.signature !== msg.faqSignature) continue;
-        const entry = verifiedBundle.entries.find((e) => e.questionKey === msg.faqQuestionKey);
-        if (!entry || entry.answer !== String(msg.text || '')) continue;
-        kept.push(msg);
-        continue;
-      }
-
-      if (isAck) {
-        const locale = msg.ackLocale as SupportAckLocale;
-        const verified = await verifySupportAck({
-          locale,
-          template: TECHSUPPORT_SUPPORT_ACK_TEMPLATES[locale],
-          authorPub: msg.ackAuthorPub,
-          signature: msg.ackSignature,
-        });
-        if (!verified) continue;
-        const expectedText = verified.template.replace('{name}', stageName);
-        if (String(msg.text || '') !== expectedText) continue;
-        kept.push(msg);
-        continue;
-      }
-
-      if (isTip) {
-        const locale = msg.tipLocale as OnboardingTipsLocale;
-        const verified = await verifyOnboardingTips({
-          locale,
-          tips: TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES[locale],
-          authorPub: msg.tipAuthorPub,
-          signature: msg.tipSignature,
-        });
-        if (!verified) continue;
-        const expectedText = verified.tips[msg.tipIndex as number];
-        if (expectedText === undefined || String(msg.text || '') !== expectedText) continue;
-        kept.push(msg);
-        continue;
-      }
-
-      if (!isGreeting) {
-        kept.push(msg);
-        continue;
-      }
-      const locale = msg.greetingLocale as GreetingLocale;
-      const verified = await verifyTechSupportGreeting({
-        locale,
-        template: TECHSUPPORT_GREETING_TEMPLATES[locale],
-        authorPub: msg.greetingAuthorPub,
-        signature: msg.greetingSignature,
-      });
-      if (!verified) continue;
-      const expectedText = verified.template.replace('{name}', stageName);
-      if (String(msg.text || '') !== expectedText) continue;
-      kept.push(msg);
-    }
-    return kept;
-  }
-
   async displayConversationMessages(conversationId: string, messages: any[]): Promise<void> {
     if (this.currentConversationId !== conversationId) return;
 
@@ -7938,7 +5991,7 @@ export class UIManager extends EventEmitter {
 
     const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
     if (isSupportChannel) {
-      messages = await this.filterVerifiedSupportMessages(messages);
+      messages = await filterVerifiedSupportMessages(messages, this.currentUser?.stageName || '');
       if (this.currentConversationId !== conversationId) return; // stale by the time verify resolved
     }
 
@@ -8024,28 +6077,13 @@ export class UIManager extends EventEmitter {
     transportMode: string,
     transportFallbackReason?: string | null,
   ): void {
-    const conversations = this.getMyConversations();
-    const conversation = conversations[conversationId];
-    if (!conversation) return;
-    conversation.transportMode = transportMode;
-    if (transportFallbackReason !== undefined) {
-      conversation.transportFallbackReason = transportFallbackReason;
-    }
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    if (this.currentConversationId === conversationId) {
-      const transportStatus = document.getElementById('conversation-transport-status');
-      if (transportStatus) {
-        transportStatus.dataset.transportMode = transportMode;
-        transportStatus.textContent = `${this.t('conversationTransport')}: ${this.formatTransportMode(transportMode)}`;
-      }
-      const fallbackStatus = document.getElementById('conversation-fallback-status');
-      if (fallbackStatus) {
-        fallbackStatus.textContent = this.formatTransportFallback(
-          transportMode,
-          conversation.transportFallbackReason,
-        );
-      }
-    }
+    updateConversationTransportModeImpl(conversationId, transportMode, transportFallbackReason, {
+      getMyConversations: () => this.getMyConversations(),
+      getCurrentConversationId: () => this.currentConversationId,
+      t: this.t.bind(this),
+      formatTransportMode: (mode) => this.formatTransportMode(mode),
+      formatTransportFallback: (mode, reason) => this.formatTransportFallback(mode, reason),
+    });
   }
 
   addNewConversation(conversationData: {
@@ -8213,32 +6251,7 @@ export class UIManager extends EventEmitter {
     talkId: string,
     retractedAt: number,
   ): void {
-    const conversations = this.getMyConversations();
-    const retractedAtStr = new Date(retractedAt).toISOString();
-    // Find by otherUserId+talkId; fall back to talkId alone for author side.
-    let convId = Object.keys(conversations).find((id) => {
-      const c = conversations[id];
-      return c?.otherUserId === otherUserId && c?.talkId === talkId;
-    });
-    if (!convId) {
-      // Fallback: author-side teardown or retraction received before conversation was indexed
-      convId = Object.keys(conversations).find((id) => {
-        const c = conversations[id];
-        return c?.talkId === talkId;
-      });
-    }
-    if (!convId) return;
-    conversations[convId].status = 'withdrawn';
-    conversations[convId].retractedAt = retractedAtStr;
-    conversations[convId].lastMessage = `Author removed this talk — the match is gone · ${new Date(retractedAt).toLocaleString()}`;
-    conversations[convId].lastMessageTime = retractedAtStr;
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    this.updateMatchBadge();
-    this.syncStatusBarMatchCount();
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) {
-      this.displayConversationsList();
-    }
+    markConversationWithdrawnImpl(otherUserId, talkId, retractedAt, this.conversationRecordUpdateDeps());
   }
 
   /**
@@ -8248,27 +6261,16 @@ export class UIManager extends EventEmitter {
    * "answer changed" label assertable by E2E tests.
    */
   markConversationEnded(otherUserId: string, talkId: string, changedAt: string): void {
-    const conversations = this.getMyConversations();
-    // Find the conversation by otherUserId + talkId
-    let convId = Object.keys(conversations).find((id) => {
-      const c = conversations[id];
-      return c?.otherUserId === otherUserId && c?.talkId === talkId;
-    });
-    if (!convId) {
-      convId = Object.keys(conversations).find((id) => conversations[id]?.otherUserId === otherUserId);
-    }
-    if (!convId) return;
-    conversations[convId].status = 'ignored';
-    conversations[convId].changedAt = changedAt;
-    conversations[convId].lastMessage = `Answer changed · ${new Date(changedAt).toLocaleString()}`;
-    conversations[convId].lastMessageTime = changedAt;
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    this.updateMatchBadge();
-    this.syncStatusBarMatchCount();
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) {
-      this.displayConversationsList();
-    }
+    markConversationEndedImpl(otherUserId, talkId, changedAt, this.conversationRecordUpdateDeps());
+  }
+
+  private conversationRecordUpdateDeps(): ConversationRecordUpdateDeps {
+    return {
+      getMyConversations: () => this.getMyConversations(),
+      updateMatchBadge: () => this.updateMatchBadge(),
+      syncStatusBarMatchCount: () => this.syncStatusBarMatchCount(),
+      refreshConversationsListIfActive: () => this.displayConversationsList(),
+    };
   }
 
   /** Optimistic local update after a `confirmDeal` write — refreshes the deal bar without
@@ -8292,25 +6294,7 @@ export class UIManager extends EventEmitter {
    * silently swept — see docs/TODO.md.
    */
   markOtherDealConversationsEnded(talkId: string, keepOtherUserId: string, changedAt: string): void {
-    const conversations = this.getMyConversations();
-    let changed = false;
-    for (const [, c] of Object.entries(conversations)) {
-      if (c?.talkId !== talkId || c?.otherUserId === keepOtherUserId) continue;
-      if (c.status === 'ignored' || c.status === 'withdrawn') continue;
-      c.status = 'ignored';
-      c.changedAt = changedAt;
-      c.lastMessage = `No longer available — the deal was confirmed with someone else · ${new Date(changedAt).toLocaleString()}`;
-      c.lastMessageTime = changedAt;
-      changed = true;
-    }
-    if (!changed) return;
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    this.updateMatchBadge();
-    this.syncStatusBarMatchCount();
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) {
-      this.displayConversationsList();
-    }
+    markOtherDealConversationsEndedImpl(talkId, keepOtherUserId, changedAt, this.conversationRecordUpdateDeps());
   }
 
   updateConversationMessage(conversationId: string, message: string, timestamp: string): void {
@@ -8442,32 +6426,13 @@ export class UIManager extends EventEmitter {
   }
 
   public setConversationOnlineStatus(otherUserIds: Set<string>): void {
-    const conversations = this.getMyConversations();
-    let changed = false;
-    for (const conversation of Object.values(conversations)) {
-      const online = otherUserIds.has(String((conversation as any).otherUserId || ''));
-      if ((conversation as any).online !== online) {
-        (conversation as any).online = online;
-        changed = true;
-      }
-    }
-    if (changed) {
-      localStorage.setItem('myConversations', JSON.stringify(conversations));
-      const meTab = document.querySelector('.nav-btn[data-view="me"]');
-      if (meTab?.classList.contains('active')) this.displayConversationsList();
-    }
-
-    // Same real-presence signal, generalized beyond conversations/TechSupport to every
-    // ordinary contact row (contacts-view.ts) and chatroom member row (chatrooms-view.ts) —
-    // both lists now show the same online/away dot.
-    this.onlineUserIds = otherUserIds;
-    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
-    // getMyConversations()/deriveLocalPeers() read live localStorage, never a stale snapshot,
-    // so a full re-render here is safe (same reasoning as setTechSupportOnlineStatus above).
-    if (contactsTab?.classList.contains('active')) this.displayContactsList();
-    // The chatroom roster is NOT re-rendered from `currentChatroomMembers` here — see
-    // patchTechSupportPresenceIndicators's own comment for why. Patch presence dots in place.
-    this.patchPresenceIndicators();
+    setConversationOnlineStatusImpl(otherUserIds, {
+      getMyConversations: () => this.getMyConversations(),
+      refreshConversationsListIfActive: () => this.displayConversationsList(),
+      setOnlineUserIds: (ids) => { this.onlineUserIds = ids; },
+      refreshContactsListIfActive: () => void this.displayContactsList(),
+      patchPresenceIndicators: () => this.patchPresenceIndicators(),
+    });
   }
 
   private onlineUserIds = new Set<string>();

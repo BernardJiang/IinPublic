@@ -1,4 +1,5 @@
 import {
+  containmentSimilarity,
   cosineSimilarity,
   FindSimilarIndex,
   jaccardSimilarity,
@@ -17,6 +18,7 @@ function weights(tags: readonly string[]): UserTagWeightMap {
 describe.each([
   ['Jaccard', jaccardSimilarity],
   ['cosine', cosineSimilarity],
+  ['containment', containmentSimilarity],
 ] as const)('%s tag similarity', (_name, similarity) => {
   test.each([
     ['identical non-empty sets', ['a', 'b'], ['a', 'b'], 1],
@@ -63,6 +65,22 @@ describe('tag-similarity formulas and ranking', () => {
     expect(cosineSimilarity(one, thousand)).toBeCloseTo(1 / Math.sqrt(1_000), 10);
   });
 
+  it('containment is asymmetric where Jaccard/cosine collapse both directions into one number', () => {
+    // docs/TODO.md's motivating case: "50 of Eve's 50 tags match Adam" — from Eve's
+    // side every one of her tags is covered by Adam (perfect containment), but from
+    // Adam's side only half of his 100 tags are covered by Eve. Jaccard and cosine
+    // are symmetric by construction and report the same 0.5-ish number either way.
+    expect(containmentSimilarity(eve, adam)).toBe(1);
+    expect(containmentSimilarity(adam, eve)).toBeCloseTo(0.5, 10);
+    expect(jaccardSimilarity(eve, adam)).toBe(jaccardSimilarity(adam, eve));
+    expect(cosineSimilarity(eve, adam)).toBe(cosineSimilarity(adam, eve));
+
+    // One empty set: containment from the empty side is 0 (no evidence), not 1 —
+    // mirrors jaccardFromSets's empty-union guard rather than vacuous-truth semantics.
+    expect(containmentSimilarity([], adam)).toBe(0);
+    expect(containmentSimilarity(adam, [])).toBe(0);
+  });
+
   it('scores larger overlap higher when set sizes are equal', () => {
     const anchor = ['a', 'b', 'c', 'd'];
     const threeShared = ['a', 'b', 'c', 'x'];
@@ -88,5 +106,26 @@ describe('tag-similarity formulas and ranking', () => {
       'Bob',
       'Alice',
     ]);
+  });
+
+  it('FindSimilarIndex wires the containment metric through similarity() and topK()', () => {
+    const index = new FindSimilarIndex();
+    index.publishWeights('Adam', weights(adam));
+    index.publishWeights('Eve', weights(eve));
+    index.publishWeights('Bob', weights(bob));
+    index.publishWeights('Alice', weights(alice));
+
+    expect(index.similarity('Eve', 'Adam', 'containment')).toBe(1);
+    expect(index.similarity('Adam', 'Eve', 'containment')).toBeCloseTo(0.5, 10);
+
+    // Distinguishing case: Eve, Bob, and Alice each share exactly 50 tags with Adam,
+    // so containment(Adam, *) — dividing by Adam's own fixed 100-tag size — ties all
+    // three at 0.5, unlike jaccard/cosine (which also divide by each candidate's own
+    // size and so rank Eve > Bob > Alice, per the test above). The bounded top-K heap
+    // breaks the tie deterministically: `weaker()` treats a larger userId as weaker,
+    // so ties resolve alphabetically ascending, not by any relevance ordering.
+    const result = index.topK('Adam', { k: 3, metric: 'containment' });
+    expect(result.people.every(({ score }) => score === 0.5)).toBe(true);
+    expect(result.people.map(({ userId }) => userId)).toEqual(['Alice', 'Bob', 'Eve']);
   });
 });

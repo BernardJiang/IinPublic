@@ -6,7 +6,7 @@
  * are removed. These tests verify local-only derivation behavior.
  */
 
-import { displayContactsList, showContactDetail } from '../../web/ui/contacts-view';
+import { displayContactsList, saveKnownPerson, setBlocked, showContactDetail } from '../../web/ui/contacts-view';
 import type { KnownPerson } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { languageOptionLabel, uiText } from '../../web/ui/ui-translations';
@@ -433,5 +433,155 @@ describe('Contacts ranking and relationship filters', () => {
       expect(ids).toHaveLength(60);
       expect(new Set(ids).size).toBe(60);
     });
+  });
+});
+
+describe('saveKnownPerson', () => {
+  function deps(overrides: Partial<Parameters<typeof saveKnownPerson>[2]> = {}) {
+    return {
+      getCurrentUser: jest.fn(() => ({ knownPeople: [] as KnownPerson[] })),
+      emit: jest.fn(),
+      refreshContactsList: jest.fn(),
+      ...overrides,
+    };
+  }
+
+  it('is a no-op when there is no current user', () => {
+    const d = deps({ getCurrentUser: jest.fn(() => null) });
+    saveKnownPerson('u1', { labels: ['friend'] }, d);
+    expect(d.emit).not.toHaveBeenCalled();
+    expect(d.refreshContactsList).not.toHaveBeenCalled();
+  });
+
+  it('adds a new known-person entry to the current user', () => {
+    const currentUser: { knownPeople: KnownPerson[] } = { knownPeople: [] };
+    const d = deps({ getCurrentUser: jest.fn(() => currentUser) });
+    saveKnownPerson('u1', { labels: ['friend'], nickname: 'Bud' }, d);
+    expect(currentUser.knownPeople).toHaveLength(1);
+    expect(currentUser.knownPeople[0]).toMatchObject({ userId: 'u1', labels: ['friend'], nickname: 'Bud' });
+  });
+
+  it('replaces an existing entry for the same userId rather than duplicating it', () => {
+    const currentUser: { knownPeople: KnownPerson[] } = {
+      knownPeople: [{ userId: 'u1', labels: ['friend'], addedAt: new Date('2026-01-01') }],
+    };
+    const d = deps({ getCurrentUser: jest.fn(() => currentUser) });
+    saveKnownPerson('u1', { labels: ['partner'] }, d);
+    expect(currentUser.knownPeople).toHaveLength(1);
+    expect(currentUser.knownPeople[0].labels).toEqual(['partner']);
+  });
+
+  it('omits optional fields (nickname/customLabel/rating/notes) when not provided', () => {
+    const currentUser: { knownPeople: KnownPerson[] } = { knownPeople: [] };
+    const d = deps({ getCurrentUser: jest.fn(() => currentUser) });
+    saveKnownPerson('u1', { labels: ['friend'] }, d);
+    const entry = currentUser.knownPeople[0] as any;
+    expect(entry.nickname).toBeUndefined();
+    expect(entry.customLabel).toBeUndefined();
+    expect(entry.rating).toBeUndefined();
+    expect(entry.notes).toBeUndefined();
+  });
+
+  it('includes a numeric rating of 0', () => {
+    const currentUser: { knownPeople: KnownPerson[] } = { knownPeople: [] };
+    const d = deps({ getCurrentUser: jest.fn(() => currentUser) });
+    saveKnownPerson('u1', { labels: ['friend'], rating: 0 }, d);
+    expect((currentUser.knownPeople[0] as any).rating).toBe(0);
+  });
+
+  it('emits saveKnownPerson with the userId and details, and refreshes the contacts list', () => {
+    const d = deps();
+    saveKnownPerson('u1', { labels: ['friend'], notes: 'met at a conference' }, d);
+    expect(d.emit).toHaveBeenCalledWith('saveKnownPerson', { userId: 'u1', labels: ['friend'], notes: 'met at a conference' });
+    expect(d.refreshContactsList).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('setBlocked', () => {
+  const originalFetch2 = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch2;
+  });
+
+  function blockDeps(overrides: Partial<Parameters<typeof setBlocked>[2]> = {}) {
+    return {
+      getCurrentUser: jest.fn(() => ({ blockedUserIds: [] as string[] })),
+      apiBase: 'https://api.example.com',
+      currentUserId: 'me',
+      emit: jest.fn(),
+      refreshContactsList: jest.fn(),
+      ...overrides,
+    };
+  }
+
+  it('is a no-op when there is no current user', async () => {
+    const fetchSpy = jest.fn();
+    global.fetch = fetchSpy as any;
+    const d = blockDeps({ getCurrentUser: jest.fn(() => null) });
+    await setBlocked('u1', true, d);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it('POSTs to the blocks endpoint when blocking', async () => {
+    const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
+    global.fetch = fetchSpy as any;
+    const d = blockDeps();
+    await setBlocked('u1', true, d);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://api.example.com/api/users/me/blocks',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ targetId: 'u1' }) }),
+    );
+  });
+
+  it('DELETEs the specific block entry when unblocking', async () => {
+    const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
+    global.fetch = fetchSpy as any;
+    const d = blockDeps();
+    await setBlocked('u1', false, d);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://api.example.com/api/users/me/blocks/u1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('skips the network call entirely when apiBase or currentUserId is missing', async () => {
+    const fetchSpy = jest.fn();
+    global.fetch = fetchSpy as any;
+    const d = blockDeps({ apiBase: '' });
+    await setBlocked('u1', true, d);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(d.emit).toHaveBeenCalled(); // local mutation still happens
+  });
+
+  it('throws when the server responds with a non-ok status', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 }) as any;
+    const d = blockDeps();
+    await expect(setBlocked('u1', true, d)).rejects.toThrow('Failed to block user: HTTP 500');
+  });
+
+  it('adds the userId to blockedUserIds, deduped, when blocking', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true }) as any;
+    const currentUser = { blockedUserIds: ['u1'] };
+    const d = blockDeps({ getCurrentUser: jest.fn(() => currentUser) });
+    await setBlocked('u1', true, d);
+    expect(currentUser.blockedUserIds).toEqual(['u1']);
+  });
+
+  it('removes the userId from blockedUserIds when unblocking', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true }) as any;
+    const currentUser = { blockedUserIds: ['u1', 'u2'] };
+    const d = blockDeps({ getCurrentUser: jest.fn(() => currentUser) });
+    await setBlocked('u1', false, d);
+    expect(currentUser.blockedUserIds).toEqual(['u2']);
+  });
+
+  it('emits setUserBlocked and refreshes the contacts list', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true }) as any;
+    const d = blockDeps();
+    await setBlocked('u1', true, d);
+    expect(d.emit).toHaveBeenCalledWith('setUserBlocked', { userId: 'u1', blocked: true });
+    expect(d.refreshContactsList).toHaveBeenCalledTimes(1);
   });
 });

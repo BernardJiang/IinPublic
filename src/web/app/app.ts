@@ -19,7 +19,8 @@ import { loadConnectivitySettings, type ConnectivitySettings } from '../ui/conne
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
-import { UIManager, type BroadcastAudiencePreview } from '../ui/ui-manager';
+import { UIManager } from '../ui/ui-manager';
+import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { applyPublicChatroomHierarchy, getAllChatroomIds, getFlatChatroomList } from '../../shared/chatroom-hierarchy';

@@ -3,6 +3,7 @@ import {
   formatExpiration,
   formatLocationRadius,
   escapeHtml,
+  tagAnswerSuffix,
 } from '../../web/ui/ui-formatters';
 
 describe('formatTimeAgo', () => {
@@ -115,5 +116,110 @@ describe('escapeHtml', () => {
     expect(escapeHtml('<b class="x">A&B</b>')).toBe(
       '&lt;b class=&quot;x&quot;&gt;A&amp;B&lt;/b&gt;',
     );
+  });
+});
+
+describe('tagAnswerSuffix', () => {
+  it('returns empty for a talk with no questions', () => {
+    expect(tagAnswerSuffix({ title: 'Buy a bike' })).toBe('');
+  });
+
+  describe('Pair-tag root (reciprocalTagContext)', () => {
+    it('returns empty when the single declared answer equals the root question text', () => {
+      const talk = {
+        questions: [
+          {
+            text: 'sell',
+            reciprocalTagContext: true,
+            answers: [{ text: 'sell', isMatch: true }],
+          },
+        ],
+      };
+      expect(tagAnswerSuffix(talk)).toBe('');
+    });
+
+    it('renders a "?answer" suffix when the declared answer differs from the keyword', () => {
+      const talk = {
+        title: 'Buy a bike',
+        questions: [
+          {
+            text: 'Buy a bike',
+            reciprocalTagContext: true,
+            answers: [{ text: 'sell', isMatch: true }],
+          },
+        ],
+      };
+      expect(tagAnswerSuffix(talk)).toBe(
+        '<span class="talk-tag-answer-suffix" style="color:var(--text-tertiary);font-weight:400;margin-left:2px;">?sell</span>',
+      );
+    });
+
+    it('escapes hostile answer text', () => {
+      const talk = {
+        title: 'Buy a bike',
+        questions: [
+          {
+            text: 'Buy a bike',
+            reciprocalTagContext: true,
+            answers: [{ text: '<script>evil</script>', isMatch: true }],
+          },
+        ],
+      };
+      expect(tagAnswerSuffix(talk)).toContain('&lt;script&gt;evil&lt;/script&gt;');
+      expect(tagAnswerSuffix(talk)).not.toContain('<script>evil</script>');
+    });
+
+    it('falls through to the ordinary isMatch-answer path when there is more than one non-ignore answer', () => {
+      const talk = {
+        title: 'keyword',
+        questions: [
+          {
+            text: 'keyword',
+            reciprocalTagContext: true,
+            answers: [
+              { text: 'sell', isMatch: true },
+              { text: 'trade', isMatch: false },
+            ],
+          },
+        ],
+      };
+      // singleNonIgnoreAnswer returns undefined for >1 non-ignore answers, so the
+      // reciprocal-tag branch is skipped; the fallback path's matchAnswerText ('sell')
+      // differs from the talk's own title ('keyword'), so a suffix still renders.
+      expect(tagAnswerSuffix(talk)).toContain('?sell');
+    });
+  });
+
+  describe('ordinary (non-reciprocal) tag', () => {
+    it('returns empty when the matched answer equals the talk title', () => {
+      const talk = {
+        title: 'Coffee',
+        questions: [{ text: 'Coffee', answers: [{ text: 'Coffee', isMatch: true }] }],
+      };
+      expect(tagAnswerSuffix(talk)).toBe('');
+    });
+
+    it('renders a suffix when the matched answer differs from the talk title', () => {
+      const talk = {
+        title: 'Coffee',
+        questions: [{ text: 'Coffee', answers: [{ text: 'Espresso', isMatch: true }] }],
+      };
+      expect(tagAnswerSuffix(talk)).toContain('?Espresso');
+    });
+
+    it('reads from fullTalk when the talk itself has no questions/title', () => {
+      const talk = {
+        fullTalk: {
+          title: 'Coffee',
+          questions: [{ text: 'Coffee', answers: [{ text: 'Espresso', isMatch: true }] }],
+        },
+      };
+      expect(tagAnswerSuffix(talk)).toContain('?Espresso');
+    });
+
+    it('returns empty when there is no matched answer', () => {
+      const talk = { title: 'Coffee', questions: [{ text: 'Coffee', answers: [{ text: 'Tea', isMatch: false }] }] };
+      expect(tagAnswerSuffix(talk)).toBe('');
+    });
   });
 });

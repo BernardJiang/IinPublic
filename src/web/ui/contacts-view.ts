@@ -1092,3 +1092,80 @@ export async function showContactDetail(
     false,
   );
 }
+
+/**
+ * Upserts a known-person entry (relationship label, nickname, custom label, rating, notes) on
+ * the current user in place, then notifies listeners (`emit('saveKnownPerson', ...)`, e.g. for
+ * persisting the updated user record) and refreshes the Contacts list.
+ */
+export function saveKnownPerson(
+  userId: string,
+  details: {
+    labels: KnownPerson['labels'];
+    nickname?: string;
+    customLabel?: string;
+    rating?: number;
+    notes?: string;
+  },
+  deps: {
+    getCurrentUser: () => { knownPeople?: KnownPerson[] } | null | undefined;
+    emit: (event: string, payload: unknown) => void;
+    refreshContactsList: () => void;
+  },
+): void {
+  const currentUser = deps.getCurrentUser();
+  if (!currentUser) return;
+  const nextEntry: KnownPerson = {
+    userId,
+    labels: details.labels,
+    ...(details.nickname ? { nickname: details.nickname } : {}),
+    ...(details.customLabel ? { customLabel: details.customLabel } : {}),
+    ...(typeof details.rating === 'number' ? { rating: details.rating } : {}),
+    ...(details.notes ? { notes: details.notes } : {}),
+    addedAt: new Date(),
+  };
+  const knownPeople = [
+    ...(currentUser.knownPeople || []).filter((entry) => entry.userId !== userId),
+    nextEntry,
+  ];
+  currentUser.knownPeople = knownPeople;
+  deps.emit('saveKnownPerson', { userId, ...details });
+  deps.refreshContactsList();
+}
+
+/** Blocks or unblocks a user: server call (when online) + local `currentUser.blockedUserIds` mutation, then notifies and refreshes the Contacts list. */
+export async function setBlocked(
+  userId: string,
+  blocked: boolean,
+  deps: {
+    getCurrentUser: () => { blockedUserIds?: string[] } | null | undefined;
+    apiBase: string;
+    currentUserId: string | undefined;
+    emit: (event: string, payload: unknown) => void;
+    refreshContactsList: () => void;
+  },
+): Promise<void> {
+  const currentUser = deps.getCurrentUser();
+  if (!currentUser) return;
+  if (deps.apiBase && deps.currentUserId) {
+    const url = blocked
+      ? `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/blocks`
+      : `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/blocks/${encodeURIComponent(userId)}`;
+    const response = await fetch(
+      url,
+      blocked
+        ? {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetId: userId }),
+          }
+        : { method: 'DELETE' },
+    );
+    if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
+  }
+  currentUser.blockedUserIds = blocked
+    ? Array.from(new Set([...(currentUser.blockedUserIds || []), userId]))
+    : (currentUser.blockedUserIds || []).filter((candidate) => candidate !== userId);
+  deps.emit('setUserBlocked', { userId, blocked });
+  deps.refreshContactsList();
+}

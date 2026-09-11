@@ -51,8 +51,9 @@ function loadMapLibre(): Promise<MapLibre> {
     mapLibrePromise = Promise.all([
       import('maplibre-gl'),
       import('maplibre-gl/dist/maplibre-gl.css'),
+      import('pmtiles'),
     ])
-      .then(([maplibre]) => {
+      .then(([maplibre, , pmtiles]) => {
         // MapLibre v6 cannot reliably infer its ESM worker after Webpack rewrites
         // import.meta.url. Explicitly register the bundled worker before creating a map.
         // The worker imports maplibre-gl-shared.mjs by a relative path, so reference that
@@ -69,6 +70,18 @@ function loadMapLibre(): Promise<MapLibre> {
           throw new Error('MapLibre worker assets must be emitted as siblings');
         }
         maplibre.setWorkerUrl(workerUrl.toString());
+        // docs/TODO.md "smaller independent work": registering the `pmtiles://` protocol
+        // is a no-op unless a style/source actually references it, so this is safe to do
+        // unconditionally rather than gating it on a config flag. It's what makes
+        // `CHATROOM_MAP_STYLE_URL` (already self-hoster-overridable via
+        // IINPUBLIC_MAP_STYLE_URL) usable with a single self-hosted/decentralized
+        // `.pmtiles` archive: a self-hoster's own style.json can point a source at
+        // `pmtiles://<url-or-local-path-to-file>.pmtiles`, needing no tile SERVER at
+        // all — just one static file, servable from the same box (or IPFS) that already
+        // hosts everything else. The default shipped style (OpenFreeMap Liberty) never
+        // uses this scheme, so registering it changes nothing for the default config.
+        const protocol = new pmtiles.Protocol();
+        maplibre.addProtocol('pmtiles', protocol.tile);
         return maplibre;
       })
       .catch((error: unknown) => {

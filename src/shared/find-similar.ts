@@ -54,7 +54,7 @@ export type TagCollection =
   | ReadonlySet<string>
   | Readonly<Record<string, unknown>>;
 
-export type TagSimilarityMetricId = 'jaccard' | 'cosine';
+export type TagSimilarityMetricId = 'jaccard' | 'cosine' | 'containment';
 export type TagSimilarityMetric = (left: TagCollection, right: TagCollection) => number;
 
 function toTagSet(tags: TagCollection): Set<string> {
@@ -86,6 +86,20 @@ function cosineFromSets(left: ReadonlySet<string>, right: ReadonlySet<string>): 
   return denominator === 0 ? 0 : intersectionSize(left, right) / denominator;
 }
 
+/**
+ * Asymmetric containment: what fraction of `left` is also present in `right`
+ * (Szymkiewicz–Simpson-style directional overlap, not the symmetric `min`-denominator
+ * "overlap coefficient"). docs/TODO.md's motivating case: "50 of Eve's 50 tags match
+ * Adam" — `containmentFromSets(eve, adam)` is a perfect 1.0 (all of Eve is covered),
+ * while `containmentFromSets(adam, eve)` is only 0.5 (Adam has 50 other tags Eve lacks).
+ * Jaccard/cosine collapse both directions into one symmetric number and lose this.
+ */
+function containmentFromSets(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  // No tags means no evidence of containment; avoid treating an empty profile as
+  // fully contained in anything (mirrors jaccardFromSets's empty-union guard).
+  return left.size === 0 ? 0 : intersectionSize(left, right) / left.size;
+}
+
 /** Binary Jaccard similarity: intersection size divided by union size. */
 export function jaccardSimilarity(left: TagCollection, right: TagCollection): number {
   return jaccardFromSets(toTagSet(left), toTagSet(right));
@@ -96,9 +110,29 @@ export function cosineSimilarity(left: TagCollection, right: TagCollection): num
   return cosineFromSets(toTagSet(left), toTagSet(right));
 }
 
+/**
+ * Asymmetric containment similarity: the fraction of `left`'s tags also held by
+ * `right`. `containmentSimilarity(A, B)` need not equal `containmentSimilarity(B, A)`
+ * — pick the direction deliberately, same discipline as the `viewer-standard`
+ * combine policy below.
+ */
+export function containmentSimilarity(left: TagCollection, right: TagCollection): number {
+  return containmentFromSets(toTagSet(left), toTagSet(right));
+}
+
 export const TAG_SIMILARITY_METRICS: Record<TagSimilarityMetricId, TagSimilarityMetric> = {
   jaccard: jaccardSimilarity,
   cosine: cosineSimilarity,
+  containment: containmentSimilarity,
+};
+
+const TAG_SIMILARITY_FROM_SETS: Record<
+  TagSimilarityMetricId,
+  (left: ReadonlySet<string>, right: ReadonlySet<string>) => number
+> = {
+  jaccard: jaccardFromSets,
+  cosine: cosineFromSets,
+  containment: containmentFromSets,
 };
 
 // ─── Combine policies (spec §22.5.1) ────────────────────────────────────────────
@@ -416,9 +450,7 @@ export class FindSimilarIndex {
       const otherTags = this.maps.get(userId)?.tags;
       if (!otherTags) continue; // candidate present in index but map evicted → skip, don't block
       const score = opts.metric
-        ? opts.metric === 'jaccard'
-          ? jaccardFromSets(viewerTagSet!, toTagSet(otherTags))
-          : cosineFromSets(viewerTagSet!, toTagSet(otherTags))
+        ? TAG_SIMILARITY_FROM_SETS[opts.metric](viewerTagSet!, toTagSet(otherTags))
         : matchScore(viewerTags, otherTags, combine);
       scored++;
       heap.offer({ userId, score, sharedTags });
