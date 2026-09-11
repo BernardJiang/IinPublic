@@ -8,7 +8,7 @@ import {
 } from '../../shared/types';
 import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, escapeHtml, tagAnswerSuffix } from './ui-formatters';
-import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
+import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { completeTalk as completeTalkImpl, saveMyTalk as saveMyTalkImpl } from './talk-completion';
 import { renderAppDownloadBanner as renderAppDownloadBannerImpl } from './app-download-banner';
@@ -167,6 +167,7 @@ import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from
 import { updateChatroomInfo as updateChatroomInfoImpl } from './chatroom-info';
 import { setCurrentChatroomId as setCurrentChatroomIdImpl } from './current-chatroom';
 import { navigateToMyAnswerForTalk as navigateToMyAnswerForTalkImpl } from './navigate-to-answer';
+import { quickAnswerIncomingTag as quickAnswerIncomingTagImpl } from './quick-answer-incoming-tag';
 import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
 import { deleteMyTalk as deleteMyTalkImpl } from './talk-deletion';
 import {
@@ -3725,23 +3726,12 @@ export class UIManager extends EventEmitter {
   }
 
   private quickAnswerIncomingTag(talkId: string, identityKeyFallback: string | undefined, checked: boolean): void {
-    const finish = (fullTalk: any): void => {
-      if (!fullTalk) {
-        this.showNotification(this.t('talksCouldNotLoad'), 'error');
-        return;
-      }
-      this.quickCompleteTagTalk(fullTalk, checked);
-    };
-    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
-    if (!tid && identityKeyFallback) {
-      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
-      return;
-    }
-    if (!tid) {
-      this.showNotification(this.t('talksCouldNotOpen'), 'error');
-      return;
-    }
-    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+    quickAnswerIncomingTagImpl(talkId, identityKeyFallback, checked, {
+      emit: (event, payload) => this.emit(event, payload),
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: (key) => this.t(key),
+      quickCompleteTagTalk: (talk, checked) => this.quickCompleteTagTalk(talk, checked),
+    });
   }
 
   private quickCompleteTagTalk(talk: any, checked: boolean): void {

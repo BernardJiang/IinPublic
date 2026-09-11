@@ -2,6 +2,29 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #66: quick-answer incoming tag
+
+Continuing the AST-script-guided sweep from cluster #65. `docs/TODO.md` Priority 6.
+
+- **#66: `quickAnswerIncomingTag` → new `quick-answer-incoming-tag.ts`** (19 lines, 4 refs —
+  `emit`, `showNotification`, `t`, `quickCompleteTagTalk`). Resolves an incoming tag-talk's full
+  body (by valid id, or by identity-key fallback when the id looks bad) and completes it with the
+  given checked state once loaded, erroring out when the id is unusable or the lookup fails.
+  `isValidTalkId` dropped out of `ui-manager.ts`'s own imports entirely — this was its last call
+  site there.
+- **Characterization:** new `quick-answer-incoming-tag.test.ts` (5 tests) covering: the
+  identity-key-fallback demand path for an invalid id; the error-with-no-fallback path; the
+  valid-id demand path (identityKeyFallback passed through); completing the tag talk once the
+  full body arrives; and the error-and-no-completion path when the lookup fails. All passed first
+  run.
+- **Ratchet:** `ui-manager.ts` 6,472 → **6,462** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  211/2,241 to 212/2,246 (5 new) with zero regressions. Canonical run `run-20260911-024749-25080`
+  (25m24s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three already-established rotating specs
+  (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`,
+  `29-messaging-semantics`), none touching quick-answer-incoming-tag flow.
+
 ## 2026-09-11 — UIManager decomposition cluster #65: navigate-to-my-answer scroll/highlight
 
 Continuing the AST-script-guided sweep from cluster #64. `docs/TODO.md` Priority 6.
