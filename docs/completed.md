@@ -2,6 +2,25 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #65: navigate-to-my-answer scroll/highlight
+
+Continuing the AST-script-guided sweep from cluster #64. `docs/TODO.md` Priority 6.
+
+- **#65: `navigateToMyAnswerForTalk` → new `navigate-to-answer.ts`** (17 lines, 0 `this.*` refs
+  — already pure). Closes the talk-response modal, switches to the Me tab, then (after a
+  zero-delay `setTimeout` for the tab's render to land) scrolls to and briefly highlights every
+  answered-talk row whose `data-talk-ids` variant set includes the given `talkId`.
+- **Characterization:** new `navigate-to-answer.test.ts` (4 tests) covering: removing the
+  talk-response modal; clicking the Me nav button; the scroll-into-view + highlight-then-clear
+  cycle across multiple matching rows (including a merged row matching via its variant set) using
+  real timers and awaited delays; and the no-matching-row no-op. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,485 → **6,472** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  210/2,237 to 211/2,241 (4 new) with zero regressions. Canonical run `run-20260911-022005-17303`
+  (25m20s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed one already-established rotating spec (`00l-techsupport-faq-cross-user`),
+  unrelated to navigate-to-answer.
+
 ## 2026-09-11 — UIManager decomposition cluster #64: current-chatroom sync
 
 Continuing the AST-script-guided sweep from cluster #63. `docs/TODO.md` Priority 6.

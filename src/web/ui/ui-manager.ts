@@ -166,6 +166,7 @@ import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './
 import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
 import { updateChatroomInfo as updateChatroomInfoImpl } from './chatroom-info';
 import { setCurrentChatroomId as setCurrentChatroomIdImpl } from './current-chatroom';
+import { navigateToMyAnswerForTalk as navigateToMyAnswerForTalkImpl } from './navigate-to-answer';
 import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
 import { deleteMyTalk as deleteMyTalkImpl } from './talk-deletion';
 import {
@@ -4674,21 +4675,7 @@ export class UIManager extends EventEmitter {
    * the reverse of P's Q&A → Talk `showTalkDetailAsAnswer` direction, same talkId join.
    */
   private navigateToMyAnswerForTalk(talkId: string): void {
-    document.getElementById('talk-response-modal')?.remove();
-    (document.querySelector('.nav-btn[data-view="me"]') as HTMLElement | null)?.click();
-    window.setTimeout(() => {
-      // Merged rows can represent more than one contributing talk (data-talk-ids is a
-      // space-separated set), so this matches any row that lists talkId among its variants,
-      // not just a row whose sole identity equals talkId.
-      const rows = document.querySelectorAll<HTMLElement>(`.answer-talk-item[data-talk-ids~="${talkId}"]`);
-      const first = rows[0];
-      if (!first) return;
-      first.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      rows.forEach((row) => {
-        row.classList.add('answer-item-highlighted');
-        window.setTimeout(() => row.classList.remove('answer-item-highlighted'), 2000);
-      });
-    }, 0);
+    navigateToMyAnswerForTalkImpl(talkId);
   }
 
   private completeTalk(

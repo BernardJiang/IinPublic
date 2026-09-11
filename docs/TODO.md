@@ -903,7 +903,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#64 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#65 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -940,8 +940,8 @@ drill-down view (`applySettingsSectionView`); and the attachment metadata/media-
 (`showLocationRoomSuggestion`); the return-home button sync (`syncReturnHomeButton`); talk deletion (`deleteMyTalk`); IPFS
 share payload parsing (`parseIpfsSharePayload`, joined cluster #54's `attachment-metadata.ts`);
 talk-distance-from-author formatting (`formatTalkDistanceFromAuthor`); chatroom info
-(`updateChatroomInfo`); and current-chatroom sync (`setCurrentChatroomId`). Full per-cluster
-rationale,
+(`updateChatroomInfo`); current-chatroom sync (`setCurrentChatroomId`); and the navigate-to-my-answer scroll/highlight
+(`navigateToMyAnswerForTalk`). Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -955,7 +955,8 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,301 (#37), 7,285 (#38), 7,233 (#39), 7,205 (#40), 7,198 (#41), 7,184 (#42), 7,097 (#43), and
 7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), 6,710
 (#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), 6,566 (#57), and
-6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), and **6,485** (#64)
+6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
+**6,472** (#65)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -1718,6 +1719,13 @@ entries and babel preset were never removed.
         ran 6 total standalone reps landing at 4/6 failed, matching the spec's documented ~50%
         pre-existing flake rate from cluster #44, not a regression) plus a line-by-line diff
         confirming the extraction is behaviorally identical. See `docs/completed.md`.
+      - Cluster #65 evidence: `navigateToMyAnswerForTalk` → new `navigate-to-answer.ts` (0
+        refs, already pure). New `navigate-to-answer.test.ts` (4 tests), all passed first run.
+        Typecheck/lint clean, both production builds succeed, unit suites grew from 210/2,237 to
+        211/2,241 with zero regressions. Canonical run `run-20260911-022005-17303` (25m20s):
+        `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue; `light`
+        failed one already-established rotating spec, unrelated to navigate-to-answer. See
+        `docs/completed.md`.
 - [x] **1.6 Record progress** in `docs/completed.md` per the docs maintenance rule
       ("when a feature ships, record concrete file/test evidence") and check off the relevant box
       here.
@@ -1906,7 +1914,10 @@ entries and babel preset were never removed.
 47. ~~Extract cluster #64 (`setCurrentChatroomId` → new `current-chatroom.ts`), lowering the
     ratchet from 6,494 to 6,485.~~ Done; `displayTalksList`, `renderSettingsView`/
     `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
-48. Re-measure and choose cluster #65 as a separate commit-sized change; continue to defer
+48. ~~Extract cluster #65 (`navigateToMyAnswerForTalk` → new `navigate-to-answer.ts`), lowering
+    the ratchet from 6,485 to 6,472.~~ Done; `displayTalksList`, `renderSettingsView`/
+    `bindSettingsControls`, and the conversation-view trio remain deferred, unchanged.
+49. Re-measure and choose cluster #66 as a separate commit-sized change; continue to defer
     `displayTalksList`, `renderSettingsView`, `bindSettingsControls`, and the conversation-view
     trio (`showConversationDetail`/`addNewConversation`/`syncConversationMessageSummary`) until
     their ownership boundaries are reduced.
