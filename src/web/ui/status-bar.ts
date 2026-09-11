@@ -34,3 +34,28 @@ export function updateStatusBar(
   }
   statusBarText.textContent = text;
 }
+
+/**
+ * Refreshes just the match-count suffix on the status bar (e.g. after a match/ignore
+ * change-of-mind), without needing the room name/member count again — reads the base text
+ * `updateStatusBar` stashed in `data-status-bar-base`, falling back to stripping a legacy
+ * English match suffix for text rendered before that attribute existed.
+ */
+export function syncStatusBarMatchCount(deps: UpdateStatusBarDeps): void {
+  const statusBarText = document.getElementById('status-bar-text');
+  if (!statusBarText) return;
+  const base =
+    statusBarText.dataset.statusBarBase ||
+    statusBarText.textContent?.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim() ||
+    '';
+  const totalMatches = deps.getTotalMatches();
+  if (totalMatches > 0) {
+    const matchText = deps.tf(
+      totalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
+      { count: totalMatches },
+    );
+    statusBarText.textContent = `${base} · ${matchText}`;
+  } else {
+    statusBarText.textContent = base;
+  }
+}

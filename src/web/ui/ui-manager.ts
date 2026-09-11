@@ -161,7 +161,7 @@ import {
   updateConversationTransportMode as updateConversationTransportModeImpl,
   setConversationOnlineStatus as setConversationOnlineStatusImpl,
 } from './conversation-status-updates';
-import { updateStatusBar as updateStatusBarImpl } from './status-bar';
+import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
 import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
@@ -4680,23 +4680,10 @@ export class UIManager extends EventEmitter {
   }
 
   private syncStatusBarMatchCount(): void {
-    const statusBarText = document.getElementById('status-bar-text');
-    if (!statusBarText) return;
-    // Use data attribute set by updateStatusBar; fall back to stripping legacy English suffix.
-    const base =
-      statusBarText.dataset.statusBarBase ||
-      statusBarText.textContent?.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim() ||
-      '';
-    const totalMatches = this.getTotalMatches();
-    if (totalMatches > 0) {
-      const matchText = this.tf(
-        totalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
-        { count: totalMatches },
-      );
-      statusBarText.textContent = `${base} · ${matchText}`;
-    } else {
-      statusBarText.textContent = base;
-    }
+    syncStatusBarMatchCountImpl({
+      tf: this.tf.bind(this),
+      getTotalMatches: () => this.getTotalMatches(),
+    });
   }
 
   getTotalMatches(): number {

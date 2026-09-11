@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { updateStatusBar } from '../../web/ui/status-bar';
+import { syncStatusBarMatchCount, updateStatusBar } from '../../web/ui/status-bar';
 
 const tf = (key: string, vars: Record<string, string | number>): string => `${key}(${vars.count})`;
 
@@ -53,5 +53,36 @@ describe('updateStatusBar', () => {
   it('stores the pre-match-suffix text in data-status-bar-base', () => {
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 2 });
     expect((document.getElementById('status-bar-text') as HTMLElement).dataset.statusBarBase).toBe('Global · statusBarUsers(3)');
+  });
+});
+
+describe('syncStatusBarMatchCount', () => {
+  it('does nothing when the status bar element is absent', () => {
+    document.body.innerHTML = '';
+    expect(() => syncStatusBarMatchCount({ tf, getTotalMatches: () => 0 })).not.toThrow();
+  });
+
+  it('reuses the base stashed by updateStatusBar and appends the new match count', () => {
+    updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 0 });
+    syncStatusBarMatchCount({ tf, getTotalMatches: () => 2 });
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3) · statusBarMatches(2)');
+  });
+
+  it('falls back to stripping a legacy English match suffix when no base is stashed', () => {
+    document.getElementById('status-bar-text')!.textContent = 'Global · 3 users · 1 match';
+    syncStatusBarMatchCount({ tf, getTotalMatches: () => 5 });
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · 3 users · statusBarMatches(5)');
+  });
+
+  it('renders the base alone when there are no matches', () => {
+    updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 0 });
+    syncStatusBarMatchCount({ tf, getTotalMatches: () => 0 });
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3)');
+  });
+
+  it('uses the singular match text for exactly one match', () => {
+    updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 0 });
+    syncStatusBarMatchCount({ tf, getTotalMatches: () => 1 });
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3) · statusBarMatch(1)');
   });
 });

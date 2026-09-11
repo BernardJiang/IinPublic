@@ -2,6 +2,27 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #56: status-bar match-count sync
+
+Continuing the AST-script-guided sweep from cluster #55 (user confirmed continuing the
+incremental-cluster approach over tackling a deferred giant). `docs/TODO.md` Priority 6.
+
+- **#56: `syncStatusBarMatchCount` → extended `status-bar.ts`** (19 lines, 2 refs — `tf`,
+  `getTotalMatches`). A close sibling of cluster #36's `updateStatusBar` (both read/write
+  `#status-bar-text`, both need `tf`/`getTotalMatches`), so it reused the existing
+  `UpdateStatusBarDeps` type directly rather than defining a new one.
+- **Characterization:** extended `status-bar.test.ts` (+5 tests) covering: the
+  missing-status-bar-element no-op; reusing the `data-status-bar-base` stashed by
+  `updateStatusBar` and appending a fresh match count; the legacy-suffix-stripping fallback when
+  no base is stashed; the base-alone rendering when there are no matches; and the singular vs.
+  plural match text. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,620 → **6,607** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  203/2,183 to 203/2,188 (5 new, same suite count since the test file was extended) with zero
+  regressions. Canonical run `run-20260910-215745-41577` (25m20s): `heavy-staged` green (`rc=0`);
+  `cross-browser` unchanged pre-existing infra issue; `light` failed one already-established
+  rotating spec (`29-messaging-semantics`), unrelated to status-bar logic.
+
 ## 2026-09-10 — UIManager decomposition cluster #55: other-deal-conversations-ended
 
 Continuing the AST-script-guided sweep from cluster #54. `docs/TODO.md` Priority 6.
