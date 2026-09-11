@@ -165,6 +165,7 @@ import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
 import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
 import { updateChatroomInfo as updateChatroomInfoImpl } from './chatroom-info';
+import { setCurrentChatroomId as setCurrentChatroomIdImpl } from './current-chatroom';
 import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
 import { deleteMyTalk as deleteMyTalkImpl } from './talk-deletion';
 import {
@@ -1709,23 +1710,13 @@ export class UIManager extends EventEmitter {
    * the chatroom list highlight to stay in sync.
    */
   setCurrentChatroomId(chatroomId: string): void {
-    if (!chatroomId) return;
-    this.currentChatroom = chatroomId;
-    this.renderChatroomList();
-    const detailContainer = document.getElementById('chatroom-detail-container');
-    if (detailContainer && detailContainer.style.display !== 'none') {
-      const roomName = this.resolveChatroomTitle(chatroomId);
-      const chatroomTitle = document.getElementById('current-chatroom-title');
-      const chatroomStatus = document.getElementById('current-chatroom-status');
-      if (chatroomTitle) chatroomTitle.textContent = roomName;
-      if (chatroomStatus) chatroomStatus.textContent = this.t('chatroomLoadingMembers');
-      const membersList = document.getElementById('chatroom-members-list');
-      if (membersList) {
-        membersList.innerHTML =
-          `<div style="padding: 20px; text-align: center; color: #999;">${escapeHtml(this.t('chatroomLoadingOnlineUsers'))}</div>`;
-      }
-    }
-    this.syncReturnHomeButton();
+    setCurrentChatroomIdImpl(chatroomId, {
+      setCurrentChatroom: (id) => { this.currentChatroom = id; },
+      renderChatroomList: () => this.renderChatroomList(),
+      resolveChatroomTitle: (id) => this.resolveChatroomTitle(id),
+      t: (key) => this.t(key),
+      syncReturnHomeButton: () => this.syncReturnHomeButton(),
+    });
   }
 
   displayTalksList(): void {

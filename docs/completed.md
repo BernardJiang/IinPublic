@@ -2,6 +2,34 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #64: current-chatroom sync
+
+Continuing the AST-script-guided sweep from cluster #63. `docs/TODO.md` Priority 6.
+
+- **#64: `setCurrentChatroomId` → new `current-chatroom.ts`** (19 lines, 5 refs — a
+  `currentChatroom` write, `renderChatroomList`, `resolveChatroomTitle`, `t`,
+  `syncReturnHomeButton`). No-ops on a blank id; otherwise tracks the new current chatroom,
+  re-renders the chatroom list, refreshes the open detail panel's title/status/loading-members
+  text if it's visible, and syncs the return-home button. The `currentChatroom` write needed a
+  `setCurrentChatroom` deps callback rather than exposing the instance field directly.
+- **Characterization:** new `current-chatroom.test.ts` (5 tests) covering: the blank-id no-op;
+  the always-runs tracking/list-render/return-home-sync; the detail-panel-not-visible no-touch
+  case; the detail-panel-visible full update (title/status/members-loading text); and that
+  missing inner detail-panel elements don't throw. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,494 → **6,485** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  209/2,232 to 210/2,237 (5 new) with zero regressions. Canonical run `run-20260911-015026-9011`
+  (25m18s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed three specs — `00l-techsupport-faq-cross-user` and `29-messaging-semantics`
+  (already-established rotating flakes) plus `33-mobile-chatroom-hierarchy`, the pre-existing
+  `scrollIntoViewIfNeeded` DOM race first documented in cluster #44. Given this cluster directly
+  touches chatroom navigation, gave it closer scrutiny than usual: an initial 2/2-standalone-fail
+  vs. 2/2-pass-on-the-pre-cluster-64-baseline split looked concerning, so ran 4 more iterations
+  with the cluster #64 diff applied — landed at 4/6 failed overall, matching the spec's
+  documented ~50% coin-flip rate baseline, not a regression signature. A line-by-line diff of the
+  extraction also confirms it's a byte-faithful behavioral copy (same operation order: track →
+  re-render list → conditionally update the detail panel → sync the return-home button).
+
 ## 2026-09-11 — UIManager decomposition cluster #63: chatroom info
 
 Continuing the AST-script-guided sweep from cluster #62. `docs/TODO.md` Priority 6.
