@@ -2,6 +2,29 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #59: return-home button sync
+
+Continuing the AST-script-guided sweep from cluster #58. `docs/TODO.md` Priority 6.
+
+- **#59: `syncReturnHomeButton` → new `return-home-button.ts`** (18 lines, 3 refs —
+  `getHomeChatroomId`, `currentChatroom`, `resolveChatroomTitle`). Disables the return-home
+  button and shows "Already in your home room" when the active room is already home; otherwise
+  enables it with a "Return to ⟨room⟩" tooltip, falling back to `window.__iinpublic_app`'s
+  chatroom service if `currentChatroom` is blank. `getHomeChatroomId` itself has its own instance
+  dependencies (`travelModeActive`/`travelHomeChatroomId`/`currentLocation`), so it stayed in
+  `ui-manager.ts` and is passed through as a deps callback rather than moved.
+- **Characterization:** new `return-home-button.test.ts` (5 tests) covering: the missing-button
+  no-op; the disabled/already-home state; the enabled/return-to state with the resolved room
+  title; the app-level chatroom-service fallback when `currentChatroom` is blank; and the
+  default-to-"global" case when neither is available. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,555 → **6,545** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  205/2,202 to 206/2,207 (5 new) with zero regressions. Canonical run `run-20260910-232634-68210`
+  (25m26s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed four already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+  `79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`,
+  `83-survey-ignore-mid-question-not-complete`), none touching the return-home button.
+
 ## 2026-09-10 — UIManager decomposition cluster #58: location room suggestion
 
 Continuing the AST-script-guided sweep from cluster #57. `docs/TODO.md` Priority 6.

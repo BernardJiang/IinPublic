@@ -164,6 +164,7 @@ import {
 import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
+import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
 import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
@@ -680,22 +681,11 @@ export class UIManager extends EventEmitter {
   }
 
   private syncReturnHomeButton(): void {
-    const btn = document.getElementById('return-home-btn') as HTMLButtonElement | null;
-    if (!btn) return;
-    const home = this.getHomeChatroomId();
-    let effectiveRoom = this.currentChatroom;
-    if (!effectiveRoom) {
-      const fromApp = (
-        window as unknown as {
-          __iinpublic_app?: { getApp: () => { chatroomService?: { getCurrentChatroomId: () => string } } };
-        }
-      ).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.();
-      if (fromApp) effectiveRoom = fromApp;
-    }
-    effectiveRoom = effectiveRoom || 'global';
-    const away = effectiveRoom !== home;
-    btn.disabled = !away;
-    btn.title = away ? `Return to ${this.resolveChatroomTitle(home)}` : 'Already in your home room';
+    syncReturnHomeButtonImpl({
+      getHomeChatroomId: () => this.getHomeChatroomId(),
+      currentChatroom: this.currentChatroom,
+      resolveChatroomTitle: (chatroomId) => this.resolveChatroomTitle(chatroomId),
+    });
   }
 
   setCustomChatroomsFromServer(rows: CustomChatroomRow[]): void {
