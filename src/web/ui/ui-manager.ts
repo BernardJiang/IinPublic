@@ -163,6 +163,7 @@ import {
 import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
+import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
 import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
 import { deleteMyTalk as deleteMyTalkImpl } from './talk-deletion';
 import {
@@ -497,21 +498,7 @@ export class UIManager extends EventEmitter {
   // used to carry, now expressed as an ordinary question instead of talk-level metadata), else a
   // `type: 'tag'` talk's own (title, match-answer) pair (§LL: a tag is just 1 question/1 answer).
   private formatTalkDistanceFromAuthor(authorLocation: { latitude?: number; longitude?: number } | null | undefined): string {
-    if (!this.currentLocation || !authorLocation) return '';
-    const latitude = Number(authorLocation.latitude);
-    const longitude = Number(authorLocation.longitude);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
-    const meters = LocationPrivacy.calculateDistance(this.currentLocation, {
-      latitude,
-      longitude,
-      accuracy: 100,
-      timestamp: new Date(),
-    });
-    const miles = meters / 1609.344;
-    if (!Number.isFinite(miles)) return '';
-    if (miles < 0.1) return '<0.1 mi';
-    if (miles < 10) return `~${miles.toFixed(1)} mi`;
-    return `~${Math.round(miles)} mi`;
+    return formatTalkDistanceFromAuthorImpl(authorLocation, this.currentLocation);
   }
 
   private formatTalkExpiryTone(expiresAt: unknown): 'neutral' | 'green' | 'amber' | 'red' {

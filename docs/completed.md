@@ -2,6 +2,28 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #62: talk-distance-from-author formatting
+
+Continuing the AST-script-guided sweep from cluster #61. `docs/TODO.md` Priority 6.
+
+- **#62: `formatTalkDistanceFromAuthor` → new `talk-distance.ts`** (17 lines, 1 ref —
+  `currentLocation`). Formats a talk author's distance from the viewer's current GPS location as
+  "<0.1 mi" / "~N.N mi" / "~N mi" bands, returning empty when either location is missing or the
+  author's coordinates aren't numeric. `currentLocation` (a `GPSCoordinate | undefined` instance
+  field) is passed as a plain value argument rather than a deps callback, since the function
+  doesn't need to read it more than once.
+- **Characterization:** new `talk-distance.test.ts` (6 tests) covering: no current location; no
+  author location; non-numeric author coordinates; the "<0.1 mi" very-close band; the
+  one-decimal sub-10-mile band; and the rounded-to-nearest-mile 10+-mile band (using real
+  lat/long pairs at roughly known separations). All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,517 → **6,504** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  207/2,220 to 208/2,226 (6 new) with zero regressions. Canonical run `run-20260911-005505-93070`
+  (25m20s): `heavy-staged` green (`rc=0`); `cross-browser` unchanged pre-existing infra issue;
+  `light` failed two already-established rotating specs
+  (`79-techsupport-survives-restrictive-filters`, `29-messaging-semantics`), neither touching
+  talk-distance formatting.
+
 ## 2026-09-11 — UIManager decomposition cluster #61: IPFS share payload parsing
 
 Continuing the AST-script-guided sweep from cluster #60 (session crossed midnight into
