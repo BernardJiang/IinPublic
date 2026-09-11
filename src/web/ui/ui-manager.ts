@@ -163,6 +163,7 @@ import {
 } from './conversation-status-updates';
 import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
+import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
 import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
@@ -5079,22 +5080,10 @@ export class UIManager extends EventEmitter {
 
   /** Offer the most specific privacy-safe location room without moving the user implicitly. */
   showLocationRoomSuggestion(roomName: string, onJoin: () => void): void {
-    document.getElementById('location-room-suggestion')?.remove();
-    const host = document.getElementById('chatroom-list-container');
-    if (!host) return;
-    const banner = document.createElement('div');
-    banner.id = 'location-room-suggestion';
-    banner.className = 'location-room-suggestion';
-    banner.innerHTML = `
-      <span>${escapeHtml(this.tf('locationSuggestedRoom', { room: roomName }))}</span>
-      <button type="button" data-action="join">${escapeHtml(this.t('locationSuggestedRoomJoin'))}</button>
-      <button type="button" data-action="dismiss" aria-label="Dismiss">×</button>`;
-    banner.querySelector<HTMLButtonElement>('[data-action="join"]')?.addEventListener('click', () => {
-      banner.remove();
-      onJoin();
+    showLocationRoomSuggestionImpl(roomName, onJoin, {
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
     });
-    banner.querySelector<HTMLButtonElement>('[data-action="dismiss"]')?.addEventListener('click', () => banner.remove());
-    host.prepend(banner);
   }
 
   showSystemAnnouncement(announcement: { id: string; text: string }): void {

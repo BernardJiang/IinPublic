@@ -2,6 +2,24 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10 — UIManager decomposition cluster #58: location room suggestion
+
+Continuing the AST-script-guided sweep from cluster #57. `docs/TODO.md` Priority 6.
+
+- **#58: `showLocationRoomSuggestion` → new `location-room-suggestion.ts`** (18 lines, 2 refs —
+  `t`, `tf`). A dismissible banner suggesting a location-matched chatroom, replacing any existing
+  banner rather than stacking a second one.
+- **Characterization:** new `location-room-suggestion.test.ts` (5 tests) covering: the
+  missing-host no-op; the suggested room name rendering into the banner; replacing rather than
+  stacking a second banner; the join click removing the banner and calling `onJoin`; and the
+  dismiss click removing the banner without calling `onJoin`. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,566 → **6,555** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, unit suites grew from
+  204/2,197 to 205/2,202 (5 new) with zero regressions. Canonical run `run-20260910-225738-58713`
+  (25m19s): `heavy-staged` green again (`rc=0`); `cross-browser` unchanged pre-existing infra
+  issue; `light` failed two already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+  `29-messaging-semantics`), neither touching the location-room-suggestion banner.
+
 ## 2026-09-10 — UIManager decomposition cluster #57: talk detail view
 
 Continuing the AST-script-guided sweep from cluster #56. `docs/TODO.md` Priority 6.
