@@ -2,6 +2,55 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #69: talk-list metadata
+
+Continuing the AST-script-guided sweep from cluster #68. `docs/TODO.md` Priority 6.
+
+- **#69: `formatTalkExpiryTone`/`getIncomingQuestionCount` → new
+  `talk-list-metadata.ts`** (8 and 12 lines respectively, both 0 `this.*` refs). The first maps
+  absent/invalid, expired/near-expiry, day-scale, and later expiry values to the existing UI
+  color tones. The second preserves the incoming-card count precedence: a positive explicit
+  count, the loaded talk's questions, serialized questions, then zero. `displayTalksList` now
+  calls both pure helpers directly; no compatibility shims were needed.
+- **Characterization:** new `talk-list-metadata.test.ts` (8 tests) covering invalid and missing
+  expiry; expired, exact two-hour, exact one-day, later, and ISO-string boundaries; positive and
+  fractional explicit counts; loaded-talk and JSON fallbacks; and malformed/non-array/absent
+  input. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,437 → **6,416** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, and 213 unit suites /
+  2,265 tests pass. Canonical run `run-20260911-190547-85630` (18m40s,
+  `PW_WORKERS=8`): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser, isolated,
+  heavy-staged, and mass all passed; `light` passed 250 tests (6 skipped) and failed only three
+  already-established rotating specs (`33-mobile-chatroom-hierarchy`,
+  `00l-techsupport-faq-cross-user`, `83-survey-ignore-mid-question-not-complete`), none touching
+  talk-list metadata. The directly relevant expiration/broadcast E2E then passed 1/1 in an
+  isolated Chromium rerun (22.8s).
+
+## 2026-09-11 — UIManager decomposition cluster #68: broadcast selection and payload lookup
+
+Resuming the AST-script-guided sweep after cluster #67. `docs/TODO.md` Priority 6.
+
+- **#68: `getBroadcastableTalkIds`/`getBroadcastTalkPayload` → extended
+  `broadcast-audience-preview.ts`** (13 and 11 lines respectively, both 0 `this.*` refs). The
+  first reads the local OUT-talk store and returns created/copied talks that are enabled and not
+  expired; the second supplies a full local payload when a network lookup is slow, retaining the
+  original author on copied talks and rejecting questionless non-tag payloads. The two existing
+  public `UIManager` methods remain one-line compatibility shims for `app.ts` and E2E helpers.
+- **Characterization:** extended `broadcast-audience-preview.test.ts` (+6 tests) covering:
+  created/copied/answered role filtering and stable order; disabled, row-expired, and
+  full-payload-expired exclusion; absent/invalid expiry; missing rows/payloads; questionless tag
+  payloads; and the non-tag question requirement. The first run caught two test-only referential-
+  identity assertions that ignored the localStorage JSON round-trip; corrected to structural
+  equality, after which all 19 module tests passed.
+- **Ratchet:** `ui-manager.ts` 6,453 → **6,437** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, and 212 unit suites /
+  2,257 tests pass. Canonical run `run-20260911-184604-78211` (16m39s): stage5, mesh-batch,
+  mesh-isolated, find-similar, cross-browser, isolated, heavy-staged, and mass all passed; the
+  light shard passed 251 tests (6 skipped) including every broadcast scenario, and failed only
+  the two already-established rotating TechSupport mailbox timing specs
+  (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`), unrelated to
+  this extraction.
+
 ## 2026-09-11 — UIManager decomposition cluster #67: collect shared attachments
 
 Continuing the AST-script-guided sweep from cluster #66. `docs/TODO.md` Priority 6.

@@ -21,6 +21,8 @@ import { hydrateAttachmentImages as hydrateAttachmentImagesImpl } from './attach
 import { openEraseDeviceDialog as openEraseDeviceDialogImpl } from './erase-device-flow';
 import { registerTalkForPeer } from './talk-peer-registration';
 import {
+  getBroadcastableTalkIds as getBroadcastableTalkIdsImpl,
+  getBroadcastTalkPayload as getBroadcastTalkPayloadImpl,
   resolveExpiresAtMs,
   type BroadcastAudiencePreview,
   getSenderOmittedBroadcastPreviews as getSenderOmittedBroadcastPreviewsImpl,
@@ -165,6 +167,7 @@ import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as sync
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
 import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
+import { formatTalkExpiryTone, getIncomingQuestionCount } from './talk-list-metadata';
 import { updateChatroomInfo as updateChatroomInfoImpl } from './chatroom-info';
 import { setCurrentChatroomId as setCurrentChatroomIdImpl } from './current-chatroom';
 import { navigateToMyAnswerForTalk as navigateToMyAnswerForTalkImpl } from './navigate-to-answer';
@@ -504,28 +507,6 @@ export class UIManager extends EventEmitter {
   // `type: 'tag'` talk's own (title, match-answer) pair (§LL: a tag is just 1 question/1 answer).
   private formatTalkDistanceFromAuthor(authorLocation: { latitude?: number; longitude?: number } | null | undefined): string {
     return formatTalkDistanceFromAuthorImpl(authorLocation, this.currentLocation);
-  }
-
-  private formatTalkExpiryTone(expiresAt: unknown): 'neutral' | 'green' | 'amber' | 'red' {
-    const ms = resolveExpiresAtMs(expiresAt);
-    if (!Number.isFinite(ms)) return 'neutral';
-    const left = ms - Date.now();
-    if (left <= 0 || left <= 2 * 60 * 60 * 1000) return 'red';
-    if (left <= 24 * 60 * 60 * 1000) return 'amber';
-    return 'green';
-  }
-
-  private getIncomingQuestionCount(cluster: any): number {
-    const explicit = Number(cluster?.questionCount);
-    if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
-    const questions = cluster?.latestTalk?.questions;
-    if (Array.isArray(questions)) return questions.length;
-    try {
-      const parsed = JSON.parse(String(cluster?.questionsJson || '[]'));
-      return Array.isArray(parsed) ? parsed.length : 0;
-    } catch {
-      return 0;
-    }
   }
 
   private getPreferredTalkLanguage(): string {
@@ -2036,7 +2017,7 @@ export class UIManager extends EventEmitter {
                   // expiry chip (formatTalkExpiryTone) instead of OUT's own plain, uncolored
                   // text — my own sent talks approaching expiry deserve the same at-a-glance
                   // urgency cue an incoming talk's expiry already gets.
-                  const expiryTone = this.formatTalkExpiryTone(talk.expiresAt);
+                  const expiryTone = formatTalkExpiryTone(talk.expiresAt);
                   // Icon-only badges, not text: direction/copy-state and type are already
                   // conveyed by shape (this icon) and color (typeAccent border) — a text
                   // label alongside both would just repeat the same fact in words. The
@@ -2156,10 +2137,10 @@ export class UIManager extends EventEmitter {
                   : `<span class="talk-badge" style="background:var(--accent-soft);color:var(--accent-hover);font-weight:700;">🆕 ${this.t('talksNew')}</span>`;
                 const incomingType = String(cluster?.type || 'flow').toLowerCase();
                 const incomingLanguage = String(cluster?.language || cluster?.latestTalk?.language || 'en').toLowerCase();
-                const questionCount = this.getIncomingQuestionCount(cluster);
+                const questionCount = getIncomingQuestionCount(cluster);
                 const responseCount = this.getIncomingResponseCount(talkId);
                 const expiresAt = cluster?.expiresAt ?? cluster?.latestTalk?.expiresAt;
-                const expiryTone = this.formatTalkExpiryTone(expiresAt);
+                const expiryTone = formatTalkExpiryTone(expiresAt);
                 const expText = this.formatTalkExpiration(Number.isFinite(resolveExpiresAtMs(expiresAt)) ? resolveExpiresAtMs(expiresAt) : null);
                 const locRadius = cluster?.locationRadiusMiles ?? cluster?.latestTalk?.locationRadiusMiles;
                 const locText = this.formatTalkLocation(locRadius);
@@ -4830,17 +4811,7 @@ export class UIManager extends EventEmitter {
 
   /** Talks that can be included in broadcast: created or copied, not disabled, and not expired */
   getBroadcastableTalkIds(): string[] {
-    const myTalks = getMyTalks();
-    const now = Date.now();
-    return Object.entries(myTalks)
-      .filter(([, t]: [string, any]) => {
-        if (t?.disabled) return false;
-        if (t?.role !== 'created' && t?.role !== 'copied') return false;
-        const expiresAt = resolveExpiresAtMs(t?.expiresAt ?? t?.fullTalk?.expiresAt);
-        if (Number.isFinite(expiresAt) && now > expiresAt) return false;
-        return true;
-      })
-      .map(([id]) => id);
+    return getBroadcastableTalkIdsImpl();
   }
 
   /** OUT talks omitted from broadcast/peer send because they are disabled or expired. */
@@ -4852,15 +4823,7 @@ export class UIManager extends EventEmitter {
    * Full talk from OUT/myTalks when Gun `getTalk` is slow — bulk broadcast still needs a local payload.
    */
   getBroadcastTalkPayload(talkId: string): any | null {
-    const myTalks = getMyTalks();
-    const row = myTalks[talkId];
-    // docs/TODO.md §Y1: broadcasting a copied-but-unedited talk keeps the original sender as
-    // authorId — copying isn't authorship.
-    const full = row?.fullTalk;
-    if (!full) return null;
-    // Tag talks have no questions; non-tag talks require at least one question
-    if (full.type !== 'tag' && (!Array.isArray(full.questions) || full.questions.length === 0)) return null;
-    return full;
+    return getBroadcastTalkPayloadImpl(talkId);
   }
 
   /**

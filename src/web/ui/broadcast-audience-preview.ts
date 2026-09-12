@@ -22,6 +22,35 @@ export type BroadcastAudiencePreview = {
   senderOmittedBy?: string[];
 };
 
+/** Talks eligible for broadcast or direct peer send from the local OUT-talk store. */
+export function getBroadcastableTalkIds(): string[] {
+  const myTalks = getMyTalks();
+  const now = Date.now();
+  return Object.entries(myTalks)
+    .filter(([, talk]) => {
+      if (talk?.disabled) return false;
+      if (talk?.role !== 'created' && talk?.role !== 'copied') return false;
+      const expiresAt = resolveExpiresAtMs(talk?.expiresAt ?? talk?.fullTalk?.expiresAt);
+      if (Number.isFinite(expiresAt) && now > expiresAt) return false;
+      return true;
+    })
+    .map(([id]) => id);
+}
+
+/** Full local payload used when the network lookup is slow during a broadcast. */
+export function getBroadcastTalkPayload(talkId: string): any | null {
+  const row = getMyTalks()[talkId];
+  // docs/TODO.md §Y1: broadcasting a copied-but-unedited talk keeps the original sender as
+  // authorId — copying isn't authorship.
+  const full = row?.fullTalk;
+  if (!full) return null;
+  // Tag talks have no questions; non-tag talks require at least one question.
+  if (full.type !== 'tag' && (!Array.isArray(full.questions) || full.questions.length === 0)) {
+    return null;
+  }
+  return full;
+}
+
 /** OUT talks omitted from broadcast/peer send because they are disabled or expired. */
 export function getSenderOmittedBroadcastPreviews(): BroadcastAudiencePreview[] {
   const myTalks = getMyTalks();
