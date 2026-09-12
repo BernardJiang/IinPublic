@@ -2,6 +2,28 @@
 
 Last updated: 2026-09-12
 
+## 2026-09-12 — UIManager decomposition cluster #76: Application shell controls
+
+Continuing Priority 6 after the conversation-media extraction. `docs/TODO.md` Priority 6.
+
+- **#76: `setupEventListeners`/`setupBottomNavigation` → `app-shell-controls.ts`.** The shell
+  controller now owns primary composer/action wiring, answer/Talk/creator-reply filters,
+  broadcast tap/long-press behavior, tab/panel activation, and per-tab refresh lifecycles. The
+  manager supplies state setters and feature actions through one typed dependency contract. The
+  document-scoped custom-room action delegation guard moved with its only consumer.
+- **Characterization:** new `app-shell-controls.test.ts` (3 tests) covers send-path trimming and
+  filter blocking, Talk-filter persistence/rerender, and tab activation/lifecycle callbacks. The
+  focused shell/filter unit set passes 50/50. Fifteen focused Chromium scenarios pass across
+  navigation, Settings, Me/Talks filters, query persistence, AppBar actions, broadcast guards,
+  and custom-room creation.
+- **Ratchet:** `ui-manager.ts` 4,072 → **3,819** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  219 unit suites / 2,299 tests pass. Canonical run `run-20260912-142427-64284`
+  (`PW_WORKERS=8`, 18m47s): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser,
+  isolated, heavy-staged, and mass all passed; `light` passed 252 tests (6 skipped) and repeated
+  only cluster #75's established rotating `83-survey-ignore-mid-question-not-complete` delivery
+  timing failure, unrelated to shell event ownership.
+
 ## 2026-09-12 — UIManager decomposition cluster #75: Conversation media controller
 
 Continuing Priority 6 after the conversation-view extraction. `docs/TODO.md` Priority 6.

@@ -200,6 +200,7 @@ import {
   tryBuildChatbotAnswersFromFlattened as buildChatbotAnswersFromPreferences,
 } from './answer-preference-resolution';
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
+import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
 import { openPeerDetailView, refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
 import { avatarInnerHtml } from './profile-avatar';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
@@ -216,9 +217,7 @@ import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl } from './linked
 import {
   renderCreatorReplies as renderCreatorRepliesImpl,
   CREATOR_REPLY_PAGE_SIZE,
-  persistCreatorReplyFilterState,
   readCreatorReplyFilterState,
-  restoreCreatorReplyFilterState,
   type CreatorReplyRow,
 } from './creator-replies-view';
 import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-gestures';
@@ -340,7 +339,6 @@ export class UIManager extends EventEmitter {
   /** Row-drag gesture recognizer (ignore/copy/delete) — bound once. */
   /** A committed or cancelled drag swallows the click that would otherwise follow release. */
   private talksGestureSuppressClickUntil = 0;
-  private chatroomActionDelegationBound = false;
   /** Settings drill-down: id of the section currently shown in detail view, or null for the menu list. */
   private settingsActiveSectionId: string | null = null;
   private incomingTalkClusters: any[] = [];
@@ -650,10 +648,73 @@ export class UIManager extends EventEmitter {
       languageOptions: LANGUAGE_OPTIONS,
     });
 
-    this.setupEventListeners();
-    this.setupBottomNavigation();
+    bindAppShellControls(this.appShellControlsDeps());
     this.setupAppBarChrome();
     this.syncAppBarActionsForView('chatrooms');
+  }
+
+  private appShellControlsDeps(): AppShellControlsDeps {
+    return {
+      t: (key) => this.t(key),
+      emit: (event, payload) => this.emit(event, payload),
+      showDmInboxPicker: () => this.showDmInboxPicker(),
+      allowOutgoingMessage: (message) => this.allowOutgoingMessage(message),
+      showTalkEditorDialog: () => this.showTalkEditorDialog(),
+      showPreferencesDialog: () => this.showPreferencesDialog(),
+      showChatroomList: () => this.showChatroomList(),
+      handleCreateCustomChatroomClick: () => this.handleCreateCustomChatroomClick(),
+      showContactsList: () => this.showContactsList(),
+      resetSettingsSection: () => {
+        this.settingsActiveSectionId = null;
+        this.applySettingsSectionView(null);
+      },
+      handleBroadcastTalkFromCurrentRoom: (automatic) => {
+        this.handleBroadcastTalkFromCurrentRoom(automatic);
+      },
+      restoreTalksTabState: () => this.restoreTalksTabState(),
+      setTalksShowIncoming: (value) => { this.talksShowIncoming = value; },
+      setTalksShowOutgoing: (value) => { this.talksShowOutgoing = value; },
+      setTalkTypeEnabled: (type, enabled) => {
+        if (enabled) this.talksEnabledTypes.add(type);
+        else this.talksEnabledTypes.delete(type);
+      },
+      setTalksOutSortMode: (value) => {
+        this.talksOutSortMode = value as typeof this.talksOutSortMode;
+      },
+      setTalksQuery: (value) => { this.talksQuery = value; },
+      setTalksCompletionFilter: (value) => {
+        this.talksCompletionFilter = value as typeof this.talksCompletionFilter;
+      },
+      setTalksOutcomeFilter: (value) => {
+        this.talksOutcomeFilter = value as typeof this.talksOutcomeFilter;
+      },
+      setTalksDateFrom: (value) => { this.talksDateFrom = value; },
+      setTalksDateTo: (value) => { this.talksDateTo = value; },
+      persistTalksTabState: () => this.persistTalksTabState(),
+      displayTalksList: () => this.displayTalksList(),
+      resetCreatorReplyVisibleCount: () => {
+        this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
+      },
+      clearCreatorReplyScope: () => {
+        this.creatorReplyScopedTalkId = null;
+        this.creatorReplyScopedTalkTitle = '';
+      },
+      renderCreatorRepliesIfVisible: () => {
+        if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
+          this.renderCreatorReplies();
+        }
+      },
+      getChatroomsDetailRoomId: () => this.chatroomsDetailRoomId,
+      showChatroomDetail: (chatroomId) => this.showChatroomDetail(chatroomId),
+      dismissMatchNotifications: () => this.dismissMatchNotifications(),
+      refreshCreatorReplies: () => this.refreshCreatorReplies(),
+      getCurrentUser: () => this.currentUser,
+      showMainInterface: (user) => this.showMainInterface(user),
+      displayAnswersList: () => this.displayAnswersList(),
+      renderSettingsView: (user) => this.renderSettingsView(user),
+      syncHeaderStatusView: (viewName) => this.syncHeaderStatusView(viewName),
+      syncAppBarActionsForView: (viewName) => this.syncAppBarActionsForView(viewName),
+    };
   }
 
   /**
@@ -687,243 +748,6 @@ export class UIManager extends EventEmitter {
    */
   private syncAppBarOverflow(): void {
     syncAppBarOverflow();
-  }
-
-  private setupEventListeners(): void {
-    // TODO §N2: always-visible DM inbox affordance, reachable from every tab.
-    document.getElementById('dm-inbox-btn')?.addEventListener('click', () => this.showDmInboxPicker());
-
-    const sendButton = document.getElementById('send-button');
-    const messageInput = document.getElementById('message-input') as HTMLTextAreaElement;
-    const createTalkBtn = document.getElementById('create-talk-btn');
-
-    if (sendButton && messageInput) {
-      sendButton.addEventListener('click', () => {
-        const message = messageInput.value.trim();
-        if (message) {
-          if (!this.allowOutgoingMessage(message)) return;
-          this.emit('sendMessage', { conversationId: 'default', message });
-          messageInput.value = '';
-        }
-      });
-
-      messageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendButton.click();
-        }
-      });
-
-      // Auto-resize textarea
-      messageInput.addEventListener('input', () => {
-        messageInput.style.height = 'auto';
-        messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
-      });
-    }
-
-    if (createTalkBtn) {
-      createTalkBtn.addEventListener('click', () => {
-        this.showTalkEditorDialog();
-      });
-    }
-
-    const viewPreferencesBtn = document.getElementById('view-preferences-btn');
-    if (viewPreferencesBtn) {
-      viewPreferencesBtn.addEventListener('click', () => {
-        this.showPreferencesDialog();
-      });
-    }
-
-    // Back to chatrooms button
-    const backToChatroomsBtn = document.getElementById('back-to-chatrooms');
-    if (backToChatroomsBtn) {
-      backToChatroomsBtn.addEventListener('click', () => {
-        this.showChatroomList();
-      });
-    }
-
-    if (!this.chatroomActionDelegationBound) {
-      this.chatroomActionDelegationBound = true;
-      document.body.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement;
-        if (target.closest('#create-custom-chatroom-btn')) {
-          e.preventDefault();
-          void this.handleCreateCustomChatroomClick();
-        }
-      });
-    }
-
-    const returnHomeBtn = document.getElementById('return-home-btn');
-    if (returnHomeBtn) {
-      returnHomeBtn.addEventListener('click', () => {
-        this.emit('returnHomeFromTravel', {});
-      });
-    }
-    const settingsRefreshLocationBtn = document.getElementById('settings-refresh-location-btn');
-    if (settingsRefreshLocationBtn) {
-      settingsRefreshLocationBtn.addEventListener('click', () => {
-        this.emit('requestLocationUpdate', {});
-      });
-    }
-    document.querySelectorAll('.me-talk-type-checkbox').forEach((checkbox) => {
-      checkbox.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
-    });
-    document.querySelectorAll('.me-tag-state-checkbox').forEach((checkbox) => {
-      checkbox.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
-    });
-    ['me-outcome-filter', 'me-answer-sort', 'me-answer-date-from', 'me-answer-date-to'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', () => applyMeAnswerFilter(this.t.bind(this)));
-    });
-    document.getElementById('me-answer-filter')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
-    document.getElementById('me-clear-filters')?.addEventListener('click', () => {
-      document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox').forEach((checkbox) => { checkbox.checked = true; });
-      document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox').forEach((checkbox) => { checkbox.checked = true; });
-      const outcome = document.getElementById('me-outcome-filter') as HTMLSelectElement | null;
-      const sort = document.getElementById('me-answer-sort') as HTMLSelectElement | null;
-      const answer = document.getElementById('me-answer-filter') as HTMLInputElement | null;
-      const from = document.getElementById('me-answer-date-from') as HTMLInputElement | null;
-      const to = document.getElementById('me-answer-date-to') as HTMLInputElement | null;
-      const search = document.getElementById('answers-search-input') as HTMLInputElement | null;
-      if (outcome) outcome.value = 'all';
-      if (sort) sort.value = 'answered-desc';
-      if (answer) answer.value = '';
-      if (from) from.value = '';
-      if (to) to.value = '';
-      if (search) search.value = '';
-      applyMeAnswerFilter(this.t.bind(this));
-    });
-
-    // Back to contacts list button
-    const backToContactsListBtn = document.getElementById('back-to-contacts-list');
-    if (backToContactsListBtn) {
-      backToContactsListBtn.addEventListener('click', () => {
-        this.showContactsList();
-      });
-    }
-
-    // Back to settings menu button
-    const backToSettingsMenuBtn = document.getElementById('back-to-settings-menu');
-    if (backToSettingsMenuBtn) {
-      backToSettingsMenuBtn.addEventListener('click', () => {
-        this.settingsActiveSectionId = null;
-        this.applySettingsSectionView(null);
-      });
-    }
-
-    const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
-    if (broadcastTalkBtn) {
-      // Tap: send immediately, no confirmation — the user's own priority, real delivery
-      // work (resolving receivers, fetching talk payloads) happens after, and a "Sent"
-      // toast (formatBroadcastSent) reports completion. Long-press: open the read-only
-      // eligible/excluded-recipients review modal first, for anyone who wants to check
-      // before sending — Send/Cancel inside that modal is unchanged.
-      const LONG_PRESS_MS = 500;
-      let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-      let longPressFired = false;
-      const clearLongPressTimer = () => {
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-      };
-      broadcastTalkBtn.addEventListener('pointerdown', () => {
-        longPressFired = false;
-        clearLongPressTimer();
-        longPressTimer = setTimeout(() => {
-          longPressFired = true;
-          this.handleBroadcastTalkFromCurrentRoom(false);
-        }, LONG_PRESS_MS);
-      });
-      broadcastTalkBtn.addEventListener('pointerup', clearLongPressTimer);
-      broadcastTalkBtn.addEventListener('pointerleave', clearLongPressTimer);
-      broadcastTalkBtn.addEventListener('pointercancel', clearLongPressTimer);
-      broadcastTalkBtn.addEventListener('click', () => {
-        if (longPressFired) {
-          longPressFired = false;
-          return;
-        }
-        this.handleBroadcastTalkFromCurrentRoom(true);
-      });
-    }
-
-    this.restoreTalksTabState();
-    document.getElementById('talks-filter-incoming')?.addEventListener('change', (event) => {
-      this.talksShowIncoming = (event.currentTarget as HTMLInputElement).checked;
-      this.persistTalksTabState();
-      this.displayTalksList();
-    });
-    document.getElementById('talks-filter-outgoing')?.addEventListener('change', (event) => {
-      this.talksShowOutgoing = (event.currentTarget as HTMLInputElement).checked;
-      this.persistTalksTabState();
-      this.displayTalksList();
-    });
-    document.querySelectorAll<HTMLInputElement>('.talks-type-checkbox').forEach((checkbox) => {
-      checkbox.addEventListener('change', () => {
-        const type = checkbox.value;
-        if (checkbox.checked) this.talksEnabledTypes.add(type);
-        else this.talksEnabledTypes.delete(type);
-        this.persistTalksTabState();
-        this.displayTalksList();
-      });
-    });
-    document.getElementById('talks-out-sort-order')?.addEventListener('change', (event) => {
-      this.talksOutSortMode = (event.currentTarget as HTMLSelectElement).value as typeof this.talksOutSortMode;
-      this.persistTalksTabState();
-      this.displayTalksList();
-    });
-    document.getElementById('talks-filter-query')?.addEventListener('input', (event) => {
-      this.talksQuery = (event.currentTarget as HTMLInputElement).value;
-      this.persistTalksTabState();
-      this.displayTalksList();
-    });
-    document.getElementById('talks-filter-completion')?.addEventListener('change', (event) => {
-      this.talksCompletionFilter = (event.currentTarget as HTMLSelectElement).value as typeof this.talksCompletionFilter;
-      this.persistTalksTabState();
-      this.displayTalksList();
-    });
-    document.getElementById('talks-filter-outcome')?.addEventListener('change', (event) => {
-      this.talksOutcomeFilter = (event.currentTarget as HTMLSelectElement).value as typeof this.talksOutcomeFilter;
-      this.persistTalksTabState();
-      this.displayTalksList();
-    });
-    ['talks-filter-date-from', 'talks-filter-date-to'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', (event) => {
-        if (id.endsWith('from')) this.talksDateFrom = (event.currentTarget as HTMLInputElement).value;
-        else this.talksDateTo = (event.currentTarget as HTMLInputElement).value;
-        this.persistTalksTabState();
-        this.displayTalksList();
-      });
-    });
-    restoreCreatorReplyFilterState();
-    ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
-      document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => {
-        this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
-        persistCreatorReplyFilterState();
-        // §M1: the panel is normally hidden (display:none) until showCreatorRepliesForTalk
-        // opens it — only re-render while it's actually visible.
-        if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
-          this.renderCreatorReplies();
-        }
-      });
-    });
-    document.getElementById('reply-clear-filters')?.addEventListener('click', () => {
-      ['reply-filter-query', 'reply-filter-from', 'reply-filter-to'].forEach((id) => {
-        const input = document.getElementById(id) as HTMLInputElement | null;
-        if (input) input.value = '';
-      });
-      ['reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
-        const select = document.getElementById(id) as HTMLSelectElement | null;
-        if (select) select.value = id === 'reply-sort-order' ? 'recent' : id === 'reply-group-order' ? 'none' : 'all';
-      });
-      this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
-      this.creatorReplyScopedTalkId = null;
-      this.creatorReplyScopedTalkTitle = '';
-      persistCreatorReplyFilterState();
-      if (document.getElementById('creator-replies-panel')?.style.display !== 'none') {
-        this.renderCreatorReplies();
-      }
-    });
-
   }
 
   /**
@@ -1052,83 +876,6 @@ export class UIManager extends EventEmitter {
 
   private syncStatusBroadcastButtonVisibility(): void {
     syncChatroomBroadcastVisibility(this.currentChatroom);
-  }
-
-  private setupBottomNavigation(): void {
-    const navButtons = document.querySelectorAll('.nav-btn');
-    const viewPanels = document.querySelectorAll('.view-panel');
-    const headerTitle = document.getElementById('header-title');
-    const headerActions = document.getElementById('header-actions');
-
-    navButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        const targetView = (button as HTMLElement).dataset.view;
-        if (!targetView) return;
-        document.getElementById('broadcast-preamble-modal')?.remove();
-
-        // Update active nav button
-        navButtons.forEach((btn) => btn.classList.remove('active'));
-        button.classList.add('active');
-
-        // Update active view panel
-        viewPanels.forEach((panel) => panel.classList.remove('active'));
-        const targetPanel = document.getElementById(`${targetView}-view`);
-        if (targetPanel) {
-          targetPanel.classList.add('active');
-        }
-
-        // Update header title and actions
-        if (headerTitle) {
-          headerTitle.textContent = '';
-        }
-        this.syncHeaderStatusView(targetView);
-
-        // Show only the AppBar controls scoped to this view (redesign §1–§3).
-        if (headerActions) headerActions.style.display = 'flex';
-        this.syncAppBarActionsForView(targetView);
-
-        // Special handling for chatrooms view: restore whichever room's detail panel the user
-        // was last looking at instead of always resetting to the room list (§ save-the-spot).
-        if (targetView === 'chatrooms') {
-          if (this.chatroomsDetailRoomId) {
-            this.showChatroomDetail(this.chatroomsDetailRoomId);
-          } else {
-            this.showChatroomList();
-          }
-        }
-
-        // Special handling for contacts view
-        if (targetView === 'contacts') {
-          this.dismissMatchNotifications();
-          // showContactsList()'s render flow now calls updateStatsStrip itself (with the
-          // row-count prefix merged in) once the count is known — calling
-          // displayContextualStatistics separately here would flash an un-prefixed version first.
-          this.showContactsList();
-        }
-
-        // Special handling for talks view
-        if (targetView === 'talks') {
-          this.emit('needIncomingTalkClusters');
-          this.displayTalksList();
-          void this.refreshCreatorReplies();
-        }
-
-        // Special handling for me view: refresh conversations list and request a source sync.
-        if (targetView === 'me') {
-          if (this.currentUser) this.showMainInterface(this.currentUser);
-          this.emit('needConversationSync');
-          this.displayAnswersList();
-        }
-
-        // Re-render, but keep whichever settings section the user was last looking at
-        // (settingsActiveSectionId) instead of resetting to the top-level menu — renderSettingsView
-        // already restores it correctly via its own trailing applySettingsSectionView call, the
-        // same mechanism a language change relies on to survive a full re-render.
-        if (targetView === 'settings') {
-          if (this.currentUser) this.renderSettingsView(this.currentUser);
-        }
-      });
-    });
   }
 
   private syncHeaderStatusView(viewName: string): void {

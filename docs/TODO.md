@@ -931,7 +931,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#75 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#76 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -980,7 +980,8 @@ and listener lifecycle (`talks-list-view.ts`); and the Settings renderer/state n
 control wiring (`settings-view.ts`/`settings-controls.ts`); and the conversation detail/message
 view plus list-record/summary updates (`conversation-detail-view.ts`/
 `conversation-list-updates.ts`); and conversation media/capture controller state
-(`conversation-media-controller.ts`). Full per-cluster rationale,
+(`conversation-media-controller.ts`); and application-shell interaction/navigation wiring
+(`app-shell-controls.ts`). Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -996,7 +997,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 (#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), 6,566 (#57), and
 6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
 6,472 (#65), 6,462 (#66), 6,453 (#67), 6,437 (#68), 6,416 (#69), 6,401 (#70), 6,367 (#71), and
-5,711 (#72), 4,821 (#73), 4,312 (#74), and **4,072** (#75)
+5,711 (#72), 4,821 (#73), 4,312 (#74), 4,072 (#75), and **3,819** (#76)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -2088,6 +2089,10 @@ entries and babel preset were never removed.
     ratchet from 4,312 to 4,072.~~ Done; the controller now owns its tab, lightbox target, resolver,
     one-time delegation, and answered-chip state, while UIManager supplies only conversation scope,
     messages, translations, relative-time formatting, and event emission.
+59. ~~Extract cluster #76 (`setupEventListeners`/`setupBottomNavigation` → new
+    `app-shell-controls.ts`), lowering the ratchet from 4,072 to 3,819.~~ Done; primary composer/
+    action controls, answer/Talk/reply filters, broadcast tap/long-press, tab panel activation,
+    and tab-specific refresh lifecycles are bound by one explicitly injected shell controller.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React
