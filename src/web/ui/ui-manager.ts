@@ -27,6 +27,11 @@ import {
   type BroadcastAudiencePreview,
   getSenderOmittedBroadcastPreviews as getSenderOmittedBroadcastPreviewsImpl,
 } from './broadcast-audience-preview';
+import {
+  getUnsentBroadcastTalkIds as getUnsentBroadcastTalkIdsImpl,
+  getUnsentBroadcastTalkIdsForReceiver as getUnsentBroadcastTalkIdsForReceiverImpl,
+  getUnsentBroadcastTalkReceiverIds as getUnsentBroadcastTalkReceiverIdsImpl,
+} from './broadcast-delivery-selection';
 import { refreshFlowAnswerConstraints as refreshFlowAnswerConstraintsImpl } from './flow-answer-constraints';
 import { renderSettingsSection as renderSettingsSectionImpl } from './settings-section-template';
 import { showContentFilterToast as showContentFilterToastImpl } from './content-filter-toast';
@@ -239,8 +244,7 @@ import {
 import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-gestures';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
-import { getTalkLedgerDoc, shouldSuppressForPeer } from '../services/web-talk-ledger-store';
-import { buildTagIdentityKeys } from '../../shared/talk-ledger';
+import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
 
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
 // Settings → Appearance: decorative swatch + label per scheme, matching the
@@ -697,61 +701,23 @@ export class UIManager extends EventEmitter {
     return getMyTalks();
   }
 
-  /**
-   * True when `receiverId` has not yet been sent `talkId` at its current content identity.
-   * docs/TODO.md §W Gap 2 — this used to be a room-scoped localStorage revision-key check
-   * (`broadcastConversationHistory`); now delegates to the same ledger `sent`/`exchanged`
-   * suppression `deliverTalkToReceiversOverMesh` itself enforces, so there is one source of
-   * truth instead of two. `chatroomId` is accepted for call-site compatibility but unused —
-   * suppression is peer+identity scoped, not room-scoped: if this exact talk content was
-   * already sent to `receiverId` in a different room, it should stay suppressed here too.
-   * Content-hash keyed (`computeTalkIdFromTalkData`), so a genuinely revised talk (different
-   * title/questions) always reads as unsent; a metadata-only touch (e.g. `lastInteraction`)
-   * does not.
-   *
-   * For `type: 'tag'` talks, `deliverTalkToReceiversOverMesh` records `sent` under per-tag
-   * identity keys (`buildTagIdentityKeys`), never the whole-talk key — so this must check the
-   * same per-tag keys (any one still unsent = a partial resend is still owed to this receiver),
-   * not the whole-talk key, or a tag talk would always read as "unsent" for everyone forever.
-   */
-  private isBroadcastUnsentForReceiver(_chatroomId: string, receiverId: string, talkId: string): boolean {
-    const talk = this.getMyTalks()[talkId];
-    const fullTalk = talk?.fullTalk || talk;
-    if (!fullTalk) return true;
-    const wholeTalkIdentityKey = computeTalkIdFromTalkData(fullTalk);
-    const identityKeys = buildTagIdentityKeys(fullTalk, wholeTalkIdentityKey);
-    return identityKeys.some((identityKey) => !shouldSuppressForPeer(receiverId, identityKey));
-  }
-
-  private getUnsentBroadcastTalkIds(chatroomId: string, receiverIds: string[]): string[] {
-    return this.getBroadcastableTalkIds().filter((talkId) => receiverIds.some((receiverId) =>
-      this.isBroadcastUnsentForReceiver(chatroomId, receiverId, talkId)));
-  }
-
-  private getUnsentBroadcastTalkIdsForReceiver(chatroomId: string, receiverId: string): string[] {
-    return this.getBroadcastableTalkIds().filter((talkId) =>
-      this.isBroadcastUnsentForReceiver(chatroomId, receiverId, talkId));
+  private getUnsentBroadcastTalkIds(_chatroomId: string, receiverIds: string[]): string[] {
+    return getUnsentBroadcastTalkIdsImpl(receiverIds);
   }
 
   /**
    * docs/TODO.md §W Gap 1: `getUnsentBroadcastTalkIds` above is room-wide — a talk stays in
    * everyone's batch if *any* member still needs it, which can re-attempt delivery to a
-   * receiver who already has it. This computes the same per-receiver truth
-   * `getUnsentBroadcastTalkIdsForReceiver` already uses, but keyed by talk instead of by
-   * receiver, so a single broadcast call can pass each talk its own narrower receiver list
-   * instead of the full room.
+   * receiver who already has it. This returns the same per-receiver truth from
+   * `broadcast-delivery-selection`, but keyed by talk, so a single broadcast call can pass each
+   * talk its own narrower receiver list instead of the full room.
    */
   getUnsentBroadcastTalkReceiverIds(
-    chatroomId: string,
+    _chatroomId: string,
     talkIds: string[],
     receiverIds: string[],
   ): Record<string, string[]> {
-    const result: Record<string, string[]> = {};
-    for (const talkId of talkIds) {
-      result[talkId] = receiverIds.filter((receiverId) =>
-        this.isBroadcastUnsentForReceiver(chatroomId, receiverId, talkId));
-    }
-    return result;
+    return getUnsentBroadcastTalkReceiverIdsImpl(talkIds, receiverIds);
   }
 
   initialize(): void {
@@ -1094,7 +1060,7 @@ export class UIManager extends EventEmitter {
   ): void {
     if (!this.currentChatroom) return;
     for (const peer of members) {
-      const talkIds = this.getUnsentBroadcastTalkIdsForReceiver(this.currentChatroom, peer.userId);
+      const talkIds = getUnsentBroadcastTalkIdsForReceiverImpl(peer.userId);
       if (talkIds.length > 0) {
         this.emit('broadcastTalk', { chatroomId: this.currentChatroom, members: [peer], talkIds, automatic: true });
       }

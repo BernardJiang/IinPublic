@@ -2,6 +2,34 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #71: per-recipient broadcast delivery selection
+
+Continuing the AST-script-guided sweep from cluster #70. `docs/TODO.md` Priority 6.
+
+- **#71: four unsent-broadcast helpers → new `broadcast-delivery-selection.ts`.** The extracted
+  module decides whether a talk's current whole-content or per-tag identities are still owed to
+  a peer, selects the room-wide union, selects one peer's pending talks, and builds narrower
+  per-talk receiver lists. Storage, broadcast eligibility, and ledger suppression are explicit,
+  injectable dependencies. `UIManager` retains its observed union-selection and receiver-map
+  entry points as one-line compatibility shims; its per-receiver room-entry path calls the module
+  directly. The ledger-specific `shouldSuppressForPeer` and `buildTagIdentityKeys` imports leave
+  the god object entirely.
+- **Characterization:** new `broadcast-delivery-selection.test.ts` (8 tests) covering missing and
+  bare local talks; whole-content flow identity; partially and fully suppressed multi-option tag
+  identities; the multi-receiver union; one-receiver filtering; and independent per-talk receiver
+  maps. The first focused run exposed a test-fixture assumption: changing only id/title preserves
+  the product's content identity. Changing question content modeled a real revision; all 28
+  focused selection/audience/budget tests then passed.
+- **Ratchet:** `ui-manager.ts` 6,401 → **6,367** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, and 224 unit suites /
+  2,368 tests pass (1 skipped). The unchanged-content suppression and late-joiner tag-catch-up
+  E2Es pass 2/2 in isolated Chromium runs. Canonical run `run-20260911-201719-2759`
+  (`PW_WORKERS=8`): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser, isolated,
+  heavy-staged, and mass all passed; `light` passed 250 tests (6 skipped), including the
+  broadcast scenarios, and failed only three established rotating UI/mailbox flakes
+  (`06-support-new-question-ack`, `33-mobile-chatroom-hierarchy`,
+  `79-techsupport-survives-restrictive-filters`), none touching broadcast delivery selection.
+
 ## 2026-09-11 — UIManager decomposition cluster #70: shared-link collection
 
 Continuing the AST-script-guided sweep from cluster #69. `docs/TODO.md` Priority 6.
