@@ -2,6 +2,29 @@
 
 Last updated: 2026-09-12
 
+## 2026-09-12 — UIManager decomposition cluster #75: Conversation media controller
+
+Continuing Priority 6 after the conversation-view extraction. `docs/TODO.md` Priority 6.
+
+- **#75: conversation media/capture controller → `conversation-media-controller.ts`.** Gallery
+  tabs and rendering, attachment hydration/download, the image lightbox, and captured-question
+  chip delegation now form one controller with private transient state. The active conversation
+  and thread, last messages, translations, relative-time formatter, and event emitter cross a
+  typed dependency boundary. UIManager no longer owns the gallery tab, lightbox target,
+  attachment resolver, answered-chip set, or delegation flag; its public resolver hook and
+  conversation renderer continue through the controller.
+- **Characterization:** new `conversation-media-controller.test.ts` (3 tests) covers gallery/tab/
+  close lifecycle, one-time chip delegation with active talk scope, and durable answered-chip
+  rendering state. The focused media/capture unit set passes 68/68. Focused Chromium E2Es pass
+  2/2 for the complete auto-linear-capture chip flow and media/link sharing.
+- **Ratchet:** `ui-manager.ts` 4,312 → **4,072** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  218 unit suites / 2,296 tests pass. Canonical run `run-20260912-135905-56505`
+  (`PW_WORKERS=8`, 19m04s): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser,
+  isolated, heavy-staged, and mass all passed; `light` passed 252 tests (6 skipped), including
+  both media scenarios, and failed only the established rotating survey-delivery timing case
+  `83-survey-ignore-mid-question-not-complete`, unrelated to this extraction.
+
 ## 2026-09-12 — UIManager decomposition cluster #74: Conversation views and list updates
 
 Continuing Priority 6 after the Settings extraction. `docs/TODO.md` Priority 6.

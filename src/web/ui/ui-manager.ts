@@ -16,7 +16,6 @@ import {
   displayContextualStatistics as displayContextualStatisticsImpl,
   type LocalStatisticsDeps,
 } from './local-statistics';
-import { hydrateAttachmentImages as hydrateAttachmentImagesImpl } from './attachment-hydration';
 import { openEraseDeviceDialog as openEraseDeviceDialogImpl } from './erase-device-flow';
 import { registerTalkForPeer } from './talk-peer-registration';
 import {
@@ -40,15 +39,7 @@ import {
 import { bindSettingsControls as bindSettingsControlsImpl } from './settings-controls';
 import { showContentFilterToast as showContentFilterToastImpl } from './content-filter-toast';
 import { applySettingsSectionView as applySettingsSectionViewImpl } from './settings-section-view';
-import {
-  attachmentDownloadFilename as attachmentDownloadFilenameImpl,
-  attachmentIconForMime as attachmentIconForMimeImpl,
-  collectSharedAttachments as collectSharedAttachmentsImpl,
-  collectSharedLinks,
-  formatAttachmentSize as formatAttachmentSizeImpl,
-  parseIpfsSharePayload as parseIpfsSharePayloadImpl,
-  renderMediaTile as renderMediaTileImpl,
-} from './attachment-metadata';
+import { parseIpfsSharePayload as parseIpfsSharePayloadImpl } from './attachment-metadata';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
@@ -153,13 +144,12 @@ import { confirmBroadcastAudience as renderConfirmBroadcastAudience } from './br
 import { showNotification as renderNotificationToast, type NotificationOptions } from './notification-toast';
 import { getPeerNameCache, rememberPeerName } from './peer-name-cache';
 import {
-  renderCapturedQuestionMessage as renderCapturedQuestionMessageCard,
-  renderIpfsAttachmentMessage as renderIpfsAttachmentMessageCard,
-} from './conversation-message-cards';
+  createConversationMediaController,
+  type ConversationMediaController,
+} from './conversation-media-controller';
 import { syncAppBarOverflow, setupAppBarChrome } from './app-bar-overflow';
 import { showSystemAnnouncement as renderSystemAnnouncement } from './system-announcement-banner';
 import { showDetailsPopupFor as renderItemDetailsPopup } from './item-details-popup';
-import { saveObjectUrlAs as saveFileFromObjectUrl } from './browser-file-save';
 import { setTalkDisabled as setTalkDisabledImpl } from './talk-broadcast-toggle';
 import {
   saveCreatedTalk as saveCreatedTalkImpl,
@@ -314,10 +304,6 @@ export class UIManager extends EventEmitter {
    * non-captured message sent while a session is active).
    */
   private captureSessionsByConversationId = new Map<string, { scopeTalkId: string | undefined; lines: string[] }>();
-  /** docs/TODO.md §V — captured-question chip messages already tapped, so re-render disables them. */
-  private answeredCaptureChipMessageIds = new Set<string>();
-  /** One-time delegated click binding for `.captured-question-answer-btn` (see `bindCapturedQuestionChipDelegation`). */
-  private captureChipDelegationBound = false;
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast delivery. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -326,8 +312,7 @@ export class UIManager extends EventEmitter {
   private currentConversationId: string | undefined = undefined;
   /** Per-talk Thread scope of the open conversation view (redesign §5); undefined = DM. */
   private currentThreadTalkId: string | undefined = undefined;
-  /** Resolver for a shared IPFS attachment's viewable object URL (set by app.ts). */
-  private sharedAttachmentResolver?: (cid: string, mimeType: string) => Promise<string | null>;
+  private conversationMediaController?: ConversationMediaController;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -632,8 +617,7 @@ export class UIManager extends EventEmitter {
     }
     this.appContainer = container;
     this.setupBaseUI();
-    this.setupMediaGallery();
-    this.setupLightbox();
+    this.conversationMedia().setup();
     this.applyShellTranslations();
     // Diagnostic conversation lines (transport / fallback / last-contact) are hidden by
     // default; enable with ?debug=1 or localStorage iinpublic_debug=1.
@@ -2468,10 +2452,26 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  private conversationMedia(): ConversationMediaController {
+    if (!this.conversationMediaController) {
+      this.conversationMediaController = createConversationMediaController({
+        getCurrentConversationId: () => this.currentConversationId,
+        getCurrentThreadTalkId: () => this.currentThreadTalkId,
+        getLastConversationMessages: () => this.lastConversationMessages,
+        emit: (event, payload) => this.emit(event, payload),
+        t: (key) => this.t(key),
+        tf: (key, values) => this.tf(key, values),
+        formatTalkRelativeTime: (date) => this.formatTalkRelativeTime(date),
+      });
+    }
+    return this.conversationMediaController;
+  }
+
   private conversationDetailViewDeps(): ConversationDetailViewDeps {
+    const media = this.conversationMedia();
     return {
       getMyConversations: () => this.getMyConversations(),
-      closeMediaGallery: () => this.closeMediaGallery(),
+      closeMediaGallery: () => media.closeMediaGallery(),
       getCurrentConversationId: () => this.currentConversationId,
       setCurrentConversationId: (conversationId) => { this.currentConversationId = conversationId; },
       getCurrentThreadTalkId: () => this.currentThreadTalkId,
@@ -2491,17 +2491,17 @@ export class UIManager extends EventEmitter {
       allowOutgoingMessage: (message) => this.allowOutgoingMessage(message),
       confirmCapturedQuestionDialog: (captured) => this.confirmCapturedQuestionDialog(captured),
       emit: (event, payload) => this.emit(event, payload),
-      bindCapturedQuestionChipDelegation: () => this.bindCapturedQuestionChipDelegation(),
+      bindCapturedQuestionChipDelegation: () => media.bindCapturedQuestionChipDelegation(),
       messageInCurrentThread: (message) => this.messageInCurrentThread(message),
       setLastConversationMessages: (messages) => { this.lastConversationMessages = messages; },
-      parseIpfsSharePayload: (text) => this.parseIpfsSharePayload(text),
-      renderIpfsAttachmentMessage: (share, isOwn, timestamp) => this.renderIpfsAttachmentMessage(share, isOwn, timestamp),
-      renderCapturedQuestionMessage: (captured, isOwn, timestamp, messageId) => this.renderCapturedQuestionMessage(captured, isOwn, timestamp, messageId),
+      parseIpfsSharePayload: parseIpfsSharePayloadImpl,
+      renderIpfsAttachmentMessage: (share, isOwn, timestamp) => media.renderIpfsAttachmentMessage(share, isOwn, timestamp),
+      renderCapturedQuestionMessage: (captured, isOwn, timestamp, messageId) => media.renderCapturedQuestionMessage(captured, isOwn, timestamp, messageId),
       shouldHideIncomingMessage: (message, senderId) => this.shouldHideIncomingMessage(message, senderId),
       hiddenMessageToastIds: this.hiddenMessageToastIds,
       formatTalkRelativeTime: (date) => this.formatTalkRelativeTime(date),
       showContentFilterToast: (result, direction) => this.showContentFilterToast(result, direction),
-      hydrateAttachmentImages: (root) => this.hydrateAttachmentImages(root),
+      hydrateAttachmentImages: (root) => media.hydrateAttachmentImages(root),
     };
   }
 
@@ -3905,252 +3905,12 @@ export class UIManager extends EventEmitter {
 
   /** app.ts wires this so decrypted attachment bytes become a viewable blob URL. */
   setSharedAttachmentResolver(fn: (cid: string, mimeType: string) => Promise<string | null>): void {
-    this.sharedAttachmentResolver = fn;
+    this.conversationMedia().setSharedAttachmentResolver(fn);
   }
 
   /** app.ts calls this once a shared attachment's bytes finish downloading, so the image appears. */
   refreshOpenConversationForAttachment(): void {
     this.rerenderOpenConversation();
-  }
-
-  /** Parse an `IPFS_SHARE:` auto-share message body into its attachment fields. */
-  private parseIpfsSharePayload(text: string): { cid: string; link: string; name: string; mimeType: string; sizeBytes: number } | null {
-    return parseIpfsSharePayloadImpl(text);
-  }
-
-  private formatAttachmentSize(bytes: number): string {
-    return formatAttachmentSizeImpl(bytes);
-  }
-
-  private attachmentDownloadFilename(rawName: string, mimeType: string): string {
-    return attachmentDownloadFilenameImpl(rawName, mimeType);
-  }
-
-  private attachmentIconForMime(mimeType: string): string {
-    return attachmentIconForMimeImpl(mimeType);
-  }
-
-  /**
-   * One-time delegated click binding (same idiom as `talksListDelegationBound` above — the
-   * message list is re-rendered wholesale on every sync, so per-button listeners would need
-   * rebinding on every render; a single body-level delegated listener survives re-renders for
-   * free). Tapping a `.captured-question-answer-btn` sends its answer text back as an
-   * ordinary reply message — see `renderCapturedQuestionMessage`'s doc comment for why this
-   * is a quick-reply convenience, not a formal talk-answer submission.
-   */
-  private bindCapturedQuestionChipDelegation(): void {
-    if (this.captureChipDelegationBound) return;
-    this.captureChipDelegationBound = true;
-    document.body.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      const btn = target.closest('.captured-question-answer-btn') as HTMLButtonElement | null;
-      if (!btn || btn.disabled) return;
-      const messageId = btn.dataset.messageId || '';
-      const answerText = btn.dataset.answerText || '';
-      if (!messageId || !answerText || !this.currentConversationId) return;
-
-      this.answeredCaptureChipMessageIds.add(messageId);
-      const card = document.querySelector(`.captured-question-card[data-message-id="${CSS.escape(messageId)}"]`);
-      if (card) {
-        card.classList.add('captured-question-answered');
-        card.querySelectorAll('.captured-question-answer-btn').forEach((b) => {
-          (b as HTMLButtonElement).disabled = true;
-        });
-      }
-
-      this.emit('sendConversationMessage', {
-        conversationId: this.currentConversationId,
-        message: answerText,
-        ...(this.currentThreadTalkId ? { talkId: this.currentThreadTalkId } : {}),
-      });
-    });
-  }
-
-  /**
-   * docs/TODO.md §V — Auto Linear Capture, UI-1d: "lines matching `Question? Answer1; …;
-   * AnswerN.` SHALL render answers as tappable chips" instead of a plain text bubble — same
-   * detect-a-marked-payload-and-render-specially shape as `renderIpfsAttachmentMessage`
-   * above. Tapping a chip is a quick-reply convenience (sends the chosen answer text back as
-   * an ordinary message), not a formal talk-answer submission — the real Talk this session is
-   * building doesn't exist yet mid-capture (it's only created once the sender's session
-   * finalizes), so there's nothing to run `completeTalk`/`checkIfMatch` against until then.
-   * Once `messageId` has been tapped once, `answeredCaptureChipMessageIds` disables it on
-   * re-render so a page refresh mid-conversation doesn't invite a duplicate reply.
-   */
-  private renderCapturedQuestionMessage(
-    payload: { question: string; answers: string[] },
-    isOwn: boolean,
-    timestamp: unknown,
-    messageId: string,
-  ): string {
-    return renderCapturedQuestionMessageCard(payload, isOwn, timestamp, messageId, {
-      isAlreadyAnswered: (id) => this.answeredCaptureChipMessageIds.has(id),
-      formatTalkRelativeTime: (date) => this.formatTalkRelativeTime(date),
-    });
-  }
-
-  /**
-   * Inline attachment chip: a small preview thumbnail (images) or file icon, name + size, and
-   * a small Download link. Tapping an image thumbnail opens the full-size in-app viewer; the
-   * Shared-media gallery (🖼 in the header) collects everything.
-   */
-  private renderIpfsAttachmentMessage(
-    share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number },
-    isOwn: boolean,
-    timestamp: unknown,
-  ): string {
-    return renderIpfsAttachmentMessageCard(share, isOwn, timestamp, {
-      attachmentIconForMime: (mimeType) => this.attachmentIconForMime(mimeType),
-      attachmentDownloadFilename: (name, mimeType) => this.attachmentDownloadFilename(name, mimeType),
-      formatAttachmentSize: (sizeBytes) => this.formatAttachmentSize(sizeBytes),
-      t: this.t.bind(this),
-      formatTalkRelativeTime: (date) => this.formatTalkRelativeTime(date),
-    });
-  }
-
-  /** URL/name of the photo currently open in the lightbox (for its Download button). */
-  private lightboxTarget: { url: string; name: string; mime: string } | null = null;
-
-  private setupLightbox(): void {
-    const close = () => this.closeLightbox();
-    document.getElementById('media-lightbox-close')?.addEventListener('click', close);
-    document.getElementById('media-lightbox-backdrop')?.addEventListener('click', close);
-    document.getElementById('media-lightbox-download')?.addEventListener('click', () => {
-      if (this.lightboxTarget) void this.saveObjectUrlAs(this.lightboxTarget.url, this.lightboxTarget.name, this.lightboxTarget.mime);
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && document.getElementById('media-lightbox')?.style.display === 'flex') close();
-    });
-  }
-
-  /** Open a shared photo full-size inside the app. */
-  private openLightbox(url: string, name: string, mime: string): void {
-    const box = document.getElementById('media-lightbox');
-    const img = document.getElementById('media-lightbox-img') as HTMLImageElement | null;
-    const label = document.getElementById('media-lightbox-name');
-    if (!box || !img) return;
-    this.lightboxTarget = { url, name, mime };
-    img.src = url;
-    if (label) label.textContent = name;
-    box.style.display = 'flex';
-  }
-
-  private closeLightbox(): void {
-    const box = document.getElementById('media-lightbox');
-    if (box) box.style.display = 'none';
-    this.lightboxTarget = null;
-  }
-
-  /**
-   * Save a blob URL under a real filename. Prefer the File System Access API (a native "save
-   * as" dialog — guarantees the name/extension and lets the user pick a location, so files are
-   * never dropped as an unopenable blob-UUID). Fall back to an <a download> anchor.
-   */
-  private async saveObjectUrlAs(objectUrl: string, name: string, mimeType: string): Promise<void> {
-    return saveFileFromObjectUrl(objectUrl, name, mimeType);
-  }
-
-  /**
-   * After rendering, turn the bytes this device holds into a usable blob URL for each
-   * attachment: gallery image tiles get a preview, and every card/tile/chip becomes
-   * click-to-save under the real filename once the bytes arrive.
-   */
-  private hydrateAttachmentImages(container: HTMLElement): void {
-    hydrateAttachmentImagesImpl(container, {
-      sharedAttachmentResolver: this.sharedAttachmentResolver,
-      saveObjectUrlAs: (objectUrl, name, mimeType) => this.saveObjectUrlAs(objectUrl, name, mimeType),
-      openLightbox: (url, name, mime) => this.openLightbox(url, name, mime),
-    });
-  }
-
-  /** Active shared-media gallery tab. */
-  private mediaGalleryTab: 'media' | 'files' | 'links' = 'media';
-
-  /** One-time wiring for the shared-media gallery buttons + tabs (called from setupBaseUI). */
-  private setupMediaGallery(): void {
-    document.getElementById('conversation-media-btn')?.addEventListener('click', () => this.openMediaGallery());
-    document.getElementById('back-from-media')?.addEventListener('click', () => this.closeMediaGallery());
-    const tabLabels: Record<string, UiTranslationKey> = {
-      media: 'mediaTabMedia', files: 'mediaTabFiles', links: 'mediaTabLinks',
-    };
-    document.querySelectorAll('.conversation-media-tab').forEach((el) => {
-      const tab = (el as HTMLElement).getAttribute('data-media-tab') || '';
-      if (tabLabels[tab]) (el as HTMLElement).textContent = this.t(tabLabels[tab]);
-      el.addEventListener('click', () => {
-        if (tab === 'media' || tab === 'files' || tab === 'links') this.setMediaGalleryTab(tab);
-      });
-    });
-  }
-
-  /** All IPFS_SHARE attachments in the open conversation, split by kind, newest first. */
-  private collectSharedAttachments(): {
-    media: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }>;
-    files: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }>;
-  } {
-    return collectSharedAttachmentsImpl(this.lastConversationMessages);
-  }
-
-  private renderMediaTile(share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number }): string {
-    return renderMediaTileImpl(share);
-  }
-
-  private renderMediaLinkRow(url: string): string {
-    const safe = escapeHtml(url);
-    return `<a class="conversation-media-link" href="${safe}" target="_blank" rel="noopener noreferrer" data-testid="media-link">${safe}</a>`;
-  }
-
-  /** Render the active tab's content into the grid (media/files grid, or a links list). */
-  private renderMediaGalleryTab(): void {
-    const grid = document.getElementById('conversation-media-grid');
-    if (!grid) return;
-    const { media, files } = this.collectSharedAttachments();
-    let count = 0;
-    if (this.mediaGalleryTab === 'links') {
-      const links = collectSharedLinks(this.lastConversationMessages);
-      count = links.length;
-      grid.classList.add('is-list');
-      grid.innerHTML = links.length === 0
-        ? `<p class="conversation-media-empty">${escapeHtml(this.t('mediaLinksEmpty'))}</p>`
-        : links.map((u) => this.renderMediaLinkRow(u)).join('');
-    } else {
-      const items = this.mediaGalleryTab === 'files' ? files : media;
-      count = items.length;
-      grid.classList.remove('is-list');
-      grid.innerHTML = items.length === 0
-        ? `<p class="conversation-media-empty">${escapeHtml(this.t('mediaGalleryEmpty'))}</p>`
-        : items.map((m) => this.renderMediaTile(m)).join('');
-      this.hydrateAttachmentImages(grid);
-    }
-    const title = document.getElementById('conversation-media-title');
-    if (title) title.textContent = this.tf('mediaGalleryTitle', { count });
-  }
-
-  private setMediaGalleryTab(tab: 'media' | 'files' | 'links'): void {
-    this.mediaGalleryTab = tab;
-    document.querySelectorAll('.conversation-media-tab').forEach((el) => {
-      el.classList.toggle('active', (el as HTMLElement).getAttribute('data-media-tab') === tab);
-    });
-    this.renderMediaGalleryTab();
-  }
-
-  private openMediaGallery(): void {
-    const gallery = document.getElementById('conversation-media-gallery');
-    const messages = document.getElementById('conversation-messages');
-    const composer = document.querySelector('.conversation-input-container') as HTMLElement | null;
-    if (!gallery) return;
-    this.setMediaGalleryTab(this.mediaGalleryTab);
-    if (messages) messages.style.display = 'none';
-    if (composer) composer.style.display = 'none';
-    gallery.style.display = 'flex';
-  }
-
-  private closeMediaGallery(): void {
-    const gallery = document.getElementById('conversation-media-gallery');
-    const messages = document.getElementById('conversation-messages');
-    const composer = document.querySelector('.conversation-input-container') as HTMLElement | null;
-    if (gallery) gallery.style.display = 'none';
-    if (messages) messages.style.display = '';
-    if (composer) composer.style.display = '';
   }
 
   async displayConversationMessages(conversationId: string, messages: any[]): Promise<void> {
