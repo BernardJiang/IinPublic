@@ -6369,14 +6369,15 @@ export class IinPublicApp {
               console.warn('[L5] conversation attachment fetch failed:', err);
             });
           }
-          // When a message update arrives for a conversation the user isn't currently viewing,
-          // record the latest message and mark the conversation unread so the badge appears.
-          if (messages.length > 0) {
-            const last = messages[messages.length - 1];
-            this.uiManager.updateConversationMessage(
+          // Reconcile the preview through the durable read cursor. This subscription can replay
+          // an already-read batch after the conversation closes; blindly marking its last message
+          // unread would resurrect a badge that the user just cleared.
+          const currentUserId = this.currentUser?.id;
+          if (currentUserId) {
+            this.uiManager.syncConversationMessageSummary(
               data.conversationId,
-              String(last.text ?? ''),
-              String(last.timestamp ?? Date.now()),
+              messages,
+              currentUserId,
             );
           }
         }, this.currentUser?.id, otherUserId);
