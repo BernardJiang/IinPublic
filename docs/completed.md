@@ -2,6 +2,28 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11 — UIManager decomposition cluster #70: shared-link collection
+
+Continuing the AST-script-guided sweep from cluster #69. `docs/TODO.md` Priority 6.
+
+- **#70: `collectSharedLinks` → extended `attachment-metadata.ts`** (14 lines, 1 ref —
+  `lastConversationMessages`). The pure helper now receives the conversation message array
+  explicitly and preserves the original behavior: scan ordinary messages for case-insensitive
+  HTTP(S) URLs, omit IPFS payload messages, trim trailing sentence punctuation, dedupe, and
+  return reverse first-encounter order. `renderMediaGalleryTab` calls it directly; no
+  compatibility shim was needed.
+- **Characterization:** extended `attachment-metadata.test.ts` (+6 tests) covering absent and
+  link-free messages; HTTP and HTTPS extraction; reverse order; trailing punctuation; duplicate
+  handling; IPFS payload exclusion; and case-insensitive protocols. All passed first run.
+- **Ratchet:** `ui-manager.ts` 6,416 → **6,401** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, and 223 unit suites /
+  2,360 tests pass (1 skipped). Canonical run `run-20260911-193559-94038` (18m42s,
+  `PW_WORKERS=8`): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser, isolated,
+  heavy-staged, and mass all passed; `light` passed 251 tests (6 skipped), including the directly
+  relevant `73-media-link-share` scenario, and failed only two already-established rotating
+  mailbox/delivery timing specs (`00l-techsupport-faq-cross-user`,
+  `83-survey-ignore-mid-question-not-complete`), neither touching shared-link collection.
+
 ## 2026-09-11 — UIManager decomposition cluster #69: talk-list metadata
 
 Continuing the AST-script-guided sweep from cluster #68. `docs/TODO.md` Priority 6.

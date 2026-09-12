@@ -105,3 +105,22 @@ export function collectSharedAttachments(messages: any[]): {
   }
   return { media: media.reverse(), files: files.reverse() };
 }
+
+/** http(s) URLs found in plain-text messages, deduped and returned newest first. */
+export function collectSharedLinks(messages: any[]): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const re = /https?:\/\/[^\s<>"')]+/gi;
+  for (const msg of messages || []) {
+    const text = String(msg?.text || '');
+    if (text.startsWith('IPFS_SHARE:')) continue;
+    for (const match of text.match(re) || []) {
+      const url = match.replace(/[.,)]+$/, '');
+      if (!seen.has(url)) {
+        seen.add(url);
+        urls.push(url);
+      }
+    }
+  }
+  return urls.reverse();
+}

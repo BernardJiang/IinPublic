@@ -931,7 +931,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#69 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#70 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -973,7 +973,8 @@ talk-distance-from-author formatting (`formatTalkDistanceFromAuthor`); chatroom 
 (`collectSharedAttachments`, joined cluster #54's `attachment-metadata.ts`); broadcast selection
 and local payload lookup (`getBroadcastableTalkIds`/`getBroadcastTalkPayload`, joined cluster
 #43's `broadcast-audience-preview.ts`); and talk-list metadata
-(`formatTalkExpiryTone`/`getIncomingQuestionCount`). Full per-cluster
+(`formatTalkExpiryTone`/`getIncomingQuestionCount`); and shared-link collection
+(`collectSharedLinks`, joined cluster #54's `attachment-metadata.ts`). Full per-cluster
 rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
@@ -989,7 +990,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 7,027 (#44), 6,919 (#45), 6,858 (#46), 6,830 (#47), 6,802 (#48), 6,779 (#49), 6,742 (#50), 6,710
 (#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), 6,566 (#57), and
 6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
-6,472 (#65), 6,462 (#66), 6,453 (#67), 6,437 (#68), and **6,416** (#69)
+6,472 (#65), 6,462 (#66), 6,453 (#67), 6,437 (#68), 6,416 (#69), and **6,401** (#70)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -1796,6 +1797,16 @@ entries and babel preset were never removed.
         `83-survey-ignore-mid-question-not-complete`), none touching talk-list metadata. The
         directly relevant expiration/broadcast E2E passed 1/1 in an isolated rerun. See
         `docs/completed.md`.
+      - Cluster #70 evidence: `collectSharedLinks` → extended `attachment-metadata.ts` (1 ref —
+        `lastConversationMessages`, now passed explicitly); `renderMediaGalleryTab` calls the
+        pure helper directly. Extended `attachment-metadata.test.ts` (+6 tests); typecheck/lint
+        clean, both production builds succeed, and 223 unit suites / 2,360 tests pass (1
+        skipped). Canonical run `run-20260911-193559-94038` (18m42s, `PW_WORKERS=8`): stage5,
+        mesh-batch, mesh-isolated, find-similar, cross-browser, isolated, heavy-staged, and mass
+        all passed; `light` passed 251 tests (6 skipped), including `73-media-link-share`, and
+        failed only two already-established rotating mailbox/delivery timing specs
+        (`00l-techsupport-faq-cross-user`, `83-survey-ignore-mid-question-not-complete`), neither
+        touching shared-link collection. See `docs/completed.md`.
       - **Session pause after cluster #67 (historical):** the user asked what was taking so long (this
         session's incremental-cluster cycle had run for many hours, each cluster gated by a
         ~25-minute canonical `test:all` run before committing). Given the choice to finish the
@@ -2008,6 +2019,9 @@ entries and babel preset were never removed.
     `talk-list-metadata.ts`), lowering the ratchet from 6,437 to 6,416.~~ Done; the two pure
     display helpers are called directly from `displayTalksList`, removing their private methods
     from the god object while leaving the deferred giant itself unchanged.
+53. ~~Extract cluster #70 (`collectSharedLinks` → extended `attachment-metadata.ts`), lowering
+    the ratchet from 6,416 to 6,401.~~ Done; the conversation message array is passed explicitly
+    and `renderMediaGalleryTab` calls the pure helper directly, with no compatibility shim.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React

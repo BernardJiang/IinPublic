@@ -2,6 +2,7 @@ import {
   attachmentDownloadFilename,
   attachmentIconForMime,
   collectSharedAttachments,
+  collectSharedLinks,
   formatAttachmentSize,
   parseIpfsSharePayload,
   renderMediaTile,
@@ -168,5 +169,54 @@ describe('collectSharedAttachments', () => {
       shareMsg('c3', 'image/png'),
     ]);
     expect(result.media.map((s) => s.cid)).toEqual(['c3', 'c2', 'c1']);
+  });
+});
+
+describe('collectSharedLinks', () => {
+  it('returns no links for absent or link-free messages', () => {
+    expect(collectSharedLinks([])).toEqual([]);
+    expect(collectSharedLinks([{ text: 'hello' }, {}, null])).toEqual([]);
+  });
+
+  it('extracts http and https links and returns them newest first', () => {
+    expect(collectSharedLinks([
+      { text: 'Older: http://example.test/one' },
+      { text: 'Newer: https://example.test/two' },
+    ])).toEqual([
+      'https://example.test/two',
+      'http://example.test/one',
+    ]);
+  });
+
+  it('removes trailing sentence punctuation without stripping URL path punctuation', () => {
+    expect(collectSharedLinks([
+      { text: 'See https://example.test/a,b. and https://example.test/end).' },
+    ])).toEqual([
+      'https://example.test/end',
+      'https://example.test/a,b',
+    ]);
+  });
+
+  it('dedupes repeated links using their first encountered position', () => {
+    expect(collectSharedLinks([
+      { text: 'https://example.test/repeated https://example.test/older' },
+      { text: 'https://example.test/repeated https://example.test/newer' },
+    ])).toEqual([
+      'https://example.test/newer',
+      'https://example.test/older',
+      'https://example.test/repeated',
+    ]);
+  });
+
+  it('ignores URLs embedded in IPFS share payload messages', () => {
+    expect(collectSharedLinks([
+      { text: 'IPFS_SHARE:{"link":"https://gateway.test/file"}' },
+      { text: 'ordinary https://example.test/page' },
+    ])).toEqual(['https://example.test/page']);
+  });
+
+  it('matches protocol case-insensitively', () => {
+    expect(collectSharedLinks([{ text: 'HTTPS://EXAMPLE.TEST/PATH' }]))
+      .toEqual(['HTTPS://EXAMPLE.TEST/PATH']);
   });
 });

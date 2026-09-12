@@ -35,6 +35,7 @@ import {
   attachmentDownloadFilename as attachmentDownloadFilenameImpl,
   attachmentIconForMime as attachmentIconForMimeImpl,
   collectSharedAttachments as collectSharedAttachmentsImpl,
+  collectSharedLinks,
   formatAttachmentSize as formatAttachmentSizeImpl,
   parseIpfsSharePayload as parseIpfsSharePayloadImpl,
   renderMediaTile as renderMediaTileImpl,
@@ -5865,22 +5866,6 @@ export class UIManager extends EventEmitter {
     return collectSharedAttachmentsImpl(this.lastConversationMessages);
   }
 
-  /** http(s):// URLs found in plain text messages of the open conversation, newest first. */
-  private collectSharedLinks(): string[] {
-    const urls: string[] = [];
-    const seen = new Set<string>();
-    const re = /https?:\/\/[^\s<>"')]+/gi;
-    for (const msg of this.lastConversationMessages || []) {
-      const text = String(msg?.text || '');
-      if (text.startsWith('IPFS_SHARE:')) continue;
-      for (const m of text.match(re) || []) {
-        const url = m.replace(/[.,)]+$/, '');
-        if (!seen.has(url)) { seen.add(url); urls.push(url); }
-      }
-    }
-    return urls.reverse();
-  }
-
   private renderMediaTile(share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number }): string {
     return renderMediaTileImpl(share);
   }
@@ -5897,7 +5882,7 @@ export class UIManager extends EventEmitter {
     const { media, files } = this.collectSharedAttachments();
     let count = 0;
     if (this.mediaGalleryTab === 'links') {
-      const links = this.collectSharedLinks();
+      const links = collectSharedLinks(this.lastConversationMessages);
       count = links.length;
       grid.classList.add('is-list');
       grid.innerHTML = links.length === 0
