@@ -931,7 +931,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#73 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#74 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -977,7 +977,9 @@ and local payload lookup (`getBroadcastableTalkIds`/`getBroadcastTalkPayload`, j
 (`collectSharedLinks`, joined cluster #54's `attachment-metadata.ts`); per-recipient broadcast
 delivery selection (`broadcast-delivery-selection.ts`); and the complete Talks-tab list renderer
 and listener lifecycle (`talks-list-view.ts`); and the Settings renderer/state normalization plus
-control wiring (`settings-view.ts`/`settings-controls.ts`). Full per-cluster rationale,
+control wiring (`settings-view.ts`/`settings-controls.ts`); and the conversation detail/message
+view plus list-record/summary updates (`conversation-detail-view.ts`/
+`conversation-list-updates.ts`). Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -993,7 +995,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 (#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), 6,566 (#57), and
 6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
 6,472 (#65), 6,462 (#66), 6,453 (#67), 6,437 (#68), 6,416 (#69), 6,401 (#70), 6,367 (#71), and
-5,711 (#72), and **4,821** (#73)
+5,711 (#72), 4,821 (#73), and **4,312** (#74)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -2073,6 +2075,13 @@ entries and babel preset were never removed.
     and `settings-controls.ts`), lowering the ratchet from 5,711 to 4,821.~~ Done; presentation,
     normalization, camera/profile/filter controls, and listener wiring are separated while shared
     state mutations remain explicit callbacks into the stable manager contract.
+57. ~~Extract cluster #74 (`showConversationDetail`/`displayConversationMessages` → new
+    `conversation-detail-view.ts`; `addNewConversation`/`updateConversationMessage`/
+    `syncConversationMessageSummary` → new `conversation-list-updates.ts`), lowering the ratchet
+    from 4,821 to 4,312.~~ Done; thread scope, read cursors, composer/capture flow, message cards,
+    support-message verification, sticky match metadata, unread summaries, notifications, and
+    active-list refreshes now cross explicit dependency contracts while the stable manager entry
+    points remain thin shims.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React

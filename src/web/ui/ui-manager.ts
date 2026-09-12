@@ -50,7 +50,6 @@ import {
   renderMediaTile as renderMediaTileImpl,
 } from './attachment-metadata';
 import { type QAPair } from '../../shared/flattened-answer-keys';
-import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
@@ -58,7 +57,6 @@ import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import { renderSupportInboxSection } from './support-inbox-view';
-import { filterVerifiedSupportMessages } from './verified-support-messages';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import { renderSupportDelegatesSection } from './support-delegates-view';
 import { renderSupportDelegateOptInSection } from './support-delegate-optin-view';
@@ -87,6 +85,17 @@ import {
   type ContactsViewDeps,
 } from './contacts-view';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
+import {
+  addNewConversation as addNewConversationImpl,
+  syncConversationMessageSummary as syncConversationMessageSummaryImpl,
+  updateConversationMessage as updateConversationMessageImpl,
+  type ConversationListUpdatesDeps,
+} from './conversation-list-updates';
+import {
+  displayConversationMessages as displayConversationMessagesImpl,
+  showConversationDetail as showConversationDetailImpl,
+  type ConversationDetailViewDeps,
+} from './conversation-detail-view';
 import { connectivityDiagnosticsText, type ConnectivityDiagnostics } from './connectivity-settings';
 import {
   getAnswerPreferences,
@@ -1797,7 +1806,7 @@ export class UIManager extends EventEmitter {
     document.getElementById('answers-search-input')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
   }
 
-private renderSettingsView(user: User): void {
+  private renderSettingsView(user: User): void {
     renderSettingsViewImpl(user, {
       currentLocation: this.currentLocation,
       incomingTalkClusters: this.incomingTalkClusters,
@@ -2044,7 +2053,7 @@ private renderSettingsView(user: User): void {
     });
   }
 
-private bindSettingsControls(): void {
+  private bindSettingsControls(): void {
     bindSettingsControlsImpl({
       currentUser: this.currentUser,
       incomingTalkClusters: this.incomingTalkClusters,
@@ -2459,250 +2468,45 @@ private bindSettingsControls(): void {
     });
   }
 
+  private conversationDetailViewDeps(): ConversationDetailViewDeps {
+    return {
+      getMyConversations: () => this.getMyConversations(),
+      closeMediaGallery: () => this.closeMediaGallery(),
+      getCurrentConversationId: () => this.currentConversationId,
+      setCurrentConversationId: (conversationId) => { this.currentConversationId = conversationId; },
+      getCurrentThreadTalkId: () => this.currentThreadTalkId,
+      setCurrentThreadTalkId: (talkId) => { this.currentThreadTalkId = talkId; },
+      captureSessionsByConversationId: this.captureSessionsByConversationId,
+      currentUserId: this.currentUserId,
+      getCurrentUserStageName: () => this.currentUser?.stageName || '',
+      getPeerName: (userId, fallback) => this.getPeerName(userId, fallback),
+      resolvePeerStageNameLive: (userId) => this.resolvePeerStageNameLive(userId),
+      getMyTalks: () => this.getMyTalks(),
+      t: (key) => this.t(key),
+      formatTransportMode: (mode) => this.formatTransportMode(mode),
+      formatTransportFallback: (mode, reason) => this.formatTransportFallback(mode, reason),
+      formatLastHealthyContact: (time) => this.formatLastHealthyContact(time),
+      updateMatchBadge: () => this.updateMatchBadge(),
+      refreshOpenPeerThreadList: () => this.refreshOpenPeerThreadList(),
+      allowOutgoingMessage: (message) => this.allowOutgoingMessage(message),
+      confirmCapturedQuestionDialog: (captured) => this.confirmCapturedQuestionDialog(captured),
+      emit: (event, payload) => this.emit(event, payload),
+      bindCapturedQuestionChipDelegation: () => this.bindCapturedQuestionChipDelegation(),
+      messageInCurrentThread: (message) => this.messageInCurrentThread(message),
+      setLastConversationMessages: (messages) => { this.lastConversationMessages = messages; },
+      parseIpfsSharePayload: (text) => this.parseIpfsSharePayload(text),
+      renderIpfsAttachmentMessage: (share, isOwn, timestamp) => this.renderIpfsAttachmentMessage(share, isOwn, timestamp),
+      renderCapturedQuestionMessage: (captured, isOwn, timestamp, messageId) => this.renderCapturedQuestionMessage(captured, isOwn, timestamp, messageId),
+      shouldHideIncomingMessage: (message, senderId) => this.shouldHideIncomingMessage(message, senderId),
+      hiddenMessageToastIds: this.hiddenMessageToastIds,
+      formatTalkRelativeTime: (date) => this.formatTalkRelativeTime(date),
+      showContentFilterToast: (result, direction) => this.showContentFilterToast(result, direction),
+      hydrateAttachmentImages: (root) => this.hydrateAttachmentImages(root),
+    };
+  }
+
   showConversationDetail(conversationId: string, threadTalkId?: string): void {
-    const conversations = this.getMyConversations();
-    const conversation = conversations[conversationId];
-
-    if (!conversation) {
-      console.warn('showConversationDetail: conversation not found', conversationId);
-      return;
-    }
-
-    const overlay = document.getElementById('conversation-detail-overlay');
-    if (overlay) overlay.style.display = 'flex';
-    // Always land on the message thread, not a leftover media gallery from a prior conversation.
-    this.closeMediaGallery();
-
-    this.currentConversationId = conversationId;
-    // Per-talk Thread scope (redesign §5): messages and the composer are bound to one
-    // matched talk; without a talkId this is the pair's talk-independent DM thread.
-    this.currentThreadTalkId = threadTalkId && threadTalkId !== 'direct' ? threadTalkId : undefined;
-
-    // Update header with user name. The name embedded in the conversation record was
-    // captured at match time and goes stale when the peer renames. Resolve the live name
-    // (roster-first, synchronous) and then self-heal asynchronously from the public-user
-    // read so the header matches the chatroom's current stage name after a rename.
-    const userName = document.getElementById('conversation-user-name');
-    if (userName) {
-      const liveName = conversation.otherUserId
-        ? this.getPeerName(conversation.otherUserId, conversation.otherUserName)
-        : conversation.otherUserName;
-      userName.textContent = liveName || this.t('conversationUnknown');
-      if (conversation.otherUserId) {
-        void this.resolvePeerStageNameLive(conversation.otherUserId).then((resolved) => {
-          // Only apply if this conversation is still the one on screen.
-          if (resolved && this.currentConversationId === conversationId) {
-            userName.textContent = resolved;
-          }
-        });
-      }
-    }
-    const status = document.getElementById('conversation-status');
-    if (status) status.textContent = this.t('online');
-    // Per-talk Thread pages (redesign §5) share this component; show the talk scope line
-    // when this view is bound to a matched talk.
-    const threadScope = document.getElementById('conversation-thread-scope');
-    if (threadScope) {
-      const talkId = this.currentThreadTalkId || '';
-      if (talkId && conversation.supportChannel !== true) {
-        const talk = this.getMyTalks()[talkId] as any;
-        const talkTitle = talk?.title || talk?.fullTalk?.title || `${this.t('peerTalkFallback')} ${talkId.slice(0, 8)}`;
-        threadScope.textContent = `🧵 ${talkTitle}`;
-        threadScope.style.display = 'block';
-        threadScope.dataset.talkId = talkId;
-      } else {
-        threadScope.textContent = '';
-        threadScope.style.display = 'none';
-        delete threadScope.dataset.talkId;
-      }
-    }
-
-    // Spec §30.2 deal confirmation: only shown when the thread's own talk declares a Pair-tag
-    // question (`isDealEligibleTalk`, app.ts) — a match there isn't exclusive on its own, so both
-    // sides must explicitly confirm before the talk disables. Plain talks show no deal bar.
-    const dealBar = document.getElementById('conversation-deal-bar');
-    const dealStatusEl = document.getElementById('conversation-deal-status');
-    const dealBtn = document.getElementById('conversation-confirm-deal-btn') as HTMLButtonElement | null;
-    const isDealEligible = conversation.dealEligible === true;
-    if (dealBar && dealStatusEl && dealBtn) {
-      if (!isDealEligible || conversation.supportChannel === true) {
-        dealBar.style.display = 'none';
-      } else {
-        let confirmedBy: string[] = [];
-        try { confirmedBy = JSON.parse(conversation.dealConfirmedByJson || '[]'); } catch { /* ignore malformed */ }
-        const myId = this.currentUserId || '';
-        const iConfirmed = myId ? confirmedBy.includes(myId) : false;
-        const otherConfirmed = confirmedBy.some((id) => id && id !== myId);
-        dealBar.style.display = 'flex';
-        if (iConfirmed && otherConfirmed) {
-          dealStatusEl.textContent = '✅ Deal confirmed';
-          dealBtn.style.display = 'none';
-        } else if (iConfirmed) {
-          dealStatusEl.textContent = 'Waiting for the other side to confirm...';
-          dealBtn.style.display = 'none';
-        } else {
-          dealStatusEl.textContent = '';
-          dealBtn.style.display = 'inline-block';
-          dealBtn.textContent = 'Confirm Deal';
-          dealBtn.replaceWith(dealBtn.cloneNode(true));
-          const freshDealBtn = document.getElementById('conversation-confirm-deal-btn');
-          freshDealBtn?.addEventListener('click', () => {
-            this.emit('confirmDeal', { conversationId });
-          });
-        }
-      }
-    }
-
-    const transportStatus = document.getElementById('conversation-transport-status');
-    if (transportStatus) {
-      const mode = String(conversation.transportMode || 'star-gun');
-      transportStatus.dataset.transportMode = mode;
-      transportStatus.textContent = `${this.t('conversationTransport')}: ${this.formatTransportMode(mode)}`;
-      const fallbackStatus = document.getElementById('conversation-fallback-status');
-      if (fallbackStatus) {
-        fallbackStatus.textContent = this.formatTransportFallback(mode, conversation.transportFallbackReason);
-      }
-      const healthStatus = document.getElementById('conversation-health-status');
-      if (healthStatus) {
-        healthStatus.textContent = this.formatLastHealthyContact(conversation.lastMessageTime);
-      }
-    }
-    const messagesContainer = document.getElementById('conversation-messages');
-    if (messagesContainer) {
-      messagesContainer.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${escapeHtml(this.t('conversationStart'))}</p>`;
-    }
-
-    // Record the read cursor for the OPENED scope only (per-thread read state,
-    // redesign §5); other threads of the pair keep their unread counts.
-    const openKey = this.currentThreadTalkId || 'direct';
-    const summaries = (conversation.threadSummaries && typeof conversation.threadSummaries === 'object'
-      ? conversation.threadSummaries
-      : {}) as Record<string, { lastMessage?: string; lastMessageTime?: string; unreadCount?: number }>;
-    if (summaries[openKey]) {
-      summaries[openKey].unreadCount = 0;
-      const cursorKey = 'iinpublic:conversation-read-cursors';
-      let cursors: Record<string, { timestamp: string; id?: string }> = {};
-      try { cursors = JSON.parse(localStorage.getItem(cursorKey) || '{}'); } catch { /* ignore malformed local data */ }
-      cursors[openKey === 'direct' ? conversationId : `${conversationId}#${openKey}`] = {
-        timestamp: summaries[openKey].lastMessageTime || new Date().toISOString(),
-      };
-      localStorage.setItem(cursorKey, JSON.stringify(cursors));
-    }
-    const remainingUnread = Object.values(summaries).reduce(
-      (total, summary) => total + (Number(summary?.unreadCount) || 0),
-      0,
-    );
-    conversation.unreadCount = remainingUnread;
-    conversation.unread = remainingUnread > 0;
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    this.updateMatchBadge();
-
-    // Load messages
-    this.emit('loadConversation', { conversationId });
-
-    // Setup back button
-    const backBtn = document.getElementById('back-from-conversation');
-    if (backBtn) {
-      backBtn.textContent = `‹ ${this.t('back')}`;
-      backBtn.replaceWith(backBtn.cloneNode(true)); // Remove old listeners
-      const newBackBtn = document.getElementById('back-from-conversation');
-      newBackBtn?.addEventListener('click', () => {
-        if (overlay) overlay.style.display = 'none';
-        this.currentConversationId = undefined;
-        this.currentThreadTalkId = undefined;
-        // If the shared ⟨User⟩ layout is open underneath (rule N2a), refresh its
-        // thread rows so snippets/unread badges reflect this visit.
-        this.refreshOpenPeerThreadList();
-      });
-    }
-
-    // Setup send message button
-    const sendBtn = document.getElementById('send-conversation-message');
-    const messageInput = document.getElementById(
-      'conversation-message-input',
-    ) as HTMLTextAreaElement;
-
-    if (sendBtn && messageInput) {
-      sendBtn.textContent = this.t('conversationSend');
-      messageInput.placeholder = this.t('conversationMessagePlaceholder');
-      sendBtn.replaceWith(sendBtn.cloneNode(true)); // Remove old listeners
-      const newSendBtn = document.getElementById('send-conversation-message');
-
-      const sendMessage = async () => {
-        const message = messageInput.value.trim();
-        if (!message) return;
-        // Send-path content filter (redesign §9): a blocked message is not sent
-        // and the composer text is preserved for editing.
-        if (!this.allowOutgoingMessage(message)) return;
-
-        // docs/TODO.md §V — Auto Linear Capture: recognize the shorthand *before* the
-        // ordinary send, not after (unlike the IPFS-share precedent, which only ever parses
-        // already-sent text at render time). Mandatory confirm, never silent.
-        const capturedLine = FlowCapture.parseChatLine(message);
-        if (capturedLine) {
-          const confirmed = await this.confirmCapturedQuestionDialog(capturedLine);
-          if (confirmed) {
-            const session = this.captureSessionsByConversationId.get(conversationId)
-              ?? { scopeTalkId: this.currentThreadTalkId, lines: [] };
-            session.lines.push(message);
-            this.captureSessionsByConversationId.set(conversationId, session);
-            this.emit('sendConversationMessage', {
-              conversationId,
-              message: encodeCapturedQuestionMessage(capturedLine),
-              ...(this.currentThreadTalkId ? { talkId: this.currentThreadTalkId } : {}),
-            });
-            messageInput.value = '';
-            return;
-          }
-          // Declined — fall through and send the original text as an ordinary message.
-        } else {
-          const activeSession = this.captureSessionsByConversationId.get(conversationId);
-          if (activeSession) {
-            // FR-TK-7: a non-captured message closes the capture — finalize what's been
-            // gathered so far, then this message itself still sends normally, below.
-            this.captureSessionsByConversationId.delete(conversationId);
-            this.emit('finalizeCaptureSession', { conversationId, ...activeSession });
-          }
-        }
-
-        this.emit('sendConversationMessage', {
-          conversationId,
-          message,
-          ...(this.currentThreadTalkId ? { talkId: this.currentThreadTalkId } : {}),
-        });
-        messageInput.value = '';
-      };
-
-      newSendBtn?.addEventListener('click', sendMessage);
-      messageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendMessage();
-        }
-      });
-    }
-
-    // Attach-media button (share a link to any file via IPFS — not the bytes inline).
-    // Clone to drop stale listeners; read this.currentConversationId at pick time so a
-    // media share always routes to the conversation currently on screen.
-    const attachBtn = document.getElementById('conversation-attach-btn');
-    const attachInput = document.getElementById('conversation-attach-input') as HTMLInputElement | null;
-    if (attachBtn && attachInput) {
-      attachBtn.replaceWith(attachBtn.cloneNode(true));
-      const newAttachBtn = document.getElementById('conversation-attach-btn');
-      const freshInput = attachInput.cloneNode(true) as HTMLInputElement;
-      attachInput.replaceWith(freshInput);
-      newAttachBtn?.addEventListener('click', () => freshInput.click());
-      freshInput.addEventListener('change', () => {
-        const file = freshInput.files?.[0];
-        if (!file) return;
-        const targetConversationId = this.currentConversationId;
-        if (targetConversationId) {
-          this.emit('shareConversationMedia', { conversationId: targetConversationId, file });
-        }
-        freshInput.value = '';
-      });
-    }
+    showConversationDetailImpl(conversationId, threadTalkId, this.conversationDetailViewDeps());
   }
 
   async showUserCreationDialog(): Promise<any> {
@@ -4350,94 +4154,7 @@ private bindSettingsControls(): void {
   }
 
   async displayConversationMessages(conversationId: string, messages: any[]): Promise<void> {
-    if (this.currentConversationId !== conversationId) return;
-
-    const messagesContainer = document.getElementById('conversation-messages');
-    if (!messagesContainer) return;
-
-    this.bindCapturedQuestionChipDelegation();
-
-    const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
-    if (isSupportChannel) {
-      messages = await filterVerifiedSupportMessages(messages, this.currentUser?.stageName || '');
-      if (this.currentConversationId !== conversationId) return; // stale by the time verify resolved
-    }
-
-    // Thread isolation (redesign §5): only the open scope's messages render here.
-    messages = messages.filter((msg) => this.messageInCurrentThread(msg));
-    // Cache for filter-toggle re-render (§9): toggling a filter off must reveal
-    // previously hidden messages without waiting for a new sync event.
-    this.lastConversationMessages = messages;
-
-    if (messages.length === 0) {
-      messagesContainer.innerHTML = `
-        <div style="text-align: center; padding: 40px 20px; color: #999;">
-          <p>${escapeHtml(this.t('conversationMatchedStart'))}</p>
-        </div>
-      `;
-      return;
-    }
-
-    const toastQueue: MessageFilterResult[] = [];
-    messagesContainer.innerHTML = messages
-      .map((msg) => {
-        // `Message` objects from GunMessageStore never carry `isOwnMessage` (that field
-        // is only set by the unrelated chatroom-message path in app.ts); derive ownership
-        // from senderId here so a user's own DMs render with the "message-own" style
-        // instead of always falling through to "message-other".
-        const isOwn = !!this.currentUserId && String(msg.senderId || '') === this.currentUserId;
-        const text = String(msg.text || '');
-        // Matched-talk IPFS auto-share (L5): render the shared photo/file as an attachment
-        // card (with an image preview once the decrypted bytes arrive) instead of raw JSON.
-        const share = this.parseIpfsSharePayload(text);
-        if (share) {
-          return this.renderIpfsAttachmentMessage(share, isOwn, msg.timestamp);
-        }
-        // docs/TODO.md §V, UI-1d: a confirmed captured question renders as tappable chips,
-        // not a plain bubble — same detect-a-marked-payload shape as the IPFS share above.
-        const capturedQuestion = decodeCapturedQuestionMessage(text);
-        if (capturedQuestion) {
-          const messageId = String(msg.id || `${msg.senderId || ''}:${msg.timestamp || ''}`);
-          return this.renderCapturedQuestionMessage(capturedQuestion, isOwn, msg.timestamp, messageId);
-        }
-        // Receive-path content filter (redesign §9): a receiver's own filters hide
-        // incoming messages at render (they stay in the Gun graph). Never hide your
-        // own outgoing messages.
-        if (!isOwn) {
-          const verdict = this.shouldHideIncomingMessage(text, String(msg.senderId || ''));
-          if (!verdict.passed) {
-            const msgKey = String(msg.id || `${msg.senderId || ''}:${msg.timestamp || ''}`);
-            if (!this.hiddenMessageToastIds.has(msgKey)) {
-              this.hiddenMessageToastIds.add(msgKey);
-              toastQueue.push(verdict);
-            }
-            return `
-              <div class="message message-other message-hidden" data-testid="hidden-message-placeholder">
-                <div class="message-content">
-                  <div class="message-text" style="font-style:italic;color:var(--text-muted);">${escapeHtml(`1 ${this.t('messageHiddenPlaceholder')}`)}</div>
-                </div>
-              </div>
-            `;
-          }
-        }
-        return `
-          <div class="message ${isOwn ? 'message-own' : 'message-other'}">
-            <div class="message-content">
-              <div class="message-text">${escapeHtml(text)}</div>
-              <div class="message-time">${this.formatTalkRelativeTime(new Date(msg.timestamp))}</div>
-            </div>
-          </div>
-        `;
-      })
-      .join('');
-    // Fire one toast per newly-hidden message (rule §9.1).
-    for (const verdict of toastQueue) this.showContentFilterToast(verdict, 'receive');
-
-    // Swap decrypted bytes into image attachment previews (async, best-effort).
-    this.hydrateAttachmentImages(messagesContainer);
-
-    // Scroll to bottom
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    return displayConversationMessagesImpl(conversationId, messages, this.conversationDetailViewDeps());
   }
 
   updateConversationTransportMode(
@@ -4452,6 +4169,27 @@ private bindSettingsControls(): void {
       formatTransportMode: (mode) => this.formatTransportMode(mode),
       formatTransportFallback: (mode, reason) => this.formatTransportFallback(mode, reason),
     });
+  }
+
+  private conversationListUpdatesDeps(): ConversationListUpdatesDeps {
+    return {
+      getMyConversations: () => this.getMyConversations(),
+      getPeerName: (userId, fallback) => this.getPeerName(userId, fallback),
+      updateMatchBadge: () => this.updateMatchBadge(),
+      syncStatusBarMatchCount: () => this.syncStatusBarMatchCount(),
+      emit: (event, payload) => this.emit(event, payload),
+      getTotalMatches: () => this.getTotalMatches(),
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+      isSupportNotificationsMuted: () => this.isSupportNotificationsMuted(),
+      showNotification: (message, type, options) => this.showNotification(message, type, options),
+      displayContactsList: () => void this.displayContactsList(),
+      displayConversationsList: () => this.displayConversationsList(),
+      getCurrentConversationId: () => this.currentConversationId,
+      getCurrentThreadTalkId: () => this.currentThreadTalkId,
+      refreshOpenPeerThreadList: () => this.refreshOpenPeerThreadList(),
+      lastNotifiedMessageIdByConversation: this.lastNotifiedMessageIdByConversation,
+    };
   }
 
   addNewConversation(conversationData: {
@@ -4475,134 +4213,7 @@ private bindSettingsControls(): void {
     matchScore?: number;
     matchTotal?: number;
   }): void {
-    const conversations = this.getMyConversations();
-    const existing = conversations[conversationData.conversationId];
-    const isNew = !existing;
-
-    // Keep bot provenance sticky once true; some sync paths can emit records without this field.
-    const respondedByBot = !!existing?.respondedByBot || conversationData.respondedByBot === true;
-    // Sticky like respondedByBot — the ingest/sync path may re-emit without this field.
-    const dealEligible = !!existing?.dealEligible || conversationData.dealEligible === true;
-    const matchScore = conversationData.matchScore ?? existing?.matchScore;
-    const matchTotal = conversationData.matchTotal ?? existing?.matchTotal;
-    const incomingName = conversationData.otherUserName?.trim() || '';
-    const existingName = existing?.otherUserName?.trim() || '';
-    const preferredOtherUserName =
-      incomingName && incomingName !== 'Unknown' && incomingName !== 'Someone'
-        ? incomingName
-        : existingName && existingName !== 'Unknown' && existingName !== 'Someone'
-          ? existingName
-          : incomingName || existingName || 'Unknown';
-    const resolvedOtherUserName = this.getPeerName(
-      conversationData.otherUserId,
-      preferredOtherUserName,
-    );
-
-    const isSupportChannel = !!existing?.supportChannel || conversationData.supportChannel === true;
-    const relatedTalkIds = new Set<string>();
-    const addRelatedTalkId = (talkId: unknown) => {
-      const value = String(talkId ?? '').trim();
-      if (!value || value === 'direct') return;
-      relatedTalkIds.add(value);
-    };
-    if (Array.isArray(existing?.relatedTalkIds)) {
-      for (const talkId of existing.relatedTalkIds) addRelatedTalkId(talkId);
-    }
-    if (typeof existing?.relatedTalkIdsJson === 'string') {
-      try {
-        const parsed = JSON.parse(existing.relatedTalkIdsJson);
-        if (Array.isArray(parsed)) {
-          for (const talkId of parsed) addRelatedTalkId(talkId);
-        }
-      } catch {
-        /* keep existing valid metadata only */
-      }
-    }
-    if (Array.isArray(conversationData.relatedTalkIds)) {
-      for (const talkId of conversationData.relatedTalkIds) addRelatedTalkId(talkId);
-    }
-    if (typeof conversationData.relatedTalkIdsJson === 'string') {
-      try {
-        const parsed = JSON.parse(conversationData.relatedTalkIdsJson);
-        if (Array.isArray(parsed)) {
-          for (const talkId of parsed) addRelatedTalkId(talkId);
-        }
-      } catch {
-        /* ignore malformed incoming metadata */
-      }
-    }
-    addRelatedTalkId(existing?.talkId);
-    addRelatedTalkId(conversationData.talkId);
-    const relatedTalkIdList = Array.from(relatedTalkIds);
-    const displayTalkId =
-      conversationData.talkId && conversationData.talkId !== 'direct'
-        ? conversationData.talkId
-        : existing?.talkId || conversationData.talkId;
-
-    conversations[conversationData.conversationId] = {
-      conversationId: conversationData.conversationId,
-      otherUserId: conversationData.otherUserId,
-      otherUserName: resolvedOtherUserName,
-      ...(isSupportChannel ? {} : { talkId: displayTalkId }),
-      ...(isSupportChannel || relatedTalkIdList.length === 0
-        ? {}
-        : {
-            relatedTalkIds: relatedTalkIdList,
-            relatedTalkIdsJson: JSON.stringify(relatedTalkIdList),
-          }),
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
-      lastMessage: existing?.lastMessage ?? null,
-      lastMessageTime: existing?.lastMessageTime ?? null,
-      unread: isSupportChannel ? false : (isNew ? true : (existing?.unread ?? false)),
-      respondedByBot,
-      dealEligible,
-      ...(matchScore !== undefined ? { matchScore } : {}),
-      ...(matchTotal !== undefined ? { matchTotal } : {}),
-      supportChannel: isSupportChannel,
-      transportMode: conversationData.transportMode ?? existing?.transportMode ?? 'star-gun',
-      transportFallbackReason: existing?.transportFallbackReason ?? conversationData.transportFallbackReason ?? null,
-      ...(existing?.status ? { status: existing.status } : {}),
-      ...(existing?.changedAt ? { changedAt: existing.changedAt } : {}),
-      // Step 9: record change-of-mind timestamp for durable UI assertion
-      ...(conversationData.changeOfMindAt || existing?.changeOfMindAt
-        ? { changeOfMindAt: conversationData.changeOfMindAt ?? existing?.changeOfMindAt }
-        : {}),
-    };
-
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-
-    // Update badge
-    this.updateMatchBadge();
-    this.syncStatusBarMatchCount();
-    this.emit('conversationAdded', {
-      conversationId: conversationData.conversationId,
-      isNew,
-      totalMatches: this.getTotalMatches(),
-    });
-
-    // Only show toast for genuinely new matches (not when re-syncing or opening edit)
-    if (isNew) {
-      const name = conversationData.otherUserName?.trim() || this.t('conversationUnknown');
-      if (conversationData.supportChannel && !this.isSupportNotificationsMuted()) {
-        this.showNotification(this.tf('supportChannelReady', { name }), 'info');
-      } else {
-        if (!conversationData.supportChannel) {
-          // Auto-dismiss: this "can now chat" banner starts with "Match!" but is a transient
-          // toast, not a durable talk-match notice that should linger until clicked.
-          this.showNotification(this.tf('matchChatReady', { name }), 'success', { persistent: false });
-        }
-      }
-    }
-
-    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
-    if (contactsTab?.classList.contains('active')) {
-      this.displayContactsList();
-    }
-
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) {
-      this.displayConversationsList();
-    }
+    addNewConversationImpl(conversationData, this.conversationListUpdatesDeps());
   }
 
   /**
@@ -4666,131 +4277,11 @@ private bindSettingsControls(): void {
   }
 
   updateConversationMessage(conversationId: string, message: string, timestamp: string): void {
-    const conversations = this.getMyConversations();
-
-    if (conversations[conversationId]) {
-      conversations[conversationId].lastMessage = message;
-      conversations[conversationId].lastMessageTime = timestamp;
-
-      // If the current conversation is not open, mark as unread
-      if (this.currentConversationId !== conversationId && conversations[conversationId].supportChannel !== true) {
-        conversations[conversationId].unread = true;
-      }
-
-      localStorage.setItem('myConversations', JSON.stringify(conversations));
-      this.updateMatchBadge();
-      this.syncStatusBarMatchCount();
-
-      const meTab = document.querySelector('.nav-btn[data-view="me"]');
-      if (meTab?.classList.contains('active')) {
-        this.displayConversationsList();
-      }
-
-      const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
-      if (contactsTab?.classList.contains('active')) {
-        this.displayContactsList();
-      }
-    }
+    updateConversationMessageImpl(conversationId, message, timestamp, this.conversationListUpdatesDeps());
   }
 
   public syncConversationMessageSummary(conversationId: string, messages: any[], currentUserId: string): void {
-    const conversations = this.getMyConversations();
-    const conversation = conversations[conversationId];
-    if (!conversation || messages.length === 0) return;
-    const ordered = [...messages].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    const latest = ordered[ordered.length - 1];
-    conversation.lastMessage = String(latest.text || '');
-    conversation.lastMessageTime = new Date(latest.timestamp || Date.now()).toISOString();
-
-    const cursorKey = 'iinpublic:conversation-read-cursors';
-    let cursors: Record<string, { timestamp: string; id?: string }> = {};
-    try { cursors = JSON.parse(localStorage.getItem(cursorKey) || '{}'); } catch { /* ignore malformed local data */ }
-
-    // Per-thread read state (redesign §5): messages group into the pair DM thread
-    // ('direct' / legacy no-talkId) and one thread per matched talk. Cursors are per
-    // thread — the DM cursor keeps the legacy `${conversationId}` key, per-talk
-    // cursors use `${conversationId}#${talkId}` — so DM and threads never leak reads
-    // into each other.
-    const threadKeyOf = (message: any): string => {
-      const talkId = String(message?.talkId || '');
-      return talkId && talkId !== 'direct' ? talkId : 'direct';
-    };
-    const cursorIdFor = (threadKey: string): string =>
-      threadKey === 'direct' ? conversationId : `${conversationId}#${threadKey}`;
-    const openThreadKey = this.currentConversationId === conversationId
-      ? (this.currentThreadTalkId || 'direct')
-      : null;
-
-    const byThread = new Map<string, any[]>();
-    for (const message of ordered) {
-      const key = threadKeyOf(message);
-      const bucket = byThread.get(key) || [];
-      bucket.push(message);
-      byThread.set(key, bucket);
-    }
-
-    const threadSummaries: Record<string, { lastMessage: string; lastMessageTime: string; unreadCount: number }> = {};
-    let totalUnread = 0;
-    for (const [threadKey, bucket] of byThread) {
-      const last = bucket[bucket.length - 1];
-      const lastTime = new Date(last.timestamp || Date.now()).toISOString();
-      let unreadCount = 0;
-      if (openThreadKey === threadKey) {
-        cursors[cursorIdFor(threadKey)] = { timestamp: lastTime, id: String(last.id || '') };
-      } else {
-        const readAt = new Date(cursors[cursorIdFor(threadKey)]?.timestamp || 0).getTime();
-        unreadCount = bucket.filter((message) =>
-          String(message.senderId || '') !== currentUserId && new Date(message.timestamp || 0).getTime() > readAt,
-        ).length;
-      }
-      totalUnread += unreadCount;
-      threadSummaries[threadKey] = {
-        lastMessage: String(last.text || ''),
-        lastMessageTime: lastTime,
-        unreadCount,
-      };
-    }
-    conversation.threadSummaries = threadSummaries;
-    conversation.unreadCount = totalUnread;
-    conversation.unread = totalUnread > 0;
-
-    localStorage.setItem(cursorKey, JSON.stringify(cursors));
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
-    this.updateMatchBadge();
-    this.refreshOpenPeerThreadList();
-
-    // Surface a toast when a fresh message arrives from the peer for a conversation the user
-    // isn't currently viewing. Without this the only signal is the nav badge, which is easy to
-    // miss — the reported bug was that an incoming message produced no visible change until the
-    // user manually reopened the chat. Seed the last-notified id on first sight so history/boot
-    // loads don't fire a burst of toasts; only genuine deltas notify.
-    const latestId = String(latest.id || '');
-    const isIncoming = String(latest.senderId || '') !== currentUserId;
-    const alreadySeen = this.lastNotifiedMessageIdByConversation.has(conversationId);
-    const isDelta = this.lastNotifiedMessageIdByConversation.get(conversationId) !== latestId;
-    this.lastNotifiedMessageIdByConversation.set(conversationId, latestId);
-    if (
-      alreadySeen &&
-      isDelta &&
-      isIncoming &&
-      this.currentConversationId !== conversationId &&
-      !conversation.supportChannel
-    ) {
-      const name = this.getPeerName(conversation.otherUserId, conversation.otherUserName);
-      this.showNotification(this.tf('conversationNewMessage', { name }), 'info', {
-        peerId: conversation.otherUserId,
-        peerName: name,
-      });
-    }
-
-    // Re-render the conversation list whenever it exists in the DOM (not only when the Me tab is
-    // the active nav item) so an arriving message updates the preview/unread row immediately.
-    if (document.getElementById('conversations-list')) this.displayConversationsList();
-    // Contacts sort by recency reads the same lastMessageTime this method just updated —
-    // without a re-render here the visible order freezes at whatever it was when the tab
-    // opened (messages arriving while the user watches never reorder the rows).
-    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
-    if (contactsTab?.classList.contains('active')) this.displayContactsList();
+    syncConversationMessageSummaryImpl(conversationId, messages, currentUserId, this.conversationListUpdatesDeps());
   }
 
   public setConversationOnlineStatus(otherUserIds: Set<string>): void {

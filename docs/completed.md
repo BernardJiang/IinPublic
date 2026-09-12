@@ -2,6 +2,32 @@
 
 Last updated: 2026-09-12
 
+## 2026-09-12 — UIManager decomposition cluster #74: Conversation views and list updates
+
+Continuing Priority 6 after the Settings extraction. `docs/TODO.md` Priority 6.
+
+- **#74: conversation detail/message presentation and conversation-list updates →
+  `conversation-detail-view.ts` + `conversation-list-updates.ts`.** The detail module now owns
+  thread scope, deal-confirmation state, transport status, per-thread read cursors, composer and
+  captured-question flow, support-message verification, filtering, message cards, and attachment
+  hydration. The list-update module owns sticky match metadata, durable conversation records,
+  unread/message summaries, toasts, badges, and active-list refreshes. Mutable manager state and
+  side effects cross typed dependency contracts; neither module imports or reaches through
+  `UIManager`, whose five existing entry points remain compatibility shims.
+- **Characterization:** new `conversation-view-updates.test.ts` (4 tests) covers unknown-detail
+  no-op behavior, sticky metadata on repeated matches, unread mutation, and isolation of direct
+  versus per-talk read cursors. The focused conversation unit set passes 28/28. Four focused
+  Chromium E2Es pass across matched-talk threads, three-user thread isolation, media/link sharing,
+  and the multi-sender DM inbox.
+- **Ratchet:** `ui-manager.ts` 4,821 → **4,312** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  217 unit suites / 2,293 tests pass. Canonical run `run-20260912-133136-48339`
+  (`PW_WORKERS=8`, 18m46s): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser,
+  isolated, heavy-staged, and mass all passed; `light` passed 251 tests (6 skipped) and repeated
+  only the same two established TechSupport inbox timing flakes as cluster #73
+  (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`), neither of
+  which uses the extracted modules.
+
 ## 2026-09-12 — UIManager decomposition cluster #73: Settings view and controls
 
 Continuing Priority 6 after the Talks-tab extraction. `docs/TODO.md` Priority 6.
