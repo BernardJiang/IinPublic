@@ -1,6 +1,33 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
+
+## 2026-09-12 — UIManager decomposition cluster #72: Talks-tab list view
+
+Priority 6's deferred largest renderer was selected after cluster #71. `docs/TODO.md` Priority 6.
+
+- **#72: `displayTalksList` → new `talks-list-view.ts`.** The full outgoing/incoming Talks-tab
+  renderer, empty states, filters, progressive chunks, delegated clicks, quick tag answers, and
+  broadcast-checkbox wiring now live in a cohesive view module. Current state, translations,
+  formatters, and user actions enter through an explicit typed dependency contract; the module
+  does not import or reach through `UIManager`. The four list-only binding/render-sequence fields
+  moved into document-scoped `WeakMap` state so repeat renders keep their original no-duplicate-
+  listener and stale-chunk cancellation semantics. `UIManager.displayTalksList()` remains a thin
+  compatibility shim for existing callers.
+- **Characterization:** new `talks-list-view.test.ts` (5 tests) covers absent and empty roots,
+  outgoing-row rendering and edit routing, broadcast checkbox changes, incoming-tag quick answer
+  behavior, identity fallback, and summary/filter synchronization. Existing high-value Talks E2Es
+  pass 6/6 across create/edit, filters, compact outgoing/incoming rows, and rapid progressive
+  re-render stabilization.
+- **Ratchet:** `ui-manager.ts` 6,367 → **5,711** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, and 225 unit suites /
+  2,373 tests pass (1 skipped). Canonical run `run-20260912-094543-28177` (`PW_WORKERS=8`,
+  18m49s): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser, isolated,
+  heavy-staged, and mass all passed; `light` passed 249 tests (6 skipped), including every Talks
+  scenario, and failed only four established rotating UI/mailbox flakes
+  (`33-mobile-chatroom-hierarchy`, `79-techsupport-survives-restrictive-filters`,
+  `00l-techsupport-faq-cross-user`, `83-survey-ignore-mid-question-not-complete`), none touching
+  this extraction.
 
 ## 2026-09-11 — UIManager decomposition cluster #71: per-recipient broadcast delivery selection
 
