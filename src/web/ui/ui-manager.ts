@@ -31,7 +31,13 @@ import {
   getUnsentBroadcastTalkReceiverIds as getUnsentBroadcastTalkReceiverIdsImpl,
 } from './broadcast-delivery-selection';
 import { refreshFlowAnswerConstraints as refreshFlowAnswerConstraintsImpl } from './flow-answer-constraints';
-import { renderSettingsSection as renderSettingsSectionImpl } from './settings-section-template';
+import {
+  LANGUAGE_OPTIONS,
+  normalizeStringList,
+  normalizeTalkFilterShape,
+  renderSettingsView as renderSettingsViewImpl,
+} from './settings-view';
+import { bindSettingsControls as bindSettingsControlsImpl } from './settings-controls';
 import { showContentFilterToast as showContentFilterToastImpl } from './content-filter-toast';
 import { applySettingsSectionView as applySettingsSectionViewImpl } from './settings-section-view';
 import {
@@ -44,11 +50,9 @@ import {
   renderMediaTile as renderMediaTileImpl,
 } from './attachment-metadata';
 import { type QAPair } from '../../shared/flattened-answer-keys';
-import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { FlowCapture, encodeCapturedQuestionMessage, decodeCapturedQuestionMessage } from '../../shared/talk-engine';
 import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
-import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -83,7 +87,7 @@ import {
   type ContactsViewDeps,
 } from './contacts-view';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
-import { applyConnectivityPreset, connectivityDiagnosticsText, loadConnectivitySettings, saveConnectivitySettings, type ConnectivityDiagnostics, type ConnectivityPreset } from './connectivity-settings';
+import { connectivityDiagnosticsText, type ConnectivityDiagnostics } from './connectivity-settings';
 import {
   getAnswerPreferences,
   getExactChatbotMemory,
@@ -104,26 +108,17 @@ import {
   saveFlatAnswerHistoryRecord,
 } from './answer-history-storage';
 import {
-  COLOR_SCHEMES,
   getChatbotEnabled,
   getChatbotTemplate as loadChatbotTemplate,
-  getColorSchemePreference,
   getCopyTalkAutoSave,
   getDefaultTalkLanguagePreference,
   getHasSeenWalkthrough,
   getKeepOldTalkOnEdit,
-  getLocationAutoMatchConsent,
   getUiLanguagePreference,
   saveChatbotTemplate as storeChatbotTemplate,
   setChatbotEnabled,
-  setColorSchemePreference,
   setCopyTalkAutoSave,
-  setDefaultTalkLanguagePreference,
   setHasSeenWalkthrough,
-  setKeepOldTalkOnEdit,
-  setLocationAutoMatchConsent,
-  setUiLanguagePreference,
-  type ColorScheme,
 } from './ui-settings-storage';
 import { showWalkthroughDialog } from './onboarding-walkthrough';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
@@ -213,21 +208,11 @@ import {
   deriveLocalCreatorReplies,
   readLocalTalkExchanges,
 } from '../services/local-peer-derivation';
-import {
-  filterIncomingTalkClusters,
-  getTalkIntakeFilters,
-  getTalkIntakeFiltersOwner,
-  hasStoredTalkIntakeFilters,
-  setTalkIntakeFilters,
-  setTalkIntakeFiltersOwner,
-} from './talk-intake-filters';
-import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
-import { bindDirtyWordEditor } from './dirty-word-editor';
+import { getTalkIntakeFilters } from './talk-intake-filters';
 import { renderChatroomMessage } from './chatroom-message-view';
 import { renderMatchBadge } from './notification-badges';
 import { confirmCapturedQuestionDialog as confirmCapturedQuestionDialogView } from './captured-question-dialog';
 import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
-import { CONFIG } from '../../shared/config';
 import { openLinkedDevicesDialog as openLinkedDevicesDialogImpl } from './linked-devices-dialog';
 import {
   renderCreatorReplies as renderCreatorRepliesImpl,
@@ -241,32 +226,6 @@ import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-ge
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
 import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
-
-const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
-// Settings → Appearance: decorative swatch + label per scheme, matching the
-// [data-color-scheme] token blocks in main.css's :root.
-const SETTINGS_SCHEME_SWATCHES: Record<ColorScheme, string> = {
-  goldenHour: '#cc6b1c',
-  tropicalForest: '#2f7a4f',
-  snowMountain: '#1f8fc4',
-  beachSunset: '#e8637a',
-};
-const SETTINGS_SCHEME_LABEL_KEYS: Record<ColorScheme, UiTranslationKey> = {
-  goldenHour: 'schemeGoldenHour',
-  tropicalForest: 'schemeTropicalForest',
-  snowMountain: 'schemeSnowMountain',
-  beachSunset: 'schemeBeachSunset',
-};
-
-const LANGUAGE_OPTIONS = [
-  { code: 'en', label: 'English' },
-  { code: 'zh', label: 'Chinese' },
-  { code: 'es', label: 'Spanish' },
-  { code: 'fr', label: 'French' },
-  { code: 'de', label: 'German' },
-  { code: 'ja', label: 'Japanese' },
-  { code: 'ko', label: 'Korean' },
-];
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
@@ -290,50 +249,6 @@ type PublicProfileFoundationReader = (userId: string) => Promise<{
 
 type ContactPreRenderSync = () => Promise<void>;
 type PeerLocationReader = (userId: string) => Promise<GPSCoordinate | undefined>;
-
-function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
-  const raw = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? value.split(',')
-      : [];
-  const normalized = raw
-    .map((part) => String(part || '').trim())
-    .filter(Boolean);
-  return normalized.length > 0 ? normalized : fallback;
-}
-
-function normalizeTalkFilterShape(
-  value: unknown,
-  fallbackLanguages: string[] = ['en'],
-): TalkIntakeFilters {
-  const stored = value && typeof value === 'object' ? value as Partial<TalkIntakeFilters> : {};
-  const defaults = getTalkIntakeFilters();
-  const allowedTalkTypes = Array.isArray(stored.allowedTalkTypes)
-    ? stored.allowedTalkTypes.filter((type): type is TalkIntakeFilters['allowedTalkTypes'][number] =>
-        TALK_TYPE_VALUES.includes(type as TalkIntakeFilters['allowedTalkTypes'][number]),
-      )
-    : [];
-
-  return {
-    ...defaults,
-    ...stored,
-    allowedLanguages: normalizeStringList(stored.allowedLanguages, fallbackLanguages).map((lang) => lang.toLowerCase()),
-    allowedTalkTypes: allowedTalkTypes.length > 0 ? allowedTalkTypes : TALK_TYPE_VALUES,
-    customBlockedTerms: normalizeCustomBlockedTerms(normalizeStringList(stored.customBlockedTerms, [])),
-    dirtyWords: stored.dirtyWords === undefined
-      ? [...DEFAULT_DIRTY_WORDS]
-      : normalizeDirtyWords(stored.dirtyWords),
-  };
-}
-
-function datetimeLocalValue(value: string | undefined): string {
-  if (!value) return '';
-  const timestamp = new Date(value);
-  if (Number.isNaN(timestamp.getTime())) return '';
-  const localTimestamp = new Date(timestamp.getTime() - timestamp.getTimezoneOffset() * 60_000);
-  return localTimestamp.toISOString().slice(0, 16);
-}
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -1882,498 +1797,29 @@ export class UIManager extends EventEmitter {
     document.getElementById('answers-search-input')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
   }
 
-  /**
-   * TODO §M4: shared section-wrapper for Settings — one consistent border/background/padding
-   * and one heading convention (title + optional subtitle + optional right-aligned action)
-   * instead of the 9 copy-pasted inline-style `<section>` strings this replaces. Uses `<details
-   * open>` (the one existing precedent in this UI layer, `answers-view.ts`'s context-group
-   * `<details>`) so every section is independently collapsible — open by default, so nothing
-   * about current visibility/interaction changes unless the user chooses to collapse it. The
-   * action control renders in the body, below the summary (not inside it), so its own click
-   * handler never fights the browser's native summary-click-toggles-open/closed behavior.
-   */
-  private renderSettingsSection(
-    opts: { id?: string; title: string; subtitle?: string; action?: string; danger?: boolean },
-    bodyHtml: string,
-  ): string {
-    return renderSettingsSectionImpl(opts, bodyHtml);
-  }
-
-  private renderSettingsView(user: User): void {
-    const connectivity = loadConnectivitySettings();
-    const nativeHost = (window as unknown as {
-      iinpublicNative?: { version?: string; platform?: string };
-    }).iinpublicNative;
-    const nativeQuery = new URLSearchParams(window.location.search);
-    const queryPlatform = nativeQuery.get('native_platform') || '';
-    const appVersion = String(nativeHost?.version || nativeQuery.get('app_version') || 'web');
-    const appPlatform = nativeHost?.platform || queryPlatform;
-    const container = document.getElementById('settings-content');
-    if (!container) return;
-    // adoptSessionUser can now trigger this render as soon as this device's local Gun read
-    // for the user record resolves (see app.ts's initializeUser) — before the rest of boot has
-    // had a chance to let Gun finish syncing every field in, that local read can momentarily
-    // come back missing stageName. Must not assume it's always a non-empty string here.
-    const stageNameSafe = user.stageName || '';
-    const currentColorScheme = getColorSchemePreference();
-    const profileLanguages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
-    user.languages = profileLanguages;
-    // Intake filters are persisted synchronously to localStorage on every settings change
-    // (setTalkIntakeFilters, called from ui-manager's sync()), while user.talkFilters comes
-    // from an async, eventually-consistent server round-trip (WebUserService.updateTalkFilters
-    // queues one getUser+put per change via withPrivateDataLock) that can be caught mid-drain —
-    // e.g. by a page reload — and return a partially-applied intermediate state that isn't the
-    // hardcoded default shape but also isn't the true latest value (see: e2e
-    // 31-intake-filters-persist regression, 2026-08-09, where this silently clobbered the
-    // correct localStorage value on reload). localStorage for THIS device is never subject to
-    // that race, so prefer it — but ONLY when it was actually saved for the user being rendered
-    // now: a stored value tagged for a *different* user id (a device previously used by someone
-    // else, or an identity swap) must not be applied to this one, so user.talkFilters wins then.
-    const hasUserFilters =
-      user.talkFilters && typeof user.talkFilters === 'object' && Object.keys(user.talkFilters).length > 0;
-    const normalizedUserFilters = hasUserFilters
-      ? normalizeTalkFilterShape(user.talkFilters, profileLanguages)
-      : null;
-    const localStorageOwnedByThisUser =
-      hasStoredTalkIntakeFilters() && getTalkIntakeFiltersOwner() === user.id;
-    const talkFilters = localStorageOwnedByThisUser
-      ? getTalkIntakeFilters()
-      : normalizedUserFilters ?? normalizeTalkFilterShape(undefined, profileLanguages);
-    user.talkFilters = talkFilters;
-    setTalkIntakeFilters(talkFilters);
-    setTalkIntakeFiltersOwner(user.id);
-    const reputation = user.reputation || ({} as typeof user.reputation);
-    const reviewCount = reputation.reviewCount ?? 0;
-    const starRating = Number(reputation.starRating ?? 0);
-    const friendsCount = reputation.friendsCount ?? 0;
-    const matchesFound = reputation.matchesFound ?? 0;
-    const likedCount = reputation.likedCount ?? 0;
-    const dislikedCount = reputation.dislikedCount ?? 0;
-    const ageVerified = reputation.ageVerified === true;
-    const isCreditVisible = reputation.isHidden !== true;
-    const home = this.getHomeChatroomId();
-    const headshot = String(user.headshot || '').trim();
-    const interestNames = Array.isArray(user.interests)
-      ? user.interests.map((t: Tag) => String(t?.name || '').trim()).filter(Boolean)
-      : [];
-    const profileAnswers = Array.isArray(user.profile) ? user.profile : [];
-    const profilePreview = profileAnswers.length > 0
-      ? profileAnswers
-          .slice(0, 4)
-          .map((qa) => {
-            const vis = normalizeProfileAttributeVisibility(qa.visibility);
-            const canonicalSupportRole =
-              qa.id === 'techsupport_profile_role' &&
-              qa.question === 'Role' &&
-              qa.answer === 'IinPublic network support';
-            const visNote =
-              vis === 'public'
-                ? ''
-                : `<div style="font-size:0.72em;color:var(--text-tertiary);margin-top:2px;">${escapeHtml(
-                    vis === 'contacts_only' ? this.t('meVisibilityContacts') : this.t('meVisibilityPrivate'),
-                  )}</div>`;
-            const question = canonicalSupportRole ? this.t('meTechSupportRole') : qa.question;
-            const answer = canonicalSupportRole ? this.t('meTechSupportRoleValue') : qa.answer;
-            return `<div style="padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--border);"><div style="font-size:0.78em;color:var(--text-tertiary);">${escapeHtml(question)}</div>${visNote}<div style="font-size:0.92em;font-weight:600;color:var(--text-primary);margin-top:2px;">${escapeHtml(answer)}</div></div>`;
-          })
-          .join('')
-      : `<div style="font-size:0.88em;color:var(--text-tertiary);">${escapeHtml(this.t('meNoPublicProfile'))}</div>`;
-    const locationText = this.currentLocation
-      ? `${this.currentLocation.latitude.toFixed(3)}, ${this.currentLocation.longitude.toFixed(3)}`
-      : this.t('settingsUnknown');
-    const filteredIncoming = filterIncomingTalkClusters(
-      (this.incomingTalkClusters || []).filter((cluster: any) => cluster && cluster.identityKey),
-      talkFilters,
-      this.currentLocation,
-    );
-    const hiddenIncomingText = this.formatReasonCounts(filteredIncoming.hiddenByReason);
-    const dirtyWordList = talkFilters.dirtyWords === undefined
-      ? [...DEFAULT_DIRTY_WORDS]
-      : normalizeDirtyWords(talkFilters.dirtyWords);
-    const homeOptions = [
-      ...getFlatChatroomList().map((room) => ({
-        id: room.id,
-        label: `${'-- '.repeat(room.level)}${room.icon} ${room.name}`,
-      })),
-      ...this.customChatrooms.map((room) => ({
-        id: room.id,
-        label: `${room.type === 'business' ? '🏪' : '💬'} ${room.name}`,
-      })),
-    ];
-    const uiLanguage = this.getUiLanguage();
-    const defaultTalkLanguage = getDefaultTalkLanguagePreference(uiLanguage);
-    const languageOptions = LANGUAGE_OPTIONS.map((language) => ({
-      ...language,
-      label: languageOptionLabel(uiLanguage, language.code, language.label),
-    }));
-    const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
-    // Drill-down menu: a flat list of section names is the default view; tapping one hides the
-    // menu and every OTHER section, leaving just the tapped section + a back button (app-bar
-    // #back-to-settings-menu) — same list-then-detail pattern as Chatrooms/Contacts. Sections
-    // themselves are still rendered up front (renderSettingsSection's <details open> markup is
-    // unchanged) — applySettingsSectionView() below only toggles which one is display:none, it
-    // never removes/re-adds DOM, so ids stay stable across a section switch.
-    const jumpMenuItems: Array<{ icon: string; label: string; target: string }> = [
-      { icon: '👤', label: this.t('profile'), target: 'settings-section-profile' },
-      { icon: '🎨', label: this.t('settingsAppearance'), target: 'settings-section-appearance' },
-      { icon: '⭐', label: this.t('credit'), target: 'settings-section-credit' },
-      { icon: '🌐', label: this.t('settingsLanguages'), target: 'settings-section-languages' },
-      { icon: '🗣️', label: this.t('settingsTalkBehavior'), target: 'settings-section-talk-behavior' },
-      { icon: '📍', label: this.t('settingsDistanceHome'), target: 'settings-section-distance-home' },
-      { icon: '🚫', label: this.t('settingsContentFilters'), target: 'settings-section-content-filters' },
-      { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
-      { icon: '📱', label: this.t('settingsDownloadApp'), target: 'settings-section-download-app' },
-      { icon: '🔐', label: this.t('settingsIdentityDevices'), target: 'settings-section-linked-devices' },
-      { icon: '🗑️', label: this.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
-      { icon: '💾', label: this.t('settingsStorage'), target: 'settings-storage-inspector' },
-      { icon: '❓', label: this.t('settingsHelp'), target: 'settings-section-help' },
-    ];
-    const jumpMenuHtml = `
-      <div data-testid="settings-product-promise" style="padding:2px 4px;font-size:0.92em;font-weight:650;color:var(--text-secondary);">
-        ${this.t('settingsOwnershipPromise')}
-      </div>
-      <div class="settings-jump-menu" id="settings-jump-menu" style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-        ${jumpMenuItems.map((item, index) => `
-          <button type="button" class="settings-jump-menu-item" data-target="${item.target}" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border:none;${index < jumpMenuItems.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}background:none;text-align:left;cursor:pointer;font:inherit;color:var(--text-primary);">
-            <span aria-hidden="true" style="font-size:1.05em;flex-shrink:0;">${item.icon}</span>
-            <span style="flex:1 1 auto;">${item.label}</span>
-            <span aria-hidden="true" style="color:var(--text-tertiary);">›</span>
-          </button>
-        `).join('')}
-      </div>
-      <div id="settings-app-version" data-testid="settings-app-version" style="padding:2px 4px;text-align:center;font-size:0.78em;color:var(--text-tertiary);">
-        IinPublic version ${escapeHtml(appVersion)}${appPlatform ? ` · ${escapeHtml(appPlatform)}` : ''}
-      </div>
-    `;
-    container.innerHTML = `
-      <div id="settings-menu-container" data-testid="settings-menu-container" style="display:grid;gap:14px;">
-        ${jumpMenuHtml}
-      </div>
-      <div id="settings-detail-container" data-testid="settings-detail-container" style="display:none;">
-        <div style="display:grid;gap:14px;">
-        ${this.renderSettingsSection({ id: 'settings-section-profile', title: this.t('profile') }, `
-          <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;">
-            <div style="display:grid;gap:8px;min-width:0;">
-              <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-                <span>${this.t('settingsStageName')}</span>
-                <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(stageNameSafe)}" minlength="3">
-              </label>
-              <div id="settings-stage-name-error" role="alert" style="display:none;font-size:0.82em;color:var(--danger-hover);margin-top:5px;"></div>
-              ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:var(--text-tertiary);">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
-            </div>
-            <div style="display:grid;gap:8px;font-size:0.9em;">
-              <span>${this.t('settingsHeadshot')}</span>
-              <div class="user-avatar" style="width:72px;height:72px;font-size:1.7em;">
-                ${avatarInnerHtml(headshot, stageNameSafe.charAt(0).toUpperCase() || '?', escapeHtml)}
-              </div>
-              <select class="form-input" id="settings-headshot-select" data-testid="settings-headshot-select">
-                <option value="">${this.t('settingsInitial')}</option>
-                ${headshotChoices
-                  .map((choice) => `<option value="${choice}" ${choice === headshot ? 'selected' : ''}>${choice}</option>`)
-                  .join('')}
-              </select>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                <button class="btn" type="button" id="settings-choose-photo-btn">${this.t('settingsChoosePhoto')}</button>
-                <button class="btn" type="button" id="settings-take-photo-btn">${this.t('settingsTakePhoto')}</button>
-                <button class="btn" type="button" id="settings-remove-photo-btn">${this.t('settingsRemove')}</button>
-              </div>
-              <input class="visually-hidden" type="file" id="settings-photo-input" accept="image/png,image/jpeg,image/webp,image/gif">
-              <input class="visually-hidden" type="file" id="settings-camera-input" accept="image/*" capture="user">
-              <div style="font-size:0.78em;color:var(--text-tertiary);">${this.t('settingsPhotoHelp')}</div>
-              <div id="settings-camera-status" role="status" style="display:none;font-size:0.8em;color:var(--danger-hover);"></div>
-            </div>
-            <div style="display:grid;gap:10px;border-top:1px solid var(--border);padding-top:12px;">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-                <div>
-                  <div style="font-weight:700;color:var(--text-primary);">${this.t('profile')}</div>
-                  <div style="font-size:0.82em;color:var(--text-tertiary);">${this.t('meProfileVisibilityHelp')}</div>
-                </div>
-                <button class="btn" type="button" id="settings-edit-profile-btn" data-testid="settings-edit-profile-button">${this.t('editProfile')}</button>
-              </div>
-              <div style="font-size:0.88em;color:var(--text-secondary);">
-                ${this.t('languagesLabel')}: ${escapeHtml(profileLanguages.map((code) => this.formatTalkLanguage(code)).join(', '))}
-              </div>
-              <div style="display:grid;gap:8px;">${profilePreview}</div>
-            </div>
-          </div>
-        `)}
-        ${this.renderSettingsSection(
-          { id: 'settings-section-appearance', title: this.t('settingsAppearance'), subtitle: this.t('settingsAppearanceHelp') },
-          `
-          <div id="settings-scheme-picker" style="display:grid;gap:8px;">
-            ${COLOR_SCHEMES.map((scheme) => {
-              const swatch = SETTINGS_SCHEME_SWATCHES[scheme];
-              const checked = currentColorScheme === scheme;
-              return `
-                <label class="settings-scheme-option" data-scheme="${scheme}" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1.5px solid ${checked ? 'var(--accent)' : 'var(--border)'};border-radius:10px;cursor:pointer;">
-                  <input type="radio" name="settings-color-scheme" class="settings-scheme-radio" value="${scheme}" ${checked ? 'checked' : ''}>
-                  <span style="width:26px;height:26px;border-radius:50%;flex:none;background:${swatch};border:1px solid rgba(0,0,0,0.08);"></span>
-                  <span style="font-weight:600;font-size:0.92em;">${this.t(SETTINGS_SCHEME_LABEL_KEYS[scheme])}</span>
-                </label>
-              `;
-            }).join('')}
-          </div>
-        `,
-        )}
-        ${this.renderSettingsSection(
-          {
-            id: 'settings-section-credit',
-            title: this.t('credit'),
-            subtitle: this.t('meCreditHelp'),
-            action: `
-              <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;">
-                <input type="checkbox" id="settings-credit-visible" ${isCreditVisible ? 'checked' : ''}>
-                <span>${this.t('settingsCreditVisible')}</span>
-              </label>
-            `,
-          },
-          `
-          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
-            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
-            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
-            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meFriends')}</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
-            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meLiked')}</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
-            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meDisliked')}</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
-            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
-            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);grid-column:span 2;"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '18+' : this.t('unavailable')}</div></div>
-          </div>
-        `,
-        )}
-        ${this.renderSettingsSection({ id: 'settings-section-languages', title: this.t('settingsLanguages') }, `
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-            <span>${this.t('settingsUiLanguage')}</span>
-            <select class="form-input" id="settings-ui-language" data-testid="settings-ui-language-select">
-              ${languageOptions
-                .filter((lang) => lang.code === 'en' || lang.code === 'zh')
-                .map((lang) => `<option value="${lang.code}" ${uiLanguage === lang.code ? 'selected' : ''}>${lang.label}</option>`)
-                .join('')}
-            </select>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>${this.t('settingsProfileLanguage')}</span>
-            <select class="form-input" id="settings-profile-languages" data-testid="settings-profile-language-select">
-              ${languageOptions
-                .map((lang) => `<option value="${lang.code}" ${profileLanguages[0] === lang.code ? 'selected' : ''}>${lang.label}</option>`)
-                .join('')}
-            </select>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>${this.t('settingsDefaultTalkLanguage')}</span>
-            <select class="form-input" id="settings-default-talk-language" data-testid="settings-default-talk-language-select">
-              ${languageOptions
-                .map((lang) => `<option value="${lang.code}" ${defaultTalkLanguage === lang.code ? 'selected' : ''}>${lang.label}</option>`)
-                .join('')}
-            </select>
-          </label>
-          <div style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>${this.t('settingsIncomingLanguage')}</span>
-            <div id="settings-filter-languages" data-testid="settings-incoming-language-select" style="display:flex;flex-wrap:wrap;gap:8px;">
-              ${languageOptions
-                .map((lang) => `
-                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);">
-                    <input type="checkbox" class="settings-filter-language-option" value="${lang.code}" ${talkFilters.allowedLanguages.includes(lang.code) ? 'checked' : ''}>
-                    <span>${lang.label}</span>
-                  </label>
-                `)
-                .join('')}
-            </div>
-            <div id="settings-filter-languages-count" style="font-size:0.82em;color:var(--text-tertiary);">${talkFilters.allowedLanguages.length} ${this.t('settingsActive')}</div>
-          </div>
-        `)}
-        ${this.renderSettingsSection({ id: 'settings-section-talk-behavior', title: this.t('settingsTalkBehavior') }, `
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;">
-            <input type="checkbox" id="settings-copy-talk-autosave" ${getCopyTalkAutoSave() ? 'checked' : ''}>
-            <span>${this.t('settingsCopyTalk')}</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
-            <input type="checkbox" id="settings-chatbot-enabled" ${getChatbotEnabled() ? 'checked' : ''}>
-            <span>${this.t('settingsChatbot')}</span>
-          </label>
-          <div data-testid="settings-chatbot-promise" style="font-size:0.82em;color:var(--text-tertiary);margin:2px 0 0 26px;">${this.t('settingsChatbotHelp')}</div>
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
-            <input type="checkbox" id="settings-location-auto-match-consent" ${getLocationAutoMatchConsent() ? 'checked' : ''}>
-            <span>${this.t('settingsLocationAutoMatch')}</span>
-          </label>
-          <div style="font-size:0.82em;color:var(--text-tertiary);margin:2px 0 0 26px;">${this.t('settingsLocationAutoMatchNote')}</div>
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
-            <input type="checkbox" id="settings-keep-old-talk-on-edit" ${getKeepOldTalkOnEdit() ? 'checked' : ''}>
-            <span>${this.t('settingsKeepOldTalkOnEdit')}</span>
-          </label>
-        `)}
-        ${this.renderSettingsSection({ id: 'settings-section-distance-home', title: this.t('settingsDistanceHome') }, `
-          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>${this.t('settingsMinDistance')}</span>
-              <input type="number" class="form-input" id="settings-min-distance" min="0" step="1" value="${talkFilters.minDistanceMiles ?? ''}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>${this.t('settingsMaxDistance')}</span>
-              <input type="number" class="form-input" id="settings-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}">
-            </label>
-          </div>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>${this.t('settingsHomeRoom')}</span>
-            <select class="form-input" id="settings-home-room">
-              ${homeOptions
-                .map((room) => `
-                  <option value="${escapeHtml(room.id)}" ${room.id === home ? 'selected' : ''}>${escapeHtml(room.label)}</option>
-                `)
-                .join('')}
-            </select>
-          </label>
-          <div style="margin-top:4px;font-size:0.82em;color:var(--text-tertiary);">${this.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>${this.t('settingsSentAfter')}</span>
-            <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
-          </label>
-        `)}
-        ${this.renderSettingsSection({ id: 'settings-section-content-filters', title: this.t('settingsContentFilters'), subtitle: this.t('settingsContentFiltersHelp') }, `
-          <div style="font-size:0.85em;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">${this.t('settingsMessageFiltersHeading')}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;">
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${this.t('settingsGrammar')}</label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> ${this.t('settingsDirtyWords')}</label>
-          </div>
-          <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:8px;">${this.t('settingsGrammarHelp')} ${this.tf('settingsGrammarStrictness', { threshold: String(CONFIG.GRAMMAR_THRESHOLD) })}</div>
-          <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:4px;">${this.t('settingsDirtyWordsHelp')}</div>
-          <div id="settings-dirty-words-editor" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
-            <div style="font-size:0.9em;font-weight:600;margin-bottom:6px;">${this.t('settingsDirtyWordsListLabel')}</div>
-            <div id="dirty-word-chips" data-testid="dirty-word-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
-              ${dirtyWordList
-                .map((word) => `
-                  <span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${escapeHtml(word)}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--bg-subtle);font-size:0.85em;">
-                    <span>${escapeHtml(word)}</span>
-                    <button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${escapeHtml(word)}" aria-label="remove ${escapeHtml(word)}" style="border:none;background:none;cursor:pointer;color:var(--text-tertiary);font-size:1em;line-height:1;padding:0;">✕</button>
-                  </span>
-                `)
-                .join('')}
-            </div>
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-              <input type="text" class="form-input" id="dirty-word-add-input" data-testid="dirty-word-add-input" placeholder="${this.t('settingsDirtyWordAddPlaceholder')}" maxlength="48" style="flex:1;min-width:140px;">
-              <button type="button" class="btn" id="dirty-word-add-btn" data-testid="dirty-word-add-btn">${this.t('settingsDirtyWordAdd')}</button>
-              <button type="button" class="btn" id="dirty-word-reset-btn" data-testid="dirty-word-reset-btn">${this.t('settingsDirtyWordReset')}</button>
-            </div>
-            <div id="dirty-word-error" data-testid="dirty-word-error" style="font-size:0.8em;color:var(--danger);margin-top:4px;min-height:1em;"></div>
-            <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:2px;">${this.t('settingsDirtyWordsListHelp')}</div>
-          </div>
-          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
-            <div style="font-size:0.9em;font-weight:600;margin-bottom:6px;">${this.t('settingsAllowedTypes')}</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;">
-              ${(['tag', 'flow', 'route', 'survey'] as const)
-                .map((type) => `
-                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);">
-                    <input type="checkbox" class="settings-talk-filter-type" value="${type}" ${talkFilters.allowedTalkTypes.includes(type) ? 'checked' : ''}>
-                    <span>${type}</span>
-                  </label>
-                `)
-                .join('')}
-            </div>
-          </div>
-          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>${this.t('settingsBlockedPhrases')}</span>
-              <textarea class="form-input" id="settings-custom-blocked" rows="3">${escapeHtml((talkFilters.customBlockedTerms || []).join(', '))}</textarea>
-            </label>
-          </div>
-          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
-            <div style="font-size:0.9em;font-weight:600;margin-bottom:6px;">${this.t('settingsFilteredIncomingHeading')}</div>
-            <div id="settings-filtered-incoming-summary" style="font-size:0.84em;color:var(--text-tertiary);">
-              ${this.t('settingsHiddenIncoming')}: ${filteredIncoming.hiddenCount}
-              ${hiddenIncomingText ? `<div>${escapeHtml(hiddenIncomingText)}</div>` : ''}
-              ${!this.currentLocation && (this.incomingTalkClusters || []).some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div style="color:var(--warning-text);font-style:italic;margin-top:4px;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
-            </div>
-          </div>
-        `)}
-        ${this.renderSettingsSection(
-          { id: 'settings-section-connectivity', title: 'Connectivity', subtitle: 'Choose routes automatically or tune data, battery, and forwarding policy.' },
-          `<div style="display:grid;gap:12px;">
-            <label>Preset
-              <select id="settings-connectivity-preset" class="form-input" data-testid="settings-connectivity-preset">
-                ${(['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'] as ConnectivityPreset[]).map((preset) => `<option value="${preset}" ${connectivity.preset === preset ? 'selected' : ''}>${preset.replace('-', ' ')}</option>`).join('')}
-              </select>
-            </label>
-            <div id="settings-connectivity-status" role="status">Automatic route selection · forwarding ${connectivity.forwarding.enabled ? 'on' : 'off'}</div>
-            <label><input id="settings-connectivity-free-first" type="checkbox" ${connectivity.freeFirst ? 'checked' : ''}> Free routes first</label>
-            <label><input id="settings-connectivity-direct-first" type="checkbox" ${connectivity.directFirst ? 'checked' : ''}> Direct routes first</label>
-            <label><input id="settings-connectivity-battery-aware" type="checkbox" ${connectivity.batteryAware ? 'checked' : ''}> Battery-aware</label>
-            <label>Metered network permission
-              <select id="settings-connectivity-metered-permission" class="form-input">
-                ${(['ask', 'allow-once', 'always-allow', 'wait-for-free'] as const).map((permission) => `<option value="${permission}" ${connectivity.meteredPermission === permission ? 'selected' : ''}>${permission.replaceAll('-', ' ')}</option>`).join('')}
-              </select>
-              <small>IinPublic asks before using a newly metered route. Nearby OS permission enables local discovery; denying it leaves Internet connectivity available.</small>
-            </label>
-            <label><input id="settings-connectivity-forwarding" type="checkbox" ${connectivity.forwarding.enabled ? 'checked' : ''}> Forward for peers</label>
-            <label><input id="settings-connectivity-cellular-forwarding" type="checkbox" ${connectivity.forwarding.cellularForwarding ? 'checked' : ''}> Allow cellular forwarding</label>
-            <label>Cellular byte budget <input id="settings-connectivity-cellular-budget" class="form-input" type="number" min="0" value="${connectivity.forwarding.cellularByteBudget}"></label>
-            <details><summary>Advanced diagnostics</summary><div id="settings-connectivity-diagnostics" data-testid="settings-connectivity-diagnostics">Providers and verified SEA bindings appear here when active. Transport identifiers are diagnostics only.</div></details>
-          </div>`,
-        )}
-        ${this.renderSettingsSection(
-          { id: 'settings-section-download-app', title: this.t('settingsDownloadApp'), subtitle: this.t('settingsDownloadAppSubtitle') },
-          `<div id="settings-download-app-body" data-testid="settings-download-app-body" style="display:grid;gap:10px;">${renderDownloadAppSectionBody(this.appDownloadTextDeps(), {})}</div>`,
-        )}
-        ${this.renderSettingsSection(
-          {
-            id: 'settings-section-linked-devices',
-            title: this.t('settingsIdentityDevices'),
-            subtitle: this.t('settingsIdentityDevicesHelp'),
-            action: `<button type="button" class="btn" id="settings-linked-devices-btn" data-testid="settings-linked-devices-btn">${this.t('settingsManage')}</button>`,
-          },
-          '',
-        )}
-        ${this.renderSettingsSection(
-          {
-            id: 'settings-section-erase-device',
-            title: this.t('settingsEraseDevice'),
-            subtitle: this.t('settingsEraseDeviceHelp'),
-            action: `<button type="button" class="btn" id="settings-erase-device-btn" data-testid="settings-erase-device-btn" style="background:var(--danger);color:#fff;">${this.t('settingsEraseDevice')}</button>`,
-            danger: true,
-          },
-          '',
-        )}
-        ${this.renderSettingsSection(
-          {
-            id: 'settings-storage-inspector',
-            title: this.t('settingsStorage'),
-            action: `<button type="button" class="btn" id="settings-refresh-storage-btn">${this.t('settingsRefresh')}</button>`,
-          },
-          `<div id="settings-storage-inspector-body" style="font-size:0.9em;color:var(--text-tertiary);">${this.t('settingsStorageLoading')}</div>`,
-        )}
-        ${this.renderSettingsSection(
-          {
-            id: 'settings-section-help',
-            title: this.t('settingsHelp'),
-            subtitle: this.t('settingsHelpSubtitle'),
-            action: `<button type="button" class="btn" id="settings-replay-walkthrough-btn" data-testid="settings-replay-walkthrough-btn">${this.t('settingsReplayWalkthrough')}</button>`,
-          },
-          '',
-        )}
-        </div>
-      </div>
-    `;
-    // TechSupport's support-inbox is an operator inbox, not a settings section — it stays
-    // permanently visible above the menu/detail split rather than gated behind a menu tap.
-    // docs/TODO.md K7: an eligible (non-master) user gets the opt-in prompt, plus the same
-    // inbox section once they've actually opted in.
-    if (user.id === TECHSUPPORT_ROOT_USER_ID) {
-      container.insertAdjacentHTML(
-        'afterbegin',
-        '<div id="support-delegates-section" style="margin-bottom:14px;"></div>' +
-          '<div id="support-inbox-section" style="margin-bottom:14px;"></div>',
-      );
-    } else if (this.techSupportDelegateEligible) {
-      container.insertAdjacentHTML(
-        'afterbegin',
-        (this.techSupportDelegateOptedIn ? '<div id="support-inbox-section" style="margin-bottom:14px;"></div>' : '') +
-          '<div id="support-delegate-optin-section" style="margin-bottom:14px;"></div>',
-      );
-    }
-    this.bindSettingsControls();
-    void this.refreshStorageInspector();
-    void this.refreshDownloadAppSection();
-    this.renderSupportInboxSectionIfPresent();
-    this.renderSupportDelegatesSectionIfPresent();
-    this.renderSupportDelegateOptInSectionIfPresent();
-    this.applySettingsSectionView(this.settingsActiveSectionId);
+private renderSettingsView(user: User): void {
+    renderSettingsViewImpl(user, {
+      currentLocation: this.currentLocation,
+      incomingTalkClusters: this.incomingTalkClusters,
+      customChatrooms: this.customChatrooms,
+      getHomeChatroomId: () => this.getHomeChatroomId(),
+      formatReasonCounts: (counts) => this.formatReasonCounts(counts),
+      getUiLanguage: () => this.getUiLanguage(),
+      formatTalkLanguage: (code) => this.formatTalkLanguage(code),
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
+      appDownloadTextDeps: () => this.appDownloadTextDeps(),
+      techSupportDelegateEligible: this.techSupportDelegateEligible,
+      techSupportDelegateOptedIn: this.techSupportDelegateOptedIn,
+      bindSettingsControls: () => this.bindSettingsControls(),
+      refreshStorageInspector: () => this.refreshStorageInspector(),
+      refreshDownloadAppSection: () => this.refreshDownloadAppSection(),
+      renderSupportInboxSectionIfPresent: () => this.renderSupportInboxSectionIfPresent(),
+      renderSupportDelegatesSectionIfPresent: () => this.renderSupportDelegatesSectionIfPresent(),
+      renderSupportDelegateOptInSectionIfPresent: () => this.renderSupportDelegateOptInSectionIfPresent(),
+      applySettingsSectionView: (sectionId) => this.applySettingsSectionView(sectionId),
+      settingsActiveSectionId: this.settingsActiveSectionId,
+    });
   }
 
   /**
@@ -2598,365 +2044,29 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  private bindSettingsControls(): void {
-    document.getElementById('settings-jump-menu')?.addEventListener('click', (event) => {
-      const target = (event.target as HTMLElement).closest('.settings-jump-menu-item') as HTMLElement | null;
-      const sectionId = target?.dataset.target;
-      if (!sectionId) return;
-      this.settingsActiveSectionId = sectionId;
-      this.applySettingsSectionView(sectionId);
-    });
-
-    document.getElementById('settings-scheme-picker')?.addEventListener('change', (event) => {
-      const radio = event.target as HTMLInputElement;
-      if (!radio.classList.contains('settings-scheme-radio')) return;
-      const scheme = radio.value as ColorScheme;
-      setColorSchemePreference(scheme);
-      // Applies instantly via the [data-color-scheme] attribute (main.css tokens do the
-      // rest) — no full re-render needed, just move the selected-option border highlight.
-      document.querySelectorAll<HTMLElement>('.settings-scheme-option').forEach((label) => {
-        label.style.borderColor = label.dataset.scheme === scheme ? 'var(--accent)' : 'var(--border)';
-      });
-    });
-
-    const persistConnectivity = (): void => {
-      const preset = (document.getElementById('settings-connectivity-preset') as HTMLSelectElement | null)?.value as ConnectivityPreset | undefined;
-      if (!preset) return;
-      const value = applyConnectivityPreset(preset);
-      value.preset = preset;
-      value.freeFirst = !!(document.getElementById('settings-connectivity-free-first') as HTMLInputElement | null)?.checked;
-      value.directFirst = !!(document.getElementById('settings-connectivity-direct-first') as HTMLInputElement | null)?.checked;
-      value.batteryAware = !!(document.getElementById('settings-connectivity-battery-aware') as HTMLInputElement | null)?.checked;
-      value.meteredPermission = ((document.getElementById('settings-connectivity-metered-permission') as HTMLSelectElement | null)?.value || 'ask') as typeof value.meteredPermission;
-      value.forwarding.enabled = !!(document.getElementById('settings-connectivity-forwarding') as HTMLInputElement | null)?.checked;
-      value.forwarding.cellularForwarding = !!(document.getElementById('settings-connectivity-cellular-forwarding') as HTMLInputElement | null)?.checked;
-      value.forwarding.cellularByteBudget = Math.max(0, Number((document.getElementById('settings-connectivity-cellular-budget') as HTMLInputElement | null)?.value || 0));
-      saveConnectivitySettings(value);
-      this.emit('connectivitySettingsChanged', value);
-    };
-    document.querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select').forEach((element) => {
-      element.addEventListener('change', persistConnectivity);
-    });
-
-    const selectedValues = (id: string): string[] => {
-      const el = document.getElementById(id) as HTMLSelectElement | HTMLInputElement | null;
-      if (!el) return [];
-      if (el instanceof HTMLSelectElement && el.multiple) {
-        return Array.from(el.selectedOptions).map((option) => option.value.trim().toLowerCase()).filter(Boolean);
-      }
-      return String(el.value || '')
-        .split(',')
-        .map((part) => part.trim().toLowerCase())
-        .filter(Boolean);
-    };
-
-    const sync = () => {
-      const filterLanguages = Array.from(document.querySelectorAll<HTMLInputElement>('.settings-filter-language-option'))
-        .filter((el) => el.checked)
-        .map((el) => el.value.trim().toLowerCase())
-        .filter(Boolean);
-      const profileLanguages = selectedValues('settings-profile-languages');
-      const minDistanceEl = document.getElementById('settings-min-distance') as HTMLInputElement | null;
-      const maxDistanceEl = document.getElementById('settings-max-distance') as HTMLInputElement | null;
-      const sentAfterEl = document.getElementById('settings-sent-after') as HTMLInputElement | null;
-      const customBlockedEl = document.getElementById('settings-custom-blocked') as HTMLTextAreaElement | null;
-      const typeEls = Array.from(document.querySelectorAll('.settings-talk-filter-type')) as HTMLInputElement[];
-      const dirtyWordEls = Array.from(document.querySelectorAll<HTMLElement>('#dirty-word-chips .dirty-word-chip'));
-      const nextFilters: TalkIntakeFilters = {
-        allowedLanguages: filterLanguages,
-        requireGoodGrammar: !!(document.getElementById('settings-grammar-filter') as HTMLInputElement | null)?.checked,
-        blockDirtyWords: !!(document.getElementById('settings-dirty-words-filter') as HTMLInputElement | null)?.checked,
-        allowedTalkTypes: typeEls.filter((el) => el.checked).map((el) => el.value as any),
-        customBlockedTerms: normalizeCustomBlockedTerms((customBlockedEl?.value || '').split(/[\n,]+/).map((part) => part.trim()).filter(Boolean)),
-        dirtyWords: normalizeDirtyWords(dirtyWordEls.map((el) => el.getAttribute('data-word') || '')),
-      };
-      if (nextFilters.allowedLanguages.length === 0) nextFilters.allowedLanguages = ['en'];
-      if (nextFilters.allowedTalkTypes.length === 0) nextFilters.allowedTalkTypes = ['flow', 'survey', 'tag', 'route'];
-      if (minDistanceEl?.value) nextFilters.minDistanceMiles = Number(minDistanceEl.value);
-      if (maxDistanceEl?.value) nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
-      if (sentAfterEl?.value) nextFilters.sentAfter = new Date(sentAfterEl.value).toISOString();
-      if (
-        typeof nextFilters.minDistanceMiles === 'number' &&
-        typeof nextFilters.maxDistanceMiles === 'number' &&
-        nextFilters.minDistanceMiles > nextFilters.maxDistanceMiles
-      ) {
-        this.showNotification(this.t('settingsDistanceInvalid'), 'error');
-        if (this.currentUser?.talkFilters) {
-          if (minDistanceEl) minDistanceEl.value = String(this.currentUser.talkFilters.minDistanceMiles ?? '');
-          if (maxDistanceEl) maxDistanceEl.value = String(this.currentUser.talkFilters.maxDistanceMiles ?? '');
-        }
-        return;
-      }
-      setTalkIntakeFilters(nextFilters);
-      if (this.currentUser) setTalkIntakeFiltersOwner(this.currentUser.id);
-      // Message filters changed: re-render any open conversation so toggling a
-      // filter off reveals previously hidden messages (and on reveals fresh
-      // toasts can fire if re-enabled later). (redesign §9.1)
-      if (this.currentUser) this.currentUser.talkFilters = nextFilters;
-      this.hiddenMessageToastIds.clear();
-      this.rerenderOpenConversation();
-      const langCount = document.getElementById('settings-filter-languages-count');
-      if (langCount) langCount.textContent = `${nextFilters.allowedLanguages.length} ${this.t('settingsActive')}`;
-      const filteredIncomingSummary = document.getElementById('settings-filtered-incoming-summary');
-      if (filteredIncomingSummary) {
-        const filteredIncoming = filterIncomingTalkClusters(
-          (this.incomingTalkClusters || []).filter((cluster: any) => cluster && cluster.identityKey),
-          nextFilters,
-          this.currentLocation,
-        );
-        const reasonText = this.formatReasonCounts(filteredIncoming.hiddenByReason);
-        filteredIncomingSummary.innerHTML = `${this.t('settingsHiddenIncoming')}: ${filteredIncoming.hiddenCount}${reasonText ? `<div>${escapeHtml(reasonText)}</div>` : ''}`;
-      }
-      if (this.currentUser) {
-        const nextProfileLanguages = profileLanguages.length > 0 ? profileLanguages : ['en'];
-        const profileLanguageChanged = nextProfileLanguages.join(',') !== (this.currentUser.languages || []).join(',');
-        this.currentUser.languages = nextProfileLanguages;
-        this.currentUser.talkFilters = nextFilters;
-        if (profileLanguageChanged) {
-          this.applyShellTranslations();
-          this.renderSettingsView(this.currentUser);
-          void this.onProfileChange?.(this.currentUser.id, {
-            ...(this.currentUser.headshot ? { headshot: this.currentUser.headshot } : {}),
-            languages: nextProfileLanguages,
-            profile: this.currentUser.profile || [],
-            interests: this.currentUser.interests || [],
-          });
-        }
-      }
-      this.emit('updateTalkFilters', nextFilters);
-      if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
-    };
-    ['settings-profile-languages', 'settings-min-distance', 'settings-max-distance', 'settings-sent-after', 'settings-grammar-filter', 'settings-dirty-words-filter'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', sync);
-    });
-    document.querySelectorAll('.settings-filter-language-option').forEach((el) => {
-      el.addEventListener('change', sync);
-    });
-    document.querySelectorAll('.settings-talk-filter-type').forEach((el) => {
-      el.addEventListener('change', sync);
-    });
-    document.getElementById('settings-ui-language')?.addEventListener('change', (event) => {
-      const value = (event.currentTarget as HTMLSelectElement).value === 'zh' ? 'zh' : 'en';
-      setUiLanguagePreference(value);
-      this.applyShellTranslations();
-      if (this.currentUser) this.renderSettingsView(this.currentUser);
-    });
-    document.getElementById('settings-default-talk-language')?.addEventListener('change', (event) => {
-      const value = (event.currentTarget as HTMLSelectElement).value === 'zh' ? 'zh' : 'en';
-      setDefaultTalkLanguagePreference(value);
-    });
-    document.getElementById('settings-custom-blocked')?.addEventListener('input', sync);
-    bindDirtyWordEditor({ onChange: sync, t: this.t.bind(this) });
-    document.getElementById('settings-linked-devices-btn')?.addEventListener('click', () => {
-      void this.openLinkedDevicesDialog();
-    });
-    document.getElementById('settings-erase-device-btn')?.addEventListener('click', () => this.openEraseDeviceDialog());
-    document.getElementById('settings-replay-walkthrough-btn')?.addEventListener('click', () => this.showWalkthrough());
-    document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
-      this.emit('setHomeChatroom', {
-        chatroomId: (event.currentTarget as HTMLSelectElement).value,
-      });
-    });
-    document.getElementById('settings-copy-talk-autosave')?.addEventListener('change', (event) => {
-      setCopyTalkAutoSave((event.currentTarget as HTMLInputElement).checked);
-    });
-    document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
-      setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
-    });
-    document.getElementById('settings-location-auto-match-consent')?.addEventListener('change', (event) => {
-      setLocationAutoMatchConsent((event.currentTarget as HTMLInputElement).checked);
-    });
-    document.getElementById('settings-keep-old-talk-on-edit')?.addEventListener('change', (event) => {
-      setKeepOldTalkOnEdit((event.currentTarget as HTMLInputElement).checked);
-    });
-    document.getElementById('settings-stage-name-input')?.addEventListener('change', async (event) => {
-      const input = event.currentTarget as HTMLInputElement;
-      const errorText = document.getElementById('settings-stage-name-error') as HTMLElement | null;
-      const showStageNameError = (message: string): void => {
-        if (errorText) {
-          errorText.textContent = message;
-          errorText.style.display = message ? 'block' : 'none';
-        }
-      };
-      const next = input.value.trim();
-      if (!this.currentUser || next === this.currentUser.stageName) return;
-      showStageNameError('');
-      if (next.length < 3) {
-        const message = this.t('settingsStageNameTooShort');
-        showStageNameError(message);
-        this.showNotification(message, 'error');
-        input.value = this.currentUser.stageName;
-        return;
-      }
-      try {
-        await this.onStageNameChange?.(this.currentUser.id, next);
-      } catch (error) {
-        input.value = this.currentUser.stageName;
-        const message = error instanceof Error && /reserved/i.test(error.message)
-          ? this.t('settingsStageNameReserved')
-          : this.t('settingsStageNameUpdateFailed');
-        showStageNameError(message);
-        this.showNotification(message, 'error');
-      }
-    });
-    document.getElementById('settings-headshot-select')?.addEventListener('change', async (event) => {
-      if (!this.currentUser) return;
-      const headshot = (event.currentTarget as HTMLSelectElement).value.trim();
-      await this.onProfileChange?.(this.currentUser.id, {
-        ...(headshot ? { headshot } : {}),
-        languages: this.currentUser.languages || ['en'],
-        profile: this.currentUser.profile || [],
-        interests: this.currentUser.interests || [],
-      });
-    });
-    const saveHeadshot = async (headshot?: string): Promise<void> => {
-      if (!this.currentUser) return;
-      await this.onProfileChange?.(this.currentUser.id, {
-        ...(headshot ? { headshot } : {}),
-        languages: this.currentUser.languages || ['en'],
-        profile: this.currentUser.profile || [],
-        interests: this.currentUser.interests || [],
-      });
-    };
-    const showCameraStatus = (message: string): void => {
-      const status = document.getElementById('settings-camera-status') as HTMLElement | null;
-      if (!status) return;
-      status.textContent = message;
-      status.style.display = message ? 'block' : 'none';
-    };
-    const confirmPhoto = async (dataUrl: string): Promise<boolean> => {
-      document.getElementById('settings-photo-preview-modal')?.remove();
-      const modal = document.createElement('div');
-      modal.id = 'settings-photo-preview-modal';
-      modal.dataset.testid = 'settings-photo-preview-modal';
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal-content" style="max-width:420px;">
-          <div class="modal-header">
-            <h2 class="modal-title">${this.t('settingsPhotoPreviewTitle')}</h2>
-            <p>${this.t('settingsPhotoPreviewHelp')}</p>
-          </div>
-          <div class="user-avatar" style="width:160px;height:160px;margin:12px auto;font-size:2em;">
-            ${avatarInnerHtml(dataUrl, this.currentUser?.stageName.charAt(0).toUpperCase() || '?', escapeHtml)}
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn" data-testid="settings-photo-preview-cancel">${this.t('settingsPhotoPreviewCancel')}</button>
-            <button type="button" class="btn primary-btn" data-testid="settings-photo-preview-confirm">${this.t('settingsPhotoPreviewSave')}</button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-      return new Promise<boolean>((resolve) => {
-        const finish = (confirmed: boolean): void => {
-          modal.remove();
-          resolve(confirmed);
-        };
-        modal.querySelector('[data-testid="settings-photo-preview-confirm"]')?.addEventListener('click', () => finish(true));
-        modal.querySelector('[data-testid="settings-photo-preview-cancel"]')?.addEventListener('click', () => finish(false));
-        modal.addEventListener('click', (event) => {
-          if (event.target === modal) finish(false);
-        });
-      });
-    };
-    const readPhoto = async (file?: File): Promise<void> => {
-      if (!file) return;
-      if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
-        this.showNotification(this.t('settingsPhotoInvalidType'), 'error');
-        return;
-      }
-      if (file.size > 2 * 1024 * 1024) {
-        this.showNotification(this.t('settingsPhotoTooLarge'), 'error');
-        return;
-      }
-      const reader = new FileReader();
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        reader.addEventListener('load', () => resolve(String(reader.result || '')));
-        reader.addEventListener('error', () => reject(reader.error || new Error(this.t('settingsPhotoReadFailed'))));
-        reader.readAsDataURL(file);
-      });
-      showCameraStatus('');
-      if (await confirmPhoto(dataUrl)) await saveHeadshot(dataUrl);
-    };
-    const takePhoto = async (): Promise<void> => {
-      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-        const message = this.t('settingsCameraUnavailable');
-        showCameraStatus(message);
-        this.showNotification(message, 'error');
-        return;
-      }
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-      } catch {
-        const message = this.t('settingsCameraDenied');
-        showCameraStatus(message);
-        this.showNotification(message, 'error');
-        return;
-      }
-      document.getElementById('settings-camera-capture-modal')?.remove();
-      const modal = document.createElement('div');
-      modal.id = 'settings-camera-capture-modal';
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal-content" style="max-width:480px;">
-          <div class="modal-header">
-            <h2 class="modal-title">${this.t('settingsCameraCaptureTitle')}</h2>
-            <p>${this.t('settingsCameraCaptureHelp')}</p>
-          </div>
-          <video id="settings-camera-preview-video" autoplay muted playsinline style="display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:14px;background:var(--text-primary);"></video>
-          <div class="modal-actions">
-            <button type="button" class="btn" data-testid="settings-camera-cancel">${this.t('settingsPhotoPreviewCancel')}</button>
-            <button type="button" class="btn primary-btn" data-testid="settings-camera-capture" disabled>${this.t('settingsCameraCapture')}</button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-      const video = modal.querySelector('#settings-camera-preview-video') as HTMLVideoElement | null;
-      const capture = modal.querySelector('[data-testid="settings-camera-capture"]') as HTMLButtonElement | null;
-      const stopAndClose = (): void => {
-        stream.getTracks().forEach((track) => track.stop());
-        modal.remove();
-      };
-      if (video) {
-        video.srcObject = stream;
-        video.addEventListener('loadedmetadata', () => {
-          if (capture) capture.disabled = false;
-        }, { once: true });
-        void video.play().catch(() => undefined);
-      }
-      modal.querySelector('[data-testid="settings-camera-cancel"]')?.addEventListener('click', stopAndClose);
-      capture?.addEventListener('click', async () => {
-        if (!video || video.videoWidth < 1 || video.videoHeight < 1) return;
-        const size = Math.min(video.videoWidth, video.videoHeight);
-        const sx = Math.max(0, (video.videoWidth - size) / 2);
-        const sy = Math.max(0, (video.videoHeight - size) / 2);
-        const canvas = document.createElement('canvas');
-        canvas.width = 512;
-        canvas.height = 512;
-        canvas.getContext('2d')?.drawImage(video, sx, sy, size, size, 0, 0, 512, 512);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        stopAndClose();
-        showCameraStatus('');
-        if (await confirmPhoto(dataUrl)) await saveHeadshot(dataUrl);
-      });
-    };
-    const photoInput = document.getElementById('settings-photo-input') as HTMLInputElement | null;
-    const cameraInput = document.getElementById('settings-camera-input') as HTMLInputElement | null;
-    document.getElementById('settings-choose-photo-btn')?.addEventListener('click', () => photoInput?.click());
-    document.getElementById('settings-take-photo-btn')?.addEventListener('click', () => void takePhoto());
-    photoInput?.addEventListener('change', () => void readPhoto(photoInput.files?.[0]));
-    cameraInput?.addEventListener('change', () => void readPhoto(cameraInput.files?.[0]));
-    document.getElementById('settings-remove-photo-btn')?.addEventListener('click', () => void saveHeadshot());
-    document.getElementById('settings-edit-profile-btn')?.addEventListener('click', () => {
-      if (this.currentUser) this.showEditProfileDialog(this.currentUser);
-    });
-    document.getElementById('settings-credit-visible')?.addEventListener('change', (event) => {
-      const visible = (event.currentTarget as HTMLInputElement).checked;
-      if (this.currentUser?.reputation) this.currentUser.reputation.isHidden = !visible;
-      this.emit('setCreditVisibility', { visible });
-    });
-    document.getElementById('settings-refresh-storage-btn')?.addEventListener('click', () => {
-      void this.refreshStorageInspector();
+private bindSettingsControls(): void {
+    bindSettingsControlsImpl({
+      currentUser: this.currentUser,
+      incomingTalkClusters: this.incomingTalkClusters,
+      currentLocation: this.currentLocation,
+      t: (key) => this.t(key),
+      showNotification: (message, type) => this.showNotification(message, type),
+      emit: (event, payload) => this.emit(event, payload),
+      setSettingsActiveSectionId: (sectionId) => { this.settingsActiveSectionId = sectionId; },
+      applySettingsSectionView: (sectionId) => this.applySettingsSectionView(sectionId),
+      clearHiddenMessageToasts: () => this.hiddenMessageToastIds.clear(),
+      rerenderOpenConversation: () => this.rerenderOpenConversation(),
+      formatReasonCounts: (counts) => this.formatReasonCounts(counts),
+      applyShellTranslations: () => this.applyShellTranslations(),
+      renderSettingsView: (user) => this.renderSettingsView(user),
+      displayTalksList: () => this.displayTalksList(),
+      openLinkedDevicesDialog: () => this.openLinkedDevicesDialog(),
+      openEraseDeviceDialog: () => this.openEraseDeviceDialog(),
+      showWalkthrough: () => this.showWalkthrough(),
+      onStageNameChange: this.onStageNameChange,
+      onProfileChange: this.onProfileChange,
+      showEditProfileDialog: (user) => this.showEditProfileDialog(user),
+      refreshStorageInspector: () => this.refreshStorageInspector(),
     });
   }
 

@@ -2,6 +2,31 @@
 
 Last updated: 2026-09-12
 
+## 2026-09-12 — UIManager decomposition cluster #73: Settings view and controls
+
+Continuing Priority 6 after the Talks-tab extraction. `docs/TODO.md` Priority 6.
+
+- **#73: Settings renderer and listener wiring → `settings-view.ts` +
+  `settings-controls.ts`.** The 476-line renderer now owns Settings markup, persisted-filter
+  precedence, normalization, platform/version display, and post-render lifecycle. The 361-line
+  controls method now owns drill-down, appearance/connectivity/filter/profile/photo controls, and
+  their DOM listeners. Shared manager state is passed as typed snapshots; mutations, service
+  hooks, notifications, and rerenders return through explicit callbacks. Neither module imports
+  or reaches through `UIManager`. Common language options and the legacy filter normalization
+  helpers moved with the renderer and remain exported for existing manager callers.
+- **Characterization:** new `settings-view.test.ts` (5 tests) covers list/filter normalization,
+  complete-shell rendering and lifecycle callbacks, missing-root behavior, drill-down delegation,
+  and stage-name validation. Existing focused Settings coverage passes 14/14 across navigation,
+  legacy values, intake-filter reload persistence, UI-language persistence, the dirty-word editor,
+  and section drill-down/control state.
+- **Ratchet:** `ui-manager.ts` 5,711 → **4,821** lines.
+- **Verification:** typecheck/lint clean, both production builds succeed, and 226 unit suites /
+  2,378 tests pass (1 skipped). Canonical run `run-20260912-101219-36222` (`PW_WORKERS=8`,
+  18m57s): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser, isolated,
+  heavy-staged, and mass all passed; `light` passed 251 tests (6 skipped), including every
+  Settings scenario, and failed only the two established rotating TechSupport mailbox flakes
+  (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`).
+
 ## 2026-09-12 — UIManager decomposition cluster #72: Talks-tab list view
 
 Priority 6's deferred largest renderer was selected after cluster #71. `docs/TODO.md` Priority 6.
