@@ -62,6 +62,31 @@ export function syncStatusBroadcastButtonVisibility(currentChatroom: string): vo
   button.disabled = !currentChatroom;
 }
 
+export function markChatroomMemberMatched(
+  userId: string,
+  matchedUserIds: Set<string>,
+  matchedText: string,
+): void {
+  matchedUserIds.add(userId);
+  const item = document.getElementById('chatroom-members-list')
+    ?.querySelector(`.chatroom-member-item[data-user-id="${userId}"]`);
+  if (!item) return;
+  item.classList.add('member-matched');
+  (item as HTMLElement).dataset.matched = 'true';
+  const status = item.querySelector('.chatroom-member-status');
+  if (status) status.textContent = matchedText;
+}
+
+export function flashChatroomMemberForNewTalk(authorId: string): void {
+  const item = document.getElementById('chatroom-members-list')
+    ?.querySelector(`.chatroom-member-item[data-user-id="${authorId}"]`);
+  if (!item) return;
+  item.classList.remove('flash-new-talk');
+  void (item as HTMLElement).offsetWidth;
+  item.classList.add('flash-new-talk');
+  setTimeout(() => item.classList.remove('flash-new-talk'), 1000);
+}
+
 function hierarchyIds(): Set<string> {
   return new Set(getFlatChatroomList().map((r) => r.id));
 }

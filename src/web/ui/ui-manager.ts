@@ -51,7 +51,7 @@ import type { GraphNodeTarget } from './graph-navigation';
 import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './answers-view';
 import {
   type CustomChatroomRow,
-  resolveChatroomTitle,
+  resolveChatroomTitle, markChatroomMemberMatched, flashChatroomMemberForNewTalk,
   syncStatusBroadcastButtonVisibility as syncChatroomBroadcastVisibility,
 } from './chatrooms-view';
 import {
@@ -2738,27 +2738,10 @@ export class UIManager extends EventEmitter {
   }
 
   setMemberMatched(userId: string): void {
-    this.matchedUserIds.add(userId);
-    const list = document.getElementById('chatroom-members-list');
-    const item = list?.querySelector(`.chatroom-member-item[data-user-id="${userId}"]`);
-    if (item) {
-      item.classList.add('member-matched');
-      (item as HTMLElement).dataset.matched = 'true';
-      const status = item.querySelector('.chatroom-member-status');
-      if (status) status.textContent = this.t('chatroomMatched');
-    }
+    markChatroomMemberMatched(userId, this.matchedUserIds, this.t('chatroomMatched'));
   }
 
-  flashMemberForNewTalk(authorId: string): void {
-    const list = document.getElementById('chatroom-members-list');
-    const item = list?.querySelector(`.chatroom-member-item[data-user-id="${authorId}"]`);
-    if (item) {
-      item.classList.remove('flash-new-talk');
-      void (item as HTMLElement).offsetWidth;
-      item.classList.add('flash-new-talk');
-      setTimeout(() => item.classList.remove('flash-new-talk'), 1000);
-    }
-  }
+  flashMemberForNewTalk(authorId: string): void { flashChatroomMemberForNewTalk(authorId); }
 
   /**
    * Rule N2a (redesign §5/§7): clicking a user anywhere pushes two levels in one

@@ -931,7 +931,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#82 are complete.
+(`ui-manager.ts` decomposition) is ✅ **DONE**; extraction clusters #1-#83 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -989,7 +989,7 @@ orchestration, custom-room creation, and live member rendering (`chatroom-shell-
 and the complete Talk-editor session, including route-DAG state, validation, form processing, and
 template selection (`talk-editor-controller.ts`); and TechSupport Settings state/render
 orchestration (`support-settings-controller.ts`); and the StageName edit-dialog lifecycle
-(`edit-stage-name-dialog.ts`).
+(`edit-stage-name-dialog.ts`); and chatroom-member match/new-Talk indicators (`chatrooms-view.ts`).
 Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
@@ -1007,14 +1007,14 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
 6,472 (#65), 6,462 (#66), 6,453 (#67), 6,437 (#68), 6,416 (#69), 6,401 (#70), 6,367 (#71), and
 5,711 (#72), 4,821 (#73), 4,312 (#74), 4,072 (#75), 3,819 (#76), 3,614 (#77), and
-3,438 (#78), 3,293 (#79), 3,114 (#80), 3,062 (#81), and **3,012** (#82)
+3,438 (#78), 3,293 (#79), 3,114 (#80), 3,062 (#81), 3,012 (#82), and **2,995** (#83)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
-Three dead-code findings surfaced along the way, all left in place (logic-wise) rather than
-removed unilaterally (deleting a whole feature is a different kind of change than a
-behavior-preserving extraction) and flagged here for a deliberate call: `showEditStageNameDialog`
-(59 lines, found during clusters #17-21) has zero callers anywhere in the codebase; `app-bar.ts`
+Three dead-code findings surfaced along the way. The zero-caller `showEditStageNameDialog`
+(59 lines, found during clusters #17-21) was deliberately preserved and independently
+characterized in cluster #82 rather than deleted unilaterally. The other findings remain:
+`app-bar.ts`
 (found during cluster #25) defines a complete, differently-shaped `updateOverflow`/`renderAppBar`/
 `AppBarConfig` component system that is not imported anywhere in the app at all;
 `displayStatisticsDashboard`/`renderStatisticsDashboard` (found during cluster #46, when
@@ -1870,14 +1870,14 @@ entries and babel preset were never removed.
       here.
 
 **Targets / definition of done #1:**
-- [ ] `ui-manager.ts` reduced from **11,793 → < 3,000 lines** (aim to make it a thin router of
+- [x] `ui-manager.ts` reduced from **11,793 → < 3,000 lines** (aim to make it a thin router of
       delegations; the substance lives in cohesive `src/web/ui/*.ts` modules).
 - [x] No behavior regression: `test:all` is green and behavioral expectations remain stable.
 - [x] The growth guardrail (1.1) is in place and passing.
-- [ ] `src/web/app/app.ts` keeps its stable `UIManager` contract until a separately approved API
+- [x] `src/web/app/app.ts` keeps its stable `UIManager` contract until a separately approved API
       reduction: methods, event payloads, DOM contracts, focus, and listener lifecycle are preserved.
-- [ ] Extracted modules do not import `UIManager`, introduce singleton reach-through, or form cycles.
-- [ ] The work has not merely moved the god-object: new modules are cohesive, explicitly injected,
+- [x] Extracted modules do not import `UIManager`, introduce singleton reach-through, or form cycles.
+- [x] The work has not merely moved the god-object: new modules are cohesive, explicitly injected,
       and small enough to review and test independently.
 
 **Risks & guardrails for #1:**
@@ -2128,6 +2128,11 @@ entries and babel preset were never removed.
     the ratchet from 3,062 to 3,012.~~ Done; the previously flagged zero-caller feature remains
     behaviorally preserved behind its public manager shim, with rendering, escaping, validation,
     promise lifecycle, and async update handling independently characterized.
+66. ~~Extract cluster #83 (chatroom-member matched/new-Talk indicators → `chatrooms-view.ts`),
+    lowering the ratchet from 3,012 to 2,995.~~ Done; persistent matched state plus rendered row
+    patches and timed flash lifecycle moved behind pure view helpers, and executable architecture
+    checks now enforce no `UIManager` reach-through, no UI-module cycles, and a reviewability
+    ceiling for executable extracted modules.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React

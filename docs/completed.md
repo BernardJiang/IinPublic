@@ -2,6 +2,34 @@
 
 Last updated: 2026-09-13
 
+## 2026-09-13 — UIManager decomposition cluster #83: chatroom-member indicators
+
+Completing Priority 6's UI god-object decomposition after the StageName dialog extraction.
+`docs/TODO.md` Priority 6.
+
+- **#83: chatroom-member matched/new-Talk indicators → `chatrooms-view.ts`.** Persistent matched
+  state, the rendered row's matched styling/status, and the timed new-Talk flash lifecycle now
+  live behind focused view helpers. `UIManager` retains its two app-facing methods as delegation
+  shims.
+- **Characterization and guardrails:** new `chatroom-member-indicators.test.ts` (3 tests) covers
+  rendered and off-screen match state plus flash restart/expiry. New
+  `ui-module-boundaries.test.ts` (3 tests) makes the completed extraction's architectural
+  constraints executable: extracted modules cannot import `UIManager`, the local UI dependency
+  graph must remain acyclic, and executable extracted modules stay at or below 1,200 lines (the
+  static translation catalog is explicitly exempt). The focused mobile two-user matching flow
+  passes 1/1.
+- **Ratchet and target:** `ui-manager.ts` 3,012 → **2,995** lines. This completes Issue #1's
+  11,793 → fewer-than-3,000-line target, with the exact 2,995-line ceiling enforced by
+  `ui-manager-size-budget.test.ts`.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  237 Jest suites / 2,420 tests pass (1 skipped). Canonical run
+  `run-20260913-024015-46118` (`PW_WORKERS=8`, 19m11s): stage5, mesh-batch, mesh-isolated,
+  find-similar, cross-browser, isolated, heavy-staged, and mass all passed; `light` passed 250
+  tests (6 skipped) and hit only the established concurrency-sensitive
+  `33-mobile-chatroom-hierarchy`, `79-techsupport-survives-restrictive-filters`, and
+  `00l-techsupport-faq-cross-user` cases. All three passed in single-worker follow-up runs (the FAQ
+  case required a fresh isolated server), and none exercises the extracted indicator helpers.
+
 ## 2026-09-13 — UIManager decomposition cluster #82: StageName edit dialog
 
 Continuing Priority 6 after the TechSupport Settings extraction. `docs/TODO.md` Priority 6.
