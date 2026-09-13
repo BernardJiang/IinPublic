@@ -923,7 +923,27 @@ Still open:
 ### K7. Delegated TechSupport answers
 
 - [ ] Define production TechSupport key custody and rotation tooling.
-- [ ] Package the headless/off-server TechSupport agent.
+- [x] **Landed 2026-09-13:** Package the headless/off-server TechSupport agent.
+  `scripts/techsupport-agent.js` (built 2026-09-02) already existed and worked when run by hand;
+  what was missing was an actual deployment story and a real gap it didn't handle: a human still
+  has to read and type every answer over the process's stdin (deliberate — see the file's own
+  header), so a bare `systemd` unit with no TTY attached would start, then hang silently on the
+  first `rl.question()` call forever (a closed stdin never emits the `'line'` event that call is
+  waiting on) — no crash, no log, just an inert process that looks fine to `systemctl status`
+  while never answering anything. Fixed the silent half of that: the script now checks
+  `process.stdin.isTTY` and logs a loud warning instead of hanging quietly when it isn't one.
+  Also hardened process exit: `browser` is now hoisted outside the async IIFE so the top-level
+  `.catch()` (any fatal error, not just `SIGINT`/`SIGTERM`) closes the headless Chromium instance
+  before `process.exit(1)`, so a restart-supervisor's crash/restart cycle doesn't leak orphaned
+  browser processes on the host. Added `docs/IinPublic_VPS_Installation_Guide.md` §14 documenting
+  the actual deployment: `npx playwright install --with-deps chromium` once on the VPS, the two
+  `.env.local` entries it needs, and running it inside a named `tmux` session (so an operator can
+  attach/detach across SSH disconnects to actually type answers) as the primary path, with an
+  explicitly-labeled "presence only, no interactive answering" `systemd` unit as an alternative
+  for anyone who just wants the identity/greeting/FAQ bundle to stay verifiable with nobody
+  attached. Key custody itself (the other K7 bullet, above) is unchanged and still blocks actually
+  running this against production — no real `TECHSUPPORT_SEA_PAIR_JSON` exists yet to put in
+  `.env.local` (see the design note and the TechSupport rollout notes).
 
 ## Priority 6 — UI architecture: god-object refactor & React evaluation
 

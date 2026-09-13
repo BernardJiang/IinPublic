@@ -157,6 +157,20 @@ async function runAgentLoop(page) {
   // Fast-path only: handleAnswerSupportQuestion already flips the Gun entry to 'answered', so
   // the next poll excludes it too. This just avoids re-prompting on the poll immediately after.
   const answeredThisSession = new Set();
+  if (!process.stdin.isTTY) {
+    // A bare `systemctl start` (stdin === /dev/null) reaches this branch: promptLine's
+    // rl.question() would never resolve (no 'line' event ever fires on a closed stream), so
+    // every pending question would silently pile up unanswered with no visible error. This is
+    // still useful for "keep the TechSupport identity/greeting/FAQ bundle present and verifiable
+    // without an open browser tab" (see the file header), but it does NOT answer questions by
+    // itself — say so loudly instead of hanging quietly. Attach a real TTY (e.g. `tmux attach`,
+    // see docs/IinPublic_VPS_Installation_Guide.md §14) to actually type answers.
+    console.log(
+      '⚠️  stdin is not a TTY — this process will keep the TechSupport identity online but ' +
+        'cannot prompt for answers here. Run it inside `tmux`/`screen` (or any session with a ' +
+        'real TTY attached) if you need to actually answer questions from this process.',
+    );
+  }
   console.log(`👂 Watching the TechSupport inbox every ${POLL_INTERVAL_MS}ms — Ctrl+C to stop.`);
   for (;;) {
     const pending = (await listPendingSupportQuestions(page)).filter(
@@ -181,6 +195,11 @@ async function runAgentLoop(page) {
   }
 }
 
+// Hoisted so the top-level catch below can close it on any failure, not just the signal
+// handlers — a restart supervisor (tmux respawn wrapper, pm2, systemd Restart=on-failure)
+// relies on this process actually exiting without leaving an orphaned headless Chromium behind.
+let browser;
+
 (async () => {
   const techsupport = requireCompiledTechSupport();
   const pair = loadPair(techsupport);
@@ -188,7 +207,7 @@ async function runAgentLoop(page) {
   console.log(`⏳ Waiting for server at ${APP_URL}...`);
   await waitForServer(APP_URL, SERVER_WAIT_MS);
 
-  const browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
 
   process.once('SIGINT', async () => { await browser.close(); process.exit(130); });
@@ -222,7 +241,8 @@ async function runAgentLoop(page) {
   console.log('✅ TechSupport agent online.');
 
   await runAgentLoop(page);
-})().catch((err) => {
+})().catch(async (err) => {
   console.error('❌ techsupport-agent error:', err.message);
+  if (browser) await browser.close().catch(() => {});
   process.exit(1);
 });
