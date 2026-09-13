@@ -27,7 +27,6 @@ import {
   createBroadcastController,
   type BroadcastController,
 } from './broadcast-controller';
-import { refreshFlowAnswerConstraints as refreshFlowAnswerConstraintsImpl } from './flow-answer-constraints';
 import {
   LANGUAGE_OPTIONS,
   normalizeStringList,
@@ -113,19 +112,6 @@ import { showWalkthroughDialog } from './onboarding-walkthrough';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
 import {
-  addAnswerToQuestion as addTalkEditorAnswerToQuestion,
-  addQuestionToForm as addTalkEditorQuestionToForm,
-  appendIgnoreRow as appendTalkEditorIgnoreRow,
-  applyBuiltInKindToQuestion,
-  applyTagKindVisibilityToQuestion,
-  collectFlowSurveyEditorQuestions,
-  setupTalkFormHandlers as setupTalkEditorFormHandlers,
-  syncAdultLockFromBuiltInKinds,
-  updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
-} from './talk-editor-form-helpers';
-import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
-import { showTalkTemplatePicker as renderTalkTemplatePicker } from './talk-template-picker';
-import {
   showChooseWhoToDmPicker as renderChooseWhoToDmPicker,
   showDmInboxPicker as renderDmInboxPicker,
 } from './person-picker-dialogs';
@@ -171,14 +157,6 @@ import {
   quickCopyIncomingTalk as quickCopyIncomingTalkImpl,
 } from './quick-incoming-talk-actions';
 import { displayIncomingTalk as displayIncomingTalkImpl } from './incoming-talk-notification';
-import {
-  buildRouteSelfAnswers as buildRouteEditorSelfAnswers,
-  collectRouteEditorQuestions as collectRouteQuestions,
-  initializeRouteEditorQuestions,
-  type RouteEditorQuestion,
-} from './route-editor-model';
-import { renderRouteEditor as renderRouteEditorController } from './route-editor-controller';
-import { processTalkForm as processTalkFormImpl } from './talk-form-processor';
 import { fetchDownloadManifest, renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { showSurveyStatisticsDialog } from './survey-statistics-dialog';
 import { showEditProfileDialog as openEditProfileDialog } from './edit-profile-dialog';
@@ -191,6 +169,7 @@ import {
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
 import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
 import { createChatroomShellController, type ChatroomShellController } from './chatroom-shell-controller';
+import { createTalkEditorController, type TalkEditorController } from './talk-editor-controller';
 import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
 import {
@@ -304,6 +283,7 @@ export class UIManager extends EventEmitter {
   private peerController?: PeerController;
   private broadcastController?: BroadcastController;
   private chatroomShellController?: ChatroomShellController;
+  private talkEditorController?: TalkEditorController;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -927,6 +907,18 @@ export class UIManager extends EventEmitter {
       });
     }
     return this.chatroomShellController;
+  }
+
+  private talkEditor(): TalkEditorController {
+    if (!this.talkEditorController) {
+      this.talkEditorController = createTalkEditorController({
+        getCurrentUserId: () => this.currentUserId,
+        getUiLanguage: () => this.getUiLanguage(),
+        emit: (event, payload) => this.emit(event, payload),
+        t: (key) => this.t(key),
+      });
+    }
+    return this.talkEditorController;
   }
 
   /**
@@ -2718,191 +2710,20 @@ export class UIManager extends EventEmitter {
     renderChatroomMessage(message);
   }
 
-  /**
-   * Talk editor usability follow-up: "+ Create Talk" opens this picker instead of jumping
-   * straight into a blank editor. Picking a template opens the SAME editor pre-filled
-   * (`showTalkEditorDialog` already accepts an `existingTalk`-shaped prefill with no `id` —
-   * proven by the existing copy-talk/survey-follow-up call sites — so a template is just
-   * another one, fully editable, created fresh on save). Modeled on the existing
-   * `showChooseWhoToDmPicker` skeleton; rows reuse `.chatroom-item`'s icon+name+description+
-   * arrow visual language (main.css) rather than inventing a new one.
-   */
-  private showTalkTemplatePicker(): void {
-    renderTalkTemplatePicker({
-      t: this.t.bind(this),
-      openEditor: (existingTalk) => this.showTalkEditorDialog(existingTalk),
-    });
-  }
-
   showTalkEditorDialog(existingTalk?: any): void {
-    // Reset the route DAG editor's in-memory model on every open — it's a field on this
-    // (singleton) instance, not scoped to one dialog session, so without this a second route
-    // talk created back-to-back (or an edit opened right after an unrelated route create)
-    // would silently inherit the previous session's leftover question tree instead of either
-    // a fresh root (`ensureRouteEditorRendered` only reseeds when this array is empty) or the
-    // one actually being edited.
-    this.routeEditorQuestions = [];
-    openTalkEditorDialog({
-      existingTalk,
-      currentUserId: this.currentUserId,
-      text: this.t.bind(this),
-      escapeHtml: escapeHtml,
-      getAnswerPreferences,
-      addQuestionToForm: (index, container) =>
-        addTalkEditorQuestionToForm(index, container, {
-          refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
-          processTalkForm: this.processTalkForm.bind(this),
-          text: this.t.bind(this),
-        }),
-      addAnswerToQuestion: (container, index) =>
-        addTalkEditorAnswerToQuestion(container, index, {
-          refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
-          processTalkForm: this.processTalkForm.bind(this),
-          text: this.t.bind(this),
-        }),
-      appendIgnoreRow: (container, index) => appendTalkEditorIgnoreRow(container, index, {
-        refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
-        processTalkForm: this.processTalkForm.bind(this),
-        text: this.t.bind(this),
-      }),
-      applyBuiltInKindToQuestion,
-      applyTagKindVisibilityToQuestion,
-      updateAllAnswerDropdowns: this.updateAllAnswerDropdowns.bind(this),
-      refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
-      ensureRouteEditorRendered: this.ensureRouteEditorRendered.bind(this),
-      setupTalkFormHandlers: (modal) =>
-        setupTalkEditorFormHandlers(modal, {
-          refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
-          processTalkForm: this.processTalkForm.bind(this),
-          text: this.t.bind(this),
-        }),
-      syncAdultLockFromBuiltInKinds,
-      onBrowseTemplates: () => this.showTalkTemplatePicker(),
-      previewCollectors: {
-        collectFlowSurveyEditorQuestions: (previewType) =>
-          collectFlowSurveyEditorQuestions(document.getElementById('talk-editor-form') as HTMLFormElement, previewType, {
-            refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
-            processTalkForm: this.processTalkForm.bind(this),
-            text: this.t.bind(this),
-          }).questions,
-        collectRouteEditorQuestions: () => this.collectRouteEditorQuestions().questions,
-      },
-    });
+    this.talkEditor().showTalkEditorDialog(existingTalk);
   }
 
-  private updateAllAnswerDropdowns(): void {
-    updateTalkEditorAnswerDropdowns({
-      refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
-      processTalkForm: this.processTalkForm.bind(this),
-      text: this.t.bind(this),
-    });
+  // Public compatibility accessors: route-editor characterization and browser helpers observe
+  // this historical state surface dynamically while the controller owns the actual session.
+  public get routeEditorQuestions(): any[] { return this.talkEditor().getRouteEditorQuestions(); }
+  public set routeEditorQuestions(questions: any[]) { this.talkEditor().setRouteEditorQuestions(questions); }
+  public renderRouteEditor(): void { this.talkEditor().renderRouteEditor(); }
+  public buildRouteSelfAnswers(matchThreshold?: number): { questionId: string; answerId: string }[] {
+    return this.talkEditor().buildRouteSelfAnswers(matchThreshold);
   }
-
-  private processTalkForm(form: HTMLFormElement): boolean {
-    return processTalkFormImpl(form, {
-      getUiLanguage: () => this.getUiLanguage(),
-      getDefaultTalkLanguagePreference,
-      t: (key) => this.t(key),
-      emit: (event, payload) => this.emit(event, payload),
-      showTalkValidationError: (errors) => this.showTalkValidationError(errors),
-      showTalkAutofixReport: (fixes) => this.showTalkAutofixReport(fixes),
-      refreshFlowAnswerConstraints: (type) => this.refreshFlowAnswerConstraints(type),
-      collectRouteEditorQuestions: () => this.collectRouteEditorQuestions(),
-      buildRouteSelfAnswers: (matchThreshold) => this.buildRouteSelfAnswers(matchThreshold),
-    });
-  }
-
-  // ───────────────────────────────────────────────────────────────────────
-  // Create-Talk: per-type UI helpers (flow constraint, route DAG editor,
-  // validation feedback). Kept on the class so the inner closures in
-  // showTalkEditorDialog can reference them via `this`.
-  // ───────────────────────────────────────────────────────────────────────
-
-  /**
-   * Flow-talk UI hints: only the first answer per question decides (match or
-   * link to the next question). Additional answers are normalized to "ignore"
-   * by TalkAutofix at submit time, but we keep the <select> elements fully
-   * interactive here so the user — and Playwright — can toggle them freely.
-   *
-   * We do NOT disable the dropdowns or force their value on render. The only
-   * visible hint is a tooltip on non-first answers in flow mode. The heavy
-   * lifting is done by TalkAutofix + TalkValidator before save.
-   */
-  private refreshFlowAnswerConstraints(type: string): void {
-    refreshFlowAnswerConstraintsImpl(type, { t: (key) => this.t(key) });
-  }
-
-  /** Mutable editor state; pure initialization/serialization lives in route-editor-model.ts. */
-  private routeEditorQuestions: RouteEditorQuestion[] = [];
-
-  /** Builds or re-hydrates the route-editor in-memory state and redraws it. */
-  private ensureRouteEditorRendered(existingTalk?: any): void {
-    const host = document.getElementById('route-editor');
-    if (!host) return;
-    if (this.routeEditorQuestions.length === 0) {
-      this.routeEditorQuestions = initializeRouteEditorQuestions(existingTalk);
-    }
-    this.renderRouteEditor();
-  }
-
-  private renderRouteEditor(): void {
-    const host = document.getElementById('route-editor');
-    if (!host) return;
-    renderRouteEditorController(host, {
-      getQuestions: () => this.routeEditorQuestions,
-      replaceQuestions: (questions) => {
-        this.routeEditorQuestions = questions;
-      },
-      text: this.t.bind(this),
-    });
-  }
-
-  /**
-   * Route talks have no dedicated self-answer picker (unlike flow/tag, `input[name="self-answer-…"]`
-   * above) — the author's own answer to each of their own questions defaults to that question's
-   * first authored answer, walking the DAG from the root and always taking the first answer's
-   * link at each fork. A question with a single answer (the common case: "Model?" → "16 Pro")
-   * makes this unambiguous — that one answer simply IS the self-answer. Stops at a builtIn node
-   * (no authored answers; its own typed-preference save, `processTalkForm` below, is unconditional
-   * on type and covers it separately) or a leaf with no outgoing link.
-   *
-   * `matchThreshold` routes (spec §30.2) are a different shape and take a different branch here:
-   * the root's whole point is 3+ parallel, order-independent specs, not one chosen path, and
-   * matchThreshold mode never asks the respondent to answer the root either (see
-   * `getRouteRootChildQuestionIds`/talk-response-dialog.ts's multi-branch walk) — so the root
-   * itself gets no self-answer. Instead, every direct child of the root is its own independent
-   * spec: the author's self-answer is that spec's own first authored answer ("yes, compatible"),
-   * one per branch off the root (docs/TODO.md §KK zero-click follow-up).
-   */
-  private buildRouteSelfAnswers(matchThreshold?: number): { questionId: string; answerId: string }[] {
-    return buildRouteEditorSelfAnswers(this.routeEditorQuestions, matchThreshold);
-  }
-  private collectRouteEditorQuestions(): ReturnType<typeof collectRouteQuestions> {
-    return collectRouteQuestions(this.routeEditorQuestions, this.t.bind(this));
-  }
-  private showTalkValidationError(errors: string[]): void {
-    const group = document.getElementById('talk-validation-group');
-    if (group) group.style.display = 'block';
-    const errBox = document.getElementById('talk-validation-errors');
-    if (errBox) {
-      errBox.style.display = 'block';
-      errBox.innerHTML = `<strong>${escapeHtml(this.t('editorCannotSave'))}</strong><ul style="margin:6px 0 0 16px; padding:0;">` +
-        errors.map((e) => `<li>${escapeHtml(e)}</li>`).join('') +
-        '</ul>';
-      errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }
-
-  private showTalkAutofixReport(fixes: string[]): void {
-    const group = document.getElementById('talk-validation-group');
-    if (group) group.style.display = 'block';
-    const banner = document.getElementById('talk-autofix-banner');
-    if (banner) {
-      banner.style.display = 'block';
-      banner.innerHTML = `<strong>${escapeHtml(this.t('editorAutoFixed'))}</strong><ul style="margin:6px 0 0 16px; padding:0;">` +
-        fixes.map((f) => `<li>${escapeHtml(f)}</li>`).join('') +
-        '</ul>';
-    }
+  public collectRouteEditorQuestions(): ReturnType<TalkEditorController['collectRouteEditorQuestions']> {
+    return this.talkEditor().collectRouteEditorQuestions();
   }
 
   /**

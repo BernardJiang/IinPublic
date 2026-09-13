@@ -1,6 +1,29 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
+
+## 2026-09-13 — UIManager decomposition cluster #80: Talk editor controller
+
+Continuing Priority 6 after the chatroom-shell extraction. `docs/TODO.md` Priority 6.
+
+- **#80: complete Talk-editor session orchestration → `talk-editor-controller.ts`.** The controller
+  now owns route-DAG session state, form-helper wiring and processing, validation/autofix feedback,
+  preview collection, and template-picker routing. Identity, language, translations, and emitted
+  app events cross a typed dependency boundary; the app-facing editor method and dynamically
+  characterized route-editor surface remain compatibility shims on `UIManager`.
+- **Characterization:** new `talk-editor-controller.test.ts` (3 tests) covers route state/model
+  delegation, fresh-session reset plus the dialog integration contract, and template selection
+  reopening the chosen draft. The focused editor/model unit set passes 32/32. Four focused
+  Chromium scenarios pass for multi-item built-in routes, template enumeration/prefill, expanded
+  templates, and template customization before save.
+- **Ratchet:** `ui-manager.ts` 3,293 → **3,114** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  233 unit suites / 2,406 tests pass (1 skipped). Canonical run
+  `run-20260913-012914-15652` (`PW_WORKERS=8`, 18m40s): stage5, mesh-batch, mesh-isolated,
+  find-similar, cross-browser, isolated, heavy-staged, and mass all passed; `light` passed 251
+  tests (6 skipped), including all editor scenarios, and failed only the established rotating
+  `79-techsupport-survives-restrictive-filters` and
+  `83-survey-ignore-mid-question-not-complete` delivery cases, neither touching this extraction.
 
 ## 2026-09-12 — UIManager decomposition cluster #79: Chatroom shell controller
 

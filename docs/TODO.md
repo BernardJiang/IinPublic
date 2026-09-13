@@ -931,7 +931,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#79 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#80 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -984,8 +984,10 @@ view plus list-record/summary updates (`conversation-detail-view.ts`/
 (`app-shell-controls.ts`); and known/block relationships, peer-name resolution, TechSupport
 presence/muting, peer details, identity-stage linking, and scoped direct-conversation opening
 (`peer-controller.ts`); and current-room/contact-group broadcast orchestration plus late-joiner
-catch-up (`broadcast-controller.ts`); and session-to-shell hydration, chatroom list/detail
-orchestration, custom-room creation, and live member rendering (`chatroom-shell-controller.ts`).
+catch-up (`broadcast-controller.ts`); session-to-shell hydration, chatroom list/detail
+orchestration, custom-room creation, and live member rendering (`chatroom-shell-controller.ts`);
+and the complete Talk-editor session, including route-DAG state, validation, form processing, and
+template selection (`talk-editor-controller.ts`).
 Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
@@ -1003,7 +1005,7 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
 6,472 (#65), 6,462 (#66), 6,453 (#67), 6,437 (#68), 6,416 (#69), 6,401 (#70), 6,367 (#71), and
 5,711 (#72), 4,821 (#73), 4,312 (#74), 4,072 (#75), 3,819 (#76), 3,614 (#77), and
-3,438 (#78), and **3,293** (#79)
+3,438 (#78), 3,293 (#79), and **3,114** (#80)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -2111,6 +2113,11 @@ entries and babel preset were never removed.
     `chatroom-shell-controller.ts`), lowering the ratchet from 3,438 to 3,293.~~ Done; normalized
     session hydration, first-paint preservation, room list/detail chrome, custom-room creation,
     and live member rendering now operate through one typed controller contract.
+63. ~~Extract cluster #80 (complete Talk-editor session orchestration → new
+    `talk-editor-controller.ts`), lowering the ratchet from 3,293 to 3,114.~~ Done; route-DAG
+    state, form helpers/processing, validation feedback, preview collection, and template
+    selection now share one injected controller boundary while the historical manager entry
+    points remain compatibility shims.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React
