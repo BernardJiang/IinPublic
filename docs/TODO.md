@@ -931,7 +931,7 @@ Still open:
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
 for its evidence — this document's own copy of it was archived out 2026-09-08. Issue #1
-(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#77 are complete.
+(`ui-manager.ts` decomposition) is **in progress**; extraction clusters #1-#78 are complete.
 Clusters #1-#8 (2026-08-18 through 2026-08-25) extracted the route editor, survey statistics,
 application shell, answer-preference resolution, the local statistics dashboard, the edit-profile
 dialog, custom-chatroom dialogs, and the settings storage inspector. Clusters #9-#39
@@ -983,7 +983,8 @@ view plus list-record/summary updates (`conversation-detail-view.ts`/
 (`conversation-media-controller.ts`); and application-shell interaction/navigation wiring
 (`app-shell-controls.ts`); and known/block relationships, peer-name resolution, TechSupport
 presence/muting, peer details, identity-stage linking, and scoped direct-conversation opening
-(`peer-controller.ts`). Full per-cluster rationale,
+(`peer-controller.ts`); and current-room/contact-group broadcast orchestration plus late-joiner
+catch-up (`broadcast-controller.ts`). Full per-cluster rationale,
 characterization evidence, and canonical-gate results are in `docs/completed.md` (search
 "UIManager decomposition cluster"); this section keeps only the running ratchet and cross-cluster
 findings to stay readable as the count grows.
@@ -999,7 +1000,8 @@ K7 delegate credentials) landed on top between clusters, then came down cluster-
 (#51), 6,697 (#52), 6,678 (#53), 6,637 (#54), 6,620 (#55), 6,607 (#56), 6,566 (#57), and
 6,555 (#58), 6,545 (#59), 6,531 (#60), 6,517 (#61), 6,504 (#62), 6,494 (#63), 6,485 (#64), and
 6,472 (#65), 6,462 (#66), 6,453 (#67), 6,437 (#68), 6,416 (#69), 6,401 (#70), 6,367 (#71), and
-5,711 (#72), 4,821 (#73), 4,312 (#74), 4,072 (#75), 3,819 (#76), and **3,614** (#77)
+5,711 (#72), 4,821 (#73), 4,312 (#74), 4,072 (#75), 3,819 (#76), 3,614 (#77), and
+**3,438** (#78)
 — the current enforced ceiling
 (`src/test/unit/ui-manager-size-budget.test.ts`).
 
@@ -2099,6 +2101,10 @@ entries and babel preset were never removed.
     `peer-controller.ts`), lowering the ratchet from 3,819 to 3,614.~~ Done; known/block state,
     peer-name resolution, TechSupport presence/muting, peer detail actions, live identity-stage
     linking, and scoped direct-conversation opening now cross one typed controller contract.
+61. ~~Extract cluster #78 (current-room/contact-group broadcast orchestration → new
+    `broadcast-controller.ts`), lowering the ratchet from 3,614 to 3,438.~~ Done; pending-recipient
+    selection, manual sends, late-joiner catch-up, DOM roster reconciliation, safety-toast timing,
+    send animation, and contact-group resolution now share one injected controller boundary.
 
 Issue #2 remains a separate completed commit. Its former owner question is resolved: the examples
 were archived and the unused direct React dependency graph was removed. A future, intentional React

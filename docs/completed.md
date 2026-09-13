@@ -2,6 +2,34 @@
 
 Last updated: 2026-09-12
 
+## 2026-09-12 — UIManager decomposition cluster #78: Broadcast controller
+
+Continuing Priority 6 after the peer-controller extraction. `docs/TODO.md` Priority 6.
+
+- **#78: current-room/contact-group broadcast orchestration → `broadcast-controller.ts`.** The
+  controller now owns current-room fallback, bounded post-editor save retries, DOM/service roster
+  reconciliation, pending and per-talk recipient selection, late-joiner catch-up, the send safety
+  checkpoint and animation, and contact-group picker rendering/resolution. Storage, relationship,
+  identity, translation, notification, and app event effects cross a typed dependency contract;
+  all app/E2E-observed `UIManager` entry points remain thin compatibility shims.
+- **Characterization:** new `broadcast-controller.test.ts` (5 tests) covers roster deduplication
+  and self exclusion, receiver-scoped catch-up, missing-room handling, per-talk receiver narrowing,
+  and blocked-peer exclusion in contact-group delivery. The focused broadcast unit set passes
+  42/42. Three focused Chromium scenarios pass for custom/overlapping contact groups and automatic
+  late-joiner tag catch-up.
+- **Compatibility correction:** the first canonical pass found an E2E-only dynamic caller of the
+  historical private `getUnsentBroadcastTalkIds` method. Its public compatibility shim was restored
+  as a five-line controller delegation; the exact ledger-based repeat-send scenario then passed.
+- **Ratchet:** `ui-manager.ts` 3,614 → **3,438** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  231 unit suites / 2,398 tests pass (1 skipped). Corrected canonical run
+  `run-20260912-192348-92394` (`PW_WORKERS=8`, 18m56s): stage5, mesh-batch, mesh-isolated,
+  find-similar, cross-browser, isolated, heavy-staged, and mass all passed; `light` passed 253
+  tests (6 skipped), including broadcast history, and failed only the established rotating
+  TechSupport FAQ mailbox case `00l-techsupport-faq-cross-user`, unrelated to this extraction.
+  The pre-correction run `run-20260912-190342-85114` is retained as evidence that the dynamic
+  compatibility check caught the missing shim before commit.
+
 ## 2026-09-12 — UIManager decomposition cluster #77: Peer interaction controller
 
 Continuing Priority 6 after the application-shell extraction. `docs/TODO.md` Priority 6.

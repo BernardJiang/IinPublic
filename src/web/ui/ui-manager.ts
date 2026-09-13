@@ -24,10 +24,9 @@ import {
   getSenderOmittedBroadcastPreviews as getSenderOmittedBroadcastPreviewsImpl,
 } from './broadcast-audience-preview';
 import {
-  getUnsentBroadcastTalkIds as getUnsentBroadcastTalkIdsImpl,
-  getUnsentBroadcastTalkIdsForReceiver as getUnsentBroadcastTalkIdsForReceiverImpl,
-  getUnsentBroadcastTalkReceiverIds as getUnsentBroadcastTalkReceiverIdsImpl,
-} from './broadcast-delivery-selection';
+  createBroadcastController,
+  type BroadcastController,
+} from './broadcast-controller';
 import { refreshFlowAnswerConstraints as refreshFlowAnswerConstraintsImpl } from './flow-answer-constraints';
 import {
   LANGUAGE_OPTIONS,
@@ -40,7 +39,6 @@ import { showContentFilterToast as showContentFilterToastImpl } from './content-
 import { applySettingsSectionView as applySettingsSectionViewImpl } from './settings-section-view';
 import { parseIpfsSharePayload as parseIpfsSharePayloadImpl } from './attachment-metadata';
 import { type QAPair } from '../../shared/flattened-answer-keys';
-import { listContactGroups, resolveContactGroupUserIds, type ContactGroupOption } from '../../shared/contact-groups';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
@@ -308,6 +306,7 @@ export class UIManager extends EventEmitter {
   private currentThreadTalkId: string | undefined = undefined;
   private conversationMediaController?: ConversationMediaController;
   private peerController?: PeerController;
+  private broadcastController?: BroadcastController;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -585,8 +584,9 @@ export class UIManager extends EventEmitter {
     return getMyTalks();
   }
 
-  private getUnsentBroadcastTalkIds(_chatroomId: string, receiverIds: string[]): string[] {
-    return getUnsentBroadcastTalkIdsImpl(receiverIds);
+  // Kept public because staged compatibility coverage invokes this historical helper dynamically.
+  public getUnsentBroadcastTalkIds(_chatroomId: string, receiverIds: string[]): string[] {
+    return this.broadcast().getUnsentTalkIds(receiverIds);
   }
 
   /**
@@ -601,7 +601,7 @@ export class UIManager extends EventEmitter {
     talkIds: string[],
     receiverIds: string[],
   ): Record<string, string[]> {
-    return getUnsentBroadcastTalkReceiverIdsImpl(talkIds, receiverIds);
+    return this.broadcast().getUnsentTalkReceiverIds(talkIds, receiverIds);
   }
 
   initialize(): void {
@@ -750,13 +750,12 @@ export class UIManager extends EventEmitter {
    * Send all broadcastable OUT talks to everyone in the current chatroom (Gun announce + server IN registration).
    */
   private handleBroadcastTalkFromCurrentRoom(automatic: boolean): void {
-    void this.runBroadcastFromCurrentRoom(automatic);
+    void this.broadcast().runBroadcastFromCurrentRoom(automatic);
   }
 
   /** Auto-send only the OUT talk revisions not yet delivered to each individual peer. */
   public broadcastPendingTalksOnRoomEntry(): void {
-    if (!this.currentChatroom) return;
-    this.broadcastPendingTalksToMembers(this.getCurrentChatroomMembers());
+    this.broadcast().broadcastPendingTalksOnRoomEntry();
   }
 
   /**
@@ -767,107 +766,7 @@ export class UIManager extends EventEmitter {
   public broadcastPendingTalksToMembers(
     members: Array<{ userId: string; stageName: string }>,
   ): void {
-    if (!this.currentChatroom) return;
-    for (const peer of members) {
-      const talkIds = getUnsentBroadcastTalkIdsForReceiverImpl(peer.userId);
-      if (talkIds.length > 0) {
-        this.emit('broadcastTalk', { chatroomId: this.currentChatroom, members: [peer], talkIds, automatic: true });
-      }
-    }
-  }
-
-  private async runBroadcastFromCurrentRoom(automatic: boolean): Promise<void> {
-    let chatroomId = this.currentChatroom;
-    if (!chatroomId) {
-      const fromApp = (
-        window as unknown as {
-          __iinpublic_app?: { getApp: () => { chatroomService?: { getCurrentChatroomId: () => string } } };
-        }
-      ).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.();
-      if (fromApp) {
-        chatroomId = fromApp;
-        this.currentChatroom = fromApp;
-      }
-    }
-    if (!chatroomId) {
-      this.showNotification(this.t('chatroomOpenFirst'), 'info');
-      return;
-    }
-
-    // `saveCreatedTalk` runs after `await talkService.createTalk()`; the editor closes synchronously on submit,
-    // so a fast Broadcast click can run before OUT rows exist. Briefly retry before opening the editor.
-    let broadcastableIds = this.getBroadcastableTalkIds();
-    if (broadcastableIds.length === 0) {
-      for (let i = 0; i < 20; i++) {
-        await new Promise<void>((resolve) => {
-          window.setTimeout(resolve, 75);
-        });
-        broadcastableIds = this.getBroadcastableTalkIds();
-        if (broadcastableIds.length > 0) break;
-      }
-    }
-
-    const broadcastableCount = broadcastableIds.length;
-    if (broadcastableCount === 0) {
-      this.showTalkEditorDialog();
-      setTimeout(() => {
-        this.showNotification(this.t('chatroomNoTalksToBroadcast'), 'info');
-      }, 0);
-      return;
-    }
-
-    const fromDom = Array.from(document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]')).map(
-      (el) => {
-        const node = el as HTMLElement;
-        return {
-          userId: node.dataset.userId || '',
-          stageName: (node.dataset.stageName || 'User').trim() || 'User',
-        };
-      },
-    );
-    const byId = new Map<string, { userId: string; stageName: string }>();
-    for (const m of [...this.currentChatroomMembers, ...fromDom]) {
-      const id = (m.userId || '').trim();
-      if (!id) continue;
-      if (!byId.has(id)) byId.set(id, { userId: id, stageName: m.stageName || id });
-    }
-    const members = Array.from(byId.values());
-
-    const talkIds = this.getPendingBroadcastTalkIds();
-    if (talkIds.length === 0) {
-      this.showNotification(this.t('chatroomAlreadyBroadcast'), 'info');
-      return;
-    }
-
-    // docs/TODO.md §W Gap 1: talkIds above is the room-wide union (a talk stays in it if any
-    // member still needs it) — pass each talk's own narrower receiver list too, so a member
-    // who already has a given talk isn't re-attempted just because someone else needs it.
-    const talkReceiverIds = this.getUnsentBroadcastTalkReceiverIds(
-      chatroomId,
-      talkIds,
-      members.map((m) => m.userId),
-    );
-
-    this.maybeShowPreSendSafetyToast();
-    this.emit('broadcastTalk', {
-      chatroomId,
-      members,
-      talkIds,
-      talkReceiverIds,
-      automatic,
-    });
-
-    const list = document.getElementById('chatroom-members-list');
-    if (list) {
-      list.querySelectorAll('.chatroom-member-item').forEach((el) => {
-        el.classList.add('broadcast-sent-to');
-      });
-      setTimeout(() => {
-        list.querySelectorAll('.chatroom-member-item').forEach((el) => {
-          el.classList.remove('broadcast-sent-to');
-        });
-      }, 2500);
-    }
+    this.broadcast().broadcastPendingTalksToMembers(members);
   }
 
   private syncStatusBroadcastButtonVisibility(): void {
@@ -1052,6 +951,29 @@ export class UIManager extends EventEmitter {
       });
     }
     return this.peerController;
+  }
+
+  private broadcast(): BroadcastController {
+    if (!this.broadcastController) {
+      this.broadcastController = createBroadcastController({
+        getCurrentChatroom: () => this.currentChatroom,
+        setCurrentChatroom: (chatroomId) => { this.currentChatroom = chatroomId; },
+        getCurrentUserId: () => this.currentUserId,
+        getCurrentChatroomMembers: () => this.currentChatroomMembers,
+        getKnownPeople: () => this.peer().getKnownPeople(),
+        getBlockedUserIds: () => this.currentUser?.blockedUserIds || [],
+        getBroadcastableTalkIds: () => this.getBroadcastableTalkIds(),
+        getMyTalks: () => this.getMyTalks(),
+        getPeerName: (userId) => this.peer().getPeerName(userId),
+        showNotification: (message, type) => this.showNotification(message, type),
+        showTalkEditorDialog: () => this.showTalkEditorDialog(),
+        maybeShowPreSendSafetyToast: () => this.maybeShowPreSendSafetyToast(),
+        emit: (event, payload) => this.emit(event, payload),
+        t: (key) => this.t(key),
+        tf: (key, vars) => this.tf(key, vars),
+      });
+    }
+    return this.broadcastController;
   }
 
   /**
@@ -2452,100 +2374,9 @@ export class UIManager extends EventEmitter {
     el.dataset.broadcastBulkGen = String(Number.isFinite(prev) ? prev + 1 : 1);
   }
 
-  /** docs/TODO.md §U — display text for a contact-group option; built-ins reuse the existing relation-filter translation keys, custom groups show the raw typed text as-is. */
-  private formatContactGroupLabel(group: ContactGroupOption): string {
-    const builtInKeys: Record<string, UiTranslationKey> = {
-      all: 'allRelations',
-      friend: 'friends',
-      relative: 'relatives',
-      coworker: 'coworkers',
-      acquaintance: 'acquaintances',
-      partner: 'partners',
-      custom: 'custom',
-    };
-    const key = builtInKeys[group.id];
-    return key ? this.t(key) : group.displayLabel;
-  }
-
-  /**
-   * docs/TODO.md §U — broadcast a talk to a whole contact group, online or not. Delivery
-   * itself reuses the exact same mesh-plus-mailbox path every other broadcast already uses
-   * (`app.ts`'s `broadcastToContactGroup` handler calls `deliverTalkToReceiversOverMesh`) —
-   * this dialog's only job is resolving *who* to send to.
-   */
   showBroadcastToGroupDialog(): void {
-    const knownPeople = this.getKnownPeople();
-    const groups = listContactGroups(knownPeople);
-    const talkIds = this.getBroadcastableTalkIds();
-    if (talkIds.length === 0) {
-      this.showNotification(this.t('chatroomNoTalksToBroadcast'), 'info');
-      return;
-    }
-    const myTalks = getMyTalks();
-
-    document.getElementById('broadcast-group-modal')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'broadcast-group-modal';
-    modal.dataset.testid = 'broadcast-group-modal';
-    modal.className = 'modal-overlay';
-    modal.style.zIndex = '2000';
-
-    const groupOptions = groups
-      .map((g) => `<option value="${escapeHtml(g.id)}">${escapeHtml(this.formatContactGroupLabel(g))} (${g.memberCount})</option>`)
-      .join('');
-    const talkOptions = talkIds
-      .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(myTalks[id]?.title || id)}</option>`)
-      .join('');
-
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:420px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${this.t('broadcastGroupTitle')}</h2>
-        </div>
-        <label style="display:block;margin-top:10px;font-size:0.9em;">
-          <span>${this.t('broadcastGroupPickGroup')}</span>
-          <select id="broadcast-group-select" class="form-input" data-testid="broadcast-group-select">${groupOptions}</select>
-        </label>
-        <label style="display:block;margin-top:10px;font-size:0.9em;">
-          <span>${this.t('broadcastGroupPickTalk')}</span>
-          <select id="broadcast-group-talk-select" class="form-input" data-testid="broadcast-group-talk-select">${talkOptions}</select>
-        </label>
-        <div id="broadcast-group-preview" style="margin-top:10px;font-size:0.88em;color:var(--text-secondary);" data-testid="broadcast-group-preview"></div>
-        <div class="modal-actions">
-          <button type="button" class="btn" data-testid="broadcast-group-cancel">${this.t('captureConfirmDecline')}</button>
-          <button type="button" class="btn primary-btn" data-testid="broadcast-group-confirm">${this.t('conversationSend')}</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-
-    const groupSelect = modal.querySelector('#broadcast-group-select') as HTMLSelectElement;
-    const talkSelect = modal.querySelector('#broadcast-group-talk-select') as HTMLSelectElement;
-    const preview = modal.querySelector('#broadcast-group-preview') as HTMLElement;
-    const updatePreview = () => {
-      const userIds = resolveContactGroupUserIds(knownPeople, groupSelect.value, this.currentUser?.blockedUserIds || []);
-      preview.textContent = this.tf('broadcastGroupPreview', { count: userIds.length });
-    };
-    groupSelect.addEventListener('change', updatePreview);
-    updatePreview();
-
-    const close = () => modal.remove();
-    modal.querySelector('[data-testid="broadcast-group-cancel"]')?.addEventListener('click', close);
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) close();
-    });
-    modal.querySelector('[data-testid="broadcast-group-confirm"]')?.addEventListener('click', () => {
-      const userIds = resolveContactGroupUserIds(knownPeople, groupSelect.value, this.currentUser?.blockedUserIds || []);
-      if (userIds.length === 0) {
-        this.showNotification(this.t('broadcastGroupEmpty'), 'info');
-        return;
-      }
-      const members = userIds.map((userId) => ({ userId, stageName: this.getPeerName(userId) }));
-      this.emit('broadcastToContactGroup', { talkId: talkSelect.value, members });
-      close();
-    });
+    this.broadcast().showBroadcastToGroupDialog();
   }
-
   confirmBroadcastAudience(previews: BroadcastAudiencePreview[]): Promise<boolean> {
     return renderConfirmBroadcastAudience(previews, {
       t: this.t.bind(this),
@@ -2797,13 +2628,7 @@ export class UIManager extends EventEmitter {
 
   /** OUT talks eligible for the next broadcast in the current room (respects send history). */
   getPendingBroadcastTalkIds(): string[] {
-    const fromDom = Array.from(
-      document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]'),
-    ).map((el) => (el as HTMLElement).dataset.userId || '');
-    const receiverIds = [...this.currentChatroomMembers.map((m) => m.userId), ...fromDom]
-      .map((id) => String(id || '').trim())
-      .filter((id) => !!id && id !== this.currentUserId);
-    return this.getUnsentBroadcastTalkIds(this.currentChatroom, [...new Set(receiverIds)]);
+    return this.broadcast().getPendingBroadcastTalkIds();
   }
 
   /** Talks that can be included in broadcast: created or copied, not disabled, and not expired */
@@ -3375,7 +3200,6 @@ export class UIManager extends EventEmitter {
     this.peer().openPeerDetailForUser(userId, stageName);
   }
 
-  private getKnownPeople(): KnownPerson[] { return this.peer().getKnownPeople(); }
   private getKnownPerson(userId: string): KnownPerson | undefined { return this.peer().getKnownPerson(userId); }
   private hasSupportContact(): boolean { return this.peer().hasSupportContact(); }
   private isTechSupportOnline(): boolean { return this.peer().isTechSupportOnline(); }
