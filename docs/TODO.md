@@ -792,10 +792,30 @@ The Mac mini should coordinate the test, but each target machine should run its 
 
 Design is specified in technical specification §30.6. The age-range comparator and multi-value
 gender/race preference matching are now both fully wired and shipping (as the built-in Dating
-talk template); the remaining bullet — photo-delivery consent/safety copy — carries its own
-product/safety judgment call and is left for a dedicated pass.
+talk template).
 
-- [ ] Add optional author-selected talk photo delivery after a successful match and safety notice.
+- [x] **Landed 2026-09-13:** author-selected talk photo delivery after a successful match and
+  safety notice. Turned out to be mostly already built: the talk editor's generic "Attach media"
+  file input (`talk-editor-dialog.ts`) already lets an author attach a photo (or any file) at
+  creation time, `WebContentNodeService.publishAttachmentBytes` already uploads it to IPFS
+  publicly (`enc: 'none'`) right then (no per-match encryption step, no live consent prompt —
+  matching spec §30.6's "decided by the author at talk-creation time" design), and
+  `autoShareMatchedTalkAttachments` (`app.ts`) already auto-posts it into the new conversation on
+  match, AFTER `maybeShowMatchSafetyToast()`'s T2 safety notice (§7.4 FR-FIN-1) — the exact
+  ordering §30.6 calls for. The actual gap was narrower than the bullet implied: reopening the
+  editor on an already-created talk hid the entire attachment section (`talk-attachment-group`'s
+  `display: isEdit ? 'none' : 'block'`), so an author could never again see what they'd attached —
+  spec §30.6's explicit Me-tab requirement ("Photo to share when matched: [thumbnail]... authored
+  content like any other criterion") had no implementation at all. Added a read-only
+  `#talk-existing-attachment-group` preview (reusing `renderMediaTile`/`hydrateAttachmentImages`
+  from the conversation-media pipeline — the author's own device always holds its own published
+  bytes locally already via `readLocalBlock`, so the thumbnail needs no network round-trip) that
+  shows whenever `existingTalk.ipfsAttachments` is non-empty, wired through
+  `TalkEditorControllerDeps`/`ui-manager.ts`'s `conversationMedia()` accessor. Re-attaching or
+  removing an existing attachment remains unsupported (out of scope — not asked). Verified live in
+  the browser (`npm run dev`): create a tag talk with an attached image, reopen it for edit, the
+  new "Photo to share when matched" tile renders the thumbnail/filename/size and the raw file
+  input is no longer shown.
 
 ### EE. Me/profile completion
 

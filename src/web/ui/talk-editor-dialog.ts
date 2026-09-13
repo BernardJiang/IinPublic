@@ -10,6 +10,7 @@ import {
   setTagOppositePairRegistryState,
 } from './answer-preferences-storage';
 import { mountTalkPreviewPanel, type TalkPreviewCollectors } from './talk-editor-preview';
+import { renderMediaTile } from './attachment-metadata';
 
 // docs/TODO.md §LL: shared auto-fill/lock/preview behavior for a `type: 'tag'` talk's tag-word
 // input (`#talk-title`) and its accepted-answer counterpart (`#talk-answer`). Typing into the
@@ -101,6 +102,10 @@ type TalkEditorDialogOptions = {
   onBrowseTemplates?: () => void;
   previewCollectors: TalkPreviewCollectors;
   text?: (key: UiTranslationKey) => string;
+  /** docs/TODO.md §DD: fetches this device's own locally-published bytes for an `.ipfs-attachment`
+   *  tile (spec §30.6's "Photo to share when matched" preview) so its thumbnail renders without a
+   *  network round-trip — the author always holds their own attachment's bytes locally already. */
+  hydrateAttachmentImages?: (container: HTMLElement) => void;
 };
 
 export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
@@ -124,6 +129,20 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
 
   const renderForm = (): void => {
     const isEdit = !!(existingTalk && existingTalk.id);
+    // docs/TODO.md §DD, spec §30.6: once attached at creation, the file input stays hidden on
+    // edit (re-attaching/replacing isn't supported yet) — this read-only tile is what lets the
+    // author still see the choice they already made ("authored content like any other
+    // criterion, not a special-cased feature").
+    const existingAttachment = Array.isArray(existingTalk?.ipfsAttachments) ? existingTalk.ipfsAttachments[0] : null;
+    const existingAttachmentMarkup = existingAttachment
+      ? renderMediaTile({
+          cid: String(existingAttachment.cid || ''),
+          link: `ipfs://${existingAttachment.cid || ''}`,
+          name: String(existingAttachment.name || 'attachment'),
+          mimeType: String(existingAttachment.mimeType || ''),
+          sizeBytes: Number(existingAttachment.sizeBytes) || 0,
+        })
+      : '';
     modal.innerHTML = `
       <div class="modal-content size-xl modal-fullscreen" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
@@ -260,6 +279,10 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               <input type="checkbox" id="talk-is-adult" aria-label="Adult content (18+)" ${existingTalk?.isAdult ? 'checked' : ''}>
               <span>🔞 ${text('editorAdult', 'Adult content (18+) - only delivered to age-verified users')}</span>
             </label>
+          </div>
+          <div class="form-group" id="talk-existing-attachment-group" style="display: ${existingAttachmentMarkup ? 'block' : 'none'};">
+            <label class="form-label">${text('editorExistingAttachment', 'Photo to share when matched')}</label>
+            <div id="talk-existing-attachment-preview">${existingAttachmentMarkup}</div>
           </div>
           <div class="form-group" id="talk-attachment-group" style="display: ${isEdit ? 'none' : 'block'};">
             <label class="form-label">${text('editorAttachment', 'Attach media (link shared automatically when someone matches)')}</label>
@@ -546,6 +569,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     // every subsequent edit from here.
     options.syncAdultLockFromBuiltInKinds(modal);
     mountTalkPreviewPanel(modal, options.previewCollectors, text);
+    if (existingAttachmentMarkup) options.hydrateAttachmentImages?.(modal);
 
     document.getElementById('browse-talk-templates-btn')?.addEventListener('click', () => {
       if (document.body.contains(modal)) document.body.removeChild(modal);

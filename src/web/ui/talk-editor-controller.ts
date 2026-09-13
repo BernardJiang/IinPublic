@@ -30,6 +30,7 @@ export type TalkEditorControllerDeps = {
   getUiLanguage: () => UiLanguage;
   emit: (event: string, payload: unknown) => void;
   t: (key: any) => string;
+  hydrateAttachmentImages: (container: HTMLElement) => void;
 };
 
 export type TalkEditorController = ReturnType<typeof createTalkEditorController>;
@@ -133,6 +134,7 @@ export function createTalkEditorController(deps: TalkEditorControllerDeps) {
       ensureRouteEditorRendered,
       setupTalkFormHandlers: (modal) => setupTalkFormHandlers(modal, formHelperOptions()),
       syncAdultLockFromBuiltInKinds,
+      hydrateAttachmentImages: deps.hydrateAttachmentImages,
       onBrowseTemplates: showTalkTemplatePicker,
       previewCollectors: {
         collectFlowSurveyEditorQuestions: (previewType) => collectFlowSurveyEditorQuestions(

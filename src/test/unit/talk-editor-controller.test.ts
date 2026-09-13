@@ -23,6 +23,7 @@ function makeDeps(overrides: Partial<TalkEditorControllerDeps> = {}): TalkEditor
     getUiLanguage: () => 'en',
     emit: jest.fn(),
     t: (key) => String(key),
+    hydrateAttachmentImages: jest.fn(),
     ...overrides,
   };
 }

@@ -910,6 +910,7 @@ export class UIManager extends EventEmitter {
         getUiLanguage: () => this.getUiLanguage(),
         emit: (event, payload) => this.emit(event, payload),
         t: (key) => this.t(key),
+        hydrateAttachmentImages: (root) => this.conversationMedia().hydrateAttachmentImages(root),
       });
     }
     return this.talkEditorController;
