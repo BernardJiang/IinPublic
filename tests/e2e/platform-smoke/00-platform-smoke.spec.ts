@@ -195,4 +195,43 @@ test.describe('@smoke platform smoke set', () => {
       gunValueId: runId,
     });
   });
+
+  // Closes the "reconnect... behavior" half of docs/TODO.md's Firefox gap (Stage 1.2: "Verify
+  // local storage, IndexedDB, permissions, WebSocket, and reconnect behavior" — HTTP/WebSocket/
+  // localStorage/IndexedDB were already covered by the test above; reconnect was not). Runs on
+  // every engine this file's project matrix already covers (chromium/webkit/firefox via
+  // test:e2e:browsers), not just Firefox, since the behavior itself isn't Firefox-specific.
+  test('recovers Gun/WebSocket connectivity after a simulated network drop', async () => {
+    const p = page!;
+    const c = context!;
+    const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    // context().setOffline(true) drops any already-open WebSocket at the network layer —
+    // give the browser a moment to actually notice before flipping back online, otherwise this
+    // could pass trivially because the socket never had time to close.
+    await c.setOffline(true);
+    await p.waitForTimeout(500);
+    await c.setOffline(false);
+
+    // Gun's own reconnect logic re-establishes the socket without any app-level intervention —
+    // poll for a fresh round-trip succeeding rather than assume the network is back the instant
+    // setOffline(false) resolves.
+    await expect
+      .poll(
+        () =>
+          p.evaluate(async (id) => {
+            try {
+              const app = (window as any).__iinpublic_app?.getApp?.();
+              if (!app?.gunService) return false;
+              await app.gunService.put(`e2e/reconnect-check/${id}`, { id, writtenAt: Date.now() });
+              const readBack = await app.gunService.get(`e2e/reconnect-check/${id}`);
+              return readBack?.id === id;
+            } catch {
+              return false;
+            }
+          }, runId),
+        { timeout: 30_000, message: 'Gun read/write should succeed again once back online' },
+      )
+      .toBe(true);
+  });
 });

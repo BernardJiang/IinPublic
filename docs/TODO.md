@@ -107,8 +107,27 @@ npm run test:e2e:firefox
 ```
 
 Implemented and passing for the platform smoke gate; HTTP, WebSocket,
-localStorage, IndexedDB, and local Gun read/write are covered. Permissions,
-reconnect, and cross-peer Firefox behavior remain open.
+localStorage, IndexedDB, and local Gun read/write are covered. **Landed
+2026-09-13:** reconnect — a new platform-smoke test (`00-platform-smoke.spec.ts`)
+drops the network (`context().setOffline(true)`), brings it back, and polls a
+fresh Gun put/get round-trip until it succeeds again, proving Gun's own
+reconnect logic recovers the WebSocket without app intervention. Runs on every
+engine this file's project matrix covers (verified passing on all of chromium,
+webkit, and firefox via `npm run test:e2e:browsers`), not just Firefox, since
+the behavior isn't Firefox-specific. Cross-peer Firefox behavior is also
+already covered separately (§1.4's Chromium↔Firefox/Firefox↔WebKit bullets).
+**Still open: permissions.** The only real browser permission this app ever
+requests is geolocation (`LocationPrivacy.getCurrentLocation`,
+`src/shared/location.ts`) — and it turns out to be untestable against today's
+E2E harness as written, not just untested: `src/web/index.ts`'s
+`USE_TEST_LOCATION = process.env.NODE_ENV !== 'production'` means EVERY
+dev/E2E build (anything not a production build) always uses a fixed test
+location and never calls `resolveRealLocationInBackground()` (the only
+caller of `getCurrentLocation`) at all — the geolocation code path is
+reachable only in a production build. Exercising it would need a real
+production-mode Playwright harness (a production build served instead of the
+webpack dev server), which doesn't exist today and is unscoped infrastructure
+work of its own, not a small addition to this bullet.
 
 Installed-release coverage is also available through
 `npm run test:e2e:macos-firefox`: its mandatory preflight verifies the Firefox
