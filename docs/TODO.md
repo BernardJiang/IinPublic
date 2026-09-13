@@ -927,6 +927,10 @@ Still open:
 
 ## Priority 6 — UI architecture: god-object refactor & React evaluation
 
+**Priority status:** ✅ **DONE** (2026-09-13). The 83-cluster `UIManager` decomposition is complete,
+and the measured React gate concluded that IinPublic should keep its framework-free DOM UI. See
+`docs/performance/react-dom-evaluation-2026-09-13.md` for release traces and the bounded pilot.
+
 ### UI god-object refactor
 
 **Status:** Issue #2 (React dependency cleanup) ✅ **DONE** in `2f0b7355`; see `docs/completed.md`
@@ -2140,9 +2144,9 @@ evaluation is specified in "React DOM / React Native evaluation" below.
 
 ### React DOM / React Native evaluation
 
-**Status:** Planned, not started. This document authorizes measurement and a bounded React DOM
-pilot only after its gates are met; it does **not** authorize a whole-app rewrite or a React Native
-migration.
+**Status:** ✅ **DONE** (2026-09-13). Release profiles, framework-independent optimization, and a
+bounded route-editor React pilot are complete. Decision: retain the framework-free DOM UI; React
+Native remains outside scope and requires a separate owner/budget decision.
 **Written:** 2026-08-23 after reviewing the framework-free UI and current browser, Electron, Android
 WebView, and embedded Node/Gun architecture.
 
@@ -2165,7 +2169,8 @@ dependency graph.
 - Android starts an embedded Node/Gun runtime, waits for its loopback health endpoint, and then
   loads the web application. First-run Node staging can dominate perceived startup independently
   of the UI framework.
-- The current production `dist/web/bundle.js` is about 2.9 MB uncompressed. Large P2P/IPFS chunks
+- The measured production `dist/web/bundle.js` is about 1.48 MB uncompressed (377 KB gzip). Large
+  P2P/IPFS chunks
   exist separately, so initial-load and deferred-load costs must be measured rather than guessed.
 - `UIManager` and `app.ts` are large mutable coordinators. React could improve ownership and state
   boundaries, but React cannot by itself fix Gun synchronization, IPFS loading, cryptography,
@@ -2209,54 +2214,55 @@ Cons:
 
 #### Phase 0 — Define and measure “slow” (mandatory)
 
-- [ ] Measure **release builds**, not development builds, on at least one browser, Electron, and
+- [x] Measure **release builds**, not development builds, on at least one browser, Electron, and
       representative Android device/profile.
-- [ ] Split cold start into timestamps:
+- [x] Split cold start into timestamps:
       1. process/activity launch;
       2. embedded Node health-ready where applicable;
       3. HTML loaded;
       4. main bundle downloaded/read, parsed, and executed;
       5. first usable navigation;
       6. initial identity/Gun synchronization complete.
-- [ ] Record main-thread long tasks, memory, navigation latency, input latency, and scroll frame
+- [x] Record main-thread long tasks, memory, navigation latency, input latency, and scroll frame
       behavior for Talks and Contacts.
-- [ ] Record bundle/chunk transfer and parse sizes, including cold and warm cache.
-- [ ] Name the top three bottlenecks with traces. Do not select a framework before this evidence.
+- [x] Record bundle/chunk transfer and parse sizes, including cold and warm cache.
+- [x] Name the top three bottlenecks with traces. Do not select a framework before this evidence.
 
 #### Phase 1 — Framework-independent performance work
 
-- [ ] Defer non-critical initialization and feature modules until their first use.
-- [ ] Verify that large P2P/IPFS code is not part of the critical first-interaction path.
-- [ ] Coalesce bursty Gun events and update only the affected UI region.
-- [ ] Virtualize or progressively render genuinely large lists; avoid rebuilding complete lists for
+- [x] Defer non-critical initialization and feature modules until their first use.
+- [x] Verify that large P2P/IPFS code is not part of the critical first-interaction path.
+- [x] Coalesce bursty Gun events and update only the affected UI region.
+- [x] Virtualize or progressively render genuinely large lists; avoid rebuilding complete lists for
       one-row changes.
-- [ ] Move sustained CPU work off the renderer thread where practical.
-- [ ] Repeat Phase 0 measurements and retain before/after traces.
+- [x] Move sustained CPU work off the renderer thread where practical.
+- [x] Repeat Phase 0 measurements and retain before/after traces.
 
 #### Phase 2 — Bounded React DOM pilot
 
-- [ ] Begin only after the `UIManager` route-editor cluster has explicit ownership and
+- [x] Begin only after the `UIManager` route-editor cluster has explicit ownership and
       characterization tests.
-- [ ] Use the route editor as the maintainability pilot because it is cohesive and interactive.
+- [x] Use the route editor as the maintainability pilot because it is cohesive and interactive.
       If the goal is specifically list-speed, use the single slowest measured list instead; do not
       silently change the pilot goal.
-- [ ] Give React exclusive ownership of one root element. Legacy code may pass typed data/events
+- [x] Give React exclusive ownership of one root element. Legacy code may pass typed data/events
       across the boundary but may not mutate descendants of that root.
-- [ ] Keep services, Gun, storage, identity, cryptography, and platform shells unchanged.
-- [ ] Record dependency/bundle delta, mount/update timings, input latency, memory, accessibility,
+- [x] Keep services, Gun, storage, identity, cryptography, and platform shells unchanged.
+- [x] Record dependency/bundle delta, mount/update timings, input latency, memory, accessibility,
       E2E stability, and implementation effort.
-- [ ] Use production profiling builds only for controlled measurements; ship an ordinary production
+- [x] Use production profiling builds only for controlled measurements; ship an ordinary production
       build after the experiment.
 
 #### Phase 3 — Decision gate
 
-- [ ] Compare the React pilot with the characterized DOM implementation using the same data and
+- [x] Compare the React pilot with the characterized DOM implementation using the same data and
       device/profile.
-- [ ] Adopt incremental React DOM only if it improves maintainability without a material regression
-      in cold start, interaction latency, memory, accessibility, or test reliability.
-- [ ] If adopted, migrate one screen/cluster per commit with exclusive DOM ownership and a green
-      canonical gate. Do not combine migration with behavior redesign.
-- [ ] If rejected, remove pilot-only dependencies/configuration and retain the measured
+- [x] Apply the adoption gate: incremental React DOM did **not** improve maintainability without a
+      material regression in cold start, interaction latency, memory, accessibility, or test
+      reliability.
+- [x] Adopted-path migration is not applicable because the pilot was rejected; no production screen
+      or behavior was migrated.
+- [x] If rejected, remove pilot-only dependencies/configuration and retain the measured
       framework-independent improvements.
 
 #### Separate React Native gate
@@ -2265,6 +2271,9 @@ React Native requires a new owner decision and budget. Approve it only if native
 is a product requirement strong enough to justify separate web/desktop presentation work, native
 bridge replacement, new build/release pipelines, and a staged migration plan. It must not be chosen
 as a presumed cure for unmeasured slowness.
+
+**2026-09-13 gate result:** not approved. The measured bottlenecks are shared synchronization and
+DOM/list work, not a demonstrated need for separate native presentation stacks.
 
 #### Primary references
 

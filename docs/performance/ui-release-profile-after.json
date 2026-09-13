@@ -1,0 +1,608 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-13T16:58:59.014Z",
+  "gitCommit": "8cf2ad7b91d3aa91c960afa0716038280546be00",
+  "workingTreeDirty": true,
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v26.4.0",
+    "chromium": "chromium",
+    "measurement": "production webpack assets served locally; fresh isolated profile per platform"
+  },
+  "dataset": {
+    "talks": 500,
+    "contacts": 500,
+    "routeQuestions": 100
+  },
+  "bundles": {
+    "bundle.js": {
+      "bytes": 1478409,
+      "gzipBytes": 376995,
+      "contentHints": []
+    },
+    "144.bundle.js": {
+      "bytes": 106320,
+      "gzipBytes": 14815,
+      "contentHints": [
+        "maplibre"
+      ]
+    },
+    "286.bundle.js": {
+      "bytes": 9844,
+      "gzipBytes": 3098,
+      "contentHints": []
+    },
+    "389.bundle.js": {
+      "bytes": 61229,
+      "gzipBytes": 17615,
+      "contentHints": []
+    },
+    "39.bundle.js": {
+      "bytes": 1135250,
+      "gzipBytes": 319582,
+      "contentHints": [
+        "helia"
+      ]
+    },
+    "417.bundle.js": {
+      "bytes": 266,
+      "gzipBytes": 233,
+      "contentHints": []
+    },
+    "429.bundle.js": {
+      "bytes": 14120,
+      "gzipBytes": 4806,
+      "contentHints": []
+    },
+    "430.bundle.js": {
+      "bytes": 5365,
+      "gzipBytes": 1846,
+      "contentHints": []
+    },
+    "51.bundle.js": {
+      "bytes": 365,
+      "gzipBytes": 264,
+      "contentHints": []
+    },
+    "544.bundle.js": {
+      "bytes": 94,
+      "gzipBytes": 88,
+      "contentHints": []
+    },
+    "583.bundle.js": {
+      "bytes": 24021,
+      "gzipBytes": 8902,
+      "contentHints": []
+    },
+    "595.bundle.js": {
+      "bytes": 147750,
+      "gzipBytes": 50009,
+      "contentHints": []
+    },
+    "653.bundle.js": {
+      "bytes": 4182,
+      "gzipBytes": 1650,
+      "contentHints": []
+    },
+    "73.bundle.js": {
+      "bytes": 34160,
+      "gzipBytes": 7411,
+      "contentHints": []
+    },
+    "831.bundle.js": {
+      "bytes": 19421,
+      "gzipBytes": 7584,
+      "contentHints": []
+    },
+    "849.bundle.js": {
+      "bytes": 985506,
+      "gzipBytes": 253289,
+      "contentHints": [
+        "maplibre"
+      ]
+    },
+    "976.bundle.js": {
+      "bytes": 1350,
+      "gzipBytes": 645,
+      "contentHints": []
+    }
+  },
+  "profiles": {
+    "browserDesktop": {
+      "cold": {
+        "label": "browser-desktop-cold",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36",
+        "viewport": {
+          "width": 1280,
+          "height": 900,
+          "devicePixelRatio": 1
+        },
+        "startup": {
+          "version": 1,
+          "host": {
+            "processLaunchEpochMs": 1789318739106
+          },
+          "phases": {
+            "htmlParsed": 4.4,
+            "bundleExecuted": 49.1,
+            "domContentLoaded": 49.2,
+            "firstUsableNavigation": 59.5,
+            "initialSyncComplete": 839.8
+          }
+        },
+        "milestonesFromProcessLaunchMs": {
+          "nodeHealthReady": null,
+          "htmlParsed": 193,
+          "bundleExecuted": 237.7,
+          "firstUsableNavigation": 248.1,
+          "initialSyncComplete": 1028.4
+        },
+        "navigation": {
+          "domContentLoadedMs": 60,
+          "loadEventMs": 60.4,
+          "responseStartMs": 1.4,
+          "responseEndMs": 1.6,
+          "transferSize": 950,
+          "encodedBodySize": 650,
+          "decodedBodySize": 650
+        },
+        "bundle": {
+          "name": "http://127.0.0.1:3765/bundle.js",
+          "initiatorType": "script",
+          "startTime": 2.9,
+          "responseEnd": 5.7,
+          "transferSize": 1478709,
+          "encodedBodySize": 1478409,
+          "decodedBodySize": 1478409
+        },
+        "allResourceTransferBytes": 1492492,
+        "allResourceDecodedBytes": 1491592,
+        "requestedWebpackChunks": [
+          "bundle.js"
+        ],
+        "heliaRequested": false,
+        "mapLibreRequested": false,
+        "usedJsHeapBytes": 8282609
+      },
+      "warm": {
+        "label": "browser-desktop-warm",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36",
+        "viewport": {
+          "width": 1280,
+          "height": 900,
+          "devicePixelRatio": 1
+        },
+        "startup": {
+          "version": 1,
+          "host": {
+            "processLaunchEpochMs": 1789318739106
+          },
+          "phases": {
+            "htmlParsed": 14.6,
+            "bundleExecuted": 18.2,
+            "domContentLoaded": 22.9,
+            "firstUsableNavigation": 26.6,
+            "initialSyncComplete": 697.2
+          }
+        },
+        "milestonesFromProcessLaunchMs": {
+          "nodeHealthReady": null,
+          "htmlParsed": 3565.9,
+          "bundleExecuted": 3569.5,
+          "firstUsableNavigation": 3577.9,
+          "initialSyncComplete": 4248.5
+        },
+        "navigation": {
+          "domContentLoadedMs": 26.9,
+          "loadEventMs": 29.7,
+          "responseStartMs": 1,
+          "responseEndMs": 1.1,
+          "transferSize": 950,
+          "encodedBodySize": 650,
+          "decodedBodySize": 650
+        },
+        "bundle": {
+          "name": "http://127.0.0.1:3765/bundle.js",
+          "initiatorType": "script",
+          "startTime": 13,
+          "responseEnd": 13,
+          "transferSize": 0,
+          "encodedBodySize": 1478409,
+          "decodedBodySize": 1478409
+        },
+        "allResourceTransferBytes": 0,
+        "allResourceDecodedBytes": 1491592,
+        "requestedWebpackChunks": [
+          "bundle.js"
+        ],
+        "heliaRequested": false,
+        "mapLibreRequested": false,
+        "usedJsHeapBytes": 19815051
+      },
+      "interactions": {
+        "dataset": {
+          "talks": 500,
+          "contacts": 500,
+          "routeQuestions": 100
+        },
+        "routeEditor": {
+          "mountMs": 21.4,
+          "updateMs": 0.2,
+          "domNodes": 3800
+        },
+        "talks": {
+          "firstRows": 25,
+          "firstChunkMs": 25.9,
+          "fullRenderMs": 172,
+          "inputLatencyMs": 32.3,
+          "scroll": {
+            "frames": 60,
+            "droppedFrames": 0,
+            "p95FrameMs": 17.8,
+            "maxFrameMs": 18.2,
+            "constrainedViewport": true
+          }
+        },
+        "contacts": {
+          "firstRows": 26,
+          "firstChunkMs": 91,
+          "fullRenderMs": 182.3,
+          "inputLatencyMs": 99.3,
+          "scroll": {
+            "frames": 60,
+            "droppedFrames": 0,
+            "p95FrameMs": 18.4,
+            "maxFrameMs": 18.7,
+            "constrainedViewport": true
+          }
+        },
+        "longTasks": {
+          "count": 3,
+          "totalDurationMs": 234,
+          "top": [
+            {
+              "startTime": 2093.9,
+              "duration": 93,
+              "name": "self"
+            },
+            {
+              "startTime": 3260.8,
+              "duration": 90,
+              "name": "self"
+            },
+            {
+              "startTime": 883.5,
+              "duration": 51,
+              "name": "self"
+            }
+          ]
+        },
+        "eventTiming": {
+          "count": 934,
+          "p95DurationMs": 40,
+          "maxDurationMs": 80
+        },
+        "heapBeforeBytes": 8364295,
+        "heapAfterBytes": 13949045
+      }
+    },
+    "androidPixel5Profile": {
+      "cold": {
+        "label": "android-pixel-5-profile-cold",
+        "userAgent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.4 Mobile Safari/537.36",
+        "viewport": {
+          "width": 393,
+          "height": 727,
+          "devicePixelRatio": 2.8
+        },
+        "startup": {
+          "version": 1,
+          "host": {
+            "processLaunchEpochMs": 1789318743383
+          },
+          "phases": {
+            "htmlParsed": 4.8,
+            "bundleExecuted": 49.3,
+            "domContentLoaded": 49.4,
+            "firstUsableNavigation": 65.8,
+            "initialSyncComplete": 1515.5
+          }
+        },
+        "milestonesFromProcessLaunchMs": {
+          "nodeHealthReady": null,
+          "htmlParsed": 108.7,
+          "bundleExecuted": 153.2,
+          "firstUsableNavigation": 169.7,
+          "initialSyncComplete": 1619.4
+        },
+        "navigation": {
+          "domContentLoadedMs": 66.4,
+          "loadEventMs": 66.6,
+          "responseStartMs": 1.3,
+          "responseEndMs": 1.4,
+          "transferSize": 950,
+          "encodedBodySize": 650,
+          "decodedBodySize": 650
+        },
+        "bundle": {
+          "name": "http://127.0.0.1:3765/bundle.js",
+          "initiatorType": "script",
+          "startTime": 3.5,
+          "responseEnd": 6,
+          "transferSize": 1478709,
+          "encodedBodySize": 1478409,
+          "decodedBodySize": 1478409
+        },
+        "allResourceTransferBytes": 1492492,
+        "allResourceDecodedBytes": 1491592,
+        "requestedWebpackChunks": [
+          "bundle.js"
+        ],
+        "heliaRequested": false,
+        "mapLibreRequested": false,
+        "usedJsHeapBytes": 8485033
+      },
+      "warm": {
+        "label": "android-pixel-5-profile-warm",
+        "userAgent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.4 Mobile Safari/537.36",
+        "viewport": {
+          "width": 393,
+          "height": 727,
+          "devicePixelRatio": 2.8
+        },
+        "startup": {
+          "version": 1,
+          "host": {
+            "processLaunchEpochMs": 1789318743383
+          },
+          "phases": {
+            "htmlParsed": 14.7,
+            "bundleExecuted": 18.4,
+            "domContentLoaded": 23.1,
+            "firstUsableNavigation": 26.8,
+            "initialSyncComplete": 707.3
+          }
+        },
+        "milestonesFromProcessLaunchMs": {
+          "nodeHealthReady": null,
+          "htmlParsed": 4238.5,
+          "bundleExecuted": 4242.2,
+          "firstUsableNavigation": 4250.6,
+          "initialSyncComplete": 4931.1
+        },
+        "navigation": {
+          "domContentLoadedMs": 27.1,
+          "loadEventMs": 29.8,
+          "responseStartMs": 1,
+          "responseEndMs": 1.1,
+          "transferSize": 950,
+          "encodedBodySize": 650,
+          "decodedBodySize": 650
+        },
+        "bundle": {
+          "name": "http://127.0.0.1:3765/bundle.js",
+          "initiatorType": "script",
+          "startTime": 13.9,
+          "responseEnd": 13.9,
+          "transferSize": 0,
+          "encodedBodySize": 1478409,
+          "decodedBodySize": 1478409
+        },
+        "allResourceTransferBytes": 0,
+        "allResourceDecodedBytes": 1491592,
+        "requestedWebpackChunks": [
+          "bundle.js"
+        ],
+        "heliaRequested": false,
+        "mapLibreRequested": false,
+        "usedJsHeapBytes": 20563491
+      },
+      "interactions": {
+        "dataset": {
+          "talks": 500,
+          "contacts": 500,
+          "routeQuestions": 100
+        },
+        "routeEditor": {
+          "mountMs": 22.6,
+          "updateMs": 0.2,
+          "domNodes": 3800
+        },
+        "talks": {
+          "firstRows": 25,
+          "firstChunkMs": 25.6,
+          "fullRenderMs": 70.8,
+          "inputLatencyMs": 32.7,
+          "scroll": {
+            "frames": 60,
+            "droppedFrames": 1,
+            "p95FrameMs": 18.1,
+            "maxFrameMs": 183.3,
+            "constrainedViewport": true
+          }
+        },
+        "contacts": {
+          "firstRows": 26,
+          "firstChunkMs": 73.9,
+          "fullRenderMs": 171.3,
+          "inputLatencyMs": 99.5,
+          "scroll": {
+            "frames": 60,
+            "droppedFrames": 0,
+            "p95FrameMs": 18.5,
+            "maxFrameMs": 18.6,
+            "constrainedViewport": true
+          }
+        },
+        "longTasks": {
+          "count": 4,
+          "totalDurationMs": 265,
+          "top": [
+            {
+              "startTime": 4018.3,
+              "duration": 85,
+              "name": "self"
+            },
+            {
+              "startTime": 2868.2,
+              "duration": 76,
+              "name": "self"
+            },
+            {
+              "startTime": 14.5,
+              "duration": 52,
+              "name": "self"
+            },
+            {
+              "startTime": 1572.8,
+              "duration": 52,
+              "name": "self"
+            }
+          ]
+        },
+        "eventTiming": {
+          "count": 23,
+          "p95DurationMs": 80,
+          "maxDurationMs": 80
+        },
+        "heapBeforeBytes": 8481904,
+        "heapAfterBytes": 14196279
+      }
+    },
+    "electronDesktop": {
+      "cold": {
+        "label": "electron-release-assets-cold",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) IinPublic/1.0.27 Chrome/126.0.6478.234 Electron/31.7.7 Safari/537.36",
+        "viewport": {
+          "width": 1100,
+          "height": 772,
+          "devicePixelRatio": 1
+        },
+        "startup": {
+          "version": 1,
+          "host": {
+            "processLaunchEpochMs": 1789318749857,
+            "nodeHealthReadyEpochMs": 1789318749971
+          },
+          "phases": {
+            "htmlParsed": 49,
+            "bundleExecuted": 98,
+            "domContentLoaded": 98.1,
+            "firstUsableNavigation": 111.1,
+            "initialSyncComplete": 1757.3
+          }
+        },
+        "milestonesFromProcessLaunchMs": {
+          "nodeHealthReady": 114,
+          "htmlParsed": 219.3,
+          "bundleExecuted": 268.3,
+          "firstUsableNavigation": 281.4,
+          "initialSyncComplete": 1927.6
+        },
+        "navigation": {
+          "domContentLoadedMs": 111.6,
+          "loadEventMs": 134.1,
+          "responseStartMs": 11,
+          "responseEndMs": 11.4,
+          "transferSize": 950,
+          "encodedBodySize": 650,
+          "decodedBodySize": 650
+        },
+        "bundle": {
+          "name": "http://127.0.0.1:19176/bundle.js",
+          "initiatorType": "script",
+          "startTime": 39.1,
+          "responseEnd": 44.7,
+          "transferSize": 1478709,
+          "encodedBodySize": 1478409,
+          "decodedBodySize": 1478409
+        },
+        "allResourceTransferBytes": 1521828,
+        "allResourceDecodedBytes": 1518228,
+        "requestedWebpackChunks": [
+          "bundle.js"
+        ],
+        "heliaRequested": false,
+        "mapLibreRequested": false,
+        "usedJsHeapBytes": 13995186
+      },
+      "interactions": {
+        "dataset": {
+          "talks": 500,
+          "contacts": 500,
+          "routeQuestions": 100
+        },
+        "routeEditor": {
+          "mountMs": 35.2,
+          "updateMs": 0.3,
+          "domNodes": 3800
+        },
+        "talks": {
+          "firstRows": 25,
+          "firstChunkMs": 34,
+          "fullRenderMs": 85.5,
+          "inputLatencyMs": 32.4,
+          "scroll": {
+            "frames": 60,
+            "droppedFrames": 2,
+            "p95FrameMs": 17.8,
+            "maxFrameMs": 33.4,
+            "constrainedViewport": true
+          }
+        },
+        "contacts": {
+          "firstRows": 26,
+          "firstChunkMs": 106.7,
+          "fullRenderMs": 231.1,
+          "inputLatencyMs": 99.9,
+          "scroll": {
+            "frames": 60,
+            "droppedFrames": 3,
+            "p95FrameMs": 50,
+            "maxFrameMs": 298.6,
+            "constrainedViewport": true
+          }
+        },
+        "longTasks": {
+          "count": 5,
+          "totalDurationMs": 438,
+          "top": [
+            {
+              "startTime": 3011.5,
+              "duration": 114,
+              "name": "self"
+            },
+            {
+              "startTime": 4319.4,
+              "duration": 107,
+              "name": "self"
+            },
+            {
+              "startTime": 4628.1,
+              "duration": 92,
+              "name": "self"
+            },
+            {
+              "startTime": 1819.5,
+              "duration": 73,
+              "name": "self"
+            },
+            {
+              "startTime": 60,
+              "duration": 52,
+              "name": "self"
+            }
+          ]
+        },
+        "eventTiming": {
+          "count": 994,
+          "p95DurationMs": 32,
+          "maxDurationMs": 104
+        },
+        "heapBeforeBytes": 14934288,
+        "heapAfterBytes": 17156174
+      }
+    }
+  }
+}

@@ -16,6 +16,8 @@ const fs = require('fs');
 const net = require('net');
 const { autoUpdater } = require('electron-updater');
 
+const PROCESS_LAUNCH_EPOCH_MS = Date.now();
+let nodeHealthReadyEpochMs;
 const LOCAL_PORT = parseInt(process.env.IINPUBLIC_LOCAL_PORT || '8088', 10);
 const HUB_GUN_URL = process.env.IINPUBLIC_HUB_GUN_URL || 'https://www.iinpublic.com/gun';
 const USER_DATA_DIR = String(process.env.IINPUBLIC_USER_DATA_DIR || '').trim();
@@ -106,6 +108,11 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      additionalArguments: [
+        `--iinpublic-app-version=${app.getVersion()}`,
+        `--iinpublic-process-launch-ms=${PROCESS_LAUNCH_EPOCH_MS}`,
+        `--iinpublic-node-health-ready-ms=${nodeHealthReadyEpochMs || ''}`,
+      ],
     },
   });
 
@@ -119,7 +126,11 @@ async function createWindow() {
   });
 
   await waitForPort(LOCAL_PORT);
-  await win.loadURL(`http://127.0.0.1:${LOCAL_PORT}/`);
+  const startupQuery = new URLSearchParams({
+    perf_process_launch_ms: String(PROCESS_LAUNCH_EPOCH_MS),
+    perf_node_health_ready_ms: String(nodeHealthReadyEpochMs || ''),
+  });
+  await win.loadURL(`http://127.0.0.1:${LOCAL_PORT}/?${startupQuery}`);
   return win;
 }
 
@@ -191,6 +202,10 @@ function setupAutoUpdater(win) {
 app.whenReady().then(async () => {
   try {
     await startEmbeddedNode();
+    await waitForPort(LOCAL_PORT);
+    nodeHealthReadyEpochMs = Date.now();
+    process.env.IINPUBLIC_PROCESS_LAUNCH_EPOCH_MS = String(PROCESS_LAUNCH_EPOCH_MS);
+    process.env.IINPUBLIC_NODE_HEALTH_READY_EPOCH_MS = String(nodeHealthReadyEpochMs);
     const win = await createWindow();
     setupAutoUpdater(win);
   } catch (err) {

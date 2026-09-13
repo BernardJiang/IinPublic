@@ -17,6 +17,21 @@ import { renderListProgressively } from './render-list-progressively';
  */
 const CONTACTS_FIRST_CHUNK_SIZE = 25;
 
+function scheduleContactEnrichment(run: () => void): void {
+  const idle = (window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  }).requestIdleCallback;
+  if (idle) {
+    idle(run, { timeout: 1_000 });
+    return;
+  }
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(() => window.setTimeout(run, 0));
+    return;
+  }
+  window.setTimeout(run, 0);
+}
+
 export type ContactsViewDeps = {
   apiBase: string;
   currentUserId: string;
@@ -881,52 +896,49 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       });
     }
 
-    // Render-time self-heal: rows carry the best locally-known name, which can be stale if
-    // it was captured (exchange/conversation record) before the peer renamed. Look up each
-    // peer's CURRENT stage name and patch the row in place — the resolver also refreshes the
-    // peer-name cache and stored conversation records, so the next render starts correct.
-    if (deps.resolvePeerStageName) {
-      for (const peer of peers) {
-        if (peer.peerId === TECHSUPPORT_ROOT_USER_ID) continue;
-        void deps.resolvePeerStageName(peer.peerId).then((liveName) => {
-          if (!liveName || liveName === peer.stageName) return;
-          const row = listEl.querySelector(
-            `.contact-item[data-contact-user-id="${(window.CSS?.escape ?? ((v: string) => v))(peer.peerId)}"]`,
-          ) as HTMLElement | null;
-          if (!row) return;
-          row.dataset.contactName = liveName;
-          const nameEl = row.querySelector('.contact-item-name');
-          if (nameEl) {
-            const known = deps.getKnownPerson(peer.peerId);
-            const display = buildDisplayName(liveName, known);
-            for (const child of Array.from(nameEl.childNodes)) {
-              if (child.nodeType === Node.TEXT_NODE) {
-                child.nodeValue = display;
-                return;
+    // Stage-name/headshot self-heal is non-critical and can issue one async read per contact.
+    // Scheduling all of those reads inside the navigation click kept the first chunk behind
+    // 100ms+ long tasks with a 500-person local list. Let the first chunk and deferred remainder
+    // paint first, skip filtered-out peers, then patch only still-current rows in place.
+    if (deps.resolvePeerStageName || deps.resolvePeerHeadshot) {
+      scheduleContactEnrichment(() => {
+        if (coreSeq !== contactsCoreRenderSeq) return;
+        for (const peer of visiblePeers) {
+          if (peer.peerId === TECHSUPPORT_ROOT_USER_ID) continue;
+          if (deps.resolvePeerStageName) {
+            void deps.resolvePeerStageName(peer.peerId).then((liveName) => {
+              if (!liveName || liveName === peer.stageName) return;
+              const row = listEl.querySelector(
+                `.contact-item[data-contact-user-id="${(window.CSS?.escape ?? ((v: string) => v))(peer.peerId)}"]`,
+              ) as HTMLElement | null;
+              if (!row) return;
+              row.dataset.contactName = liveName;
+              const nameEl = row.querySelector('.contact-item-name');
+              if (nameEl) {
+                const known = deps.getKnownPerson(peer.peerId);
+                const display = buildDisplayName(liveName, known);
+                for (const child of Array.from(nameEl.childNodes)) {
+                  if (child.nodeType === Node.TEXT_NODE) {
+                    child.nodeValue = display;
+                    return;
+                  }
+                }
+                nameEl.insertBefore(document.createTextNode(display), nameEl.firstChild);
               }
-            }
-            nameEl.insertBefore(document.createTextNode(display), nameEl.firstChild);
+            });
           }
-        });
-      }
-    }
-
-    // TODO §M6: non-blocking headshot fill-in — cache lives in ui-manager.ts (peerHeadshotCache),
-    // so this only re-fetches peers not already cached from a prior render (no re-fetch on
-    // re-sort/filter). Patches the row's avatar in place rather than re-rendering the list.
-    if (deps.resolvePeerHeadshot) {
-      for (const peer of peers) {
-        if (peer.peerId === TECHSUPPORT_ROOT_USER_ID) continue;
-        if (deps.getCachedHeadshot?.(peer.peerId)) continue;
-        void deps.resolvePeerHeadshot(peer.peerId).then((headshot) => {
-          if (!headshot) return;
-          const row = listEl.querySelector(
-            `.contact-item[data-contact-user-id="${(window.CSS?.escape ?? ((v: string) => v))(peer.peerId)}"]`,
-          ) as HTMLElement | null;
-          const avatarEl = row?.querySelector('.contact-item-avatar');
-          if (avatarEl) avatarEl.innerHTML = avatarInnerHtml(headshot, '?', deps.escapeHtml);
-        });
-      }
+          if (deps.resolvePeerHeadshot && !deps.getCachedHeadshot?.(peer.peerId)) {
+            void deps.resolvePeerHeadshot(peer.peerId).then((headshot) => {
+              if (!headshot) return;
+              const row = listEl.querySelector(
+                `.contact-item[data-contact-user-id="${(window.CSS?.escape ?? ((v: string) => v))(peer.peerId)}"]`,
+              ) as HTMLElement | null;
+              const avatarEl = row?.querySelector('.contact-item-avatar');
+              if (avatarEl) avatarEl.innerHTML = avatarInnerHtml(headshot, '?', deps.escapeHtml);
+            });
+          }
+        }
+      });
     }
     window.setTimeout(() => {
       if (typeof savedState.scrollTop === 'number') listEl.scrollTop = savedState.scrollTop;

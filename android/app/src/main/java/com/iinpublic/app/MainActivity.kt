@@ -28,6 +28,7 @@ import java.net.URL
  */
 class MainActivity : AppCompatActivity() {
 
+    private val activityLaunchEpochMs = System.currentTimeMillis()
     private lateinit var webView: WebView
     private lateinit var nearbyBridge: NearbyJavascriptBridge
     @Volatile private var nodeLoadScheduled = false
@@ -141,9 +142,13 @@ class MainActivity : AppCompatActivity() {
             val deadline = System.currentTimeMillis() + 90_000
             while (System.currentTimeMillis() < deadline) {
                 if (portOpen(port)) {
+                    val nodeHealthReadyEpochMs = System.currentTimeMillis()
                     runOnUiThread {
                         webView.loadUrl(
-                            "http://127.0.0.1:$port/?native_platform=android&app_version=${BuildConfig.VERSION_NAME}"
+                            "http://127.0.0.1:$port/?native_platform=android" +
+                                "&app_version=${BuildConfig.VERSION_NAME}" +
+                                "&perf_process_launch_ms=$activityLaunchEpochMs" +
+                                "&perf_node_health_ready_ms=$nodeHealthReadyEpochMs"
                         )
                     }
                     return@Thread

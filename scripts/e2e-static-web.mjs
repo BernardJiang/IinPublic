@@ -35,6 +35,7 @@ const DIST_WEB = path.join(PROJECT_ROOT, 'dist', 'web');
 const PUBLIC_DIR = path.join(PROJECT_ROOT, 'public');
 const GUN_DIR = path.join(PROJECT_ROOT, 'node_modules', 'gun');
 const GUN_PREFIX = '/node_modules/gun/';
+const CACHE_STATIC_ASSETS = process.env.IINPUBLIC_STATIC_CACHE === '1';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -105,7 +106,10 @@ const server = http.createServer(async (req, res) => {
     if (!filePath) return send(res, 404, 'Not found');
 
     const type = TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    const cacheControl = CACHE_STATIC_ASSETS && path.extname(filePath).toLowerCase() !== '.html'
+      ? 'public, max-age=31536000, immutable'
+      : 'no-store';
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cacheControl });
     createReadStream(filePath).pipe(res);
   } catch (err) {
     send(res, 500, `static server error: ${err?.message || err}`);

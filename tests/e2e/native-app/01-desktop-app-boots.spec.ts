@@ -50,11 +50,27 @@ test.describe('Native app: Electron desktop boot', () => {
       userDataDir,
     });
 
-    await expect(native.window).toHaveURL(`http://127.0.0.1:${LOCAL_PORT}/`);
+    await expect(native.window).toHaveURL(new RegExp(`^http://127\\.0\\.0\\.1:${LOCAL_PORT}/\\?`));
     await expect(native.window.locator('body')).not.toContainText('Connecting to IinPublic network...', {
       timeout: 45_000,
     });
     await expect(native.window.locator('#app')).toBeVisible();
+
+    const startup = await native.window.evaluate(() => {
+      const nativeMetrics = (window as any).iinpublicNative?.startup;
+      const query = new URL(window.location.href).searchParams;
+      return {
+        nativeMetrics,
+        queryLaunch: Number(query.get('perf_process_launch_ms')),
+        queryNodeReady: Number(query.get('perf_node_health_ready_ms')),
+      };
+    });
+    expect(startup.nativeMetrics.processLaunchEpochMs).toBeGreaterThan(0);
+    expect(startup.nativeMetrics.nodeHealthReadyEpochMs).toBeGreaterThanOrEqual(
+      startup.nativeMetrics.processLaunchEpochMs,
+    );
+    expect(startup.queryLaunch).toBe(startup.nativeMetrics.processLaunchEpochMs);
+    expect(startup.queryNodeReady).toBe(startup.nativeMetrics.nodeHealthReadyEpochMs);
 
     await expect.poll(() => httpGetStatus(LOCAL_PORT, '/health'), { timeout: 15_000 }).toBe(200);
     await expect.poll(() => httpGetStatus(LOCAL_PORT, '/worker.js'), { timeout: 15_000 }).toBe(200);

@@ -7,6 +7,7 @@ import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
 import { IDENTITY_CUSTODY_DATABASE_NAME } from './services/identity-custody-store';
 import { getCachedLocation, setCachedLocation } from './services/location-cache';
+import { markStartupPhase } from './performance/startup-metrics';
 
 const STAGE_ZERO_BOOT_KEY = 'iinpublic_stage_zero_boot';
 
@@ -209,8 +210,11 @@ class WebApp {
   }
 }
 
+markStartupPhase('bundleExecuted');
+
 // Start the application when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
+  markStartupPhase('domContentLoaded');
   const webApp = new WebApp();
   await webApp.initialize();
 });

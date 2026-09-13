@@ -123,6 +123,7 @@ import {
   markTalkSentToPeer,
 } from '../services/web-talk-ledger-store';
 import { buildTalkIdentityKey } from '../../shared/cid';
+import { markStartupPhase } from '../performance/startup-metrics';
 import {
   buildTagIdentityKeys,
   filterTalkForRecipient,
@@ -869,6 +870,7 @@ export class IinPublicApp {
     this.uiManager.initialize();
     this.uiManager.setCurrentLocation(location);
     this.uiManager.showStartupInterface();
+    markStartupPhase('firstUsableNavigation');
 
     // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
@@ -1128,6 +1130,7 @@ export class IinPublicApp {
       this.startStageZeroHeadcountWatchdog();
     }
     this.initialized = true;
+    markStartupPhase('initialSyncComplete');
   }
 
   /**

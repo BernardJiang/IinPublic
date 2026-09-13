@@ -2,6 +2,34 @@
 
 Last updated: 2026-09-13
 
+## 2026-09-13 — Priority 6 React DOM evaluation and performance baseline
+
+Completing Priority 6 after `UIManager` reached its fewer-than-3,000-line target.
+
+- **Cross-shell release profiler:** a reproducible production profiler now records cold/warm
+  startup milestones, bundle/chunk transfer, heap, long tasks, navigation/input latency, and
+  60-frame Talks/Contacts scroll samples across desktop Chromium, a Pixel 5 Android profile, and
+  the packaged Electron app. Electron and Android shells forward process/activity-launch and
+  embedded-node-health timestamps into the common web timeline.
+- **Measured optimization:** stage-name/headshot enrichment for Contacts is deferred until after
+  first paint/idle, ignores filtered-out peers, and is guarded against stale renders. With 500
+  Contacts, first-chunk time fell 26–39%, input latency fell 14–27%, and total long-task time fell
+  on all three profiles; startup and bundle size remained effectively flat.
+- **Bounded React gate:** an isolated 100-question route-editor pilot passed exclusive-root,
+  accessibility, and 20-cycle interaction checks, but added 62.3 KB gzip and took 240–370 ms to
+  mount versus 21–35 ms for the characterized DOM editor. React was rejected; pilot packages and
+  implementation were removed and no production React dependency was added. React Native remains
+  a separately funded product decision.
+- **Evidence:** `docs/performance/react-dom-evaluation-2026-09-13.md` plus retained baseline,
+  after, confirmation, and pilot JSON traces under `docs/performance/`.
+- **Verification:** typecheck and lint pass; 238 Jest suites / 2,424 tests pass (1 skipped);
+  ordinary production web/server builds, Android `assembleDebug`, and the packaged Electron boot
+  test pass. Canonical run `run-20260913-093733-65848` completed in 16m58s: stage5, mesh-batch,
+  mesh-isolated, find-similar, cross-browser, isolated, heavy-staged, and mass all passed. Light
+  passed 252 tests (6 skipped) and hit only the established concurrency-sensitive
+  `00l-techsupport-faq-cross-user` delivery case, which passed 1/1 immediately against a fresh
+  single-worker static-release server.
+
 ## 2026-09-13 — UIManager decomposition cluster #83: chatroom-member indicators
 
 Completing Priority 6's UI god-object decomposition after the StageName dialog extraction.

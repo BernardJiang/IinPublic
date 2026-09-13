@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-13T16:33:24.426Z",
+  "experiment": "bounded React DOM route-editor pilot",
+  "productionDependencyGraphChanged": false,
+  "dependencies": {
+    "react": "19.1.1",
+    "reactDom": "19.1.1"
+  },
+  "dataset": {
+    "routeQuestions": 100,
+    "answersPerQuestion": 3
+  },
+  "implementation": {
+    "pilotSourceLines": 105,
+    "characterizedDomControllerLines": 506
+  },
+  "bundle": {
+    "bytes": 200734,
+    "gzipBytes": 62260,
+    "inputBytes": {
+      "react.production.js": 17075,
+      "index.js": 1359,
+      "scheduler.production.js": 10181,
+      "react-dom.production.js": 6655,
+      "react-dom-profiling.profiling.js": 545357,
+      "profiling.js": 1378,
+      "pilot.jsx": 4794
+    }
+  },
+  "profiles": {
+    "browserDesktop": {
+      "label": "browserDesktop",
+      "dataset": {
+        "routeQuestions": 100,
+        "answersPerQuestion": 3
+      },
+      "mountWallMs": 240,
+      "mountProfilerActualMs": 10.1,
+      "firstInputUpdateMs": 42.8,
+      "reactUpdateActualP95Ms": 0.2,
+      "domNodes": 4301,
+      "usedJsHeapBytes": 7320490,
+      "heapGrowthBytes": 5450257,
+      "longTasks": {
+        "count": 0,
+        "totalDurationMs": 0,
+        "maxDurationMs": null
+      },
+      "accessibility": {
+        "controls": 1600,
+        "unlabeledInputs": 0,
+        "unnamedButtons": 0,
+        "landmarkPresent": true
+      },
+      "stability": {
+        "editCycles": 20,
+        "finalQuestionText": "Stable edit 19",
+        "answerCountRestored": true,
+        "questionCountPreserved": true,
+        "legacyShellPreserved": true,
+        "exclusiveRoot": true
+      },
+      "transfer": {
+        "transferSize": 201034,
+        "encodedBodySize": 200734,
+        "decodedBodySize": 200734
+      }
+    },
+    "androidPixel5Profile": {
+      "label": "androidPixel5Profile",
+      "dataset": {
+        "routeQuestions": 100,
+        "answersPerQuestion": 3
+      },
+      "mountWallMs": 286,
+      "mountProfilerActualMs": 9.6,
+      "firstInputUpdateMs": 44.3,
+      "reactUpdateActualP95Ms": 0.2,
+      "domNodes": 4301,
+      "usedJsHeapBytes": 7321931,
+      "heapGrowthBytes": 5402938,
+      "longTasks": {
+        "count": 0,
+        "totalDurationMs": 0,
+        "maxDurationMs": null
+      },
+      "accessibility": {
+        "controls": 1600,
+        "unlabeledInputs": 0,
+        "unnamedButtons": 0,
+        "landmarkPresent": true
+      },
+      "stability": {
+        "editCycles": 20,
+        "finalQuestionText": "Stable edit 19",
+        "answerCountRestored": true,
+        "questionCountPreserved": true,
+        "legacyShellPreserved": true,
+        "exclusiveRoot": true
+      },
+      "transfer": {
+        "transferSize": 201034,
+        "encodedBodySize": 200734,
+        "decodedBodySize": 200734
+      }
+    },
+    "electronDesktop": {
+      "label": "electronDesktop",
+      "dataset": {
+        "routeQuestions": 100,
+        "answersPerQuestion": 3
+      },
+      "mountWallMs": 369.5,
+      "mountProfilerActualMs": 11.6,
+      "firstInputUpdateMs": 48.4,
+      "reactUpdateActualP95Ms": 0.2,
+      "domNodes": 4301,
+      "usedJsHeapBytes": 7403901,
+      "heapGrowthBytes": 5373205,
+      "longTasks": {
+        "count": 0,
+        "totalDurationMs": 0,
+        "maxDurationMs": null
+      },
+      "accessibility": {
+        "controls": 1600,
+        "unlabeledInputs": 0,
+        "unnamedButtons": 0,
+        "landmarkPresent": true
+      },
+      "stability": {
+        "editCycles": 20,
+        "finalQuestionText": "Stable edit 19",
+        "answerCountRestored": true,
+        "questionCountPreserved": true,
+        "legacyShellPreserved": true,
+        "exclusiveRoot": true
+      },
+      "transfer": {
+        "transferSize": 201034,
+        "encodedBodySize": 200734,
+        "decodedBodySize": 200734
+      }
+    }
+  }
+}

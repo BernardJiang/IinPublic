@@ -389,6 +389,32 @@ describe('Contacts ranking and relationship filters', () => {
       await renderDone;
     });
 
+    it('defers stage-name and headshot enrichment until after the first paint', async () => {
+      jest.useFakeTimers();
+      const resolvePeerStageName = jest.fn().mockResolvedValue(null);
+      const resolvePeerHeadshot = jest.fn().mockResolvedValue(null);
+      const contactDeps = {
+        ...deps(),
+        resolvePeerStageName,
+        resolvePeerHeadshot,
+        getCachedHeadshot: () => null,
+      };
+
+      await displayContactsList(contactDeps);
+
+      expect(resolvePeerStageName).not.toHaveBeenCalled();
+      expect(resolvePeerHeadshot).not.toHaveBeenCalled();
+      jest.runAllTimers();
+      await Promise.resolve();
+
+      expect(new Set(resolvePeerStageName.mock.calls.map(([userId]) => userId))).toEqual(
+        new Set(['strong', 'weak']),
+      );
+      expect(new Set(resolvePeerHeadshot.mock.calls.map(([userId]) => userId))).toEqual(
+        new Set(['strong', 'weak']),
+      );
+    });
+
     it('fills the remainder in without dropping or duplicating any row, and every row is clickable', async () => {
       const known = seedManyPeers(60);
       await displayContactsList(deps(known));
