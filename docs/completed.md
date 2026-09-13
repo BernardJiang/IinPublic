@@ -2,6 +2,29 @@
 
 Last updated: 2026-09-12
 
+## 2026-09-12 — UIManager decomposition cluster #77: Peer interaction controller
+
+Continuing Priority 6 after the application-shell extraction. `docs/TODO.md` Priority 6.
+
+- **#77: peer/contact relationship and interaction orchestration → `peer-controller.ts`.** The
+  controller now owns known/block relationships, peer-name cache precedence and self-healing,
+  TechSupport presence and per-user notification muting, save/review/vouch/block actions, live
+  identity-stage linking, peer-detail rendering, and scoped direct-conversation opening.
+  `UIManager` injects current services/state and retains its observed entry points as thin
+  compatibility shims; the controller neither imports nor reaches through `UIManager`.
+- **Characterization:** new `peer-controller.test.ts` (5 tests) covers live known/blocked state,
+  roster-name precedence and cache self-healing, TechSupport presence patches, per-user mute
+  persistence, and scoped direct-message opening. The focused peer/contact unit set passes 46/46.
+  Three focused Chromium peer-history scenarios pass, covering new and existing conversations.
+- **Ratchet:** `ui-manager.ts` 3,819 → **3,614** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  230 unit suites / 2,393 tests pass (1 skipped). Canonical run
+  `run-20260912-183627-77182` (`PW_WORKERS=8`, 18m47s): stage5, mesh-batch, mesh-isolated,
+  find-similar, cross-browser, isolated, heavy-staged, and mass all passed; `light` passed 251
+  tests (6 skipped) and repeated only three established rotating mailbox/delivery flakes
+  (`79-techsupport-survives-restrictive-filters`, `00l-techsupport-faq-cross-user`, and
+  `83-survey-ignore-mid-question-not-complete`), none touching peer-controller behavior.
+
 ## 2026-09-12 — UIManager decomposition cluster #76: Application shell controls
 
 Continuing Priority 6 after the conversation-media extraction. `docs/TODO.md` Priority 6.

@@ -17,7 +17,6 @@ import {
   type LocalStatisticsDeps,
 } from './local-statistics';
 import { openEraseDeviceDialog as openEraseDeviceDialogImpl } from './erase-device-flow';
-import { registerTalkForPeer } from './talk-peer-registration';
 import {
   getBroadcastableTalkIds as getBroadcastableTalkIdsImpl,
   getBroadcastTalkPayload as getBroadcastTalkPayloadImpl,
@@ -68,10 +67,6 @@ import {
 } from './custom-chatroom-dialogs';
 import {
   displayContactsList as renderContactsList,
-  openRelationshipDialog,
-  renderContactContextSummaryInto,
-  saveKnownPerson as saveKnownPersonImpl,
-  setBlocked as setBlockedImpl,
   showContactsList as openContactsList,
   type ContactsViewDeps,
 } from './contacts-view';
@@ -142,7 +137,7 @@ import {
 } from './person-picker-dialogs';
 import { confirmBroadcastAudience as renderConfirmBroadcastAudience } from './broadcast-audience-dialog';
 import { showNotification as renderNotificationToast, type NotificationOptions } from './notification-toast';
-import { getPeerNameCache, rememberPeerName } from './peer-name-cache';
+import { createPeerController, type PeerController } from './peer-controller';
 import {
   createConversationMediaController,
   type ConversationMediaController,
@@ -201,7 +196,7 @@ import {
 } from './answer-preference-resolution';
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
 import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
-import { openPeerDetailView, refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
+import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
 import { avatarInnerHtml } from './profile-avatar';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
 import {
@@ -312,6 +307,7 @@ export class UIManager extends EventEmitter {
   /** Per-talk Thread scope of the open conversation view (redesign §5); undefined = DM. */
   private currentThreadTalkId: string | undefined = undefined;
   private conversationMediaController?: ConversationMediaController;
+  private peerController?: PeerController;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -1030,36 +1026,65 @@ export class UIManager extends EventEmitter {
     return this.travelHomeChatroomId;
   }
 
+  private peer(): PeerController {
+    if (!this.peerController) {
+      this.peerController = createPeerController({
+        getCurrentUser: () => this.currentUser,
+        getCurrentUserId: () => this.currentUserId,
+        getApiBase: () => this.apiBase,
+        getCurrentChatroomMembers: () => this.currentChatroomMembers,
+        getIncomingTalkClusters: () => this.incomingTalkClusters,
+        getMyConversations: () => this.getMyConversations(),
+        getMyTalks: () => this.getMyTalks(),
+        getContactsViewDeps: () => this.contactsViewDeps(() => this.displayContactsList()),
+        getPublicProfileFoundationReader: () => this.publicProfileFoundationReader,
+        getIdentityLinkChecker: () => this.identityLinkChecker,
+        showConversationDetail: (conversationId, talkId) => this.showConversationDetail(conversationId, talkId),
+        showCreatorRepliesForTalk: (talkId, title) => this.showCreatorRepliesForTalk(talkId, title),
+        displayContactsList: () => this.displayContactsList(),
+        showNotification: (message, type) => this.showNotification(message, type),
+        allowOutgoingMessage: (message) => this.allowOutgoingMessage(message),
+        emit: (event, payload) => this.emit(event, payload),
+        t: (key) => this.t(key),
+        formatTalkRelativeTime: (date) => this.formatTalkRelativeTime(date),
+        formatTalkType: (type) => this.formatTalkType(type),
+        formatTalkLanguage: (language) => this.formatTalkLanguage(language),
+      });
+    }
+    return this.peerController;
+  }
+
   /**
    * The single ContactsViewDeps builder — every contacts-view entry point uses this
    * object (key invariant: the deps object must stay complete at every call site).
    */
   private contactsViewDeps(onSortRerender?: () => void): ContactsViewDeps {
+    const peer = this.peer();
     return {
       apiBase: this.apiBase,
       currentUserId: this.currentUserId,
       escapeHtml: escapeHtml,
-      getKnownPeople: this.getKnownPeople.bind(this),
-      getKnownPerson: this.getKnownPerson.bind(this),
-      isBlockedByMe: this.isBlockedByMe.bind(this),
-      getPeerName: this.getPeerName.bind(this),
-      resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
+      getKnownPeople: peer.getKnownPeople,
+      getKnownPerson: peer.getKnownPerson,
+      isBlockedByMe: peer.isBlockedByMe,
+      getPeerName: peer.getPeerName,
+      resolvePeerStageName: peer.resolvePeerStageNameLive,
       // Rule N2a (redesign §5): tapping the contact's NAME lands on the DM Conversation
       // directly, with the shared User layout underneath — identical to a chatroom member
       // click. Tapping the row anywhere else opens the User layout alone (openPeerDetailOnly).
-      openPeerDetail: this.openUserConversationFirst.bind(this),
-      openPeerDetailOnly: this.openPeerDetailForUser.bind(this),
+      openPeerDetail: peer.openUserConversationFirst,
+      openPeerDetailOnly: peer.openPeerDetailForUser,
       updateStatsStrip: (prefix: string) => this.displayContextualStatistics('contacts-stats-strip', prefix),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
-      saveKnownPerson: this.saveKnownPerson.bind(this),
-      submitPeerReview: this.submitPeerReview.bind(this),
-      vouchAgeVerified: this.vouchAgeVerified.bind(this),
-      setBlocked: this.setBlocked.bind(this),
-      hasSupportContact: this.hasSupportContact.bind(this),
-      isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
-      setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
-      isTechSupportOnline: this.isTechSupportOnline.bind(this),
+      saveKnownPerson: peer.saveKnownPerson,
+      submitPeerReview: peer.submitPeerReview,
+      vouchAgeVerified: peer.vouchAgeVerified,
+      setBlocked: peer.setBlocked,
+      hasSupportContact: peer.hasSupportContact,
+      isSupportNotificationsMuted: peer.isSupportNotificationsMuted,
+      setSupportNotificationsMuted: peer.setSupportNotificationsMuted,
+      isTechSupportOnline: peer.isTechSupportOnline,
       isUserOnline: this.isUserOnline.bind(this),
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
@@ -1072,7 +1097,7 @@ export class UIManager extends EventEmitter {
       },
       beforeRender: async () => {
         if (this.contactPreRenderSync) await this.contactPreRenderSync();
-        await this.prefetchPeerLocations(this.getKnownPeople().map((p) => p.userId));
+        await this.prefetchPeerLocations(peer.getKnownPeople().map((p) => p.userId));
       },
       distanceMiles: (userId: string) => this.distanceMilesFromCache(userId),
       getCachedHeadshot: (userId: string) => this.peerHeadshotCache.get(userId) ?? null,
@@ -3342,181 +3367,29 @@ export class UIManager extends EventEmitter {
    * pops normally: Conversation → User layout → opener.
    */
   public openUserConversationFirst(userId: string, stageName: string): void {
-    this.openPeerDetailForUser(userId, stageName);
-    void this.openDirectConversationWithPeer(userId, stageName);
+    this.peer().openUserConversationFirst(userId, stageName);
   }
 
-  /**
-   * TODO §O: an exchanged-talk history row (mismatch/pending/never-messaged) has no conversation
-   * record yet — talkId lets the caller open that talk as the DM's active thread context from
-   * the very first message, instead of always starting talk-independent from scratch.
-   */
-  private async openDirectConversationWithPeer(peerId: string, peerName: string, talkId?: string): Promise<void> {
-    try {
-      const conversationId = await new Promise<string>((resolve, reject) => {
-        this.emit('openDirectConversation', { peerId, peerName, resolve, reject });
-      });
-      if (conversationId) this.showConversationDetail(conversationId, talkId);
-    } catch {
-      // The ⟨User⟩ layout stays on screen when the DM channel cannot be opened.
-    }
+  // Kept as a compatibility shim: focused E2E helpers invoke this private method dynamically.
+  public openPeerDetailForUser(userId: string, stageName: string): void {
+    this.peer().openPeerDetailForUser(userId, stageName);
   }
 
-  private openPeerDetailForUser(userId: string, stageName: string): void {
-    const knownPerson = this.getKnownPerson(userId);
-    const deps = {
-      currentUserId: this.currentUserId,
-      apiBase: this.apiBase,
-      getMyConversations: this.getMyConversations.bind(this),
-      getMyTalks: this.getMyTalks.bind(this),
-      getCurrentInterests: () => Array.isArray(this.currentUser?.interests) ? this.currentUser!.interests : [],
-      getProfileLanguages: () => this.currentUser?.languages || ['en'],
-      showConversationDetail: this.showConversationDetail.bind(this),
-      registerTalkForPeer,
-      isBlockedByMe: this.isBlockedByMe.bind(this),
-      setBlocked: this.setBlocked.bind(this),
-      isSupportContact: (candidateId: string) => candidateId === TECHSUPPORT_ROOT_USER_ID,
-      isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
-      setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
-      getTransportStatus: () => {
-        const conversation = Object.values(this.getMyConversations())
-          .filter((candidate: any) => candidate?.otherUserId === userId)
-          .sort((a: any, b: any) =>
-            new Date(b.lastMessageTime || b.createdAt || 0).getTime()
-            - new Date(a.lastMessageTime || a.createdAt || 0).getTime(),
-          )[0] as { transportMode?: string; transportFallbackReason?: string | null; lastMessageTime?: string | null } | undefined;
-        return {
-          mode: String(conversation?.transportMode || 'direct-p2p'),
-          fallbackReason: conversation?.transportFallbackReason ?? null,
-          lastHealthyAt: conversation?.lastMessageTime ?? null,
-        };
-      },
-      text: this.t.bind(this),
-      formatRelativeTime: this.formatTalkRelativeTime.bind(this),
-      formatType: this.formatTalkType.bind(this),
-      formatLanguage: this.formatTalkLanguage.bind(this),
-      ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
-      sendDirectMessage: (peerId: string, peerName: string, text: string) => {
-        return new Promise<void>((resolve, reject) => {
-          // Send-path content filter (redesign §9): block before emitting so no
-          // message leaves the device; the composer keeps its text.
-          if (!this.allowOutgoingMessage(text)) {
-            reject(new Error('content_filter_blocked'));
-            return;
-          }
-          this.emit('sendDirectMessage', { peerId, peerName, text, resolve, reject });
-        });
-      },
-      openDirectConversation: (peerId: string, peerName: string, talkId?: string) => {
-        void this.openDirectConversationWithPeer(peerId, peerName, talkId);
-      },
-      openTalkResponses: (talkId: string, talkTitle: string) => {
-        this.showCreatorRepliesForTalk(talkId, talkTitle);
-      },
-      renderPeerContext: (container: HTMLElement, peerId: string, peerName: string) => {
-        this.renderPeerContextSection(container, peerId, peerName);
-      },
-      resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
-      isLinkedIdentity: this.isLinkedIdentityLive.bind(this),
-      ...(knownPerson ? { knownPerson } : {}),
-    };
-    openPeerDetailView(userId, stageName, deps);
-  }
-
-  /**
-   * Relationship/credit context + editor entry for the shared ⟨User⟩ layout —
-   * the same renderer the old contact-detail page used (redesign §5 parity).
-   */
-  private renderPeerContextSection(container: HTMLElement, peerId: string, peerName: string): void {
-    container.innerHTML = '';
-    const deps = this.contactsViewDeps(() => this.displayContactsList());
-    const button = document.createElement('button');
-    button.id = 'contact-edit-relationship-btn';
-    button.className = 'btn';
-    button.type = 'button';
-    button.setAttribute('data-testid', 'contact-edit-relationship-btn');
-    button.textContent = this.t(
-      peerId === TECHSUPPORT_ROOT_USER_ID ? 'contactSupportControls' : 'contactRelationshipCredit',
-    );
-    button.style.cssText = 'margin:12px 16px 0;padding:6px 12px;font-size:0.85em;';
-    button.addEventListener('click', () => {
-      void openRelationshipDialog(deps, peerId, peerName);
-    });
-    container.appendChild(button);
-    renderContactContextSummaryInto(container, deps, peerId, null, this.isBlockedByMe(peerId), false);
-  }
-
-  private getKnownPeople(): KnownPerson[] {
-    return Array.isArray(this.currentUser?.knownPeople) ? this.currentUser!.knownPeople! : [];
-  }
-
-  private getKnownPerson(userId: string): KnownPerson | undefined {
-    return this.getKnownPeople().find((entry) => entry.userId === userId);
-  }
-
-  private isBlockedByMe(userId: string): boolean {
-    return Array.isArray(this.currentUser?.blockedUserIds) && this.currentUser!.blockedUserIds!.includes(userId);
-  }
-
-  private hasSupportContact(): boolean {
-    return Object.values(this.getMyConversations()).some(
-      (conversation: any) => conversation?.supportChannel === true && conversation?.otherUserId === TECHSUPPORT_ROOT_USER_ID,
-    );
-  }
-
-  /**
-   * Liveness, never headcount (K1-2, docs/TODO.md). Whether TechSupport's device is currently
-   * reachable is independent of whether it counts toward the room — that floor is unconditional
-   * (see `techSupportRosterMember`/`seedTechSupportGlobalMembership`). Defaults to away until a
-   * positive presence signal arrives (app.ts wires this from `P2PPresenceClient.fetchNearby`), so
-   * a device that has never connected — or hasn't been built yet (K3) — reads as away, not a
-   * stuck "checking" state.
-   */
-  private techSupportOnline = false;
-
-  private isTechSupportOnline(): boolean {
-    return this.techSupportOnline;
-  }
+  private getKnownPeople(): KnownPerson[] { return this.peer().getKnownPeople(); }
+  private getKnownPerson(userId: string): KnownPerson | undefined { return this.peer().getKnownPerson(userId); }
+  private hasSupportContact(): boolean { return this.peer().hasSupportContact(); }
+  private isTechSupportOnline(): boolean { return this.peer().isTechSupportOnline(); }
 
   public setTechSupportOnlineStatus(online: boolean): void {
-    if (this.techSupportOnline === online) return;
-    this.techSupportOnline = online;
-    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
-    // getMyConversations()/deriveLocalPeers() read live localStorage, never a stale snapshot,
-    // so a full re-render here is safe.
-    if (contactsTab?.classList.contains('active')) this.displayContactsList();
-    // The chatroom roster is NOT re-rendered from `currentChatroomMembers` here — that array is
-    // a point-in-time snapshot from the last live subscription emit, and `#chatroom-members-list`
-    // exists in the static shell regardless of which tab is active, so re-rendering from it would
-    // risk clobbering a since-arrived member (e.g. a peer whose row synced in after this snapshot
-    // was captured) with stale data. Instead, patch only the TechSupport presence dot in place —
-    // a no-op if the row isn't currently rendered.
-    this.patchTechSupportPresenceIndicators();
-  }
-
-  private patchTechSupportPresenceIndicators(): void {
-    const indicators = document.querySelectorAll<HTMLElement>('.techsupport-presence-indicator');
-    for (const el of Array.from(indicators)) {
-      el.classList.toggle('online', this.techSupportOnline);
-      el.classList.toggle('away', !this.techSupportOnline);
-      el.setAttribute('data-techsupport-online', String(this.techSupportOnline));
-      el.setAttribute('aria-label', this.t(this.techSupportOnline ? 'contactsSupportOnline' : 'contactsSupportAway'));
-    }
+    this.peer().setTechSupportOnlineStatus(online);
   }
 
   public isSupportNotificationsMuted(): boolean {
-    if (!this.currentUserId) return false;
-    return localStorage.getItem(`iinpublic_support_notifications_muted:${this.currentUserId}`) === '1';
+    return this.peer().isSupportNotificationsMuted();
   }
 
-  private async setSupportNotificationsMuted(muted: boolean): Promise<void> {
-    if (!this.currentUserId) return;
-    localStorage.setItem(`iinpublic_support_notifications_muted:${this.currentUserId}`, muted ? '1' : '0');
-    this.showNotification(this.t(muted ? 'contactSupportMutedNotice' : 'contactSupportUnmutedNotice'), 'info');
-    this.displayContactsList();
-  }
-
-  private async saveKnownPerson(
+  // Kept as a compatibility shim: browser reputation helpers invoke it dynamically.
+  public saveKnownPerson(
     userId: string,
     details: {
       labels: KnownPerson['labels'];
@@ -3526,97 +3399,19 @@ export class UIManager extends EventEmitter {
       notes?: string;
     },
   ): Promise<void> {
-    saveKnownPersonImpl(userId, details, {
-      getCurrentUser: () => this.currentUser,
-      emit: (event, payload) => this.emit(event, payload),
-      refreshContactsList: () => void this.displayContactsList(),
-    });
-  }
-
-  private async submitPeerReview(userId: string, rating: number): Promise<void> {
-    this.emit('submitPeerReview', { userId, rating });
-  }
-
-  private async vouchAgeVerified(userId: string): Promise<void> {
-    this.emit('vouchAgeVerified', { userId });
-  }
-
-  private async setBlocked(userId: string, blocked: boolean): Promise<void> {
-    return setBlockedImpl(userId, blocked, {
-      getCurrentUser: () => this.currentUser,
-      apiBase: this.apiBase,
-      currentUserId: this.currentUserId,
-      emit: (event, payload) => this.emit(event, payload),
-      refreshContactsList: () => void this.displayContactsList(),
-    });
+    return this.peer().saveKnownPerson(userId, details);
   }
 
   private getPeerName(userId: string, fallbackName?: string): string {
-    // LIVE source first: the chatroom roster tracks the peer's CURRENT stage name via Gun
-    // member updates. Names embedded in conversation/exchange records were captured at
-    // match/broadcast time and go permanently stale when a rename raced the exchange (the
-    // e2e bootstraps rename immediately before broadcasting — real users rename too).
-    // Recorded names remain as fallbacks for peers who are no longer in the room.
-    const currentMember = this.currentChatroomMembers.find((member) => member.userId === userId);
-    const conversationMatch = Object.values(this.getMyConversations()).find(
-      (conversation: any) => conversation.otherUserId === userId && conversation.otherUserName,
-    ) as { otherUserName?: string } | undefined;
-    const incomingSenderName = this.incomingTalkClusters
-      .flatMap((cluster: any) => Object.values(cluster?.senders || {}) as Array<{ senderId?: string; senderName?: string }>)
-      .find((sender) => sender?.senderId === userId && sender?.senderName)?.senderName;
-    const cachedName = this.getPeerNameCache()[userId];
-    const resolved = currentMember?.stageName || conversationMatch?.otherUserName || incomingSenderName || cachedName || fallbackName || 'Unknown';
-    if (resolved && resolved !== 'Unknown') this.rememberPeerName(userId, resolved);
-    return resolved;
+    return this.peer().getPeerName(userId, fallbackName);
   }
 
-  /**
-   * Live stage-name lookup for render-time self-healing: recorded exchange/conversation
-   * names can be stale (captured before a peer renamed). The public-user read is
-   * rename-fresh (server cache overlay + Gun graph). Successful lookups flow through
-   * rememberPeerName so cached names and stored conversation records converge too.
-   */
-  private async resolvePeerStageNameLive(userId: string): Promise<string | null> {
-    try {
-      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
-      const user = await app?.gunService?.getPublicUser?.(userId);
-      const name = String(user?.stageName || '').trim();
-      if (!name) return null;
-      this.rememberPeerName(userId, name);
-      return name;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * TODO §I — resolves the peer's SEA pubkey live (same `getPublicUser` read as
-   * `resolvePeerStageNameLive`), then asks `WebIdentityLinkService` (via
-   * `identityLinkChecker`, wired by `setIdentityLinkHooks`) whether the viewer holds a
-   * verified, mutual link to that pubkey. `linkStateWith`/`isLinked` are self-scoped (they
-   * resolve the edge between the viewer's OWN identity and `pub`), so this only ever
-   * answers "is this peer one of MY OWN linked identities" — never a general "does this
-   * peer have any links to anyone."
-   */
-  private async isLinkedIdentityLive(peerId: string): Promise<boolean> {
-    if (!this.identityLinkChecker) return false;
-    try {
-      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
-      const user = await app?.gunService?.getPublicUser?.(peerId);
-      const pub = String(user?.pub || '').trim();
-      if (!pub) return false;
-      return await this.identityLinkChecker(pub);
-    } catch {
-      return false;
-    }
-  }
-
-  private getPeerNameCache(): Record<string, string> {
-    return getPeerNameCache();
+  private resolvePeerStageNameLive(userId: string): Promise<string | null> {
+    return this.peer().resolvePeerStageNameLive(userId);
   }
 
   private rememberPeerName(userId: string, stageName: string): void {
-    rememberPeerName(userId, stageName, () => this.getMyConversations());
+    this.peer().rememberPeerName(userId, stageName);
   }
 
   updateMatchBadge(): void {
