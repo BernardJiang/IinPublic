@@ -16,5 +16,13 @@ direction. `npm run test:e2e:macos-firefox` additionally uses the installed stab
 Firefox release for Chromium ↔ Firefox and Firefox ↔ WebKit matched threads, with
 messages verified in both directions. On the Windows worker, the matrix runner
 launches installed Microsoft Edge and Playwright Firefox simultaneously and verifies
-the same bidirectional matched thread. A three-peer topology, reconnect, and restart
-persistence remain subsequent slices.
+the same bidirectional matched thread.
+
+`03-reconnect-and-restart.spec.ts` covers reconnect and restart persistence across a
+Chromium ↔ WebKit pairing: `chromium-alice` goes offline via `context().setOffline(true)`
+while `webkit-bob` sends a message, then coming back online proves the message still
+arrives (state convergence through the offline-mailbox/Gun-sync path, not a live
+DataChannel); a subsequent `page.reload()` proves `chromium-alice`'s identity and the
+matched conversation's message history survive a simulated app restart (same
+IndexedDB/localStorage, mirroring `stage2-two-user/40-blocklist-persist-restart.spec.ts`'s
+established single-engine pattern).

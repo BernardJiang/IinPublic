@@ -159,16 +159,36 @@ Suggested scenarios:
 - [x] Answer a Talk.
 - [x] Verify tag/question matching.
 - [x] Verify state propagation.
-- [ ] Disconnect and reconnect one browser.
-- [ ] Verify state convergence after reconnection.
-- [ ] Restart one browser and verify persisted identity/state.
+- [x] **Landed 2026-09-13:** Disconnect and reconnect one browser.
+- [x] **Landed 2026-09-13:** Verify state convergence after reconnection.
+- [x] **Landed 2026-09-13:** Restart one browser and verify persisted identity/state.
 
 Current mixed-engine slices use explicit `chromium-alice`, `webkit-bob`, and
 `firefox-eve` identities. Chromium ↔ WebKit uses the bundled engines; the installed
 stable Firefox matrix adds Chromium ↔ Firefox and Firefox ↔ WebKit, with a real
 matched thread and messages in both directions for each pair. The physical matrix
 additionally proves simultaneous three-engine presence and Chromium -> WebKit ->
-Firefox propagation. Reconnect and restart persistence remain open.
+Firefox propagation. **Landed 2026-09-13:** reconnect and restart persistence, in a
+new `browser-matrix/03-reconnect-and-restart.spec.ts` (Chromium ↔ WebKit, the two
+bundled engines every environment has, so it runs under the same
+`npm run test:e2e:mixed-browsers` command with no extra installed-browser
+dependency). First test: `chromium-alice` goes offline
+(`context().setOffline(true)`) while `webkit-bob` sends a message through the
+already-open matched conversation; reconnecting (`setOffline(false)`) proves the
+message still arrives — convergence through the offline-mailbox/Gun-sync path
+(CLAUDE.md "Direct P2P conversation transport"; Gun-on-device is authoritative, the
+WebRTC channel is notify/sync only, so this doesn't depend on a live DataChannel).
+Deliberately does not assert the message is ABSENT while offline first — that would
+be a race against however fast Gun's own local write fires, not a real assertion of
+this behavior. Second test: reloading `chromium-alice`'s page (same
+IndexedDB/localStorage, the established single-engine pattern already used in
+`stage2-two-user/40-blocklist-persist-restart.spec.ts`) proves her identity
+(`currentUser.id`/`stageName`) and the matched conversation's message history both
+survive a simulated app restart. Verified locally:
+`npm run test:e2e:mixed-browsers -- tests/e2e/browser-matrix/03-reconnect-and-restart.spec.ts`
+passed both new tests (3 passed / 3 skipped — the skips are the Windows-Edge and
+macOS-installed-Firefox specs in the same directory, which correctly skip when
+those browsers aren't present on this machine).
 
 Milestone:
 
