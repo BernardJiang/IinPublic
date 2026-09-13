@@ -867,12 +867,34 @@ second, and via Gun-sync on the other, since "both confirmed" can become true on
   different authors' own talkIds needs a mapping that doesn't exist yet.
   `05-taxi-local-chatroom-match.spec.ts`'s rewritten two-driver test documents this gap directly
   rather than asserting it works.
-- [ ] `maybeFinalizeConfirmedDeal` currently disables **all** of the confirming user's outstanding
-  created deal-eligible talks, not just the one specific to the confirmed conversation (bidirectional
-  exchange means the conversation's own `talkId` field isn't a reliable way to find "my side" of a
-  specific deal — see the function's doc comment). Fine for the "one active listing" scenarios
-  this session's tests use; a user running several simultaneous listings and expecting confirming
-  one deal to leave the others open is unhandled.
+- [x] **Landed 2026-09-13:** `maybeFinalizeConfirmedDeal` (`app.ts`) no longer disables every one
+  of the confirming user's outstanding created deal-eligible talks — it narrows to the specific
+  one a NEW local-only `recordMyDealTalkForConversation`/`myDealTalkForConversation` map (keyed by
+  `conversationId`) recorded for that conversation, written synchronously at the exact point
+  `handleMeshTalkResponse` (as the talk's AUTHOR) turns a genuine incoming answer into a match.
+  This was deliberately NOT built on the conversation record's `talkId`/`relatedTalkIds`: those are
+  recomputed by `WebConversationService.createConversation` from a racy read of the shared Gun
+  conversation node, and bidirectional exchange means both sides can call `createConversation`
+  for the same pair within moments of each other — whichever write lands last silently drops the
+  other's talkId, so `relatedTalkIds` can end up missing the confirming user's own talk entirely
+  even on their own device (reproduced directly while building this fix, see `git log` for
+  `app.ts`'s history on this method). A second bug surfaced while writing the regression test: this
+  method is genuinely re-entered (the local `confirmDeal` click handler and the Gun-sync echo of
+  that same write each call it once "both confirmed" becomes true), and on the SECOND call the
+  already-disabled talk had already dropped out of the "still-active deal-eligible" set, so the
+  narrowing check misread that as "no recorded candidate" and fell back to disabling every
+  remaining active listing anyway — fixed by keeping a separate disabled-inclusive set for the
+  "is this a talk of mine" check. New regression coverage:
+  `05-taxi-local-chatroom-match.spec.ts`'s "confirming one deal does not disable an unrelated
+  simultaneous listing" test gives Adam two simultaneous listings and has Alice MANUALLY answer
+  only one of them (not via chatbot auto-reply — see below for why); confirming that deal leaves
+  the other listing enabled. **Still a real, narrower gap:** the common case in this app is a match
+  formed by the chatbot's exact-question-text auto-reply (`exact-chatbot-memory.ts`), not a direct
+  answer to one's own talk — in that path, the responder's device answers using memorized Q&A
+  pairs without ever recording *which* of the responder's own several talks originally taught that
+  memory, so `myDealTalkForConversation` has nothing to look up and this fix's fallback (disable
+  every active listing, the pre-fix behavior) is still what runs. Tracing chatbot auto-replies back
+  to a source talkId is unscoped follow-up work, not attempted here.
 
 ### KK. Context-aware chatbot answer matching, generalized beyond talk-title scoping
 

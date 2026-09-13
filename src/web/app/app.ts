@@ -2927,6 +2927,7 @@ export class IinPublicApp {
           dealEligible: this.isDealEligibleTalk(talkData),
           ...this.matchScoreParamsFor(talkData, decrypted.answers),
         });
+        this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
         this.uiManager.maybeShowMatchSafetyToast();
         this.uiManager.addNewConversation({
           conversationId,
@@ -2998,6 +2999,7 @@ export class IinPublicApp {
       dealEligible: this.isDealEligibleTalk(talkData),
       ...this.matchScoreParamsFor(talkData, decrypted.answers),
     });
+    this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
     this.uiManager.maybeShowMatchSafetyToast();
     this.uiManager.addNewConversation({
       conversationId,
@@ -3049,22 +3051,55 @@ export class IinPublicApp {
   }
 
   /**
+   * Local-only, conversationId-keyed record of which of MY OWN deal-eligible talks a given
+   * conversation actually formed/updated through — written synchronously, on this device only,
+   * at the exact moment `handleMeshTalkResponse` (as the talk's AUTHOR) turns an incoming answer
+   * into a match and creates/refreshes the conversation for it. Deliberately NOT derived from the
+   * conversation record's `talkId`/`relatedTalkIds`: those are recomputed by
+   * `WebConversationService.createConversation` from a fresh read of the SHARED Gun conversation
+   * node, and bidirectional exchange means both participants can call `createConversation` for
+   * the same pair within moments of each other — whichever call's Gun write lands last silently
+   * overwrites the other's contribution, so `relatedTalkIds` can end up missing my own talkId
+   * entirely even on my own device. This map has no such race: it's a plain synchronous
+   * localStorage write made right where `payload.talkId` is already known to be MY OWN talk.
+   */
+  private recordMyDealTalkForConversation(conversationId: string, talkId: string, talkData: any): void {
+    if (!conversationId || !talkId || !this.isDealEligibleTalk(talkData)) return;
+    try {
+      const raw = localStorage.getItem('myDealTalkByConversation');
+      const map = raw ? JSON.parse(raw) : {};
+      map[conversationId] = talkId;
+      localStorage.setItem('myDealTalkByConversation', JSON.stringify(map));
+    } catch {
+      // Best-effort only; maybeFinalizeConfirmedDeal falls back to disabling every outstanding
+      // deal-eligible talk when this lookup comes up empty.
+    }
+  }
+
+  private myDealTalkForConversation(conversationId: string): string | undefined {
+    try {
+      const raw = localStorage.getItem('myDealTalkByConversation');
+      const map = raw ? JSON.parse(raw) : {};
+      const talkId = map?.[conversationId];
+      return typeof talkId === 'string' && talkId ? talkId : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * Runs once a conversation's `dealConfirmedBy` includes BOTH participants — called both from
    * the local `confirmDeal` click handler and (idempotently) whenever a synced conversation
    * record shows the same thing, since "both confirmed" can become true on EITHER participant's
    * device depending on who clicks second, and each side only has the context to run its own
    * half of the finalization (only the talk's own author has a talk to disable).
    *
-   * Deliberately does NOT restrict itself to `conversation.talkId`/`relatedTalkIds`: with
-   * bidirectional exchange (both sides can independently auto-reply to the other's broadcast),
-   * the successful match can go through EITHER side's own talk depending on which direction's
-   * mesh delivery happened to complete first — the conversation record only ever reflects
-   * whichever one actually fired, so a participant whose own broadcast was the one that never
-   * got a direct response would have no candidate talkId to find here at all. Instead: once I've
-   * confirmed a deal with someone, disable ALL of my own outstanding created deal-eligible
-   * talks — for the "I have one listing out" case this session's scenarios exercise, that's
-   * exactly the intended one; a user running several simultaneous listings and expecting
-   * confirming one deal to leave the others untouched is a real v2 nuance, not handled here.
+   * Narrows to the specific talk of mine `recordMyDealTalkForConversation` recorded for this
+   * conversationId, so confirming one deal leaves my OTHER simultaneous listings untouched.
+   * Falls back to disabling ALL of my outstanding created deal-eligible talks only when this
+   * conversation never went through that recording at all — the case where my own broadcast was
+   * never the one that produced this specific match (see that method's doc comment), so there is
+   * no more specific candidate to narrow to.
    *
    * Known gap, not silently swept: this only disables MY OWN talk(s) on MY OWN device. It does
    * NOT mark a DIFFERENT candidate's conversation (e.g. a losing driver with their own separate
@@ -3072,19 +3107,36 @@ export class IinPublicApp {
    * "other candidates for the same underlying need" needs its own talkId->need mapping that
    * doesn't exist yet. See docs/TODO.md.
    */
-  private maybeFinalizeConfirmedDeal(dealConfirmedBy: string[], otherUserId?: string): void {
+  private maybeFinalizeConfirmedDeal(dealConfirmedBy: string[], otherUserId?: string, conversationId?: string): void {
     if (!this.currentUser?.id || !otherUserId) return;
     const bothConfirmed =
       dealConfirmedBy.includes(this.currentUser.id) && dealConfirmedBy.includes(otherUserId);
     if (!bothConfirmed) return;
 
     const myTalks = getMyTalks();
+    const myDealEligibleTalkIds = new Set<string>();
+    const myActiveDealEligibleTalkIds = new Set<string>();
     for (const [talkId, entry] of Object.entries(myTalks) as Array<[string, any]>) {
-      if (!entry || entry.role !== 'created' || entry.disabled) continue;
+      if (!entry || entry.role !== 'created') continue;
       const fullTalk = entry.fullTalk || entry;
-      if (this.isDealEligibleTalk(fullTalk)) {
-        this.uiManager.setTalkDisabled(talkId, true);
-      }
+      if (!this.isDealEligibleTalk(fullTalk)) continue;
+      myDealEligibleTalkIds.add(talkId);
+      if (!entry.disabled) myActiveDealEligibleTalkIds.add(talkId);
+    }
+
+    // Re-invocation is expected and idempotent (both the local confirmDeal click handler and
+    // the Gun-sync echo of that same write can each call this once "both confirmed" becomes
+    // true) — recognizing the recorded talk even after IT has already been disabled keeps a
+    // repeat call a no-op instead of misreading "nothing left to narrow to" and falling back to
+    // disabling every other still-active listing.
+    const recordedTalkId = conversationId ? this.myDealTalkForConversation(conversationId) : undefined;
+    const talkIdsToDisable =
+      recordedTalkId && myDealEligibleTalkIds.has(recordedTalkId)
+        ? [recordedTalkId]
+        : Array.from(myActiveDealEligibleTalkIds);
+
+    for (const talkId of talkIdsToDisable) {
+      this.uiManager.setTalkDisabled(talkId, true);
     }
   }
 
@@ -5527,7 +5579,7 @@ export class IinPublicApp {
           const dealConfirmedBy = JSON.parse(conversationData.dealConfirmedByJson);
           if (Array.isArray(dealConfirmedBy)) {
             this.uiManager.applyDealConfirmedBy(conversationData.conversationId, dealConfirmedBy);
-            this.maybeFinalizeConfirmedDeal(dealConfirmedBy, otherUserId);
+            this.maybeFinalizeConfirmedDeal(dealConfirmedBy, otherUserId, conversationData.conversationId);
           }
         } catch {
           /* malformed sync payload — ignore, next sync tick will retry */
@@ -5615,7 +5667,7 @@ export class IinPublicApp {
       if (!conversation) return;
       const dealConfirmedBy = await this.conversationService.confirmDeal(data.conversationId, this.currentUser.id);
       this.uiManager.applyDealConfirmedBy(data.conversationId, dealConfirmedBy);
-      this.maybeFinalizeConfirmedDeal(dealConfirmedBy, conversation.otherUserId);
+      this.maybeFinalizeConfirmedDeal(dealConfirmedBy, conversation.otherUserId, data.conversationId);
     });
 
     this.uiManager.on('updateTalkFilters', async (filters: any) => {

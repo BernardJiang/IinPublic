@@ -36,7 +36,13 @@ import { clearGunForStage4Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, delay, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { clickBroadcastUntilBulkAck, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import {
+  clickBroadcastUntilBulkAck,
+  completeTalkInAppByAnswerIds,
+  fillPairTagQuestion,
+  readCreatedTalkFromMyTalks,
+  submitTalkEditorAndWaitForOut,
+} from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 
@@ -479,6 +485,105 @@ test.describe('Taxi: two drivers reach the same passenger; a confirmed deal (not
     // automatically get marked "no longer available" — grouping "other candidates for the same
     // underlying need" across DIFFERENT drivers' own talkIds needs a mapping that doesn't exist
     // yet (see maybeFinalizeConfirmedDeal's doc comment and docs/TODO.md).
+  });
+});
+
+/**
+ * §JJ follow-up: `maybeFinalizeConfirmedDeal` (app.ts) now narrows to the specific talk of mine a
+ * confirmed conversation actually formed through, instead of disabling every one of my
+ * outstanding deal-eligible listings. Adam runs two SIMULTANEOUS driver listings with distinct
+ * wording; Alice manually answers ONLY the Downtown one (a real submission delivered over mesh to
+ * Adam as its author, exercising `handleMeshTalkResponse` and the new `recordMyDealTalkForConversation`
+ * bookkeeping — see that method's doc comment for why this has to be a genuine authored-response
+ * receipt rather than chatbot auto-reply, which doesn't preserve enough provenance to attribute a
+ * match back to one of several of the responder's own listings). Confirming that deal must leave
+ * the unrelated Harbor listing untouched — under the old "disable all" behavior this test would
+ * fail.
+ */
+test.describe('Taxi: confirming one deal does not disable an unrelated simultaneous listing (§JJ follow-up)', () => {
+  let browserAdam: Browser;
+  let browserAlice: Browser;
+  let contextAdam: BrowserContext | undefined;
+  let contextAlice: BrowserContext | undefined;
+  let pageAdam: Page | undefined;
+  let pageAlice: Page | undefined;
+
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
+    await clearGunForStage4Spec();
+    const mk = (x: number) => ({
+      headless,
+      slowMo: headless ? 0 : delay(50, 120),
+      args: [...WEBRTC_CHROMIUM_ARGS, `--window-position=${x},0`, '--window-size=560,820', '--force-device-scale-factor=1'],
+    });
+    [browserAdam, browserAlice] = await Promise.all([chromium.launch(mk(0)), chromium.launch(mk(560))]);
+  });
+
+  test.afterAll(async () => {
+    const cleanup = async (p?: Page) => {
+      if (!p) return;
+      await p.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+    };
+    await Promise.all([cleanup(pageAdam), cleanup(pageAlice)]);
+    await Promise.all([pageAdam?.close().catch(() => {}), pageAlice?.close().catch(() => {})]);
+    await Promise.all([contextAdam?.close().catch(() => {}), contextAlice?.close().catch(() => {})]);
+    await Promise.all([browserAdam?.close().catch(() => {}), browserAlice?.close().catch(() => {})]);
+    await clearGunForStage4Spec();
+  });
+
+  test('Adam has two listings; confirming a deal on one leaves the other enabled', async () => {
+    test.setTimeout(120_000);
+    const LISTING1_TITLE = 'Driver A - Downtown listing';
+    const LISTING2_TITLE = 'Driver A - Harbor listing';
+
+    const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam');
+    contextAdam = adam.context;
+    pageAdam = adam.page;
+    await createRideTalk(pageAdam, LISTING1_TITLE, ADAM_ALICE_QUESTIONS, 'sell');
+    // A second, simultaneous listing with distinctly different wording (reusing Eve's question
+    // set from above) so it never matches anyone in this two-person test — it exists purely to
+    // prove that confirming the Downtown deal below leaves it alone.
+    await createRideTalk(pageAdam, LISTING2_TITLE, EVE_QUESTIONS, 'sell');
+    const listing1 = await readCreatedTalkFromMyTalks(pageAdam, LISTING1_TITLE);
+
+    const alice = await bootstrapUser(browserAlice, 'Alice', 'Alice');
+    contextAlice = alice.context;
+    pageAlice = alice.page;
+
+    const [adamId, aliceId] = await Promise.all([getCurrentUserId(pageAdam), getCurrentUserId(pageAlice)]);
+    expect(adamId).toBeTruthy();
+    expect(aliceId).toBeTruthy();
+
+    // Chatbot auto-reply is left OFF for both sides (neither calls prepareLocalBroadcast, which
+    // is what turns it on) — Alice's answer below must be a genuine manual submission, not an
+    // auto-reply, so it exercises the real author-side receipt path this fix depends on. Both
+    // join the room before Adam broadcasts so his audience check sees Alice already present.
+    await Promise.all([ensureInLocalRoom(pageAdam), ensureInLocalRoom(pageAlice)]);
+    await clickBroadcastUntilBulkAck(pageAdam);
+
+    // Alice manually answers ONLY Adam's Downtown listing, matching ADAM_ALICE_QUESTIONS'
+    // question chain end to end — Adam's Harbor listing never receives any response at all.
+    await completeTalkInAppByAnswerIds(
+      pageAlice,
+      listing1.talkId,
+      listing1.talkData,
+      ['a_0_0', 'a_1_0', 'a_2_0', 'a_3_0', 'a_4_0'],
+      'match',
+    );
+
+    await expect.poll(() => hasConversationWith(pageAdam!, aliceId), { timeout: 30_000 }).toBe(true);
+    await expect.poll(() => hasConversationWith(pageAlice!, adamId), { timeout: 30_000 }).toBe(true);
+    expect(await conversationPartnerIds(pageAdam!)).toEqual([aliceId]);
+
+    expect(await isOwnTalkDisabled(pageAdam!, LISTING1_TITLE)).toBe(false);
+    expect(await isOwnTalkDisabled(pageAdam!, LISTING2_TITLE)).toBe(false);
+
+    await confirmDealWith(pageAlice!, adamId);
+    await confirmDealWith(pageAdam!, aliceId);
+
+    await expect.poll(() => isOwnTalkDisabled(pageAdam!, LISTING1_TITLE), { timeout: 15_000 }).toBe(true);
+    // The regression this test guards: confirming the Downtown deal must not disable Adam's
+    // unrelated Harbor listing too.
+    expect(await isOwnTalkDisabled(pageAdam!, LISTING2_TITLE)).toBe(false);
   });
 });
 
