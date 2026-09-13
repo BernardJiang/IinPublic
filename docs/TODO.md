@@ -80,7 +80,7 @@ in one peer scenario.
 ##### 1.1 Add Safari/WebKit
 
 - [x] Add a Playwright WebKit project to `playwright.config.ts`.
-- [ ] Run the existing E2E suite under WebKit.
+- [ ] Run the existing E2E suite under WebKit. **Started 2026-09-13, not complete — see below.**
 - [x] Identify tests that depend on Chromium-specific behavior.
 - [x] Fix or isolate the first browser-specific assumption (`ensureWindowFitsViewport` now skips CDP outside Chromium).
 - [x] Confirm networking, storage, IndexedDB, WebSocket, and Gun.js behavior under WebKit.
@@ -93,10 +93,33 @@ npm run test:e2e:webkit
 
 Implemented and passing for the platform smoke gate.
 
+**2026-09-13:** the smoke gate is a small cross-platform-invariant slice, not "the existing E2E
+suite" this bullet actually asks about — the real suite (everything the default `chromium`
+project matches: `staged/` alone is 209 spec files, plus `talks-matching/`, `mass/`,
+`cross-platform/`, `isolated/`) had never been run under WebKit or Firefox at all, and there was
+no mechanism to even try — the `webkit`/`firefox` projects are hard-restricted to
+`testMatch: /platform-smoke\//`. Added `webkit-suite`/`firefox-suite` projects (opt-in via
+`E2E_WEBKIT_SUITE=1`/`E2E_FIREFOX_SUITE=1`, `npm run test:e2e:webkit-suite -- <path>` /
+`test:e2e:firefox-suite -- <path>`) that run the SAME spec scope as the default `chromium`
+project (factored into a shared `DEFAULT_PROJECT_TEST_IGNORE` so the two definitions can't drift)
+under WebKit or Firefox instead. Running the entire suite under either engine in one pass is a
+much bigger undertaking than fits in one sitting — piloted with `tests/e2e/talks-matching/`
+(12 files, 13 tests: mesh ping/broadcast/response/contacts, offline mailbox, sender/exchange
+suppression, retraction, change-of-mind, IPFS auto-share — the core P2P matching layer,
+explicitly the highest-value slice to prove first). **All 13 passed cleanly under BOTH engines**
+(`npm run test:e2e:webkit-suite -- tests/e2e/talks-matching` and the `firefox-suite` equivalent),
+zero fixes needed — real signal that the P2P/mesh/matching core has no WebKit- or
+Firefox-specific breakage, not just an assumption. Remaining, genuinely unstarted: `staged/`
+(209 files — by far the bulk of the suite), `mass/`, `cross-platform/`, `isolated/`. Given the
+scale, that remainder is its own multi-session pass, not something to silently attempt to
+completion in one go — flagging honestly rather than claiming this bullet done.
+
 ##### 1.2 Add Firefox
 
 - [x] Add a Playwright Firefox project.
-- [ ] Run the existing E2E suite under Firefox.
+- [ ] Run the existing E2E suite under Firefox. **Started 2026-09-13 alongside the WebKit pass
+  above (same `firefox-suite` project/command) — same talks-matching pilot passed clean, same
+  remaining scope. See the WebKit bullet's note for the full writeup; not duplicated here.**
 - [ ] Fix or document Firefox-specific failures.
 - [x] Verify Gun.js/P2P behavior under Firefox (installed Firefox ↔ macOS Electron direct-P2P channel).
 - [ ] Verify local storage, IndexedDB, permissions, WebSocket, and reconnect behavior.

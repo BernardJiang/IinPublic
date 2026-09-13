@@ -88,6 +88,8 @@
     "test:e2e:browsers": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_CROSS_BROWSER=1 DISABLE_HMR=true PW_WORKERS=3 playwright test tests/e2e/platform-smoke --project=chromium --project=webkit --project=firefox",
     "test:e2e:mixed-browsers": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_MIXED_BROWSER=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/browser-matrix --project=chromium",
     "test:e2e:cross-browser": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_CROSS_BROWSER=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/platform-smoke --project=webkit --project=firefox",
+    "test:e2e:webkit-suite": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_WEBKIT_SUITE=1 DISABLE_HMR=true playwright test --project=webkit-suite",
+    "test:e2e:firefox-suite": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_FIREFOX_SUITE=1 DISABLE_HMR=true playwright test --project=firefox-suite",
     "test:e2e:cross-platform": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/cross-platform",
     "test:e2e:native-app:win": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts",
     "test:e2e:native-app:linux": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts",

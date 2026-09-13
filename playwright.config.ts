@@ -141,6 +141,70 @@ const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === '1' || process.env.E2E_C
 const MIXED_BROWSER = process.env.E2E_MIXED_BROWSER === '1' || process.env.E2E_MIXED_BROWSER === 'true';
 const WINDOWS_EDGE = process.env.E2E_WINDOWS_EDGE === '1' || process.env.E2E_WINDOWS_EDGE === 'true';
 const MACOS_FIREFOX = process.env.E2E_MACOS_FIREFOX === '1' || process.env.E2E_MACOS_FIREFOX === 'true';
+/**
+ * Runs the SAME spec scope as the default `chromium` project (see its `testIgnore` below,
+ * factored out as DEFAULT_PROJECT_TEST_IGNORE so the two can't drift), but under WebKit or
+ * Firefox — docs/TODO.md Stage 1.1/1.2: "Run the existing E2E suite under WebKit/Firefox."
+ * Separate from the `webkit`/`firefox`/`macos-firefox` projects above, which are deliberately
+ * restricted to the @smoke platform-smoke set only. Opt-in (unlike the CROSS_BROWSER smoke
+ * gate, this runs the full, much larger suite, which is slow and not yet fully known to be
+ * clean under either engine).
+ * Run: `npm run test:e2e:webkit-suite -- <path>` / `test:e2e:firefox-suite -- <path>` (a path
+ * argument is expected — the full default suite is hundreds of specs; start with a subset like
+ * tests/e2e/talks-matching, which is the first slice verified clean under WebKit — see TODO.md).
+ */
+const WEBKIT_SUITE = process.env.E2E_WEBKIT_SUITE === '1' || process.env.E2E_WEBKIT_SUITE === 'true';
+const FIREFOX_SUITE = process.env.E2E_FIREFOX_SUITE === '1' || process.env.E2E_FIREFOX_SUITE === 'true';
+
+/**
+ * The default-suite exclusion list, shared by the `chromium` project and the opt-in
+ * `webkit-suite` project below so the two can never drift apart and quietly diverge on what
+ * "the existing E2E suite" even means between engines.
+ */
+const DEFAULT_PROJECT_TEST_IGNORE = [
+  /staged\/stage0-bootstrap\//,
+  /staged\/_setup\//,
+  /staged\/[^/]+\/(aaa-|zzz-)/,
+  // Server-snapshot reply triage scale tests; keep out of default P2P-only parallel runs until
+  // creator replies read pair-edge responses instead of imported server talkResponsesMap state.
+  /00v-creator-reply-triage-matrix\.spec\.ts/,
+  /00ad-reply-triage-group-date\.spec\.ts/,
+  // Server-owned aggregate talk analytics were removed with star persistence. These
+  // scenarios return when the local ledger/IPFS aggregate index replaces /api/stats.
+  /00-statistics-dashboard\.spec\.ts/,
+  /06-survey-customer-satisfaction\.spec\.ts/,
+  /07-survey-restaurants\.spec\.ts/,
+  /08-route-job-seeking\.spec\.ts/,
+  /10-stats-four-types\.spec\.ts/,
+  // The survey analytics dashboard now derives from localTalkExchanges and has
+  // deterministic local-history coverage, so its former server-stats ignore is gone.
+  // S3 embedded-node: spawns its own extra dist/server/node-app/embedded-node.js
+  // process and needs a prebuilt dist/web, so it runs under its own dedicated
+  // Playwright config (tests/e2e/embedded-node/playwright.config.ts) instead of
+  // this one's per-worker port-pair webServer array. Excluded here so the default
+  // `chromium` project (and testIgnore-based explicit-path runs) never try to pick
+  // it up — run it via `npm run test:e2e:embedded-node`.
+  /embedded-node\//,
+  // Native app E2E launches Electron and owns its own app-local ports/profile
+  // directories; run it via `npm run test:e2e:native-app`.
+  /native-app\//,
+  // Mixed-engine specs launch their own Chromium/WebKit/Firefox processes and are
+  // intentionally opt-in so an ordinary Chromium-only run does not download or
+  // require the other browser engines.
+  ...(MIXED_BROWSER ? [] : [/browser-matrix\//]),
+  // Quarantined machine-sensitive specs: run ONLY in the dedicated single-worker
+  // sequential phase (E2E_RUN_ISOLATED=1, tests/e2e/isolated) — never alongside
+  // any other shard. See scripts/run-test-all.sh wave 'isolated'.
+  ...(process.env.E2E_RUN_ISOLATED === '1' ? [] : [/isolated\//]),
+  // Heavy multi-browser specs run in their own low-worker shard (E2E_SKIP_HEAVY=1).
+  ...(SKIP_HEAVY ? HEAVY_SPEC_PATTERNS : []),
+  ...(SKIP_FIND_SIMILAR ? [/staged\/stage5-multi-user\/find-similar-people\.spec\.ts/] : []),
+  ...(SKIP_MESH_PING ? [/talks-matching\/01-mesh-ping-overlay\.spec\.ts/] : []),
+  ...(SKIP_MESH_BROADCAST ? [/talks-matching\/02-mesh-broadcast-announce\.spec\.ts/] : []),
+  ...(SKIP_MESH_RESPONSE ? [/talks-matching\/03-mesh-response-match\.spec\.ts/] : []),
+  ...(SKIP_MESH_CONTACTS ? [/talks-matching\/04-local-contacts\.spec\.ts/] : []),
+  ...(SKIP_ALL_MESH ? [/talks-matching\//] : []),
+];
 
 // Optional port-range offset so concurrent `playwright test` runs don't collide. Matches
 // E2E_PORT_OFFSET in tests/e2e/helpers/ports.ts (default 0). web = 3001+offset+i, gun =
@@ -263,51 +327,22 @@ export default defineConfig({
         {
           name: 'chromium',
           use: { ...devices['Desktop Chrome'] },
-          testIgnore: [
-            /staged\/stage0-bootstrap\//,
-            /staged\/_setup\//,
-            /staged\/[^/]+\/(aaa-|zzz-)/,
-            // Server-snapshot reply triage scale tests; keep out of default P2P-only parallel runs until
-            // creator replies read pair-edge responses instead of imported server talkResponsesMap state.
-            /00v-creator-reply-triage-matrix\.spec\.ts/,
-            /00ad-reply-triage-group-date\.spec\.ts/,
-            // Server-owned aggregate talk analytics were removed with star persistence. These
-            // scenarios return when the local ledger/IPFS aggregate index replaces /api/stats.
-            /00-statistics-dashboard\.spec\.ts/,
-            /06-survey-customer-satisfaction\.spec\.ts/,
-            /07-survey-restaurants\.spec\.ts/,
-            /08-route-job-seeking\.spec\.ts/,
-            /10-stats-four-types\.spec\.ts/,
-            // The survey analytics dashboard now derives from localTalkExchanges and has
-            // deterministic local-history coverage, so its former server-stats ignore is gone.
-            // S3 embedded-node: spawns its own extra dist/server/node-app/embedded-node.js
-            // process and needs a prebuilt dist/web, so it runs under its own dedicated
-            // Playwright config (tests/e2e/embedded-node/playwright.config.ts) instead of
-            // this one's per-worker port-pair webServer array. Excluded here so the default
-            // `chromium` project (and testIgnore-based explicit-path runs) never try to pick
-            // it up — run it via `npm run test:e2e:embedded-node`.
-            /embedded-node\//,
-            // Native app E2E launches Electron and owns its own app-local ports/profile
-            // directories; run it via `npm run test:e2e:native-app`.
-            /native-app\//,
-            // Mixed-engine specs launch their own Chromium/WebKit/Firefox processes and are
-            // intentionally opt-in so an ordinary Chromium-only run does not download or
-            // require the other browser engines.
-            ...(MIXED_BROWSER ? [] : [/browser-matrix\//]),
-            // Quarantined machine-sensitive specs: run ONLY in the dedicated single-worker
-            // sequential phase (E2E_RUN_ISOLATED=1, tests/e2e/isolated) — never alongside
-            // any other shard. See scripts/run-test-all.sh wave 'isolated'.
-            ...(process.env.E2E_RUN_ISOLATED === '1' ? [] : [/isolated\//]),
-            // Heavy multi-browser specs run in their own low-worker shard (E2E_SKIP_HEAVY=1).
-            ...(SKIP_HEAVY ? HEAVY_SPEC_PATTERNS : []),
-            ...(SKIP_FIND_SIMILAR ? [/staged\/stage5-multi-user\/find-similar-people\.spec\.ts/] : []),
-            ...(SKIP_MESH_PING ? [/talks-matching\/01-mesh-ping-overlay\.spec\.ts/] : []),
-            ...(SKIP_MESH_BROADCAST ? [/talks-matching\/02-mesh-broadcast-announce\.spec\.ts/] : []),
-            ...(SKIP_MESH_RESPONSE ? [/talks-matching\/03-mesh-response-match\.spec\.ts/] : []),
-            ...(SKIP_MESH_CONTACTS ? [/talks-matching\/04-local-contacts\.spec\.ts/] : []),
-            ...(SKIP_ALL_MESH ? [/talks-matching\//] : []),
-          ],
+          testIgnore: DEFAULT_PROJECT_TEST_IGNORE,
         },
+        ...(WEBKIT_SUITE
+          ? [{
+              name: 'webkit-suite',
+              use: { ...devices['Desktop Safari'], launchOptions: nonChromiumLaunchOptions },
+              testIgnore: DEFAULT_PROJECT_TEST_IGNORE,
+            }]
+          : []),
+        ...(FIREFOX_SUITE
+          ? [{
+              name: 'firefox-suite',
+              use: { ...devices['Desktop Firefox'], launchOptions: nonChromiumLaunchOptions },
+              testIgnore: DEFAULT_PROJECT_TEST_IGNORE,
+            }]
+          : []),
         ...(WINDOWS_EDGE
           ? [{
               name: 'edge',
