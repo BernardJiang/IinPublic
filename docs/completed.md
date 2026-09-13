@@ -2,6 +2,29 @@
 
 Last updated: 2026-09-12
 
+## 2026-09-12 — UIManager decomposition cluster #79: Chatroom shell controller
+
+Continuing Priority 6 after the broadcast-controller extraction. `docs/TODO.md` Priority 6.
+
+- **#79: main/chatroom shell orchestration → `chatroom-shell-controller.ts`.** The controller now
+  owns normalized session-to-shell hydration, the TechSupport identity badge, first-painted room
+  hierarchy preservation, room list/detail chrome and view dependencies, custom-room POST/upsert/
+  open behavior, and live member rendering/name capture. State and feature effects cross a typed
+  dependency boundary; the app-facing manager methods remain thin compatibility shims.
+- **Characterization:** new `chatroom-shell-controller.test.ts` (5 tests) covers first hydration,
+  double-render avoidance, list reset, custom-room creation/opening, and member rendering/name
+  capture. The focused shell/chatroom unit set passes 14/14. Six focused Chromium scenarios pass
+  across legacy session normalization, room back/return-home state, hierarchy navigation,
+  OpenStreetMap mode, and community-room create/rename.
+- **Ratchet:** `ui-manager.ts` 3,438 → **3,293** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  232 unit suites / 2,403 tests pass (1 skipped). Canonical run `run-20260912-194909-217`
+  (`PW_WORKERS=8`, 18m53s): stage5, mesh-batch, mesh-isolated, find-similar, cross-browser,
+  isolated, heavy-staged, and mass all passed; `light` passed 252 tests (6 skipped), including
+  the shell/chatroom scenarios, and failed only the established rotating delivery cases
+  `00l-techsupport-faq-cross-user` and `83-survey-ignore-mid-question-not-complete`, neither
+  touching this extraction.
+
 ## 2026-09-12 — UIManager decomposition cluster #78: Broadcast controller
 
 Continuing Priority 6 after the peer-controller extraction. `docs/TODO.md` Priority 6.

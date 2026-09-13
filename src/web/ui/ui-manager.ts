@@ -42,7 +42,6 @@ import { type QAPair } from '../../shared/flattened-answer-keys';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
-import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import { renderSupportInboxSection } from './support-inbox-view';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
@@ -52,11 +51,8 @@ import type { GraphNodeTarget } from './graph-navigation';
 import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './answers-view';
 import {
   type CustomChatroomRow,
-  renderChatroomList as renderChatrooms,
   resolveChatroomTitle,
-  showChatroomDetail as openChatroomDetail,
   syncStatusBroadcastButtonVisibility as syncChatroomBroadcastVisibility,
-  updateChatroomMembers as renderChatroomMembers,
 } from './chatrooms-view';
 import {
   showCreateCustomChatroomDialog as openCreateCustomChatroomDialog,
@@ -194,8 +190,8 @@ import {
 } from './answer-preference-resolution';
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
 import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
+import { createChatroomShellController, type ChatroomShellController } from './chatroom-shell-controller';
 import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
-import { avatarInnerHtml } from './profile-avatar';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
 import {
   deriveLocalCreatorReplies,
@@ -307,6 +303,7 @@ export class UIManager extends EventEmitter {
   private conversationMediaController?: ConversationMediaController;
   private peerController?: PeerController;
   private broadcastController?: BroadcastController;
+  private chatroomShellController?: ChatroomShellController;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -815,95 +812,11 @@ export class UIManager extends EventEmitter {
   }
 
   showMainInterface(user: User): void {
-    user.languages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
-    user.talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
-    this.currentUser = user;
-    this.currentUserId = user.id;
-    this.applyShellTranslations();
-    // Update the persistent header identity without duplicating the generated stage name.
-    const headerStatus = document.getElementById('header-status');
-    const headerUserInfo = document.getElementById('header-user-info');
-    if (headerUserInfo) {
-      // K3 (docs/TODO.md): a permanent, always-visible badge whenever the current identity IS
-      // the TechSupport root — gated on the id, not on dev-mode, so it also shows for a real
-      // production operator device (a developer/operator must always be able to tell they are
-      // signed in as TechSupport and not their own ordinary identity).
-      const isTechSupportRoot = user.id === TECHSUPPORT_ROOT_USER_ID;
-      const techSupportBadge = isTechSupportRoot
-        ? `<span class="techsupport-root-badge" data-testid="techsupport-root-badge">${escapeHtml(this.t('techSupportRootBadge'))}</span>`
-        : '';
-      headerUserInfo.innerHTML = `
-        <div class="user-avatar">
-          ${avatarInnerHtml(user.headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
-        </div>
-        <span class="visually-hidden" data-testid="user-stage-name">${user.stageName}</span>
-        ${techSupportBadge}
-      `;
-    }
-    if (headerStatus) {
-      headerStatus.style.display = 'flex';
-    }
-
-    this.renderSettingsView(user);
-    this.displayAnswersList();
-
-    const chatroomInfo = document.getElementById('chatroom-info');
-    if (chatroomInfo) {
-      chatroomInfo.innerHTML = `
-        <div class="chatroom-title">Global Chatroom</div>
-        <div class="chatroom-status">Connected • Ready to meet people nearby</div>
-      `;
-    }
-
-    // The startup path already painted the deterministic hierarchy. Do not tear it down and
-    // render it a second time when identity hydration finishes; live count subscriptions patch
-    // it later. Non-startup callers still get the normal list initialization fallback.
-    const startupList = document.getElementById('chatroom-list');
-    if (!startupList?.querySelector('.chatroom-item')) {
-      this.showChatroomList();
-    } else {
-      this.syncReturnHomeButton();
-      this.syncAppBarOverflow();
-    }
+    this.chatroomShell().showMainInterface(user);
   }
 
   showChatroomList(): void {
-    this.chatroomsDetailRoomId = null;
-    // Hide chatroom detail view, show chatroom list
-    const listContainer = document.getElementById('chatroom-list-container');
-    const detailContainer = document.getElementById('chatroom-detail-container');
-
-    if (listContainer) listContainer.style.display = 'flex';
-    if (detailContainer) detailContainer.style.display = 'none';
-    const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
-    if (backBtn) backBtn.style.display = 'none';
-    const createCustomRoomBtn = document.getElementById('create-custom-chatroom-btn') as HTMLButtonElement | null;
-    if (createCustomRoomBtn) {
-      createCustomRoomBtn.onclick = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void this.handleCreateCustomChatroomClick();
-      };
-    }
-
-    const ownerBar = document.getElementById('chatroom-owner-bar');
-    if (ownerBar) {
-      ownerBar.style.display = 'none';
-      ownerBar.innerHTML = '';
-    }
-    const metadata = document.getElementById('chatroom-metadata');
-    if (metadata) {
-      metadata.style.display = 'none';
-      metadata.innerHTML = '';
-    }
-
-    // Chatrooms is already identified in the bottom navigation; keep the header focused on status.
-    const headerTitle = document.getElementById('header-title');
-    if (headerTitle) headerTitle.textContent = '';
-
-    // Render the chatroom list
-    this.renderChatroomList();
-    this.syncReturnHomeButton();
+    this.chatroomShell().showChatroomList();
   }
 
   setTravelModeState(state: { active: boolean; homeChatroomId?: string }): void {
@@ -974,6 +887,46 @@ export class UIManager extends EventEmitter {
       });
     }
     return this.broadcastController;
+  }
+
+  private chatroomShell(): ChatroomShellController {
+    if (!this.chatroomShellController) {
+      this.chatroomShellController = createChatroomShellController({
+        getApiBase: () => this.apiBase,
+        getCurrentChatroom: () => this.currentChatroom,
+        getCurrentUserId: () => this.currentUserId,
+        getCurrentUser: () => this.currentUser,
+        getChatroomMemberCounts: () => this.chatroomMemberCounts,
+        getChatroomVisitCounts: () => this.chatroomVisitCounts,
+        getChatroomBrowseMode: () => this.chatroomBrowseMode,
+        getExpandedChatrooms: () => this.expandedChatrooms,
+        getMatchedUserIds: () => this.matchedUserIds,
+        getCustomChatrooms: () => this.customChatrooms,
+        setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
+        setCurrentUserId: (userId) => { this.currentUserId = userId; },
+        setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
+        setCurrentChatroom: (chatroomId) => { this.currentChatroom = chatroomId; },
+        setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
+        setChatroomsDetailRoomId: (chatroomId) => { this.chatroomsDetailRoomId = chatroomId; },
+        applyShellTranslations: () => this.applyShellTranslations(),
+        renderSettingsView: (user) => this.renderSettingsView(user),
+        displayAnswersList: () => this.displayAnswersList(),
+        syncReturnHomeButton: () => this.syncReturnHomeButton(),
+        syncAppBarOverflow: () => this.syncAppBarOverflow(),
+        openPeerDetail: (userId, stageName) => this.openUserConversationFirst(userId, stageName),
+        rememberPeerName: (userId, stageName) => this.rememberPeerName(userId, stageName),
+        showCreateCustomChatroomDialog: () => this.showCreateCustomChatroomDialog(),
+        upsertCustomChatroomFromServer: (row) => this.upsertCustomChatroomFromServer(row),
+        showNotification: (message, type) => this.showNotification(message, type),
+        emit: (eventName, payload) => this.emit(eventName, payload),
+        isTechSupportOnline: () => this.isTechSupportOnline(),
+        isUserOnline: (userId) => this.isUserOnline(userId),
+        formatDate: (date) => this.formatUiDate(date),
+        t: (key) => this.t(key),
+        tf: (key, values) => this.tf(key, values),
+      });
+    }
+    return this.chatroomShellController;
   }
 
   /**
@@ -1123,94 +1076,9 @@ export class UIManager extends EventEmitter {
     return Array.from(resolved, ([id, name]) => ({ id, name }));
   }
 
-  private chatroomsDeps(): Parameters<typeof renderChatrooms>[0] {
-    return {
-      currentChatroom: this.currentChatroom,
-      chatroomMemberCounts: this.chatroomMemberCounts,
-      chatroomVisitCounts: this.chatroomVisitCounts,
-      chatroomBrowseMode: this.chatroomBrowseMode,
-      expandedChatrooms: this.expandedChatrooms,
-      matchedUserIds: this.matchedUserIds,
-      customChatrooms: this.customChatrooms,
-      setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
-      setCurrentChatroom: (chatroomId) => {
-        this.currentChatroom = chatroomId;
-        this.syncReturnHomeButton();
-      },
-      setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
-      escapeHtml: escapeHtml,
-      renderChatroomList: this.renderChatroomList.bind(this),
-      // Rule N2a (redesign §5): a member click lands on the DM Conversation directly,
-      // with the User layout underneath.
-      openPeerDetail: this.openUserConversationFirst.bind(this),
-      emit: (eventName, payload) => this.emit(eventName, payload),
-      currentUserId: this.currentUserId,
-      apiBase: this.apiBase,
-      text: this.t.bind(this),
-      formatDate: this.formatUiDate.bind(this),
-      isTechSupportOnline: this.isTechSupportOnline.bind(this),
-      isUserOnline: this.isUserOnline.bind(this),
-      onChatroomDetailOpened: (chatroomId) => { this.chatroomsDetailRoomId = chatroomId; },
-    };
-  }
-
-  private async handleCreateCustomChatroomClick(): Promise<void> {
-    const payload = await this.showCreateCustomChatroomDialog();
-    if (payload) {
-      const creatorId = this.currentUserId || this.currentUser?.id || localStorage.getItem('iinpublic_user_id') || 'local-user';
-      try {
-        const res = await fetch(`${this.apiBase}/api/chatrooms`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: payload.name,
-            type: payload.type,
-            createdBy: creatorId,
-            ...(payload.description != null ? { description: payload.description } : {}),
-            ...(payload.capacity != null ? { capacity: payload.capacity } : {}),
-            ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
-          }),
-        });
-        const text = await res.text();
-        if (!res.ok) {
-          this.showNotification(text || this.t('chatroomCreateFailed'), 'error');
-          return;
-        }
-        const created = text
-          ? JSON.parse(text) as {
-              id?: string;
-              name?: string;
-              type?: string;
-              description?: string;
-              createdBy?: string;
-              capacity?: number;
-              createdAt?: string;
-              businessInfo?: { headline?: string };
-            }
-          : null;
-        const createdId = String(created?.id || '').trim();
-        if (createdId) {
-          this.upsertCustomChatroomFromServer({
-            id: createdId,
-            name: String(created?.name || payload.name),
-            type: created?.type === 'business' ? 'business' : 'custom',
-            description: String(created?.description || payload.description || ''),
-            createdBy: String(created?.createdBy || creatorId),
-            ...(created?.capacity != null || payload.capacity != null
-              ? { capacity: created?.capacity ?? payload.capacity! }
-              : {}),
-            ...(created?.createdAt != null ? { createdAt: created.createdAt } : {}),
-            ...(created?.businessInfo != null || payload.businessInfo != null
-              ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
-              : {}),
-          });
-          this.showChatroomDetail(createdId);
-        }
-        this.showNotification(this.tf('chatroomCreated', { name: created?.name || payload.name }), 'success');
-      } catch (e) {
-        this.showNotification(this.tf('chatroomCreateFailedWithReason', { reason: (e as Error).message }), 'error');
-      }
-    }
+  // Kept public because focused E2E invokes this historical handler dynamically.
+  public handleCreateCustomChatroomClick(): Promise<void> {
+    return this.chatroomShell().handleCreateCustomChatroomClick();
   }
 
   showCreateCustomChatroomDialog(): Promise<CustomChatroomDraft | null> {
@@ -1228,15 +1096,11 @@ export class UIManager extends EventEmitter {
     });
   }
   private renderChatroomList(): void {
-    renderChatrooms(this.chatroomsDeps());
+    this.chatroomShell().renderChatroomList();
   }
 
   showChatroomDetail(chatroomId: string): void {
-    // openChatroomDetail's onChatroomDetailOpened callback (chatroomsDeps()) is what actually
-    // sets chatroomsDetailRoomId — the same single call path the Tree row click and Map marker
-    // click also go through, so every way of opening a room's detail panel is tracked uniformly.
-    openChatroomDetail(this.chatroomsDeps(), chatroomId);
-    this.syncReturnHomeButton();
+    this.chatroomShell().showChatroomDetail(chatroomId);
   }
 
   /**
@@ -3075,16 +2939,7 @@ export class UIManager extends EventEmitter {
     members: Array<{ userId: string; stageName: string }>,
     currentUserId: string,
   ): void {
-    this.currentUserId = currentUserId;
-    for (const member of members) {
-      if (member.userId && member.stageName) {
-        this.rememberPeerName(member.userId, member.stageName);
-      }
-    }
-    console.log(
-      `📊 Updating member count for ${this.currentChatroom}: ${members.length} total members`,
-    );
-    renderChatroomMembers(this.chatroomsDeps(), members, currentUserId);
+    this.chatroomShell().updateChatroomMembers(members, currentUserId);
   }
 
   /**
