@@ -161,6 +161,7 @@ import { displayIncomingTalk as displayIncomingTalkImpl } from './incoming-talk-
 import { fetchDownloadManifest, renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { showSurveyStatisticsDialog } from './survey-statistics-dialog';
 import { showEditProfileDialog as openEditProfileDialog } from './edit-profile-dialog';
+import { showEditStageNameDialog as openEditStageNameDialog } from './edit-stage-name-dialog';
 import { refreshStorageInspector as renderStorageInspector } from './storage-inspector';
 import {
   resolveAnswerPreferenceForTalkQuestion as resolveStoredAnswerPreference,
@@ -2077,62 +2078,11 @@ export class UIManager extends EventEmitter {
   }
 
   async showEditStageNameDialog(user: any): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal-content">
-          <div class="modal-header">
-            <h2 class="modal-title">${this.t('editStageName')}</h2>
-            <p>${escapeHtml(this.tf('stageDialogCurrent', { name: String(user.stageName || '') }))}</p>
-          </div>
-          <form id="edit-stagename-form">
-            <div class="form-group">
-              <label class="form-label">${this.t('stageDialogNewName')}</label>
-              <input type="text" class="form-input" id="new-stage-name" name="new-stage-name" 
-                     data-testid="stage-name-input"
-                     required minlength="3" maxlength="50"
-                     placeholder="${escapeHtml(this.t('stageDialogPlaceholder'))}"
-                     value="${escapeHtml(String(user.stageName || ''))}">
-              <small style="color: #666; font-size: 0.85em;">${this.t('stageDialogLength')}</small>
-            </div>
-            <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-edit-btn" style="background: var(--text-tertiary);">${this.t('stageDialogCancel')}</button>
-              <button type="submit" class="btn" data-testid="save-stage-name-button">${this.t('stageDialogSave')}</button>
-            </div>
-          </form>
-        </div>
-      `;
-
-      document.body.appendChild(modal);
-
-      const form = document.getElementById('edit-stagename-form') as HTMLFormElement;
-      const cancelBtn = document.getElementById('cancel-edit-btn') as HTMLButtonElement;
-
-      cancelBtn.addEventListener('click', () => {
-        document.body.removeChild(modal);
-        resolve();
-      });
-
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const formData = new FormData(form);
-        const newStageName = formData.get('new-stage-name') as string | null;
-
-        if (newStageName && newStageName.trim() && newStageName.trim().length >= 3) {
-          try {
-            // Update the user's stage name
-            await this.onStageNameChange?.(user.id, newStageName.trim());
-            document.body.removeChild(modal);
-            resolve();
-          } catch (error) {
-            alert(this.t('stageDialogUpdateFailed'));
-            reject(error);
-          }
-        } else {
-          alert(this.t('stageDialogTooShort'));
-        }
-      });
+    return openEditStageNameDialog({
+      user,
+      text: (key) => this.t(key),
+      formatText: (key, values) => this.tf(key, values),
+      onStageNameChange: this.onStageNameChange,
     });
   }
 

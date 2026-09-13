@@ -2,6 +2,28 @@
 
 Last updated: 2026-09-13
 
+## 2026-09-13 — UIManager decomposition cluster #82: StageName edit dialog
+
+Continuing Priority 6 after the TechSupport Settings extraction. `docs/TODO.md` Priority 6.
+
+- **#82: `showEditStageNameDialog` → `edit-stage-name-dialog.ts`.** The zero-caller feature
+  explicitly flagged during earlier decomposition remains behaviorally preserved rather than
+  deleted: modal rendering, untrusted-value escaping, validation, cancel/save promise lifecycle,
+  and the async StageName update callback now live in a standalone dialog module. `UIManager`
+  retains the historical public entry point as a typed dependency shim.
+- **Characterization:** new `edit-stage-name-dialog.test.ts` (4 tests) covers safe rendering and
+  cancellation, trimmed valid submission, too-short rejection without closing, and async update
+  failure with the correction dialog retained. The existing Settings/navigation Chromium suite
+  passes 9/9.
+- **Ratchet:** `ui-manager.ts` 3,062 → **3,012** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  235 Jest suites / 2,414 tests pass (1 skipped). Canonical run
+  `run-20260913-021722-37675` (`PW_WORKERS=8`, 18m58s): stage5, mesh-batch, mesh-isolated,
+  find-similar, cross-browser, isolated, heavy-staged, and mass all passed; `light` passed 251
+  tests (6 skipped) and failed only the established rotating
+  `00l-techsupport-faq-cross-user` and `83-survey-ignore-mid-question-not-complete` delivery
+  cases, neither touching the extracted dialog.
+
 ## 2026-09-13 — UIManager decomposition cluster #81: TechSupport Settings controller
 
 Continuing Priority 6 after the Talk-editor extraction. `docs/TODO.md` Priority 6.
