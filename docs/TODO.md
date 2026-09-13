@@ -148,7 +148,24 @@ npm run test:e2e:browsers
 
 Implemented; all projects contribute to one HTML report.
 
-- [ ] Make test data and ports safe for parallel browser execution.
+- [x] **Landed 2026-09-13:** Make test data and ports safe for parallel browser execution.
+  `npm run test:e2e:browsers` ran all three engine projects on `PW_WORKERS=1` — meaning
+  chromium/webkit/firefox executed sequentially against the same single web/gun port pair despite
+  the generic per-worker port-isolation infra (`ports.ts`'s `parallelSlot()`/`webPort()`/
+  `gunPort()`, the `e2eWorkerSlot` auto-fixture, and `playwright.config.ts`'s `webServers` array
+  spinning up one dev-server + Gun-server pair per worker) already existing and being exercised
+  elsewhere (`PW_WORKERS=4 npm run test:e2e`). Nothing was actually unsafe — the three engines had
+  simply never been pointed at that infra concurrently to prove it out for this specific case (one
+  spec file matched by three simultaneous projects). Changed `test:e2e:browsers` to
+  `PW_WORKERS=3` (one worker per engine); verified twice locally with no flakiness — all 9 tests
+  (3 engines × 3 smoke tests, including the reload-dependent settings-persistence and reconnect
+  tests) pass with each engine now genuinely running at the same time on its own isolated
+  `3001+N`/`8080+N` port pair, cutting wall-clock from ~44s to ~17s. Deliberately left
+  `test:e2e:mixed-browsers` and `scripts/run-test-all.sh`'s own internal `cross-browser` phase
+  (webkit+firefox, `PW_WORKERS=1`) untouched — the former launches multiple engines manually
+  *within* one test rather than via projects/workers, and the latter's worker budget is shared
+  with several other concurrent phases in that script's own orchestration, a separate scope from
+  this bullet.
 - [x] Prevent browser instances from accidentally sharing identities or state unless the test explicitly requires it (fresh context and browser IndexedDB plus server-graph clear per smoke test).
 - [x] Give each test peer a visible identity such as:
   - chromium-alice
