@@ -2,6 +2,31 @@
 
 Last updated: 2026-09-13
 
+## 2026-09-13 — UIManager decomposition cluster #81: TechSupport Settings controller
+
+Continuing Priority 6 after the Talk-editor extraction. `docs/TODO.md` Priority 6.
+
+- **#81: TechSupport Settings state/render orchestration → `support-settings-controller.ts`.**
+  Pending inbox entries, delegate grants/activity, delegate eligibility/label/opt-in state, and
+  the inbox/delegates/opt-in render lifecycles now live behind one typed dependency boundary.
+  Current-user lookup, Settings rerendering, translations, dates, and app events are injected;
+  `UIManager` retains its three app-facing update methods as thin compatibility shims.
+- **Characterization:** new `support-settings-controller.test.ts` (4 tests) covers hidden-section
+  state retention, answer-event forwarding, combined grant/activity rendering, active-Settings
+  eligibility refresh, opt-in state, and toggle events. The focused support/Settings unit set
+  passes 9/9. Focused Chromium E2Es pass 2/2 for the master inbox answer path and the complete
+  delegate grant/opt-in/answer/audit path.
+- **Ratchet:** `ui-manager.ts` 3,114 → **3,062** lines.
+- **Verification:** typecheck/lint clean, full production and embedded-mobile builds succeed, and
+  the isolated full Jest rerun passes 234 suites / 2,410 tests (1 skipped). Canonical run
+  `run-20260913-015250-23384` (`PW_WORKERS=8`, 19m22s): stage5, mesh-batch, mesh-isolated,
+  find-similar, isolated, and mass passed. The concurrent run repeated the established rotating
+  light failures `33-mobile-chatroom-hierarchy` and
+  `79-techsupport-survives-restrictive-filters`, plus a Firefox Settings-click timing miss, a
+  ghost-member headcount mismatch, and a transient chatroom-route Jest environment failure. The
+  exact Firefox smoke, headcount spec, and chatroom-route suite all passed immediately in isolated
+  reruns; the dedicated support flows above also passed, leaving no extraction-specific failure.
+
 ## 2026-09-13 — UIManager decomposition cluster #80: Talk editor controller
 
 Continuing Priority 6 after the chatroom-shell extraction. `docs/TODO.md` Priority 6.

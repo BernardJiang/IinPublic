@@ -42,10 +42,11 @@ import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
-import { renderSupportInboxSection } from './support-inbox-view';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
-import { renderSupportDelegatesSection } from './support-delegates-view';
-import { renderSupportDelegateOptInSection } from './support-delegate-optin-view';
+import {
+  createSupportSettingsController,
+  type SupportSettingsController,
+} from './support-settings-controller';
 import type { GraphNodeTarget } from './graph-navigation';
 import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './answers-view';
 import {
@@ -231,15 +232,6 @@ export class UIManager extends EventEmitter {
    */
   private chatroomsDetailRoomId: string | null = null;
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
-  /** docs/TODO.md K5 — the TechSupport-root session's own pending-question inbox, fed by app.ts's live `techsupport-inbox/*` subscription (never read directly from Gun here). */
-  private currentSupportInboxEntries: SupportInboxEntry[] = [];
-  /** docs/TODO.md K7 — master-only Delegates panel state, fed by app.ts. */
-  private currentTechSupportDelegates: TechSupportDelegateGrant[] = [];
-  private currentDelegateActivity: SupportFaqEntry[] = [];
-  /** docs/TODO.md K7 — an ordinary user's own delegate eligibility/opt-in state, fed by app.ts. */
-  private techSupportDelegateEligible = false;
-  private techSupportDelegateLabel = '';
-  private techSupportDelegateOptedIn = false;
   private talksShowIncoming = true;
   private talksShowOutgoing = true;
   private talksEnabledTypes = new Set<string>(['tag', 'flow', 'survey', 'route']);
@@ -284,6 +276,7 @@ export class UIManager extends EventEmitter {
   private broadcastController?: BroadcastController;
   private chatroomShellController?: ChatroomShellController;
   private talkEditorController?: TalkEditorController;
+  private supportSettingsController?: SupportSettingsController;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -921,6 +914,20 @@ export class UIManager extends EventEmitter {
     return this.talkEditorController;
   }
 
+  private supportSettings(): SupportSettingsController {
+    if (!this.supportSettingsController) {
+      this.supportSettingsController = createSupportSettingsController({
+        getCurrentUser: () => this.currentUser,
+        renderSettingsView: (user) => this.renderSettingsView(user),
+        formatDate: (date) => this.formatUiDate(date),
+        emit: (event, payload) => this.emit(event, payload),
+        t: (key) => this.t(key),
+        tf: (key, values) => this.tf(key, values),
+      });
+    }
+    return this.supportSettingsController;
+  }
+
   /**
    * The single ContactsViewDeps builder — every contacts-view entry point uses this
    * object (key invariant: the deps object must stay complete at every call site).
@@ -1341,6 +1348,7 @@ export class UIManager extends EventEmitter {
   }
 
   private renderSettingsView(user: User): void {
+    const support = this.supportSettings();
     renderSettingsViewImpl(user, {
       currentLocation: this.currentLocation,
       incomingTalkClusters: this.incomingTalkClusters,
@@ -1352,14 +1360,14 @@ export class UIManager extends EventEmitter {
       t: (key) => this.t(key),
       tf: (key, values) => this.tf(key, values),
       appDownloadTextDeps: () => this.appDownloadTextDeps(),
-      techSupportDelegateEligible: this.techSupportDelegateEligible,
-      techSupportDelegateOptedIn: this.techSupportDelegateOptedIn,
+      techSupportDelegateEligible: support.isDelegateEligible(),
+      techSupportDelegateOptedIn: support.isDelegateOptedIn(),
       bindSettingsControls: () => this.bindSettingsControls(),
       refreshStorageInspector: () => this.refreshStorageInspector(),
       refreshDownloadAppSection: () => this.refreshDownloadAppSection(),
-      renderSupportInboxSectionIfPresent: () => this.renderSupportInboxSectionIfPresent(),
-      renderSupportDelegatesSectionIfPresent: () => this.renderSupportDelegatesSectionIfPresent(),
-      renderSupportDelegateOptInSectionIfPresent: () => this.renderSupportDelegateOptInSectionIfPresent(),
+      renderSupportInboxSectionIfPresent: support.renderInbox,
+      renderSupportDelegatesSectionIfPresent: support.renderDelegates,
+      renderSupportDelegateOptInSectionIfPresent: support.renderDelegateOptIn,
       applySettingsSectionView: (sectionId) => this.applySettingsSectionView(sectionId),
       settingsActiveSectionId: this.settingsActiveSectionId,
     });
@@ -2763,80 +2771,20 @@ export class UIManager extends EventEmitter {
     this.chatroomShell().updateChatroomMembers(members, currentUserId);
   }
 
-  /**
-   * docs/TODO.md K5, design note §Item 4. Fed by app.ts's live `techsupport-inbox/*`
-   * subscription (TechSupport-root sessions only) — re-renders the inbox section in place if
-   * the Me/Settings tab is currently showing it, matching the presence-indicator patch pattern
-   * (no full-page re-render, just this one section).
-   */
   updateSupportInboxEntries(entries: SupportInboxEntry[]): void {
-    this.currentSupportInboxEntries = entries;
-    this.renderSupportInboxSectionIfPresent();
+    this.supportSettings().updateInbox(entries);
   }
 
-  private renderSupportInboxSectionIfPresent(): void {
-    if (!document.getElementById('support-inbox-section')) return;
-    renderSupportInboxSection(
-      {
-        escapeHtml,
-        text: this.t.bind(this),
-        formatDate: this.formatUiDate.bind(this),
-        onAnswer: (input) => this.emit('answerSupportQuestion', input),
-      },
-      this.currentSupportInboxEntries,
-    );
-  }
-
-  /** docs/TODO.md K7. Fed by app.ts's `refreshDelegateAdminPanel` — master session only. */
   updateTechSupportDelegates(grants: TechSupportDelegateGrant[]): void {
-    this.currentTechSupportDelegates = grants;
-    this.renderSupportDelegatesSectionIfPresent();
+    this.supportSettings().updateDelegates(grants);
   }
 
   updateDelegateActivity(entries: SupportFaqEntry[]): void {
-    this.currentDelegateActivity = entries;
-    this.renderSupportDelegatesSectionIfPresent();
+    this.supportSettings().updateDelegateActivity(entries);
   }
 
-  private renderSupportDelegatesSectionIfPresent(): void {
-    if (!document.getElementById('support-delegates-section')) return;
-    renderSupportDelegatesSection(
-      {
-        escapeHtml,
-        text: this.t.bind(this),
-        tf: this.tf.bind(this),
-        formatDate: this.formatUiDate.bind(this),
-        onIssue: (input) => this.emit('issueTechSupportDelegate', input),
-        onRevoke: (delegatePub) => this.emit('revokeTechSupportDelegate', delegatePub),
-      },
-      this.currentTechSupportDelegates,
-      this.currentDelegateActivity,
-    );
-  }
-
-  /**
-   * docs/TODO.md K7. Fed by app.ts's live (or boot-time) grant check for THIS user's own pub —
-   * never derived from anything rendered here. Re-renders the opt-in/inbox sections in place if
-   * the Me/Settings tab is currently showing them.
-   */
   setTechSupportDelegateEligibility(eligible: boolean, label: string, optedIn: boolean): void {
-    this.techSupportDelegateEligible = eligible;
-    this.techSupportDelegateLabel = label;
-    this.techSupportDelegateOptedIn = optedIn;
-    if (this.currentUser && document.getElementById('settings-view')?.classList.contains('active')) {
-      this.renderSettingsView(this.currentUser);
-    }
-  }
-
-  private renderSupportDelegateOptInSectionIfPresent(): void {
-    if (!document.getElementById('support-delegate-optin-section')) return;
-    renderSupportDelegateOptInSection({
-      escapeHtml,
-      text: this.t.bind(this),
-      label: this.techSupportDelegateLabel,
-      optedIn: this.techSupportDelegateOptedIn,
-      onToggle: (nextOptedIn) => this.emit('toggleTechSupportDelegateOptIn', nextOptedIn),
-    });
+    this.supportSettings().setDelegateEligibility(eligible, label, optedIn);
   }
 
   setMemberMatched(userId: string): void {
