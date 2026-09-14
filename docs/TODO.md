@@ -80,7 +80,7 @@ in one peer scenario.
 ##### 1.1 Add Safari/WebKit
 
 - [x] Add a Playwright WebKit project to `playwright.config.ts`.
-- [ ] Run the existing E2E suite under WebKit. **Started 2026-09-13, not complete — see below.**
+- [x] Run the existing E2E suite under WebKit. **Landed 2026-09-13 — see below.**
 - [x] Identify tests that depend on Chromium-specific behavior.
 - [x] Fix or isolate the first browser-specific assumption (`ensureWindowFitsViewport` now skips CDP outside Chromium).
 - [x] Confirm networking, storage, IndexedDB, WebSocket, and Gun.js behavior under WebKit.
@@ -179,17 +179,36 @@ each engine at `PW_WORKERS=3` (lower than the other stages' 6, since each of the
 spins up many browser instances). **All 13 passed under both WebKit and Firefox, zero failures,
 zero skips.** This completes the entire `staged/` pipeline (stage0 has no browser-facing tests of
 its own) under both engines: **stage1 (2 real bugs found and fixed), stage2 (clean, pre-existing
-flake confirmed engine-independent), stage3 (clean), stage4+5 (clean)**. Remaining, still
-genuinely unstarted: `talks-matching/` is already done (see the top of this note) — what's left
-outside the staged pipeline is `mass/`, `cross-platform/`, `isolated/`.
+flake confirmed engine-independent), stage3 (clean), stage4+5 (clean)**.
+
+**2026-09-13, continued — `mass/` (5 files) and `cross-platform/` (8 files) piloted under both
+engines, clean:** `mass/` (5 tests, each spinning up 8-10 browser instances) ran under WebKit and
+Firefox at `PW_WORKERS=2` — **all 5 passed on both engines, zero failures.** `cross-platform/`
+(8 tests) ran under WebKit, Firefox, and (for comparison) Chromium at `PW_WORKERS=4` — **6 passed
+/ 2 skipped on all three engines identically**, confirming the 2 skips are pre-existing/
+environment-gated (not a WebKit or Firefox regression). `isolated/` (2 files, needs
+`E2E_RUN_ISOLATED=1`) ran under WebKit and Firefox — **both passed on both engines.**
+
+**This completes "the existing E2E suite" — every directory the default `chromium` project
+matches (`staged/` stage1-5, `talks-matching/`, `mass/`, `cross-platform/`, `isolated/`) has now
+actually been run under both WebKit and Firefox**, not just assumed compatible from the smoke
+gate. Total real findings across the whole pass: **2 genuine bugs found and fixed** (WebKit's
+button-focus-on-click gap in `modal-accessibility.ts`, Firefox's `isMobile` context-option
+limitation in one spec), and **1 pre-existing, engine-independent test-isolation flake identified
+and correctly left alone** (reproduced identically under Chromium, so fixing it belongs to
+test-suite flakiness cleanup, not this cross-browser bullet). No other engine-specific issues
+surfaced anywhere in the suite.
 
 ##### 1.2 Add Firefox
 
 - [x] Add a Playwright Firefox project.
-- [ ] Run the existing E2E suite under Firefox. **Started 2026-09-13 alongside the WebKit pass
-  above (same `firefox-suite` project/command) — same talks-matching pilot passed clean, same
-  remaining scope. See the WebKit bullet's note for the full writeup; not duplicated here.**
-- [ ] Fix or document Firefox-specific failures.
+- [x] Run the existing E2E suite under Firefox. **Landed 2026-09-13 alongside the WebKit pass
+  above (same `firefox-suite` project/command, same full run through every directory). See the
+  WebKit bullet's note above for the full writeup; not duplicated here.**
+- [x] Fix or document Firefox-specific failures. **The one real Firefox-specific failure found
+  (`25-mobile-viewport-navigation.spec.ts`'s `isMobile` context option, unsupported by
+  Playwright's Firefox) is fixed — see the WebKit bullet's stage1 note above. No other
+  Firefox-specific failures surfaced across the full suite pass.**
 - [x] Verify Gun.js/P2P behavior under Firefox (installed Firefox ↔ macOS Electron direct-P2P channel).
 - [ ] Verify local storage, IndexedDB, permissions, WebSocket, and reconnect behavior.
 - [x] Add a command such as:
@@ -860,8 +879,8 @@ A peer may be:
 Keep this exact order unless a specific product requirement forces an earlier dependency:
 
 1. [ ] macOS Chromium baseline remains green.
-2. [ ] macOS WebKit/Safari.
-3. [x] macOS Firefox (installed stable release smoke gate; broader suite and reconnect coverage remain above).
+2. [x] macOS WebKit/Safari (full default-suite pass landed 2026-09-13 — see §1.1 above).
+3. [x] macOS Firefox (full default-suite pass landed 2026-09-13 alongside WebKit — see §1.2 above; installed stable release smoke gate is separate, existing coverage).
 4. [x] Mixed browser tests on Mac (all directed Chromium/WebKit/Firefox pairs covered).
 5. [ ] macOS desktop app.
 6. [ ] macOS app + browser tests.
