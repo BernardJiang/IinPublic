@@ -142,14 +142,31 @@ engines, one real bug found and fixed, one real Firefox-only test gap found and 
   `browserName !== 'firefox'` — the phone-viewport layout assertions this file cares about still
   hold; Firefox just runs as a narrow desktop viewport instead of true mobile emulation. Verified
   passing under all three engines (chromium/webkit/firefox).
-- **Pre-existing flake found, NOT fixed (out of scope for this bullet):** `09-support-faq-reask-
-  no-duplicate.spec.ts` and `79-techsupport-survives-restrictive-filters.spec.ts`, when run
-  back-to-back in the same worker/server, intermittently fail on a `.support-inbox-item` visibility
-  timeout. Reproduced under **Chromium too** with the identical two-file invocation — confirmed
-  this is a pre-existing test-isolation issue between these two specific specs (likely stale
-  mailbox/inbox state or a tightened timing budget when they share one Gun server back-to-back),
-  unrelated to WebKit or Firefox. Each passes cleanly alone. Left as-is; a real fix belongs to
-  test-suite flakiness cleanup, not this cross-browser bullet.
+- **Pre-existing flake found, later fixed properly (was out of scope for this bullet, fixed
+  2026-09-14 on request):** `09-support-faq-reask-no-duplicate.spec.ts` and
+  `79-techsupport-survives-restrictive-filters.spec.ts`, when run back-to-back in the same
+  worker/server, deterministically (not just intermittently, once isolated to just these two
+  files) failed on a `.support-inbox-item` visibility timeout — the second spec's TechSupport
+  inbox stayed empty ("No pending questions.") forever. Reproduced under **Chromium too**,
+  100% of the time given a fixed two-file order, either order.
+  **Root cause, confirmed with a standalone diagnostic script (`TechSupportDurableStore` called
+  directly, no browser/Playwright involved):** `resetForTesting()` set `this.gun._.graph = {}`
+  on the SAME long-lived Gun instance rather than actually resetting it. Gun keeps a persistent
+  chain-reference graph (`.get('techsupport').get('mailbox')`'s `next`/`ask`/`put` links) that is
+  entirely separate from `_.graph` (which only holds node data) — wiping `_.graph` alone leaves
+  those chain references pointing at now-gone state. This store always reuses the exact same
+  fixed paths (`techsupport/mailbox/...`), so the SECOND E2E spec to touch it in any run always
+  hit an already-corrupted chain: `store()` still resolved `{stored: true}` (a 2000ms fallback
+  in `put()` masked the real failure), but `list()`/`getTotalCount()` came back empty and Gun
+  logged "chain not yet supported" for the reused path — the write never actually landed.
+  **Fix** (`techsupport-durable-store.ts`): `resetForTesting()` now replaces `this.gun` with a
+  genuinely fresh `Gun()` instance over the wiped directory instead of mutating the old one's
+  internals — a new instance has no chain history to corrupt, regardless of which souls get
+  reused across resets. Verified: the exact two-file sequence that failed 100% of the time (both
+  orders) now passes 100% of the time (5+ reruns); full `stage1-single-user` (105/105, was
+  104/105) and `stage2-two-user` (100/104 + 4 deliberate skips, was 98-99/104) both now pass with
+  zero failures under Chromium. Full unit suite (2335 tests) and integration suite (89 tests)
+  still pass.
 - Full `stage1-single-user` result after both fixes: **104/105 passed under WebKit, 103/105 under
   Firefox** (both engines' sole remaining failure is the pre-existing flake above, manifesting on
   whichever of the two specs happened to land adjacent that run — non-deterministic, not new).
@@ -157,16 +174,18 @@ engines, one real bug found and fixed, one real Firefox-only test gap found and 
 **2026-09-13, continued — `stage2-two-user/` (104 tests, 81 files) piloted under both engines,
 zero new engine-specific issues found:**
 - Ran twice under each engine at `PW_WORKERS=6`. Every run: **98-99 passed, 4 skipped
-  (deliberate/env-gated, same count on every engine), and the only failures were the SAME two
-  specs already implicated as pre-existing flakes in the stage1 note above**
-  (`00l-techsupport-faq-cross-user.spec.ts`, `83-survey-ignore-mid-question-not-complete.spec.ts`
-  — both TechSupport/mailbox-timing-sensitive), each of which also passes cleanly alone.
+  (deliberate/env-gated, same count on every engine), and the only failures were two specs that
+  also boot a TechSupport session** (`00l-techsupport-faq-cross-user.spec.ts`,
+  `83-survey-ignore-mid-question-not-complete.spec.ts`), each of which also passes cleanly alone.
   Confirmed this is genuinely engine-independent, not something specific to WebKit/Firefox: ran
   the identical `stage2-two-user` suite under **Chromium** at the same `PW_WORKERS=6` and got the
   identical two failures with the identical error signature. Zero WebKit- or Firefox-specific
   bugs found in this stage — the modal-accessibility fix above generalizes app-wide, and this
   stage's specs don't otherwise exercise anything engine-sensitive that stage1 didn't already
-  cover.
+  cover. **Update, 2026-09-14: this was the SAME `TechSupportDurableStore.resetForTesting()` bug
+  fixed below (any second-in-a-run spec that touches TechSupport hit it) — verified this exact
+  pair now also passes 100% given a fixed order, confirming one root cause covered both stages'
+  "pre-existing flakes."**
 
 **2026-09-13, continued — `stage3-three-user/` (50 tests, 46 files) piloted under both engines,
 clean:** ran twice under WebKit and once under Firefox at `PW_WORKERS=6`. Every run: **48 passed,

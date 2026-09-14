@@ -53,13 +53,17 @@ const MAX_MAILBOX_ENVELOPES = 1000;
  * unbounded growth from abuse (oldest evicted on overflow), not staleness.
  */
 export class TechSupportDurableStore {
-  private readonly gun: any;
+  private gun: any;
   private readonly dataDir: string;
 
   constructor(dataDir: string = defaultDataDir()) {
     this.dataDir = dataDir;
     fs.mkdirSync(this.dataDir, { recursive: true });
-    this.gun = Gun({
+    this.gun = this.newGunInstance();
+  }
+
+  private newGunInstance(): any {
+    return Gun({
       peers: [],
       axe: false,
       multicast: false,
@@ -144,15 +148,36 @@ export class TechSupportDurableStore {
     return envelopes.length ? { [envelopes[0].recipientId]: envelopes.length } : {};
   }
 
-  /** E2E test reset: clears the in-memory graph AND the on-disk radisk directory. */
+  /**
+   * E2E test reset: wipes the on-disk radisk directory AND replaces the live Gun instance
+   * with a brand-new one over the now-empty directory.
+   *
+   * Previously this just set `this.gun._.graph = {}` on the SAME long-lived Gun instance —
+   * which looks like a reset but isn't one. Gun builds a persistent chain-reference graph
+   * (`.get('techsupport').get('mailbox')`'s `next`/`ask`/`put` links) the first time a path is
+   * touched, entirely separate from `_.graph` (which only holds the actual node data). Blowing
+   * away `_.graph` alone leaves those stale chain references pointing at now-nonexistent state,
+   * and this store always reuses the exact same fixed paths (`techsupport/mailbox/...`) across
+   * every test — so the SECOND E2E spec in a run to touch this store hit an already-corrupted
+   * chain. Confirmed directly: after one reset, `store()` still resolves `{stored: true}` (the
+   * 2000ms fallback in `put()` masks it), but the write never actually lands — `list()` and
+   * `getTotalCount()` come back empty, and Gun logs "chain not yet supported" for the reused
+   * path. This is exactly what caused a real, 100%-reproducible failure in a live E2E run:
+   * `79-techsupport-survives-restrictive-filters.spec.ts` run right after any earlier spec that
+   * also drives TechSupport (e.g. `09-support-faq-reask-no-duplicate.spec.ts`) always failed —
+   * the second spec's question envelope silently never reached the mailbox, so TechSupport's
+   * inbox stayed empty ("No pending questions.") no matter how long the test waited. A fresh
+   * `Gun()` instance has no chain history at all, so this can't recur regardless of which souls
+   * get reused across resets.
+   */
   async resetForTesting(): Promise<void> {
-    if (this.gun?._?.graph) this.gun._.graph = {};
     try {
       fs.rmSync(this.dataDir, { recursive: true, force: true });
       fs.mkdirSync(this.dataDir, { recursive: true });
     } catch {
       /* best-effort — a stale test dir should never crash the reset endpoint */
     }
+    this.gun = this.newGunInstance();
   }
 
   // ── Low-level Gun helpers ───────────────────────────────────────────────────────────────
