@@ -171,9 +171,17 @@ zero new engine-specific issues found:**
 **2026-09-13, continued — `stage3-three-user/` (50 tests, 46 files) piloted under both engines,
 clean:** ran twice under WebKit and once under Firefox at `PW_WORKERS=6`. Every run: **48 passed,
 2 skipped (deliberate/env-gated), zero failures** — fully stable, no flakes at all this time
-(unlike stage1/stage2's TechSupport-timing pair). `stage4-four-user` (5 files) and
-`stage5-multi-user` (6 files) remain, plus `mass/`, `cross-platform/`, `isolated/` outside the
-staged pipeline entirely.
+(unlike stage1/stage2's TechSupport-timing pair).
+
+**2026-09-13, continued — `stage4-four-user/` + `stage5-multi-user/` (13 tests, 9 files: the
+heaviest specs, 4-10+ simulated peers each) piloted under both engines, clean:** ran once under
+each engine at `PW_WORKERS=3` (lower than the other stages' 6, since each of these tests itself
+spins up many browser instances). **All 13 passed under both WebKit and Firefox, zero failures,
+zero skips.** This completes the entire `staged/` pipeline (stage0 has no browser-facing tests of
+its own) under both engines: **stage1 (2 real bugs found and fixed), stage2 (clean, pre-existing
+flake confirmed engine-independent), stage3 (clean), stage4+5 (clean)**. Remaining, still
+genuinely unstarted: `talks-matching/` is already done (see the top of this note) — what's left
+outside the staged pipeline is `mass/`, `cross-platform/`, `isolated/`.
 
 ##### 1.2 Add Firefox
 
