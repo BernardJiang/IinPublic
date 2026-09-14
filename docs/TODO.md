@@ -153,7 +153,20 @@ engines, one real bug found and fixed, one real Firefox-only test gap found and 
 - Full `stage1-single-user` result after both fixes: **104/105 passed under WebKit, 103/105 under
   Firefox** (both engines' sole remaining failure is the pre-existing flake above, manifesting on
   whichever of the two specs happened to land adjacent that run — non-deterministic, not new).
-  `stage2-two-user` (82 files) onward remain unstarted.
+
+**2026-09-13, continued — `stage2-two-user/` (104 tests, 81 files) piloted under both engines,
+zero new engine-specific issues found:**
+- Ran twice under each engine at `PW_WORKERS=6`. Every run: **98-99 passed, 4 skipped
+  (deliberate/env-gated, same count on every engine), and the only failures were the SAME two
+  specs already implicated as pre-existing flakes in the stage1 note above**
+  (`00l-techsupport-faq-cross-user.spec.ts`, `83-survey-ignore-mid-question-not-complete.spec.ts`
+  — both TechSupport/mailbox-timing-sensitive), each of which also passes cleanly alone.
+  Confirmed this is genuinely engine-independent, not something specific to WebKit/Firefox: ran
+  the identical `stage2-two-user` suite under **Chromium** at the same `PW_WORKERS=6` and got the
+  identical two failures with the identical error signature. Zero WebKit- or Firefox-specific
+  bugs found in this stage — the modal-accessibility fix above generalizes app-wide, and this
+  stage's specs don't otherwise exercise anything engine-sensitive that stage1 didn't already
+  cover. `stage3-three-user` (49 files) onward remain unstarted.
 
 ##### 1.2 Add Firefox
 
