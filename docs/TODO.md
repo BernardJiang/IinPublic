@@ -114,6 +114,47 @@ Firefox-specific breakage, not just an assumption. Remaining, genuinely unstarte
 scale, that remainder is its own multi-session pass, not something to silently attempt to
 completion in one go — flagging honestly rather than claiming this bullet done.
 
+**2026-09-13, continued — `staged/stage1-single-user/` (105 tests, 55 files) piloted under both
+engines, one real bug found and fixed, one real Firefox-only test gap found and fixed:**
+- **Real WebKit bug, fixed:** `71-linked-devices-page.spec.ts` had 2 failures, both the identical
+  shape — an Escape-closed dialog (rename-device modal, set-identity-password overlay) never
+  returned focus to the button that opened it. Root cause, confirmed by instrumenting
+  `document.activeElement` at each step: **WebKit does not focus a `<button>` element when it's
+  clicked** (Chromium and Firefox both do). Every dialog in `linked-devices-dialog.ts`/
+  `identity-password-dialog.ts` captures `document.activeElement` right when it opens, to know
+  what to restore focus to on close (`activateModalAccessibility`'s "opener" contract,
+  `modal-accessibility.ts`) — under WebKit that capture silently gets `<body>` instead of the
+  actual button, so focus restoration was a no-op. A `queueMicrotask`-deferred retry was tried
+  first and did NOT fix it (proved via instrumentation that the capture itself was already wrong,
+  not a race) — reverted. The actual fix, in `modal-accessibility.ts`: a module-level `mousedown`
+  **and** `click`-capture listener that explicitly focuses the clicked button. Both phases are
+  load-bearing, confirmed empirically — a mousedown-only fix measurably focuses the button, but
+  WebKit reverts it to `<body>` again before `click` fires, so the click-capture reapplication is
+  what actually survives to the click handler that reads `document.activeElement`. Capture phase
+  (not bubble) so it runs before the button's own click listener. `:focus-visible` CSS (main.css)
+  already suppresses the ring for non-keyboard focus, so this has no visual effect on any engine.
+  Verified: full `71-linked-devices-page.spec.ts` (3 tests) now passes under WebKit; existing
+  `modal-accessibility.test.ts` unit test and the full unit suite (2335 tests) still pass.
+- **Real Firefox tooling gap, fixed:** `25-mobile-viewport-navigation.spec.ts` (2 tests) threw
+  outright — `browser.newContext({isMobile: true})` is not supported by Playwright's Firefox at
+  all (a Playwright/Firefox limitation, not an app bug). Neither test actually drives a touch
+  interaction (both only use `.click()`), so made `isMobile`/`hasTouch` conditional on
+  `browserName !== 'firefox'` — the phone-viewport layout assertions this file cares about still
+  hold; Firefox just runs as a narrow desktop viewport instead of true mobile emulation. Verified
+  passing under all three engines (chromium/webkit/firefox).
+- **Pre-existing flake found, NOT fixed (out of scope for this bullet):** `09-support-faq-reask-
+  no-duplicate.spec.ts` and `79-techsupport-survives-restrictive-filters.spec.ts`, when run
+  back-to-back in the same worker/server, intermittently fail on a `.support-inbox-item` visibility
+  timeout. Reproduced under **Chromium too** with the identical two-file invocation — confirmed
+  this is a pre-existing test-isolation issue between these two specific specs (likely stale
+  mailbox/inbox state or a tightened timing budget when they share one Gun server back-to-back),
+  unrelated to WebKit or Firefox. Each passes cleanly alone. Left as-is; a real fix belongs to
+  test-suite flakiness cleanup, not this cross-browser bullet.
+- Full `stage1-single-user` result after both fixes: **104/105 passed under WebKit, 103/105 under
+  Firefox** (both engines' sole remaining failure is the pre-existing flake above, manifesting on
+  whichever of the two specs happened to land adjacent that run — non-deterministic, not new).
+  `stage2-two-user` (82 files) onward remain unstarted.
+
 ##### 1.2 Add Firefox
 
 - [x] Add a Playwright Firefox project.

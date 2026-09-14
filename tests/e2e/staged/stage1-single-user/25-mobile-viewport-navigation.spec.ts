@@ -13,13 +13,17 @@ test.describe('Mobile viewport navigation', () => {
   let context: BrowserContext | undefined;
   let page: Page | undefined;
 
-  test.beforeEach(async ({ browser }) => {
+  test.beforeEach(async ({ browser, browserName }) => {
     await clearGunForStage1Spec();
     context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       deviceScaleFactor: 2,
-      isMobile: true,
-      hasTouch: true,
+      // isMobile/hasTouch aren't supported by Playwright's Firefox (a Playwright limitation,
+      // not something in our control — browser.newContext throws outright if set). Neither
+      // test below actually drives a touch interaction (only .click()), so the phone-viewport
+      // layout assertions this file cares about still hold without them; Firefox just runs as
+      // a narrow desktop viewport instead of a true mobile emulation.
+      ...(browserName === 'firefox' ? {} : { isMobile: true, hasTouch: true }),
     });
     page = await context.newPage();
     await injectIdbClear(page);
