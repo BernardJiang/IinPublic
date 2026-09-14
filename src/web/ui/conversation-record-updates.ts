@@ -74,18 +74,21 @@ export function markConversationEnded(
   refreshAfterConversationRecordChange(deps);
 }
 
-/** Marks every other conversation for this talk as ignored once a deal is confirmed with one peer. */
-export function markOtherDealConversationsEnded(
-  talkId: string,
-  keepOtherUserId: string,
+/**
+ * Shared mutation for "a deal was confirmed elsewhere for the same underlying need": marks the
+ * given already-open conversations (by id) as ignored, with the same wording regardless of
+ * which grouping rule (same talkId, or same content-hash "need") picked them out.
+ */
+function markConversationsSuperseded(
+  conversationIds: string[],
   changedAt: string,
   deps: ConversationRecordUpdateDeps,
 ): void {
   const conversations = deps.getMyConversations();
   let changed = false;
-  for (const [, c] of Object.entries(conversations)) {
-    if (c?.talkId !== talkId || c?.otherUserId === keepOtherUserId) continue;
-    if (c.status === 'ignored' || c.status === 'withdrawn') continue;
+  for (const id of conversationIds) {
+    const c = conversations[id];
+    if (!c || c.status === 'ignored' || c.status === 'withdrawn') continue;
     c.status = 'ignored';
     c.changedAt = changedAt;
     c.lastMessage = `No longer available — the deal was confirmed with someone else · ${new Date(changedAt).toLocaleString()}`;
@@ -95,4 +98,36 @@ export function markOtherDealConversationsEnded(
   if (!changed) return;
   localStorage.setItem('myConversations', JSON.stringify(conversations));
   refreshAfterConversationRecordChange(deps);
+}
+
+/**
+ * Marks every OTHER conversation for the SAME talkId as ignored once a deal is confirmed with
+ * one peer — the case where several responders matched the one talk I authored.
+ */
+export function markOtherDealConversationsEnded(
+  talkId: string,
+  keepOtherUserId: string,
+  changedAt: string,
+  deps: ConversationRecordUpdateDeps,
+): void {
+  const conversations = deps.getMyConversations();
+  const otherIds = Object.keys(conversations).filter(
+    (id) => conversations[id]?.talkId === talkId && conversations[id]?.otherUserId !== keepOtherUserId,
+  );
+  markConversationsSuperseded(otherIds, changedAt, deps);
+}
+
+/**
+ * Marks an explicit list of conversations (by id) as ignored — the cross-talkId case (docs/
+ * TODO.md §JJ "known gap"): two DIFFERENT authors' talks (e.g. two drivers) both matched my own
+ * request. Those conversations don't share a talkId, so the caller (app.ts's
+ * `maybeFinalizeConfirmedDeal`) identifies them itself via a content-hash "need" grouping and
+ * just asks this function to apply the same supersede mutation to that explicit id list.
+ */
+export function markConversationsSupersededByIds(
+  conversationIds: string[],
+  changedAt: string,
+  deps: ConversationRecordUpdateDeps,
+): void {
+  markConversationsSuperseded(conversationIds, changedAt, deps);
 }

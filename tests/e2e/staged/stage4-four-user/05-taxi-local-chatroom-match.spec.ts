@@ -170,6 +170,16 @@ async function getConversationIdWith(page: Page, otherUserId: string): Promise<s
   }, otherUserId);
 }
 
+/** §JJ "known gap" follow-up: the conversation record's `status` field after
+ *  markConversationsSupersededByIds/markOtherDealConversationsEnded marks it 'ignored'. */
+async function conversationStatusWith(page: Page, otherUserId: string): Promise<string | undefined> {
+  return page.evaluate((id: string) => {
+    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const entry = Object.values(conversations).find((c: any) => c?.otherUserId === id) as any;
+    return entry?.status;
+  }, otherUserId);
+}
+
 /** Simulates "Adam gets Alice's precise location to pick her up" as a plain DM message — see
  *  file header: there is no real precise-location-reveal-on-match feature to call here. */
 async function openConversationAndSendMessage(page: Page, otherUserId: string, message: string): Promise<void> {
@@ -389,8 +399,10 @@ async function shutdownThreeTaxiBrowsers(b: ThreeBrowsers | undefined): Promise<
  * no more distance-based auto-pick/auto-reject race to test. What §30.2 actually guarantees is
  * bidirectional: only once the passenger AND one specific driver both explicitly confirm a deal
  * does that driver's talk disable and the OTHER driver's now-stale conversation get marked
- * "no longer available" on the passenger's own device (cross-device notification to the losing
- * driver's own device isn't wired yet — a documented gap, not asserted here).
+ * "no longer available" on the passenger's own device — landed 2026-09-14 and asserted below
+ * (grouped by content-hash "need", since the two drivers' talkIds differ). Cross-device
+ * notification to the losing driver's own device still isn't wired — a real, narrower gap, not
+ * asserted here.
  */
 test.describe('Taxi: two drivers reach the same passenger; a confirmed deal (not distance) finalizes one (§GG follow-up)', () => {
   let browsers: ThreeBrowsers;
@@ -481,10 +493,26 @@ test.describe('Taxi: two drivers reach the same passenger; a confirmed deal (not
     await expect.poll(() => isOwnTalkDisabled(pageAdam!, ADAM_TITLE), { timeout: 15_000 }).toBe(true);
     // Frank never confirmed anything and his own talk is unaffected.
     expect(await isOwnTalkDisabled(pageFrank!, FRANK_TITLE)).toBe(false);
-    // Known gap, not asserted here: Alice's now-stale conversation with Frank does NOT
-    // automatically get marked "no longer available" — grouping "other candidates for the same
-    // underlying need" across DIFFERENT drivers' own talkIds needs a mapping that doesn't exist
-    // yet (see maybeFinalizeConfirmedDeal's doc comment and docs/TODO.md).
+    // Landed 2026-09-14 (docs/TODO.md §JJ "known gap"): Alice's now-stale conversation with
+    // Frank IS marked "no longer available" on her own device — via one of two mechanisms,
+    // whichever lands first: the new content-hash "need" grouping (buildTalkIdentityKey,
+    // status 'ignored') that matches Adam's and Frank's byte-identical-wording talks despite
+    // their different talkIds, OR the pre-existing author-side retraction teardown (status
+    // 'withdrawn') that already fires as a side effect of Alice's own "looking for a ride"
+    // request getting disabled once she's a RESPONDER confirming without a specific talk of
+    // her own recorded for this conversation (maybeFinalizeConfirmedDeal's fallback). Both are
+    // "ended" in the app's own terms (conversations-view.ts's isEnded check treats them
+    // identically), so assert that rather than one specific status string. Cross-device
+    // notification to Frank's own device is a separate, still-real gap (not asserted here) —
+    // this only checks Alice's own device.
+    await expect
+      .poll(() => conversationStatusWith(pageAlice!, frankId), { timeout: 15_000 })
+      .toEqual(expect.stringMatching(/^(ignored|withdrawn)$/));
+    // Alice's confirmed conversation with Adam must NOT be similarly ended — confirming a deal
+    // must never retroactively invalidate the very conversation it just finalized.
+    await expect
+      .poll(() => conversationStatusWith(pageAlice!, adamId), { timeout: 15_000 })
+      .not.toEqual(expect.stringMatching(/^(ignored|withdrawn)$/));
   });
 });
 

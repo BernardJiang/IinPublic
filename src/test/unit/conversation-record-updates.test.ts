@@ -4,6 +4,7 @@ import {
   markConversationWithdrawn,
   markConversationEnded,
   markOtherDealConversationsEnded,
+  markConversationsSupersededByIds,
 } from '../../web/ui/conversation-record-updates';
 
 function deps(overrides: Partial<Parameters<typeof markConversationWithdrawn>[3]> = {}) {
@@ -163,5 +164,53 @@ describe('markOtherDealConversationsEnded', () => {
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     markOtherDealConversationsEnded('t1', 'winner', new Date().toISOString(), d);
     expect(d.refreshConversationsListIfActive).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('markConversationsSupersededByIds', () => {
+  it('marks only the given ids as ignored, by id rather than talkId — the cross-author case', () => {
+    // Two DIFFERENT authors' talks (different talkId each) both matched me; the caller
+    // (app.ts) identified them via a content-hash "need" match, not a shared talkId.
+    const conversations: any = {
+      keep: { otherUserId: 'adam', talkId: 'adam-talk', status: 'matched' },
+      other: { otherUserId: 'frank', talkId: 'frank-talk', status: 'matched' },
+      unrelated: { otherUserId: 'someone-else', talkId: 'other-talk', status: 'matched' },
+    };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markConversationsSupersededByIds(['other'], new Date().toISOString(), d);
+
+    expect(conversations.keep.status).toBe('matched');
+    expect(conversations.other.status).toBe('ignored');
+    expect(conversations.other.lastMessage).toContain('deal was confirmed with someone else');
+    expect(conversations.unrelated.status).toBe('matched');
+  });
+
+  it('skips ids that are missing, already ignored, or withdrawn', () => {
+    const conversations: any = {
+      c1: { otherUserId: 'x', talkId: 't1', status: 'ignored' },
+      c2: { otherUserId: 'y', talkId: 't2', status: 'withdrawn' },
+    };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markConversationsSupersededByIds(['c1', 'c2', 'does-not-exist'], new Date().toISOString(), d);
+    expect(d.updateMatchBadge).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op given an empty id list', () => {
+    const conversations: any = { c1: { otherUserId: 'x', talkId: 't1', status: 'matched' } };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markConversationsSupersededByIds([], new Date().toISOString(), d);
+    expect(conversations.c1.status).toBe('matched');
+    expect(d.updateMatchBadge).not.toHaveBeenCalled();
+  });
+
+  it('persists to localStorage and refreshes badge/status-bar when something changed', () => {
+    const conversations: any = { c1: { otherUserId: 'x', talkId: 't1', status: 'matched' } };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    const changedAt = new Date('2026-03-01T00:00:00Z').toISOString();
+    markConversationsSupersededByIds(['c1'], changedAt, d);
+    expect(JSON.parse(localStorage.getItem('myConversations')!).c1.status).toBe('ignored');
+    expect(JSON.parse(localStorage.getItem('myConversations')!).c1.changedAt).toBe(changedAt);
+    expect(d.updateMatchBadge).toHaveBeenCalledTimes(1);
+    expect(d.syncStatusBarMatchCount).toHaveBeenCalledTimes(1);
   });
 });

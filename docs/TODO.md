@@ -1067,12 +1067,51 @@ side's own device independently disables its own outstanding created deal-eligib
 (`maybeFinalizeConfirmedDeal`, `app.ts`) — detected reactively on whichever device confirms
 second, and via Gun-sync on the other, since "both confirmed" can become true on either side.
 
-- [ ] **Known gap:** confirming a deal does NOT mark a *different* candidate's conversation (e.g.
-  a losing driver with their own separate talkId, matched against the same passenger's request)
-  as "no longer available" — grouping "other candidates for the same underlying need" across
-  different authors' own talkIds needs a mapping that doesn't exist yet.
-  `05-taxi-local-chatroom-match.spec.ts`'s rewritten two-driver test documents this gap directly
-  rather than asserting it works.
+- [x] **Landed 2026-09-14:** confirming a deal now marks a *different* candidate's conversation
+  (e.g. a losing driver with their own separate talkId, matched against the same passenger's
+  request) as "no longer available" — LOCAL-only, on the confirming user's own device
+  (cross-device notification to the losing candidate's own device is a separate, still-real gap,
+  not attempted here). Two grouping rules, since "other candidates" can come from either side of
+  a match:
+  1. **Same talkId** (`markOtherDealConversationsEnded`, already existed but was never wired up)
+     — several responders matched the ONE talk I authored; disabling it doesn't retroactively
+     flag their already-open conversations on its own.
+  2. **Same content-hash "need"** (new: `recordConversationNeedKey`/`needKeyForConversation`,
+     `markConversationsSupersededByIds`) — the cross-author case this bullet was actually about:
+     two drivers with independently-authored but identically-worded listings both reach the same
+     passenger. Different talkIds, so rule 1 can't find them, but `buildTalkIdentityKey` (the
+     same content-hash already used elsewhere for talk dedup) hashes the matched question/answer
+     TEXT, which is identical either way. Recorded at every conversation-creation call site
+     (`handleMeshTalkResponse`'s two branches, `submitTalkResponsePairDirect`) regardless of
+     which side of the match I was on.
+
+  **A real, deeper bug surfaced while building this and got fixed too, not worked around:** the
+  passenger side of the two-driver scenario is a RESPONDER (her chatbot auto-answered the
+  driver's incoming talk), so `recordMyDealTalkForConversation` was never called for her
+  conversation — `maybeFinalizeConfirmedDeal`'s existing fallback ("disable ALL my active
+  deal-eligible talks") then fires unconditionally, disabling her OWN separately-authored
+  "looking for a ride" request. Disabling any talk already floods a hard-retraction tombstone
+  (`setTalkDisabled`/`handleRetractTalk`) that tears down every conversation referencing it — and
+  since her OTHER driver's conversation also references her own request talk (via
+  `relatedTalkIds`), reproduced directly: confirming with driver A immediately withdrew her
+  conversation with driver A too, undoing the very deal she'd just finalized, seconds later, on
+  her own device. Fixed with a new `isDealMutuallyConfirmed` guard in both `handleRetractTalk`
+  (author-side teardown) and `handleMeshTalkRetracted` (responder-side): a conversation whose
+  deal is already mutually confirmed is a finalized, successful outcome, never retroactively
+  invalidated by whatever retraction produced it.
+
+  Verified: `05-taxi-local-chatroom-match.spec.ts`'s two-driver test now asserts (rather than just
+  documents) that the losing driver's conversation ends up "ended" (`ignored` or `withdrawn` —
+  the app's own `conversations-view.ts` `isEnded` check already treats both identically, so the
+  test does too rather than picking one specific mechanism's status string) while the confirmed
+  conversation stays open. New unit coverage:
+  `conversation-record-updates.test.ts`'s `markConversationsSupersededByIds` block (4 tests).
+  Full regression pass: `stage1-single-user` (105/105), `stage2-two-user` (100/104 + 4 deliberate
+  skips), `stage3-three-user` (48/48 + 2 skips), `stage4-four-user`+`stage5-multi-user` (13/13),
+  plus the two other retraction-specific specs (`00-broadcast-deletion-mid-broadcast.spec.ts`,
+  `talks-matching/08-retraction.spec.ts`) — all pass. Full unit suite (2339 tests, `ui-manager.ts`
+  size budget bumped 2,996→3,006 for this real feature work) and integration suite (89 tests)
+  also pass.
 - [x] **Landed 2026-09-13:** `maybeFinalizeConfirmedDeal` (`app.ts`) no longer disables every one
   of the confirming user's outstanding created deal-eligible talks — it narrows to the specific
   one a NEW local-only `recordMyDealTalkForConversation`/`myDealTalkForConversation` map (keyed by

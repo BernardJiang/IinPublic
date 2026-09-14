@@ -151,6 +151,7 @@ import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
   markOtherDealConversationsEnded as markOtherDealConversationsEndedImpl,
+  markConversationsSupersededByIds as markConversationsSupersededByIdsImpl,
   type ConversationRecordUpdateDeps,
 } from './conversation-record-updates';
 import {
@@ -2958,6 +2959,15 @@ export class UIManager extends EventEmitter {
    */
   markOtherDealConversationsEnded(talkId: string, keepOtherUserId: string, changedAt: string): void {
     markOtherDealConversationsEndedImpl(talkId, keepOtherUserId, changedAt, this.conversationRecordUpdateDeps());
+  }
+
+  /**
+   * Cross-talkId case of the same gap: two DIFFERENT authors' talks (e.g. two drivers) both
+   * matched my own request. app.ts's `maybeFinalizeConfirmedDeal` identifies which of my other
+   * open conversations share the same content-hash "need" and passes their ids here directly.
+   */
+  markConversationsSupersededByIds(conversationIds: string[], changedAt: string): void {
+    markConversationsSupersededByIdsImpl(conversationIds, changedAt, this.conversationRecordUpdateDeps());
   }
 
   updateConversationMessage(conversationId: string, message: string, timestamp: string): void {

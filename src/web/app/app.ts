@@ -2928,6 +2928,7 @@ export class IinPublicApp {
           ...this.matchScoreParamsFor(talkData, decrypted.answers),
         });
         this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
+        this.recordConversationNeedKey(conversationId, talkData);
         this.uiManager.maybeShowMatchSafetyToast();
         this.uiManager.addNewConversation({
           conversationId,
@@ -3000,6 +3001,7 @@ export class IinPublicApp {
       ...this.matchScoreParamsFor(talkData, decrypted.answers),
     });
     this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
+    this.recordConversationNeedKey(conversationId, talkData);
     this.uiManager.maybeShowMatchSafetyToast();
     this.uiManager.addNewConversation({
       conversationId,
@@ -3087,6 +3089,63 @@ export class IinPublicApp {
     }
   }
 
+  /** True once BOTH participants have confirmed the deal on this conversation record. */
+  private isDealMutuallyConfirmed(conv: any, userIdA: string, userIdB: string): boolean {
+    if (typeof conv?.dealConfirmedByJson !== 'string') return false;
+    try {
+      const dealConfirmedBy = JSON.parse(conv.dealConfirmedByJson);
+      return (
+        Array.isArray(dealConfirmedBy) &&
+        dealConfirmedBy.includes(userIdA) &&
+        dealConfirmedBy.includes(userIdB)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Records the content-hash "need" a deal-eligible conversation formed through
+   * (`buildTalkIdentityKey`, the same content-hash already used elsewhere for talk dedup) —
+   * local-only, keyed by conversationId, mirroring `recordMyDealTalkForConversation` above.
+   *
+   * This is what lets `maybeFinalizeConfirmedDeal` group conversations across DIFFERENT
+   * authors' talkIds (docs/TODO.md §JJ "known gap": two drivers with independently-authored but
+   * identically-worded listings both reach the same passenger — my conversation with each has a
+   * different `talkId`, but the SAME content-hash, since `buildTalkIdentityKey` normalizes and
+   * hashes question/answer text, not identity). Recorded for every deal-eligible conversation
+   * regardless of which side of the match I was on (author or responder), since the "need" this
+   * describes is the matched CONTENT, not who authored it.
+   */
+  private recordConversationNeedKey(conversationId: string, talkData: any): void {
+    if (!conversationId || !this.isDealEligibleTalk(talkData)) return;
+    try {
+      const raw = localStorage.getItem('conversationNeedKeyByConversation');
+      const map = raw ? JSON.parse(raw) : {};
+      map[conversationId] = buildTalkIdentityKey(talkData);
+      localStorage.setItem('conversationNeedKeyByConversation', JSON.stringify(map));
+    } catch {
+      // Best-effort only; maybeFinalizeConfirmedDeal simply has nothing to group by when this
+      // lookup comes up empty, same fallback shape as the sibling deal-talk map.
+    }
+  }
+
+  /** Every conversationId → needKey pair recorded so far (see recordConversationNeedKey). */
+  private allConversationNeedKeys(): Record<string, string> {
+    try {
+      const raw = localStorage.getItem('conversationNeedKeyByConversation');
+      const map = raw ? JSON.parse(raw) : {};
+      return map && typeof map === 'object' ? map : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private needKeyForConversation(conversationId: string): string | undefined {
+    const needKey = this.allConversationNeedKeys()[conversationId];
+    return typeof needKey === 'string' && needKey ? needKey : undefined;
+  }
+
   /**
    * Runs once a conversation's `dealConfirmedBy` includes BOTH participants — called both from
    * the local `confirmDeal` click handler and (idempotently) whenever a synced conversation
@@ -3101,11 +3160,18 @@ export class IinPublicApp {
    * never the one that produced this specific match (see that method's doc comment), so there is
    * no more specific candidate to narrow to.
    *
-   * Known gap, not silently swept: this only disables MY OWN talk(s) on MY OWN device. It does
-   * NOT mark a DIFFERENT candidate's conversation (e.g. a losing driver with their own separate
-   * talkId, matched against the same passenger's request) as "no longer available" — grouping
-   * "other candidates for the same underlying need" needs its own talkId->need mapping that
-   * doesn't exist yet. See docs/TODO.md.
+   * Landed 2026-09-14 (docs/TODO.md §JJ "known gap"): once my own talk(s) are disabled above,
+   * also mark OTHER of my open conversations as "no longer available" — LOCAL-only, on THIS
+   * device (cross-device notification to those other candidates' own devices isn't wired yet,
+   * a separate, still-real gap). Two grouping rules, since "other candidates" can come from
+   * either side of a match:
+   *   1. Same talkId (`markOtherDealConversationsEnded`) — several responders matched the ONE
+   *      talk I authored; disabling it above doesn't retroactively flag their already-open
+   *      conversations.
+   *   2. Same content-hash "need" (`markConversationsSupersededByIds`, `recordConversationNeedKey`)
+   *      — the cross-author case (e.g. two drivers with independently-authored but identically-
+   *      worded listings both reaching me): different talkIds, so rule 1 can't find them, but
+   *      `buildTalkIdentityKey` hashes the matched CONTENT, which is identical either way.
    */
   private maybeFinalizeConfirmedDeal(dealConfirmedBy: string[], otherUserId?: string, conversationId?: string): void {
     if (!this.currentUser?.id || !otherUserId) return;
@@ -3137,6 +3203,26 @@ export class IinPublicApp {
 
     for (const talkId of talkIdsToDisable) {
       this.uiManager.setTalkDisabled(talkId, true);
+    }
+
+    const changedAt = new Date().toISOString();
+    // Rule 1: other responders who matched the SAME talk of mine.
+    for (const talkId of talkIdsToDisable) {
+      this.uiManager.markOtherDealConversationsEnded(talkId, otherUserId, changedAt);
+    }
+    // Rule 2: other of my conversations matched on the SAME content-hash "need", regardless of
+    // which different author's talkId produced them.
+    if (conversationId) {
+      const needKey = this.needKeyForConversation(conversationId);
+      if (needKey) {
+        const allNeedKeys = this.allConversationNeedKeys();
+        const otherConversationIds = Object.keys(allNeedKeys).filter(
+          (id) => id !== conversationId && allNeedKeys[id] === needKey,
+        );
+        if (otherConversationIds.length > 0) {
+          this.uiManager.markConversationsSupersededByIds(otherConversationIds, changedAt);
+        }
+      }
     }
   }
 
@@ -3184,10 +3270,22 @@ export class IinPublicApp {
     void this.postRetractionToKnownResponders(talkId, authorId, retractedAt).catch(() => {});
 
     // 5. Author side: tear down any conversations derived from this talkId.
+    //
+    // Skips a conversation whose deal is ALREADY mutually confirmed (§JJ): this same
+    // retraction fires as a SIDE EFFECT of maybeFinalizeConfirmedDeal's fallback disabling
+    // ALL of my active deal-eligible talks when I confirmed as a RESPONDER (no specific talk
+    // was recorded to narrow to — see that method's doc comment). Reproduced directly: a
+    // passenger who also authored her own "looking for a ride" request, confirming a deal
+    // with one driver, would have THAT OWN request disabled by the fallback — and without this
+    // guard, tearing it down here would immediately withdraw the very conversation she just
+    // confirmed, undoing the deal on her own device seconds after finalizing it. A finalized,
+    // mutually-confirmed match is a successful outcome, not an abandoned one; retracting the
+    // broadcast that produced it must never retroactively invalidate it.
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
     for (const [conversationId, conv] of Object.entries(allConversations)) {
       if (this.conversationReferencesTalk(conv, talkId)) {
         const otherUserId = String((conv as any).otherUserId || '');
+        if (this.isDealMutuallyConfirmed(conv, authorId, otherUserId)) continue;
         this.uiManager.markConversationWithdrawn(
           otherUserId,
           talkId,
@@ -3233,10 +3331,14 @@ export class IinPublicApp {
     );
     this.contentNodeService.unpinTalkAttachments(payload.talkId);
 
-    // 3. Mark any conversation involving this talkId as withdrawn.
+    // 3. Mark any conversation involving this talkId as withdrawn — unless our own deal on it
+    // is already mutually confirmed (see handleRetractTalk's matching guard/comment: a
+    // finalized match is a successful outcome, never retroactively invalidated by the
+    // retraction that produced it).
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
     for (const [, conv] of Object.entries(allConversations)) {
       if (this.conversationReferencesTalk(conv, payload.talkId) && (conv as any).otherUserId === payload.authorId) {
+        if (this.isDealMutuallyConfirmed(conv, this.currentUser.id, payload.authorId)) break;
         this.uiManager.markConversationWithdrawn(
           payload.authorId,
           payload.talkId,
@@ -5013,6 +5115,7 @@ export class IinPublicApp {
       dealEligible: this.isDealEligibleTalk(params.talkData),
       ...this.matchScoreParamsFor(params.talkData, params.answers),
     });
+    this.recordConversationNeedKey(conversationId, params.talkData);
     this.uiManager.maybeShowMatchSafetyToast();
     this.uiManager.addNewConversation({
       conversationId,
