@@ -1140,11 +1140,14 @@ tag/single-question talks, which are content-hash-scoped instead).
   out at all (falls through to `mySelfTag`-only scoping, which is correct but coarser).
 
 Still open:
-- [ ] **Tag position is not fixed to "root" or "talk-level singular metadata."** The design pass
-  this bullet used to call for is now written up in §LL below — a tag is really just a simplified
-  single-question talk, and the fix is to model it as an ordinary node in the question chain
-  rather than special-cased talk-level metadata, so `checkIfMatch`'s veto and the context-hash
-  path both fall out for free instead of needing position-awareness bolted on.
+- [x] **Tag position is not fixed to "root" or "talk-level singular metadata."** Stale checkbox,
+  corrected 2026-09-14 — the design pass this bullet called for landed with §LL (see
+  `docs/completed.md`'s 2026-09-08 "§LL/§LL.1/§LL.2" entry) and was never checked off here.
+  Verified directly in the current code: `findTagPairAncestor` (`src/shared/talk-engine.ts`)
+  walks the ancestor chain (`contextPath` for route talks, array position for flow) to find the
+  nearest `reciprocalTagContext` question, rather than reading fixed talk-level metadata —
+  `checkIfMatch`'s veto calls it directly, position-awareness fell out for free exactly as
+  described. Nothing left to do here.
 
 ## Priority 5 — TechSupport productionization
 
