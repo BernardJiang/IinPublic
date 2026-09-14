@@ -166,7 +166,14 @@ zero new engine-specific issues found:**
   identical two failures with the identical error signature. Zero WebKit- or Firefox-specific
   bugs found in this stage — the modal-accessibility fix above generalizes app-wide, and this
   stage's specs don't otherwise exercise anything engine-sensitive that stage1 didn't already
-  cover. `stage3-three-user` (49 files) onward remain unstarted.
+  cover.
+
+**2026-09-13, continued — `stage3-three-user/` (50 tests, 46 files) piloted under both engines,
+clean:** ran twice under WebKit and once under Firefox at `PW_WORKERS=6`. Every run: **48 passed,
+2 skipped (deliberate/env-gated), zero failures** — fully stable, no flakes at all this time
+(unlike stage1/stage2's TechSupport-timing pair). `stage4-four-user` (5 files) and
+`stage5-multi-user` (6 files) remain, plus `mass/`, `cross-platform/`, `isolated/` outside the
+staged pipeline entirely.
 
 ##### 1.2 Add Firefox
 
