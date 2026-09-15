@@ -15,6 +15,10 @@ Object.assign(process.env, {
   P2P_RATE_LIMIT_MAX_EVENTS: '5000',
   NODE_OPTIONS: process.env.NODE_OPTIONS || '--max-old-space-size=8192',
   PORT: String(port),
+  // A dev machine's real public/downloads/ may hold real release artifacts mid-deploy; point
+  // the download-manifest route at a directory that never exists so E2E always sees "nothing
+  // published" rather than picking up whatever the machine happens to have staged.
+  IINPUBLIC_DOWNLOADS_DIR: process.env.IINPUBLIC_DOWNLOADS_DIR || '__e2e_no_downloads__',
 });
 
 // index.ts deliberately auto-starts only when it is the CommonJS entry point. This ESM

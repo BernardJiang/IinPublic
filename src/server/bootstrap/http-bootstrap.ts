@@ -140,8 +140,11 @@ export function configureHttpMiddleware(app: express.Application): void {
   }
 
   // Register downloads before the broad static mount so stale installers cannot
-  // be fetched directly by an old bookmarked URL.
-  registerDownloadRoutes(app);
+  // be fetched directly by an old bookmarked URL. IINPUBLIC_DOWNLOADS_DIR lets E2E point this
+  // at an empty directory instead of the real public/downloads/, which a dev machine may have
+  // populated with real release artifacts mid-deploy (those must never leak into test assertions
+  // that expect a deterministic "nothing published" manifest).
+  registerDownloadRoutes(app, process.env.IINPUBLIC_DOWNLOADS_DIR || undefined);
   app.use(express.static('public'));
 
   // worker.js imports Gun directly. Mount only that dependency instead of the
