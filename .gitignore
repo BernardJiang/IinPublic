@@ -54,6 +54,7 @@ tests/e2e/staged/snapshots/
 # Runtime and local app state
 radata/
 techsupport-radata*/
+presence-radata*/
 user_data/
 logs/
 data.json

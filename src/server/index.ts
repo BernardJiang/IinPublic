@@ -21,6 +21,7 @@ import { registerSocketHandlers } from './socket/register-socket-handlers';
 import { MailboxStore } from './services/mailbox-store';
 import { registerMailboxRoutes } from './routes/mailbox-routes';
 import { TechSupportDurableStore } from './services/techsupport-durable-store';
+import { PresenceDurableStore } from './services/presence-durable-store';
 import { registerTurnRoutes } from './routes/turn-routes';
 import { registerAdminRoutes } from './routes/admin-routes';
 import { TechSupportAnnouncementService } from './services/techsupport-announcement-service';
@@ -93,6 +94,7 @@ class IinPublicServer {
   private mailboxStore = new MailboxStore();
   private mailboxSweepTimer: ReturnType<typeof setInterval> | undefined;
   private techSupportStore = new TechSupportDurableStore();
+  private presenceStore = new PresenceDurableStore();
 
   private broadcastTagPopularityStore = new BroadcastTagPopularityStore();
 
@@ -120,7 +122,7 @@ class IinPublicServer {
     this.gunService = new GunService(this.gun); // Pass the Gun instance
     this.userService = new UserService(this.gunService);
     this.reputationService = new ReputationService(this.gunService);
-    this.chatroomManager = new ChatroomManager(this.gunService);
+    this.chatroomManager = new ChatroomManager(this.gunService, this.presenceStore);
     this.talkService = new TalkService(this.gunService, this.reputationService);
     this.techSupportAnnouncements = new TechSupportAnnouncementService(this.gunService);
     const embedded = resolveEmbeddedNodeConfig(process.env);
@@ -246,6 +248,9 @@ class IinPublicServer {
         // purpose (that's the whole point of it), so wiping `gun._.graph` above never touches
         // it — an explicit reset here is what keeps E2E specs isolated from each other.
         await this.techSupportStore.resetForTesting();
+        // Same reasoning for the durable presence store (presence-durable-store.ts) — isolated
+        // from the ephemeral graph on purpose, so it needs its own explicit reset too.
+        await this.presenceStore.resetForTesting();
         await this.publishPublicBootstrap();
       },
       nodeEnv: process.env.NODE_ENV,

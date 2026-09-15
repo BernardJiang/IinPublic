@@ -1,6 +1,7 @@
 import type { GPSCoordinate, CommunityRole, CommunityRoleRecord } from '../../shared/types';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { GunService } from './gun-service';
+import { PresenceDurableStore, type PresenceMember } from './presence-durable-store';
 import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import { isTechSupportId, TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
@@ -37,7 +38,13 @@ export class ChatroomManager {
   private staleMemberCountSweepTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private gunService: GunService
+    private gunService: GunService,
+    /** docs/TODO.md — "browsers don't see the Ubuntu/Windows apps" fix, 2026-09-15: a durable
+     *  (radisk:true) backing store for chatroom presence, isolated from the relay's ephemeral
+     *  main graph. Optional so existing direct-construction unit tests keep compiling; every
+     *  write method below no-ops the durable side when absent. See presence-durable-store.ts's
+     *  own doc comment for why this exists and what it deliberately does NOT cover. */
+    private presenceStore?: PresenceDurableStore,
   ) {
     // Without a periodic sweep, a room whose members simply stop heartbeating (no explicit
     // leave) never gets its published headcount badge (public/room-member-counts) corrected
@@ -77,9 +84,51 @@ export class ChatroomManager {
         void this.pruneStaleRoomMemberships(chatroomId).catch(() => {
           /* best-effort — the next sweep tick tries again */
         });
+        // Reconciliation: re-assert the durable store's view of this room's active members
+        // back into the ephemeral graph browsers actually subscribe to (WebChatroomService.
+        // subscribeToMembers) — heals a write that silently failed the first time (see
+        // presence-durable-store.ts's doc comment) within one sweep interval instead of the
+        // member staying invisible for the rest of the session. Meaningless on an embedded
+        // node (its own main graph is already durable), so skip there too.
+        void this.reconcilePresenceFromDurableStore(chatroomId).catch(() => {
+          /* best-effort — the next sweep tick tries again */
+        });
       }
     }, sweepMs);
     this.staleMemberCountSweepTimer.unref?.();
+  }
+
+  /** See the sweep loop's own comment above for why this exists. Re-puts each durably-known
+   *  active member into the ephemeral graph — an idempotent, harmless no-op when that member's
+   *  original write already landed, and the actual fix when it didn't. */
+  private async reconcilePresenceFromDurableStore(chatroomId: string): Promise<void> {
+    if (!this.presenceStore) return;
+    const members = await this.presenceStore.getActiveMembers(chatroomId);
+    await Promise.all(
+      members.map((member) =>
+        this.gunService.putPath(['chatrooms', chatroomId, 'users', member.userId], member).catch(() => {
+          /* best-effort — the next sweep tick tries again */
+        }),
+      ),
+    );
+  }
+
+  /** Fire-and-forget durable write, called alongside every ephemeral-graph presence write below
+   *  — no-ops when no durable store was injected (unit tests constructing ChatroomManager
+   *  directly). Never awaited by callers: the ephemeral write + reconciliation sweep already
+   *  cover the case where this specific call is slow or fails. */
+  private durableUpsertMember(chatroomId: string, member: PresenceMember): void {
+    if (!this.presenceStore) return;
+    void this.presenceStore.upsertMember(chatroomId, member).catch(() => {
+      /* best-effort — reconcilePresenceFromDurableStore's next sweep tick tries again */
+    });
+  }
+
+  private durableMarkLeft(chatroomId: string, userId: string, leftAt: string): void {
+    if (!this.presenceStore) return;
+    void this.presenceStore.markLeft(chatroomId, userId, leftAt).catch(() => {
+      /* best-effort */
+    });
   }
 
   /**
@@ -599,6 +648,7 @@ export class ChatroomManager {
 
   async addMemberFast(chatroomId: string, userId: string, stageName?: string): Promise<void> {
     const requestStartedAt = Date.now();
+    const nowIso = new Date().toISOString();
     const memberData = {
       joinedAt: new Date(),
       isActive: true,
@@ -623,6 +673,13 @@ export class ChatroomManager {
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
       this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
     ]);
+    this.durableUpsertMember(chatroomId, {
+      userId,
+      stageName: stageName || userId,
+      isActive: true,
+      joinedAt: nowIso,
+      lastSeen: nowIso,
+    });
     // Publishing the public member count re-reads the whole room. On a cold isolated Gun the
     // read can race the writes we just issued and stall on the per-read timeout budget
     // (several seconds), which made the members API hang past its request deadline. The count
@@ -653,6 +710,13 @@ export class ChatroomManager {
       this.gunService.putPath(['chatrooms', chatroomId, 'users', TECHSUPPORT_ROOT_USER_ID], fields),
       this.gunService.putPath(['chatroomMembers', chatroomId, TECHSUPPORT_ROOT_USER_ID], fields),
     ]);
+    this.durableUpsertMember(chatroomId, {
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      isActive: true,
+      joinedAt: nowIso,
+      lastSeen: nowIso,
+    });
     void this.publishRoomMemberCount(chatroomId).catch(() => {
       /* best-effort public badge; a missing publish does not drop the member row itself */
     });
@@ -729,6 +793,13 @@ export class ChatroomManager {
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
       this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
     ]);
+    this.durableUpsertMember(chatroomId, {
+      userId,
+      stageName: typeof memberData.stageName === 'string' ? memberData.stageName : userId,
+      isActive: true,
+      joinedAt: memberData.joinedAt,
+      lastSeen: memberData.lastSeen,
+    });
   }
 
   /**
@@ -830,6 +901,7 @@ export class ChatroomManager {
   }
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
+    const leftAtIso = new Date().toISOString();
     const leftData = {
       leftAt: new Date(),
       isActive: false
@@ -841,6 +913,7 @@ export class ChatroomManager {
     await this.gunService.putPath(['chatroomMembers', chatroomId, userId], {
       ...leftData,
     });
+    this.durableMarkLeft(chatroomId, userId, leftAtIso);
     const current = await this.gunService.getPath(['chatrooms', chatroomId, 'headcount']);
     const headcount = Number(current) || 0;
     await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], Math.max(0, headcount - 1));
