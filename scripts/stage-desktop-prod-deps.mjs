@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stageDir = path.join(rootDir, 'platforms', 'desktop', '.prod-deps-staging');
 const runtimePackages = [
+  '@noble/curves',
   '@noble/hashes',
   'bonjour-service',
   'cors',
