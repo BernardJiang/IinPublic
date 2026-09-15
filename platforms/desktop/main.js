@@ -99,6 +99,67 @@ function waitForPort(port, timeoutMs = 15000) {
   });
 }
 
+// Self-heal a stuck/gone renderer instead of leaving a blank window until the user finds
+// Electron's default "View > Reload" menu item themselves (observed live: both the Windows and
+// Ubuntu desktop apps went blank within seconds of each other after a production relay restart
+// severed their Gun WebSocket — no crash dump on either machine, so the renderer process itself
+// likely didn't die; the page just never recovered on its own). Covers the cases Electron can
+// actually detect:
+//   - render-process-gone: the renderer really did crash/get OOM-killed (would show blank forever
+//     otherwise — the BrowserWindow/webContents object survives its process and can reload into
+//     a fresh one).
+//   - unresponsive/responsive: the renderer's JS thread is hung (e.g. stuck in a bad reconnect
+//     loop) — wait a grace period in case it's just a legitimately long task, only reload if it
+//     never recovers.
+//   - child-process-gone (GPU): a GPU-process crash can leave a black/blank render surface with
+//     the renderer process itself still alive, so render-process-gone alone wouldn't catch it.
+function setupCrashRecovery(win) {
+  let unresponsiveReloadTimer = null;
+
+  const reload = (reason) => {
+    if (win.isDestroyed()) return;
+    // eslint-disable-next-line no-console
+    console.error(`[desktop] reloading window after: ${reason}`);
+    win.webContents.reload();
+  };
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    // A clean, intentional exit (e.g. during app quit) is not a failure to recover from.
+    if (details.reason === 'clean-exit') return;
+    reload(`render-process-gone (${details.reason})`);
+  });
+
+  win.webContents.on('unresponsive', () => {
+    // eslint-disable-next-line no-console
+    console.warn('[desktop] renderer unresponsive; will reload if it does not recover in 15s');
+    if (unresponsiveReloadTimer) clearTimeout(unresponsiveReloadTimer);
+    unresponsiveReloadTimer = setTimeout(() => {
+      unresponsiveReloadTimer = null;
+      reload('unresponsive for 15s');
+    }, 15_000);
+  });
+
+  win.webContents.on('responsive', () => {
+    if (unresponsiveReloadTimer) {
+      clearTimeout(unresponsiveReloadTimer);
+      unresponsiveReloadTimer = null;
+    }
+  });
+
+  win.on('closed', () => {
+    if (unresponsiveReloadTimer) clearTimeout(unresponsiveReloadTimer);
+  });
+}
+
+app.on('child-process-gone', (_event, details) => {
+  if (details.type !== 'GPU') return;
+  // eslint-disable-next-line no-console
+  console.error('[desktop] GPU process gone', details.reason);
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.reload();
+  }
+});
+
 async function createWindow() {
   const win = new BrowserWindow({
     width: 1100,
@@ -115,6 +176,8 @@ async function createWindow() {
       ],
     },
   });
+
+  setupCrashRecovery(win);
 
   // Open external links in the system browser, keep app links in-app.
   win.webContents.setWindowOpenHandler(({ url }) => {
