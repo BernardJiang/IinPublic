@@ -491,7 +491,20 @@ tests/matrix/devices.json
 ```
 
 - [x] Automatically detect connected devices for matrix installation and launch readiness.
-- [ ] Mark unavailable devices as skipped rather than crashing the whole matrix.
+- [x] **Landed 2026-09-14:** Mark unavailable devices as skipped rather than crashing the whole
+  matrix. `06-seven-client-real-device-matrix.spec.ts` used to `test.skip` its ENTIRE run unless
+  exactly 3 configured Android devices were present — hit directly when only 1 of the user's 3
+  phones was connected via `adb` for a real interop test. Now checks each configured device with
+  the already-existing (but previously unused by this spec) `isAndroidDeviceReady` at the top of
+  the test body, logs and skips whichever aren't connected/authorized, and runs the matrix with
+  however many remain (0 to 3) — every downstream step (`resetAndroidAppData`, the launch loop,
+  the diagnostics attachment on failure) now iterates that filtered list instead of the full
+  configured one, and the "N-node ring"/`expect(...).toBe(users.length)` assertions were already
+  (or made) dynamic rather than hardcoding 7. `npm run test:e2e:real-device-matrix` verified
+  passing with exactly 1 of 3 configured phones connected (see the Recommended Implementation
+  Order section below for the full run: 5 real runtimes — macOS Electron, 1 Android phone,
+  Chromium, WebKit, Firefox — joined Global, authored/broadcast one Talk each, and completed a
+  full ring of matches).
 - [ ] Support selecting devices by logical name.
 - [x] Add 3+ peer convergence tests.
 - [x] Test simultaneous joins.
@@ -517,6 +530,77 @@ Verified 2026-09-07: `npm run test:e2e:real-device-matrix` passed in 4.8 minutes
 with three physical Android phones, macOS Electron, Chromium, WebKit, and Firefox.
 Every runtime authored and broadcast one Talk; a seven-node ring completed and matched
 one incoming Talk per runtime.
+
+**Re-verified 2026-09-14** with only 1 of the 3 configured phones actually connected (the other
+two weren't plugged in that session) — a real-world instance of exactly the gap the "mark
+unavailable devices as skipped" bullet above now closes. `npm run test:e2e:real-device-matrix`
+passed in 3.3 minutes: macOS Electron, 1 Android phone (`android-bob` /
+`PM1LHMA7A2707315`), Chromium, WebKit, and Firefox (5 runtimes) all joined Global, each
+authored/broadcast one Talk, and a five-node ring completed and matched one incoming Talk per
+runtime. Deliberately did not touch the live `www.iinpublic.com` site for this run (its
+`iinpublic.service` is currently stopped on the OVH VPS, confirmed via `ssh ovh
+"systemctl is-active iinpublic"` → `inactive`, and starting a public-facing service wasn't asked
+for this pass) — this run is local-hub-only, same as every prior run of this spec.
+
+**Landed 2026-09-14 — fixed, root cause confirmed on real hardware, not just hypothesized:**
+every WebRTC signaling-relay POST the Android phone was party to (`POST
+/api/p2p/signaling-relay/...`) failed with HTTP 400, body `{"error":"WebCrypto SHA-256 is not
+available"}`. The message is NOT produced anywhere in this repo or its `node_modules` (checked
+directly) — it's thrown natively by the Android app's embedded nodejs-mobile server process
+(`http://127.0.0.1:8088`, confirmed from the failing request's own URL — the WebView's own
+loopback context has working WebCrypto and isn't the culprit) when Gun's `SEA.verify`
+(`verifySignedP2PEnvelopeProof`, `src/shared/p2p-runtime.ts`) reaches for `crypto.subtle`
+internally, which that embedded runtime doesn't reliably provide (`node_modules/gun/sea/shim.js`
+couples `SEA.sign`/`SEA.verify` unconditionally to `shim.subtle`, with no pure-JS fallback path).
+Reproduced deterministically against 2 real phones (`PM1LHMA7A2707315`, `RNV0217207000190`) via
+`06-seven-client-real-device-matrix.spec.ts`, on every signaling attempt either phone was party
+to, across 2 independent runs.
+
+**Fix:** new `src/shared/portable-ecdsa.ts` — pure-JS P-256 ECDSA sign/verify via `@noble/curves`
+(new pinned dependency, `1.8.1`, same zero-native-dependency family as the already-adopted
+`@noble/hashes`/`portable-sha256.ts`), decoding Gun SEA's own JWK `pub`/`priv` string format
+directly (`x.y` / `d`, base64url) with a small dependency-free base64url codec (deliberately
+avoids both `Buffer`, not a browser global, and `atob`/`btoa`, not available in Node/embedded
+contexts). `createSignedP2PEnvelopeProof`/`verifySignedP2PEnvelopeProof` (`p2p-runtime.ts`) now
+call this instead of `SEA.sign`/`SEA.verify` — scoped to only that one self-contained protocol
+(the P2P signaling-relay envelope proof, sign and verify both owned end to end by this repo, no
+wire-format compatibility needed with Gun's own SEA elsewhere), not a general SEA replacement.
+`SEA.pair()` (key generation) is untouched — still real SEA pairs, only the sign/verify STEP for
+this one protocol no longer depends on WebCrypto being present anywhere.
+**Verified on the real phones**, not just unit-tested: rebuilt the embedded server bundle
+(`npm run android:build`, esbuild's own audited-unresolved-imports check passed with no new
+gaps), reinstalled on both phones, reran the real-device matrix twice — **zero
+signaling-relay failures across both phones this time** (previously: every single signaling
+attempt either phone was party to failed). New unit coverage: `portable-ecdsa.test.ts` (6 tests:
+round trip, tamper detection, wrong-signer rejection, malformed-input rejection, distinct pairs
+never collide) plus `p2p-runtime.test.ts`'s existing envelope-proof test updated (it previously
+asserted `SEA.verify`-compatibility, which no longer holds by design — see the test's own updated
+comment). Full unit suite (2353 tests) and integration suite (89 tests) still pass.
+
+**Landed 2026-09-14 — priority-ordered platform-availability detection (Stage 6 building
+block):** new `tests/e2e/native-app/helpers/environment-availability.ts`, `detectAvailableEnvironments()`
+— checks, in the user-specified priority order (Android phones, then a Windows worker, then
+Ubuntu, then the local Mac mini as the always-available fallback): every configured Android
+phone via the existing `isAndroidDeviceReady` (adb), the Windows/Ubuntu hosts via the same `ssh
+-o BatchMode=yes -o ConnectTimeout=8 <host>` reachability shape `scripts/run-windows-e2e.mjs`/
+`run-ubuntu-e2e.mjs` already use for their own preflight gates (reading the same
+`tests/matrix/hosts.json`), and the Mac itself (always available, no check needed). Each entry
+reports both `available` (is the hardware/host actually reachable right now) and
+`livePeerSupport` (can this repo make that platform a LIVE participant in a shared real-time
+scenario TODAY) — deliberately distinct: Android and macOS both have `livePeerSupport: true`
+(`launchAndroidUserViaAdb`, `bootstrapNativeWindow`/`bootstrapBrowserUserOnOrigin`), but Windows
+and Ubuntu currently only have REMOTE-BATCH support (SSH in, build, run entirely on that host,
+ship a report back) — genuinely not yet a live peer in a Mac-orchestrated shared scenario, so
+they correctly report `livePeerSupport: false` ("not yet — no live peer runner") rather than
+silently claiming support that doesn't exist. Wired into
+`06-seven-client-real-device-matrix.spec.ts` as a visibility report at the top of the run (does
+not yet change which platforms actually participate — that's still the spec's own Android-
+specific filtering, landed above). Verified live: correctly reported both connected phones
+available, and correctly reported `windows-test`/`ubuntu-test` as unreachable (confirmed
+independently via a direct `ssh` probe — those hosts are genuinely off the LAN right now, not a
+detection bug). **Not yet done:** making Windows/Ubuntu genuine live participants in this same
+matrix (Stage 4.4/5.4's still-open cross-host peer scenarios) is a separate, larger capability —
+this bullet is detection/visibility only, honestly scoped.
 
 ---
 
@@ -1041,11 +1125,21 @@ the old single-opposite auto-fill when empty. Closed the last script-injected ta
 `89-buy-sell-chatbot-cross-talk-match.spec.ts`.
 
 Still open — **superseded by §LL below, not to be built as originally scoped here:**
-- [ ] No persistence for user-created pairs — the seeded registry (`tag-opposite-pairs.ts`:
-  buy/sell, hiring/jobseeking, male/female) still only auto-fills a **single** `preferenceSet`
-  value from those 3 hard-coded pairs; typing any other tag gets no auto-derived compatibility.
-  Still real under §LL too (the registry becomes an editor-autofill-only convenience there), but
-  persistence itself is unscoped either way.
+- [x] **Confirmed 2026-09-15, already resolved — stale bullet:** matching itself
+  (`checkIfMatch`'s `preferenceSet.includes(responderSelfTag)`, talk-engine.ts) never consults
+  the tag-opposite-pairs registry at all — it only ever reads whatever `selfTag`/`preferenceSet`
+  values are already written on the Talk, which the author can type as literally any tag, seeded
+  or not. So matching was never actually limited to the 3 seeded pairs; that was only ever true of
+  the editor's autofill CONVENIENCE. And that convenience already persists user-created pairs too:
+  `talk-editor-dialog.ts`'s `wireTagAnswerAutoFill`/`persistCustomTagPair` calls
+  `registerOppositeTagPair` + `setTagOppositePairRegistryState` (localStorage `tagOppositePairRegistry`
+  key, `answer-preferences-storage.ts`) on blur whenever the author types a counterpart differing
+  from the auto-suggested one — merged with the 3 seeded pairs on every subsequent talk
+  (`getTagOppositePairRegistryState()` read + `createSeededTagOppositePairRegistryState()` merge,
+  same file, lines ~542-549). So a once-typed custom pair (e.g. "borrow"/"lend") DOES get
+  auto-suggested on the author's future talks, exactly like a seeded pair would — this was already
+  built, just never checked off here. No further work needed; §LL's "editor-autofill-only
+  convenience" framing already correctly described this.
 - [ ] ~~No multi-value editing UI~~ — built as a comma-separated `#talk-preference-set` field
   above, but §LL rejects multi-value on a tag outright (a bare second word like "free" is
   ambiguous without its own question — give or receive?) and routes that need instead through
@@ -1133,13 +1227,39 @@ second, and via Gun-sync on the other, since "both confirmed" can become true on
   `05-taxi-local-chatroom-match.spec.ts`'s "confirming one deal does not disable an unrelated
   simultaneous listing" test gives Adam two simultaneous listings and has Alice MANUALLY answer
   only one of them (not via chatbot auto-reply — see below for why); confirming that deal leaves
-  the other listing enabled. **Still a real, narrower gap:** the common case in this app is a match
-  formed by the chatbot's exact-question-text auto-reply (`exact-chatbot-memory.ts`), not a direct
-  answer to one's own talk — in that path, the responder's device answers using memorized Q&A
-  pairs without ever recording *which* of the responder's own several talks originally taught that
-  memory, so `myDealTalkForConversation` has nothing to look up and this fix's fallback (disable
-  every active listing, the pre-fix behavior) is still what runs. Tracing chatbot auto-replies back
-  to a source talkId is unscoped follow-up work, not attempted here.
+  the other listing enabled.
+- [x] **Landed 2026-09-15 — residual gap closed:** the common case in this app is a match formed
+  by the chatbot's exact-question-text auto-reply (`exact-chatbot-memory.ts`), not a direct answer
+  to one's own talk — that path used to answer using memorized Q&A pairs without ever recording
+  *which* of the responder's own several talks originally taught that memory, so
+  `myDealTalkForConversation` had nothing to look up and fell back to disabling every active
+  listing. Fixed by teaching `exact-chatbot-memory.ts` a new `sourceTalkId` field
+  (`ChatbotQuestionSummary.sourceTalkId` / `ChatbotAnswerHistoryEvent.sourceTalkId`), recorded the
+  same place `selfTag` already is: `saveAnswerPreference`'s `isMine` check
+  (`talk.authorId === currentUserId`) already available for free from `effectiveTagContext` — when
+  an answer is taught by self-answering MY OWN talk, `sourceTalkId = talkInstanceId`; when it's
+  taught by answering someone ELSE's incoming talk, `sourceTalkId` stays unrecorded (same
+  never-erase-a-known-value posture `selfTag` already used). A new
+  `getSourceTalkIdForQuestionText` read helper (mirroring `getSelfTagForQuestionText` exactly) and
+  `UIManager.getMySourceTalkIdForQuestionText` expose it; `app.ts`'s new
+  `resolveResponderSourceTalkIdForAnswers` mirrors `resolveResponderSelfTagForAnswers`'s existing
+  "last answered question" heuristic to resolve it at match time, and
+  `submitTalkResponsePairDirect` (the RESPONDER-side conversation-creation call site, the one
+  `recordMyDealTalkForConversation` never covered before this) now calls it whenever resolvable.
+  No call-site changes were needed anywhere `saveAnswerPreference` is already invoked (talk
+  creation, incoming-talk response dialogs, quick-ignore) — `isMine` is derived from data already
+  in scope at every one of them. New coverage: `exact-chatbot-memory.test.ts`'s "sourceTalkId"
+  block (5 tests) and `answer-preference-resolution-characterization.test.ts`'s matching block
+  (3 tests) at the unit level; a new E2E test in `05-taxi-local-chatroom-match.spec.ts`, "Taxi:
+  chatbot auto-reply on the responder side narrows to the specific listing it matched" — Alice
+  runs two simultaneous "looking for a ride" listings with distinct wording, never broadcast
+  (creating them is enough to teach her own memory), and two drivers each broadcast a talk
+  matching one listing's wording; her chatbot auto-replies to both with zero manual clicks, and
+  confirming the deal formed with one driver leaves the other listing (and its still-open
+  conversation) untouched. All 5 tests in the taxi spec, the two `89-buy-sell-chatbot-cross-talk-
+  match.spec.ts` §KK tests, the full unit suite (2352 tests), and the full integration suite
+  (89 tests) pass. `ui-manager.ts` size budget bumped 3,006→3,021 for this real feature work
+  (`getMySourceTalkIdForQuestionText`).
 
 ### KK. Context-aware chatbot answer matching, generalized beyond talk-title scoping
 

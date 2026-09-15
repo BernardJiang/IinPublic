@@ -3064,6 +3064,12 @@ export class IinPublicApp {
    * overwrites the other's contribution, so `relatedTalkIds` can end up missing my own talkId
    * entirely even on my own device. This map has no such race: it's a plain synchronous
    * localStorage write made right where `payload.talkId` is already known to be MY OWN talk.
+   *
+   * docs/TODO.md §JJ residual gap, closed: also called from `submitTalkResponsePairDirect` (as
+   * the talk's RESPONDER, including via the chatbot's auto-reply), where `talkId` is instead
+   * resolved indirectly via `resolveResponderSourceTalkIdForAnswers` — chatbot memory taught by
+   * self-answering that specific one of my own talks — rather than being already known the way
+   * the author-side call sites above know it.
    */
   private recordMyDealTalkForConversation(conversationId: string, talkId: string, talkData: any): void {
     if (!conversationId || !talkId || !this.isDealEligibleTalk(talkData)) return;
@@ -5116,6 +5122,14 @@ export class IinPublicApp {
       ...this.matchScoreParamsFor(params.talkData, params.answers),
     });
     this.recordConversationNeedKey(conversationId, params.talkData);
+    // docs/TODO.md §JJ residual gap: on THIS (responder) side of the match, params.talkData is
+    // the OTHER side's talk, not mine — recordMyDealTalkForConversation needs my own talkId,
+    // resolved from chatbot memory rather than known directly the way the author-side call
+    // sites above already know it from payload.talkId.
+    const responderSourceTalkId = this.resolveResponderSourceTalkIdForAnswers(params.talkData, params.answers);
+    if (responderSourceTalkId) {
+      this.recordMyDealTalkForConversation(conversationId, responderSourceTalkId, params.talkData);
+    }
     this.uiManager.maybeShowMatchSafetyToast();
     this.uiManager.addNewConversation({
       conversationId,
@@ -5150,6 +5164,25 @@ export class IinPublicApp {
     const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
     if (!question?.text) return undefined;
     return this.uiManager.getMySelfTagForQuestionText(question.text, talkData?.language);
+  }
+
+  /**
+   * docs/TODO.md §JJ residual gap: the talkId of MY OWN talk that taught the memorized answer
+   * to this would-be match's last question, if any — mirrors `resolveResponderSelfTagForAnswers`
+   * above exactly (same "last question" heuristic, same chatbot-memory lookup shape). Lets
+   * `submitTalkResponsePairDirect` narrow `recordMyDealTalkForConversation` to a specific one
+   * of my own deal-eligible talks even when THIS match was formed by answering someone ELSE's
+   * incoming talk (as a responder) rather than by someone answering my own talk (as an author) —
+   * the case `recordMyDealTalkForConversation`'s other call sites already cover. Undefined when
+   * I have no such memory (e.g. I've never self-answered a talk of my own with this exact
+   * question text), in which case `maybeFinalizeConfirmedDeal` keeps its existing "disable every
+   * active listing" fallback.
+   */
+  private resolveResponderSourceTalkIdForAnswers(talkData: any, answers: any[]): string | undefined {
+    const lastAnswer = answers?.[answers.length - 1];
+    const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
+    if (!question?.text) return undefined;
+    return this.uiManager.getMySourceTalkIdForQuestionText(question.text, talkData?.language);
   }
 
   /** Resolve full talk using the receiver-owned local incoming-talk index. */

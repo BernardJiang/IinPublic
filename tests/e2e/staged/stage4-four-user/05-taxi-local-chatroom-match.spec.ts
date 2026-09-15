@@ -522,9 +522,11 @@ test.describe('Taxi: two drivers reach the same passenger; a confirmed deal (not
  * outstanding deal-eligible listings. Adam runs two SIMULTANEOUS driver listings with distinct
  * wording; Alice manually answers ONLY the Downtown one (a real submission delivered over mesh to
  * Adam as its author, exercising `handleMeshTalkResponse` and the new `recordMyDealTalkForConversation`
- * bookkeeping — see that method's doc comment for why this has to be a genuine authored-response
- * receipt rather than chatbot auto-reply, which doesn't preserve enough provenance to attribute a
- * match back to one of several of the responder's own listings). Confirming that deal must leave
+ * bookkeeping). This test deliberately drives a genuine authored-response receipt rather than
+ * chatbot auto-reply — the residual gap that used to leave for the RESPONDER side (chatbot
+ * auto-reply "doesn't preserve enough provenance to attribute a match back to one of several of
+ * the responder's own listings") is now closed and covered separately below, by the
+ * "chatbot auto-reply on the responder's side" test. Confirming the Downtown deal here must leave
  * the unrelated Harbor listing untouched — under the old "disable all" behavior this test would
  * fail.
  */
@@ -612,6 +614,112 @@ test.describe('Taxi: confirming one deal does not disable an unrelated simultane
     // The regression this test guards: confirming the Downtown deal must not disable Adam's
     // unrelated Harbor listing too.
     expect(await isOwnTalkDisabled(pageAdam!, LISTING2_TITLE)).toBe(false);
+  });
+});
+
+/**
+ * §JJ residual gap, closed: the test above drives a genuine authored-response receipt, which
+ * `recordMyDealTalkForConversation` could already attribute correctly. The gap this test targets
+ * is the OTHER direction — a match formed on the RESPONDER's side through the chatbot's exact-
+ * question-text auto-reply (no dialog, no manual click), which used to have no way to attribute
+ * itself back to a specific one of the responder's own several deal-eligible talks and fell back
+ * to disabling every one of them. Alice runs two SIMULTANEOUS "looking for a ride" listings with
+ * distinct wording (never broadcast — creating them is enough to teach her own chatbot memory,
+ * `saveCreatedTalk`'s self-answer cascade, each tagged with its own source talkId per
+ * `ChatbotQuestionSummary.sourceTalkId`). Adam and Frank each broadcast one driver talk matching
+ * one of Alice's two listings' wording; her chatbot auto-replies to both with no manual step,
+ * exercising `submitTalkResponsePairDirect`'s `resolveResponderSourceTalkIdForAnswers` and its
+ * `recordMyDealTalkForConversation` call. Confirming the deal with Adam (the Downtown match) must
+ * leave Alice's unrelated Harbor listing (matched with Frank) untouched — under the pre-fix
+ * fallback behavior this test would fail (both of Alice's listings would disable).
+ */
+test.describe('Taxi: chatbot auto-reply on the responder side narrows to the specific listing it matched (§JJ residual gap)', () => {
+  let browsers: ThreeBrowsers;
+  let contextAdam: BrowserContext | undefined;
+  let contextFrank: BrowserContext | undefined;
+  let contextAlice: BrowserContext | undefined;
+  let pageAdam: Page | undefined;
+  let pageFrank: Page | undefined;
+  let pageAlice: Page | undefined;
+
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
+    await clearGunForStage4Spec();
+    browsers = await launchThreeTaxiBrowsers();
+  });
+
+  test.afterAll(async () => {
+    const cleanup = async (p?: Page) => {
+      if (!p) return;
+      await p.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+    };
+    await Promise.all([cleanup(pageAdam), cleanup(pageFrank), cleanup(pageAlice)]);
+    await Promise.all([
+      pageAdam?.close().catch(() => {}),
+      pageFrank?.close().catch(() => {}),
+      pageAlice?.close().catch(() => {}),
+    ]);
+    await Promise.all([
+      contextAdam?.close().catch(() => {}),
+      contextFrank?.close().catch(() => {}),
+      contextAlice?.close().catch(() => {}),
+    ]);
+    await shutdownThreeTaxiBrowsers(browsers);
+    await clearGunForStage4Spec();
+  });
+
+  test('Alice has two listings; a chatbot-formed deal on one leaves the other enabled', async () => {
+    test.setTimeout(120_000);
+    const DOWNTOWN_TITLE = 'Looking for a ride - Downtown (Alice)';
+    const HARBOR_TITLE = 'Looking for a ride - Harbor (Alice)';
+    const ADAM_TITLE = 'Driver - Downtown (Adam)';
+    const FRANK_TITLE = 'Driver - Harbor (Frank)';
+
+    const alice = await bootstrapUser(browsers.alice, 'Alice', 'Alice');
+    contextAlice = alice.context;
+    pageAlice = alice.page;
+    // Never broadcast — creating each talk is enough to teach Alice's own chatbot memory a
+    // distinct sourceTalkId per listing (saveCreatedTalk's self-answer cascade).
+    await createRideTalk(pageAlice, DOWNTOWN_TITLE, ADAM_ALICE_QUESTIONS, 'buy');
+    await createRideTalk(pageAlice, HARBOR_TITLE, EVE_QUESTIONS, 'buy');
+    // Chatbot auto-reply ON for Alice — the incoming driver talks below must be answered with no
+    // manual step at all, so this exercises the chatbot's own attribution, not a manual receipt.
+    await prepareLocalBroadcast(pageAlice);
+
+    const adam = await bootstrapUser(browsers.adam, 'Adam', 'Adam');
+    contextAdam = adam.context;
+    pageAdam = adam.page;
+    await createRideTalk(pageAdam, ADAM_TITLE, ADAM_ALICE_QUESTIONS, 'sell');
+    await ensureInLocalRoom(pageAdam);
+
+    const frank = await bootstrapUser(browsers.frank, 'Frank', 'Frank');
+    contextFrank = frank.context;
+    pageFrank = frank.page;
+    await createRideTalk(pageFrank, FRANK_TITLE, EVE_QUESTIONS, 'sell');
+    await ensureInLocalRoom(pageFrank);
+
+    const [adamId, frankId, aliceId] = await Promise.all([
+      getCurrentUserId(pageAdam),
+      getCurrentUserId(pageFrank),
+      getCurrentUserId(pageAlice),
+    ]);
+    for (const id of [adamId, frankId, aliceId]) expect(id).toBeTruthy();
+
+    await Promise.all([clickBroadcastUntilBulkAck(pageAdam), clickBroadcastUntilBulkAck(pageFrank)]);
+
+    await expect.poll(() => hasConversationWith(pageAlice!, adamId), { timeout: 30_000 }).toBe(true);
+    await expect.poll(() => hasConversationWith(pageAlice!, frankId), { timeout: 30_000 }).toBe(true);
+
+    expect(await isOwnTalkDisabled(pageAlice!, DOWNTOWN_TITLE)).toBe(false);
+    expect(await isOwnTalkDisabled(pageAlice!, HARBOR_TITLE)).toBe(false);
+
+    await confirmDealWith(pageAlice!, adamId);
+    await confirmDealWith(pageAdam!, aliceId);
+
+    await expect.poll(() => isOwnTalkDisabled(pageAlice!, DOWNTOWN_TITLE), { timeout: 15_000 }).toBe(true);
+    // The regression this test guards: confirming the Downtown deal (chatbot-formed) must not
+    // disable Alice's unrelated Harbor listing, also chatbot-formed, also still open.
+    expect(await isOwnTalkDisabled(pageAlice!, HARBOR_TITLE)).toBe(false);
+    expect(await hasConversationWith(pageAlice!, frankId)).toBe(true);
   });
 });
 

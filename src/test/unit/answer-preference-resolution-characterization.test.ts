@@ -40,6 +40,7 @@ type PreferenceUi = {
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
     mode?: 'auto' | 'manual' | 'permanent' | 'suppressed',
   ): void;
+  getMySourceTalkIdForQuestionText(questionText: string, language?: string): string | undefined;
 };
 
 function preferenceUi(currentUserId = 'me'): PreferenceUi {
@@ -240,6 +241,52 @@ describe('UIManager answer-preference resolution characterization', () => {
       answerText: 'Model B',
       mode: 'auto',
       autoAnswerReason: 'FLATTENED_CONTEXT_MATCH',
+    });
+  });
+
+  // docs/TODO.md §JJ residual gap: a chatbot auto-reply formed from memory taught by self-
+  // answering one of my own talks should be traceable back to that specific talkId.
+  describe('sourceTalkId — docs/TODO.md §JJ residual gap', () => {
+    it('records my own talkId when self-answering my own talk', () => {
+      const ui = preferenceUi('me');
+      const question = { id: 'q1', text: 'Ride to the airport?', answers: [{ id: 'yes', text: 'Yes' }] };
+      const ownTalk = { id: 'my-airport-listing', type: 'flow', language: 'en', authorId: 'me', questions: [question] };
+
+      ui.saveAnswerPreference(ownTalk, ownTalk.id, question, 'yes', 'Yes', [
+        { questionId: question.id, answerText: 'Yes' },
+      ], 'auto');
+
+      expect(ui.getMySourceTalkIdForQuestionText('Ride to the airport?')).toBe('my-airport-listing');
+    });
+
+    it('does not record a source talkId when answering someone else\'s incoming talk', () => {
+      const ui = preferenceUi('me');
+      const question = { id: 'q1', text: 'Looking for a ride?', answers: [{ id: 'yes', text: 'Yes' }] };
+      const incomingTalk = { id: 'their-talk', type: 'flow', language: 'en', authorId: 'other', questions: [question] };
+
+      ui.saveAnswerPreference(incomingTalk, incomingTalk.id, question, 'yes', 'Yes', [
+        { questionId: question.id, answerText: 'Yes' },
+      ], 'auto');
+
+      expect(ui.getMySourceTalkIdForQuestionText('Looking for a ride?')).toBeUndefined();
+    });
+
+    it('two of my own talks with different questions resolve to their own distinct source talkId', () => {
+      const ui = preferenceUi('me');
+      const airportQuestion = { id: 'q1', text: 'Ride to the airport?', answers: [{ id: 'yes', text: 'Yes' }] };
+      const downtownQuestion = { id: 'q1', text: 'Ride downtown?', answers: [{ id: 'yes', text: 'Yes' }] };
+      const airportTalk = { id: 'listing-airport', type: 'flow', language: 'en', authorId: 'me', questions: [airportQuestion] };
+      const downtownTalk = { id: 'listing-downtown', type: 'flow', language: 'en', authorId: 'me', questions: [downtownQuestion] };
+
+      ui.saveAnswerPreference(airportTalk, airportTalk.id, airportQuestion, 'yes', 'Yes', [
+        { questionId: airportQuestion.id, answerText: 'Yes' },
+      ], 'auto');
+      ui.saveAnswerPreference(downtownTalk, downtownTalk.id, downtownQuestion, 'yes', 'Yes', [
+        { questionId: downtownQuestion.id, answerText: 'Yes' },
+      ], 'auto');
+
+      expect(ui.getMySourceTalkIdForQuestionText('Ride to the airport?')).toBe('listing-airport');
+      expect(ui.getMySourceTalkIdForQuestionText('Ride downtown?')).toBe('listing-downtown');
     });
   });
 });

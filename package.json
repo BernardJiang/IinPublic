@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.27",
+  "version": "1.0.28",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -133,6 +133,7 @@
   "author": "IinPublic Team",
   "license": "MIT",
   "dependencies": {
+    "@noble/curves": "1.8.1",
     "@noble/hashes": "1.8.0",
     "bad-words": "^3.0.4",
     "bonjour-service": "^1.4.4",

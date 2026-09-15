@@ -1,5 +1,5 @@
-import SEA from 'gun/sea';
 import { portableSha256Hex } from './portable-sha256';
+import { portableEcdsaSign, portableEcdsaVerify } from './portable-ecdsa';
 
 export type StarServerPersistencePolicy = 'durable' | 'ephemeral';
 
@@ -548,11 +548,13 @@ export async function createSignedP2PEnvelopeProof(params: {
   const nonce = params.nonce || `p2p_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   const peerId = await derivePeerIdFromPub(pub);
   const payloadHash = await hashP2PPayload(params.payload);
-  const signature = await SEA.sign(
+  // docs/TODO.md Priority 3: pure-JS (portable-ecdsa.ts), not SEA.sign — see that module's doc
+  // comment for why (Gun SEA's WebCrypto coupling fails on the Android embedded server).
+  const signature = await portableEcdsaSign(
     buildProofSigningPayload({ peerId, pub, timestamp, nonce, payloadHash }),
-    params.pair,
+    params.pair.priv,
   );
-  if (!signature) throw new Error('SEA signing failed');
+  if (!signature) throw new Error('P2P envelope signing failed');
   return { peerId, pub, timestamp, nonce, payloadHash, signature };
 }
 
@@ -579,9 +581,10 @@ export async function verifySignedP2PEnvelopeProof(params: {
   const nonceKey = `${proof.peerId}:${proof.nonce}`;
   if (params.nonceCache?.has(nonceKey)) return { ok: false, reason: 'duplicate nonce' };
   const signedPayload = buildProofSigningPayload(proof);
-  const verified = await SEA.verify(proof.signature, proof.pub);
-  const verifiedPayload = typeof verified === 'string' ? verified : canonicalSerialize(verified);
-  if (verifiedPayload !== signedPayload) return { ok: false, reason: 'invalid signature' };
+  // docs/TODO.md Priority 3: pure-JS (portable-ecdsa.ts), not SEA.verify — see that module's doc
+  // comment for why (Gun SEA's WebCrypto coupling fails on the Android embedded server).
+  const validSignature = await portableEcdsaVerify(proof.signature, signedPayload, proof.pub);
+  if (!validSignature) return { ok: false, reason: 'invalid signature' };
   params.nonceCache?.add(nonceKey);
   return { ok: true };
 }

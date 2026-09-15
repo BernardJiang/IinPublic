@@ -36,15 +36,15 @@ function effectiveTagContext(
   currentUserId: string | undefined,
   talk: any,
   currentQuestion?: { id: string; contextPath?: Array<{ questionId: string; answerId: string }> },
-): { mySelfTag: string | undefined; counterpartCandidates: Array<string | undefined> } {
+): { mySelfTag: string | undefined; counterpartCandidates: Array<string | undefined>; isMine: boolean } {
   const isMine = !!(talk?.authorId && currentUserId && talk.authorId === currentUserId);
   const ancestor = currentQuestion ? findTagPairAncestor(talk, currentQuestion) : undefined;
   if (ancestor) {
     return isMine
-      ? { mySelfTag: ancestor.questionText, counterpartCandidates: [ancestor.answerText] }
-      : { mySelfTag: ancestor.answerText, counterpartCandidates: [ancestor.questionText] };
+      ? { mySelfTag: ancestor.questionText, counterpartCandidates: [ancestor.answerText], isMine }
+      : { mySelfTag: ancestor.answerText, counterpartCandidates: [ancestor.questionText], isMine };
   }
-  return { mySelfTag: undefined, counterpartCandidates: [undefined] };
+  return { mySelfTag: undefined, counterpartCandidates: [undefined], isMine };
 }
 
 /**
@@ -373,14 +373,22 @@ export function saveAnswerPreference(
   // — this lets findAutoAnswer/getSelfTagForQuestionText later veto a preference mismatch
   // without every call site here having to know or pass that distinction explicitly. §KK:
   // also drives the flattened-store write below.
-  const { mySelfTag, counterpartCandidates } = effectiveTagContext(currentUserId, talk, currentQuestion);
+  const { mySelfTag, counterpartCandidates, isMine } = effectiveTagContext(currentUserId, talk, currentQuestion);
+  // docs/TODO.md §JJ residual gap: when this answer is being taught by self-answering MY OWN
+  // talk (isMine), remember which talk taught it — lets a later chatbot auto-reply that reuses
+  // this exact memory trace back to the specific one of my own deal-eligible talks it
+  // represents (app.ts's resolveResponderSourceTalkIdForAnswers), instead of the deal-
+  // confirmation fallback that disables every one of my active listings. undefined (not
+  // recorded) when this answer instead came from answering someone ELSE's talk — there is no
+  // "my talk" to attribute it to.
+  const sourceTalkId = isMine ? talkInstanceId : undefined;
   if (currentQuestion.text) {
     if (mode === 'suppressed') {
       saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, undefined, languageContext);
     } else if (mode === 'permanent') {
-      savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, mySelfTag);
+      savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, mySelfTag, sourceTalkId);
     } else if (mode === 'auto') {
-      saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, mySelfTag);
+      saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext, mySelfTag, sourceTalkId);
     }
     setExactChatbotMemory(exactMemory);
   }

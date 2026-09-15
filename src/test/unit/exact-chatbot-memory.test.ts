@@ -3,6 +3,7 @@ import {
   createEmptyExactChatbotMemoryState,
   findAutoAnswer,
   findAutoAnswerMultiple,
+  getSourceTalkIdForQuestionText,
   makeAnswerId,
   makeQuestionId,
   readHistory,
@@ -120,6 +121,51 @@ describe('exact-chatbot-memory', () => {
     expect(Object.keys(event.uses || {})).toHaveLength(2);
     expect(event.autoUseCount).toBe(2);
     expect(event.lastAutoUsedAt).toBe(3000);
+  });
+});
+
+// docs/TODO.md §JJ residual gap: a chatbot auto-reply formed from memory taught by self-
+// answering one of my own talks should be traceable back to that specific talkId, so deal
+// confirmation can narrow to it instead of disabling every one of my active listings.
+describe('sourceTalkId — docs/TODO.md §JJ residual gap', () => {
+  const userId = 'u1';
+
+  it('getSourceTalkIdForQuestionText returns undefined with no history', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    expect(getSourceTalkIdForQuestionText(state, userId, 'Offering a ride?')).toBeUndefined();
+  });
+
+  it('TEMPORARY answers remember the talkId that taught them', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Offering a ride?', 'Driver', 1000, undefined, undefined, 'talk-driver-A');
+
+    expect(getSourceTalkIdForQuestionText(state, userId, 'Offering a ride?')).toBe('talk-driver-A');
+  });
+
+  it('PERMANENT answers remember the talkId that taught them', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    savePermanentAnswer(state, userId, 'Offering a ride?', 'Driver', 1000, undefined, undefined, 'talk-driver-B');
+
+    expect(getSourceTalkIdForQuestionText(state, userId, 'Offering a ride?')).toBe('talk-driver-B');
+  });
+
+  it('a later save with no known source does not erase a source learned earlier (mirrors selfTag)', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Offering a ride?', 'Driver', 1000, undefined, undefined, 'talk-driver-A');
+    // A second, unrelated save of the same question (e.g. answering someone else's incoming
+    // talk) has no talk of mine to attribute — sourceTalkId is omitted, not explicitly cleared.
+    saveTemporaryAnswer(state, userId, 'Offering a ride?', 'Driver', 2000);
+
+    expect(getSourceTalkIdForQuestionText(state, userId, 'Offering a ride?')).toBe('talk-driver-A');
+  });
+
+  it('a talk that taught two different listings resolves each by its own question text', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Ride to the airport?', 'Yes', 1000, undefined, undefined, 'talk-listing-1');
+    saveTemporaryAnswer(state, userId, 'Ride downtown?', 'Yes', 1000, undefined, undefined, 'talk-listing-2');
+
+    expect(getSourceTalkIdForQuestionText(state, userId, 'Ride to the airport?')).toBe('talk-listing-1');
+    expect(getSourceTalkIdForQuestionText(state, userId, 'Ride downtown?')).toBe('talk-listing-2');
   });
 });
 

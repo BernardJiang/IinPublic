@@ -23,6 +23,9 @@ export interface ChatbotAnswerHistoryEvent {
   autoUseCount: number;
   lastAutoUsedAt: number | null;
   uses?: Record<string, ChatbotUseEvent>;
+  /** See `ChatbotQuestionSummary.sourceTalkId` — recorded per-event for the same reason
+   *  `mode`/`answerId` are, though callers read the summary-level field. */
+  sourceTalkId?: string;
 }
 
 export interface ChatbotQuestionSummary {
@@ -42,6 +45,20 @@ export interface ChatbotQuestionSummary {
    * (e.g. two buyers), even if the question/answer text otherwise matches exactly.
    */
   selfTag?: string;
+  /**
+   * docs/TODO.md §JJ residual gap: the talkId of MY OWN talk whose self-answer taught this
+   * exact answer, when this answer was recorded while `talk.authorId === currentUserId` (see
+   * `saveAnswerPreference`'s `isMine` check, answer-preference-resolution.ts). Undefined when
+   * this answer was instead taught by answering someone ELSE's incoming talk — there is no
+   * "my talk" to attribute it to. Lets a later chatbot auto-reply that reuses this memory
+   * trace back to which of the responder's own several deal-eligible talks it actually
+   * represents (`app.ts`'s `resolveResponderSourceTalkIdForAnswers` /
+   * `recordMyDealTalkForConversation`), instead of falling back to disabling every one of the
+   * responder's active listings on deal confirmation. Same "only overwrite when known" posture
+   * as `selfTag` above — an unrelated save with no resolvable source talk must not erase a
+   * source learned earlier.
+   */
+  sourceTalkId?: string;
 }
 
 export interface ChatbotQuestionMemory {
@@ -177,6 +194,7 @@ export function saveTemporaryAnswer(
   now = Date.now(),
   context?: { language?: string },
   selfTag?: string,
+  sourceTalkId?: string,
 ): { questionId: string; answerId: string; eventId: string } {
   const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const normalizedAnswer = normalizeText(answerText);
@@ -193,6 +211,9 @@ export function saveTemporaryAnswer(
     // Only overwrite when this save actually knows the selfTag — an unrelated no-tag save
     // (e.g. a plain talk with no self-tag at all) must not erase a tag learned earlier.
     ...(selfTag !== undefined ? { selfTag } : {}),
+    // Same posture for sourceTalkId (docs/TODO.md §JJ residual gap) — an unrelated save with
+    // no resolvable source talk must not erase a source learned earlier.
+    ...(sourceTalkId !== undefined ? { sourceTalkId } : {}),
   };
   memory.history[eventId] = {
     mode: 'TEMPORARY',
@@ -202,6 +223,7 @@ export function saveTemporaryAnswer(
     autoUseCount: 0,
     lastAutoUsedAt: null,
     uses: {},
+    ...(sourceTalkId !== undefined ? { sourceTalkId } : {}),
   };
   state.answers[answerId] = { text: normalizedAnswer };
   return { questionId, answerId, eventId };
@@ -215,6 +237,7 @@ export function savePermanentAnswer(
   now = Date.now(),
   context?: { language?: string },
   selfTag?: string,
+  sourceTalkId?: string,
 ): { questionId: string; answerId: string; eventId: string } {
   const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const normalizedAnswer = normalizeText(answerText);
@@ -229,6 +252,7 @@ export function savePermanentAnswer(
     permanentAnswerText: normalizedAnswer,
     updatedAt: now,
     ...(selfTag !== undefined ? { selfTag } : {}),
+    ...(sourceTalkId !== undefined ? { sourceTalkId } : {}),
   };
   memory.history[eventId] = {
     mode: 'PERMANENT',
@@ -238,6 +262,7 @@ export function savePermanentAnswer(
     autoUseCount: 0,
     lastAutoUsedAt: null,
     uses: {},
+    ...(sourceTalkId !== undefined ? { sourceTalkId } : {}),
   };
   state.answers[answerId] = { text: normalizedAnswer };
   return { questionId, answerId, eventId };
@@ -526,4 +551,27 @@ export function getSelfTagForQuestionText(
     memory = state.users[userId]?.[questionId];
   }
   return memory?.summary.selfTag;
+}
+
+/**
+ * docs/TODO.md §JJ residual gap: the talkId of MY OWN talk that taught the stored answer for
+ * this exact question text, if any (`ChatbotQuestionSummary.sourceTalkId`) — lets a match
+ * formed through the chatbot's auto-reply be traced back to a specific one of the responder's
+ * own deal-eligible talks, the same way `getSelfTagForQuestionText` above traces a self-tag.
+ * Mirrors that function's question-id resolution exactly, for the same reason.
+ */
+export function getSourceTalkIdForQuestionText(
+  state: ExactChatbotMemoryState,
+  userId: string,
+  questionText: string,
+  context?: { language?: string },
+): string | undefined {
+  const language = normalizedLanguage(context?.language);
+  let questionId = makeQuestionId(questionText, language ? { language } : undefined);
+  let memory = state.users[userId]?.[questionId];
+  if (!memory && language === 'en') {
+    questionId = makeQuestionId(questionText);
+    memory = state.users[userId]?.[questionId];
+  }
+  return memory?.summary.sourceTalkId;
 }

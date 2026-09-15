@@ -84,6 +84,7 @@ import {
 } from './answer-preferences-storage';
 import {
   getSelfTagForQuestionText,
+  getSourceTalkIdForQuestionText,
   LOCAL_EXACT_CHATBOT_USER_ID,
 } from '../../shared/exact-chatbot-memory';
 import {
@@ -2495,6 +2496,20 @@ export class UIManager extends EventEmitter {
   getMySelfTagForQuestionText(questionText: string, language?: string): string | undefined {
     if (!questionText) return undefined;
     return getSelfTagForQuestionText(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, questionText, {
+      language: String(language || 'en').toLowerCase(),
+    });
+  }
+
+  /**
+   * docs/TODO.md §JJ residual gap: the talkId of MY OWN talk that taught the stored answer for
+   * this exact question text (`ChatbotQuestionSummary.sourceTalkId`), if any — lets app.ts's
+   * `resolveResponderSourceTalkIdForAnswers` trace a match formed through the chatbot's
+   * auto-reply back to a specific one of the responder's own deal-eligible talks, mirroring
+   * `getMySelfTagForQuestionText` above exactly.
+   */
+  getMySourceTalkIdForQuestionText(questionText: string, language?: string): string | undefined {
+    if (!questionText) return undefined;
+    return getSourceTalkIdForQuestionText(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, questionText, {
       language: String(language || 'en').toLowerCase(),
     });
   }

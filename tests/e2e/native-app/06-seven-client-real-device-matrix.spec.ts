@@ -1,10 +1,12 @@
 /**
- * Real-device matrix: three Android phones, the macOS Electron app, and three
+ * Real-device matrix: up to three Android phones (configured in tests/matrix/devices.json,
+ * whichever ones `adb` reports as actually connected — see docs/TODO.md §3.4 "mark unavailable
+ * devices as skipped rather than crashing the whole matrix"), the macOS Electron app, and three
  * browser engines (Chromium, WebKit/Safari, Firefox) share one LAN Gun hub.
  *
  * This is the physical-runtime counterpart to cross-platform X1/X2 and the
- * browser-only multi-user tests. It is opt-in because it requires three adb
- * devices and writes ordinary test talks/contacts into their installed apps.
+ * browser-only multi-user tests. It is opt-in because it requires at least one adb
+ * device and writes ordinary test talks/contacts into any installed app it uses.
  */
 import { chromium, firefox, test, expect, webkit, type Browser, type Page } from '@playwright/test';
 import * as fs from 'fs';
@@ -22,6 +24,7 @@ import {
   closeAndroidUser,
   collectAndroidDiagnostics,
   clearAndroidE2ETestProjections,
+  isAndroidDeviceReady,
   readAndroidDeviceMetadata,
   launchAndroidUserViaAdb,
   resetAndroidAppData,
@@ -32,7 +35,8 @@ import {
   completeTalksInAppByAnswerIds,
   createTagTalkViaEditor,
 } from '../helpers/talk-demo-ui';
-import { resolveAndroidMatrixDevices } from './helpers/android-device-config';
+import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './helpers/android-device-config';
+import { detectAvailableEnvironments, formatAvailabilityReport } from './helpers/environment-availability';
 
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 const WEB_PORT = HUB_GUN_PORT - 8080 + 3001;
@@ -156,15 +160,19 @@ function oneTagTalk(authorId: string, owner: string, runId: string): any[] {
   }];
 }
 
-test.describe('Real-device seven-client cross-platform matrix', () => {
+test.describe('Real-device cross-platform matrix (browsers + macOS app + whichever configured Android phones are connected)', () => {
   test.skip(!RUN_MATRIX, 'Set E2E_REAL_DEVICE_MATRIX=1 to run the physical-device matrix.');
-  test.skip(ANDROID_DEVICES.length !== 3, 'Configure exactly three Android devices in tests/matrix/devices.json or NATIVE_APP_ANDROID_SERIALS.');
 
   let electron: NativeUser | undefined;
   const androidUsers: AndroidUser[] = [];
   const browsers: Browser[] = [];
   const browserClosers: Array<() => Promise<void>> = [];
   let userDataDir = '';
+  // docs/TODO.md §3.4 "mark unavailable devices as skipped rather than crashing the whole
+  // matrix": populated at the top of the test body with only the configured devices `adb`
+  // currently reports as connected — the matrix runs with however many that turns out to be
+  // (0 to `ANDROID_DEVICES.length`), instead of requiring all of them present up front.
+  let availableAndroidDevices: ConfiguredAndroidDevice[] = [];
 
   test.afterAll(async () => {
     for (const close of browserClosers) await close().catch(() => {});
@@ -177,7 +185,7 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
 
   test.afterEach(async ({}, testInfo) => {
     if (testInfo.status === testInfo.expectedStatus) return;
-    for (const device of ANDROID_DEVICES) {
+    for (const device of availableAndroidDevices) {
       const diagnostics = await collectAndroidDiagnostics(device.serial);
       await testInfo.attach(`${device.name}-logcat.txt`, {
         body: Buffer.from(diagnostics.logcat),
@@ -190,24 +198,50 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
     }
   });
 
-  test('all seven runtimes share presence and exchange one matching talk each', async ({}, testInfo) => {
+  test('every available runtime shares presence and exchanges one matching talk each', async ({}, testInfo) => {
     test.setTimeout(900_000);
     const lanHubUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
     const loopbackHubUrl = `http://127.0.0.1:${HUB_GUN_PORT}/gun`;
     const users: MatrixUser[] = [];
 
+    // docs/TODO.md Priority 3 / Stage 6: priority-ordered availability across every platform
+    // category (Android phones, then a Windows worker, then Ubuntu, then the local Mac mini as
+    // the always-available fallback) — see environment-availability.ts's doc comment for why
+    // Windows/Ubuntu report `livePeerSupport: false` here (reachable via SSH today, but not yet
+    // wired as a live participant in this SAME shared real-time scenario). This report is purely
+    // for visibility; only the Android-specific filtering below actually drives who joins.
+    const fullEnvironmentReport = await detectAvailableEnvironments();
+    console.log(`[matrix] platform availability (priority order: android > windows > ubuntu > macos):\n${formatAvailabilityReport(fullEnvironmentReport)}`);
+
+    const readiness = await Promise.all(
+      ANDROID_DEVICES.map(async (device) => ({ device, ready: await isAndroidDeviceReady(device.serial) })),
+    );
+    availableAndroidDevices = readiness.filter((r) => r.ready).map((r) => r.device);
+    const unavailable = readiness.filter((r) => !r.ready).map((r) => r.device);
+    for (const device of unavailable) {
+      console.log(`[matrix] skipping ${device.name} (${device.serial}): not connected/authorized via adb`);
+    }
+    console.log(`[matrix] running with ${availableAndroidDevices.length}/${ANDROID_DEVICES.length} configured Android device(s), 3 browser engines, and the macOS app`);
+
+    await testInfo.attach('platform-availability.json', {
+      body: Buffer.from(JSON.stringify(fullEnvironmentReport, null, 2)),
+      contentType: 'application/json',
+    });
     await testInfo.attach('android-device-matrix.json', {
-      body: Buffer.from(JSON.stringify(await Promise.all(ANDROID_DEVICES.map(async (device) => ({
-        logicalName: device.name,
-        ...(await readAndroidDeviceMetadata(device.serial)),
-      }))), null, 2)),
+      body: Buffer.from(JSON.stringify({
+        available: await Promise.all(availableAndroidDevices.map(async (device) => ({
+          logicalName: device.name,
+          ...(await readAndroidDeviceMetadata(device.serial)),
+        }))),
+        skipped: unavailable.map((device) => ({ logicalName: device.name, serial: device.serial })),
+      }, null, 2)),
       contentType: 'application/json',
     });
 
     // Establish one clean boundary before ANY peer starts. Resetting each phone only when
     // its turn arrived left the other phones' previous embedded nodes running long enough to
     // mesh stale identities, ledgers, and corrupt Radisk branches into the new Electron peer.
-    await Promise.all(ANDROID_DEVICES.map((device) => resetAndroidAppData(device.serial)));
+    await Promise.all(availableAndroidDevices.map((device) => resetAndroidAppData(device.serial)));
 
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-seven-client-e2e-'));
     electron = await launchNativeUser({ localPort: APP_PORT, hubGunUrl: loopbackHubUrl, userDataDir });
@@ -221,8 +255,8 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
     // Attach physical WebViews before launching three more local browser engines. On this
     // Mac, Playwright's experimental Android bridge can miss an adb WebView socket when
     // Chromium, WebKit, and Firefox are already consuming its browser-process event loop.
-    for (let index = 0; index < ANDROID_DEVICES.length; index += 1) {
-      const configuredDevice = ANDROID_DEVICES[index];
+    for (let index = 0; index < availableAndroidDevices.length; index += 1) {
+      const configuredDevice = availableAndroidDevices[index];
       console.log(`[matrix] launching ${configuredDevice.name}: ${configuredDevice.serial}`);
       const androidUser = await launchAndroidUserViaAdb({
         hubGunUrl: lanHubUrl,
@@ -263,7 +297,7 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
       users.push({ name: engine.name, runtime: engine.runtime, page: browserUser.page, id: browserUser.userId });
     }
 
-    expect(new Set(users.map((user) => user.id)).size).toBe(7);
+    expect(new Set(users.map((user) => user.id)).size).toBe(users.length);
     users.forEach(attachMatrixDiagnostics);
 
     await Promise.all(users.map((user) => runUserSetupStep(
@@ -304,8 +338,9 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
       await clickBroadcastUntilBulkAck(user.page, { minGunPeers: 1, minSent: 1 });
     }
 
-    // Seven-node ring: each runtime completes one different runtime's talk, covering every
-    // sender and receiver without turning this compatibility matrix into an all-to-all load test.
+    // N-node ring (N = users.length, varying with how many Android phones are connected): each
+    // runtime completes one different runtime's talk, covering every sender and receiver without
+    // turning this compatibility matrix into an all-to-all load test.
     for (let index = 0; index < users.length; index += 1) {
       const recipient = users[index];
       const author = users[(index + users.length - 1) % users.length];
@@ -320,7 +355,7 @@ test.describe('Real-device seven-client cross-platform matrix', () => {
         outcome: 'match' as const,
       })));
     }
-    console.log('[matrix] seven-client exchange complete');
+    console.log(`[matrix] ${users.length}-client exchange complete`);
 
   });
 });

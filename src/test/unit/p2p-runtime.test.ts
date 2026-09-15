@@ -322,7 +322,12 @@ describe('p2p runtime flags', () => {
     ).toThrow(/plaintext/);
   });
 
-  it('derives canonical peer IDs and verifies real SEA envelope signatures', async () => {
+  it('derives canonical peer IDs and verifies pure-JS P-256 envelope signatures over a real SEA pair', async () => {
+    // docs/TODO.md Priority 3: the pair is still a real SEA pair (SEA.pair() — key GENERATION is
+    // untouched), but signing/verifying the envelope itself no longer goes through SEA.sign/
+    // SEA.verify (see portable-ecdsa.ts's doc comment for why: SEA's WebCrypto coupling fails on
+    // the Android embedded server). A signature produced here is therefore not expected to be
+    // SEA.verify-compatible any more — that's the point of the fix, not a regression.
     const pair = await SEA.pair();
     const payload = p2pRelaySigningPayload({
       conversationId: 'conv_signed',
@@ -339,7 +344,8 @@ describe('p2p runtime flags', () => {
     });
 
     expect(proof.peerId).toBe(await derivePeerIdFromPub(pair.pub));
-    await expect(SEA.verify(proof.signature, pair.pub)).resolves.toBeTruthy();
+    expect(typeof proof.signature).toBe('string');
+    expect(proof.signature.length).toBeGreaterThan(0);
     await expect(
       verifySignedP2PEnvelopeProof({
         proof,
