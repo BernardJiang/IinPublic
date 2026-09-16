@@ -8,6 +8,9 @@ import {
 import { WebUserService } from '../services/web-user-service';
 import { WebIdentityLinkService } from '../services/web-identity-link-service';
 import { WebDeviceHandoffService } from '../services/web-device-handoff-service';
+import { WebDeviceSyncService } from '../services/web-device-sync-service';
+import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
+import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
@@ -210,6 +213,8 @@ export class IinPublicApp {
   private contentNodeService: WebContentNodeService;
   private identityLinkService: WebIdentityLinkService;
   private deviceHandoffService: WebDeviceHandoffService;
+  private deviceSyncService: WebDeviceSyncService;
+  private deviceSyncTimer: ReturnType<typeof setInterval> | undefined;
   /** Interaction ledger (Phase E). Initialized lazily after SEA keypair is ready. */
   private ledgerService: WebLedgerService | null = null;
   private uiManager: UIManager;
@@ -828,17 +833,40 @@ export class IinPublicApp {
     this.contentNodeService = new WebContentNodeService();
     this.identityLinkService = new WebIdentityLinkService(this.gunService);
     this.deviceHandoffService = new WebDeviceHandoffService(this.gunService);
+    this.deviceSyncService = new WebDeviceSyncService(this.gunService);
+    this.deviceSyncService.setHandlers({
+      onPreferencesApplied: (filters) => {
+        if (!this.currentUser) return;
+        this.currentUser.talkFilters = filters;
+        this.writeCachedUser(this.currentUser);
+        this.uiManager.refreshSettingsViewIfActive(this.currentUser);
+        void this.userService.updateTalkFilters(this.currentUser.id, filters);
+      },
+      onConflict: (conflicts) => showDeviceSyncConflictDialog({
+        conflicts,
+        text: (key, fallback) => this.uiManager.translateWithFallback(key, fallback ?? key),
+      }),
+    });
+    this.userService.setPrivateUserDataChangeListener((user) => {
+      if (!user.talkFilters) return;
+      void this.deviceSyncService.enqueuePreferencesChange(user.pub || '', user.talkFilters);
+    });
     this.uiManager = new UIManager();
     this.uiManager.setIdentityLinkHooks({
       createLinkCode: (now) => this.identityLinkService.createLinkCode(now),
       readIncomingRequest: () => this.identityLinkService.readIncomingLinkRequest(),
-      approveIncomingRequest: (pub) => this.identityLinkService.confirmIncomingLink(pub),
+      approveIncomingRequest: async (pub) => {
+        const approved = await this.identityLinkService.confirmIncomingLink(pub);
+        if (approved) this.deviceSyncService.watchPeerForSync(pub);
+        return approved;
+      },
       cancelPendingRequest: (requestId) => this.identityLinkService.cancelPendingLink(requestId),
       refreshRecords: async () => {
         await this.identityLinkService.refreshLocalRecords();
       },
       completeFromCode: async (code) => {
         const result = await this.identityLinkService.completeLinkFromCode(code);
+        if (result.ok) this.deviceSyncService.watchPeerForSync(result.peerPub);
         return result.ok ? null : result.error;
       },
       unlink: (pub) => this.identityLinkService.unlink(pub),
@@ -847,6 +875,10 @@ export class IinPublicApp {
     this.uiManager.setSupportDelegateInviteHooks({
       createInvite: () => this.handleCreateTechSupportDelegateInvite(),
       submitInviteCode: (code) => this.handleSubmitTechSupportDelegateRequest(code),
+    });
+    this.uiManager.setDeviceSyncHooks({
+      stateFor: (pub) => this.deviceSyncService.peerState(pub),
+      enable: (pub) => this.deviceSyncService.enableSyncWithPeer(pub),
     });
     // The reviewed password-custody implementation is available to development/E2E
     // builds for staged verification. Production can still unlock an existing v2
@@ -1723,6 +1755,24 @@ export class IinPublicApp {
     void this.drainMailbox().catch(() => {});
     this.startMailboxPolling();
     void this.retryFailedMailboxPosts().catch(() => {});
+    this.resumeDeviceSyncForLinkedPeers();
+    this.startDeviceSyncLoop();
+  }
+
+  /** K7-adjacent WP5 wiring: resumes watching every already-linked peer for a mutual device-sync
+   * handshake (this device's own half may have been published in an earlier session, or the peer
+   * may approve later while this device stays online) — see WebDeviceSyncService.watchPeerForSync. */
+  private resumeDeviceSyncForLinkedPeers(): void {
+    for (const row of readLinkedDeviceRecords(true)) {
+      if (row.state === 'linked') this.deviceSyncService.watchPeerForSync(row.pub);
+    }
+  }
+
+  private startDeviceSyncLoop(): void {
+    if (this.deviceSyncTimer) return;
+    this.deviceSyncTimer = setInterval(() => {
+      void this.deviceSyncService.tick().catch(() => {});
+    }, 5_000);
   }
 
   /** P0: apply the same intake gates as POST /received (filters, age, block list). */
@@ -7258,6 +7308,8 @@ export class IinPublicApp {
       }
       if (this.mailboxPollTimer) clearInterval(this.mailboxPollTimer);
       this.mailboxPollTimer = undefined;
+      if (this.deviceSyncTimer) clearInterval(this.deviceSyncTimer);
+      this.deviceSyncTimer = undefined;
       this.peerMeshService?.leaveRoom();
       if (this.currentUser && this.currentChatroomId) {
         // Mark user as inactive in current chatroom (for member count)
@@ -7473,6 +7525,10 @@ export class IinPublicApp {
     if (this.mailboxPollTimer) {
       clearInterval(this.mailboxPollTimer);
       this.mailboxPollTimer = undefined;
+    }
+    if (this.deviceSyncTimer) {
+      clearInterval(this.deviceSyncTimer);
+      this.deviceSyncTimer = undefined;
     }
     this.peerMeshService?.leaveRoom();
     for (const unsubscribe of this.conversationPreviewUnsubscribers.values()) unsubscribe();

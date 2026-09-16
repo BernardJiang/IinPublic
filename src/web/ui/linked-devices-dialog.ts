@@ -105,6 +105,11 @@ export interface LinkedDevicesDeps {
   incomingHandoff?: { fromPub: string; fromName: string } | null;
   /** Merge the incoming archive and publish the signed ack the sender is waiting on. */
   importHandoff?: () => Promise<void>;
+  /** K7-adjacent WP5 wiring: current device-sync handshake state for a linked peer (undefined —
+   * the button is hidden entirely — when no device-sync hooks are wired). */
+  deviceSyncStateFor?: (pub: string) => 'inactive' | 'pending' | 'syncing';
+  /** Publishes this device's authorization half toward `pub` — see web-device-sync-service.ts. */
+  onEnableSync?: (pub: string) => Promise<void>;
 }
 
 const LINKED_DEVICES_LOCAL_KEY = 'iinpublic_linked_devices';
@@ -149,6 +154,8 @@ export interface OpenLinkedDevicesDialogDeps {
   identityLinkUnlinker?: ((pub: string) => Promise<'removed' | 'revocation-pending'>) | undefined;
   deviceHandoffCheckIncoming?: (() => Promise<{ fromPub: string; fromName: string; archive: HandoffArchive } | null>) | undefined;
   deviceHandoffImport?: ((fromPub: string, archive: HandoffArchive) => Promise<void>) | undefined;
+  deviceSyncStateFor?: ((pub: string) => 'inactive' | 'pending' | 'syncing') | undefined;
+  deviceSyncEnable?: ((pub: string) => Promise<void>) | undefined;
 }
 
 /**
@@ -290,6 +297,8 @@ export async function openLinkedDevicesDialog(
           },
         }
       : {}),
+    ...(deps.deviceSyncStateFor ? { deviceSyncStateFor: deps.deviceSyncStateFor } : {}),
+    ...(deps.deviceSyncEnable ? { onEnableSync: deps.deviceSyncEnable } : {}),
   }, prefillLinkCode ? { prefillLinkCode } : undefined);
 }
 
@@ -311,6 +320,9 @@ const stateTextKey = (state: LinkedDeviceRow['state']): string =>
     invalid: 'linkedDeviceStateInvalid',
     conflicted: 'linkedDeviceStateConflicted',
   })[state || 'linked'];
+
+const deviceSyncStateTextKey = (state: 'inactive' | 'pending' | 'syncing'): string =>
+  ({ inactive: 'deviceSyncEnable', pending: 'deviceSyncPending', syncing: 'deviceSyncActive' })[state];
 
 export function showLinkedDevicesDialog(
   deps: LinkedDevicesDeps,
@@ -347,7 +359,12 @@ export function showLinkedDevicesDialog(
           </div>
           ${r.state === 'removed' || r.state === 'invalid'
             ? ''
-            : `<button type="button" class="btn linked-device-unlink-btn" data-testid="linked-device-unlink-btn" data-pub="${escapeAttr(r.pub)}">${r.state === 'revocation-pending' ? deps.text('retryRevocation', 'Retry revocation') : deps.text('unlink', 'Unlink')}</button>`}
+            : `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+                ${r.state === 'linked' && deps.deviceSyncStateFor
+                  ? `<button type="button" class="btn linked-device-sync-btn" data-testid="linked-device-sync-btn" data-pub="${escapeAttr(r.pub)}" ${deps.deviceSyncStateFor(r.pub) !== 'inactive' ? 'disabled' : ''}>${deps.text(deviceSyncStateTextKey(deps.deviceSyncStateFor(r.pub)), 'Enable sync')}</button>`
+                  : ''}
+                <button type="button" class="btn linked-device-unlink-btn" data-testid="linked-device-unlink-btn" data-pub="${escapeAttr(r.pub)}">${r.state === 'revocation-pending' ? deps.text('retryRevocation', 'Retry revocation') : deps.text('unlink', 'Unlink')}</button>
+              </div>`}
         </div>`,
       )
       .join('');
@@ -437,10 +454,36 @@ export function showLinkedDevicesDialog(
         </div>
       </div>`;
     bind();
+    maybeStartSyncStatusPoll();
   };
 
   let deactivatePageAccessibility = (): void => {};
+  // Device-sync activation completes asynchronously in the background (mutual Gun handshake, not
+  // driven by any user action after the initial "Enable sync" click) — nothing else in this
+  // dialog re-renders on its own once that finishes, so poll while any row is still 'pending' and
+  // stop once every row has settled (or the dialog closes).
+  let syncStatusPollTimer: number | undefined;
+  const stopSyncStatusPoll = (): void => {
+    if (syncStatusPollTimer) window.clearInterval(syncStatusPollTimer);
+    syncStatusPollTimer = undefined;
+  };
+  const maybeStartSyncStatusPoll = (): void => {
+    if (syncStatusPollTimer || !deps.deviceSyncStateFor) return;
+    const hasPending = deps.listRecords().some((r) => r.state === 'linked' && deps.deviceSyncStateFor!(r.pub) === 'pending');
+    if (!hasPending) return;
+    syncStatusPollTimer = window.setInterval(() => {
+      if (!overlay.isConnected) { stopSyncStatusPoll(); return; }
+      const list = overlay.querySelector('#linked-devices-list');
+      if (list) {
+        list.innerHTML = renderList();
+        bindUnlinkButtons(list);
+        bindSyncButtons(list);
+      }
+      if (!deps.listRecords().some((r) => r.state === 'linked' && deps.deviceSyncStateFor!(r.pub) === 'pending')) stopSyncStatusPoll();
+    }, 3_000);
+  };
   const close = (): void => {
+    stopSyncStatusPoll();
     deactivatePageAccessibility();
     overlay.remove();
   };
@@ -448,6 +491,21 @@ export function showLinkedDevicesDialog(
   const bindUnlinkButtons = (root: ParentNode): void => {
     root.querySelectorAll('.linked-device-unlink-btn').forEach((btn) => {
       btn.addEventListener('click', () => openUnlinkConfirm((btn as HTMLElement).dataset.pub || ''));
+    });
+  };
+
+  const bindSyncButtons = (root: ParentNode): void => {
+    root.querySelectorAll<HTMLButtonElement>('.linked-device-sync-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const pub = btn.dataset.pub || '';
+        if (!pub || !deps.onEnableSync) return;
+        btn.disabled = true;
+        try {
+          await deps.onEnableSync(pub);
+        } finally {
+          render();
+        }
+      });
     });
   };
 
@@ -523,6 +581,7 @@ export function showLinkedDevicesDialog(
       await deps.lockIdentityNow?.();
     });
     bindUnlinkButtons(overlay);
+    bindSyncButtons(overlay);
   };
 
   function openRenameDeviceDialog(): void {
@@ -940,6 +999,7 @@ export function showLinkedDevicesDialog(
       if (list) {
         list.innerHTML = renderList();
         bindUnlinkButtons(list);
+        bindSyncButtons(list);
       }
     });
   }

@@ -9,7 +9,10 @@ import path from 'path';
 // Bumped again 2026-09-15 for real feature work (K7 follow-on: setSupportDelegateInviteHooks +
 // updateTechSupportDelegateRequests + two formatDelegateGrantExpiringSoon* formatters), same
 // rationale — new delegate-invite handshake surface, not an extraction.
-const UI_MANAGER_LINE_BUDGET = 3_050;
+// Bumped again 2026-09-15 for real feature work (WP5 device-sync wiring: setDeviceSyncHooks +
+// translateWithFallback + refreshSettingsViewIfActive, the Identity & devices page's "Enable
+// sync" handshake and its live-settings-refresh on an incoming synced preference), same rationale.
+const UI_MANAGER_LINE_BUDGET = 3_081;
 
 describe('UIManager architecture budget', () => {
   it(`keeps ui-manager.ts at or below ${UI_MANAGER_LINE_BUDGET.toLocaleString()} lines`, () => {

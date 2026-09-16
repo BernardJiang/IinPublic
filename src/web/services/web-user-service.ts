@@ -77,6 +77,16 @@ const TECHSUPPORT_ROOT_META_KEY = 'network-root-techsupport';
 export class WebUserService {
   constructor(private gunService: WebGunService) {}
 
+  /** K7-adjacent WP5 wiring: fires after every successful private-data write with the FULL
+   * resulting user — WebDeviceSyncService listens to mirror talkFilters changes into every
+   * syncing peer's outbox. A single choke point (every mutator already routes through
+   * putPrivateUserData) rather than instrumenting each individual mutator. */
+  private privateUserDataChangeListener: ((user: User) => void) | null = null;
+
+  setPrivateUserDataChangeListener(listener: (user: User) => void): void {
+    this.privateUserDataChangeListener = listener;
+  }
+
   private static readonly DEFAULT_REPUTATION: Reputation = {
     questionsAnswered: 0,
     talksSent: 0,
@@ -375,6 +385,7 @@ export class WebUserService {
       return;
     }
     await this.gunService.putPrivate(PRIVATE_USER_DATA_KEY, this.buildPrivateUserData(user));
+    this.privateUserDataChangeListener?.(user);
   }
 
   private async mergePrivateUserData(user: User): Promise<User> {

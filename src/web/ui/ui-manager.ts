@@ -1356,6 +1356,16 @@ export class UIManager extends EventEmitter {
     document.getElementById('answers-search-input')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
   }
 
+  /** K7-adjacent WP5 wiring: a background update (an incoming synced preference, a delegate
+   * grant, …) that changed `user` needs the open Settings page to reflect it without the person
+   * having to navigate away and back — same "only if currently on screen" guard
+   * `setDelegateEligibility` already uses. */
+  refreshSettingsViewIfActive(user: User): void {
+    if (document.getElementById('settings-view')?.classList.contains('active')) {
+      this.renderSettingsView(user);
+    }
+  }
+
   private renderSettingsView(user: User): void {
     const support = this.supportSettings();
     renderSettingsViewImpl(user, {
@@ -1475,6 +1485,8 @@ export class UIManager extends EventEmitter {
         identityLinkUnlinker: this.identityLinkUnlinker,
         deviceHandoffCheckIncoming: this.deviceHandoffCheckIncoming,
         deviceHandoffImport: this.deviceHandoffImport,
+        ...(this.deviceSyncStateFor ? { deviceSyncStateFor: this.deviceSyncStateFor } : {}),
+        ...(this.deviceSyncEnable ? { deviceSyncEnable: this.deviceSyncEnable } : {}),
       },
       prefillLinkCode,
     );
@@ -1537,6 +1549,17 @@ export class UIManager extends EventEmitter {
   }): void {
     this.deviceHandoffCheckIncoming = hooks.checkIncoming;
     this.deviceHandoffImport = hooks.importArchive;
+  }
+
+  /** K7-adjacent WP5 wiring: the Identity & devices page's "Enable sync" affordance per linked row. */
+  private deviceSyncStateFor?: (pub: string) => 'inactive' | 'pending' | 'syncing';
+  private deviceSyncEnable?: (pub: string) => Promise<void>;
+  setDeviceSyncHooks(hooks: {
+    stateFor: (pub: string) => 'inactive' | 'pending' | 'syncing';
+    enable: (pub: string) => Promise<void>;
+  }): void {
+    this.deviceSyncStateFor = hooks.stateFor;
+    this.deviceSyncEnable = hooks.enable;
   }
 
   /** Optional hooks the app wires to publish real signed attestations/revocations (§10). */
@@ -2001,6 +2024,14 @@ export class UIManager extends EventEmitter {
 
   public formatMessageSendFailed(reason: string): string {
     return this.tf('conversationSendFailed', { reason });
+  }
+
+  /** Generic key+fallback lookup for dialogs built outside UIManager (e.g.
+   * device-sync-conflict-dialog.ts) that only know a plain string key, not the UiTranslationKey
+   * union — same fallback discipline as `openLinkedDevicesDialog`'s inline `text` wrapper. */
+  public translateWithFallback(key: string, fallback: string): string {
+    const value = this.t(key as UiTranslationKey);
+    return value && value !== key ? value : fallback;
   }
 
   public formatDelegateGrantExpiringSoonSelf(days: number): string {
