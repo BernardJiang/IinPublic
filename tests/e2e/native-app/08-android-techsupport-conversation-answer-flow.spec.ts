@@ -33,7 +33,8 @@ import { ensureWindowFitsViewport } from '../helpers/browser-window';
 import { afterLoad, afterNav, afterSync, delay, headless } from '../helpers/timing';
 import { attachE2eBrowserTabLabel } from '../helpers/e2e-tab-title';
 import { expectCurrentUserIsTechSupportRoot } from '../helpers/techsupport-contract';
-import { TECHSUPPORT_PUB, TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
+import { loadRealTechSupportPair } from '../helpers/techsupport-real-pair';
 
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 // Mirrors native-app/playwright.config.ts's own derivation exactly — the static web server
@@ -44,12 +45,12 @@ const WEB_PORT = HUB_GUN_PORT - 8080 + 3001;
 const ANDROID_SERIAL = process.env.NATIVE_APP_ANDROID_SERIAL?.trim() || configuredAndroidDevices()[0]?.serial || '';
 const RUN = process.env.E2E_REAL_ANDROID_TECHSUPPORT_ANSWER === '1';
 
-const DEV_PAIR = {
-  pub: TECHSUPPORT_PUB,
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-};
+// Rotated 2026-09-16: the real TechSupport signing key lives only in this machine's own
+// `.env.local` (never committed — see techsupport.ts's TECHSUPPORT_PUB doc comment), loaded at
+// runtime instead of hardcoded. The describe block below skips entirely when it's absent, so
+// every usage past that guard is safe despite the type assertion here.
+const REAL_PAIR = loadRealTechSupportPair();
+const DEV_PAIR = REAL_PAIR as NonNullable<typeof REAL_PAIR>;
 
 function resolveLanIp(): string {
   if (process.env.NATIVE_APP_ANDROID_HOST) return process.env.NATIVE_APP_ANDROID_HOST;
@@ -85,6 +86,7 @@ async function bootstrapTechSupportMode(browser: PlaywrightBrowser): Promise<{ c
 test.describe('Native app: Android user + desktop TechSupport operator conversation', () => {
   test.skip(!RUN, 'Set E2E_REAL_ANDROID_TECHSUPPORT_ANSWER=1 to run this physical-device test.');
   test.skip(!ANDROID_SERIAL, 'Set NATIVE_APP_ANDROID_SERIAL to the target adb serial (or configure it in matrix/devices.json).');
+  test.skip(!REAL_PAIR, 'Set TECHSUPPORT_SEA_PAIR_JSON in .env.local to run this TechSupport-mode spec.');
 
   let androidUser: AndroidUser | undefined;
   let desktopBrowser: PlaywrightBrowser | undefined;

@@ -8,15 +8,9 @@ import {
 import { TECHSUPPORT_PUB } from '../../shared/techsupport';
 import signedBundle from '../../shared/techsupport-onboarding-tips.signed.json';
 import SEA from 'gun/sea';
+import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
-const DEV_PAIR = {
-  pub: 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ',
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-};
-
-describe('techsupport-onboarding-tips (docs/TODO.md K2, extended)', () => {
+describeWithRealTechSupportPair('techsupport-onboarding-tips (docs/TODO.md K2, extended)', (DEV_PAIR) => {
   it('the committed signed bundle verifies for every compiled locale', async () => {
     for (const locale of Object.keys(TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES)) {
       const entry = (signedBundle.locales as SignedOnboardingTips[]).find((t) => t.locale === locale);

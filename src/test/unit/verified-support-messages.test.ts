@@ -2,6 +2,7 @@ import { filterVerifiedSupportMessages } from '../../web/ui/verified-support-mes
 import { signGreeting, signSupportAck, signOnboardingTips } from '../../shared/techsupport-greeting';
 import { signFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 jest.mock('../../web/services/techsupport-faq-cache', () => ({
   readCachedFaqBundle: jest.fn(),
@@ -13,18 +14,11 @@ jest.mock('../../web/services/techsupport-delegate-cache', () => ({
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { readCachedFaqBundle } = require('../../web/services/techsupport-faq-cache');
 
-const DEV_PAIR = {
-  pub: 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ',
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-};
+describeWithRealTechSupportPair('filterVerifiedSupportMessages', (DEV_PAIR) => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-beforeEach(() => {
-  jest.clearAllMocks();
-});
-
-describe('filterVerifiedSupportMessages', () => {
   it('passes an ordinary message through unchanged', async () => {
     const msg = { id: 'm1', senderId: 'alice', text: 'hi' };
     expect(await filterVerifiedSupportMessages([msg], 'Bob')).toEqual([msg]);

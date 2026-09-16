@@ -8,34 +8,32 @@ import {
   isTrustedTechSupportAuthorPub,
   type TechSupportDelegateGrant,
 } from '../../shared/techsupport-delegate';
-import { TECHSUPPORT_PUB } from '../../shared/techsupport';
+import { TECHSUPPORT_PUB, type TechSupportSeaPair } from '../../shared/techsupport';
 import SEA from 'gun/sea';
-
-const DEV_PAIR = {
-  pub: 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ',
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-};
+import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 const PAST = new Date(Date.now() - 1000).toISOString();
 
-async function issueGrant(overrides: Partial<{ delegatePub: string; delegateUserId: string; label: string; expiresAt: string; revokedAt: string | null }> = {}): Promise<TechSupportDelegateGrant> {
-  const delegatePair = await SEA.pair();
-  return signDelegateGrant(
-    {
-      delegatePub: delegatePair.pub,
-      delegateUserId: 'user-alice',
-      label: "Alice's phone",
-      expiresAt: FUTURE,
-      ...overrides,
-    },
-    DEV_PAIR,
-  );
+function issuer(devPair: TechSupportSeaPair) {
+  return async function issueGrant(overrides: Partial<{ delegatePub: string; delegateUserId: string; label: string; expiresAt: string; revokedAt: string | null }> = {}): Promise<TechSupportDelegateGrant> {
+    const delegatePair = await SEA.pair();
+    return signDelegateGrant(
+      {
+        delegatePub: delegatePair.pub,
+        delegateUserId: 'user-alice',
+        label: "Alice's phone",
+        expiresAt: FUTURE,
+        ...overrides,
+      },
+      devPair,
+    );
+  };
 }
 
-describe('techsupport-delegate (docs/TODO.md K7)', () => {
+describeWithRealTechSupportPair('techsupport-delegate (docs/TODO.md K7)', (devPair) => {
+  const issueGrant = issuer(devPair);
+
   it('signDelegateGrant + verifyDelegateGrant round-trips', async () => {
     const grant = await issueGrant();
     const verified = await verifyDelegateGrant(grant);

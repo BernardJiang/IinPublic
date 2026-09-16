@@ -11,8 +11,17 @@ export const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
  * across operator machines per K3-4), the announcement key on the relay. Neither is ever
  * compiled into the client bundle — see `assertTechSupportDmPair()` below and
  * `scripts/dev-techsupport-login.js`.
+ *
+ * Rotated 2026-09-16: the original value here was a development placeholder whose private half
+ * was committed in plaintext across multiple E2E fixture files (`DEV_PAIR`) — in a public repo,
+ * meaning that "private" key was never actually private. This is a real key generated fresh for
+ * this rotation; its private half lives ONLY in this machine's `.env.local`
+ * (`TECHSUPPORT_SEA_PAIR_JSON`), never committed anywhere. Tests that need to sign as TechSupport
+ * now load that same env var at runtime (`tests/e2e/helpers/techsupport-real-pair.ts` /
+ * `src/test/helpers/techsupport-real-pair.ts`) and skip gracefully when it's absent, rather than
+ * hardcoding a key — see those helpers' own doc comments for what that means for CI.
  */
-export const TECHSUPPORT_PUB = 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ';
+export const TECHSUPPORT_PUB = 'z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc';
 
 /**
  * Two keys, two trust anchors (decision K3-1, docs/TODO.md).
@@ -23,8 +32,9 @@ export const TECHSUPPORT_PUB = 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqT
  *   relay could sign DMs, a relay compromise could author messages as TechSupport, which is
  *   exactly what K2's signature requirement exists to prevent.
  *
- * Both lists currently hold the same development key, so nothing changes behaviourally until a
- * separate device key is generated. They are lists rather than scalars because of decision
+ * Both lists currently hold the same key (rotated 2026-09-16, see TECHSUPPORT_PUB's own doc
+ * comment), so nothing changes behaviourally until a separate device key is generated for the
+ * announcement role specifically. They are lists rather than scalars because of decision
  * K3-2: rotation ships a new client build, and a list lets the old and new keys both verify
  * during the rollout instead of orphaning everything signed by the previous key.
  *

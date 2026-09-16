@@ -6,11 +6,11 @@ import {
 } from '../../../tests/e2e/helpers/techsupport-baseline';
 import {
   TECHSUPPORT_NETWORK_ROLE,
-  TECHSUPPORT_PUB,
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
 import { signGreeting } from '../../shared/techsupport-greeting';
+import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 /**
  * Guard for docs/TODO.md K4: every E2E baseline except the deliberate stage0 empty
@@ -112,13 +112,7 @@ describe('duplicateSupportGreeting', () => {
   });
 });
 
-describe('signedGreetingProblem (docs/TODO.md K2)', () => {
-  const DEV_PAIR = {
-    pub: TECHSUPPORT_PUB,
-    priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-    epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-    epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-  };
+describeWithRealTechSupportPair('signedGreetingProblem (docs/TODO.md K2)', (DEV_PAIR) => {
   const soul = (conv: string, user: string) =>
     `conversations/conv_support_${conv}/messages/support_welcome_${user}`;
 

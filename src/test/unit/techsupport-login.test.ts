@@ -5,11 +5,15 @@ import {
   TECHSUPPORT_PUB,
 } from '../../shared/techsupport';
 
+// assertTechSupportDmPair only checks shape + trust-anchor list membership — it never actually
+// verifies priv/epriv cryptographically correspond to pub (that happens later, when the caller
+// tries to gun.user().auth(pair) with it). So this fixture can be inert placeholder material
+// rather than the real signing key: no real secret is needed to exercise this function.
 const DEV_PAIR = {
   pub: TECHSUPPORT_PUB,
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
+  priv: 'placeholder-not-a-real-key-shape-check-only',
+  epub: 'placeholder-not-a-real-key-shape-check-only.placeholder-not-a-real-key-shape-check-only',
+  epriv: 'placeholder-not-a-real-key-shape-check-only',
 };
 
 describe('assertTechSupportDmPair (docs/TODO.md K3)', () => {

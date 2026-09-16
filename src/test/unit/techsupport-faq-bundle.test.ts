@@ -10,13 +10,7 @@ import { buildSupportFaqEntry, type SupportFaqEntry } from '../../shared/techsup
 import { TECHSUPPORT_PUB } from '../../shared/techsupport';
 import { signDelegateGrant } from '../../shared/techsupport-delegate';
 import SEA from 'gun/sea';
-
-const DEV_PAIR = {
-  pub: 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ',
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-};
+import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 function entry(question: string, answer: string): SupportFaqEntry {
   const built = buildSupportFaqEntry({ question, answer, answeredAt: '2026-07-26T00:00:00.000Z' });
@@ -24,7 +18,7 @@ function entry(question: string, answer: string): SupportFaqEntry {
   return built;
 }
 
-describe('techsupport-faq-bundle (docs/TODO.md K5)', () => {
+describeWithRealTechSupportPair('techsupport-faq-bundle (docs/TODO.md K5)', (DEV_PAIR) => {
   it('signFaqBundle + verifyFaqBundle round-trips for an empty bundle', async () => {
     const signed = await signFaqBundle([], DEV_PAIR);
     const verified = await verifyFaqBundle(signed);

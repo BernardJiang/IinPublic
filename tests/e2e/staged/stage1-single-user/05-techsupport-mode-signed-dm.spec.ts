@@ -10,13 +10,14 @@ import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import { expectCurrentUserIsTechSupportRoot } from '../../helpers/techsupport-contract';
 import { TECHSUPPORT_PUB, TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME, isTrustedTechSupportDmPub } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { loadRealTechSupportPair } from '../../helpers/techsupport-real-pair';
 
-const DEV_PAIR = {
-  pub: TECHSUPPORT_PUB,
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-};
+// Rotated 2026-09-16: the real TechSupport signing key lives only in this machine's own
+// `.env.local` (never committed — see techsupport.ts's TECHSUPPORT_PUB doc comment), loaded at
+// runtime instead of hardcoded. The describe block below skips entirely when it's absent, so
+// every usage past that guard is safe despite the type assertion here.
+const REAL_PAIR = loadRealTechSupportPair();
+const DEV_PAIR = REAL_PAIR as NonNullable<typeof REAL_PAIR>;
 
 const DM_TEXT = 'This is TechSupport, operating from a real signed device identity.';
 
@@ -49,6 +50,8 @@ async function readTechSupportPublishedPub(): Promise<string | undefined> {
 }
 
 test.describe('TechSupport-mode boot authenticates with the canonical DM key (docs/TODO.md K3)', () => {
+  test.skip(!REAL_PAIR, 'Set TECHSUPPORT_SEA_PAIR_JSON in .env.local to run this TechSupport-mode spec.');
+
   let browser: Browser;
   let userContext: BrowserContext;
   let userPage: Page;

@@ -8,15 +8,10 @@ import {
 } from '../../shared/techsupport-greeting';
 import { TECHSUPPORT_PUB } from '../../shared/techsupport';
 import signedBundle from '../../shared/techsupport-greeting.signed.json';
+import SEA from 'gun/sea';
+import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
-const DEV_PAIR = {
-  pub: 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ',
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-};
-
-describe('techsupport-greeting (docs/TODO.md K2)', () => {
+describeWithRealTechSupportPair('techsupport-greeting (docs/TODO.md K2)', (DEV_PAIR) => {
   it('the committed signed bundle verifies for every compiled locale', async () => {
     for (const locale of Object.keys(TECHSUPPORT_GREETING_TEMPLATES)) {
       const entry = (signedBundle.greetings as SignedGreeting[]).find((g) => g.locale === locale);
@@ -65,7 +60,6 @@ describe('techsupport-greeting (docs/TODO.md K2)', () => {
   });
 
   it('rejects a greeting signed by an untrusted key', async () => {
-    const SEA = require('gun/sea');
     const strangerPair = await SEA.pair();
     const signed = await signGreeting('en', strangerPair as typeof DEV_PAIR);
     expect(await verifyTechSupportGreeting(signed)).toBeNull();

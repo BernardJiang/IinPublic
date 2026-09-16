@@ -14,13 +14,7 @@ import {
 import { signFaqBundle, verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { buildSupportFaqEntry } from '../../shared/techsupport-faq';
 import SEA from 'gun/sea';
-
-const DEV_PAIR = {
-  pub: 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ',
-  priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
-  epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
-  epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
-};
+import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 beforeEach(() => {
   localStorage.clear();
@@ -54,7 +48,7 @@ function fakeGun(initialValue: unknown) {
   };
 }
 
-describe('techsupport-faq-cache (docs/TODO.md K5)', () => {
+describeWithRealTechSupportPair('techsupport-faq-cache (docs/TODO.md K5)', (DEV_PAIR) => {
   it('readCachedFaqBundle/readCachedFaqEntries return empty when nothing is cached', () => {
     expect(readCachedFaqBundle()).toBeNull();
     expect(readCachedFaqEntries()).toEqual([]);
