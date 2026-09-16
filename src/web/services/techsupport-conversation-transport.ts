@@ -41,7 +41,8 @@ export class TechSupportConversationTransport implements ConversationTransport {
       }),
     });
     if (!res.ok) {
-      throw new Error(`TechSupport server persist failed: ${res.status}`);
+      const body = await res.text().catch(() => '');
+      throw new Error(`TechSupport server persist failed: ${res.status} ${body}`);
     }
   }
 
@@ -92,11 +93,20 @@ export class TechSupportConversationTransport implements ConversationTransport {
     myUserId?: string,
   ): () => void {
     let disposed = false;
-    const mergeAndNotify = async (gunMessages: Message[]) => {
+    // Messages known from the live Gun subscription — a message can legitimately live here
+    // and NEVER reach the server (e.g. the local-only welcome greeting, K2-2, or a message
+    // whose server persist failed/hasn't completed yet). The poll/initial-load paths below
+    // used to call `mergeAndNotify(serverOnly)`, i.e. pass the server-only snapshot in as if
+    // it were this Gun snapshot — silently dropping any Gun-only message from the merged
+    // result on every 5s tick, so it would flash in (from the live Gun push) and then vanish
+    // (on the next poll). Caching the latest Gun snapshot here and always merging against it
+    // (never substituting it) fixes that.
+    let latestGunMessages: Message[] = [];
+    const mergeAndNotify = async () => {
       if (disposed) return;
       const serverMessages = await this.loadFromServer(conversationId);
       const byId = new Map<string, Message>();
-      for (const m of [...gunMessages, ...serverMessages]) {
+      for (const m of [...latestGunMessages, ...serverMessages]) {
         byId.set(m.id, m);
       }
       const merged = [...byId.values()].sort(
@@ -108,19 +118,16 @@ export class TechSupportConversationTransport implements ConversationTransport {
     const unsubscribeGun = this.gunStore.subscribeToMessages(
       conversationId,
       (msgs) => {
-        void mergeAndNotify(msgs);
+        latestGunMessages = msgs;
+        void mergeAndNotify();
       },
       myUserId,
     );
 
-    void this.loadFromServer(conversationId).then((serverOnly) => {
-      if (!disposed && serverOnly.length) void mergeAndNotify(serverOnly);
-    });
+    void mergeAndNotify();
 
     const poll = setInterval(() => {
-      void this.loadFromServer(conversationId).then((serverOnly) => {
-        if (!disposed) void mergeAndNotify(serverOnly);
-      });
+      void mergeAndNotify();
     }, 5000);
 
     return () => {

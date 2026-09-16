@@ -103,7 +103,7 @@ import {
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile } from '../ui/ui-translations';
 import { getUiLanguagePreference } from '../ui/ui-settings-storage';
-import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
+import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
@@ -3499,13 +3499,39 @@ export class IinPublicApp {
     return false;
   }
 
-  private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
-    if (!this.currentUser || this.supportBootstrapChecked || isTechSupportUser(this.currentUser)) return;
-
-    const userId = this.currentUser.id;
-    const conversationId = `conv_support_${TECHSUPPORT_ROOT_USER_ID}_${userId}`;
+  /**
+   * Idempotent materialization of the deterministic TechSupport conversation record — the
+   * one thing both the boot-time bootstrap below and a peer-detail-page "message TechSupport"
+   * click (findOrCreateDirectConversation) need, and both need it to actually exist (not just
+   * compute the id string) before showConversationDetail/sendMessage can use it. Pulled out so
+   * a click that races ahead of ensureSupportBootstrapForCurrentUser's own boot-time call still
+   * gets a real record instead of a "conversation not found" no-op or a fallback conv_pair_ id.
+   * transportMode is always the literal 'star-gun' here (TechSupportConversationTransport.mode),
+   * never this.conversationService.getTransportMode() — that reports the ORDINARY peer transport
+   * ('direct-p2p'), which previously leaked into this record and showed as "Channel transport:
+   * Direct P2P" on TechSupport's own peer-detail page.
+   *
+   * Symmetric by design: the conversation id must be identical on both sides regardless of who
+   * calls this. An earlier version of this method always keyed the id off `this.currentUser.id`
+   * — correct for an ordinary user opening a chat with TechSupport, but wrong when TechSupport's
+   * OWN operator session calls it to reply to that user (peerId is the ordinary user's id here,
+   * not TechSupport's). That mismatch used to leave the operator's `findOrCreateDirectConversation`
+   * call falling through to the generic path, minting an unrelated conv_pair_ id on a different
+   * transport (direct-p2p/WebRTC) — the operator's replies and the user's own messages ended up
+   * in two disconnected conversations that neither side ever saw the other's side of. Deriving the
+   * ordinary-side user id explicitly (from peerId when the caller IS TechSupport, from
+   * currentUser.id otherwise) keeps the id — and therefore the transport, since
+   * WebConversationService.isSupportConversation checks the id's conv_support_ prefix first —
+   * identical on both sides.
+   */
+  private ensureSupportConversationRecord(peerId?: string, peerName?: string): string {
+    if (!this.currentUser) throw new Error('Not logged in');
+    const iAmTechSupport = this.currentUser.id === TECHSUPPORT_ROOT_USER_ID;
+    const ordinaryUserId = iAmTechSupport ? (peerId || '') : this.currentUser.id;
+    if (!ordinaryUserId) throw new Error('Missing peer id for TechSupport conversation');
+    const conversationId = `conv_support_${TECHSUPPORT_ROOT_USER_ID}_${ordinaryUserId}`;
     const now = new Date().toISOString();
-    const transportMode = this.conversationService.getTransportMode();
+    const transportMode: ConversationTransportMode = 'star-gun';
     const gun = this.gunService.getGun();
 
     // Write the LOCAL contact record first, independent of the greeting below.
@@ -3515,13 +3541,13 @@ export class IinPublicApp {
     gun.get(`conversations/${conversationId}`).put({
       data: JSON.stringify({
         id: conversationId,
-        participants: [TECHSUPPORT_ROOT_USER_ID, userId],
+        participants: [TECHSUPPORT_ROOT_USER_ID, ordinaryUserId],
         createdAt: now,
         status: 'active',
         supportChannel: true,
       }),
     });
-    gun.get(`users/${userId}`).get('conversations').get(conversationId).put({
+    gun.get(`users/${ordinaryUserId}`).get('conversations').get(conversationId).put({
       conversationId,
       otherUserId: TECHSUPPORT_ROOT_USER_ID,
       otherUserName: TECHSUPPORT_STAGE_NAME,
@@ -3529,13 +3555,24 @@ export class IinPublicApp {
       supportChannel: true,
       transportMode,
     });
+    // My own local cache entry — from an ordinary user's perspective the other side is
+    // TechSupport; from TechSupport's own operator session, the other side is this ordinary user.
     this.uiManager.addNewConversation({
       conversationId,
-      otherUserId: TECHSUPPORT_ROOT_USER_ID,
-      otherUserName: TECHSUPPORT_STAGE_NAME,
+      otherUserId: iAmTechSupport ? ordinaryUserId : TECHSUPPORT_ROOT_USER_ID,
+      otherUserName: iAmTechSupport ? (peerName || ordinaryUserId) : TECHSUPPORT_STAGE_NAME,
       supportChannel: true,
       transportMode,
     });
+    return conversationId;
+  }
+
+  private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
+    if (!this.currentUser || this.supportBootstrapChecked || isTechSupportUser(this.currentUser)) return;
+
+    const userId = this.currentUser.id;
+    const conversationId = this.ensureSupportConversationRecord();
+    const now = new Date().toISOString();
     // Idempotency no longer needs a localStorage gate: the greeting write below uses a
     // deterministic message id (a repeat call overwrites the same soul), so the in-memory
     // flag is a per-session no-op optimization, not persistence.
@@ -3563,7 +3600,7 @@ export class IinPublicApp {
         text: rendered,
         timestamp: now,
         channel: 'public',
-        transport: transportMode,
+        transport: 'star-gun',
         greetingLocale: verified.locale,
         greetingSignature: verified.signature,
         greetingAuthorPub: verified.authorPub,
@@ -3599,7 +3636,7 @@ export class IinPublicApp {
             text: tip,
             timestamp: tipTimestamp,
             channel: 'public',
-            transport: transportMode,
+            transport: 'star-gun',
             tipIndex: index,
             tipLocale: verifiedTips.locale,
             tipSignature: verifiedTips.signature,
@@ -5813,6 +5850,29 @@ export class IinPublicApp {
    */
   private async findOrCreateDirectConversation(peerId: string, peerName: string): Promise<string> {
     if (!this.currentUser) throw new Error('Not logged in');
+    // TechSupport's conversation id is a deterministic constant (conv_support_<root>_<userId>),
+    // never the generic conv_pair_ id `createConversation` below would mint. Routing through
+    // ensureSupportConversationRecord() (rather than just computing the id string) also avoids
+    // a real startup race: the localStorage-lookup fallback below only finds the support
+    // conversation once ensureSupportBootstrapForCurrentUser's own boot-time call has finished
+    // writing it, and a click on the TechSupport contact card before that write lands used to
+    // fall through and create an ordinary conv_pair_ conversation instead — which the server's
+    // POST /api/support/messages/:conversationId route always 400s (it only accepts ids that
+    // start with conv_support_), even though the message itself still lands fine in Gun. Just
+    // returning the computed id string without materializing the record was not enough either:
+    // showConversationDetail requires an existing getMyConversations() entry for the id it's
+    // given, so a click that outraced the boot-time bootstrap still hit "conversation not
+    // found" and silently did nothing. ensureSupportConversationRecord() is idempotent
+    // (addNewConversation merges), so calling it again here is a safe no-op once boot has
+    // already written the record. This must also cover TechSupport's OWN operator session
+    // replying to an ordinary user (this.currentUser.id === TECHSUPPORT_ROOT_USER_ID, peerId is
+    // the ordinary user) — not just the ordinary user's own side (peerId === TECHSUPPORT_ROOT_
+    // USER_ID) — otherwise the operator's own findOrCreateDirectConversation call falls through
+    // to the generic conv_pair_/direct-p2p path below and the two sides end up in two different,
+    // disconnected conversations that neither one ever sees the other's messages in.
+    if (peerId === TECHSUPPORT_ROOT_USER_ID || this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) {
+      return this.ensureSupportConversationRecord(peerId, peerName);
+    }
     const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}') as Record<string, any>;
     const existing = Object.entries(conversations).find(
       ([, conv]: [string, any]) =>

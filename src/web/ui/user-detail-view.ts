@@ -10,6 +10,7 @@ import {
 import { matchScore } from '../../shared/talk-engine';
 import { shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { buildTalkIdentityKey } from '../../shared/cid';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
 type PublicProfileFoundation = {
   headshot?: string | null;
@@ -749,8 +750,18 @@ function renderMatchedConversations(peerId: string, deps: UserDetailViewDeps): v
   if (!section) return;
 
   const conversations = deps.getMyConversations();
+  // When TechSupport is on either side of this pairing (peerId is TechSupport, or I'm
+  // TechSupport looking at an ordinary user's page), the pair's real conversation is always
+  // the dedicated support-channel record — never a plain conv_pair_ entry. Requiring
+  // supportChannel === true here matters when a stale conv_pair_ record for the same peerId
+  // already exists (e.g. from before this routing was fixed): without this guard, whichever
+  // entry Object.entries happens to enumerate first would win, silently reusing the broken,
+  // disconnected conversation instead of falling through to openDirectConversation's
+  // deterministic conv_support_ id below.
+  const involvesTechSupport =
+    peerId === TECHSUPPORT_ROOT_USER_ID || deps.currentUserId === TECHSUPPORT_ROOT_USER_ID;
   const pairEntry = Object.entries(conversations).find(
-    ([, c]: [string, any]) => c.otherUserId === peerId,
+    ([, c]: [string, any]) => c.otherUserId === peerId && (!involvesTechSupport || c.supportChannel === true),
   );
   const convId = pairEntry?.[0] || '';
   const conv: any = pairEntry?.[1] || null;
