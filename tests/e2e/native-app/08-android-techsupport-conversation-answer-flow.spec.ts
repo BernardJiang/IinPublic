@@ -30,7 +30,7 @@ import { configuredAndroidDevices } from './helpers/android-device-config';
 import { bootstrapNativeWindow, forceJoinGlobal } from './helpers/native-app';
 import { injectIdbClear, gotoWebApp } from '../helpers/clear-database';
 import { ensureWindowFitsViewport } from '../helpers/browser-window';
-import { afterLoad, afterNav, afterSync } from '../helpers/timing';
+import { afterLoad, afterNav, afterSync, delay, headless } from '../helpers/timing';
 import { attachE2eBrowserTabLabel } from '../helpers/e2e-tab-title';
 import { expectCurrentUserIsTechSupportRoot } from '../helpers/techsupport-contract';
 import { TECHSUPPORT_PUB, TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
@@ -179,7 +179,11 @@ test.describe('Native app: Android user + desktop TechSupport operator conversat
     // calls the exact findOrCreateDirectConversation/ensureSupportConversationRecord code this
     // spec is verifying) reaches the identical conversation without depending on that
     // discovery step.
-    desktopBrowser = await chromium.launch({ headless: true });
+    // headless mirrors every other spec in this suite (!!process.env.CI) — visible locally by
+    // default, so you can actually watch the operator side answer, not just trust a green
+    // assertion. This was previously hardcoded to true, which is why it never showed up.
+    // slowMo paces the clicks/typing so a human watching can actually follow along.
+    desktopBrowser = await chromium.launch({ headless, slowMo: headless ? 0 : delay(50, 150) });
     ({ context: techSupportContext, page: techSupportPage } = await bootstrapTechSupportMode(desktopBrowser));
     techSupportPage.on('console', (message) => {
       const text = message.text();
@@ -219,5 +223,10 @@ test.describe('Native app: Android user + desktop TechSupport operator conversat
     }
 
     expect(regressionErrors).toEqual([]);
+
+    // Hold both screens visible for a few seconds after the assertions pass — afterEach tears
+    // everything down (force-stops the phone app, closes the desktop browser) immediately
+    // otherwise, easy to miss if you're watching for it.
+    if (!headless) await new Promise((resolve) => setTimeout(resolve, 5_000));
   });
 });
