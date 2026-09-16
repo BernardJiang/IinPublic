@@ -1,5 +1,6 @@
 import type { User } from '../../shared/types';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
+import type { TechSupportDelegateRequest } from '../../shared/techsupport-delegate-invite';
 import type { SupportFaqEntry, SupportInboxEntry } from '../../shared/techsupport-faq';
 import { escapeHtml } from './ui-formatters';
 import { renderSupportInboxSection } from './support-inbox-view';
@@ -14,6 +15,8 @@ export type SupportSettingsControllerDeps = {
   emit: (event: string, payload: unknown) => void;
   t: (key: UiTranslationKey) => string;
   tf: (key: UiTranslationKey, values: Record<string, string | number>) => string;
+  onCreateInvite: () => { code: string; expiresAt: number } | null;
+  onSubmitInviteCode: (code: string) => Promise<'invalid' | 'expired' | 'unavailable' | null>;
 };
 
 export type SupportSettingsController = ReturnType<typeof createSupportSettingsController>;
@@ -22,6 +25,7 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
   let inboxEntries: SupportInboxEntry[] = [];
   let delegateGrants: TechSupportDelegateGrant[] = [];
   let delegateActivity: SupportFaqEntry[] = [];
+  let delegatePendingRequests: TechSupportDelegateRequest[] = [];
   let delegateEligible = false;
   let delegateLabel = '';
   let delegateOptedIn = false;
@@ -43,9 +47,10 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
       text: deps.t,
       tf: deps.tf,
       formatDate: deps.formatDate,
+      onCreateInvite: deps.onCreateInvite,
       onIssue: (input) => deps.emit('issueTechSupportDelegate', input),
       onRevoke: (delegatePub) => deps.emit('revokeTechSupportDelegate', delegatePub),
-    }, delegateGrants, delegateActivity);
+    }, delegateGrants, delegateActivity, delegatePendingRequests);
   };
 
   const renderDelegateOptIn = (): void => {
@@ -53,9 +58,11 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
     renderSupportDelegateOptInSection({
       escapeHtml,
       text: deps.t,
+      eligible: delegateEligible,
       label: delegateLabel,
       optedIn: delegateOptedIn,
       onToggle: (nextOptedIn) => deps.emit('toggleTechSupportDelegateOptIn', nextOptedIn),
+      onSubmitInviteCode: deps.onSubmitInviteCode,
     });
   };
 
@@ -80,6 +87,10 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
     },
     updateDelegates(grants: TechSupportDelegateGrant[]): void {
       delegateGrants = grants;
+      renderDelegates();
+    },
+    updateDelegateRequests(requests: TechSupportDelegateRequest[]): void {
+      delegatePendingRequests = requests;
       renderDelegates();
     },
     updateInbox(entries: SupportInboxEntry[]): void {

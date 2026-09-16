@@ -43,6 +43,7 @@ import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
+import type { TechSupportDelegateRequest } from '../../shared/techsupport-delegate-invite';
 import {
   createSupportSettingsController,
   type SupportSettingsController,
@@ -280,6 +281,8 @@ export class UIManager extends EventEmitter {
   private chatroomShellController?: ChatroomShellController;
   private talkEditorController?: TalkEditorController;
   private supportSettingsController?: SupportSettingsController;
+  private supportDelegateInviteCreator?: () => { code: string; expiresAt: number } | null;
+  private supportDelegateInviteCodeSubmitter?: (code: string) => Promise<'invalid' | 'expired' | 'unavailable' | null>;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -927,6 +930,8 @@ export class UIManager extends EventEmitter {
         emit: (event, payload) => this.emit(event, payload),
         t: (key) => this.t(key),
         tf: (key, values) => this.tf(key, values),
+        onCreateInvite: () => this.supportDelegateInviteCreator?.() ?? null,
+        onSubmitInviteCode: (code) => this.supportDelegateInviteCodeSubmitter?.(code) ?? Promise.resolve('unavailable' as const),
       });
     }
     return this.supportSettingsController;
@@ -1569,6 +1574,18 @@ export class UIManager extends EventEmitter {
     if (hooks.isLinked) this.identityLinkChecker = hooks.isLinked;
   }
 
+  /** docs/TODO.md K7 follow-on: the master's invite-code generator and a candidate's own
+   * invite-code submission — both need direct return values (a code to show, an error to
+   * display inline), so like `setIdentityLinkHooks` these are plain function refs, not the
+   * fire-and-forget `emit` pattern the rest of the delegates panel uses. */
+  setSupportDelegateInviteHooks(hooks: {
+    createInvite: () => { code: string; expiresAt: number } | null;
+    submitInviteCode: (code: string) => Promise<'invalid' | 'expired' | 'unavailable' | null>;
+  }): void {
+    this.supportDelegateInviteCreator = hooks.createInvite;
+    this.supportDelegateInviteCodeSubmitter = hooks.submitInviteCode;
+  }
+
   setIdentityPasswordHooks(hooks: {
     getStatus: () => Promise<{ state: 'not-set' | 'locked' }>;
     setPassword?: (password: string) => Promise<void>;
@@ -1984,6 +2001,14 @@ export class UIManager extends EventEmitter {
 
   public formatMessageSendFailed(reason: string): string {
     return this.tf('conversationSendFailed', { reason });
+  }
+
+  public formatDelegateGrantExpiringSoonSelf(days: number): string {
+    return this.tf('supportDelegateGrantExpiringSoonSelf', { days });
+  }
+
+  public formatDelegateGrantExpiringSoonOther(label: string, days: number): string {
+    return this.tf('supportDelegateGrantExpiringSoonOther', { label, days });
   }
 
   public formatMediaShareUploading(fileName: string): string {
@@ -2744,6 +2769,10 @@ export class UIManager extends EventEmitter {
 
   updateTechSupportDelegates(grants: TechSupportDelegateGrant[]): void {
     this.supportSettings().updateDelegates(grants);
+  }
+
+  updateTechSupportDelegateRequests(requests: TechSupportDelegateRequest[]): void {
+    this.supportSettings().updateDelegateRequests(requests);
   }
 
   updateDelegateActivity(entries: SupportFaqEntry[]): void {

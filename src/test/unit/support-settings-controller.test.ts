@@ -24,6 +24,8 @@ function makeDeps(overrides: Partial<SupportSettingsControllerDeps> = {}): Suppo
     emit: jest.fn(),
     t: (key) => String(key),
     tf: (key, values) => `${String(key)}:${String(values.date || '')}`,
+    onCreateInvite: () => null,
+    onSubmitInviteCode: async () => 'unavailable',
     ...overrides,
   };
 }
@@ -66,7 +68,7 @@ describe('support settings controller', () => {
     controller.updateDelegates([grant]);
     controller.updateDelegateActivity([activity]);
 
-    expect(renderDelegates).toHaveBeenLastCalledWith(expect.any(Object), [grant], [activity]);
+    expect(renderDelegates).toHaveBeenLastCalledWith(expect.any(Object), [grant], [activity], []);
   });
 
   it('rerenders active Settings when delegate eligibility changes', () => {
@@ -99,5 +101,31 @@ describe('support settings controller', () => {
     }));
     renderOptIn.mock.calls[0][0].onToggle(true);
     expect(emit).toHaveBeenCalledWith('toggleTechSupportDelegateOptIn', true);
+  });
+
+  it('renders the not-yet-eligible invite-entry state and forwards code submission', () => {
+    document.body.innerHTML = '<div id="support-delegate-optin-section"></div>';
+    const onSubmitInviteCode = jest.fn().mockResolvedValue(null);
+    const controller = createSupportSettingsController(makeDeps({ onSubmitInviteCode }));
+    controller.setDelegateEligibility(false, '', false);
+
+    controller.renderDelegateOptIn();
+
+    expect(renderOptIn).toHaveBeenCalledWith(expect.objectContaining({ eligible: false }));
+    void renderOptIn.mock.calls[0][0].onSubmitInviteCode('some-code');
+    expect(onSubmitInviteCode).toHaveBeenCalledWith('some-code');
+  });
+
+  it('forwards pending delegate requests into the delegates render and the invite creator hook', () => {
+    document.body.innerHTML = '<div id="support-delegates-section"></div>';
+    const onCreateInvite = jest.fn().mockReturnValue({ code: 'abc', expiresAt: 123 });
+    const controller = createSupportSettingsController(makeDeps({ onCreateInvite }));
+    const request = { requestId: 'r1', candidateUserId: 'candidate' } as any;
+
+    controller.updateDelegateRequests([request]);
+
+    expect(renderDelegates).toHaveBeenLastCalledWith(expect.any(Object), [], [], [request]);
+    renderDelegates.mock.calls[0][0].onCreateInvite();
+    expect(onCreateInvite).toHaveBeenCalled();
   });
 });

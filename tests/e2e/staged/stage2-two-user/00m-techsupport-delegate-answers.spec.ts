@@ -82,8 +82,10 @@ test.describe('TechSupport delegation: master issues a grant, a delegate answers
     const danaUserId = await currentUserId(danaPage);
     expect(danaUserId).toBeTruthy();
 
-    // 2. The master (holding the real DM key) issues Dana a grant — the ONLY step that ever
-    // touches the master key. Dana's own device never sees it.
+    // 2. The master (holding the real DM key) generates a one-time invite code, Dana enters it on
+    // her own device to send a signed request, and the master reviews + approves it into a real
+    // grant — the ONLY step that ever touches the master key. Dana's own device never sees it, and
+    // the master never has to type her raw user id.
     ({ context: techSupportContext, page: techSupportPage } = await bootstrapTechSupportMode(browser));
     await expectCurrentUserIsTechSupportRoot(techSupportPage);
     await techSupportPage.click('.nav-btn[data-view="me"]');
@@ -91,13 +93,30 @@ test.describe('TechSupport delegation: master issues a grant, a delegate answers
     await techSupportPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
 
-    await techSupportPage.fill('#support-delegate-userid-input', danaUserId);
-    await techSupportPage.fill('#support-delegate-label-input', "Dana's laptop");
-    await techSupportPage.click('#support-delegate-issue-btn');
+    await techSupportPage.click('#support-delegate-invite-btn');
+    const inviteCode = (await techSupportPage.locator('[data-testid="support-delegate-invite-code"]').textContent())?.trim() || '';
+    expect(inviteCode).toBeTruthy();
+    await techSupportPage.click('#support-delegate-invite-done');
+
+    // 3. Dana enters the code in her own Settings — no grant exists for her yet, so she gets the
+    // "become a support delegate" entry form rather than the opt-in toggle.
+    await danaPage.click('.nav-btn[data-view="me"]');
+    await afterNav();
+    await danaPage.click('.nav-btn[data-view="settings"]');
+    await afterNav();
+    await danaPage.fill('#support-delegate-invite-code-input', inviteCode);
+    await danaPage.click('#support-delegate-invite-code-submit');
+    await expect(danaPage.locator('#support-delegate-invite-code-status')).toBeVisible({ timeout: 10_000 });
+
+    // 4. The master's panel picks up Dana's signed request live and lists it for review.
+    const pendingRow = techSupportPage.locator('.support-delegate-pending-item', { hasText: danaUserId });
+    await expect(pendingRow).toBeVisible({ timeout: 20_000 });
+    await pendingRow.locator('[data-testid="support-delegate-pending-label"]').fill("Dana's laptop");
+    await pendingRow.locator('[data-testid="support-delegate-approve-btn"]').click();
     await afterSync();
     await expect(techSupportPage.locator('.support-delegate-item', { hasText: "Dana's laptop" })).toBeVisible({ timeout: 15_000 });
 
-    // 3. Dana's own client picks up the grant live (her eligibility state updates even while
+    // 5. Dana's own client picks up the grant live (her eligibility state updates even while
     // she's on another tab) and shows the opt-in prompt once she visits Settings — holding a
     // valid grant must not silently enable anything on its own.
     await danaPage.click('.nav-btn[data-view="me"]');
@@ -114,7 +133,7 @@ test.describe('TechSupport delegation: master issues a grant, a delegate answers
     const danaPub = await currentUserPub(danaPage);
     expect(danaPub).toBeTruthy();
 
-    // 4. Amy is a different ordinary user with no idea any of this happened. Before she asks her
+    // 6. Amy is a different ordinary user with no idea any of this happened. Before she asks her
     // question, her own client must have already cached Dana's grant live (fan-out addresses the
     // question envelope to every currently-valid delegate at send time).
     const amy = await bootstrapUser(browser, 'Amy Asker', 'Amy');
@@ -150,7 +169,7 @@ test.describe('TechSupport delegation: master issues a grant, a delegate answers
     await afterSync();
     await expect(amyPage.locator('#conversation-messages')).toContainText('will get back to you', { timeout: 15_000 });
 
-    // 5. Dana — not the master — sees and answers the pending question from her own device.
+    // 7. Dana — not the master — sees and answers the pending question from her own device.
     const inboxItem = danaPage.locator('.support-inbox-item').filter({ hasText: question.slice(0, 20) });
     await expect(inboxItem).toBeVisible({ timeout: 20_000 });
     await inboxItem.locator('.support-inbox-answer-input').fill(answer);
@@ -158,10 +177,10 @@ test.describe('TechSupport delegation: master issues a grant, a delegate answers
     await afterSync();
     await expect(inboxItem).toHaveCount(0, { timeout: 15_000 });
 
-    // 6. Amy receives the real answer, still attributed to TechSupport — never learns Dana exists.
+    // 8. Amy receives the real answer, still attributed to TechSupport — never learns Dana exists.
     await expect(amyPage.locator('#conversation-messages')).toContainText(answer, { timeout: 20_000 });
 
-    // 7. The master's own audit view — never Dana's or Amy's — shows who actually answered. The
+    // 9. The master's own audit view — never Dana's or Amy's — shows who actually answered. The
     // published `canonicalQuestion` is normalized (lowercased) from the raw asked text.
     await expect(techSupportPage.locator('#support-delegates-section')).toContainText(
       new RegExp(question.slice(0, 20), 'i'),

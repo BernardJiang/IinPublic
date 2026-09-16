@@ -666,10 +666,13 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
       '<div id="support-delegates-section" style="margin-bottom:14px;"></div>' +
         '<div id="support-inbox-section" style="margin-bottom:14px;"></div>',
     );
-  } else if (deps.techSupportDelegateEligible) {
+  } else {
+    // Always rendered for a non-master user, eligible or not — support-delegate-optin-view.ts
+    // itself branches between "enter an invite code" (not yet eligible) and the opt-in toggle
+    // (holds a valid grant), so this container has somewhere to render either way.
     container.insertAdjacentHTML(
       'afterbegin',
-      (deps.techSupportDelegateOptedIn
+      (deps.techSupportDelegateEligible && deps.techSupportDelegateOptedIn
         ? '<div id="support-inbox-section" style="margin-bottom:14px;"></div>'
         : '') + '<div id="support-delegate-optin-section" style="margin-bottom:14px;"></div>',
     );

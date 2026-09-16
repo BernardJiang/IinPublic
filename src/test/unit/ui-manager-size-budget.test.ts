@@ -6,7 +6,10 @@ import path from 'path';
 // rule, which this doesn't fall under.
 // Bumped again 2026-09-15 for real feature work (§JJ residual gap fix: chatbot-auto-reply source
 // talkId tracing — getMySourceTalkIdForQuestionText), same rationale.
-const UI_MANAGER_LINE_BUDGET = 3_021;
+// Bumped again 2026-09-15 for real feature work (K7 follow-on: setSupportDelegateInviteHooks +
+// updateTechSupportDelegateRequests + two formatDelegateGrantExpiringSoon* formatters), same
+// rationale — new delegate-invite handshake surface, not an extraction.
+const UI_MANAGER_LINE_BUDGET = 3_050;
 
 describe('UIManager architecture budget', () => {
   it(`keeps ui-manager.ts at or below ${UI_MANAGER_LINE_BUDGET.toLocaleString()} lines`, () => {

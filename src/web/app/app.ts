@@ -86,6 +86,18 @@ import {
   subscribeToDelegateGrants,
   fetchGrantLive,
 } from '../services/techsupport-delegate-cache';
+import {
+  createDelegateInvite,
+  encodeDelegateInviteCode,
+  decodeDelegateInviteCode,
+  isDelegateInviteExpired,
+  buildDelegateRequest,
+  verifyDelegateRequest,
+  delegateRequestMatchesInvite,
+  delegateRequestPath,
+  type DelegateInvitePayload,
+  type TechSupportDelegateRequest,
+} from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile } from '../ui/ui-translations';
 import { getUiLanguagePreference } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
@@ -238,6 +250,14 @@ export class IinPublicApp {
   /** docs/TODO.md K7 — whether the delegate has opted in to acting as a support operator (persisted). */
   private techSupportDelegateOptedIn = false;
   private static readonly DELEGATE_OPT_IN_STORAGE_KEY = 'iinpublic_techsupport_delegate_optin_v1';
+  /** K7 follow-on — the master's one outstanding invite-code, if a dialog generated one this session. */
+  private pendingDelegateInvite: DelegateInvitePayload | null = null;
+  /** K7 follow-on — live subscription to the delegate-request roster (master session only). */
+  private techSupportDelegateRequestsUnsubscribe: (() => void) | null = null;
+  /** K7 follow-on — verified requests matching this session's outstanding invite, shown for approval. */
+  private delegateRequestsCache: TechSupportDelegateRequest[] = [];
+  /** K7 follow-on — tracks which grant pubs an expiry-soon warning has already fired for this session, so a re-render doesn't re-notify. */
+  private delegateExpiryWarned: Set<string> = new Set();
   /** Guards `subscribeToSupportInboxIfTechSupport` against double-subscribing — it is now called both at boot and when a delegate opts in later in the session. */
   private supportInboxSubscribed = false;
   private mailboxDrainPromise: Promise<void> | null = null;
@@ -823,6 +843,10 @@ export class IinPublicApp {
       },
       unlink: (pub) => this.identityLinkService.unlink(pub),
       isLinked: (pub) => this.identityLinkService.isLinked(pub),
+    });
+    this.uiManager.setSupportDelegateInviteHooks({
+      createInvite: () => this.handleCreateTechSupportDelegateInvite(),
+      submitInviteCode: (code) => this.handleSubmitTechSupportDelegateRequest(code),
     });
     // The reviewed password-custody implementation is available to development/E2E
     // builds for staged verification. Production can still unlock an existing v2
@@ -3561,6 +3585,7 @@ export class IinPublicApp {
     this.techSupportDelegateGrantsUnsubscribe = subscribeToDelegateGrants(gun, (grant) => {
       if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) {
         this.refreshDelegateAdminPanel();
+        this.maybeWarnDelegateGrantExpiringSoon(grant, false);
         return;
       }
       // An ordinary user's OWN grant can arrive/change mid-session (issued or revoked while
@@ -3570,6 +3595,27 @@ export class IinPublicApp {
       const ownPub = this.gunService.getStoredPair()?.pub;
       if (ownPub && grant.delegatePub === ownPub) void this.checkOwnDelegateEligibility();
     });
+  }
+
+  private static readonly DELEGATE_EXPIRY_WARNING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+  /**
+   * K7 follow-on (lifecycle): warns once per grant per session when it's within 7 days of expiry
+   * and not revoked — `delegateExpiryWarned` keeps a re-render or the next live grant update from
+   * re-firing the same warning. `forSelf` picks the delegate's own first-person message vs. the
+   * master's per-delegate roster message.
+   */
+  private maybeWarnDelegateGrantExpiringSoon(grant: TechSupportDelegateGrant, forSelf: boolean): void {
+    if (grant.revokedAt) return;
+    const remaining = new Date(grant.expiresAt).getTime() - Date.now();
+    if (remaining <= 0 || remaining > IinPublicApp.DELEGATE_EXPIRY_WARNING_WINDOW_MS) return;
+    if (this.delegateExpiryWarned.has(grant.delegatePub)) return;
+    this.delegateExpiryWarned.add(grant.delegatePub);
+    const days = Math.max(1, Math.ceil(remaining / (24 * 60 * 60 * 1000)));
+    const message = forSelf
+      ? this.uiManager.formatDelegateGrantExpiringSoonSelf(days)
+      : this.uiManager.formatDelegateGrantExpiringSoonOther(grant.label || grant.delegateUserId, days);
+    this.uiManager.showNotification(message, 'warning', { persistent: true });
   }
 
   /**
@@ -3614,6 +3660,7 @@ export class IinPublicApp {
     this.techSupportDelegateGrant = grant;
     this.techSupportDelegateOptedIn = !!grant && this.loadDelegateOptInFromStorage();
     this.uiManager.setTechSupportDelegateEligibility(!!grant, grant?.label || '', this.techSupportDelegateOptedIn);
+    if (grant) this.maybeWarnDelegateGrantExpiringSoon(grant, true);
     if (this.isTechSupportOperatorSession()) this.subscribeToSupportInboxIfTechSupport();
   }
 
@@ -3656,6 +3703,24 @@ export class IinPublicApp {
       pair as import('../sea-gun').GunPair & { pub: string; priv: string },
     );
     this.writeDelegateGrant(grant);
+    this.clearMatchingDelegateRequest(delegatePub);
+  }
+
+  /** K7 follow-on: once a pending request has been approved (issued), it no longer needs review —
+   * drop it from the panel's local cache and best-effort clear its Gun soul. Never throws: a
+   * failed cleanup just leaves a harmless already-approved request visible until it ages out. */
+  private clearMatchingDelegateRequest(delegatePub: string): void {
+    const match = this.delegateRequestsCache.find((r) => r.candidatePub === delegatePub);
+    if (!match) return;
+    this.delegateRequestsCache = this.delegateRequestsCache.filter((r) => r.requestId !== match.requestId);
+    this.uiManager.updateTechSupportDelegateRequests(this.delegateRequestsCache);
+    try {
+      let ref = this.gunService.getGun().get(delegateRequestPath(match.requestId)[0]);
+      for (const segment of delegateRequestPath(match.requestId).slice(1)) ref = ref.get(segment);
+      ref.put(null);
+    } catch {
+      /* best-effort cleanup only */
+    }
   }
 
   /** docs/TODO.md K7: master-only — revoke by republishing the same soul with `revokedAt` set. */
@@ -3697,6 +3762,79 @@ export class IinPublicApp {
       const delegateActivity = (bundle?.entries || []).filter((e) => !!e.answeredByDelegate);
       this.uiManager.updateDelegateActivity(delegateActivity);
     });
+  }
+
+  private randomSecretHex(): string {
+    const bytes = new Uint8Array(18);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  /**
+   * K7 follow-on: master-only — generates a fresh 5-minute invite code/QR for the Delegates
+   * panel's "Invite delegate" dialog and starts (or confirms) the live subscription that will
+   * surface the resulting signed request once a candidate enters it. One outstanding invite at a
+   * time keeps this simple — generating a new one replaces the last (unapproved requests against
+   * an old invite are still shown if already received; only future ones need a live invite).
+   */
+  private handleCreateTechSupportDelegateInvite(): { code: string; expiresAt: number } | null {
+    if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return null;
+    const invite = createDelegateInvite(() => this.randomSecretHex());
+    this.pendingDelegateInvite = invite;
+    this.subscribeToTechSupportDelegateRequests();
+    return { code: encodeDelegateInviteCode(invite), expiresAt: invite.expiresAt };
+  }
+
+  /**
+   * K7 follow-on: candidate-side — decode + validate the invite code, sign a request with the
+   * candidate's OWN key (never the master's), and publish it for the master to review. Never
+   * throws — a network/signing failure surfaces as 'unavailable' so the UI can show an inline
+   * error rather than an unhandled rejection.
+   */
+  private async handleSubmitTechSupportDelegateRequest(code: string): Promise<'invalid' | 'expired' | 'unavailable' | null> {
+    if (!this.currentUser || this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) return 'invalid';
+    const payload = decodeDelegateInviteCode(code);
+    if (!payload) return 'invalid';
+    if (isDelegateInviteExpired(payload)) return 'expired';
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return 'unavailable';
+    try {
+      const request = await buildDelegateRequest(
+        { requestId: payload.requestId, secret: payload.secret, candidateUserId: this.currentUser.id },
+        pair as import('../sea-gun').GunPair & { pub: string; priv: string },
+      );
+      let ref = this.gunService.getGun().get(delegateRequestPath(request.requestId)[0]);
+      for (const segment of delegateRequestPath(request.requestId).slice(1)) ref = ref.get(segment);
+      ref.put(request);
+      return null;
+    } catch {
+      return 'unavailable';
+    }
+  }
+
+  /** K7 follow-on: master-only — live roster of candidate requests, filtered down to ones that
+   * verify AND match this session's own outstanding invite (requestId + secretHash both bound to
+   * the exact invite this session generated — a requestId collision alone is not enough). */
+  private subscribeToTechSupportDelegateRequests(): void {
+    if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    if (this.techSupportDelegateRequestsUnsubscribe) return;
+    const gun = this.gunService.getGun();
+    const ref = gun.get(delegateRequestPath('')[0]).map();
+    ref.on((raw: unknown) => {
+      void this.handleIncomingDelegateRequest(raw);
+    });
+    this.techSupportDelegateRequestsUnsubscribe = () => ref.off();
+  }
+
+  private async handleIncomingDelegateRequest(raw: unknown): Promise<void> {
+    const invite = this.pendingDelegateInvite;
+    if (!invite || isDelegateInviteExpired(invite)) return;
+    const request = await verifyDelegateRequest(raw);
+    if (!request) return;
+    if (!(await delegateRequestMatchesInvite(request, invite))) return;
+    if (this.delegateRequestsCache.some((r) => r.requestId === request.requestId)) return;
+    this.delegateRequestsCache = [...this.delegateRequestsCache, request];
+    this.uiManager.updateTechSupportDelegateRequests(this.delegateRequestsCache);
   }
 
   /**
