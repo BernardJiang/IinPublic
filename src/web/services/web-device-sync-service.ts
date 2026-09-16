@@ -111,9 +111,16 @@ export class WebDeviceSyncService {
    * it's listening for a peer who might. */
   private readonly selfEnabledPeers = new Set<string>();
   private readonly activating = new Set<string>();
-  private readonly lastEnqueuedPreferencesJsonByPeer = new Map<string, string>();
+  /** Per peer: the JSON of the last local-preferences value already written into that peer's
+   * custody store AND (once its outbox was ready) enqueued. Gates BOTH operations together —
+   * see `syncPreferencesToAllPeers`'s doc comment for why re-running the custody write on every
+   * tick with a fresh timestamp was a real bug, not just a wasted write. */
+  private readonly lastSyncedPreferencesJsonByPeer = new Map<string, string>();
   private lastAppliedPreferencesJson: string | null = null;
-  private lastLocalPreferences: { pub: string; filters: TalkIntakeFilters } | null = null;
+  /** The record is built ONCE, in `enqueuePreferencesChange`, with a timestamp fixed at that
+   * moment — never rebuilt per-tick — precisely so `updatedAt` reflects when the value actually
+   * changed, not when `syncPreferencesToAllPeers` happened to run. */
+  private lastLocalPreferences: { pub: string; record: DeviceSyncRecord } | null = null;
   private onPreferencesApplied?: (filters: TalkIntakeFilters) => void;
   private onConflict?: (conflicts: readonly DeviceSyncImportConflict[]) => Promise<DeviceSyncConflictDecision[] | null>;
 
@@ -377,23 +384,25 @@ export class WebDeviceSyncService {
   }
 
   /** Called whenever the local talk filters change (WebUserService's putPrivateUserData hook) —
-   * records the new value as the source of truth to propagate. Actual delivery to each peer's
+   * builds the outgoing record ONCE, with `updatedAt` fixed at the moment the value actually
+   * changed, and records it as the source of truth to propagate. Actual delivery to each peer's
    * outbox happens in `syncPreferencesToAllPeers` (called here for any peer already bootstrapped,
    * and again from `tick()` for a peer whose outbox bootstrap only just completed) — a change made
    * before this device's outbox finished its one-time snapshot bootstrap must not be silently
-   * dropped, it must wait and go out once the outbox exists. */
+   * dropped, it must wait and go out once the outbox exists.
+   *
+   * Building the record here — not inside `syncPreferencesToAllPeers` — is deliberate and fixes a
+   * real bug: `syncPreferencesToAllPeers` used to stamp a FRESH `new Date().toISOString()` on
+   * every call, including every retry from the 5-second `tick()` loop, even when the underlying
+   * value hadn't changed. Since `chooseConvergedRecord` breaks a version tie by comparing
+   * `updatedAt`, a device sitting idle with its own unchanged default value kept "winning" against
+   * a peer's genuinely newer edit purely because its own timestamp kept marching forward in real
+   * time. Reusing one fixed `record` object for a given value, across every retry, closes that.
+   */
   async enqueuePreferencesChange(pub: string, filters: TalkIntakeFilters): Promise<void> {
     const json = JSON.stringify(filters ?? {});
     if (json === this.lastAppliedPreferencesJson) return; // this is the value we just applied FROM a peer — don't echo it back
     this.lastAppliedPreferencesJson = json;
-    this.lastLocalPreferences = { pub, filters: filters ?? ({} as TalkIntakeFilters) };
-    await this.syncPreferencesToAllPeers();
-  }
-
-  private async syncPreferencesToAllPeers(): Promise<void> {
-    if (!this.lastLocalPreferences || this.custodyStores.size === 0) return;
-    const { pub, filters } = this.lastLocalPreferences;
-    const json = JSON.stringify(filters);
     const now = new Date().toISOString();
     const record: DeviceSyncRecord = {
       category: 'preferences',
@@ -404,15 +413,23 @@ export class WebDeviceSyncService {
       updatedAt: now,
       version: 1,
       tombstone: false,
-      payload: filters,
+      payload: filters ?? {},
     };
+    this.lastLocalPreferences = { pub, record };
+    await this.syncPreferencesToAllPeers();
+  }
+
+  private async syncPreferencesToAllPeers(): Promise<void> {
+    if (!this.lastLocalPreferences || this.custodyStores.size === 0) return;
+    const { record } = this.lastLocalPreferences;
+    const json = JSON.stringify(record.payload);
     for (const [peerPub, custodyStore] of this.custodyStores) {
+      if (this.lastSyncedPreferencesJsonByPeer.get(peerPub) === json) continue; // already handled for this peer+value
       await custodyStore.writeRecord(record).catch(() => {});
-      if (this.lastEnqueuedPreferencesJsonByPeer.get(peerPub) === json) continue;
       const outboxStore = this.outboxStores.get(peerPub);
-      if (!outboxStore || !(await outboxStore.load().catch(() => null))) continue; // not bootstrapped yet
+      if (!outboxStore || !(await outboxStore.load().catch(() => null))) continue; // not bootstrapped yet — retry next tick; the custody write above already landed and is idempotent (same fixed record) in the meantime
       await enqueueDeviceSyncChange({ store: outboxStore, record }).catch(() => {});
-      this.lastEnqueuedPreferencesJsonByPeer.set(peerPub, json);
+      this.lastSyncedPreferencesJsonByPeer.set(peerPub, json);
     }
   }
 

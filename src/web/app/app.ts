@@ -105,7 +105,7 @@ import { uiLanguageFromProfile } from '../ui/ui-translations';
 import { getUiLanguagePreference } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
-import { getTalkIntakeFilters } from '../ui/talk-intake-filters';
+import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
@@ -839,6 +839,14 @@ export class IinPublicApp {
         if (!this.currentUser) return;
         this.currentUser.talkFilters = filters;
         this.writeCachedUser(this.currentUser);
+        // settings-view.ts deliberately prefers localStorage's cached talkFilters over
+        // user.talkFilters when it's owned by this same user (docs/e2e
+        // 31-intake-filters-persist, 2026-08-09: a Gun round-trip caught mid-drain can hand back
+        // a partial/stale user.talkFilters, so this device's own last-known-good local copy wins
+        // instead). Without writing through here too, an incoming synced value would update
+        // user.talkFilters but the Settings page would keep rendering the stale local copy.
+        setTalkIntakeFilters(filters);
+        setTalkIntakeFiltersOwner(this.currentUser.id);
         this.uiManager.refreshSettingsViewIfActive(this.currentUser);
         void this.userService.updateTalkFilters(this.currentUser.id, filters);
       },

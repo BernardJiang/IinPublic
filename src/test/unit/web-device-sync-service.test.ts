@@ -200,4 +200,53 @@ describe('WebDeviceSyncService (K7-adjacent WP5 wiring)', () => {
     await bob.tick();
     expect(aliceApplied).toHaveLength(0);
   });
+
+  /**
+   * Regression test for the real bug this exact scenario surfaced during live-browser E2E
+   * testing: BOTH devices independently seed a "preferences" value (their own boot-time default)
+   * BEFORE sync ever activates, then idle ticks pass, THEN one side makes a real edit. The
+   * original bug: `syncPreferencesToAllPeers` rebuilt its outgoing record with a fresh
+   * `updatedAt` on every single tick, even when the value hadn't changed — so a device sitting
+   * idle with its own unchanged default kept "winning" convergence against a peer's genuinely
+   * newer edit purely because its own timestamp kept marching forward in real time, never
+   * because its content was actually newer.
+   */
+  it('applies a later genuine edit even after many idle ticks with an unchanged local default', async () => {
+    const aliceApplied: unknown[] = [];
+    const bobApplied: unknown[] = [];
+    alice.setHandlers({ onPreferencesApplied: (f) => aliceApplied.push(f), onConflict: async () => null });
+    bob.setHandlers({ onPreferencesApplied: (f) => bobApplied.push(f), onConflict: async () => null });
+
+    // Both devices seed their own (here, identical-content) boot-time default BEFORE sync
+    // activates — exactly like two fresh installs booting with the same default
+    // TalkIntakeFilters. A real, tiny gap between the two enqueue calls (as two independent
+    // physical devices would always have) keeps their `updatedAt` timestamps from tying exactly —
+    // an exact tie is a genuine, correctly-detected 'ambiguous-concurrent-edit' conflict
+    // (chooseConvergedRecord), not the bug this test targets; this test's `onConflict` always
+    // dismissing (returns null) would otherwise stall on that unrelated conflict forever.
+    await alice.enqueuePreferencesChange(alicePair.pub, { maxDistanceKm: 50 } as any);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await bob.enqueuePreferencesChange(bobPair.pub, { maxDistanceKm: 50 } as any);
+
+    await alice.enableSyncWithPeer(bobPair.pub);
+    await bob.enableSyncWithPeer(alicePair.pub);
+    await flushMicrotasks();
+    await tickBothUntilConverged();
+
+    // Idle time passes — a few more tick cycles with NOTHING new to send on either side. Even one
+    // extra idle tick reproduces the original bug: `new Date().toISOString()` differs on every
+    // call regardless of real elapsed time, so a single re-stamp was already enough to risk
+    // out-racing a genuinely later edit.
+    for (let i = 0; i < 3; i += 1) {
+      await alice.tick();
+      await bob.tick();
+    }
+
+    // Now Alice makes a real, later edit.
+    await alice.enqueuePreferencesChange(alicePair.pub, { maxDistanceKm: 99 } as any);
+    await tickBothUntilConverged();
+
+    expect(bobApplied).toContainEqual({ maxDistanceKm: 99 });
+    expect(bobApplied).not.toContainEqual({ maxDistanceKm: 50 });
+  }, 90_000);
 });

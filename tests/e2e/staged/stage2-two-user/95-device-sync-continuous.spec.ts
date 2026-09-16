@@ -82,22 +82,13 @@ test.describe('device sync (WP5): continuous preferences sync between linked dev
   });
 
   test('enabling sync on both sides propagates a talk-filter change from one device to the other', async ({ browser }) => {
-    // KNOWN GAP (found via this exact test): both devices independently seed a "preferences"
-    // record at boot (their default TalkIntakeFilters) before either ever enables sync. When
-    // sync activates, EACH side also has its own genuine local record to reconcile against the
-    // peer's — this is bidirectional convergence (both sides changed independently), not the
-    // one-directional "only one side has a pending change" case flushDeviceSyncOutbox/
-    // chooseConvergedRecord were unit-proven against. In this run the receiving side's
-    // chooseConvergedRecord picked the peer's OLDER boot-time default over the real newer edit in
-    // at least one direction, so the checkbox never visibly updates within budget. The
-    // authorization handshake, snapshot bootstrap, checkpoint-chain seeding, and one-directional
-    // delta delivery all now work correctly in a real browser (this test's own debugging fixed
-    // four real bugs along the way: stale-ack matching across retries, an activation race between
-    // this device's own authorization write and the peer's live-subscription fire, unguarded
-    // overlapping tick() calls, and a missing custody-store head seed for the non-initiator's
-    // first delta back) — only the "both sides changed independently" convergence case remains
-    // open. Re-enable once that's fixed; this test is a ready repro.
-    test.skip(true, 'bidirectional preferences convergence not yet correct — see comment above');
+    // Fixed bug (found via this exact test): both devices independently seed a "preferences"
+    // record at boot (their default TalkIntakeFilters) before either ever enables sync.
+    // `syncPreferencesToAllPeers` used to rebuild its outgoing record with a fresh `updatedAt` on
+    // every tick, even when the value hadn't changed, so a device sitting idle with its own
+    // unchanged default kept "winning" convergence against a peer's genuinely newer edit purely
+    // because its own timestamp kept marching forward in real time. Fixed by building the record
+    // once, when the value actually changes, and reusing it across every retry.
     test.setTimeout(120_000);
     const a = await bootstrapDevice(browser, 'A');
     const b = await bootstrapDevice(browser, 'B');
