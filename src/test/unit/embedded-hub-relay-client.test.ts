@@ -74,4 +74,62 @@ describe('EmbeddedHubRelayClient', () => {
       }),
     );
   });
+
+  it('fetches and normalizes hub TechSupport messages', async () => {
+    const message = {
+      id: 'support_1',
+      conversationId: 'conv_support_iinpublic-root-techsupport_alice',
+      senderId: 'alice',
+      text: 'hello',
+      timestamp: '2026-09-16T00:00:00.000Z',
+      channel: 'public',
+    };
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ messages: [message, null, 'not-an-object'] }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new EmbeddedHubRelayClient({
+      upstreamHubBaseUrl: 'http://127.0.0.1:8080',
+      requestTimeoutMs: 500,
+    });
+
+    await expect(client.listSupportMessages(message.conversationId)).resolves.toEqual([message]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://127.0.0.1:8080/api/support/messages/${encodeURIComponent(message.conversationId)}`,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it('posts a TechSupport message to the hub route', async () => {
+    const message = {
+      id: 'support_1',
+      conversationId: 'conv_support_iinpublic-root-techsupport_alice',
+      senderId: 'alice',
+      text: 'hello',
+      timestamp: '2026-09-16T00:00:00.000Z',
+      channel: 'public',
+    };
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ stored: true, message }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new EmbeddedHubRelayClient({
+      upstreamHubBaseUrl: 'http://127.0.0.1:8080',
+      requestTimeoutMs: 500,
+    });
+
+    await client.postSupportMessage(message.conversationId, message);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://127.0.0.1:8080/api/support/messages/${encodeURIComponent(message.conversationId)}`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message),
+      }),
+    );
+  });
 });

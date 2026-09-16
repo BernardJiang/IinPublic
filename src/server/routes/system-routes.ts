@@ -277,10 +277,23 @@ export function registerSystemRoutes(
 
   app.get('/api/support/messages/:conversationId', async (req, res) => {
     const conversationId = String(req.params.conversationId || '');
-    res.json({
-      conversationId,
-      messages: await listSupportMessages(conversationId),
-    });
+    let messages = await listSupportMessages(conversationId);
+    if (hubRelayClient) {
+      try {
+        const remoteMessages = await hubRelayClient.listSupportMessages(conversationId);
+        const byId = new Map<string, TechSupportStoredMessage>();
+        for (const message of [...messages, ...remoteMessages]) {
+          if (!message.id) continue;
+          byId.set(message.id, message);
+        }
+        messages = Array.from(byId.values()).sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
+      } catch {
+        // Embedded nodes remain usable offline; local support messages still return.
+      }
+    }
+    res.json({ conversationId, messages });
   });
 
   app.post('/api/support/messages/:conversationId', async (req, res) => {
@@ -304,6 +317,9 @@ export function registerSystemRoutes(
         return;
       }
       await appendSupportMessage(message);
+      if (hubRelayClient) {
+        await hubRelayClient.postSupportMessage(conversationId, message).catch(() => undefined);
+      }
       if (gunService) {
         void gunService.putPath(
           ['conversations', conversationId, 'messages', message.id],

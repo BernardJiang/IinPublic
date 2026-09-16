@@ -1,5 +1,6 @@
 import { classifyServerConnectorPath } from '../shared/p2p-runtime';
 import type { User } from '../shared/types';
+import type { TechSupportStoredMessage } from '../server/services/techsupport-message-store';
 
 export type RelayRoomMember = {
   userId: string;
@@ -43,6 +44,17 @@ export interface EmbeddedHubRelayClientLike {
   getPublicUser(userId: string): Promise<Partial<User> | null>;
   upsertPublicUser(user: Partial<User> & { id: string }): Promise<void>;
   getTurnCredentials(): Promise<RelayTurnCredentials>;
+  /**
+   * TechSupport is the one channel documented as server-durable regardless of transport
+   * (spec §19.7) — an embedded node's own local techsupport-durable-store is real, but it is
+   * also isolated per-instance by design (dodges an unrelated Gun radisk:false write bug), so
+   * without this relay an embedded-node user's support messages never reach the real hub's
+   * store a human operator elsewhere actually reads from. Best-effort like every other relay
+   * call here: an embedded node stays usable offline, with only its own local copy, if the hub
+   * is unreachable.
+   */
+  listSupportMessages(conversationId: string): Promise<TechSupportStoredMessage[]>;
+  postSupportMessage(conversationId: string, message: TechSupportStoredMessage): Promise<void>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -150,6 +162,22 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(user),
+    });
+  }
+
+  async listSupportMessages(conversationId: string): Promise<TechSupportStoredMessage[]> {
+    const response = await this.request(`/api/support/messages/${encodeURIComponent(conversationId)}`);
+    const body = (await response.json()) as { messages?: unknown[] };
+    return Array.isArray(body.messages)
+      ? (body.messages.filter((m): m is TechSupportStoredMessage => !!m && typeof m === 'object') as TechSupportStoredMessage[])
+      : [];
+  }
+
+  async postSupportMessage(conversationId: string, message: TechSupportStoredMessage): Promise<void> {
+    await this.request(`/api/support/messages/${encodeURIComponent(conversationId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message),
     });
   }
 

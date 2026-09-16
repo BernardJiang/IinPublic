@@ -14,6 +14,8 @@ function buildHubRelayClient(overrides: Partial<EmbeddedHubRelayClientLike> = {}
     getPublicUser: jest.fn().mockResolvedValue(null),
     upsertPublicUser: jest.fn().mockResolvedValue(undefined),
     getTurnCredentials: jest.fn().mockResolvedValue({ username: '', credential: '', ttl: 0, urls: [] }),
+    listSupportMessages: jest.fn().mockResolvedValue([]),
+    postSupportMessage: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

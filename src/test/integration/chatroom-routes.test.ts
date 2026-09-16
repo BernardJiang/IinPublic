@@ -125,6 +125,8 @@ describe('chatroom routes', () => {
       getPublicUser: jest.fn().mockResolvedValue(null),
       upsertPublicUser: jest.fn().mockResolvedValue(undefined),
       getTurnCredentials: jest.fn().mockResolvedValue({ username: '', credential: '', ttl: 0, urls: [] }),
+      listSupportMessages: jest.fn().mockResolvedValue([]),
+      postSupportMessage: jest.fn().mockResolvedValue(undefined),
     };
     const { app, manager } = buildApp({ hubRelayClient });
 
@@ -156,6 +158,8 @@ describe('chatroom routes', () => {
       getPublicUser: jest.fn().mockResolvedValue(null),
       upsertPublicUser: jest.fn().mockResolvedValue(undefined),
       getTurnCredentials: jest.fn().mockResolvedValue({ username: '', credential: '', ttl: 0, urls: [] }),
+      listSupportMessages: jest.fn().mockResolvedValue([]),
+      postSupportMessage: jest.fn().mockResolvedValue(undefined),
     };
     const { app, manager } = buildApp({ hubRelayClient });
     manager.getActiveMembersWithStageName.mockResolvedValue([{ userId: 'local_1', stageName: 'Local' }]);

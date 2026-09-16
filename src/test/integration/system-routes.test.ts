@@ -9,8 +9,9 @@ import {
   type SeaSigningPair,
 } from '../../shared/p2p-runtime';
 import { peerAckSigningPayload } from '../../shared/p2p-presence';
+import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 
-function buildApp(nodeEnv = 'test') {
+function buildApp(nodeEnv = 'test', hubRelayClient?: EmbeddedHubRelayClientLike) {
   const app = express();
   app.use(express.json());
   const gun = {
@@ -27,6 +28,7 @@ function buildApp(nodeEnv = 'test') {
     gun,
     clearForTesting: jest.fn(),
     nodeEnv,
+    ...(hubRelayClient ? { hubRelayClient } : {}),
   });
   return { app, gun };
 }
@@ -479,6 +481,49 @@ describe('system routes', () => {
     expect(list.status).toBe(200);
     expect(list.body.messages).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'support_1', text: 'Welcome' })]),
+    );
+  });
+
+  it('forwards a posted TechSupport message to the explicit hub relay and merges remote messages on read', async () => {
+    // Regression coverage for the embedded-node gap found 2026-09-16: an embedded node's own
+    // techsupport-durable-store is isolated per-instance by design, so without this relay an
+    // embedded-node user's (Android/iOS/Electron) support messages never reached the real hub's
+    // store a human operator elsewhere actually reads from.
+    const hubRelayClient: EmbeddedHubRelayClientLike = {
+      listMembers: jest.fn().mockResolvedValue([]),
+      addMember: jest.fn().mockResolvedValue(undefined),
+      touchMember: jest.fn().mockResolvedValue(undefined),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      listSignalingFrames: jest.fn().mockResolvedValue([]),
+      postSignalingFrame: jest.fn().mockResolvedValue(undefined),
+      getPublicUser: jest.fn().mockResolvedValue(null),
+      upsertPublicUser: jest.fn().mockResolvedValue(undefined),
+      getTurnCredentials: jest.fn().mockResolvedValue({ username: '', credential: '', ttl: 0, urls: [] }),
+      listSupportMessages: jest.fn().mockResolvedValue([
+        { id: 'support_remote', conversationId: 'conv_support_root_bob', senderId: 'bob', text: 'From another device', timestamp: '2026-09-16T00:00:01.000Z', channel: 'public' },
+      ]),
+      postSupportMessage: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app } = buildApp('test', hubRelayClient);
+    const convId = 'conv_support_root_bob';
+
+    const posted = await request(app)
+      .post(`/api/support/messages/${convId}`)
+      .send({ id: 'support_local', senderId: 'bob', text: 'From this device', channel: 'public' });
+    expect(posted.status).toBe(200);
+    expect(hubRelayClient.postSupportMessage).toHaveBeenCalledWith(
+      convId,
+      expect.objectContaining({ id: 'support_local', senderId: 'bob', text: 'From this device' }),
+    );
+
+    const list = await request(app).get(`/api/support/messages/${convId}`);
+    expect(list.status).toBe(200);
+    expect(hubRelayClient.listSupportMessages).toHaveBeenCalledWith(convId);
+    expect(list.body.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'support_local', text: 'From this device' }),
+        expect.objectContaining({ id: 'support_remote', text: 'From another device' }),
+      ]),
     );
   });
 });

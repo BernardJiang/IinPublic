@@ -19,6 +19,8 @@ function buildHubRelayClient(overrides: Partial<EmbeddedHubRelayClientLike> = {}
       ttl: 3600,
       urls: ['turn:vps.example.com:3478?transport=udp'],
     }),
+    listSupportMessages: jest.fn().mockResolvedValue([]),
+    postSupportMessage: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
