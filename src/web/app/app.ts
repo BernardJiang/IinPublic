@@ -74,6 +74,7 @@ import {
   readCachedFaqBundle,
   readCachedFaqEntries,
   subscribeToFaqBundle,
+  fetchFaqBundleFromServer,
 } from '../services/techsupport-faq-cache';
 import {
   signDelegateGrant,
@@ -88,6 +89,7 @@ import {
   readCachedDelegateGrants,
   subscribeToDelegateGrants,
   fetchGrantLive,
+  fetchDelegateGrantsFromServer,
 } from '../services/techsupport-delegate-cache';
 import {
   createDelegateInvite,
@@ -1751,6 +1753,7 @@ export class IinPublicApp {
     });
     this.subscribeToTechSupportFaqBundle();
     this.subscribeToTechSupportDelegateGrants();
+    this.startTechSupportDelegateRelayPolling();
     this.subscribeToSupportInboxIfTechSupport();
     if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) {
       this.refreshDelegateAdminPanel();
@@ -2502,6 +2505,12 @@ export class IinPublicApp {
     } catch (err) {
       console.warn('[Mailbox] discoverTechSupportIdentityFromGun failed:', err);
     }
+    // K7 follow-on: don't trust the ambient background poll's timing here — a fast session
+    // (found on the packaged Electron app, real-hardware test 09-android-techsupport-delegate-
+    // answers) can ask its very first question before that poll's first tick has even resolved,
+    // silently fanning out to master only. A synchronous fetch right before addressing removes
+    // the race outright, independent of any poll interval.
+    await fetchDelegateGrantsFromServer(this.getBackendApiBase()).catch(() => []);
     const now = new Date();
     const validDelegates = readCachedDelegateGrants().filter((g) => isValidDelegateGrant(g, now));
     for (const grant of validDelegates) {
@@ -2624,8 +2633,7 @@ export class IinPublicApp {
       // cache must never authorize an actual answer (design note "not trusted from a stale
       // cache"). Opt-in alone (without a still-valid grant) is also not enough.
       if (!this.techSupportDelegateOptedIn) return;
-      const raw = await fetchGrantLive(this.gunService.getGun(), pair.pub);
-      const grant = await verifyValidDelegateGrant(raw);
+      const grant = await this.fetchOwnGrantLiveOrRelay(pair.pub);
       if (!grant) {
         console.warn('[Support] Cannot answer — delegate grant is missing, expired, or revoked');
         return;
@@ -2658,7 +2666,20 @@ export class IinPublicApp {
     const signedBundle = await signFaqBundle(nextEntries, pair as import('../sea-gun').GunPair & { pub: string; priv: string });
 
     gun.get('techsupport-faq').get(entry.questionKey).put(entry);
-    gun.get('techsupport-faq').get('bundle').put(faqBundleToGunWire(signedBundle));
+    const bundleWire = faqBundleToGunWire(signedBundle);
+    gun.get('techsupport-faq').get('bundle').put(bundleWire);
+    // K7 follow-on: the raw Gun write above never reaches the hub from a native (embedded-node)
+    // device — without it, an asker on a real phone can never verify (and so never even sees) a
+    // delegate's answer, and the master's own audit view never learns it happened. Found via a
+    // real-hardware test (09-android-techsupport-delegate-answers).
+    const apiBaseForFaq = this.getBackendApiBase();
+    if (apiBaseForFaq) {
+      void fetch(`${apiBaseForFaq}/api/support/faq-bundle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bundleWire),
+      }).catch(() => undefined);
+    }
 
     await this.conversationService.sendMessage(
       input.conversationId,
@@ -3655,17 +3676,21 @@ export class IinPublicApp {
   private subscribeToTechSupportFaqBundle(): void {
     if (this.techSupportFaqBundleUnsubscribe) return;
     const gun = this.gunService.getGun();
-    this.techSupportFaqBundleUnsubscribe = subscribeToFaqBundle(gun, () => {
-      // docs/TODO.md K7: a delegate answering on their own device publishes this same bundle —
-      // the master's own session only learns about it through this subscription, never directly.
-      if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) this.refreshDelegateAdminPanel();
-      // K7 race: an asker's conversation can render the delegate's answer message before this
-      // bundle finishes syncing to this device — `filterVerifiedSupportMessages` fails closed
-      // against the (then-stale) cached bundle and drops it, and no further conversation
-      // message ever arrives to trigger a retry. Re-render the open conversation now that the
-      // cache is fresh so that answer doesn't stay hidden indefinitely.
-      this.uiManager.rerenderOpenConversation();
-    });
+    this.techSupportFaqBundleUnsubscribe = subscribeToFaqBundle(gun, () => this.handleVerifiedFaqBundleUpdate());
+  }
+
+  /** Shared by the live Gun subscription above and the HTTP relay poll below (K7 follow-on) —
+   * either one learning about a bundle update should have the exact same effect. */
+  private handleVerifiedFaqBundleUpdate(): void {
+    // docs/TODO.md K7: a delegate answering on their own device publishes this same bundle —
+    // the master's own session only learns about it through this subscription, never directly.
+    if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) this.refreshDelegateAdminPanel();
+    // K7 race: an asker's conversation can render the delegate's answer message before this
+    // bundle finishes syncing to this device — `filterVerifiedSupportMessages` fails closed
+    // against the (then-stale) cached bundle and drops it, and no further conversation
+    // message ever arrives to trigger a retry. Re-render the open conversation now that the
+    // cache is fresh so that answer doesn't stay hidden indefinitely.
+    this.uiManager.rerenderOpenConversation();
   }
 
   /**
@@ -3677,19 +3702,85 @@ export class IinPublicApp {
   private subscribeToTechSupportDelegateGrants(): void {
     if (this.techSupportDelegateGrantsUnsubscribe) return;
     const gun = this.gunService.getGun();
-    this.techSupportDelegateGrantsUnsubscribe = subscribeToDelegateGrants(gun, (grant) => {
-      if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) {
-        this.refreshDelegateAdminPanel();
-        this.maybeWarnDelegateGrantExpiringSoon(grant, false);
-        return;
+    this.techSupportDelegateGrantsUnsubscribe = subscribeToDelegateGrants(gun, (grant) =>
+      this.handleVerifiedDelegateGrant(grant),
+    );
+  }
+
+  /** Shared by the live Gun subscription above and the HTTP relay poll below (K7 follow-on) —
+   * either one learning about a grant update should have the exact same effect. */
+  private handleVerifiedDelegateGrant(grant: TechSupportDelegateGrant): void {
+    if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) {
+      this.refreshDelegateAdminPanel();
+      this.maybeWarnDelegateGrantExpiringSoon(grant, false);
+      return;
+    }
+    // An ordinary user's OWN grant can arrive/change mid-session (issued or revoked while
+    // they're already online) — re-derive eligibility immediately rather than requiring a
+    // reload, matching the design note's "on boot (or on a slow poll)" allowance with the
+    // stronger live version this subscription already gives every other session for free.
+    const ownPub = this.gunService.getStoredPair()?.pub;
+    if (ownPub && grant.delegatePub === ownPub) void this.checkOwnDelegateEligibility();
+  }
+
+  /**
+   * docs/TODO.md K7 follow-on: `fetchGrantLive`'s whole point is "don't trust a stale cache,"
+   * so it deliberately does a live Gun `.once()` read rather than consulting the cache the relay
+   * poll populates. On a native (embedded-node) device that live Gun read has the exact same
+   * "no generic peering to the hub" blind spot as everything else here — found the hard way via
+   * a real-hardware test (09-android-techsupport-delegate-answers) where the relay poll had
+   * already cached Honor's grant, yet the opt-in toggle still never appeared, because this
+   * deliberately-live check ignored that cache. Falls back to the same explicit-HTTP relay,
+   * still a live fetch (not the cache), just one that actually reaches a native device's session.
+   */
+  private async fetchOwnGrantLiveOrRelay(pub: string): Promise<TechSupportDelegateGrant | null> {
+    const raw = await fetchGrantLive(this.gunService.getGun(), pub);
+    const live = await verifyValidDelegateGrant(raw);
+    if (live) return live;
+    const grants = await fetchDelegateGrantsFromServer(this.getBackendApiBase());
+    const relayed = grants.find((grant) => grant.delegatePub === pub) ?? null;
+    return isValidDelegateGrant(relayed) ? relayed : null;
+  }
+
+  private techSupportRelayPollTimer: ReturnType<typeof setInterval> | undefined;
+  private techSupportRelayPollInFlight = false;
+
+  /**
+   * docs/TODO.md K7 follow-on: a native (embedded-node) device has no generic Gun peering to the
+   * hub (embedded-node.ts dials it "for discovery only"), so the two live Gun subscriptions above
+   * never fire there — found via a real-hardware test (09-android-techsupport-delegate-answers)
+   * where a real Honor phone's signed delegate request never reached the master at all. This
+   * poll is the read-side half of the fix: every session (master, delegate, or ordinary asker;
+   * browser or native) periodically pulls the delegate roster and FAQ bundle through the new
+   * explicit-HTTP relay routes and feeds them through the exact same verify+cache+react path a
+   * live Gun push would. Cheap and infrequent enough not to matter next to this app's existing
+   * 10-30s presence heartbeats.
+   */
+  private startTechSupportDelegateRelayPolling(): void {
+    if (this.techSupportRelayPollTimer) return;
+    const tick = async (): Promise<void> => {
+      if (this.techSupportRelayPollInFlight) return;
+      this.techSupportRelayPollInFlight = true;
+      try {
+        const apiBase = this.getBackendApiBase();
+        if (!apiBase) return;
+        const grants = await fetchDelegateGrantsFromServer(apiBase);
+        for (const grant of grants) this.handleVerifiedDelegateGrant(grant);
+        const bundle = await fetchFaqBundleFromServer(apiBase, this.gunService.getGun());
+        if (bundle) this.handleVerifiedFaqBundleUpdate();
+      } catch {
+        /* best-effort — the live Gun subscriptions above still cover browser-to-browser sync */
+      } finally {
+        this.techSupportRelayPollInFlight = false;
       }
-      // An ordinary user's OWN grant can arrive/change mid-session (issued or revoked while
-      // they're already online) — re-derive eligibility immediately rather than requiring a
-      // reload, matching the design note's "on boot (or on a slow poll)" allowance with the
-      // stronger live version this subscription already gives every other session for free.
-      const ownPub = this.gunService.getStoredPair()?.pub;
-      if (ownPub && grant.delegatePub === ownPub) void this.checkOwnDelegateEligibility();
-    });
+    };
+    void tick();
+    this.techSupportRelayPollTimer = setInterval(() => void tick(), 5_000);
+  }
+
+  private stopTechSupportDelegateRelayPolling(): void {
+    if (this.techSupportRelayPollTimer) clearInterval(this.techSupportRelayPollTimer);
+    this.techSupportRelayPollTimer = undefined;
   }
 
   private static readonly DELEGATE_EXPIRY_WARNING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -3750,8 +3841,7 @@ export class IinPublicApp {
     if (!this.currentUser || this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) return;
     const pair = this.gunService.getStoredPair();
     if (!pair?.pub) return;
-    const raw = await fetchGrantLive(this.gunService.getGun(), pair.pub);
-    const grant = await verifyValidDelegateGrant(raw);
+    const grant = await this.fetchOwnGrantLiveOrRelay(pair.pub);
     this.techSupportDelegateGrant = grant;
     this.techSupportDelegateOptedIn = !!grant && this.loadDelegateOptInFromStorage();
     this.uiManager.setTechSupportDelegateEligibility(!!grant, grant?.label || '', this.techSupportDelegateOptedIn);
@@ -3765,8 +3855,7 @@ export class IinPublicApp {
       // Re-verify live rather than trusting the boot-time check — the grant could have been
       // revoked since (design note's "re-verified at answer time, not a stale cache" discipline).
       const pair = this.gunService.getStoredPair();
-      const raw = pair?.pub ? await fetchGrantLive(this.gunService.getGun(), pair.pub) : null;
-      const grant = await verifyValidDelegateGrant(raw);
+      const grant = pair?.pub ? await this.fetchOwnGrantLiveOrRelay(pair.pub) : null;
       if (!grant) {
         this.techSupportDelegateGrant = null;
         this.techSupportDelegateOptedIn = false;
@@ -3901,6 +3990,18 @@ export class IinPublicApp {
       let ref = this.gunService.getGun().get(delegateRequestPath(request.requestId)[0]);
       for (const segment of delegateRequestPath(request.requestId).slice(1)) ref = ref.get(segment);
       ref.put(request);
+      // K7 follow-on: the raw Gun write above never reaches the hub from a native (embedded-node)
+      // device — found via a real-hardware test (09-android-techsupport-delegate-answers). The
+      // explicit HTTP relay is the reliable path for every runtime; the Gun write above stays as
+      // a harmless, lower-latency fast path for plain browsers already peered with the hub.
+      const apiBase = this.getBackendApiBase();
+      if (apiBase) {
+        void fetch(`${apiBase}/api/support/delegate-requests`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request),
+        }).catch(() => undefined);
+      }
       return null;
     } catch {
       return 'unavailable';
@@ -4496,9 +4597,17 @@ export class IinPublicApp {
       }
 
       try {
+        // K7 follow-on: 900ms was tuned for a browser's direct Gun peer, which either has the
+        // answer already or doesn't. `getPublicUser` also has an explicit-HTTP relay fallback
+        // (`getPublicUserFromApi`) for an embedded caller resolving a DIFFERENT embedded peer's
+        // epub (neither is Gun-peered to the other or to the hub) — found via a real-hardware
+        // test (09-android-techsupport-delegate-answers, the MacMini-Electron-app leg) that
+        // 900ms routinely killed that relay round-trip before it ever returned, silently
+        // dropping the delegate from mailbox fan-out with no error anywhere. This path runs for
+        // an async mailbox fan-out, not an interactive action, so a few extra seconds is fine.
         const peer = await Promise.race([
           this.gunService.getPublicUser(peerUserId),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 900)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
         ]);
         const epub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
         if (epub) {
@@ -7598,6 +7707,7 @@ export class IinPublicApp {
       clearInterval(this.deviceSyncTimer);
       this.deviceSyncTimer = undefined;
     }
+    this.stopTechSupportDelegateRelayPolling();
     this.peerMeshService?.leaveRoom();
     for (const unsubscribe of this.conversationPreviewUnsubscribers.values()) unsubscribe();
     this.conversationPreviewUnsubscribers.clear();

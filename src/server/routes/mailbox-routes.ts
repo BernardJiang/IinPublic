@@ -27,6 +27,7 @@ import {
 } from '../services/mailbox-store';
 import type { TechSupportDurableStore } from '../services/techsupport-durable-store';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 
 export type RegisterMailboxRoutesDeps = {
   mailboxStore: MailboxStore;
@@ -34,6 +35,15 @@ export type RegisterMailboxRoutesDeps = {
    * in-memory/TTL one — see techsupport-durable-store.ts's doc comment for why. Every other
    * recipient is unaffected. */
   techSupportStore?: TechSupportDurableStore;
+  /**
+   * docs/TODO.md K7 follow-on: found via a real-hardware test
+   * (09-android-techsupport-delegate-answers) — a TechSupport DELEGATE is an ORDINARY user id,
+   * so mail addressed to one lands in the generic `mailboxStore` below, which (unlike
+   * `techSupportStore`) has no durability or hub-visibility story of its own. An embedded node
+   * dials the hub "for discovery only" (embedded-node.ts), so without this relay a delegate's
+   * own separate device/process never sees mail a sender's embedded node stored only locally.
+   */
+  hubRelayClient?: EmbeddedHubRelayClientLike;
   nodeEnv?: string | undefined;
 };
 
@@ -55,7 +65,7 @@ type MailboxLike = {
 
 export function registerMailboxRoutes(
   app: express.Application,
-  { mailboxStore, techSupportStore, nodeEnv }: RegisterMailboxRoutesDeps,
+  { mailboxStore, techSupportStore, hubRelayClient, nodeEnv }: RegisterMailboxRoutesDeps,
 ): void {
   const storeFor = (recipientId: string): MailboxLike =>
     recipientId === TECHSUPPORT_ROOT_USER_ID && techSupportStore ? techSupportStore : mailboxStore;
@@ -107,6 +117,14 @@ export function registerMailboxRoutes(
         res.status(429).json({ error: result.reason });
         return;
       }
+      // docs/TODO.md K7 follow-on: an embedded node's local store (generic or TechSupport's own
+      // durable one) is invisible to every other device/process without this — found via a real
+      // Honor-phone-as-delegate test where her fan-out envelope never reached the shared hub.
+      if (hubRelayClient) {
+        const relayParams: { id: string; ciphertext: string; ttlMs?: number } = { id: envelopeId, ciphertext };
+        if (ttlMs != null) relayParams.ttlMs = ttlMs;
+        void hubRelayClient.postMailboxEnvelope(recipientId, relayParams).catch(() => undefined);
+      }
       res.status(201).json({ stored: true, envelope: stripCiphertext(result.envelope) });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -122,7 +140,19 @@ export function registerMailboxRoutes(
         res.status(400).json({ error: 'recipientId is required' });
         return;
       }
-      const envelopes = await storeFor(recipientId).list(recipientId);
+      let envelopes = await storeFor(recipientId).list(recipientId);
+      if (hubRelayClient) {
+        try {
+          const remote = await hubRelayClient.listMailboxEnvelopes(recipientId);
+          const byId = new Map<string, MailboxEnvelope>();
+          for (const envelope of [...envelopes, ...remote]) {
+            if (envelope?.id) byId.set(envelope.id, envelope);
+          }
+          envelopes = Array.from(byId.values());
+        } catch {
+          // Embedded nodes remain usable offline; local/already-cached envelopes still return.
+        }
+      }
       res.json({ recipientId, envelopes, count: envelopes.length });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

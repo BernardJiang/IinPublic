@@ -503,6 +503,12 @@ describe('system routes', () => {
         { id: 'support_remote', conversationId: 'conv_support_root_bob', senderId: 'bob', text: 'From another device', timestamp: '2026-09-16T00:00:01.000Z', channel: 'public' },
       ]),
       postSupportMessage: jest.fn().mockResolvedValue(undefined),
+      postDelegateRequest: jest.fn().mockResolvedValue(undefined),
+      listDelegateGrants: jest.fn().mockResolvedValue([]),
+      getFaqBundle: jest.fn().mockResolvedValue(null),
+      postFaqBundle: jest.fn().mockResolvedValue(undefined),
+    postMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
+    listMailboxEnvelopes: jest.fn().mockResolvedValue([]),
     };
     const { app } = buildApp('test', hubRelayClient);
     const convId = 'conv_support_root_bob';

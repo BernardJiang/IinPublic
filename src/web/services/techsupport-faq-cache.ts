@@ -74,6 +74,23 @@ function writeCachedFaqBundle(bundle: SignedFaqBundle): void {
   }
 }
 
+/** Verifies + caches one raw bundle record, regardless of source (a live Gun `.on()` push or an
+ * HTTP relay fetch — see `fetchFaqBundleFromServer`). Returns null and leaves the cache untouched
+ * on any malformed/untrusted input (K2-3 discipline). */
+export async function applyRawFaqBundle(
+  gun: { get: (key: string) => any },
+  data: unknown,
+): Promise<SignedFaqBundle | null> {
+  // Live Gun lookup (not the local grant cache — this may be the first time this bundle version
+  // has been seen, so a delegate's grant may not be cached yet) — docs/TODO.md K7.
+  const verified = await verifyFaqBundle(faqBundleFromGunWire(data), {
+    fetchGrant: (delegatePub) => fetchGrantLive(gun, delegatePub),
+  });
+  if (!verified) return null;
+  writeCachedFaqBundle(verified);
+  return verified;
+}
+
 /**
  * Subscribe to the public, signed FAQ bundle path and cache each verified update. Malformed or
  * untrusted-key publishes are silently dropped (K2-3 discipline) — the previous good cache
@@ -86,15 +103,31 @@ export function subscribeToFaqBundle(
   let ref = gun.get(faqBundlePath()[0]);
   for (const segment of faqBundlePath().slice(1)) ref = ref.get(segment);
   const handler = async (data: unknown) => {
-    // Live Gun lookup (not the local cache — this is the first time this bundle version has
-    // been seen, so a delegate's grant may not be cached yet) — docs/TODO.md K7.
-    const verified = await verifyFaqBundle(faqBundleFromGunWire(data), {
-      fetchGrant: (delegatePub) => fetchGrantLive(gun as { get: (key: string) => any }, delegatePub),
-    });
+    const verified = await applyRawFaqBundle(gun, data);
     if (!verified) return;
-    writeCachedFaqBundle(verified);
     onVerified?.(verified);
   };
   ref.on(handler);
   return () => ref.off();
+}
+
+/**
+ * docs/TODO.md K7 follow-on: a native (embedded-node) device has no generic Gun peering to the
+ * hub, so `subscribeToFaqBundle`'s live `.on()` subscription never fires there — an asker on a
+ * real phone would never receive a delegate's published answer (or, more fundamentally, any FAQ
+ * auto-answer at all). Read-side relay fetch: GET the bundle the hub actually holds and verify.
+ */
+export async function fetchFaqBundleFromServer(
+  apiBase: string,
+  gun: { get: (key: string) => any },
+): Promise<SignedFaqBundle | null> {
+  try {
+    const res = await fetch(`${apiBase}/api/support/faq-bundle`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { bundle?: unknown };
+    if (!body.bundle) return null;
+    return await applyRawFaqBundle(gun, body.bundle);
+  } catch {
+    return null;
+  }
 }

@@ -341,6 +341,72 @@ export function registerSystemRoutes(
     }
   });
 
+  // docs/TODO.md K7 follow-on — found via a real-hardware test (09-android-techsupport-
+  // delegate-answers): an embedded node dials the hub "for discovery only" (embedded-node.ts's
+  // own doc comment), so a candidate's signed delegate request, a delegate's published FAQ
+  // bundle, and the delegate roster itself never reach/leave a native device without an explicit
+  // relay, exactly like the support-messages routes above already had to be for the same reason
+  // (commit 3c36b345). Server-side validation is deliberately shallow — real trust decisions
+  // (signature, expiry, revocation, secretHash-matches-invite) are made client-side by the
+  // already-existing `verifyDelegateRequest`/`verifyValidDelegateGrant`/`verifyFaqBundle`; this
+  // layer only has to move already-signed bytes, the same division of labor `postSupportMessage`
+  // uses.
+  app.post('/api/support/delegate-requests', async (req, res) => {
+    try {
+      const request = req.body || {};
+      if (!request.requestId || !request.candidatePub || !request.signature) {
+        res.status(400).json({ error: 'requestId, candidatePub and signature are required' });
+        return;
+      }
+      if (gunService) void gunService.putPath(['techsupport-delegate-requests', String(request.requestId)], request);
+      if (hubRelayClient) await hubRelayClient.postDelegateRequest(request).catch(() => undefined);
+      res.json({ stored: true });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/support/delegate-grants', async (_req, res) => {
+    let grants: unknown[] = gunService ? await gunService.getSet('techsupport-delegates') : [];
+    if (hubRelayClient) {
+      try {
+        const remote = await hubRelayClient.listDelegateGrants();
+        const byPub = new Map<string, unknown>();
+        for (const grant of [...grants, ...remote]) {
+          const pub = (grant as { delegatePub?: string } | null)?.delegatePub;
+          if (pub) byPub.set(pub, grant);
+        }
+        grants = Array.from(byPub.values());
+      } catch {
+        // Embedded nodes remain usable offline; local/already-cached grants still return.
+      }
+    }
+    res.json({ grants });
+  });
+
+  app.get('/api/support/faq-bundle', async (_req, res) => {
+    let bundle = gunService ? await gunService.getPath(['techsupport-faq', 'bundle']) : null;
+    if (!bundle && hubRelayClient) {
+      bundle = await hubRelayClient.getFaqBundle().catch(() => null);
+    }
+    res.json({ bundle: bundle ?? null });
+  });
+
+  app.post('/api/support/faq-bundle', async (req, res) => {
+    try {
+      const bundle = req.body || {};
+      if (!bundle.signature || !bundle.authorPub) {
+        res.status(400).json({ error: 'signature and authorPub are required' });
+        return;
+      }
+      if (gunService) void gunService.putPath(['techsupport-faq', 'bundle'], bundle);
+      if (hubRelayClient) await hubRelayClient.postFaqBundle(bundle).catch(() => undefined);
+      res.json({ stored: true });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
   app.get('/api/p2p/conversation-relay/:conversationId', (req, res) => {
     pruneConversationRelay();
     const conversationId = String(req.params.conversationId || '');

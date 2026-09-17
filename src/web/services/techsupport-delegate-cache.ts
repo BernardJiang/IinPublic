@@ -49,6 +49,35 @@ function writeCachedDelegateGrant(grant: TechSupportDelegateGrant): void {
   writeAll(all);
 }
 
+/** Verifies + caches one raw grant record, regardless of where it came from (a live Gun `.on()`
+ * push or an HTTP relay fetch — see `fetchDelegateGrantsFromServer`). Returns null and leaves the
+ * cache untouched on any malformed/untrusted input (K2-3 discipline). */
+export async function applyRawDelegateGrant(data: unknown): Promise<TechSupportDelegateGrant | null> {
+  const verified = await verifyDelegateGrant(data);
+  if (!verified) return null;
+  writeCachedDelegateGrant(verified);
+  return verified;
+}
+
+/**
+ * docs/TODO.md K7 follow-on: a native (embedded-node) device has no generic Gun peering to the
+ * hub (embedded-node.ts dials it "for discovery only"), so `subscribeToDelegateGrants`'s live
+ * `.on()` subscription never fires there — a real phone would never see it holds a grant, nor
+ * would an asker ever be able to verify a delegate-signed answer. This is the read-side relay
+ * fetch for both cases: GET the full roster the hub actually holds and verify+cache each one.
+ */
+export async function fetchDelegateGrantsFromServer(apiBase: string): Promise<TechSupportDelegateGrant[]> {
+  try {
+    const res = await fetch(`${apiBase}/api/support/delegate-grants`);
+    if (!res.ok) return [];
+    const body = (await res.json()) as { grants?: unknown[] };
+    const verified = await Promise.all((body.grants || []).map((raw) => applyRawDelegateGrant(raw)));
+    return verified.filter((grant): grant is TechSupportDelegateGrant => !!grant);
+  } catch {
+    return [];
+  }
+}
+
 /** The `fetchGrant` callback shape `isTrustedTechSupportAuthorPub`/`verifyFaqBundle` expect, backed by the local cache. */
 export async function fetchGrantFromCache(delegatePub: string): Promise<unknown> {
   return readCachedDelegateGrant(delegatePub);
@@ -67,9 +96,8 @@ export function subscribeToDelegateGrants(
   const ref = gun.get(delegateGrantPath('')[0]).map();
   const handler = async (data: unknown, delegatePub: string) => {
     if (!delegatePub || delegatePub.startsWith('_')) return;
-    const verified = await verifyDelegateGrant(data);
+    const verified = await applyRawDelegateGrant(data);
     if (!verified) return;
-    writeCachedDelegateGrant(verified);
     onVerified?.(verified);
   };
   ref.on(handler);

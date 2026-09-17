@@ -284,6 +284,7 @@ class IinPublicServer {
       mailboxStore: this.mailboxStore,
       techSupportStore: this.techSupportStore,
       nodeEnv: process.env.NODE_ENV,
+      ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
 
     registerTurnRoutes(this.app, {

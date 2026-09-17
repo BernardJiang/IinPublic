@@ -58,6 +58,15 @@ async function startEmbeddedNode() {
   process.env.IINPUBLIC_HUB_GUN_URL = HUB_GUN_URL;
   process.env.IINPUBLIC_WEB_ROOT = webRoot;
   process.env.IINPUBLIC_PUBLIC_ROOT = publicRoot;
+  // http-bootstrap.ts mounts /node_modules/gun (so the Gun Web Worker's own
+  // importScripts('/node_modules/gun/…') resolves) from `process.cwd()` by default. That default
+  // only works by accident — a packaged app's actual working directory at launch is whatever the
+  // OS/launcher gave it, not necessarily this app's own resourcesPath, and electron-builder stages
+  // the real node_modules at appRoot/node_modules (package.json's extraResources), never at cwd.
+  // Found via a real-hardware test (09-android-techsupport-delegate-answers): without this, the
+  // worker 404s, SEA/IndexedDB silently disable, and every SEA-dependent feature (grant
+  // verification, mailbox encryption, FAQ-bundle signing) breaks with no user-visible error.
+  process.env.IINPUBLIC_NODE_MODULES_ROOT = path.join(appRoot, 'node_modules');
   process.env.IINPUBLIC_DATA_DIR = dataDir;
   process.env.IINPUBLIC_LOOPBACK_ONLY = '1';
 

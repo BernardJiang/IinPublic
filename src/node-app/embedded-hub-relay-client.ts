@@ -1,6 +1,7 @@
 import { classifyServerConnectorPath } from '../shared/p2p-runtime';
 import type { User } from '../shared/types';
 import type { TechSupportStoredMessage } from '../server/services/techsupport-message-store';
+import type { MailboxEnvelope } from '../server/services/mailbox-store';
 
 export type RelayRoomMember = {
   userId: string;
@@ -55,6 +56,28 @@ export interface EmbeddedHubRelayClientLike {
    */
   listSupportMessages(conversationId: string): Promise<TechSupportStoredMessage[]>;
   postSupportMessage(conversationId: string, message: TechSupportStoredMessage): Promise<void>;
+  /**
+   * docs/TODO.md K7 follow-on: the delegate-request/grant/FAQ-bundle paths have the exact same
+   * "embedded node dials the hub for discovery only" gap the two relays above were built to
+   * close — a candidate's signed delegate request, and a delegate's published FAQ-bundle answer,
+   * are plain Gun writes that never reach the real hub's graph from a native device without an
+   * explicit relay, and a native device can never read the delegate roster or FAQ bundle back
+   * without one either (found via a real-hardware test: 09-android-techsupport-delegate-answers).
+   */
+  postDelegateRequest(request: unknown): Promise<void>;
+  listDelegateGrants(): Promise<unknown[]>;
+  getFaqBundle(): Promise<unknown | null>;
+  postFaqBundle(bundle: unknown): Promise<void>;
+  /**
+   * docs/TODO.md K7 follow-on, second layer: `mailbox-routes.ts`'s generic store
+   * (`MailboxStore`) is per-server in-memory with NO relay — only mail addressed to
+   * `TECHSUPPORT_ROOT_USER_ID` gets the durable, hub-visible `TechSupportDurableStore` instead.
+   * A delegate is an ORDINARY user id, so fan-out mail addressed to one lands in the generic
+   * store — invisible to the delegate's own separate device/process without this relay. Same
+   * real-hardware finding as the two relays above (09-android-techsupport-delegate-answers).
+   */
+  postMailboxEnvelope(recipientId: string, envelope: { id: string; ciphertext: string; ttlMs?: number }): Promise<void>;
+  listMailboxEnvelopes(recipientId: string): Promise<MailboxEnvelope[]>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -179,6 +202,50 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(message),
     });
+  }
+
+  async postDelegateRequest(request: unknown): Promise<void> {
+    await this.request('/api/support/delegate-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async listDelegateGrants(): Promise<unknown[]> {
+    const response = await this.request('/api/support/delegate-grants');
+    const body = (await response.json()) as { grants?: unknown[] };
+    return Array.isArray(body.grants) ? body.grants : [];
+  }
+
+  async getFaqBundle(): Promise<unknown | null> {
+    const response = await this.request('/api/support/faq-bundle');
+    const body = (await response.json()) as { bundle?: unknown };
+    return body.bundle ?? null;
+  }
+
+  async postFaqBundle(bundle: unknown): Promise<void> {
+    await this.request('/api/support/faq-bundle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bundle),
+    });
+  }
+
+  async postMailboxEnvelope(recipientId: string, envelope: { id: string; ciphertext: string; ttlMs?: number }): Promise<void> {
+    await this.request(`/api/mailbox/${encodeURIComponent(recipientId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(envelope),
+    });
+  }
+
+  async listMailboxEnvelopes(recipientId: string): Promise<MailboxEnvelope[]> {
+    const response = await this.request(`/api/mailbox/${encodeURIComponent(recipientId)}`);
+    const body = (await response.json()) as { envelopes?: unknown[] };
+    return Array.isArray(body.envelopes)
+      ? (body.envelopes.filter((e): e is MailboxEnvelope => !!e && typeof e === 'object') as MailboxEnvelope[])
+      : [];
   }
 
   async getTurnCredentials(): Promise<RelayTurnCredentials> {
