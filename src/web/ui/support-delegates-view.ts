@@ -4,6 +4,7 @@ import type { SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { UiTranslationKey } from './ui-translations';
 import { formatIdentityFingerprint } from '../services/local-device-metadata';
 import { renderLinkCodeQr } from './link-code-qr';
+import { renderSettingsSection } from './settings-section-template';
 
 /**
  * Master-only "Delegates" admin panel (docs/TODO.md K7, design note "Assigning an agent";
@@ -51,10 +52,9 @@ export function renderSupportDelegatesSection(
   const now = deps.now?.() ?? Date.now();
   const sorted = [...grants].sort((a, b) => (a.issuedAt < b.issuedAt ? 1 : -1));
 
-  container.innerHTML = `
-    <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-      <div style="font-weight:700;color:var(--text-primary);margin-bottom:4px;">${deps.text('supportDelegatesTitle')}</div>
-      <div style="font-size:0.82em;color:var(--text-tertiary);margin-bottom:12px;">${deps.text('supportDelegatesHelp')}</div>
+  container.innerHTML = renderSettingsSection(
+    { title: deps.text('supportDelegatesTitle'), subtitle: deps.text('supportDelegatesHelp') },
+    `
       <div style="margin-bottom:14px;">
         <button type="button" class="btn primary-btn" id="support-delegate-invite-btn" data-testid="support-delegate-invite-btn">${deps.text('supportDelegatesInvite')}</button>
       </div>
@@ -130,8 +130,8 @@ export function renderSupportDelegatesSection(
                 .join('')
         }
       </div>
-    </section>
-  `;
+    `,
+  );
 
   container.querySelector<HTMLButtonElement>('#support-delegate-invite-btn')?.addEventListener('click', () => {
     openInviteDialog(deps);

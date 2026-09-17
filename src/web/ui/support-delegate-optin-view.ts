@@ -1,4 +1,5 @@
 import type { UiTranslationKey } from './ui-translations';
+import { renderSettingsSection } from './settings-section-template';
 
 /**
  * An ordinary user's own delegate settings section (docs/TODO.md K7, design note "Assigning an
@@ -27,10 +28,9 @@ export function renderSupportDelegateOptInSection(deps: SupportDelegateOptInView
   if (!container) return;
 
   if (!deps.eligible) {
-    container.innerHTML = `
-      <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-        <div style="font-weight:700;color:var(--text-primary);margin-bottom:6px;">${deps.text('supportDelegateInviteEntryTitle')}</div>
-        <div style="font-size:0.85em;color:var(--text-tertiary);margin-bottom:10px;">${deps.text('supportDelegateInviteEntryHelp')}</div>
+    container.innerHTML = renderSettingsSection(
+      { title: deps.text('supportDelegateInviteEntryTitle'), subtitle: deps.text('supportDelegateInviteEntryHelp') },
+      `
         <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
           <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85em;flex:1;min-width:160px;">
             <span>${deps.text('supportDelegatesInvite')}</span>
@@ -39,8 +39,8 @@ export function renderSupportDelegateOptInSection(deps: SupportDelegateOptInView
           <button type="button" class="btn primary-btn" id="support-delegate-invite-code-submit" data-testid="support-delegate-invite-code-submit">${deps.text('supportDelegateInviteEntrySubmit')}</button>
         </div>
         <div id="support-delegate-invite-code-status" data-testid="support-delegate-invite-code-status" role="status" style="font-size:0.82em;color:var(--text-tertiary);min-height:1em;margin-top:6px;"></div>
-      </section>
-    `;
+      `,
+    );
     const submit = async (): Promise<void> => {
       const input = container.querySelector('#support-delegate-invite-code-input') as HTMLInputElement | null;
       const status = container.querySelector('#support-delegate-invite-code-status') as HTMLElement | null;
@@ -59,16 +59,18 @@ export function renderSupportDelegateOptInSection(deps: SupportDelegateOptInView
     return;
   }
 
-  container.innerHTML = `
-    <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-      <div style="font-weight:700;color:var(--text-primary);margin-bottom:6px;">${deps.text('supportDelegateOptInTitle')}${deps.label ? ` — ${deps.escapeHtml(deps.label)}` : ''}</div>
-      <div style="font-size:0.85em;color:var(--text-tertiary);margin-bottom:10px;">${deps.text('supportDelegateOptInHelp')}</div>
+  container.innerHTML = renderSettingsSection(
+    {
+      title: `${deps.text('supportDelegateOptInTitle')}${deps.label ? ` — ${deps.escapeHtml(deps.label)}` : ''}`,
+      subtitle: deps.text('supportDelegateOptInHelp'),
+    },
+    `
       <label style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="support-delegate-optin-toggle" data-testid="support-delegate-optin-toggle" ${deps.optedIn ? 'checked' : ''} />
         <span>${deps.text('supportDelegateOptInToggleLabel')}</span>
       </label>
-    </section>
-  `;
+    `,
+  );
 
   container.querySelector<HTMLInputElement>('#support-delegate-optin-toggle')?.addEventListener('change', (event) => {
     deps.onToggle((event.target as HTMLInputElement).checked);

@@ -80,6 +80,16 @@ test.describe('TechSupport — a brand-new question renders a signed ack (docs/T
 
     // Find the message id the app assigned (support_ack_<userMessageId> — poll since the
     // messageId is generated client-side with Date.now()/random, not known in advance).
+    // Two server-durable persists happen in quick succession for one question (the user's own
+    // message, then this ack) — TechSupportDurableStore's own writes are individually bounded
+    // (~2s worst case per write, see its own put() doc comment), but back-to-back writes plus
+    // this store's fire-and-forget message-checkpoint pass (a ~3s enumeration window per put,
+    // see MESSAGE_PRUNE_ENUMERATE_WAIT_MS) can push the ack's round trip well past a short
+    // window under real (non-memory) load — this exact test's own prior history already
+    // documents it ("06-support-new-question-ack's ack never rendering in a full test:all
+    // run", see handleSupportQuestion's doc comment in app.ts). Poll generously rather than
+    // assume a short timeout means the write never happened — confirmed live: an identical run
+    // that failed at 15s succeeded once given up to 20s to settle, with no code change.
     let records: AckRecord[] = [];
     await expect
       .poll(async () => {
@@ -89,17 +99,33 @@ test.describe('TechSupport — a brand-new question renders a signed ack (docs/T
           .filter(([soul]) => soul.includes('/messages/support_ack_'))
           .map(([, record]) => record as AckRecord);
         return records.length;
-      }, { timeout: 15_000 })
+      }, { timeout: 45_000 })
       .toBe(1);
 
     const [record] = records;
     expect(record.senderId).toBe(TECHSUPPORT_ROOT_USER_ID);
     expect(record.text).toBe(expectedText);
+    // The provenance fields (ackLocale/ackSignature/ackAuthorPub) land in a second, separate
+    // Gun put after the base message fields — poll for them the same way, rather than assuming
+    // their absence the instant the base record appears means they were never written.
+    await expect
+      .poll(async () => {
+        const res = await fetch(`${gunBaseURL()}/api/test/export-snapshot`);
+        const snapshot = (await res.json()) as { gunGraph?: Record<string, any> };
+        const [latest] = Object.entries(snapshot.gunGraph || {})
+          .filter(([soul]) => soul.includes('/messages/support_ack_'))
+          .map(([, r]) => r as AckRecord);
+        if (latest) records = [latest];
+        return latest?.ackSignature ?? '';
+      }, { timeout: 30_000 })
+      .not.toBe('');
+
+    const [{ ackLocale, ackAuthorPub, ackSignature }] = records;
     const verified = await verifySupportAck({
-      locale: record.ackLocale,
-      template: TECHSUPPORT_SUPPORT_ACK_TEMPLATES[record.ackLocale],
-      authorPub: record.ackAuthorPub,
-      signature: record.ackSignature,
+      locale: ackLocale,
+      template: TECHSUPPORT_SUPPORT_ACK_TEMPLATES[ackLocale],
+      authorPub: ackAuthorPub,
+      signature: ackSignature,
     });
     expect(verified).not.toBeNull();
 

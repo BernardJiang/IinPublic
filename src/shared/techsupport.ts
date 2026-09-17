@@ -15,11 +15,13 @@ export const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
  * Rotated 2026-09-16: the original value here was a development placeholder whose private half
  * was committed in plaintext across multiple E2E fixture files (`DEV_PAIR`) — in a public repo,
  * meaning that "private" key was never actually private. This is a real key generated fresh for
- * this rotation; its private half lives ONLY in this machine's `.env.local`
- * (`TECHSUPPORT_SEA_PAIR_JSON`), never committed anywhere. Tests that need to sign as TechSupport
- * now load that same env var at runtime (`tests/e2e/helpers/techsupport-real-pair.ts` /
- * `src/test/helpers/techsupport-real-pair.ts`) and skip gracefully when it's absent, rather than
- * hardcoding a key — see those helpers' own doc comments for what that means for CI.
+ * this rotation; its private half lives ONLY in this machine's local env file, never committed
+ * anywhere (see `techsupport-real-pair.ts` for the exact var name — deliberately not spelled out
+ * here, since this module is bundled into the web client and its comments ship as-is). Tests that
+ * need to sign as TechSupport load that same env var at runtime
+ * (`tests/e2e/helpers/techsupport-real-pair.ts` / `src/test/helpers/techsupport-real-pair.ts`)
+ * and skip gracefully when it's absent, rather than hardcoding a key — see those helpers' own doc
+ * comments for what that means for CI.
  */
 export const TECHSUPPORT_PUB = 'z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc';
 

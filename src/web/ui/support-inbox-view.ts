@@ -1,5 +1,6 @@
 import type { SupportInboxEntry } from '../../shared/techsupport-faq';
 import type { UiTranslationKey } from './ui-translations';
+import { renderSettingsSection } from './settings-section-template';
 
 /**
  * TechSupport support-inbox section (docs/TODO.md K5, design note §Item 4).
@@ -31,18 +32,16 @@ export function renderSupportInboxSection(deps: SupportInboxViewDeps, entries: r
   const pending = entries.filter((entry) => entry.status === 'pending');
 
   if (pending.length === 0) {
-    container.innerHTML = `
-      <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-        <div style="font-weight:700;color:var(--text-primary);margin-bottom:6px;">${deps.text('supportInboxTitle')}</div>
-        <div style="font-size:0.88em;color:var(--text-tertiary);">${deps.text('supportInboxEmpty')}</div>
-      </section>
-    `;
+    container.innerHTML = renderSettingsSection(
+      { title: deps.text('supportInboxTitle') },
+      `<div style="font-size:0.88em;color:var(--text-tertiary);">${deps.text('supportInboxEmpty')}</div>`,
+    );
     return;
   }
 
-  container.innerHTML = `
-    <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-      <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${deps.text('supportInboxTitle')} (${pending.length})</div>
+  container.innerHTML = renderSettingsSection(
+    { title: `${deps.text('supportInboxTitle')} (${pending.length})` },
+    `
       <div style="display:grid;gap:12px;">
         ${pending
           .map((entry) => {
@@ -65,8 +64,8 @@ export function renderSupportInboxSection(deps: SupportInboxViewDeps, entries: r
           })
           .join('')}
       </div>
-    </section>
-  `;
+    `,
+  );
 
   container.querySelectorAll<HTMLElement>('.support-inbox-item').forEach((item) => {
     const questionKey = item.dataset.questionKey || '';

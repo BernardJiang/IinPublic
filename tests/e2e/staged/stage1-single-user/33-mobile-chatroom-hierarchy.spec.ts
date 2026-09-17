@@ -8,7 +8,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterLoad, afterNav, afterSync, delay, headless } from '../../helpers/timing';
+import { afterAction, afterLoad, afterNav, afterSync, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -67,10 +67,27 @@ test.describe('Mobile chatroom hierarchy navigation', () => {
 
     const enterRoomAndReturn = async (roomId: string, expectedStatusText: string): Promise<void> => {
       const item = page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`);
-      await expect(item).toBeVisible({ timeout: 15000 });
-      await item.scrollIntoViewIfNeeded();
-      // A successful click proves the item is not covered by the bottom nav.
-      await item.click();
+      // The hierarchy list is fully re-rendered (innerHTML replace) on every live
+      // member/visit-count update from sibling rooms (ui-manager.ts's
+      // setChatroomMemberCount/setChatroomVisitCounts), which can detach this
+      // exact node mid-scroll. Retry a couple of times against fresh DOM instead
+      // of failing on that unrelated race — the locator re-resolves each attempt.
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          await expect(item).toBeVisible({ timeout: 15000 });
+          await item.scrollIntoViewIfNeeded();
+          // A successful click proves the item is not covered by the bottom nav.
+          await item.click();
+          lastError = undefined;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (!/not attached to the DOM/.test(String(err))) throw err;
+          await afterAction();
+        }
+      }
+      if (lastError) throw lastError;
       await afterSync();
       await expect(statusBar).toContainText(expectedStatusText, { timeout: 15000 });
       await expectBottomNavInsideViewport();
