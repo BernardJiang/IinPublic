@@ -9,6 +9,7 @@ import { WebUserService } from '../services/web-user-service';
 import { WebIdentityLinkService } from '../services/web-identity-link-service';
 import { WebDeviceHandoffService } from '../services/web-device-handoff-service';
 import { WebDeviceSyncService } from '../services/web-device-sync-service';
+import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import { WebChatroomService } from '../services/web-chatroom-service';
@@ -833,9 +834,9 @@ export class IinPublicApp {
     });
     this.conversationService = new WebConversationService(this.gunService);
     this.contentNodeService = new WebContentNodeService();
-    this.identityLinkService = new WebIdentityLinkService(this.gunService);
+    this.identityLinkService = new WebIdentityLinkService(this.gunService, undefined, this.getBackendApiBase());
     this.deviceHandoffService = new WebDeviceHandoffService(this.gunService);
-    this.deviceSyncService = new WebDeviceSyncService(this.gunService);
+    this.deviceSyncService = new WebDeviceSyncService(this.gunService, this.getBackendApiBase());
     this.deviceSyncService.setHandlers({
       onPreferencesApplied: (filters) => {
         if (!this.currentUser) return;
@@ -856,6 +857,28 @@ export class IinPublicApp {
         conflicts,
         text: (key, fallback) => this.uiManager.translateWithFallback(key, fallback ?? key),
       }),
+      onConversationApplied: (conversation) => {
+        this.uiManager.addNewConversation(conversation as any);
+      },
+      onMessageApplied: (conversationId, message) => {
+        addSyncedMessage(conversationId, message);
+        const merged = mergeMessagesWithSynced(conversationId, []);
+        const currentUserId = this.currentUser?.id;
+        if (currentUserId) this.uiManager.syncConversationMessageSummary(conversationId, merged, currentUserId);
+        // No-ops unless this conversation's thread happens to already be open —
+        // displayConversationMessages self-guards on getCurrentConversationId().
+        void this.uiManager.displayConversationMessages(conversationId, merged);
+      },
+      // supportChannel conversations excluded: TechSupport is a per-device relationship (every
+      // device has its OWN, independently valid support conversation — CLAUDE.md's "TechSupport
+      // counts as exactly 1 in every headcount"), not something to copy from one linked device
+      // onto another. Found via the real-hardware device-sync test: without this filter, backfill
+      // also shipped each device's own TechSupport conversation to its peer as if it were a third
+      // person, inflating the peer's conversation count.
+      getLocalConversationsSnapshot: () =>
+        Object.values(this.uiManager.getMyConversations())
+          .filter((conversation: any) => conversation?.supportChannel !== true) as Array<Record<string, unknown> & { conversationId: string; otherUserId?: string }>,
+      getLocalMessagesSnapshot: (conversationId, otherUserId) => this.snapshotLocalMessagesForSync(conversationId, otherUserId),
     });
     this.userService.setPrivateUserDataChangeListener((user) => {
       if (!user.talkFilters) return;
@@ -6137,11 +6160,68 @@ export class IinPublicApp {
     if (!conversation?.otherUserId) return;
     const unsubscribe = this.conversationService.subscribeToMessages(
       conversationId,
-      (messages) => this.uiManager.syncConversationMessageSummary(conversationId, messages, this.currentUser!.id),
+      (messages) => {
+        this.uiManager.syncConversationMessageSummary(conversationId, messages, this.currentUser!.id);
+        // Runs continuously in the background for every conversation (not just the currently
+        // open thread), so this is the one place that reliably observes every message this
+        // device ever decrypts for any of its own conversations — see WebDeviceSyncService's
+        // own doc comment for why the `messages` device-sync category needs plaintext (already
+        // decrypted here) rather than raw Gun ciphertext.
+        void this.deviceSyncService.enqueueMessagesForConversation(
+          conversationId,
+          this.currentUser!.pub || this.currentUser!.id,
+          messages.map((message: any): SyncedMessage => ({
+            id: String(message.id),
+            senderId: String(message.senderId),
+            text: String(message.text ?? ''),
+            timestamp: (message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)).toISOString(),
+            ...(message.talkId ? { talkId: String(message.talkId) } : {}),
+            ...(message.channel ? { channel: message.channel } : {}),
+          })),
+        ).catch(() => {});
+      },
       this.currentUser.id,
       conversation.otherUserId,
     );
     this.conversationPreviewUnsubscribers.set(conversationId, unsubscribe);
+  }
+
+  /**
+   * One-shot bounded read of a conversation's currently-decrypted local messages, for
+   * WebDeviceSyncService's one-time backfill at link/sync-activation time (see
+   * `backfillExistingDataToPeer`). Wraps the ongoing `subscribeToMessages` API — the only message
+   * read surface `WebConversationService` exposes — in a promise that resolves on its first
+   * callback firing rather than duplicating GunMessageStore's decrypt logic here.
+   */
+  private snapshotLocalMessagesForSync(conversationId: string, otherUserId: string): Promise<SyncedMessage[]> {
+    return new Promise((resolve) => {
+      if (!this.currentUser) {
+        resolve([]);
+        return;
+      }
+      let settled = false;
+      const finish = (messages: SyncedMessage[]) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(messages);
+      };
+      const timer = setTimeout(() => finish([]), 5_000);
+      const unsubscribe = this.conversationService.subscribeToMessages(
+        conversationId,
+        (messages) => finish(messages.map((message: any): SyncedMessage => ({
+          id: String(message.id),
+          senderId: String(message.senderId),
+          text: String(message.text ?? ''),
+          timestamp: (message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)).toISOString(),
+          ...(message.talkId ? { talkId: String(message.talkId) } : {}),
+          ...(message.channel ? { channel: message.channel } : {}),
+        }))),
+        this.currentUser.id,
+        otherUserId,
+      );
+    });
   }
 
   private async refreshConversationPresence(): Promise<void> {
@@ -6184,6 +6264,14 @@ export class IinPublicApp {
       this.refreshStatusBar();
       this.ensureConversationPreviewSubscription(data.conversationId);
       void this.refreshConversationPresence();
+      const conversation = this.uiManager.getMyConversations()[data.conversationId];
+      // supportChannel excluded — see getLocalConversationsSnapshot's identical filter above for why.
+      if (conversation && conversation.supportChannel !== true && this.currentUser) {
+        void this.deviceSyncService.enqueueConversationChange(
+          this.currentUser.pub || this.currentUser.id,
+          { ...conversation, conversationId: data.conversationId },
+        ).catch(() => {});
+      }
     });
 
     // Spec §30.2 deal confirmation: a match on a deal-eligible (Pair-tag) talk isn't exclusive
@@ -6942,8 +7030,13 @@ export class IinPublicApp {
         const otherUserId = conversation?.otherUserId ? String(conversation.otherUserId) : undefined;
 
         // Subscribe to messages for this conversation (pass myUserId for prevSeen DAG tracking)
-        this.conversationService.subscribeToMessages(data.conversationId, (messages) => {
-          console.log('📨 Received conversation messages:', messages);
+        this.conversationService.subscribeToMessages(data.conversationId, (liveMessages) => {
+          console.log('📨 Received conversation messages:', liveMessages);
+          // A conversation this device only knows about via device-sync (see
+          // WebDeviceSyncService's `messages` category) has no live Gun messages at all — the
+          // pair path is keyed by the two ORIGINAL participant ids, not this device's — so its
+          // history lives only in the synced-plaintext cache. Live copies win any id collision.
+          const messages = mergeMessagesWithSynced(data.conversationId, liveMessages);
           this.uiManager.displayConversationMessages(data.conversationId, messages);
           for (const message of messages) {
             const sharePayload = this.parseAttachmentShareMessageText(String(message.text || ''));

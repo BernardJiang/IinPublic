@@ -1,5 +1,6 @@
 import { getSEA } from '../sea-gun';
 import type { WebGunService } from './web-gun-service';
+import { getGraphRelay, putGraphRelay } from './graph-relay-client';
 import {
   LinkCrypto,
   PairingPayload,
@@ -72,13 +73,20 @@ const GUN_REQUEST_ROOT = 'identity-link-requests';
 export class WebIdentityLinkService {
   private readonly gunService: WebGunService;
   private readonly storage: Storage | undefined;
+  /** See graph-relay-client.ts's doc comment: a real-hardware fallback for when this device is
+   *  a native/embedded build whose local Gun graph doesn't generically peer with the hub. Optional
+   *  only so existing unit tests that construct this service without an apiBase keep working —
+   *  every relay call below is itself a no-op-on-failure best-effort call either way. */
+  private readonly apiBase: string | undefined;
 
   constructor(
     gunService: WebGunService,
     storage: Storage | undefined = typeof localStorage === 'undefined' ? undefined : localStorage,
+    apiBase?: string,
   ) {
     this.gunService = gunService;
     this.storage = storage;
+    this.apiBase = apiBase;
   }
 
   /** SEA-backed crypto for the shared protocol. */
@@ -195,7 +203,9 @@ export class WebIdentityLinkService {
   async readIncomingLinkRequest(now: number = Date.now()): Promise<IncomingLinkRequest | null> {
     const pending = this.getPendingOutgoing(now);
     if (!pending) return null;
-    const raw = await this.gunService.get(this.requestPath(this.selfPub(), pending.requestId)).catch(() => null);
+    const path = this.requestPath(this.selfPub(), pending.requestId);
+    let raw = await this.gunService.get(path).catch(() => null);
+    if ((!raw || typeof raw !== 'object') && this.apiBase) raw = await getGraphRelay(this.apiBase, path);
     if (!raw || typeof raw !== 'object' || typeof raw.request !== 'string') return null;
     let att: LinkAttestation;
     try {
@@ -426,11 +436,15 @@ export class WebIdentityLinkService {
     // graph. Keep writes on the same root that readAttestation uses; putPublic()
     // would silently prefix the current user's namespace and make the mutual
     // record undiscoverable at identity-links/<from>/<to>.
-    await this.gunService.put(this.linkPath(att.fromPub, att.toPub), att as unknown as Record<string, unknown>);
+    const path = this.linkPath(att.fromPub, att.toPub);
+    await this.gunService.put(path, att as unknown as Record<string, unknown>);
+    if (this.apiBase) void putGraphRelay(this.apiBase, path, att);
   }
 
   private async publishRevocation(rev: LinkRevocation): Promise<void> {
-    await this.gunService.put(this.revokePath(rev.fromPub, rev.toPub), rev as unknown as Record<string, unknown>);
+    const path = this.revokePath(rev.fromPub, rev.toPub);
+    await this.gunService.put(path, rev as unknown as Record<string, unknown>);
+    if (this.apiBase) void putGraphRelay(this.apiBase, path, rev);
   }
 
   private async publishIncomingRequest(
@@ -440,18 +454,23 @@ export class WebIdentityLinkService {
   ): Promise<void> {
     // The secret never enters the graph. The signed attestation contains only its
     // hash; the target matches that against its short-lived local pending record.
-    await this.gunService.put(this.requestPath(targetPub, requestId), {
-      request: JSON.stringify(attestation),
-    });
+    const path = this.requestPath(targetPub, requestId);
+    const record = { request: JSON.stringify(attestation) };
+    await this.gunService.put(path, record);
+    if (this.apiBase) void putGraphRelay(this.apiBase, path, record);
   }
 
   private async readAttestation(fromPub: string, toPub: string): Promise<LinkAttestation | null> {
-    const raw = await this.gunService.get(this.linkPath(fromPub, toPub)).catch(() => null);
+    const path = this.linkPath(fromPub, toPub);
+    let raw = await this.gunService.get(path).catch(() => null);
+    if ((!raw || typeof raw !== 'object') && this.apiBase) raw = await getGraphRelay(this.apiBase, path);
     return raw && typeof raw === 'object' && raw.sig ? (raw as LinkAttestation) : null;
   }
 
   private async readRevocation(fromPub: string, toPub: string): Promise<LinkRevocation | null> {
-    const raw = await this.gunService.get(this.revokePath(fromPub, toPub)).catch(() => null);
+    const path = this.revokePath(fromPub, toPub);
+    let raw = await this.gunService.get(path).catch(() => null);
+    if ((!raw || typeof raw !== 'object') && this.apiBase) raw = await getGraphRelay(this.apiBase, path);
     return raw && typeof raw === 'object' ? (raw as LinkRevocation) : null;
   }
 

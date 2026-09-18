@@ -23,6 +23,7 @@ import { registerMailboxRoutes } from './routes/mailbox-routes';
 import { TechSupportDurableStore } from './services/techsupport-durable-store';
 import { PresenceDurableStore } from './services/presence-durable-store';
 import { registerTurnRoutes } from './routes/turn-routes';
+import { registerGraphRelayRoutes } from './routes/graph-relay-routes';
 import { registerAdminRoutes } from './routes/admin-routes';
 import { TechSupportAnnouncementService } from './services/techsupport-announcement-service';
 import { LanGunDiscovery } from './services/lan-gun-discovery';
@@ -288,6 +289,11 @@ class IinPublicServer {
     });
 
     registerTurnRoutes(this.app, {
+      ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
+    });
+
+    registerGraphRelayRoutes(this.app, {
+      gunService: this.gunService,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
   }

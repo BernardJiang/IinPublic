@@ -27,15 +27,27 @@ import {
 } from './web-device-sync-crypto';
 import { WebDeviceSyncCustodyStore } from './web-device-sync-custody-store';
 import { WebDeviceSyncOutboxStore } from './web-device-sync-outbox-store';
+import type { SyncedMessage } from './web-device-sync-message-cache';
+import { getGraphRelay, putGraphRelay } from './graph-relay-client';
 
 /**
  * Wires the WP5 device-sync protocol (shared/device-sync-*.ts, previously built but never called
  * outside its own unit tests — see docs/design/device-sync-data-inventory.md) into the live app,
- * scoped to continuous sync of a single category — `preferences` (talk intake filters) — between
- * two already-linked devices (identity-linking.ts's mutual-attestation "linked" state; see
- * linked-devices-dialog.ts's "Enable sync" action). Every other transferable category from the
- * inventory (contacts, talks, messages, …) is a natural follow-on once this first slice is proven,
- * not wired here.
+ * between two already-linked devices (identity-linking.ts's mutual-attestation "linked" state;
+ * see linked-devices-dialog.ts's "Enable sync" action). Three categories are wired: `preferences`
+ * (talk intake filters, continuous, single fixed record), `conversations` (metadata, continuous
+ * + one-time backfill of pre-existing conversations at activation) and `messages` (per-message
+ * plaintext copies, continuous + backfill). Every other transferable category from the inventory
+ * (contacts, talks, …) is a natural follow-on once this slice is proven, not wired here.
+ *
+ * `messages` cannot ship raw Gun ciphertext: a message's ECDH secret was derived between the
+ * *original* two conversation participants, one of whom is the OTHER linked device (a distinct
+ * SEA identity from this one) — this device structurally cannot re-derive that secret, and
+ * `identityPrivateKeys` is explicitly device-local/non-transferable. Records instead carry the
+ * plaintext the originating device already decrypted for its own UI, re-encrypted only for the
+ * device-to-device hop (`encryptDeviceSyncBundle`); the receiving side stores it in
+ * web-device-sync-message-cache.ts, a plaintext-at-rest cache exactly like `myConversations` and
+ * every other localStorage-cached app record, never fed back through the live decrypt path.
  *
  * Every private value still only ever leaves a device SEA-encrypted to the receiving device's
  * epub (`encryptDeviceSyncBundle`); this service only adds the Gun transport (envelope/ack
@@ -61,7 +73,7 @@ const OUTBOX_STORAGE_KEY_PREFIX = 'iinpublic_device_sync_outbox_v1_';
 const ACK_POLL_INTERVAL_MS = 700;
 const ACK_WAIT_TIMEOUT_MS = 8_000;
 
-export const DEVICE_SYNC_ENABLED_CATEGORIES = ['preferences'] as const;
+export const DEVICE_SYNC_ENABLED_CATEGORIES = ['preferences', 'conversations', 'messages'] as const;
 
 export type DeviceSyncPeerState = 'inactive' | 'pending' | 'syncing';
 
@@ -73,20 +85,32 @@ function authorizationId(pubA: string, pubB: string): string {
   return `sync_${pairKey(pubA, pubB)}`;
 }
 
-async function putJson(gunService: WebGunService, path: string, value: unknown): Promise<void> {
-  await gunService.put(path, { json: JSON.stringify(value) });
+/**
+ * `apiBase`, when given, dual-writes/falls-back through graph-relay-client.ts — see that file's
+ * doc comment for why a native/embedded build's raw Gun path alone isn't reliable cross-device.
+ */
+async function putJson(gunService: WebGunService, path: string, value: unknown, apiBase?: string): Promise<void> {
+  const record = { json: JSON.stringify(value) };
+  await gunService.put(path, record);
+  if (apiBase) void putGraphRelay(apiBase, path, record);
 }
 
-function getJsonOnce<T>(gunService: WebGunService, path: string): Promise<T | null> {
+function getJsonOnce<T>(gunService: WebGunService, path: string, apiBase?: string): Promise<T | null> {
   return new Promise((resolve) => {
     let settled = false;
-    gunService.getGun().get(path).once((data: unknown) => {
+    const finish = async (data: unknown) => {
+      if (settled) return;
+      let json = (data as { json?: string } | null)?.json;
+      if (!json && apiBase) {
+        const relayed = await getGraphRelay<{ json?: string }>(apiBase, path);
+        json = relayed?.json;
+      }
       if (settled) return;
       settled = true;
-      const json = (data as { json?: string } | null)?.json;
       if (!json) { resolve(null); return; }
       try { resolve(JSON.parse(json) as T); } catch { resolve(null); }
-    });
+    };
+    gunService.getGun().get(path).once((data: unknown) => { void finish(data); });
   });
 }
 
@@ -104,6 +128,11 @@ export class WebDeviceSyncService {
   private readonly authorizations = new Map<string, [DeviceSyncAuthorization, DeviceSyncAuthorization]>();
   private readonly authorizationUnsubscribes = new Map<string, () => void>();
   private readonly envelopeUnsubscribes = new Map<string, () => void>();
+  /** Dedupe guard for `pollEnvelopeForPeer` — the JSON of the last envelope this poll already
+   *  handed to `handleIncomingEnvelope` per peer, so a native/embedded build's tick-driven poll
+   *  (see that method's own doc comment) doesn't reprocess the same still-present envelope every
+   *  5 seconds forever. */
+  private readonly lastPolledEnvelopeJsonByPeer = new Map<string, string>();
   /** Peers THIS device has explicitly enabled sync toward (published its own authorization half
    * for) — distinct from `authorizationUnsubscribes`, which also covers passive `watchPeerForSync`
    * calls made automatically at boot/after linking (before any explicit consent). `peerState`
@@ -124,14 +153,47 @@ export class WebDeviceSyncService {
   private onPreferencesApplied?: (filters: TalkIntakeFilters) => void;
   private onConflict?: (conflicts: readonly DeviceSyncImportConflict[]) => Promise<DeviceSyncConflictDecision[] | null>;
 
-  constructor(private readonly gunService: WebGunService) {}
+  /** `conversations` category — see this class's own doc comment. Keyed by conversationId. */
+  private readonly pendingConversationRecords = new Map<string, DeviceSyncRecord>();
+  private readonly lastSyncedConversationJsonByPeer = new Map<string, Map<string, string>>();
+  /** Echo guard, same purpose as `lastAppliedPreferencesJson` but per-conversation (many
+   *  independent records instead of preferences' one fixed key). */
+  private readonly lastAppliedConversationJsonById = new Map<string, string>();
+  private onConversationApplied: ((conversation: Record<string, unknown>) => void) | undefined;
+
+  /** `messages` category — immutable-union, so no value-comparison bookkeeping is needed, only
+   *  "has this exact message id already been sent to / applied from this peer". Keyed by
+   *  `conversationId|messageId`. */
+  private readonly pendingMessageRecords = new Map<string, DeviceSyncRecord>();
+  private readonly sentMessageRecordIdsByPeer = new Map<string, Set<string>>();
+  private readonly appliedMessageRecordIds = new Set<string>();
+  private onMessageApplied: ((conversationId: string, message: SyncedMessage) => void) | undefined;
+
+  /** One-time backfill at activation (see `backfillExistingDataToPeer`): a conversation/message
+   *  predating the link is otherwise never picked up by the continuous per-change hooks, which
+   *  only fire for FUTURE local changes. Optional — omitted, backfill silently no-ops. */
+  private getLocalConversationsSnapshot: (() => ReadonlyArray<Record<string, unknown> & { conversationId: string; otherUserId?: string }>) | undefined;
+  private getLocalMessagesSnapshot: ((conversationId: string, otherUserId: string) => Promise<SyncedMessage[]>) | undefined;
+
+  /** See graph-relay-client.ts's doc comment: optional so existing unit tests that construct
+   *  this service without an apiBase keep working — every relay call is itself a no-op-on-failure
+   *  best-effort call either way. */
+  constructor(private readonly gunService: WebGunService, private readonly apiBase?: string) {}
 
   setHandlers(handlers: {
     onPreferencesApplied: (filters: TalkIntakeFilters) => void;
     onConflict: (conflicts: readonly DeviceSyncImportConflict[]) => Promise<DeviceSyncConflictDecision[] | null>;
+    onConversationApplied?: (conversation: Record<string, unknown>) => void;
+    onMessageApplied?: (conversationId: string, message: SyncedMessage) => void;
+    getLocalConversationsSnapshot?: () => ReadonlyArray<Record<string, unknown> & { conversationId: string; otherUserId?: string }>;
+    getLocalMessagesSnapshot?: (conversationId: string, otherUserId: string) => Promise<SyncedMessage[]>;
   }): void {
     this.onPreferencesApplied = handlers.onPreferencesApplied;
     this.onConflict = handlers.onConflict;
+    this.onConversationApplied = handlers.onConversationApplied;
+    this.onMessageApplied = handlers.onMessageApplied;
+    this.getLocalConversationsSnapshot = handlers.getLocalConversationsSnapshot;
+    this.getLocalMessagesSnapshot = handlers.getLocalMessagesSnapshot;
   }
 
   peerState(peerPub: string): DeviceSyncPeerState {
@@ -154,8 +216,8 @@ export class WebDeviceSyncService {
       selectedCategories: [...DEVICE_SYNC_ENABLED_CATEGORIES],
       crypto: createSeaDeviceSyncCrypto(pair as GunPair),
     });
-    await putJson(this.gunService, `${AUTHORIZATION_ROOT}/${pairKey(pair.pub, peerPub)}/${pair.pub}`, authorization);
-    await putJson(this.gunService, `${EPUB_ROOT}/${pair.pub}`, { pub: pair.pub, epub: pair.epub });
+    await putJson(this.gunService, `${AUTHORIZATION_ROOT}/${pairKey(pair.pub, peerPub)}/${pair.pub}`, authorization, this.apiBase);
+    await putJson(this.gunService, `${EPUB_ROOT}/${pair.pub}`, { pub: pair.pub, epub: pair.epub }, this.apiBase);
     this.selfEnabledPeers.add(peerPub);
     this.watchPeerForSync(peerPub);
   }
@@ -192,6 +254,7 @@ export class WebDeviceSyncService {
       const peerAuthorization = await getJsonOnce<DeviceSyncAuthorization>(
         this.gunService,
         `${AUTHORIZATION_ROOT}/${pairKey(pair.pub, peerPub)}/${peerPub}`,
+        this.apiBase,
       );
       if (peerAuthorization) await this.tryActivate(peerPub, peerAuthorization);
     }
@@ -205,6 +268,7 @@ export class WebDeviceSyncService {
     const selfAuthorization = await getJsonOnce<DeviceSyncAuthorization>(
       this.gunService,
       `${AUTHORIZATION_ROOT}/${pairKey(selfPub, peerPub)}/${selfPub}`,
+      this.apiBase,
     );
     if (!selfAuthorization) return; // this device hasn't approved sync with this peer (yet), or the write hasn't settled — retryPendingActivations sweeps this again next tick
     const verified = await verifyMutualDeviceSyncAuthorization({
@@ -239,6 +303,37 @@ export class WebDeviceSyncService {
     // driving the network round trip from here would just be an uncontrolled race with the next
     // tick; a single retry point is simpler to reason about and only costs one tick interval of
     // latency before the first sync.
+    //
+    // Backfill is different: it only stages pending conversation/message records (no network
+    // call of its own), so firing it here — rather than waiting for some other trigger — means
+    // pre-existing history is already queued by the time the next `tick()` flushes the outbox,
+    // instead of losing an extra interval. Fire-and-forget for the same reason as above: this
+    // method itself is never awaited by its caller.
+    void this.backfillExistingDataToPeer(peerPub);
+  }
+
+  /**
+   * Enqueues every conversation/message this device already knows about at the moment sync with
+   * `peerPub` activates — without this, only conversations/messages that change AFTER activation
+   * would ever reach the peer, silently stranding everything that predates the link (the ordinary
+   * case: two devices each already talked to other people before being linked together). Reuses
+   * the exact same `enqueueConversationChange`/`enqueueMessagesForConversation` path a live local
+   * change takes, so backfilled and freshly-created records are indistinguishable downstream.
+   * No-ops silently if the app never registered the snapshot getters (handlers are optional).
+   */
+  private async backfillExistingDataToPeer(_peerPub: string): Promise<void> {
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.pub || !this.getLocalConversationsSnapshot) return;
+    const conversations = this.getLocalConversationsSnapshot();
+    for (const conversation of conversations) {
+      await this.enqueueConversationChange(pair.pub, conversation).catch(() => {});
+      const otherUserId = String(conversation.otherUserId || '');
+      if (!otherUserId || !this.getLocalMessagesSnapshot) continue;
+      const messages = await this.getLocalMessagesSnapshot(conversation.conversationId, otherUserId).catch(() => [] as SyncedMessage[]);
+      if (messages.length > 0) {
+        await this.enqueueMessagesForConversation(conversation.conversationId, pair.pub, messages).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -315,7 +410,7 @@ export class WebDeviceSyncService {
   }
 
   private async peerEpub(peerPub: string): Promise<string> {
-    const record = await getJsonOnce<{ pub: string; epub: string }>(this.gunService, `${EPUB_ROOT}/${peerPub}`);
+    const record = await getJsonOnce<{ pub: string; epub: string }>(this.gunService, `${EPUB_ROOT}/${peerPub}`, this.apiBase);
     return record?.epub || '';
   }
 
@@ -328,6 +423,27 @@ export class WebDeviceSyncService {
       void this.handleIncomingEnvelope(peerPub, envelope);
     });
     this.envelopeUnsubscribes.set(peerPub, unsubscribe);
+  }
+
+  /**
+   * `startReceiving`'s live `.on()` subscription never fires at all on a native/embedded build
+   * whose local Gun graph doesn't generically peer with the hub (see graph-relay-client.ts's doc
+   * comment — found via a real-hardware test) — without this, an embedded device would activate
+   * sync, successfully SEND its own outbox, and then just never receive anything back. Called
+   * from `tick()` every 5s for every active peer; `getJsonOnce`'s own relay fallback is what
+   * actually reaches the peer's envelope on an embedded build, this just re-checks periodically
+   * and hands anything new to the exact same `handleIncomingEnvelope` a live push would.
+   */
+  private async pollEnvelopeForPeer(peerPub: string): Promise<void> {
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.pub) return;
+    const path = `${ENVELOPE_ROOT}/${pair.pub}/${peerPub}`;
+    const envelope = await getJsonOnce<EncryptedDeviceSyncEnvelope>(this.gunService, path, this.apiBase).catch(() => null);
+    if (!envelope) return;
+    const json = JSON.stringify(envelope);
+    if (this.lastPolledEnvelopeJsonByPeer.get(peerPub) === json) return;
+    this.lastPolledEnvelopeJsonByPeer.set(peerPub, json);
+    await this.handleIncomingEnvelope(peerPub, envelope);
   }
 
   private async handleIncomingEnvelope(peerPub: string, envelope: EncryptedDeviceSyncEnvelope): Promise<void> {
@@ -362,9 +478,10 @@ export class WebDeviceSyncService {
       });
     }
     if (!result.ok) return;
-    await putJson(this.gunService, `${ACK_ROOT}/${peerPub}/${pair.pub}`, result.acknowledgement);
+    await putJson(this.gunService, `${ACK_ROOT}/${peerPub}/${pair.pub}`, result.acknowledgement, this.apiBase);
     await this.ensureOwnOutboxInitialized(peerPub, bundle.manifest.checkpointId);
     await this.reapplyPreferencesFromCustody(peerPub);
+    await this.reapplyConversationsAndMessagesFromCustody(peerPub, bundle);
   }
 
   /** Preferences is the one auto-applied category (per its inventory description — "safe and
@@ -381,6 +498,41 @@ export class WebDeviceSyncService {
     if (json === this.lastAppliedPreferencesJson) return;
     this.lastAppliedPreferencesJson = json;
     this.onPreferencesApplied(record.payload as TalkIntakeFilters);
+  }
+
+  /**
+   * Unlike preferences (one fixed record, always auto-applied), `bundle.records` here may carry
+   * many conversation/message records at once — walk exactly the records THIS bundle delivered
+   * (not the whole custody store, which has no enumeration API) and, for each, re-read the
+   * custody store's post-convergence winner the same way `reapplyPreferencesFromCustody` does,
+   * so a record this device's own local value beat still applies the correct (local) content,
+   * not blindly the incoming one.
+   */
+  private async reapplyConversationsAndMessagesFromCustody(peerPub: string, bundle: DeviceSyncBundle): Promise<void> {
+    const custodyStore = this.custodyStores.get(peerPub);
+    if (!custodyStore) return;
+    for (const incoming of bundle.records) {
+      if (incoming.category !== 'conversations' && incoming.category !== 'messages') continue;
+      const converged = await custodyStore.readRecord(incoming.category, incoming.recordId);
+      if (!converged || converged.tombstone) continue;
+      if (incoming.category === 'conversations') {
+        if (!this.onConversationApplied) continue;
+        const payload = converged.payload as Record<string, unknown> & { conversationId?: string };
+        const conversationId = String(payload.conversationId || '');
+        if (!conversationId) continue;
+        const json = JSON.stringify(payload);
+        if (this.lastAppliedConversationJsonById.get(conversationId) === json) continue; // echo of what this device just applied — see enqueueConversationChange
+        this.lastAppliedConversationJsonById.set(conversationId, json);
+        this.onConversationApplied(payload);
+      } else {
+        if (!this.onMessageApplied || this.appliedMessageRecordIds.has(converged.recordId)) continue;
+        this.appliedMessageRecordIds.add(converged.recordId);
+        const payload = converged.payload as SyncedMessage & { conversationId?: string };
+        const conversationId = String(payload.conversationId || '');
+        if (!conversationId) continue;
+        this.onMessageApplied(conversationId, payload);
+      }
+    }
   }
 
   /** Called whenever the local talk filters change (WebUserService's putPrivateUserData hook) —
@@ -433,6 +585,113 @@ export class WebDeviceSyncService {
     }
   }
 
+  /**
+   * Called whenever a conversation is created or its metadata changes locally
+   * (app.ts's `conversationAdded` handler, and `backfillExistingDataToPeer` for pre-existing
+   * ones). `conversation` is whatever `getMyConversations()[conversationId]` currently holds —
+   * passed through mostly as-is so the receiving side's `addNewConversation` call sees the same
+   * shape a normal match would produce. Mutable-versioned, like preferences: version stays fixed
+   * at 1 and convergence is decided by `updatedAt` (see `chooseConvergedRecord`), so a fresh
+   * `record` — not a reused one — is intentional here (unlike preferences' single fixed key, each
+   * conversationId's `updatedAt` legitimately needs to advance on every real local edit).
+   */
+  async enqueueConversationChange(pub: string, conversation: Record<string, unknown> & { conversationId: string }): Promise<void> {
+    const conversationId = conversation.conversationId;
+    if (!conversationId) return;
+    const json = JSON.stringify(conversation);
+    if (this.lastAppliedConversationJsonById.get(conversationId) === json) return; // echo of what this device just applied FROM a peer — don't send it back
+    const now = new Date().toISOString();
+    const record: DeviceSyncRecord = {
+      category: 'conversations',
+      recordId: conversationId,
+      originPub: pub,
+      authorPub: pub,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      tombstone: false,
+      payload: conversation,
+    };
+    this.pendingConversationRecords.set(conversationId, record);
+    await this.syncConversationsToAllPeers();
+  }
+
+  private async syncConversationsToAllPeers(): Promise<void> {
+    if (this.pendingConversationRecords.size === 0 || this.custodyStores.size === 0) return;
+    for (const [peerPub, custodyStore] of this.custodyStores) {
+      let sentJsonByConversation = this.lastSyncedConversationJsonByPeer.get(peerPub);
+      if (!sentJsonByConversation) {
+        sentJsonByConversation = new Map();
+        this.lastSyncedConversationJsonByPeer.set(peerPub, sentJsonByConversation);
+      }
+      const outboxStore = this.outboxStores.get(peerPub);
+      const outboxReady = outboxStore ? await outboxStore.load().catch(() => null) : null;
+      for (const [conversationId, record] of this.pendingConversationRecords) {
+        const json = JSON.stringify(record.payload);
+        if (sentJsonByConversation.get(conversationId) === json) continue; // already handled for this peer+value
+        await custodyStore.writeRecord(record).catch(() => {});
+        if (!outboxStore || !outboxReady) continue; // not bootstrapped yet — retry next tick
+        await enqueueDeviceSyncChange({ store: outboxStore, record }).catch(() => {});
+        sentJsonByConversation.set(conversationId, json);
+      }
+    }
+  }
+
+  /**
+   * Called whenever this device decrypts/observes messages for one of its own conversations
+   * (app.ts's conversation-preview subscription, which runs continuously for every conversation
+   * in the background — not just the currently-open thread) and from `backfillExistingDataToPeer`
+   * for conversation history that predates the link. `messages` may be the FULL current list for
+   * the conversation (as `subscribeToMessages` callbacks deliver it) — only ids not already
+   * queued/sent are turned into records, so calling this repeatedly with overlapping lists is
+   * cheap and safe. Immutable-union (see this class's own doc comment for why plaintext, not raw
+   * Gun ciphertext): no version/updatedAt convergence needed, just "has this id gone out yet".
+   */
+  async enqueueMessagesForConversation(
+    conversationId: string,
+    pub: string,
+    messages: ReadonlyArray<SyncedMessage>,
+  ): Promise<void> {
+    for (const message of messages) {
+      if (!message?.id) continue;
+      const recordId = `${conversationId}|${message.id}`;
+      if (this.appliedMessageRecordIds.has(recordId) || this.pendingMessageRecords.has(recordId)) continue;
+      const record: DeviceSyncRecord = {
+        category: 'messages',
+        recordId,
+        originPub: pub,
+        authorPub: pub,
+        createdAt: message.timestamp,
+        updatedAt: message.timestamp,
+        version: 1,
+        tombstone: false,
+        payload: { ...message, conversationId },
+      };
+      this.pendingMessageRecords.set(recordId, record);
+    }
+    await this.syncMessagesToAllPeers();
+  }
+
+  private async syncMessagesToAllPeers(): Promise<void> {
+    if (this.pendingMessageRecords.size === 0 || this.custodyStores.size === 0) return;
+    for (const [peerPub, custodyStore] of this.custodyStores) {
+      let sentRecordIds = this.sentMessageRecordIdsByPeer.get(peerPub);
+      if (!sentRecordIds) {
+        sentRecordIds = new Set();
+        this.sentMessageRecordIdsByPeer.set(peerPub, sentRecordIds);
+      }
+      const outboxStore = this.outboxStores.get(peerPub);
+      const outboxReady = outboxStore ? await outboxStore.load().catch(() => null) : null;
+      for (const [recordId, record] of this.pendingMessageRecords) {
+        if (sentRecordIds.has(recordId)) continue;
+        await custodyStore.writeRecord(record).catch(() => {});
+        if (!outboxStore || !outboxReady) continue; // not bootstrapped yet — retry next tick
+        await enqueueDeviceSyncChange({ store: outboxStore, record }).catch(() => {});
+        sentRecordIds.add(recordId);
+      }
+    }
+  }
+
   /** Guards `tick()` against overlapping invocations: `deliverBundleEnvelope`'s ack wait can take
    * up to `ACK_WAIT_TIMEOUT_MS` (8s), longer than app.ts's 5s tick interval — without this,
    * `setInterval` firing again mid-flush would start a second concurrent `flushDeviceSyncOutbox`
@@ -454,6 +713,11 @@ export class WebDeviceSyncService {
         if (pair.pub.localeCompare(peerPub) < 0) await this.bootstrapOutboxIfNeeded(peerPub).catch(() => {});
       }
       await this.syncPreferencesToAllPeers();
+      await this.syncConversationsToAllPeers();
+      await this.syncMessagesToAllPeers();
+      for (const peerPub of this.custodyStores.keys()) {
+        await this.pollEnvelopeForPeer(peerPub).catch(() => {});
+      }
       for (const peerPub of this.custodyStores.keys()) {
         const outboxStore = this.outboxStores.get(peerPub);
         const authorizations = this.authorizations.get(peerPub);
@@ -488,7 +752,7 @@ export class WebDeviceSyncService {
   ): Promise<DeviceSyncAcknowledgement> {
     const pair = this.gunService.getStoredPair();
     if (!pair?.pub) throw new Error('device sync requires a signed-in pair');
-    await putJson(this.gunService, `${ENVELOPE_ROOT}/${peerPub}/${pair.pub}`, envelope);
+    await putJson(this.gunService, `${ENVELOPE_ROOT}/${peerPub}/${pair.pub}`, envelope, this.apiBase);
     const ack = await this.pollForAck(peerPub, pair.pub, checkpointId);
     if (!ack) throw new Error('device sync peer did not acknowledge within the wait budget');
     return ack;
@@ -508,7 +772,7 @@ export class WebDeviceSyncService {
     const path = `${ACK_ROOT}/${selfPub}/${peerPub}`;
     const deadline = Date.now() + ACK_WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const ack = await getJsonOnce<DeviceSyncAcknowledgement>(this.gunService, path);
+      const ack = await getJsonOnce<DeviceSyncAcknowledgement>(this.gunService, path, this.apiBase);
       if (ack && ack.checkpointId === checkpointId) return ack;
       await sleep(ACK_POLL_INTERVAL_MS);
     }

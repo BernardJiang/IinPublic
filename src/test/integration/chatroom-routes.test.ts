@@ -133,6 +133,8 @@ describe('chatroom routes', () => {
       postFaqBundle: jest.fn().mockResolvedValue(undefined),
       postMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
       listMailboxEnvelopes: jest.fn().mockResolvedValue([]),
+      getGraphBlob: jest.fn().mockResolvedValue(null),
+      putGraphBlob: jest.fn().mockResolvedValue(undefined),
     };
     const { app, manager } = buildApp({ hubRelayClient });
 
@@ -172,6 +174,8 @@ describe('chatroom routes', () => {
       postFaqBundle: jest.fn().mockResolvedValue(undefined),
       postMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
       listMailboxEnvelopes: jest.fn().mockResolvedValue([]),
+      getGraphBlob: jest.fn().mockResolvedValue(null),
+      putGraphBlob: jest.fn().mockResolvedValue(undefined),
     };
     const { app, manager } = buildApp({ hubRelayClient });
     manager.getActiveMembersWithStageName.mockResolvedValue([{ userId: 'local_1', stageName: 'Local' }]);

@@ -509,6 +509,8 @@ describe('system routes', () => {
       postFaqBundle: jest.fn().mockResolvedValue(undefined),
     postMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
     listMailboxEnvelopes: jest.fn().mockResolvedValue([]),
+    getGraphBlob: jest.fn().mockResolvedValue(null),
+    putGraphBlob: jest.fn().mockResolvedValue(undefined),
     };
     const { app } = buildApp('test', hubRelayClient);
     const convId = 'conv_support_root_bob';

@@ -78,6 +78,14 @@ export interface EmbeddedHubRelayClientLike {
    */
   postMailboxEnvelope(recipientId: string, envelope: { id: string; ciphertext: string; ttlMs?: number }): Promise<void>;
   listMailboxEnvelopes(recipientId: string): Promise<MailboxEnvelope[]>;
+  /**
+   * Generic counterpart to the bespoke relays above, for src/server/routes/graph-relay-routes.ts's
+   * small allowlist of opaque-JSON-blob Gun paths (identity-linking, WP5 device-sync — see that
+   * file's own doc comment). One pair of methods instead of one bespoke pair per path: every path
+   * on the allowlist has the identical shape (write once, read back, no server-side validation).
+   */
+  getGraphBlob(segments: readonly string[]): Promise<unknown | null>;
+  putGraphBlob(segments: readonly string[], data: unknown): Promise<void>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -246,6 +254,20 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     return Array.isArray(body.envelopes)
       ? (body.envelopes.filter((e): e is MailboxEnvelope => !!e && typeof e === 'object') as MailboxEnvelope[])
       : [];
+  }
+
+  async getGraphBlob(segments: readonly string[]): Promise<unknown | null> {
+    const response = await this.request(`/api/relay/graph/${segments.map(encodeURIComponent).join('/')}`);
+    const body = (await response.json()) as { data?: unknown };
+    return body.data ?? null;
+  }
+
+  async putGraphBlob(segments: readonly string[], data: unknown): Promise<void> {
+    await this.request(`/api/relay/graph/${segments.map(encodeURIComponent).join('/')}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data }),
+    });
   }
 
   async getTurnCredentials(): Promise<RelayTurnCredentials> {

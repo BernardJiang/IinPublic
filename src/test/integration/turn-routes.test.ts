@@ -27,6 +27,8 @@ function buildHubRelayClient(overrides: Partial<EmbeddedHubRelayClientLike> = {}
     postFaqBundle: jest.fn().mockResolvedValue(undefined),
     postMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
     listMailboxEnvelopes: jest.fn().mockResolvedValue([]),
+      getGraphBlob: jest.fn().mockResolvedValue(null),
+      putGraphBlob: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
