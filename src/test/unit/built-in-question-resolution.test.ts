@@ -308,6 +308,36 @@ describe('resolveBuiltInQuestion', () => {
     expect(resolveBuiltInQuestion(tagContext, priceQuestion, state, userId)).toEqual({ action: 'ANSWER', compatible: true });
     expect(resolveBuiltInQuestion(tagContext, timeQuestion, state, userId)).toEqual({ action: 'ANSWER', compatible: true });
   });
+
+  it('resolves identical typed prompts independently when their route contexts differ (§EE)', () => {
+    const state = createEmptyTypedPreferenceState();
+    saveTypedPreference(
+      state,
+      userId,
+      makeTypedPreferenceScopeKey('sell', 'Inventory', 'How many?', 'Which item?→Notebook'),
+      { kind: 'quantity', quantity: 8 },
+    );
+    saveTypedPreference(
+      state,
+      userId,
+      makeTypedPreferenceScopeKey('sell', 'Inventory', 'How many?', 'Which item?→Pen'),
+      { kind: 'quantity', quantity: 1 },
+    );
+    const question = { text: 'How many?', builtIn: { kind: 'quantity' as const, quantity: 3 } };
+
+    expect(resolveBuiltInQuestion(
+      { myTag: 'sell', theirTag: 'buy', title: 'Inventory', questionContext: 'Which item?→Notebook' },
+      question,
+      state,
+      userId,
+    )).toEqual({ action: 'ANSWER', compatible: true });
+    expect(resolveBuiltInQuestion(
+      { myTag: 'sell', theirTag: 'buy', title: 'Inventory', questionContext: 'Which item?→Pen' },
+      question,
+      state,
+      userId,
+    )).toEqual({ action: 'ANSWER', compatible: false });
+  });
 });
 
 describe('pickBuiltInAnswer', () => {

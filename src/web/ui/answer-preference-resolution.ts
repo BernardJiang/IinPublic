@@ -12,6 +12,7 @@ import {
   singleNonIgnoreAnswer,
 } from '../../shared/talk-engine';
 import { pickBuiltInAnswer, resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
+import { typedPreferenceQuestionContext } from '../../shared/typed-preference-store';
 import {
   findAutoAnswer,
   findAutoAnswerMultiple,
@@ -135,7 +136,13 @@ export function resolveAnswerPreferenceForTalkQuestion(
         }
       : {};
     const resolution = resolveBuiltInQuestion(
-      { myTag: mySelfTag, theirTag: counterpartCandidates[0], title: talk?.title, ...locationContext },
+      {
+        myTag: mySelfTag,
+        theirTag: counterpartCandidates[0],
+        title: talk?.title,
+        questionContext: typedPreferenceQuestionContext(talk, currentQuestion),
+        ...locationContext,
+      },
       { builtIn: currentQuestion.builtIn, text: currentQuestion.text || '' },
       getTypedPreferenceState(),
       LOCAL_EXACT_CHATBOT_USER_ID,

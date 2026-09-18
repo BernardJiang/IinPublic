@@ -76,13 +76,13 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
       });
 
     // Notebook branch (q_1): a builtIn quantity leaf, seller has 5.
-    await page.locator('.route-question-text[data-qid="q_1"]').fill('How many notebooks do you have?');
+    await page.locator('.route-question-text[data-qid="q_1"]').fill('How many do you have?');
     await openRouteAdvanced('q_1');
     await page.locator('.route-builtin-kind[data-qid="q_1"]').selectOption('quantity');
     await page.locator('.route-builtin-quantity-input[data-qid="q_1"]').fill('5');
 
     // Pen branch (q_2): a builtIn quantity leaf, seller has 1.
-    await page.locator('.route-question-text[data-qid="q_2"]').fill('How many pens do you have?');
+    await page.locator('.route-question-text[data-qid="q_2"]').fill('How many do you have?');
     await openRouteAdvanced('q_2');
     await page.locator('.route-builtin-kind[data-qid="q_2"]').selectOption('quantity');
     await page.locator('.route-builtin-quantity-input[data-qid="q_2"]').fill('1');
@@ -97,6 +97,41 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     // No validation error banner should have appeared.
     await expect(page.locator('#talk-validation-errors')).not.toBeVisible();
 
+    // §EE: authored typed declarations are durable, structured AnswerRecord values, not only
+    // entries in the chatbot's typedPreferenceState index. Identical question text on two route
+    // branches stays isolated by context and both declarations surface in Me.
+    const typedAnswerRecord = await page.evaluate((talkTitle) => {
+      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      return Object.values(history).find((record: any) => record.title === talkTitle) as any;
+    }, title);
+    expect(typedAnswerRecord.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        questionId: 'q_1',
+        choice: '5',
+        contextLabel: 'Which item are you interested in?→Notebook',
+        typedValue: { kind: 'quantity', quantity: 5 },
+      }),
+      expect.objectContaining({
+        questionId: 'q_2',
+        choice: '1',
+        contextLabel: 'Which item are you interested in?→Pen',
+        typedValue: { kind: 'quantity', quantity: 1 },
+      }),
+    ]));
+
+    await page.click('.nav-btn[data-view="me"]');
+    await waitForTabActive(page, 'me');
+    const typedMeRow = page.locator('.answer-question-item').filter({ hasText: 'How many do you have?' });
+    await expect(typedMeRow).toHaveCount(1);
+    await expect(typedMeRow).toHaveAttribute('data-context-count', '2');
+    await expect(typedMeRow).toContainText('5');
+    await expect(typedMeRow).toContainText('1');
+    await expect(typedMeRow).toContainText('Notebook');
+    await expect(typedMeRow).toContainText('Pen');
+
+    await page.click('.nav-btn[data-view="talks"]');
+    await waitForTabActive(page, 'talks');
+
     // Reopen for edit and verify the full structure round-trips: branch text, link kind (not
     // match/ignore, proving nextQuestionId survived TalkAutofix/TalkValidator round-trip), and
     // each leaf's builtIn kind + typed value.
@@ -109,14 +144,35 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     await expect(page.locator('.route-answer-text[data-qid="q_0"][data-aid="q_0_a1"]')).toHaveValue('Pen');
     await expect(page.locator('.route-answer[data-qid="q_0"][data-aid="a_0_match"] .route-answer-kind')).toHaveText('Next question');
 
-    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('How many notebooks do you have?');
+    await expect(page.locator('.route-question-text[data-qid="q_1"]')).toHaveValue('How many do you have?');
     await expect(page.locator('.route-builtin-kind[data-qid="q_1"]')).toHaveValue('quantity');
     await expect(page.locator('.route-builtin-quantity-input[data-qid="q_1"]')).toHaveValue('5');
 
-    await expect(page.locator('.route-question-text[data-qid="q_2"]')).toHaveValue('How many pens do you have?');
+    await expect(page.locator('.route-question-text[data-qid="q_2"]')).toHaveValue('How many do you have?');
     await expect(page.locator('.route-builtin-kind[data-qid="q_2"]')).toHaveValue('quantity');
     await expect(page.locator('.route-builtin-quantity-input[data-qid="q_2"]')).toHaveValue('1');
 
-    await page.locator('#cancel-talk-btn').click();
+    // Editing goes through the same post-save AnswerRecord/index path. The old q_1 value is
+    // replaced while q_2's separate branch remains intact.
+    await page.locator('.route-builtin-quantity-input[data-qid="q_1"]').fill('7');
+    await submitTalkEditorAndWaitForOut(page, title);
+    const afterEdit = await page.evaluate((talkTitle) => {
+      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      const record = Object.values(history).find((candidate: any) => candidate.title === talkTitle) as any;
+      const typedIndex = JSON.parse(localStorage.getItem('typedPreferenceState') || '{"users":{}}');
+      const indexedValues = Object.values(Object.values(typedIndex.users || {})[0] || {}) as any[];
+      return {
+        items: record?.items,
+        quantities: indexedValues
+          .filter((value) => value.sourceTalkId === record?.talkId)
+          .map((value) => value.quantity)
+          .sort((a, b) => a - b),
+      };
+    }, title);
+    expect(afterEdit.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ questionId: 'q_1', typedValue: { kind: 'quantity', quantity: 7 } }),
+      expect.objectContaining({ questionId: 'q_2', typedValue: { kind: 'quantity', quantity: 1 } }),
+    ]));
+    expect(afterEdit.quantities).toEqual([1, 7]);
   });
 });

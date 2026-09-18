@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { loadTechSupportPairSync } = require('../src/server/security/techsupport-key-custody');
 
 const ROOT = path.join(__dirname, '..');
 const DIST_ANNOUNCEMENTS_MODULE = path.join(ROOT, 'dist', 'server', 'shared', 'system-announcements.js');
@@ -31,20 +32,13 @@ function requireCompiled() {
 }
 
 async function main() {
-  const raw = process.env.TECHSUPPORT_SEA_PAIR_JSON;
-  if (!raw) {
-    throw new Error('TECHSUPPORT_SEA_PAIR_JSON is not set (see .env.local).');
-  }
-  const pair = JSON.parse(raw);
-  if (!pair.pub || !pair.priv) {
-    throw new Error('TECHSUPPORT_SEA_PAIR_JSON is missing pub/priv.');
-  }
+  const pair = loadTechSupportPairSync();
 
   const { announcements, techsupport } = requireCompiled();
   const expectedPub = techsupport.currentTechSupportAnnouncementPub();
   if (pair.pub !== expectedPub) {
     throw new Error(
-      `TECHSUPPORT_SEA_PAIR_JSON.pub (${pair.pub}) does not match currentTechSupportAnnouncementPub() ` +
+      `Configured TechSupport key pub (${pair.pub}) does not match currentTechSupportAnnouncementPub() ` +
       `(${expectedPub}) — refusing to sign the identity record with the wrong key.`,
     );
   }

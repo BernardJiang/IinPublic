@@ -5,21 +5,22 @@ import {
   createSystemAnnouncement,
   type SystemAnnouncement,
 } from '../../shared/system-announcements';
-import { TECHSUPPORT_PUB } from '../../shared/techsupport';
+import { currentTechSupportAnnouncementPub } from '../../shared/techsupport';
 import techSupportIdentity from '../../shared/techsupport-identity.signed.json';
 import type { GunService } from './gun-service';
+import { loadTechSupportPairSync } from '../security/techsupport-key-custody';
 
 type SeaPair = { pub: string; epub: string; priv: string; epriv: string };
 
-function configuredPair(raw = process.env.TECHSUPPORT_SEA_PAIR_JSON): SeaPair | null {
-  if (!raw) return null;
-  try {
-    const pair = JSON.parse(raw) as SeaPair;
-    if (!pair.pub || !pair.epub || !pair.priv || !pair.epriv || pair.pub !== TECHSUPPORT_PUB) return null;
-    return pair;
-  } catch {
-    return null;
+function configuredPair(): SeaPair | null {
+  if (!process.env.TECHSUPPORT_KEY_FILE && !process.env.TECHSUPPORT_SEA_PAIR_JSON) return null;
+  const pair = loadTechSupportPairSync() as SeaPair;
+  if (pair.pub !== currentTechSupportAnnouncementPub()) {
+    throw new Error(
+      `Configured TechSupport announcement key (${pair.pub}) is not the current announcement key.`,
+    );
   }
+  return pair;
 }
 
 export class TechSupportAnnouncementService {

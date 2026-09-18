@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { loadTechSupportPairSync } = require('../src/server/security/techsupport-key-custody');
 
 const ROOT = path.join(__dirname, '..');
 const DIST_GREETING_MODULE = path.join(ROOT, 'dist', 'server', 'shared', 'techsupport-greeting.js');
@@ -14,7 +15,7 @@ const OUTPUT_PATH = path.join(ROOT, 'src', 'shared', 'techsupport-onboarding-tip
  * `sign-techsupport-greeting.js` — re-run this script (and commit the new output) whenever the
  * tips copy or the DM key changes.
  *
- * Requires TECHSUPPORT_SEA_PAIR_JSON in the environment (see `.env.local`).
+ * Requires the encrypted TECHSUPPORT_KEY_FILE vault (preferred) or the legacy plaintext setting.
  */
 function requireCompiled() {
   try {
@@ -33,20 +34,13 @@ function requireCompiled() {
 }
 
 async function main() {
-  const raw = process.env.TECHSUPPORT_SEA_PAIR_JSON;
-  if (!raw) {
-    throw new Error('TECHSUPPORT_SEA_PAIR_JSON is not set (see .env.local).');
-  }
-  const pair = JSON.parse(raw);
-  if (!pair.pub || !pair.priv) {
-    throw new Error('TECHSUPPORT_SEA_PAIR_JSON is missing pub/priv.');
-  }
+  const pair = loadTechSupportPairSync();
 
   const { greeting, techsupport } = requireCompiled();
   const expectedPub = techsupport.currentTechSupportDmPub();
   if (pair.pub !== expectedPub) {
     throw new Error(
-      `TECHSUPPORT_SEA_PAIR_JSON.pub (${pair.pub}) does not match currentTechSupportDmPub() ` +
+      `Configured TechSupport key pub (${pair.pub}) does not match currentTechSupportDmPub() ` +
       `(${expectedPub}) — refusing to sign with the wrong key.`,
     );
   }

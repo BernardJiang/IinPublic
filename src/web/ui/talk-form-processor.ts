@@ -1,7 +1,8 @@
 /**
  * Talk-editor form submission: reads the talk-editor DOM form, builds/validates a
- * Talk-shaped object across all four talk types (tag/flow/survey/route), saves the
- * author's own typed-preference declarations, and emits `createTalk`/`updateTalk`.
+ * Talk-shaped object across all four talk types (tag/flow/survey/route) and emits
+ * `createTalk`/`updateTalk`. Typed declarations are persisted only after that async save
+ * succeeds (`saveCreatedTalk`, talk-creation-storage.ts), never during form submission.
  * Extracted from `ui-manager.ts` (UIManager decomposition cluster #9, docs/TODO.md
  * Priority 6) — moved as-is, not rewritten. `UIManager.processTalkForm` remains a
  * thin delegation shim so `talk-editor-form-helpers.ts`'s injected `processTalkForm`
@@ -9,12 +10,9 @@
  * unchanged.
  */
 import { type Tag } from '../../shared/types';
-import { TalkValidator, TalkAutofix, findTagPairAncestor } from '../../shared/talk-engine';
-import { makeTypedPreferenceScopeKey, saveTypedPreference } from '../../shared/typed-preference-store';
-import { LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
+import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { containsFinancialData } from '../../shared/financial-data-guard';
 import { patchMyTalk } from './my-talks-storage';
-import { getTypedPreferenceState, setTypedPreferenceState } from './answer-preferences-storage';
 import { collectFlowSurveyEditorQuestions } from './talk-editor-form-helpers';
 import type { UiTranslationKey, UiLanguage } from './ui-translations';
 
@@ -200,29 +198,6 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
   }
   questions = fixed.questions;
 
-  // §BB / spec §30.2: the value I just declared on my OWN builtIn question is also my own
-  // typed preference for future auto-resolution when I respond to someone ELSE'S talk of the
-  // same shape — save it into the same store `resolveBuiltInQuestion` (Phase 5) reads, scoped
-  // the same way (my own tag, from this question's nearest Pair-tag ancestor if any + this
-  // talk's title + this question's own text — the text component is required so a talk with
-  // MORE THAN ONE builtIn question, e.g. priceRange AND timeFrame in the same talk (§HH),
-  // doesn't have the second overwrite the first at an otherwise-identical scope key).
-  // 'location' is excluded: it has no stored preference, see Question.builtIn's doc comment.
-  for (const q of questions) {
-    if (!q.builtIn || q.builtIn.kind === 'location') continue;
-    const preferenceState = getTypedPreferenceState();
-    const myTag = findTagPairAncestor({ type, questions }, q)?.questionText;
-    const scopeKey = makeTypedPreferenceScopeKey(String(myTag || 'general'), title, q.text);
-    saveTypedPreference(preferenceState, LOCAL_EXACT_CHATBOT_USER_ID, scopeKey, {
-      kind: q.builtIn.kind,
-      ...(q.builtIn.quantity !== undefined ? { quantity: q.builtIn.quantity } : {}),
-      ...(q.builtIn.priceRange ? { priceRange: q.builtIn.priceRange } : {}),
-      ...(q.builtIn.timeFrame ? { timeFrame: q.builtIn.timeFrame } : {}),
-      ...(q.builtIn.ageRange ? { ageRange: q.builtIn.ageRange } : {}),
-    });
-    setTypedPreferenceState(preferenceState);
-  }
-
   const editingTalkId = form.dataset.editingTalkId;
   if (editingTalkId) {
     // Update local myTalks so the list shows the new title when re-rendered after save
@@ -245,6 +220,7 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
       expiresAt,
       locationRadiusMiles,
       matchThreshold,
+      selfAnswers,
     });
   } else {
     const attachmentInput = document.getElementById('talk-attachment-input') as HTMLInputElement | null;

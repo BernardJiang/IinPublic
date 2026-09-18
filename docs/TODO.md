@@ -1089,22 +1089,20 @@ talk template).
 
 ### EE. Me/profile completion
 
-- [ ] Store typed built-in declarations as `AnswerRecord` values rather than profile fields.
-  **Research note (2026-08-23), not yet implemented:** no separate "profile field" was ever
-  actually written for these (Bernard's original correction — completed.md, 2026-08-11 EE
-  entry — headed that off before implementation: profile holds only StageName + headshot).
-  What's actually true today: a typed built-in value (quantity/priceRange/timeFrame the author
-  enters on their OWN question) is saved ONLY into `typedPreferenceState` (chatbot-only,
-  invisible to the author) — `applyBuiltInKindToQuestion`/route's `answersHtml = q.builtIn ? ''`
-  both hide the ordinary self-answer radio for a builtIn question, so no self-answer is ever
-  recorded through the normal mechanism either. Net effect: the author's own typed declaration
-  never appears anywhere in their own Me-tab Answers list today — arguably the same "invisible
-  side value" problem the profile-field framing was trying to avoid, just realized via a
-  different store. `answers-view.ts`'s "Answers" list is scoped to talks with
-  `role === 'answered' || 'copied'` (things I responded to), not self-authored declarations, so
-  the fix isn't a small display tweak — it needs a real decision on where a self-authored
-  builtIn declaration should surface. Left open rather than guessing at that shape.
-- [ ] Add typed-value round-trip and section-isolation E2E coverage. Blocked on the above.
+- [x] **Landed 2026-09-18:** Store typed built-in declarations as `AnswerRecord` values rather
+  than profile fields. `saveCreatedTalk` now turns every authored non-location built-in into a
+  normal flat-history item with a non-lossy `typedValue` payload plus a human-readable `choice`,
+  so quantity/price-range/time-frame/age-range declarations surface in Me exactly like other
+  answers. `typedPreferenceState` remains only the matching lookup index and records source
+  talk/question provenance; persistence now happens after a successful create/update rather
+  than prematurely during form submission. Owned-talk edits use the same path and replace their
+  prior indexed declarations.
+- [x] **Landed 2026-09-18:** Add typed-value round-trip and section-isolation E2E coverage.
+  `82-route-editor-multi-item-builtin.spec.ts` now creates two identically-worded quantity
+  questions on different route branches, verifies both structured AnswerRecord payloads and Me
+  contexts independently, reopens the editor, edits one branch, and proves that branch changes
+  without overwriting the other. The matching index uses the normalized route Q→A path (excluding
+  reversible Pair-tag ancestry) to preserve the same isolation.
 
 ### II. User-defined tag compatibility, generalized beyond symmetric opposites
 
@@ -1124,7 +1122,7 @@ the opposite). `processTalkForm` reads whichever of the two fields has content, 
 the old single-opposite auto-fill when empty. Closed the last script-injected talk creation in
 `89-buy-sell-chatbot-cross-talk-match.spec.ts`.
 
-Still open — **superseded by §LL below, not to be built as originally scoped here:**
+Superseded by §LL below (retained here only as decision history):
 - [x] **Confirmed 2026-09-15, already resolved — stale bullet:** matching itself
   (`checkIfMatch`'s `preferenceSet.includes(responderSelfTag)`, talk-engine.ts) never consults
   the tag-opposite-pairs registry at all — it only ever reads whatever `selfTag`/`preferenceSet`
@@ -1140,13 +1138,13 @@ Still open — **superseded by §LL below, not to be built as originally scoped 
   auto-suggested on the author's future talks, exactly like a seeded pair would — this was already
   built, just never checked off here. No further work needed; §LL's "editor-autofill-only
   convenience" framing already correctly described this.
-- [ ] ~~No multi-value editing UI~~ — built as a comma-separated `#talk-preference-set` field
+- [x] **Retired/superseded by §LL:** ~~No multi-value editing UI~~ — built as a comma-separated `#talk-preference-set` field
   above, but §LL rejects multi-value on a tag outright (a bare second word like "free" is
   ambiguous without its own question — give or receive?) and routes that need instead through
   §LL's single-answer rule: a second accepted tag becomes a second ANSWER ROW on an ordinary
   question, not a second comma-separated string entry. `#talk-preference-set` is expected to be
   retired once §LL lands, not extended.
-- [ ] The question/answer-shaped generalization ("need a plumber" satisfied by "does plumbing")
+- [x] **Delivered by §LL:** The question/answer-shaped generalization ("need a plumber" satisfied by "does plumbing")
   discussed alongside this is now the substance of §LL, not separate discussion.
 
 ### JJ. Bidirectional deal confirmation (spec §30.2, replaces the old auto-exclusivity guard)
@@ -1294,11 +1292,14 @@ tag/single-question talks, which are content-hash-scoped instead).
   exactly one `selfTag`). E2E-verified end to end for the ordinary buy⇄sell case and for the
   collision this section was written to fix (a user's two same-item talks with different
   `preferenceSet` no longer bleed into each other) —
-  `stage2-two-user/89-buy-sell-chatbot-cross-talk-match.spec.ts`. Still open: the "answering
-  someone else's talk ad hoc, with no talk of my own in play" case has no `preferenceSet` to fan
-  out at all (falls through to `mySelfTag`-only scoping, which is correct but coarser).
+  `stage2-two-user/89-buy-sell-chatbot-cross-talk-match.spec.ts`.
+- **Ad-hoc case confirmed closed, 2026-09-18:** after §LL removed talk-level
+  `selfTag`/`preferenceSet`, answering someone else's Pair-tag talk no longer needs an own talk to
+  supply context: `effectiveTagContext` reverses that incoming Pair-tag ancestor into the user's
+  own tag plus the precise counterpart tag. Characterization coverage now saves such an answer,
+  resolves it in a later independently-authored talk, and asserts the exact two-tag flattened key.
 
-Still open:
+Final verification:
 - [x] **Tag position is not fixed to "root" or "talk-level singular metadata."** Stale checkbox,
   corrected 2026-09-14 — the design pass this bullet called for landed with §LL (see
   `docs/completed.md`'s 2026-09-08 "§LL/§LL.1/§LL.2" entry) and was never checked off here.
@@ -1310,9 +1311,24 @@ Still open:
 
 ## Priority 5 — TechSupport productionization
 
+**Priority status:** ✅ **DONE** (2026-09-18). Production key custody/rotation and the deployable
+headless operator agent are both implemented; see the K7 entries below and the custody runbook.
+
 ### K7. Delegated TechSupport answers
 
-- [ ] Define production TechSupport key custody and rotation tooling.
+- [x] **Landed 2026-09-18:** Define production TechSupport key custody and rotation tooling.
+  `npm run techsupport:key` now generates/imports/verifies a versioned AES-256-GCM encrypted SEA
+  vault with scrypt key derivation, authenticated public metadata, atomic mode-`600` writes, safe
+  public fingerprints, and no secret command-line arguments. The shared server-only loader powers
+  the operator browser, headless agent, all four artifact signers, and optional live-announcement
+  signer; legacy plaintext env input is migration-only. Rotation is an enforced prepare → activate
+  → retire state machine backed by committed `techsupport-trust-anchors.json`: clients verify the
+  full overlap arrays, activation refuses an unprepared key and transactionally re-signs all
+  committed artifacts, and retirement refuses the current key plus requires exact-key
+  confirmation. Backup, restore, rollback, compromise response, rollout timing, and the current
+  unified-key protocol boundary are documented in
+  `docs/security/techsupport-key-custody-and-rotation.md`; the VPS guide no longer recommends a
+  plaintext root key. Dedicated crypto/transition tests are part of `test:unit` and `test:all`.
 - [x] **Landed 2026-09-13:** Package the headless/off-server TechSupport agent.
   `scripts/techsupport-agent.js` (built 2026-09-02) already existed and worked when run by hand;
   what was missing was an actual deployment story and a real gap it didn't handle: a human still

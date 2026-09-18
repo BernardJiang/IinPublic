@@ -577,13 +577,17 @@ cd ~/IinPublic
 npx playwright install --with-deps chromium
 ```
 
-Add to `~/IinPublic/.env.local` (create it if it doesn't exist yet — never commit it):
+The preferred deployment keeps the root key off the VPS entirely and runs this operator process on
+a dedicated machine pointed at the live URL. If this VPS must host the process, copy only the
+**encrypted** vault into the gitignored `secrets/` directory, use mode `600`, and follow
+`docs/security/techsupport-key-custody-and-rotation.md` for backups and rotation. Add to
+`~/IinPublic/.env.local` (create it if it doesn't exist yet — never commit it):
 
 ``` bash
-# The real TechSupport DM keypair (pub/priv/epub/epriv), matching TECHSUPPORT_PUB compiled into
-# the client. See project_techsupport_rollout notes / the K7 design note for how this is
-# generated and rotated — this file is the only place it should live on the VPS.
-TECHSUPPORT_SEA_PAIR_JSON={"pub":"...","priv":"...","epub":"...","epriv":"..."}
+# The encrypted vault is mode 600. Keep its passphrase in a separately protected mode-600 file;
+# a system secret/credential manager is preferable to storing both on the same host.
+TECHSUPPORT_KEY_FILE=/home/ubuntu/IinPublic/secrets/techsupport-master.key.json
+TECHSUPPORT_KEY_PASSPHRASE_FILE=/home/ubuntu/.config/iinpublic/techsupport-vault.passphrase
 # Point the agent at the live site rather than a local dev server.
 TECHSUPPORT_APP_URL=https://www.iinpublic.com
 ```
@@ -605,6 +609,13 @@ tmux attach -t techsupport-agent
 If the process (or the tmux session itself) ever dies unexpectedly, just re-run the same
 `tmux new -s techsupport-agent` / `npm run techsupport:agent` pair — there is no separate restart
 command. `TECHSUPPORT_AGENT_POLL_MS` (default 5000) controls how often it polls the inbox.
+
+The legacy plaintext `TECHSUPPORT_SEA_PAIR_JSON` variable is migration-only and must not be placed
+in the production VPS environment. Verify the vault before starting the agent:
+
+``` bash
+npm run techsupport:key -- verify --key "$TECHSUPPORT_KEY_FILE"
+```
 
 If you only want the "stay verifiable and present" behavior with nobody attached to answer
 questions live, a plain `systemd` unit is fine — just go in with the `isTTY` warning being

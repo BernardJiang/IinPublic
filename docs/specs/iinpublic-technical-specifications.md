@@ -1017,6 +1017,7 @@ interface AnswerRecord {
   questionId: string;
   current: {
     value: string;
+    typedValue?: BuiltInQuestionSpec; // authored built-in declaration; value is display-only
     visibility: 'auto' | 'manual';
     updatedAt: number;
     signature: string;       // SEA.sign(value + updatedAt, userPrivKey)
@@ -2748,6 +2749,18 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   `src/test/unit/techsupport-key-not-bundled.test.ts`). The relay holds at most the
   **announcement** key (for on-demand system announcements) and republishes a **pre-signed**
   identity record; server boot and E2E reset require **no** private SEA pair (K3).
+- **Production custody and rotation (K7, 2026-09-18):** private fields live in the versioned
+  `iinpublic-techsupport-key-v1` vault (AES-256-GCM; scrypt `N=32768`, `r=8`, `p=1`; authenticated
+  public metadata), read from `TECHSUPPORT_KEY_FILE` with its passphrase supplied separately.
+  POSIX private files with group/other permissions are rejected. The committed
+  `techsupport-trust-anchors.json` is the single public rotation edit point. Client verification
+  consumes its complete `trusted` arrays, while signers consume explicit `current` keys. The
+  `techsupport:key` CLI enforces prepare (old current + overlap) → activate (new current + re-sign
+  all four artifacts transactionally) → retire (exact-key confirmation; current key cannot be
+  removed). The operational backup, migration, rollback, compromise, and rollout-window contract
+  is `docs/security/techsupport-key-custody-and-rotation.md`. The current identity protocol binds
+  one SEA pair, so v1 rotates DM and announcement roles together even though the config retains
+  separate role fields for a future versioned split.
 - A first-time ordinary user must not claim the TechSupport id or stage-name reservation.
 - Every ordinary user gets one support channel with TechSupport. The welcome greeting is rendered
   client-side from a **compiled, pre-signed, per-locale template**
@@ -2803,9 +2816,9 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   `scripts/sign-techsupport-identity.js` / `npm run sign:techsupport-identity` with the
   **announcement** key) — no boot-time private key. `IinPublicServer.publishPublicBootstrap()` no
   longer gates on `techSupportAnnouncements.isConfigured()`, so the identity record and the Global
-  member-row seed are produced unconditionally, even on a relay with no
-  `TECHSUPPORT_SEA_PAIR_JSON` configured at all (that env var now only gates the on-demand admin
-  announcement feature).
+  member-row seed are produced unconditionally, even on a relay with no TechSupport key configured
+  at all. The optional on-demand admin announcement feature can unlock the encrypted
+  `TECHSUPPORT_KEY_FILE`; explicit vault errors fail startup instead of silently disabling signing.
 - Contacts render TechSupport with `data-support-contact="true"` and built-in support copy, plus a
   `.techsupport-presence-indicator` online/away dot.
 - Chatroom member rows render TechSupport with built-in support status copy, plus the same presence indicator.
@@ -2815,9 +2828,10 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   checks the trust anchor, that the template text matches the client's own compiled
   `TECHSUPPORT_GREETING_TEMPLATES` (a swapped template is rejected even if validly signed), and the
   SEA signature. `scripts/sign-techsupport-greeting.js` is the one-off build/dev signing step
-  (`npm run sign:techsupport-greeting`; reads `TECHSUPPORT_SEA_PAIR_JSON`, asserts the pair matches
-  `currentTechSupportDmPub()`, writes the committed `techsupport-greeting.signed.json`). Re-run and
-  commit a new signed bundle whenever the greeting copy or the DM key changes.
+  (`npm run sign:techsupport-greeting`; reads the encrypted key vault, with legacy plaintext input
+  retained only for migration, asserts the pair matches `currentTechSupportDmPub()`, and writes the
+  committed `techsupport-greeting.signed.json`). Re-run and commit a new signed bundle whenever the
+  greeting copy or the DM key changes.
 - `IinPublicApp.ensureSupportBootstrapForCurrentUser()` (`app.ts`) verifies-then-renders the
   greeting and persists it via `WebConversationService.upsertMessageRecord` (a local-only Gun
   write, never `sendMessage`'s peer-notify path). No `supportState` localStorage gate remains —
@@ -2869,8 +2883,8 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   alongside an author identity that verifies as a trusted DM anchor.
 - `src/test/unit/techsupport-login.test.ts` (K3) — `assertTechSupportDmPair`: a pair whose pub is
   not a trusted DM anchor is rejected; malformed input is rejected without leaking.
-- `src/test/unit/techsupport-key-not-bundled.test.ts` (K3) — the built web bundle contains
-  neither the TechSupport private key material nor the `TECHSUPPORT_SEA_PAIR_JSON` env-var name.
+- `src/test/unit/techsupport-key-not-bundled.test.ts` (K3/K7) — the built web bundle contains
+  neither TechSupport private key material nor any vault path/passphrase/legacy env-var name.
 - `src/test/unit/system-announcements.test.ts` — `signTechSupportIdentity` round-trips through
   `readVerifiedTechSupportIdentity`; `publishIdentity()` succeeds with no pair configured at all.
 - `src/test/unit/stage0-fixture.test.ts` (K4) — the committed stage0 fixture exists and passes

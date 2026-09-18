@@ -1,4 +1,15 @@
 import { getMyTalks, setMyTalks } from './my-talks-storage';
+import { findTagPairAncestor } from '../../shared/talk-engine';
+import {
+  formatTypedAnswerValue,
+  makeTypedPreferenceScopeKey,
+  saveTypedPreference,
+  typedAnswerValueFromBuiltIn,
+  typedPreferenceQuestionContext,
+  type TypedAnswerValue,
+} from '../../shared/typed-preference-store';
+import { LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
+import { getTypedPreferenceState, setTypedPreferenceState } from './answer-preferences-storage';
 
 export type SaveCreatedTalkDeps = {
   /** Persists one self-answer for chatbot/auto-reply (bound to the current user id). */
@@ -18,17 +29,25 @@ export type SaveCreatedTalkDeps = {
   saveFlatAnswerHistoryRecord: (
     talkId: string,
     talk: any,
-    completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }>,
+    completedAnswers: Array<{
+      questionId: string;
+      answerId: string;
+      answerText?: string;
+      mode?: string;
+      typedValue?: TypedAnswerValue;
+    }>,
     outcome: 'match' | 'mismatch',
     senders: string[],
   ) => void;
   /** Re-renders the talks list only when it's the currently active view. */
   refreshTalksListIfActive: () => void;
+  /** Re-renders newly persisted typed declarations when the Me view is active. */
+  refreshAnswersListIfActive: () => void;
 };
 
 /**
- * Stores an authored talk in `myTalks` and, for each self-answer the author gave while
- * creating it, cascades that answer through the same preference/history stores a real
+ * Stores a successfully created/updated authored talk in `myTalks` and, for each self-answer
+ * the author gave, cascades that answer through the same preference/history stores a real
  * completion would (chatbot auto-reply, flat answer history) — an author's own self-answers
  * are otherwise invisible to those stores.
  */
@@ -57,7 +76,13 @@ export function saveCreatedTalk(
 
   // Save self-answers to answer preferences (user's answer list) for chatbot/auto-reply
   const acc: Array<{ questionId: string; answerText?: string }> = [];
-  const completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }> = [];
+  const completedAnswers: Array<{
+    questionId: string;
+    answerId: string;
+    answerText?: string;
+    mode?: string;
+    typedValue?: TypedAnswerValue;
+  }> = [];
   let hasMatchAnswer = false;
   for (const { questionId, answerId } of options.selfAnswers) {
     const q = talk.questions?.find((qu: any) => qu.id === questionId);
@@ -74,9 +99,49 @@ export function saveCreatedTalk(
     if (a.isMatch === true) hasMatchAnswer = true;
     deps.saveAnswerPreference(talk, talk.id, q, a.id, a.text || '', acc, 'auto');
   }
+
+  // §EE: a typed value authored on my own question is an ordinary Me-tab answer declaration,
+  // even though it has no author-selectable Compatible/Not-compatible outcome. Persist the
+  // structured value on the same flat AnswerRecord used by every other Me answer, and maintain
+  // typedPreferenceState only as the resolver's lookup index.
+  const preferenceState = getTypedPreferenceState();
+  const localScopes = preferenceState.users[LOCAL_EXACT_CHATBOT_USER_ID] || {};
+  for (const [scopeKey, value] of Object.entries(localScopes)) {
+    if (value.sourceTalkId === talk.id) delete localScopes[scopeKey];
+  }
+  for (const q of talk.questions || []) {
+    if (!q?.builtIn) continue;
+    const typedValue = typedAnswerValueFromBuiltIn(q.builtIn);
+    if (!typedValue) continue;
+    completedAnswers.push({
+      questionId: q.id,
+      answerId: `typed:${typedValue.kind}`,
+      answerText: formatTypedAnswerValue(typedValue),
+      mode: 'typed',
+      typedValue,
+    });
+    const myTag = findTagPairAncestor(talk as any, q)?.questionText;
+    const scopeKey = makeTypedPreferenceScopeKey(
+      String(myTag || 'general'),
+      talk.title,
+      q.text,
+      typedPreferenceQuestionContext(talk, q),
+    );
+    saveTypedPreference(preferenceState, LOCAL_EXACT_CHATBOT_USER_ID, scopeKey, {
+      ...typedValue,
+      sourceTalkId: talk.id,
+      sourceQuestionId: q.id,
+    });
+  }
+  setTypedPreferenceState(preferenceState);
+
   if (completedAnswers.length > 0) {
-    deps.saveQuestionAnswersFromCompletion(talk, completedAnswers);
+    const ordinaryAnswers = completedAnswers.filter((answer) => !answer.typedValue);
+    if (ordinaryAnswers.length > 0) deps.saveQuestionAnswersFromCompletion(talk, ordinaryAnswers);
     deps.saveFlatAnswerHistoryRecord(talk.id, talk, completedAnswers, hasMatchAnswer ? 'match' : 'mismatch', []);
+    if (document.getElementById('me-view')?.classList.contains('active')) {
+      deps.refreshAnswersListIfActive();
+    }
   }
 
   const talksView = document.getElementById('talks-view');

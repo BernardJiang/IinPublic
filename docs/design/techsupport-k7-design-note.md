@@ -208,15 +208,12 @@ Two paths, depending on what "the phone" is running:
 ## Answering your operational questions directly
 
 **"How do I keep the TechSupport private key in my own local environment while iinpublic.com is
-live?"** You already can, with zero new code: the production relay (OVH VPS) never reads
-`TECHSUPPORT_SEA_PAIR_JSON` — it isn't in the server's `.env`, isn't in `GunService`, isn't anywhere
-in `src/server/`. The key only needs to exist wherever you run `npm run dev:techsupport` or
+live?"** The production relay never needs the root private key during normal operation. Keep the
+encrypted vault on the operator machine that runs `npm run dev:techsupport` or
 `npm run techsupport:agent`, pointed at production via `TECHSUPPORT_APP_URL=https://www.iinpublic.com`.
-Turning the VPS's `iinpublic.service` on is completely orthogonal to where the key lives. The actual
-blocker (per your rollout notes) is that a *real* production keypair was never generated —
-`TECHSUPPORT_PUB` is still the placeholder dev key compiled into the client. That's a one-time
-"generate a real pair, keep the private half only on your own machine(s), re-run the sign scripts,
-rebuild and redeploy every client" step, independent of K7.
+The concrete generation, migration, backup, staged rotation, and rollback commands are now defined
+in `docs/security/techsupport-key-custody-and-rotation.md`; plaintext
+`TECHSUPPORT_SEA_PAIR_JSON` is retained only for migration compatibility.
 
 **"How do I turn one phone into a TechSupport agent that answers all questions?"** With K7: don't
 put the master key on it. Log the phone in as an ordinary user, then issue it a delegate grant from

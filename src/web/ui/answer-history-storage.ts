@@ -1,3 +1,5 @@
+import type { TypedAnswerValue } from '../../shared/typed-preference-store';
+
 export type FlatAnswerHistoryItem = {
   /** Talk-scoped id (e.g. `q_0`) — positional, used only to deep-link back into
    *  *this* talk's response dialog (`.review-question-block[data-question-id]`). */
@@ -22,6 +24,9 @@ export type FlatAnswerHistoryItem = {
    *  the correct key for merging "the same question" across talks in the Me tab.
    *  Absent for talks answered before this field existed. */
   questionContentId?: string;
+  /** §EE: non-lossy value for a self-authored typed built-in declaration. `choice` is only
+   *  its display projection; matching/index rebuilds use this structured value. */
+  typedValue?: TypedAnswerValue;
 };
 
 export type FlatAnswerHistoryRecord = {
@@ -87,7 +92,13 @@ export function getTalkContentKey(talk: any): string {
 export function saveFlatAnswerHistoryRecord(
   talkId: string,
   talk: any,
-  completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }>,
+  completedAnswers: Array<{
+    questionId: string;
+    answerId: string;
+    answerText?: string;
+    mode?: string;
+    typedValue?: TypedAnswerValue;
+  }>,
   outcome: 'match' | 'mismatch',
   senders: string[],
 ): void {
@@ -168,6 +179,7 @@ export function saveFlatAnswerHistoryRecord(
       ...(entry.mode ? { mode: entry.mode } : {}),
       ...(contextHash ? { contextHash } : {}),
       ...(questionContentId ? { questionContentId } : {}),
+      ...(entry.typedValue ? { typedValue: entry.typedValue } : {}),
     };
   });
   upsertFlatAnswerHistory({

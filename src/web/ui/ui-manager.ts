@@ -479,7 +479,6 @@ export class UIManager extends EventEmitter {
       new Promise<void>((resolve) => setTimeout(resolve, 2000)),
     ]);
   }
-
   /**
    * TODO §M6: cache modeled on peerLocationCache above, but deliberately NOT awaited in
    * beforeRender (unlike prefetchPeerLocations) — R's audit found Contacts already has a
@@ -2522,7 +2521,7 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Called by app after a talk is created: saves to myTalks and user's answer list (answerPreferences).
+   * Called by app after a talk is created or updated: saves to myTalks and the user's answer stores.
    */
   saveCreatedTalk(
     talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null },
@@ -2535,6 +2534,7 @@ export class UIManager extends EventEmitter {
       saveFlatAnswerHistoryRecord: (talkId, talkArg, completedAnswers, outcome, senders) =>
         saveFlatAnswerHistoryRecord(talkId, talkArg, completedAnswers, outcome, senders),
       refreshTalksListIfActive: () => this.displayTalksList(),
+      refreshAnswersListIfActive: () => this.displayAnswersList(),
     });
   }
 

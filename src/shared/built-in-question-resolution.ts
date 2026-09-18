@@ -33,6 +33,8 @@ export type BuiltInTagContext = {
   myTag?: string | undefined;
   theirTag?: string | undefined;
   title?: string | undefined;
+  /** Normalized route-branch Q→A path. Keeps identical prompts on different branches isolated. */
+  questionContext?: string | undefined;
   /**
    * §BB: the responder's OWN most-recent matching talk's `authorLocation`/`locationRadiusMiles`
    * (side "b" of `locationsMutuallyContained`) — see that talk's own doc comment for why this is
@@ -73,8 +75,21 @@ export function resolveBuiltInQuestion(
   // The question's own text is ALSO part of the scope key — without it, a talk with more than
   // one builtIn question (e.g. priceRange AND timeFrame in the same talk, §HH) would have both
   // saved under the identical (myTag, title) key, the second silently overwriting the first.
-  const scopeKey = makeTypedPreferenceScopeKey(String(tagContext.myTag || 'general'), tagContext.title, question.text);
-  const myPref = getTypedPreference(preferenceState, userId, scopeKey);
+  const scopeKey = makeTypedPreferenceScopeKey(
+    String(tagContext.myTag || 'general'),
+    tagContext.title,
+    question.text,
+    tagContext.questionContext,
+  );
+  // Values saved before §EE did not include route-branch context. Prefer the precise new key,
+  // then fall back to that legacy bucket so an upgrade does not erase existing auto-answering.
+  const legacyScopeKey = makeTypedPreferenceScopeKey(
+    String(tagContext.myTag || 'general'),
+    tagContext.title,
+    question.text,
+  );
+  const myPref = getTypedPreference(preferenceState, userId, scopeKey)
+    ?? (scopeKey !== legacyScopeKey ? getTypedPreference(preferenceState, userId, legacyScopeKey) : undefined);
   if (!myPref || myPref.kind !== builtIn.kind) return { action: 'ASK_USER' };
 
   if (builtIn.kind === 'quantity') {

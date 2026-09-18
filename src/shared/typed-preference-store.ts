@@ -10,7 +10,7 @@
  * book at the same time, so preferences are keyed by `scopeKey` (a tag id, or tag id + item
  * name when the same tag covers multiple distinct items), never by user alone.
  */
-import type { BuiltInQuestionKind } from './types';
+import type { BuiltInQuestionKind, BuiltInQuestionSpec } from './types';
 import { LOCAL_EXACT_CHATBOT_USER_ID } from './exact-chatbot-memory';
 
 export const LOCAL_TYPED_PREFERENCE_USER_ID = LOCAL_EXACT_CHATBOT_USER_ID;
@@ -22,7 +22,56 @@ export interface TypedPreferenceValue {
   timeFrame?: { start: number; end: number };
   /** kind === 'ageRange' (§DD, spec §30.6). See `Question.builtIn.ageRange` (types.ts). */
   ageRange?: { age: number; acceptableRange: { min: number; max: number } };
+  /** The authored talk/question that last populated this lookup index. Optional for
+   *  compatibility with values saved before typed declarations became AnswerRecords. */
+  sourceTalkId?: string;
+  sourceQuestionId?: string;
   updatedAt: number;
+}
+
+/** Structured value persisted on an AnswerRecord. Unlike `TypedPreferenceValue`, this is the
+ *  durable declaration itself and therefore has no cache timestamp/provenance fields. */
+export type TypedAnswerValue = Pick<
+  TypedPreferenceValue,
+  'kind' | 'quantity' | 'priceRange' | 'timeFrame' | 'ageRange'
+>;
+
+/** Copies the typed payload out of a built-in question without retaining mutable references. */
+export function typedAnswerValueFromBuiltIn(builtIn: BuiltInQuestionSpec): TypedAnswerValue | undefined {
+  if (builtIn.kind === 'location') return undefined;
+  return {
+    kind: builtIn.kind,
+    ...(builtIn.quantity !== undefined ? { quantity: builtIn.quantity } : {}),
+    ...(builtIn.priceRange ? { priceRange: { ...builtIn.priceRange } } : {}),
+    ...(builtIn.timeFrame ? { timeFrame: { ...builtIn.timeFrame } } : {}),
+    ...(builtIn.ageRange
+      ? {
+          ageRange: {
+            age: builtIn.ageRange.age,
+            acceptableRange: { ...builtIn.ageRange.acceptableRange },
+          },
+        }
+      : {}),
+  };
+}
+
+/** Stable human-readable projection used by the Me-tab Q&A row. The structured value above,
+ *  not this string, remains authoritative for matching and round trips. */
+export function formatTypedAnswerValue(value: TypedAnswerValue): string {
+  if (value.kind === 'quantity') return String(value.quantity ?? '');
+  if (value.kind === 'priceRange') {
+    return value.priceRange ? `${value.priceRange.min} – ${value.priceRange.max}` : '';
+  }
+  if (value.kind === 'timeFrame') {
+    if (!value.timeFrame) return '';
+    const date = (epochMs: number): string => new Date(epochMs).toISOString().slice(0, 10);
+    return `${date(value.timeFrame.start)} – ${date(value.timeFrame.end)}`;
+  }
+  if (value.kind === 'ageRange') {
+    if (!value.ageRange) return '';
+    return `Age ${value.ageRange.age}; accepts ${value.ageRange.acceptableRange.min} – ${value.ageRange.acceptableRange.max}`;
+  }
+  return '';
 }
 
 export interface TypedPreferenceState {
@@ -44,12 +93,40 @@ export function createEmptyTypedPreferenceState(): TypedPreferenceState {
  * save overwrites the first at the same (tagId, item) key. Real bug found while implementing
  * docs/TODO.md §HH (a 3-criterion handyman talk: priceRange + timeFrame + service category).
  */
-export function makeTypedPreferenceScopeKey(tagId: string, item?: string, questionText?: string): string {
+export function makeTypedPreferenceScopeKey(
+  tagId: string,
+  item?: string,
+  questionText?: string,
+  questionContext?: string,
+): string {
   const normalizedItem = item ? item.trim().toLowerCase() : '';
   const normalizedQuestionText = questionText ? questionText.trim().toLowerCase() : '';
+  const normalizedQuestionContext = questionContext ? questionContext.trim().toLowerCase() : '';
   let key = normalizedItem ? `${tagId}:${normalizedItem}` : tagId;
+  if (normalizedQuestionContext) key = `${key}:${normalizedQuestionContext}`;
   if (normalizedQuestionText) key = `${key}:${normalizedQuestionText}`;
   return key;
+}
+
+/** Stable route-branch discriminator for two typed questions with the same prompt. Pair-tag
+ *  ancestors are omitted because opposite independently-authored talks reverse that pair; its
+ *  semantics are already represented by the separate tag part of the scope key. */
+export function typedPreferenceQuestionContext(
+  talk: { questions?: any[] },
+  question: { contextPath?: Array<{ questionId: string; answerId: string }> },
+): string {
+  const questions = Array.isArray(talk?.questions) ? talk.questions : [];
+  return (question.contextPath || [])
+    .map((step) => {
+      const parent = questions.find((candidate: any) => String(candidate?.id || '') === String(step.questionId || ''));
+      if (parent?.reciprocalTagContext) return '';
+      const answer = Array.isArray(parent?.answers)
+        ? parent.answers.find((candidate: any) => String(candidate?.id || '') === String(step.answerId || ''))
+        : undefined;
+      return `${String(parent?.text || step.questionId || '').trim()}\u2192${String(answer?.text || step.answerId || '').trim()}`;
+    })
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export function saveTypedPreference(

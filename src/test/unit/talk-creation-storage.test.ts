@@ -2,6 +2,8 @@
 
 import { saveCreatedTalk, copyAnsweredTalkToTalks } from '../../web/ui/talk-creation-storage';
 import { getMyTalks, setMyTalks, type MyTalkMap } from '../../web/ui/my-talks-storage';
+import { getTypedPreferenceState } from '../../web/ui/answer-preferences-storage';
+import { LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
 
 function deps(overrides: Partial<Parameters<typeof saveCreatedTalk>[2]> = {}) {
   return {
@@ -9,6 +11,7 @@ function deps(overrides: Partial<Parameters<typeof saveCreatedTalk>[2]> = {}) {
     saveQuestionAnswersFromCompletion: jest.fn(),
     saveFlatAnswerHistoryRecord: jest.fn(),
     refreshTalksListIfActive: jest.fn(),
+    refreshAnswersListIfActive: jest.fn(),
     ...overrides,
   };
 }
@@ -107,6 +110,38 @@ describe('saveCreatedTalk', () => {
     expect(d.saveFlatAnswerHistoryRecord).toHaveBeenCalledWith('t1', expect.anything(), expect.any(Array), 'mismatch', []);
   });
 
+  it('stores each typed built-in declaration as a structured answer and isolated lookup entry', () => {
+    const d = deps();
+    saveCreatedTalk(talk({
+      title: 'Inventory',
+      type: 'route',
+      questions: [
+        { id: 'root', text: 'Which item?', answers: [{ id: 'notebook', text: 'Notebook' }, { id: 'pen', text: 'Pen' }] },
+        {
+          id: 'notebook-quantity', text: 'How many?',
+          contextPath: [{ questionId: 'root', answerId: 'notebook' }],
+          answers: [], builtIn: { kind: 'quantity', quantity: 5 },
+        },
+        {
+          id: 'pen-quantity', text: 'How many?',
+          contextPath: [{ questionId: 'root', answerId: 'pen' }],
+          answers: [], builtIn: { kind: 'quantity', quantity: 1 },
+        },
+      ],
+    }), { selfAnswers: [] }, d);
+
+    const completed = (d.saveFlatAnswerHistoryRecord as jest.Mock).mock.calls[0][2];
+    expect(completed).toEqual([
+      expect.objectContaining({ questionId: 'notebook-quantity', answerText: '5', typedValue: { kind: 'quantity', quantity: 5 } }),
+      expect.objectContaining({ questionId: 'pen-quantity', answerText: '1', typedValue: { kind: 'quantity', quantity: 1 } }),
+    ]);
+    expect(d.saveQuestionAnswersFromCompletion).not.toHaveBeenCalled();
+    const indexed = Object.values(getTypedPreferenceState().users[LOCAL_EXACT_CHATBOT_USER_ID]);
+    expect(indexed).toHaveLength(2);
+    expect(indexed.map((value) => value.quantity).sort()).toEqual([1, 5]);
+    expect(indexed.every((value) => value.sourceTalkId === 't1')).toBe(true);
+  });
+
   it('refreshes the talks list only when the talks view is active', () => {
     const d = deps();
     document.getElementById('talks-view')!.classList.remove('active');
@@ -116,6 +151,15 @@ describe('saveCreatedTalk', () => {
     document.getElementById('talks-view')!.classList.add('active');
     saveCreatedTalk(talk(), { selfAnswers: [] }, d);
     expect(d.refreshTalksListIfActive).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the answers list after saving a typed declaration when Me is active', () => {
+    const d = deps();
+    document.body.innerHTML = '<div id="me-view" class="active"></div>';
+    saveCreatedTalk(talk({
+      questions: [{ id: 'q1', text: 'How many?', answers: [], builtIn: { kind: 'quantity', quantity: 3 } }],
+    }), { selfAnswers: [] }, d);
+    expect(d.refreshAnswersListIfActive).toHaveBeenCalledTimes(1);
   });
 });
 

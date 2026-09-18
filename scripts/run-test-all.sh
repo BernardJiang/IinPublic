@@ -340,7 +340,7 @@ JEST_WORKERS_ARG=""
 [ "$PREFIX_OVERLAP" = "1" ] && JEST_WORKERS_ARG="--maxWorkers=50%"
 npm run test:type    >"$LOG_DIR/type.log" 2>&1 & P_TYPE=$!
 npm run lint         >"$LOG_DIR/lint.log" 2>&1 & P_LINT=$!
-npx jest --forceExit $JEST_WORKERS_ARG >"$LOG_DIR/jest.log" 2>&1 & P_JEST=$!
+(npm run test:techsupport-key && npx jest --forceExit $JEST_WORKERS_ARG) >"$LOG_DIR/jest.log" 2>&1 & P_JEST=$!
 npm run build:server >"$LOG_DIR/build-server.log" 2>&1 & P_BSRV=$!
 DISABLE_HMR=true npx webpack --mode development --config webpack.config.js \
                      >"$LOG_DIR/build-web.log" 2>&1 & P_BWEB=$!

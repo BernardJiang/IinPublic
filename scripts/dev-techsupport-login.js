@@ -4,6 +4,7 @@ const https = require('https');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { loadTechSupportPairSync } = require('../src/server/security/techsupport-key-custody');
 
 const ROOT = path.join(__dirname, '..');
 const DIST_TECHSUPPORT_MODULE = path.join(ROOT, 'dist', 'server', 'shared', 'techsupport.js');
@@ -40,21 +41,7 @@ function requireCompiledTechSupport() {
 }
 
 function loadPair(techsupport) {
-  let pair;
-  const keyFilePath = process.env.TECHSUPPORT_KEY_FILE;
-  if (keyFilePath) {
-    pair = JSON.parse(fs.readFileSync(keyFilePath, 'utf8'));
-  } else if (process.env.TECHSUPPORT_SEA_PAIR_JSON) {
-    pair = JSON.parse(process.env.TECHSUPPORT_SEA_PAIR_JSON);
-  } else {
-    throw new Error(
-      'Set TECHSUPPORT_SEA_PAIR_JSON (see .env.local) or TECHSUPPORT_KEY_FILE (path to the key file) ' +
-      'before running dev:techsupport.',
-    );
-  }
-  if (!pair || !pair.pub || !pair.priv || !pair.epub || !pair.epriv) {
-    throw new Error('TechSupport key is missing pub/epub/priv/epriv.');
-  }
+  const pair = loadTechSupportPairSync();
   const expectedPub = techsupport.currentTechSupportDmPub();
   if (pair.pub !== expectedPub) {
     throw new Error(

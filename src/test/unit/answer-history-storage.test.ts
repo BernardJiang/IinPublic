@@ -209,6 +209,35 @@ describe('saveFlatAnswerHistoryRecord', () => {
     expect(record.items[0].mode).toBe('typed');
   });
 
+  it('persists a typed declaration as a structured AnswerRecord value, not only display text', () => {
+    const talk = {
+      id: 't',
+      type: 'flow',
+      title: 'Notebook',
+      questions: [{ id: 'q1', text: 'Budget?', answers: [] }],
+    };
+    saveFlatAnswerHistoryRecord(
+      't',
+      talk,
+      [{
+        questionId: 'q1',
+        answerId: 'typed:priceRange',
+        answerText: '300 – 500',
+        mode: 'typed',
+        typedValue: { kind: 'priceRange', priceRange: { min: 300, max: 500 } },
+      }],
+      'mismatch',
+      [],
+    );
+    const [record] = Object.values(getFlatAnswerHistory());
+    expect(record.items[0]).toMatchObject({
+      answerId: 'typed:priceRange',
+      choice: '300 – 500',
+      mode: 'typed',
+      typedValue: { kind: 'priceRange', priceRange: { min: 300, max: 500 } },
+    });
+  });
+
   it('includes locationRadiusMiles on the record only when the talk has one', () => {
     const withRadius = { id: 't1', type: 'flow', questions: [], locationRadiusMiles: 25 };
     const withoutRadius = { id: 't2', type: 'flow', questions: [] };

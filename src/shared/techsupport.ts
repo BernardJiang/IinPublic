@@ -1,4 +1,5 @@
 import type { User } from './types';
+import trustAnchorConfig from './techsupport-trust-anchors.json';
 
 export const TECHSUPPORT_STAGE_NAME = 'TechSupport';
 export const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
@@ -23,7 +24,17 @@ export const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
  * and skip gracefully when it's absent, rather than hardcoding a key — see those helpers' own doc
  * comments for what that means for CI.
  */
-export const TECHSUPPORT_PUB = 'z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc';
+type TechSupportTrustAnchorConfig = {
+  version: number;
+  dm: { current: string; trusted: string[] };
+  announcement: { current: string; trusted: string[] };
+};
+
+const trustAnchors = trustAnchorConfig as TechSupportTrustAnchorConfig;
+
+/** Current TechSupport identity/DM public key. The committed JSON file is deliberately the only
+ *  rotation edit point; `npm run techsupport:key -- rotation ...` changes it atomically. */
+export const TECHSUPPORT_PUB = trustAnchors.dm.current;
 
 /**
  * Two keys, two trust anchors (decision K3-1, docs/TODO.md).
@@ -46,9 +57,10 @@ export const TECHSUPPORT_PUB = 'z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUe
  * discovery only and must be checked against these anchors before use — otherwise a compromised
  * relay could substitute its own TechSupport identity.
  */
-export const TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS: readonly string[] = [TECHSUPPORT_PUB];
+export const TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS: readonly string[] =
+  Object.freeze([...trustAnchors.announcement.trusted]);
 
-export const TECHSUPPORT_DM_TRUST_ANCHORS: readonly string[] = [TECHSUPPORT_PUB];
+export const TECHSUPPORT_DM_TRUST_ANCHORS: readonly string[] = Object.freeze([...trustAnchors.dm.trusted]);
 
 function isTrustedPub(pub: string | undefined | null, anchors: readonly string[]): boolean {
   const candidate = String(pub ?? '').trim();
@@ -66,13 +78,13 @@ export function isTrustedTechSupportDmPub(pub: string | undefined | null): boole
   return isTrustedPub(pub, TECHSUPPORT_DM_TRUST_ANCHORS);
 }
 
-/** The key to sign with now — the newest anchor. */
+/** The key to sign with now. Rotation tooling also orders it first, but `current` is authoritative. */
 export function currentTechSupportDmPub(): string {
-  return TECHSUPPORT_DM_TRUST_ANCHORS[0];
+  return trustAnchors.dm.current;
 }
 
 export function currentTechSupportAnnouncementPub(): string {
-  return TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS[0];
+  return trustAnchors.announcement.current;
 }
 
 export interface TechSupportSeaPair {

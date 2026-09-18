@@ -5,6 +5,7 @@ const path = require('path');
 const readline = require('readline');
 const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { loadTechSupportPairSync } = require('../src/server/security/techsupport-key-custody');
 
 const ROOT = path.join(__dirname, '..');
 const DIST_TECHSUPPORT_MODULE = path.join(ROOT, 'dist', 'server', 'shared', 'techsupport.js');
@@ -40,10 +41,9 @@ const POLL_INTERVAL_MS = Number(process.env.TECHSUPPORT_AGENT_POLL_MS || 5000);
  * a developer's visible browser tab open, so it's meant to run as a standing process (pm2,
  * systemd, a container, etc.) pointed at a real deployment via TECHSUPPORT_APP_URL.
  *
- * Key custody is still a deployment decision this script does not make for you: which machine
- * holds TECHSUPPORT_SEA_PAIR_JSON, and whether it is replicated across redundant operator
- * machines (the design note's "K3-4: server, laptops, dedicated machine") is unscoped ops work —
- * see docs/TODO.md.
+ * Production key custody uses the encrypted TECHSUPPORT_KEY_FILE vault and passphrase source
+ * documented in docs/security/techsupport-key-custody-and-rotation.md. The legacy plaintext
+ * TECHSUPPORT_SEA_PAIR_JSON input remains migration-only.
  */
 function requireCompiledTechSupport() {
   try {
@@ -56,21 +56,7 @@ function requireCompiledTechSupport() {
 }
 
 function loadPair(techsupport) {
-  let pair;
-  const keyFilePath = process.env.TECHSUPPORT_KEY_FILE;
-  if (keyFilePath) {
-    pair = JSON.parse(fs.readFileSync(keyFilePath, 'utf8'));
-  } else if (process.env.TECHSUPPORT_SEA_PAIR_JSON) {
-    pair = JSON.parse(process.env.TECHSUPPORT_SEA_PAIR_JSON);
-  } else {
-    throw new Error(
-      'Set TECHSUPPORT_SEA_PAIR_JSON (see .env.local) or TECHSUPPORT_KEY_FILE (path to the key file) ' +
-      'before running the TechSupport agent.',
-    );
-  }
-  if (!pair || !pair.pub || !pair.priv || !pair.epub || !pair.epriv) {
-    throw new Error('TechSupport key is missing pub/epub/priv/epriv.');
-  }
+  const pair = loadTechSupportPairSync();
   const expectedPub = techsupport.currentTechSupportDmPub();
   if (pair.pub !== expectedPub) {
     throw new Error(

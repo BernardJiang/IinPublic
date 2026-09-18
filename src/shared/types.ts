@@ -184,6 +184,9 @@ export interface AnswerWithContext {
   questionId: string;
   answerId: string;
   answerText: string;
+  /** Structured source value for a self-authored built-in declaration (§30.3/§EE).
+   *  `answerText` remains its display projection for backward-compatible consumers. */
+  typedValue?: BuiltInQuestionSpec;
   /**
    * Hash of the context path that was active when this answer was given.
    * '' (empty) for tag/survey/flow. 8-char hex for route branches.

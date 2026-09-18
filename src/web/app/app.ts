@@ -42,7 +42,7 @@ import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
   acceptsIncomingTalks,
   isTechSupportUser,
-  TECHSUPPORT_PUB,
+  TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS,
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
@@ -1246,12 +1246,12 @@ export class IinPublicApp {
   private subscribeToPublicAnnouncements(): void {
     const publicGun = this.gunService.getGun().get('public');
     publicGun.get('techsupport-identity').on((raw: unknown) => {
-      void isVerifiedTechSupportIdentity(raw, TECHSUPPORT_PUB).then((valid) => {
+      void isVerifiedTechSupportIdentity(raw, TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS).then((valid) => {
         if (raw && !valid) this.uiManager.showNotification('TechSupport identity verification failed.', 'warning');
       });
     });
     publicGun.get('announcements').map().on((raw: unknown) => {
-      void isRenderableSystemAnnouncement(raw, TECHSUPPORT_PUB).then((valid) => {
+      void isRenderableSystemAnnouncement(raw, TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS).then((valid) => {
         if (valid) {
           const announcement = raw as { id: string; text: string };
           this.uiManager.showSystemAnnouncement(announcement);
@@ -2497,8 +2497,9 @@ export class IinPublicApp {
    * ordinary (non-K3-mode) bootstrap — can have overwritten with an unrelated device keypair.
    * Encrypting to that would silently produce an envelope the real TechSupport device can never
    * decrypt. `discoverTechSupportIdentityFromGun()` reads the signed `public/techsupport-identity`
-   * record and verifies it against the compiled `TECHSUPPORT_PUB` trust anchor, so its `epub` is
-   * guaranteed to be the canonical DM key's — the same guarantee K1/K3 already rely on elsewhere.
+   * record and verifies it against the compiled TechSupport trust-anchor overlap list, so its
+   * `epub` is guaranteed to belong to an authorized DM key — the same guarantee K1/K3 already
+   * rely on elsewhere, including during staged key rotation.
    */
   private async postSupportQuestionToMailbox(entry: SupportInboxEntry): Promise<void> {
     if (this.mailboxFallbackDisabledForE2e) return;
@@ -6818,19 +6819,30 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('updateTalk', async (data: { id: string; title: string; type: string; questions: any[]; language?: string; tags?: any[] }) => {
+    this.uiManager.on('updateTalk', async (data: Partial<Talk> & {
+      id: string;
+      title: string;
+      type: string;
+      questions: any[];
+      selfAnswers?: Array<{ questionId: string; answerId: string }>;
+    }) => {
       try {
         const updatedTalk = await this.talkService.updateTalk(data.id, {
           title: data.title,
-          type: data.type as 'flow' | 'survey',
+          type: data.type as Talk['type'],
           questions: data.questions,
           language: data.language || 'en',
           tags: data.tags || [],
+          ...(data.isAdult !== undefined ? { isAdult: data.isAdult } : {}),
+          ...(data.expiresAt !== undefined ? { expiresAt: data.expiresAt } : {}),
+          ...(data.locationRadiusMiles !== undefined ? { locationRadiusMiles: data.locationRadiusMiles } : {}),
+          ...(data.matchThreshold !== undefined ? { matchThreshold: data.matchThreshold } : {}),
         });
         if (Array.isArray(updatedTalk.ipfsAttachments) && updatedTalk.ipfsAttachments.length > 0) {
           await this.ensureContentNodeInitialized();
           this.contentNodeService.pinTalkAttachments(updatedTalk.id, updatedTalk.ipfsAttachments);
         }
+        this.uiManager.saveCreatedTalk(updatedTalk, { selfAnswers: data.selfAnswers ?? [] });
         this.uiManager.showNotification(this.uiManager.formatTalkUpdated(), 'success');
         this.uiManager.displayTalksList();
         // Phase F: emit TALK_SUPERSEDED so peers know this talk was revised.

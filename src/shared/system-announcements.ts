@@ -57,13 +57,14 @@ export async function signTechSupportIdentity(
  */
 export async function readVerifiedTechSupportIdentity(
   value: unknown,
-  expectedPub?: string,
+  expectedPub?: string | readonly string[],
 ): Promise<TechSupportIdentity | null> {
   if (!value || typeof value !== 'object') return null;
   const identity = value as Partial<TechSupportIdentity>;
   if (!identity.pub || !identity.epub || !identity.signature) return null;
   if (identity.userId !== TECHSUPPORT_ROOT_USER_ID || identity.role !== TECHSUPPORT_NETWORK_ROLE) return null;
-  if (expectedPub && identity.pub !== expectedPub) return null;
+  const expectedPubs = typeof expectedPub === 'string' ? [expectedPub] : expectedPub;
+  if (expectedPubs && !expectedPubs.includes(identity.pub)) return null;
   const payload = canonicalSerialize({
     userId: identity.userId,
     pub: identity.pub,
@@ -81,7 +82,10 @@ export async function readVerifiedTechSupportIdentity(
   };
 }
 
-export async function isVerifiedTechSupportIdentity(value: unknown, expectedPub: string): Promise<boolean> {
+export async function isVerifiedTechSupportIdentity(
+  value: unknown,
+  expectedPub: string | readonly string[],
+): Promise<boolean> {
   return (await readVerifiedTechSupportIdentity(value, expectedPub)) !== null;
 }
 
@@ -119,7 +123,7 @@ export async function createSystemAnnouncement(
 
 export async function isRenderableSystemAnnouncement(
   value: unknown,
-  expectedAuthorPub: string,
+  expectedAuthorPub: string | readonly string[],
   now = new Date(),
 ): Promise<boolean> {
   if (!value || typeof value !== 'object') return false;
@@ -127,7 +131,8 @@ export async function isRenderableSystemAnnouncement(
   if (!candidate.id || !candidate.authorPub || !candidate.text || !candidate.createdAt || !candidate.expiresAt || !candidate.signature) {
     return false;
   }
-  if (candidate.authorPub !== expectedAuthorPub || new Date(candidate.expiresAt).getTime() <= now.getTime()) return false;
+  const expectedPubs = typeof expectedAuthorPub === 'string' ? [expectedAuthorPub] : expectedAuthorPub;
+  if (!expectedPubs.includes(candidate.authorPub) || new Date(candidate.expiresAt).getTime() <= now.getTime()) return false;
   const unsigned: UnsignedSystemAnnouncement = {
     id: candidate.id,
     authorPub: candidate.authorPub,

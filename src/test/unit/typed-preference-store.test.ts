@@ -1,13 +1,46 @@
 import {
   clearTypedPreference,
   createEmptyTypedPreferenceState,
+  formatTypedAnswerValue,
   getTypedPreference,
   LOCAL_TYPED_PREFERENCE_USER_ID,
   makeTypedPreferenceScopeKey,
   saveTypedPreference,
+  typedAnswerValueFromBuiltIn,
+  typedPreferenceQuestionContext,
 } from '../../shared/typed-preference-store';
 
 describe('typed-preference-store', () => {
+  it('round-trips a structured built-in declaration without aliasing its question object', () => {
+    const builtIn = { kind: 'ageRange' as const, ageRange: { age: 31, acceptableRange: { min: 28, max: 40 } } };
+    const value = typedAnswerValueFromBuiltIn(builtIn);
+    expect(value).toEqual(builtIn);
+    builtIn.ageRange.acceptableRange.min = 99;
+    expect(value?.ageRange?.acceptableRange.min).toBe(28);
+    expect(formatTypedAnswerValue(value!)).toBe('Age 31; accepts 28 – 40');
+    expect(typedAnswerValueFromBuiltIn({ kind: 'location' })).toBeUndefined();
+  });
+
+  it('isolates identical prompts on different route branches while omitting Pair-tag ancestry', () => {
+    const talk = {
+      questions: [
+        { id: 'pair', text: 'sell', reciprocalTagContext: true, answers: [{ id: 'buy', text: 'buy' }] },
+        { id: 'item', text: 'Which item?', answers: [{ id: 'notebook', text: 'Notebook' }, { id: 'pen', text: 'Pen' }] },
+      ],
+    };
+    const notebookContext = typedPreferenceQuestionContext(talk, {
+      contextPath: [{ questionId: 'pair', answerId: 'buy' }, { questionId: 'item', answerId: 'notebook' }],
+    });
+    const penContext = typedPreferenceQuestionContext(talk, {
+      contextPath: [{ questionId: 'pair', answerId: 'buy' }, { questionId: 'item', answerId: 'pen' }],
+    });
+    expect(notebookContext).toBe('Which item?→Notebook');
+    expect(penContext).toBe('Which item?→Pen');
+    expect(makeTypedPreferenceScopeKey('sell', 'Stock', 'How many?', notebookContext)).not.toBe(
+      makeTypedPreferenceScopeKey('sell', 'Stock', 'How many?', penContext),
+    );
+  });
+
   it('has no preference in an empty state', () => {
     const state = createEmptyTypedPreferenceState();
     const key = makeTypedPreferenceScopeKey('t_buy');

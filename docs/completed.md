@@ -1,6 +1,41 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-13
+Last updated: 2026-09-18
+
+## 2026-09-18 — Priority 5 K7: production TechSupport key custody and rotation
+
+- Added `npm run techsupport:key` with encrypted-vault generation, plaintext migration, safe
+  inspection, signing verification, and guarded prepare/activate/retire rotation phases. Vaults
+  use AES-256-GCM with scrypt, authenticated public metadata, random salt/IV, atomic mode-`600`
+  writes, separate passphrase sources, and public-only SHA-256 fingerprints.
+- Replaced the scalar rotation edit path with committed role-aware trust-anchor config. Web
+  identity and announcement verification now accept every overlap anchor, while signing and the
+  optional server announcement service require the explicit current key. Activation builds and
+  re-signs all four committed artifacts transactionally, restoring them if any step fails.
+- Unified the encrypted loader across the operator browser, headless agent, four signers, and
+  server-only announcement service. Plaintext env JSON remains migration-only; the production VPS
+  guide now recommends keeping the root vault off-server and documents an encrypted fallback.
+- Added the full custody/backup/restore/rollout/rollback/compromise runbook at
+  `docs/security/techsupport-key-custody-and-rotation.md`, including the honest v1 limitation that
+  DM and announcement roles rotate together until the signed identity protocol gains distinct
+  role keys.
+- Verification: typecheck and lint pass; production server/web builds pass; 225 unit suites / 2,298
+  Jest tests pass (8 skipped), all 6 key-tool crypto/transition tests pass, and 10 integration
+  suites / 90 tests pass (1 skipped).
+
+## 2026-09-18 — Priority 4 completed: typed AnswerRecords and precise ad-hoc context
+
+- Self-authored non-location built-ins now persist as ordinary Me-tab flat AnswerRecords with a
+  structured `typedValue`; the prior `typedPreferenceState` remains a derived matching index and
+  is written only after successful talk creation/update. Owned-talk edits refresh both stores.
+- Typed lookup scope now includes a normalized route Q→A context (excluding reversible Pair-tag
+  ancestry), so identical prompts on different branches do not overwrite each other.
+- The route-editor E2E covers structured-value storage, two-branch Me rendering, editor round trip,
+  and editing one declaration without changing its sibling. Unit characterization also proves
+  that an ad-hoc answer to someone else's Pair-tag talk carries precise own/counterpart tag context
+  even when the responder has no authored talk.
+- The two remaining §II checkboxes were retired as explicitly superseded/delivered by §LL. With
+  §DD, §EE, §II, §JJ, and §KK resolved, Priority 4 has no open work.
 
 ## 2026-09-13 — Priority 6 React DOM evaluation and performance baseline
 

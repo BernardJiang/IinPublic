@@ -244,6 +244,52 @@ describe('UIManager answer-preference resolution characterization', () => {
     });
   });
 
+  it('keeps an ad-hoc answer to someone else\'s Pair-tag talk precisely tag-scoped without an own talk', () => {
+    const ui = preferenceUi('me');
+    const pair = {
+      id: 'pair',
+      text: 'buy',
+      reciprocalTagContext: true,
+      answers: [{ id: 'sell', text: 'sell' }, { id: 'ignore', text: 'Ignore', isIgnore: true }],
+    };
+    const sourceQuestion = {
+      id: 'source-model',
+      text: 'Which model?',
+      answers: [{ id: 'source-a', text: 'Model A' }, { id: 'source-b', text: 'Model B' }],
+    };
+    const sourceTalk = {
+      id: 'their-first', type: 'flow', language: 'en', authorId: 'other', questions: [pair, sourceQuestion],
+    };
+    ui.saveAnswerPreference(sourceTalk, sourceTalk.id, sourceQuestion, 'source-b', 'Model B', [
+      { questionId: pair.id, answerText: 'sell' },
+      { questionId: sourceQuestion.id, answerText: 'Model B' },
+    ], 'auto');
+
+    const nextQuestion = {
+      id: 'next-model',
+      text: 'Which model?',
+      answers: [{ id: 'next-a', text: 'Model A' }, { id: 'next-b', text: 'Model B' }],
+    };
+    const nextTalk = {
+      id: 'their-next', type: 'flow', language: 'en', authorId: 'another', questions: [pair, nextQuestion],
+    };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(nextTalk, 1, [], nextQuestion, nextTalk.id)).toMatchObject({
+      answerId: 'next-b',
+      answerText: 'Model B',
+      autoAnswerReason: 'FLATTENED_CONTEXT_MATCH',
+    });
+
+    const expectedKey = buildAnswerPreferenceLookupKey(
+      sourceTalk,
+      computeTalkIdFromTalkData(sourceTalk),
+      1,
+      [],
+      sourceQuestion.text,
+      { mySelfTag: 'sell', counterpartTag: 'buy' },
+    );
+    expect(getFlattenedAnswerPreferences()[expectedKey]).toBeDefined();
+  });
+
   // docs/TODO.md §JJ residual gap: a chatbot auto-reply formed from memory taught by self-
   // answering one of my own talks should be traceable back to that specific talkId.
   describe('sourceTalkId — docs/TODO.md §JJ residual gap', () => {

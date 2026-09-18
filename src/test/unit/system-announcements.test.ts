@@ -1,4 +1,7 @@
 import SEA from 'gun/sea';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { canonicalSerialize } from '../../shared/cid';
 import {
   announcementSigningPayload,
@@ -11,6 +14,7 @@ import {
 } from '../../shared/system-announcements';
 import { TECHSUPPORT_NETWORK_ROLE, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { TechSupportAnnouncementService } from '../../server/services/techsupport-announcement-service';
+import { sealPair } from '../../server/security/techsupport-key-custody';
 
 describe('system announcements', () => {
   it('requires a current signed TechSupport admin authorization before publishing', async () => {
@@ -48,6 +52,29 @@ describe('system announcements', () => {
     await expect(readVerifiedTechSupportIdentity({ ...identity, signature })).resolves.toEqual({ ...identity, signature });
   });
 
+  it('accepts either trust anchor during a staged key-rotation overlap', async () => {
+    const [oldPair, newPair] = await Promise.all([SEA.pair(), SEA.pair()]);
+    const oldIdentity = await signTechSupportIdentity(oldPair);
+    const newIdentity = await signTechSupportIdentity(newPair);
+    const overlap = [newPair.pub, oldPair.pub];
+
+    await expect(readVerifiedTechSupportIdentity(oldIdentity, overlap)).resolves.toEqual(oldIdentity);
+    await expect(readVerifiedTechSupportIdentity(newIdentity, overlap)).resolves.toEqual(newIdentity);
+    await expect(readVerifiedTechSupportIdentity(oldIdentity, [newPair.pub])).resolves.toBeNull();
+
+    const oldAnnouncement = await createSystemAnnouncement({
+      text: 'Overlap notice.',
+      createdAt: '2026-09-18T12:00:00.000Z',
+      expiresAt: '2026-09-19T12:00:00.000Z',
+    }, oldPair);
+    await expect(
+      isRenderableSystemAnnouncement(oldAnnouncement, overlap, new Date('2026-09-18T13:00:00.000Z')),
+    ).resolves.toBe(true);
+    await expect(
+      isRenderableSystemAnnouncement(oldAnnouncement, [newPair.pub], new Date('2026-09-18T13:00:00.000Z')),
+    ).resolves.toBe(false);
+  });
+
   it('signTechSupportIdentity produces a record readVerifiedTechSupportIdentity accepts (docs/TODO.md K3)', async () => {
     const pair = await SEA.pair();
     const identity = await signTechSupportIdentity(pair);
@@ -72,6 +99,39 @@ describe('system announcements', () => {
       ['public', 'techsupport-identity'],
       expect.objectContaining({ userId: TECHSUPPORT_ROOT_USER_ID, role: TECHSUPPORT_NETWORK_ROLE }),
     );
+  });
+
+  it('loads the optional announcement signer from an encrypted production vault', async () => {
+    const originalFile = process.env.TECHSUPPORT_KEY_FILE;
+    const originalPassphrase = process.env.TECHSUPPORT_KEY_PASSPHRASE;
+    const originalLegacyPair = process.env.TECHSUPPORT_SEA_PAIR_JSON;
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-announcement-vault-'));
+    const keyFile = path.join(directory, 'key.json');
+    const realPair = process.env.TECHSUPPORT_SEA_PAIR_JSON
+      ? JSON.parse(process.env.TECHSUPPORT_SEA_PAIR_JSON)
+      : null;
+    if (!realPair) {
+      fs.rmSync(directory, { recursive: true });
+      return;
+    }
+    fs.writeFileSync(keyFile, JSON.stringify(sealPair(realPair, 'announcement-test-passphrase')), {
+      mode: 0o600,
+    });
+    try {
+      process.env.TECHSUPPORT_KEY_FILE = keyFile;
+      process.env.TECHSUPPORT_KEY_PASSPHRASE = 'announcement-test-passphrase';
+      delete process.env.TECHSUPPORT_SEA_PAIR_JSON;
+      const service = new TechSupportAnnouncementService({ putPath: jest.fn() } as any);
+      expect(service.isConfigured()).toBe(true);
+    } finally {
+      if (originalFile === undefined) delete process.env.TECHSUPPORT_KEY_FILE;
+      else process.env.TECHSUPPORT_KEY_FILE = originalFile;
+      if (originalPassphrase === undefined) delete process.env.TECHSUPPORT_KEY_PASSPHRASE;
+      else process.env.TECHSUPPORT_KEY_PASSPHRASE = originalPassphrase;
+      if (originalLegacyPair === undefined) delete process.env.TECHSUPPORT_SEA_PAIR_JSON;
+      else process.env.TECHSUPPORT_SEA_PAIR_JSON = originalLegacyPair;
+      fs.rmSync(directory, { recursive: true });
+    }
   });
 
   it('renders a valid unexpired announcement', async () => {
