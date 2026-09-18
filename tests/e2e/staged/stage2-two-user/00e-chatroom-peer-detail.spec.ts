@@ -140,11 +140,17 @@ test.describe('Chatroom peer detail views', () => {
       // Tom waits for Jerry to appear
       await pageTom.waitForSelector('.chatroom-member-item', { timeout: 20_000 });
       const jerryItem = pageTom.locator('.chatroom-member-item').filter({ hasText: 'JerryS' });
-      await expect(jerryItem).toBeVisible({ timeout: 15_000 });
+      // playwright.config.ts's own global `expect` timeout already scales with worker count
+      // (20s at 8-15 workers, 30s at 16+) precisely because presence sync gets slower under
+      // real concurrent load — this explicit 15s override undercut that adaptive default and
+      // reproducibly timed out once in a real `test:all` light-phase run (12 workers). Match
+      // the other Gun-sync-under-load fixes from this same investigation (30s) rather than
+      // relying on an unset override to fall back to the (still lower, 20s) global default.
+      await expect(jerryItem).toBeVisible({ timeout: 30_000 });
 
       // Room membership is local presence; relationship labels belong in peer detail.
       const status = jerryItem.locator('.chatroom-member-status');
-      await expect(status).toHaveText('Online now', { timeout: 15_000 });
+      await expect(status).toHaveText('Online now', { timeout: 30_000 });
     } finally {
       await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
     }

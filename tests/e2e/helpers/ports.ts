@@ -50,14 +50,54 @@ export function parallelSlot(): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+/**
+ * WHATWG Fetch spec's blocked-ports list (https://fetch.spec.whatwg.org/#block-bad-port),
+ * copied verbatim from Node's bundled undici (node_modules/undici/lib/web/fetch/constants.js —
+ * re-check that file if this ever needs updating). Node's global `fetch()` throws "TypeError:
+ * fetch failed" -> "Error: bad port" for any of these, unconditionally, regardless of whether a
+ * real server is listening — a raw `http`/`net` client (e.g. Playwright's own webServer
+ * readiness probe) is NOT subject to this, so a webServer can look perfectly healthy while every
+ * `fetch()`-based health check in the test itself fails forever. Found the hard way: offset
+ * arithmetic (TEST_ALL_PORT_OFFSET=1500 + cross-browser's own +500) landed exactly on 10080,
+ * costing ~18 minutes of dead 90s-timeout retries per run until this was traced down.
+ */
+const FETCH_FORBIDDEN_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102,
+  103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465,
+  512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993,
+  995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668,
+  6669, 6679, 6697, 10080,
+]);
+
+/**
+ * Fails immediately and loudly if `port` is on fetch()'s forbidden-ports list, instead of
+ * letting it silently manifest later as every `fetch()`-based health check timing out. Call this
+ * wherever a gun/web port is actually about to be used to start a server (playwright.config.ts's
+ * webServer array; any ad-hoc script that derives its own offset).
+ */
+export function assertNotFetchForbiddenPort(port: number, label: string): void {
+  if (FETCH_FORBIDDEN_PORTS.has(port)) {
+    throw new Error(
+      `${label}: computed port ${port} is on fetch()'s WHATWG-forbidden-ports list — every ` +
+        `fetch()-based health check (e.g. waitForGunApiReady) will fail forever on this port, ` +
+        `even though a raw http/net client (Playwright's own webServer probe) sees it as ` +
+        `healthy. Change the offset that produced this port, it will never work as-is.`,
+    );
+  }
+}
+
 /** Web dev/static-server port for this worker (3001 + offset + index). */
 export function webPort(idx: number = parallelSlot()): number {
-  return 3001 + portOffset() + idx;
+  const port = 3001 + portOffset() + idx;
+  assertNotFetchForbiddenPort(port, 'webPort');
+  return port;
 }
 
 /** Gun/API server port for this worker (8080 + offset + index). */
 export function gunPort(idx: number = parallelSlot()): number {
-  return 8080 + portOffset() + idx;
+  const port = 8080 + portOffset() + idx;
+  assertNotFetchForbiddenPort(port, 'gunPort');
+  return port;
 }
 
 /**

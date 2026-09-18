@@ -414,7 +414,21 @@ start_phase find-similar 300 \
   env PW_WORKERS=1 npx playwright test tests/e2e/staged/stage5-multi-user/find-similar-people.spec.ts
 if [ "$CROSS_BROWSER_PHASE" = "1" ]; then
   maybe_wait 2
-  start_phase cross-browser 500 \
+  # Offset 500 used to land here (TEST_ALL_PORT_OFFSET=1500 + 500 = 2000 -> gun port 10080).
+  # 10080 is on the WHATWG Fetch spec's blocked-ports list (fetch.spec.whatwg.org/#block-bad-port,
+  # implemented verbatim in Node's bundled undici, node_modules/undici/lib/web/fetch/constants.js).
+  # Every test's own `fetch()` health check (helpers/clear-database.ts's waitForGunApiReady)
+  # threw "TypeError: fetch failed" -> "Error: bad port" on every single attempt, deterministically,
+  # regardless of load — found by isolating this phase alone and reproducing an identical failure
+  # with zero concurrent load, then confirming directly: `node -e "fetch('http://127.0.0.1:10080/')"`
+  # rejects with "bad port" even though Playwright's OWN webServer readiness probe (a raw
+  # net/http check, not fetch()) sees the server as healthy immediately — which is exactly why
+  # only the *test's* health check ever failed. 90s x 2 retries x 6 tests ate ~18 of the ~15
+  # extra minutes behind a "16 -> 31 minute" regression. 550 avoids every port on that list for
+  # both TEST_ALL_PORT_OFFSET=0 (8630/3551) and =1500 (10130/5051) -- see ports.ts's
+  # assertNotFetchForbiddenPort, now called from playwright.config.ts's webServer construction,
+  # which fails fast and loud instead of a silent 90s-per-test mystery if this ever recurs.
+  start_phase cross-browser 550 \
     env E2E_CROSS_BROWSER=1 PW_WORKERS=1 npx playwright test tests/e2e/platform-smoke \
       --project=webkit --project=firefox
 fi

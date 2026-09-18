@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { assertNotFetchForbiddenPort } from './tests/e2e/helpers/ports';
 
 /** Milliseconds between browser actions (CLI has no --slow-mo). Example: `PW_SLOW_MO=1000 npm run test:e2e -- …` */
 const pwSlowMo = process.env.PW_SLOW_MO;
@@ -218,6 +219,12 @@ const PORT_OFFSET = (() => {
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + PORT_OFFSET + i;
   const webPort = 3001 + PORT_OFFSET + i;
+  // Fails fast at config-eval time instead of a silent, expensive 90s-per-test mystery — see
+  // ports.ts's assertNotFetchForbiddenPort doc comment for the real incident this guards against
+  // (E2E_PORT_OFFSET=2000 landed exactly on port 10080, which every test's own fetch() health
+  // check refuses unconditionally even though this webServer itself starts up fine).
+  assertNotFetchForbiddenPort(gunPort, 'playwright.config.ts webServer gunPort');
+  assertNotFetchForbiddenPort(webPort, 'playwright.config.ts webServer webPort');
   return [
     {
       // Mesh-talk default: server bootstraps discovery/signaling, then browsers exchange talks over WebRTC.

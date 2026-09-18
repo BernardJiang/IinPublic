@@ -3282,6 +3282,12 @@ export class IinPublicApp {
    *      worded listings both reaching me): different talkIds, so rule 1 can't find them, but
    *      `buildTalkIdentityKey` hashes the matched CONTENT, which is identical either way.
    */
+  /** See `maybeFinalizeConfirmedDeal`'s use below and `handleRetractTalk`'s guard — closes a
+   * real (load-dependent, not deterministic) race where a conversation's `dealConfirmedByJson`
+   * re-read inside the synchronous retraction cascade a deal-confirmation itself triggers could
+   * transiently see a stale value and wrongly withdraw the conversation it just finalized. */
+  private readonly conversationIdsProtectedFromRetraction = new Set<string>();
+
   private maybeFinalizeConfirmedDeal(dealConfirmedBy: string[], otherUserId?: string, conversationId?: string): void {
     if (!this.currentUser?.id || !otherUserId) return;
     const bothConfirmed =
@@ -3310,8 +3316,28 @@ export class IinPublicApp {
         ? [recordedTalkId]
         : Array.from(myActiveDealEligibleTalkIds);
 
-    for (const talkId of talkIdsToDisable) {
-      this.uiManager.setTalkDisabled(talkId, true);
+    // `setTalkDisabled(talkId, true)` synchronously floods a hard-retraction event
+    // (talk-broadcast-toggle.ts emits 'retractTalk'), which `handleRetractTalk` handles by
+    // RE-READING `getMyConversations()` and re-deriving "is this conversation's deal already
+    // mutually confirmed" from `conv.dealConfirmedByJson` — a fresh read of the exact
+    // localStorage snapshot `applyDealConfirmedBy` just wrote, moments ago, in the same
+    // synchronous call stack. That re-derivation is a real gap: an interleaved Gun-sync echo
+    // for the SAME conversation record (e.g. an unrelated lastActivity heartbeat) landing
+    // between that write and this read can transiently overwrite dealConfirmedByJson with a
+    // stale value, silently withdrawing the very conversation just finalized — reproduced once
+    // in a real `test:all` run under heavy concurrent load, never in isolation (consistent with
+    // a load-dependent interleaving, not a deterministic logic bug). Registering this
+    // conversationId as protected up front removes the dependency on that re-read entirely for
+    // the one conversation this exact call is finalizing — `handleRetractTalk`'s guard checks
+    // this set first, before ever consulting the (still-kept, still useful for every other
+    // trigger path) `dealConfirmedByJson` re-check.
+    if (conversationId) this.conversationIdsProtectedFromRetraction.add(conversationId);
+    try {
+      for (const talkId of talkIdsToDisable) {
+        this.uiManager.setTalkDisabled(talkId, true);
+      }
+    } finally {
+      if (conversationId) this.conversationIdsProtectedFromRetraction.delete(conversationId);
     }
 
     const changedAt = new Date().toISOString();
@@ -3394,6 +3420,7 @@ export class IinPublicApp {
     for (const [conversationId, conv] of Object.entries(allConversations)) {
       if (this.conversationReferencesTalk(conv, talkId)) {
         const otherUserId = String((conv as any).otherUserId || '');
+        if (this.conversationIdsProtectedFromRetraction.has(conversationId)) continue;
         if (this.isDealMutuallyConfirmed(conv, authorId, otherUserId)) continue;
         this.uiManager.markConversationWithdrawn(
           otherUserId,
@@ -3445,8 +3472,9 @@ export class IinPublicApp {
     // finalized match is a successful outcome, never retroactively invalidated by the
     // retraction that produced it).
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
-    for (const [, conv] of Object.entries(allConversations)) {
+    for (const [conversationId, conv] of Object.entries(allConversations)) {
       if (this.conversationReferencesTalk(conv, payload.talkId) && (conv as any).otherUserId === payload.authorId) {
+        if (this.conversationIdsProtectedFromRetraction.has(conversationId)) break;
         if (this.isDealMutuallyConfirmed(conv, this.currentUser.id, payload.authorId)) break;
         this.uiManager.markConversationWithdrawn(
           payload.authorId,

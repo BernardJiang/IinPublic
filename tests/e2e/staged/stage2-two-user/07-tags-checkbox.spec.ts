@@ -190,6 +190,10 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await waitForResponseModalClosed(pageTom);
 
     // 7) Alice still has exactly the match conversation after Tom ignores Cat.
+    // Same `myConversations` read as step 5's identical check just above (30s there) — this one
+    // was left at 10s, an outlier among this file's other Gun-sync polls (30-90s), and it
+    // reproducibly timed out in real `test:all` runs (2026-09-17) waiting on the same settle
+    // delay step 5 already budgets for. Match step 5's timeout rather than a bare guess.
     await expect
       .poll(
         async () =>
@@ -197,7 +201,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
             const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
             return Object.values(conversations).filter((conversation: any) => conversation.otherUserName === 'Tom').length;
           }),
-        { timeout: 10_000 },
+        { timeout: 30_000 },
       )
       .toBeGreaterThanOrEqual(1);
 
