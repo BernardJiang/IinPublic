@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.40",
+  "version": "1.0.41",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -47,6 +47,9 @@
     "test:e2e:embedded-node": "npm run build:embedded && E2E_GUN_MEMORY_ONLY=1 playwright test --config tests/e2e/embedded-node/playwright.config.ts",
     "test:e2e:native-app": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts",
     "test:e2e:real-device-matrix": "npm run build:embedded && E2E_REAL_DEVICE_MATRIX=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/06-seven-client-real-device-matrix.spec.ts",
+    "test:e2e:android-directional-pairs": "npm run build:embedded && E2E_REAL_ANDROID_DIRECTIONAL_PAIRS=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/11-android-cross-engine-directional-pairs.spec.ts",
+    "test:e2e:android-lifecycle": "npm run build:embedded && E2E_REAL_ANDROID_LIFECYCLE=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/12-android-lifecycle-and-network-resilience.spec.ts",
+    "test:e2e:android-three-phone-resync": "npm run build:embedded && E2E_REAL_ANDROID_THREE_PHONE_RESYNC=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/13-android-three-phone-offline-resync.spec.ts",
     "test:e2e:windows": "node scripts/run-windows-e2e.mjs",
     "test:e2e:windows:preflight": "node scripts/run-windows-e2e.mjs --preflight",
     "test:e2e:windows:desktop": "node scripts/run-windows-e2e.mjs --desktop",

@@ -454,22 +454,67 @@ adb devices
 Add cross-platform scenarios:
 
 - [x] Android -> Chromium (Android Charlie -> Chromium ring edge).
-- [ ] Chromium -> Android
-- [ ] Android -> WebKit
-- [ ] Android -> Firefox
-- [ ] Android -> macOS App
+- [x] Chromium -> Android. **Landed 2026-09-18.**
+- [x] Android -> WebKit. **Landed 2026-09-18.**
+- [x] Android -> Firefox. **Landed 2026-09-18.**
+- [x] Android -> macOS App. **Landed 2026-09-18.**
 - [x] macOS App -> Android (macOS -> Android Alice ring edge).
 
 Important IinPublic tests:
 
 - [x] Android discovers desktop peer.
 - [x] Desktop discovers Android peer.
-- [ ] Android publishes a Talk and desktop receives it.
+- [x] Android publishes a Talk and desktop receives it. **Landed 2026-09-18** (same run as
+  "Android -> macOS App" below — one Android-authored talk completed by the macOS Electron app).
 - [x] Desktop publishes a Talk and Android receives it.
-- [ ] Android disconnect/reconnect.
-- [ ] Android app background/foreground.
-- [ ] Network interruption and recovery.
-- [ ] Identity persistence after app restart.
+- [x] Android disconnect/reconnect. **Landed 2026-09-18.**
+- [x] Android app background/foreground. **Landed 2026-09-18.**
+- [x] Network interruption and recovery. **Landed 2026-09-18** (same mechanism/run as disconnect/
+  reconnect above).
+- [x] Identity persistence after app restart. **Landed 2026-09-18.**
+
+**2026-09-18, continued — `tests/e2e/native-app/12-android-lifecycle-and-network-resilience.spec.ts`
+(`npm run test:e2e:android-lifecycle`, opt-in via `E2E_REAL_ANDROID_LIFECYCLE=1`), real bug hunt
+that turned out to be a test-setup bug, not a product bug — recorded because the failure mode was
+genuinely misleading:** first version seeded the matched conversation directly via
+`WebConversationService.createConversation` (the same shortcut spec 10's `seedPairThread` uses),
+then toggled the phone's real Wi-Fi off/on (`adb shell svc wifi disable`/`enable`, confirmed
+working without root on this hardware) or backgrounded the app (`input keyevent KEYCODE_HOME` +
+relaunch intent) around a Chromium peer sending a message into the open conversation. All three
+scenarios failed identically: the message never appeared on the Android side even well past
+generous timeouts (60s / 30s). Before concluding this was a real disconnect/backgrounding bug,
+built a minimal standalone repro with NO lifecycle action at all (no Wi-Fi toggle, no
+backgrounding) — it failed the same way, and critically, **the sender (Chromium) never even saw
+its own just-sent message**, which ruled out Android/Wi-Fi/backgrounding entirely and pointed at
+the conversation setup itself. Root cause: the direct-`createConversation` shortcut never
+exchanges the peers' SEA `epub` (the encryption public key), unlike a real match, which does —
+`fast-dm-setup.ts`'s `setupFastMatchedDm` explicitly threads `authorEpub` through its talk
+definition for exactly this reason. Fix: replaced the shortcut with a real pair-direct mesh match
+(`peerMeshService.cacheTalkBody` + `submitTalkResponsePairDirect`, mirroring `setupFastMatchedDm`
+but generalized to one Android WebView `Page` + one browser `Page`) via a new
+`establishRealMatchAndOpenConversation` helper. Verified the fix with the same minimal repro
+(passed, both sides saw the message, ~52s) before re-running the full spec. Real hardware: phone
+`android-bob` (`PM1LHMA7A2707315`) + a headless Chromium peer. All 3 scenarios then passed
+cleanly: **3 passed (3.6m)** — Wi-Fi disconnect/reconnect (message sent while the phone's Wi-Fi is
+off arrives after it's re-enabled), background/foreground (message sent while the app is
+backgrounded via the real Home key is already there when the app returns to the foreground,
+confirming `NodeForegroundService` really does keep the embedded node running off-screen), and
+identity persistence across a real `am force-stop` + relaunch (same user id and stage name).
+
+**2026-09-18:** new `tests/e2e/native-app/11-android-cross-engine-directional-pairs.spec.ts`
+(`npm run test:e2e:android-directional-pairs`, opt-in via
+`E2E_REAL_ANDROID_DIRECTIONAL_PAIRS=1`) closes the four remaining named pairs above as explicit,
+individually-assertable completions rather than implicit ring edges — the seven-client matrix's
+(06) ring order only proves whichever adjacent pairs happen to fall out of push order on a given
+run, and these four specifically hadn't landed that way in any run to date. Real hardware: phone
+`android-alice` (`DUM0219418001663`) plus the macOS Electron app, Chromium, WebKit, and Firefox
+on one LAN Gun hub — Chromium and Android each author/broadcast one tag Talk, then Android
+completes Chromium's (Chromium -> Android), and WebKit/Firefox/the macOS app each independently
+complete Android's (Android -> WebKit, Android -> Firefox, Android -> macOS App). All 3 configured
+phones were first rebuilt and reinstalled at v1.0.41 (`npm run android:build` +
+`npm run android:install:matrix`) to pick up the just-merged identity-custody-v3/typed-preferences/
+TechSupport-key-rotation commits before this run. Verified: 1 passed (46.9s), all four pairs logged
+and completed.
 
 Milestone:
 
@@ -517,9 +562,33 @@ tests/matrix/devices.json
 - [ ] Support selecting devices by logical name.
 - [x] Add 3+ peer convergence tests.
 - [x] Test simultaneous joins.
-- [ ] Test concurrent Talk propagation.
-- [ ] Test one device going offline while others continue.
-- [ ] Test peer return and resynchronization.
+- [x] Test concurrent Talk propagation. **Landed 2026-09-18.**
+- [x] Test one device going offline while others continue. **Landed 2026-09-18.**
+- [x] Test peer return and resynchronization. **Landed 2026-09-18.**
+
+**2026-09-18:** new `tests/e2e/native-app/13-android-three-phone-offline-resync.spec.ts`
+(`npm run test:e2e:android-three-phone-resync`, opt-in via
+`E2E_REAL_ANDROID_THREE_PHONE_RESYNC=1`) closes all three bullets in one real three-phone run, all
+using every phone currently connected (android-alice, android-bob, android-charlie): all three
+author AND broadcast a tag Talk in the same `Promise.all` (concurrent propagation, not three
+sequential single-talk broadcasts), then one phone goes offline (`adb shell svc wifi disable`)
+while the other two complete each other's talks (others continue), then the offline phone's Wi-Fi
+is re-enabled and the test polls the phone's OWN local incoming-talk clusters
+(`findIncomingTalkIdByTitle` — the mesh-mirrored-to-local-Gun path CLAUDE.md documents, not an
+injected shortcut) until the talk it missed while offline actually shows up there, then completes
+it — real resynchronization proven end to end, not assumed.
+
+**Real hardware finding along the way:** the "one device offline" mechanism (`adb shell svc wifi
+disable`) is not universal across this fleet — `android-charlie` (a Huawei FRD_L04 on EMUI)
+denies `CHANGE_WIFI_STATE` to the adb shell user outright, confirmed via logcat:
+`SecurityException: WifiService: Neither user 2000 nor current process has
+android.permission.CHANGE_WIFI_STATE`, while `android-alice` and `android-bob` both allow it
+cleanly. This is a genuine per-device OEM restriction, not flakiness, so the test PROBES
+`svc wifi disable`/`enable` on the available phones and picks whichever one actually supports it
+(preferring `android-charlie` when it can, for a stable default) rather than assuming a fixed
+device name — `supportsWifiToggle`'s doc comment records the finding for future test authors on
+this fleet. Verified: **1 passed (1.5m)** with all 3 phones connected (offline candidate picked:
+android-alice, since android-charlie was correctly probed out).
 
 Example target:
 
