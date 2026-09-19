@@ -22,6 +22,16 @@ describe('deterministic redundancy harness', () => {
     await harness.deliver(object); expect(harness.oracle(object).ok).toBe(true);
   });
 
+  test('injects deterministic packet loss and converges after bounded retries', async () => {
+    const harness = new DeterministicConnectivityHarness();
+    harness.configure({ discovery: 'known-peer', route: 'direct-libp2p', faults: { packetLossAttempts: 2 } });
+    await expect(harness.deliver(object)).rejects.toThrow('packet loss');
+    await expect(harness.deliver(object)).rejects.toThrow('packet loss');
+    await harness.deliver(object);
+    expect(harness.oracle(object).ok).toBe(true);
+    expect(harness.getAttempts()).toEqual(['direct-libp2p', 'direct-libp2p', 'direct-libp2p']);
+  });
+
   test.each(['connectFailure', 'midSendDrop', 'corrupt', 'metered', 'lowBattery'] as const)('injects %s without false receipt', async (fault) => {
     const harness = new DeterministicConnectivityHarness();
     harness.configure({ discovery: 'known-peer', route: fault === 'lowBattery' ? 'peer-forward' : 'direct-libp2p', faults: { [fault]: true } });

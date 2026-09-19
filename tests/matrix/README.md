@@ -4,6 +4,25 @@
 `hosts.json` defines remote desktop workers. Keep scenarios independent of raw SSH hosts
 and filesystem paths; platform runners resolve those details here.
 
+## Central runner and report collector
+
+```bash
+npm run test:matrix -- browsers
+npm run test:matrix -- android
+npm run test:matrix -- desktop
+npm run test:matrix -- discovery
+npm run test:matrix -- --alice macos-app --bob firefox
+npm run test:matrix -- --all
+```
+
+Add `--dry-run` to validate selection, lifecycle wiring, and reporting without starting tests.
+All profiles share `prepare`, `install`, `reset`, `start`, `stop`, scenario-action, log,
+screenshot, and status operations. Android/Windows/Ubuntu profiles perform their availability
+gate first and skip unavailable hardware without starting installation, builds, or tests.
+Results are collected on the Mac under ignored `test-results/matrix/<run-id>/`, with per-scenario
+JSON/Markdown, peer logs, screenshots, topology/identity metadata, duration, grouped platform
+status, and structured failure diagnostics.
+
 ## macOS Firefox
 
 ```bash

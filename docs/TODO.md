@@ -35,9 +35,14 @@ partial completion is itself the useful signal.
       tests cover non-exportability, round-trip, tampering, wrong/extractable keys, structured-clone
       persistence, concurrent writers, rollback, cleanup resumption, and identity conflicts. The
       implementation boundary and platform limitations are documented in
-      `docs/security/password-free-identity-custody-v3.md`. Still open before checking this item:
-      production startup/password-removal wiring, real-browser restart coverage, native
-      Keychain/Keystore providers, and external review.
+      `docs/security/password-free-identity-custody-v3.md`. **Browser rollout completed
+      2026-09-18:** ordinary browser startup now migrates v1 with copy→verify→delete, new browser
+      identities are created directly in v3, password removal returns to v3, unsupported engines
+      retain v1, invalid/conflicting v3 state fails closed, and erase/stage reset include the v3
+      database. Full browser-process restart tests pass in Chromium, WebKit, and Firefox and prove
+      the same private pair returns while `exportKey` remains forbidden. Still open before checking
+      this parent item: native Keychain/Keystore providers, physical native validation, and external
+      review.
 - [ ] X3 website↔app remains skipped — needs a real native-shell CI runner (Priority 3), not a
   same-machine mechanism gap like X8 was.
 
@@ -238,7 +243,7 @@ surfaced anywhere in the suite.
   Playwright's Firefox) is fixed — see the WebKit bullet's stage1 note above. No other
   Firefox-specific failures surfaced across the full suite pass.**
 - [x] Verify Gun.js/P2P behavior under Firefox (installed Firefox ↔ macOS Electron direct-P2P channel).
-- [ ] Verify local storage, IndexedDB, permissions, WebSocket, and reconnect behavior.
+- [x] Verify local storage, IndexedDB, permissions, WebSocket, and reconnect behavior.
 - [x] Add a command such as:
 
 ```bash
@@ -255,18 +260,17 @@ engine this file's project matrix covers (verified passing on all of chromium,
 webkit, and firefox via `npm run test:e2e:browsers`), not just Firefox, since
 the behavior isn't Firefox-specific. Cross-peer Firefox behavior is also
 already covered separately (§1.4's Chromium↔Firefox/Firefox↔WebKit bullets).
-**Still open: permissions.** The only real browser permission this app ever
+**Permissions landed 2026-09-18.** The only real browser permission this app ever
 requests is geolocation (`LocationPrivacy.getCurrentLocation`,
-`src/shared/location.ts`) — and it turns out to be untestable against today's
-E2E harness as written, not just untested: `src/web/index.ts`'s
+`src/shared/location.ts`). It was untestable against the development harness because
+`src/web/index.ts`'s
 `USE_TEST_LOCATION = process.env.NODE_ENV !== 'production'` means EVERY
 dev/E2E build (anything not a production build) always uses a fixed test
 location and never calls `resolveRealLocationInBackground()` (the only
-caller of `getCurrentLocation`) at all — the geolocation code path is
-reachable only in a production build. Exercising it would need a real
-production-mode Playwright harness (a production build served instead of the
-webpack dev server), which doesn't exist today and is unscoped infrastructure
-work of its own, not a small addition to this bullet.
+caller of `getCurrentLocation`). `npm run test:e2e:firefox-permissions` now builds the real
+production bundle, serves it through the static E2E server, and verifies both Firefox permission
+outcomes: a granted location is requested/cached/applied without blocking boot, while denial keeps
+the app usable and creates no fake cached fix.
 
 Installed-release coverage is also available through
 `npm run test:e2e:macos-firefox`: its mandatory preflight verifies the Firefox
@@ -377,35 +381,35 @@ Keep the Mac mini as the only physical host at this stage.
 
 ##### 2.1 Create an App Test Harness
 
-- [ ] Determine how the macOS IinPublic desktop app can be launched with a clean test profile.
-- [ ] Add command-line/environment options for:
+- [x] Determine how the macOS IinPublic desktop app can be launched with a clean test profile.
+- [x] Add command-line/environment options for:
   - test identity
   - test data directory
   - application port
   - peer name
   - log directory
-- [ ] Ensure multiple app instances can run without sharing unintended state.
-- [ ] Add deterministic app startup and shutdown commands.
+- [x] Ensure multiple app instances can run without sharing unintended state.
+- [x] Add deterministic app startup and shutdown commands.
 
 ##### 2.2 Automate the macOS App
 
 Depending on the desktop app architecture:
 
-- [ ] Reuse Playwright directly if the app is Electron and exposes a suitable Electron test interface.
-- [ ] Otherwise select a macOS desktop automation adapter only for native UI operations.
-- [ ] Keep application/P2P scenario logic shared with existing E2E tests.
+- [x] Reuse Playwright directly because the app is Electron and exposes a suitable Electron test interface.
+- [x] No separate macOS UI adapter is needed; Playwright Electron covers native window operations.
+- [x] Keep application/P2P scenario logic shared with existing E2E tests.
 
 ##### 2.3 Add macOS App + Browser Matrix
 
 Test combinations such as:
 
-- [ ] macOS App -> Chromium
-- [ ] Chromium -> macOS App
-- [ ] macOS App -> WebKit
-- [ ] WebKit -> macOS App
+- [x] macOS App -> Chromium
+- [x] Chromium -> macOS App
+- [x] macOS App -> WebKit
+- [x] WebKit -> macOS App
 - [x] macOS App -> Firefox
 - [x] Firefox -> macOS App (verified in the seven-runtime physical ring).
-- [ ] macOS App -> macOS App, using separate test profiles
+- [x] macOS App -> macOS App, using separate test profiles
 
 Suggested scenarios:
 
@@ -413,13 +417,20 @@ Suggested scenarios:
 - [x] Chatroom join (leave remains open).
 - [x] Talk exchange.
 - [x] Matching.
-- [ ] Identity persistence.
-- [ ] App restart/reconnect.
+- [x] Identity persistence.
+- [x] App restart/reconnect.
 - [x] Browser-to-app state synchronization.
 
 Installed Firefox 155.0.1 ↔ macOS Electron is also verified locally through
 `npm run test:e2e:macos-firefox:native`: both peers appear in Global, establish the
 explicit-relay direct-P2P channel, and deliver messages in both directions.
+
+The reusable harness in `tests/e2e/native-app/helpers/native-app.ts` launches the real Electron
+shell with an explicit local port, hub URL, isolated user-data/test-identity directory, peer name
+(through the shared bootstrap action), and per-profile log directory. Specs 01–04 prove clean
+startup/shutdown, two simultaneous isolated app instances, bidirectional Chromium/WebKit talk
+exchange, and a full close/relaunch that preserves the exact SEA pair and reconnects the embedded
+node.
 
 Milestone:
 
@@ -444,7 +455,8 @@ adb devices
 - [x] Automate application reset/clean state (`adb shell pm clear` preflight barrier).
 - [x] Automate application launch.
 - [x] Select the Android UI automation framework (Playwright WebView/CDP plus explicit ADB lifecycle control, reusing the browser scenario layer).
-- [ ] Start with Maestro unless a feature requires lower-level Android control.
+- [x] Maestro was evaluated and deliberately superseded by Playwright WebView/CDP plus explicit
+      ADB lifecycle control, which is required for the shared cross-runtime scenario layer.
 - [x] Add ADB-based log collection (PID-scoped logcat and embedded Node stdio failure attachments).
 - [x] Capture screenshots on failure (Playwright attachments from each WebView).
 - [x] Add Android device information to the final test report.
@@ -479,7 +491,7 @@ Milestone:
 
 - [x] Add stable ADB serial mapping.
 - [x] Give each device a logical test name.
-- [ ] Example:
+- [x] Logical-name mapping is committed in `tests/matrix/devices.json` (example implemented):
 
 ```text
 android-alice -> SERIAL_1
@@ -514,7 +526,8 @@ tests/matrix/devices.json
   Order section below for the full run: 5 real runtimes — macOS Electron, 1 Android phone,
   Chromium, WebKit, Firefox — joined Global, authored/broadcast one Talk each, and completed a
   full ring of matches).
-- [ ] Support selecting devices by logical name.
+- [x] Support selecting devices by logical name (`NATIVE_APP_ANDROID_NAMES`, shared by installer
+      and real-device runner; unknown names fail before any device is touched).
 - [x] Add 3+ peer convergence tests.
 - [x] Test simultaneous joins.
 - [ ] Test concurrent Talk propagation.
@@ -833,15 +846,15 @@ Example conceptual configuration:
 
 Each platform adapter should expose roughly the same operations:
 
-- [ ] prepare
-- [ ] install
-- [ ] reset
-- [ ] start
-- [ ] stop
-- [ ] execute scenario action
-- [ ] collect logs
-- [ ] screenshot
-- [ ] report status
+- [x] prepare
+- [x] install
+- [x] reset
+- [x] start
+- [x] stop
+- [x] execute scenario action
+- [x] collect logs
+- [x] screenshot
+- [x] report status
 
 Avoid putting platform-specific commands directly into scenario definitions.
 
@@ -859,6 +872,12 @@ await alice.verifyMatch(bob);
 ```
 
 `alice` could be Android while `bob` could be Windows, macOS, Ubuntu, or a browser.
+
+Implemented 2026-09-18 in `src/test/support/matrix-orchestrator.ts` and
+`tests/matrix/run-matrix.ts`. Every profile uses the same typed lifecycle contract; hardware
+profiles run their availability preflight before installation/build/test work and record an
+explicit skip when unavailable. Commands include `npm run test:matrix -- browsers|android|desktop|discovery`,
+logical `--alice`/`--bob` selection, `--all`, and `--dry-run` planning.
 
 ##### 6.3 Central Commands
 
@@ -896,8 +915,8 @@ npm run test:matrix --all
 
 ##### Central Result Collection
 
-- [ ] Keep the Mac mini as the primary report collector.
-- [ ] Collect:
+- [x] Keep the Mac mini as the primary report collector.
+- [x] Collect:
   - Playwright reports
   - Playwright traces
   - screenshots
@@ -909,7 +928,7 @@ npm run test:matrix --all
   - peer identities
   - scenario topology
 
-- [ ] Produce one summary showing results by:
+- [x] Produce one summary showing results by:
   - scenario
   - OS
   - browser
@@ -920,12 +939,19 @@ npm run test:matrix --all
 
 Each failed distributed test should answer:
 
-- [ ] Which peer failed?
-- [ ] Which host/device was it running on?
-- [ ] What action was being performed?
-- [ ] What did the other peers observe?
-- [ ] Was the problem UI, network, discovery, persistence, or synchronization?
-- [ ] What logs/screenshots/traces are available?
+- [x] Which peer failed?
+- [x] Which host/device was it running on?
+- [x] What action was being performed?
+- [x] What did the other peers observe?
+- [x] Was the problem UI, network, discovery, persistence, or synchronization?
+- [x] What logs/screenshots/traces are available?
+
+Each matrix run writes a machine-readable per-scenario result, human `summary.md`, per-peer
+lifecycle/command log, discovered screenshots, host/runtime metadata, duration, identities, and
+topology beneath ignored `test-results/matrix/<run-id>/`. The combined Mac-controller JSON groups
+the same results by scenario, OS, browser/app kind, and physical device. Failure records require
+all six diagnostic answers above; unit tests cover the adapter lifecycle, grouping, artifacts,
+and failure categorization.
 
 ---
 
@@ -935,34 +961,39 @@ Only start these after the basic matrix is stable.
 
 ##### Network Failure Tests
 
-- [ ] Disconnect one peer from Wi-Fi.
-- [ ] Restore connection.
-- [ ] Verify reconnection.
+- [x] Disconnect one browser peer from its network (`BrowserContext.setOffline(true)`).
+- [x] Restore its connection.
+- [x] Verify Gun/WebSocket reconnection and a fresh write/read round trip.
 - [ ] Block one peer temporarily with firewall rules.
-- [ ] Introduce latency.
-- [ ] Introduce packet loss where practical.
-- [ ] Restart the relay/seed helper if one is being used.
-- [ ] Verify direct/local discovery behavior independently of Internet services.
+- [x] Introduce latency (the deterministic connectivity harness applies bounded delivery latency
+      and verifies eventual delivery plus the measured timing window).
+- [x] Introduce packet loss where practical (the same harness deterministically drops the first
+      attempts, retries, and verifies convergence without duplicate delivery).
+- [x] Restart the relay/seed helper if one is being used (`npm run test:e2e:relay-restart` stops the
+      real relay process, waits for a replacement, retries publication until the replacement
+      receives it, and verifies that the browser identity did not change).
+- [x] Verify direct/local discovery behavior independently of Internet services (the L3 hub-stop
+      scenario keeps established peers reachable and exchanging ping/pong after the hub exits).
 
 ##### Lifecycle Tests
 
 - [ ] Android background/foreground.
 - [ ] Android app kill/restart.
-- [ ] Desktop app close/restart.
-- [ ] Browser close/reopen.
+- [x] Desktop app close/restart.
+- [x] Browser close/reopen.
 - [ ] Mac sleep/wake.
 - [ ] Windows sleep/wake.
 - [ ] Ubuntu service/app restart.
 
 ##### P2P Convergence Tests
 
-- [ ] Multiple peers update simultaneously.
-- [ ] One peer operates offline.
-- [ ] Offline peer rejoins.
-- [ ] Verify eventual convergence.
-- [ ] Verify duplicate messages are handled correctly.
-- [ ] Verify stale state does not overwrite newer state.
-- [ ] Verify identity remains correct after reconnection.
+- [x] Multiple peers update simultaneously (20-sender broadcast and multi-responder suites).
+- [x] One peer operates offline.
+- [x] Offline peer rejoins.
+- [x] Verify eventual convergence.
+- [x] Verify duplicate messages are handled correctly.
+- [x] Verify stale state does not overwrite newer state.
+- [x] Verify identity remains correct after reconnection.
 
 ##### Scale Tests
 
@@ -994,8 +1025,8 @@ Keep this exact order unless a specific product requirement forces an earlier de
 2. [x] macOS WebKit/Safari (full default-suite pass landed 2026-09-13 — see §1.1 above).
 3. [x] macOS Firefox (full default-suite pass landed 2026-09-13 alongside WebKit — see §1.2 above; installed stable release smoke gate is separate, existing coverage).
 4. [x] Mixed browser tests on Mac (all directed Chromium/WebKit/Firefox pairs covered).
-5. [ ] macOS desktop app.
-6. [ ] macOS app + browser tests.
+5. [x] macOS desktop app.
+6. [x] macOS app + browser tests.
 7. [ ] One Android phone.
 8. [ ] Android + Mac tests.
 9. [ ] Two Android phones.
@@ -1008,8 +1039,8 @@ Keep this exact order unless a specific product requirement forces an earlier de
 16. [ ] Ubuntu browsers.
 17. [x] Ubuntu desktop app.
 18. [ ] Full Mac + Android + Windows + Ubuntu matrix.
-19. [ ] Centralized matrix runner.
-20. [ ] Unified reports and artifacts.
+19. [x] Centralized matrix runner.
+20. [x] Unified reports and artifacts.
 21. [ ] Network failure testing.
 22. [ ] Sleep/restart/reconnect testing.
 23. [ ] Larger P2P convergence and scale tests.

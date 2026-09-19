@@ -42,6 +42,9 @@ The normal device names and serials live in `tests/matrix/devices.json`. An
 explicit `NATIVE_APP_ANDROID_SERIALS=serial1,serial2,serial3` still overrides
 that file for an ad-hoc set. Every install and launch uses `adb -s <serial>`;
 commands cannot silently target whichever phone ADB happens to enumerate first.
+For the configured inventory, select a subset by stable logical name with
+`NATIVE_APP_ANDROID_NAMES=android-alice,android-charlie`; both the installer and
+real-device matrix preserve that order and reject unknown names before touching a device.
 The matrix deliberately runs `adb shell pm clear com.iinpublic.app` on each
 configured phone before launch, leaving the APK installed while removing identities,
 rate-limit history, and Gun/Radisk data from earlier runs. Use dedicated test devices.

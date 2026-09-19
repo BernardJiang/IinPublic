@@ -6,6 +6,7 @@ import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
 import { IDENTITY_CUSTODY_DATABASE_NAME } from './services/identity-custody-store';
+import { PASSWORD_FREE_CUSTODY_DATABASE_NAME } from './services/identity-password-free-custody-store';
 import { getCachedLocation, setCachedLocation } from './services/location-cache';
 import { markStartupPhase } from './performance/startup-metrics';
 
@@ -183,7 +184,8 @@ class WebApp {
             (name) =>
               name.startsWith('gun') ||
               name === 'gun-idb' ||
-              name === IDENTITY_CUSTODY_DATABASE_NAME,
+              name === IDENTITY_CUSTODY_DATABASE_NAME ||
+              name === PASSWORD_FREE_CUSTODY_DATABASE_NAME,
           )
           .map((name) => new Promise<void>((resolve) => {
             const req = indexedDB.deleteDatabase(name);

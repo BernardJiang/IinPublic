@@ -9,10 +9,22 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const configPath = path.join(repoRoot, 'tests', 'matrix', 'devices.json');
 const apkPath = path.join(repoRoot, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-const devices = Array.isArray(config.android) ? config.android : [];
+const configuredDevices = Array.isArray(config.android) ? config.android : [];
+const selectedNames = String(process.env.NATIVE_APP_ANDROID_NAMES || '')
+  .split(',')
+  .map((name) => name.trim())
+  .filter(Boolean);
+const byName = new Map(configuredDevices.map((device) => [device.name, device]));
+const devices = selectedNames.length
+  ? selectedNames.map((name) => {
+      const device = byName.get(name);
+      if (!device) throw new Error(`Unknown Android logical name ${name}; choose ${[...byName.keys()].join(', ')}`);
+      return device;
+    })
+  : configuredDevices;
 const installTimeoutMs = Number(process.env.ANDROID_INSTALL_TIMEOUT_MS || '300000');
 
-if (devices.length === 0) throw new Error(`${configPath} does not configure any Android devices`);
+if (devices.length === 0) throw new Error(`${configPath} does not configure any selected Android devices`);
 if (!fs.existsSync(apkPath)) throw new Error(`Missing ${apkPath}; run npm run android:build first`);
 if (!Number.isFinite(installTimeoutMs) || installTimeoutMs <= 0) {
   throw new Error(`ANDROID_INSTALL_TIMEOUT_MS must be a positive number; received ${process.env.ANDROID_INSTALL_TIMEOUT_MS}`);

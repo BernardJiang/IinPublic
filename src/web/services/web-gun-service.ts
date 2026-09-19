@@ -25,6 +25,11 @@ import {
   IdentityPasswordCustodyManager,
   type IdentityPasswordProtectionStatus,
 } from './identity-password-custody-manager';
+import {
+  BrowserPasswordFreeCustodyManager,
+  type PasswordFreeCustodyMigrationSource,
+} from './browser-password-free-custody-manager';
+import { BrowserPasswordFreeCustodyStore } from './identity-password-free-custody-store';
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
 export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
@@ -230,6 +235,7 @@ export class WebGunService extends EventEmitter {
   /** Serialize authenticated private-namespace writes; GUN/SEA can reject overlapping signs. */
   private privateWriteQueue: Promise<void> = Promise.resolve();
   private identityPasswordManager: IdentityPasswordCustodyManager | null = null;
+  private browserPasswordFreeCustodyManager: BrowserPasswordFreeCustodyManager | null | undefined;
   /** Cached from the last `getIdentityPasswordProtectionStatus()` read (and kept current by
    * `setIdentityPassword`/`removeIdentityPassword`/`unlockIdentity`) so the synchronous
    * `beforeunload` handler can tell, without awaiting anything, whether there is a
@@ -256,7 +262,21 @@ export class WebGunService extends EventEmitter {
     if (typeof indexedDB === 'undefined') return null;
     if (this.identityPasswordManager) return this.identityPasswordManager;
     const store = new BrowserIdentityCustodyStore();
-    this.identityPasswordManager = new IdentityPasswordCustodyManager(store, {
+    const legacyCustody = this.getBrowserPasswordFreeCustodyManager() ?? this.getLegacyPasswordFreeCustody();
+    this.identityPasswordManager = new IdentityPasswordCustodyManager(store, legacyCustody, {
+      legacyRecordStorageKey: KEY_CUSTODY_STORAGE,
+      legacySecretStorageKey: KEY_CUSTODY_DEVICE_SECRET_STORAGE,
+    });
+    return this.identityPasswordManager;
+  }
+
+  private getLegacyPasswordFreeCustody(): PasswordFreeCustodyMigrationSource & {
+    assertMatches(expected: SeaPublicIdentity): Promise<void>;
+    writeAndVerify(pair: SeaPrivateIdentityMaterial): Promise<void>;
+    assertPairMatches(pair: SeaPrivateIdentityMaterial): Promise<void>;
+    clear(): Promise<void>;
+  } {
+    return {
       assertMatches: async (expected) => {
         const record = this.readCustodyRecord();
         if (!record || record.version !== 1) throw new Error('Password-free identity custody is unavailable');
@@ -323,8 +343,38 @@ export class WebGunService extends EventEmitter {
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
         localStorage.removeItem(KEYPAIR_STORAGE);
       },
-    });
-    return this.identityPasswordManager;
+      readPair: async () => {
+        const record = this.readCustodyRecord();
+        return record ? await this.unwrapKeypairFromStorage(record) as SeaPrivateIdentityMaterial | null : null;
+      },
+    };
+  }
+
+  /**
+   * Browser v3 deliberately stays disabled inside native shells until those shells expose a
+   * reviewed OS Keychain/Keystore bridge. An Electron/WebView IndexedDB CryptoKey is not an OS
+   * keystore and must not be presented as one.
+   */
+  private getBrowserPasswordFreeCustodyManager(): BrowserPasswordFreeCustodyManager | null {
+    if (this.browserPasswordFreeCustodyManager !== undefined) {
+      return this.browserPasswordFreeCustodyManager;
+    }
+    if (
+      this.isEmbeddedLocalOrigin() ||
+      typeof indexedDB === 'undefined' ||
+      !this.getBrowserCrypto()
+    ) {
+      this.browserPasswordFreeCustodyManager = null;
+      return null;
+    }
+    try {
+      this.browserPasswordFreeCustodyManager = new BrowserPasswordFreeCustodyManager(
+        new BrowserPasswordFreeCustodyStore(),
+      );
+    } catch {
+      this.browserPasswordFreeCustodyManager = null;
+    }
+    return this.browserPasswordFreeCustodyManager;
   }
 
   /**
@@ -1058,7 +1108,8 @@ export class WebGunService extends EventEmitter {
       legacyRaw = null;
       existingCustody = null;
     }
-    let pair: GunPair;
+    let pair: GunPair | null = null;
+    let pairStoredInV3 = false;
     const custodyPair = existingCustody ? await this.unwrapKeypairFromStorage(existingCustody) : null;
     const passwordStatus = techSupportPair
       ? { state: 'not-set' as const }
@@ -1068,29 +1119,90 @@ export class WebGunService extends EventEmitter {
       console.log('🔐 Loaded canonical TechSupport DM identity (K3 TechSupport-mode boot)');
     } else if (passwordStatus.state === 'locked') {
       throw new IdentityPasswordRequiredError(passwordStatus.publicIdentity);
-    } else if (custodyPair) {
-      pair = custodyPair;
-      console.log('🔐 Loaded SEA identity from encrypted custody');
-    } else if (legacyRaw) {
-      try {
-        pair = JSON.parse(legacyRaw) as GunPair;
-        if (!pair?.pub || !pair?.priv) {
-          pair = await SEA.pair();
-        }
-      } catch {
-        pair = await SEA.pair();
-      }
-      console.log('🔐 Migrated legacy SEA identity');
     } else {
-      pair = await SEA.pair();
-      console.log('🔐 Created new local SEA identity');
+      const passwordFreeManager = this.getBrowserPasswordFreeCustodyManager();
+      if (passwordFreeManager) {
+        let hadV3Record = false;
+        try {
+          hadV3Record = (await passwordFreeManager.getPublicIdentity()) !== null;
+          pair = await passwordFreeManager.migrateFrom(this.getLegacyPasswordFreeCustody()) as GunPair | null;
+          if (pair) {
+            pairStoredInV3 = true;
+            console.log(hadV3Record
+              ? '🔐 Loaded SEA identity from non-extractable browser custody'
+              : '🔐 Migrated SEA identity to non-extractable browser custody');
+          } else {
+            if (legacyRaw) {
+              try {
+                pair = JSON.parse(legacyRaw) as GunPair;
+              } catch {
+                pair = null;
+              }
+            }
+            if (!pair?.pub || !pair?.epub || !pair?.priv || !pair?.epriv) {
+              pair = await SEA.pair();
+              console.log('🔐 Created new local SEA identity');
+            } else {
+              console.log('🔐 Migrating legacy plaintext SEA identity');
+            }
+            await passwordFreeManager.writeAndVerify(pair as SeaPrivateIdentityMaterial);
+            localStorage.removeItem(KEYPAIR_STORAGE);
+            pairStoredInV3 = true;
+            console.log('🔐 SEA identity stored with non-extractable browser custody');
+          }
+        } catch (error) {
+          // Once a v3 row exists, corruption or an identity conflict must fail closed. Falling
+          // back to another local record here could silently switch the user's identity.
+          const recovered = await passwordFreeManager.readPair().catch(() => null);
+          if (recovered) {
+            if (
+              custodyPair &&
+              (recovered.pub !== custodyPair.pub || recovered.epub !== custodyPair.epub ||
+                recovered.priv !== custodyPair.priv || recovered.epriv !== custodyPair.epriv)
+            ) {
+              throw error;
+            }
+            pair = recovered as GunPair;
+            pairStoredInV3 = true;
+            console.warn('⚠️ Browser custody source cleanup is pending and will resume next startup:', error);
+          } else if (hadV3Record || (error instanceof Error && error.message.includes('conflict'))) {
+            throw error;
+          } else {
+            // Some engines expose IndexedDB/WebCrypto but cannot structured-clone a CryptoKey.
+            // Retain the verified v1 path on those engines and never delete its source record.
+            console.warn('⚠️ Non-extractable browser custody unavailable — retaining v1 custody:', error);
+            this.browserPasswordFreeCustodyManager = null;
+            this.identityPasswordManager = null;
+          }
+        }
+      }
+
+      if (!pair) {
+        if (custodyPair) {
+          pair = custodyPair;
+          console.log('🔐 Loaded SEA identity from v1 encrypted custody');
+        } else if (legacyRaw) {
+          try {
+            pair = JSON.parse(legacyRaw) as GunPair;
+            if (!pair?.pub || !pair?.epub || !pair?.priv || !pair?.epriv) pair = await SEA.pair();
+          } catch {
+            pair = await SEA.pair();
+          }
+          console.log('🔐 Migrated legacy SEA identity');
+        } else {
+          pair = await SEA.pair();
+          console.log('🔐 Created new local SEA identity');
+        }
+      }
     }
     if (techSupportPair) {
       console.log('🔐 Skipping ordinary key custody for TechSupport-mode identity');
+    } else if (pairStoredInV3) {
+      console.log('🔐 SEA identity custody v3 verified');
     } else {
       try {
-        await this.persistCustodyRecord(pair, existingCustody);
-        console.log('🔐 SEA identity custody stored');
+        await this.persistCustodyRecord(pair!, existingCustody);
+        console.log('🔐 SEA identity custody v1 stored');
       } catch (error) {
         console.warn('⚠️ Encrypted SEA key custody unavailable — keeping pair in memory only:', error);
         try {
@@ -1102,7 +1214,7 @@ export class WebGunService extends EventEmitter {
       }
     }
 
-    await this.authenticatePair(pair);
+    await this.authenticatePair(pair!);
     // Diagnostic (2026-08-09 real-device investigation): confirm what ensureKeypairAndAuth
     // actually finalized — compare against the heartbeat's own [heartbeat-diag] log to see
     // whether the pair genuinely lacks epub/pub at this point, or getStoredPair() is somehow
@@ -1111,7 +1223,7 @@ export class WebGunService extends EventEmitter {
       `🔐 [keypair-diag] Local SEA identity ready — hasPub=${!!pair?.pub} hasEpub=${!!pair?.epub} ` +
         `isEmbeddedLocalOrigin=${this.isEmbeddedLocalOrigin()}`,
     );
-    return pair;
+    return pair!;
   }
 
   /** Active session pair after `ensureKeypairAndAuth()`. */

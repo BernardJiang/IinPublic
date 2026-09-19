@@ -1,6 +1,7 @@
 # Password-free identity custody v3 — implementation design
 
-Status: **browser foundation implemented; rollout wiring and native adapters still open**.
+Status: **browser rollout implemented and cross-engine restart verified; native adapters and
+external review still open**.
 
 ## Why v3 exists
 
@@ -71,13 +72,13 @@ write/read/verify/remove contract through narrow native bridges:
 - Electron on Windows/Linux: select and review an OS credential-store adapter before enabling v3;
   do not silently fall back to a plaintext file.
 
-## Rollout gates still open
+## Rollout status and remaining gates
 
-- Wire browser startup and password-removal flows to the v3 manager while retaining verified v1
-  rollback until migration completes.
-- Update erase-device database removal and protection-status UI.
-- Add Chromium, Firefox, and WebKit reload tests proving a stored non-extractable key survives a
-  real browser restart; unsupported engines must retain v1 rather than deleting it.
+- Completed: browser startup and password removal use the v3 manager while retaining v1 until
+  copy/read-back verification and falling back to v1 only when a browser cannot persist CryptoKey.
+- Completed: erase-device and stage-reset database removal include v3.
+- Completed: Chromium, Firefox, and WebKit tests close and relaunch a persistent browser profile,
+  prove the exact private pair survives, and prove the wrapping key remains non-extractable.
 - Implement and physically test Android Keystore and Apple Keychain adapters, then decide the
   Windows/Linux desktop provider.
 - Obtain external security review before checking the parent TODO item complete.

@@ -9,7 +9,7 @@ const report = {
   testOracle: ['receiver Gun soul exists once', 'receiver reread matches', 'receiver UI renders once', 'sender persisted receipt exists'],
   discoveries: discoveries.map((id) => ({ id, contractVerified: true, physicalVerified: false })),
   routes: routes.map((id) => ({ id, deterministicVerified: true, physicalVerified: false })),
-  faultInjection: ['connect-failure', 'mid-send-drop', 'latency', 'duplication', 'corruption', 'metered-route', 'low-battery'],
+  faultInjection: ['connect-failure', 'mid-send-drop', 'latency', 'packet-loss', 'duplication', 'corruption', 'metered-route', 'low-battery'],
   transitions: ['direct-to-relay', 'direct-to-peer-forward', 'lan-to-cellular-with-permission', 'relay-to-direct', 'live-to-mailbox-to-live'],
   supportedHardwareRoutes: [],
   evidence: ['src/test/unit/deterministic-connectivity-harness.test.ts', 'docs/device-verification/report.json'],

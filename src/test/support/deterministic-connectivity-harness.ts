@@ -1,6 +1,6 @@
 export type HarnessDiscovery = 'hub' | 'known-peer' | 'dht' | 'mdns';
 export type HarnessRoute = 'gun-wire' | 'cellular-gun-wire' | 'direct-libp2p' | 'webrtc' | 'circuit-relay' | 'peer-forward' | 'mailbox';
-export type HarnessFaults = { connectFailure?: boolean; midSendDrop?: boolean; latencyMs?: number; duplicate?: number; corrupt?: boolean; metered?: boolean; lowBattery?: boolean };
+export type HarnessFaults = { connectFailure?: boolean; midSendDrop?: boolean; latencyMs?: number; packetLossAttempts?: number; duplicate?: number; corrupt?: boolean; metered?: boolean; lowBattery?: boolean };
 export type HarnessObject = { soul: string; objectId: string; payload: Record<string, unknown> };
 export type CapabilityResult = { discovery: HarnessDiscovery; route: HarnessRoute; passed: boolean; assertions: string[] };
 
@@ -13,9 +13,11 @@ export class DeterministicConnectivityHarness {
   private readonly bobUi = new Set<string>();
   private readonly aliceReceipts = new Set<string>();
   private readonly attempts: HarnessRoute[] = [];
+  private packetLossRemaining = 0;
 
   configure(input: { discovery: HarnessDiscovery; route: HarnessRoute; mailboxEnabled?: boolean; faults?: HarnessFaults }): void {
     this.discovery = input.discovery; this.route = input.route; this.mailboxEnabled = input.mailboxEnabled ?? input.route === 'mailbox'; this.faults = input.faults ?? {};
+    this.packetLossRemaining = Math.max(0, Math.floor(this.faults.packetLossAttempts ?? 0));
     if (input.route !== 'mailbox' && this.mailboxEnabled) throw new Error('isolated route tests must disable mailbox fallback');
   }
 
@@ -26,6 +28,10 @@ export class DeterministicConnectivityHarness {
     if ((this.faults.metered || this.route === 'cellular-gun-wire') && !policy.allowMetered) throw new Error('metered route denied');
     if (this.route === 'peer-forward' && this.faults.lowBattery && !policy.allowLowBatteryForwarding) throw new Error('low-battery forwarding denied');
     if (this.faults.latencyMs) await new Promise((resolve) => setTimeout(resolve, Math.min(this.faults.latencyMs ?? 0, 10)));
+    if (this.packetLossRemaining > 0) {
+      this.packetLossRemaining -= 1;
+      throw new Error('injected packet loss');
+    }
     if (this.faults.midSendDrop) throw new Error('injected mid-send drop');
     if (this.faults.corrupt) throw new Error('corrupt payload rejected');
     const copies = Math.max(1, this.faults.duplicate ?? 1);
@@ -47,7 +53,7 @@ export class DeterministicConnectivityHarness {
     return { ok: assertions.every((value) => value.endsWith('true')), assertions };
   }
 
-  resetFaults(): void { this.faults = {}; }
+  resetFaults(): void { this.faults = {}; this.packetLossRemaining = 0; }
   getAttempts(): readonly HarnessRoute[] { return this.attempts; }
   exportServer(): { receipts: string[]; applicationBodies: never[] } { return { receipts: [...this.aliceReceipts], applicationBodies: [] }; }
 }

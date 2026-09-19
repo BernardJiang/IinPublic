@@ -125,6 +125,10 @@ export class BrowserPasswordFreeCustodyManager {
     if (active) await this.store.deleteActive(active.record.custodyId);
   }
 
+  async close(): Promise<void> {
+    await this.store.close();
+  }
+
   /**
    * Copy first, decrypt/read back from IndexedDB, then remove the v1 source. If source cleanup
    * fails, both valid copies remain and a later call can safely finish cleanup.

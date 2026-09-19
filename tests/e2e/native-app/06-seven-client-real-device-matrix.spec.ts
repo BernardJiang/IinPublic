@@ -41,7 +41,10 @@ import { detectAvailableEnvironments, formatAvailabilityReport } from './helpers
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 const WEB_PORT = HUB_GUN_PORT - 8080 + 3001;
 const APP_PORT = 19161;
-const ANDROID_DEVICES = resolveAndroidMatrixDevices(process.env.NATIVE_APP_ANDROID_SERIALS || '');
+const ANDROID_DEVICES = resolveAndroidMatrixDevices(
+  process.env.NATIVE_APP_ANDROID_SERIALS || '',
+  process.env.NATIVE_APP_ANDROID_NAMES || '',
+);
 const RUN_MATRIX = process.env.E2E_REAL_DEVICE_MATRIX === '1';
 const WEBRTC_ARGS = ['--disable-features=WebRtcHideLocalIpsWithMdns'];
 

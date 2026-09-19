@@ -2,7 +2,7 @@ import { test, expect, type TestInfo } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { httpGetStatus, launchNativeUser, type NativeUser } from './helpers/native-app';
+import { bootstrapNativeWindow, httpGetStatus, launchNativeUser, type NativeUser } from './helpers/native-app';
 
 const LOCAL_PORT = 19110;
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
@@ -79,5 +79,44 @@ test.describe('Native app: Electron desktop boot', () => {
     const electronUserData = await native.app.evaluate(({ app }) => app.getPath('userData'));
     expect(electronUserData).toBe(userDataDir);
     expect(fs.existsSync(path.join(userDataDir, 'node-data'))).toBe(true);
+  });
+
+  test('preserves identity and reconnects after a complete desktop-app restart', async () => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-native-restart-e2e-'));
+    const launch = () => launchNativeUser({
+      localPort: LOCAL_PORT,
+      hubGunUrl: `http://127.0.0.1:${HUB_GUN_PORT}/gun`,
+      userDataDir,
+    });
+
+    native = await launch();
+    const firstUserId = await bootstrapNativeWindow(native.window, 'RestartDesktop', {
+      waitForSupportGreeting: false,
+    });
+    const firstPair = await native.window.evaluate(
+      () => (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.() || null,
+    );
+    expect(firstUserId).toBeTruthy();
+    expect(firstPair?.pub).toBeTruthy();
+    await native.app.close();
+    native = undefined;
+
+    native = await launch();
+    await bootstrapNativeWindow(native.window, 'RestartDesktop', {
+      waitForSupportGreeting: false,
+      updateStageName: false,
+    });
+    const afterRestart = await native.window.evaluate(() => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      return {
+        userId: app?.currentUser?.id || '',
+        pair: app?.gunService?.getStoredPair?.() || null,
+        connected: app?.gunService?.isConnected?.() === true,
+      };
+    });
+    expect(afterRestart.userId).toBe(firstUserId);
+    expect(afterRestart.pair).toEqual(firstPair);
+    expect(afterRestart.connected).toBe(true);
+    await expect.poll(() => httpGetStatus(LOCAL_PORT, '/health'), { timeout: 15_000 }).toBe(200);
   });
 });

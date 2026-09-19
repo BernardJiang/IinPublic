@@ -332,7 +332,7 @@ test.describe('Identity & devices page', () => {
     await expect(p.locator('[data-testid="identity-protection-card"]')).toContainText(
       'Identity password: Not set',
     );
-    const downgradeStorage = await p.evaluate(async () => {
+    const passwordRemovalStorage = await p.evaluate(async () => {
       const active = await new Promise<unknown>((resolve, reject) => {
         const open = indexedDB.open('iinpublic-identity-custody-v2');
         open.onerror = () => reject(open.error);
@@ -346,15 +346,42 @@ test.describe('Identity & devices page', () => {
           };
         };
       });
+      const passwordFree = await new Promise<any>((resolve, reject) => {
+        const open = indexedDB.open('iinpublic-identity-custody-v3');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const database = open.result;
+          const request = database.transaction('custody', 'readonly').objectStore('custody').get('active');
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            database.close();
+            resolve(request.result ?? null);
+          };
+        };
+      });
+      let keyExportRejected = false;
+      try {
+        await crypto.subtle.exportKey('raw', passwordFree.wrappingKey);
+      } catch {
+        keyExportRejected = true;
+      }
       return {
         active,
+        passwordFreeFormat: passwordFree?.record?.format ?? null,
+        passwordFreeKeyExtractable: passwordFree?.wrappingKey?.extractable ?? null,
+        keyExportRejected,
         legacyRecord: localStorage.getItem('iinpublic_key_custody_v1'),
         legacySecret: localStorage.getItem('iinpublic_key_custody_device_secret_v1'),
       };
     });
-    expect(downgradeStorage.active).toBeNull();
-    expect(downgradeStorage.legacyRecord).toContain('webcrypto-device-key-v1');
-    expect(downgradeStorage.legacySecret).not.toBeNull();
+    expect(passwordRemovalStorage).toEqual({
+      active: null,
+      passwordFreeFormat: 'webcrypto-nonextractable-v3',
+      passwordFreeKeyExtractable: false,
+      keyExportRejected: true,
+      legacyRecord: null,
+      legacySecret: null,
+    });
 
     await p.reload();
     await waitForAppReady(p);
