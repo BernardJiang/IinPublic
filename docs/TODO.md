@@ -466,22 +466,67 @@ adb devices
 Add cross-platform scenarios:
 
 - [x] Android -> Chromium (Android Charlie -> Chromium ring edge).
-- [ ] Chromium -> Android
-- [ ] Android -> WebKit
-- [ ] Android -> Firefox
-- [ ] Android -> macOS App
+- [x] Chromium -> Android. **Landed 2026-09-18.**
+- [x] Android -> WebKit. **Landed 2026-09-18.**
+- [x] Android -> Firefox. **Landed 2026-09-18.**
+- [x] Android -> macOS App. **Landed 2026-09-18.**
 - [x] macOS App -> Android (macOS -> Android Alice ring edge).
 
 Important IinPublic tests:
 
 - [x] Android discovers desktop peer.
 - [x] Desktop discovers Android peer.
-- [ ] Android publishes a Talk and desktop receives it.
+- [x] Android publishes a Talk and desktop receives it. **Landed 2026-09-18** (same run as
+  "Android -> macOS App" below — one Android-authored talk completed by the macOS Electron app).
 - [x] Desktop publishes a Talk and Android receives it.
-- [ ] Android disconnect/reconnect.
-- [ ] Android app background/foreground.
-- [ ] Network interruption and recovery.
-- [ ] Identity persistence after app restart.
+- [x] Android disconnect/reconnect. **Landed 2026-09-18.**
+- [x] Android app background/foreground. **Landed 2026-09-18.**
+- [x] Network interruption and recovery. **Landed 2026-09-18** (same mechanism/run as disconnect/
+  reconnect above).
+- [x] Identity persistence after app restart. **Landed 2026-09-18.**
+
+**2026-09-18, continued — `tests/e2e/native-app/12-android-lifecycle-and-network-resilience.spec.ts`
+(`npm run test:e2e:android-lifecycle`, opt-in via `E2E_REAL_ANDROID_LIFECYCLE=1`), real bug hunt
+that turned out to be a test-setup bug, not a product bug — recorded because the failure mode was
+genuinely misleading:** first version seeded the matched conversation directly via
+`WebConversationService.createConversation` (the same shortcut spec 10's `seedPairThread` uses),
+then toggled the phone's real Wi-Fi off/on (`adb shell svc wifi disable`/`enable`, confirmed
+working without root on this hardware) or backgrounded the app (`input keyevent KEYCODE_HOME` +
+relaunch intent) around a Chromium peer sending a message into the open conversation. All three
+scenarios failed identically: the message never appeared on the Android side even well past
+generous timeouts (60s / 30s). Before concluding this was a real disconnect/backgrounding bug,
+built a minimal standalone repro with NO lifecycle action at all (no Wi-Fi toggle, no
+backgrounding) — it failed the same way, and critically, **the sender (Chromium) never even saw
+its own just-sent message**, which ruled out Android/Wi-Fi/backgrounding entirely and pointed at
+the conversation setup itself. Root cause: the direct-`createConversation` shortcut never
+exchanges the peers' SEA `epub` (the encryption public key), unlike a real match, which does —
+`fast-dm-setup.ts`'s `setupFastMatchedDm` explicitly threads `authorEpub` through its talk
+definition for exactly this reason. Fix: replaced the shortcut with a real pair-direct mesh match
+(`peerMeshService.cacheTalkBody` + `submitTalkResponsePairDirect`, mirroring `setupFastMatchedDm`
+but generalized to one Android WebView `Page` + one browser `Page`) via a new
+`establishRealMatchAndOpenConversation` helper. Verified the fix with the same minimal repro
+(passed, both sides saw the message, ~52s) before re-running the full spec. Real hardware: phone
+`android-bob` (`PM1LHMA7A2707315`) + a headless Chromium peer. All 3 scenarios then passed
+cleanly: **3 passed (3.6m)** — Wi-Fi disconnect/reconnect (message sent while the phone's Wi-Fi is
+off arrives after it's re-enabled), background/foreground (message sent while the app is
+backgrounded via the real Home key is already there when the app returns to the foreground,
+confirming `NodeForegroundService` really does keep the embedded node running off-screen), and
+identity persistence across a real `am force-stop` + relaunch (same user id and stage name).
+
+**2026-09-18:** new `tests/e2e/native-app/11-android-cross-engine-directional-pairs.spec.ts`
+(`npm run test:e2e:android-directional-pairs`, opt-in via
+`E2E_REAL_ANDROID_DIRECTIONAL_PAIRS=1`) closes the four remaining named pairs above as explicit,
+individually-assertable completions rather than implicit ring edges — the seven-client matrix's
+(06) ring order only proves whichever adjacent pairs happen to fall out of push order on a given
+run, and these four specifically hadn't landed that way in any run to date. Real hardware: phone
+`android-alice` (`DUM0219418001663`) plus the macOS Electron app, Chromium, WebKit, and Firefox
+on one LAN Gun hub — Chromium and Android each author/broadcast one tag Talk, then Android
+completes Chromium's (Chromium -> Android), and WebKit/Firefox/the macOS app each independently
+complete Android's (Android -> WebKit, Android -> Firefox, Android -> macOS App). All 3 configured
+phones were first rebuilt and reinstalled at v1.0.41 (`npm run android:build` +
+`npm run android:install:matrix`) to pick up the just-merged identity-custody-v3/typed-preferences/
+TechSupport-key-rotation commits before this run. Verified: 1 passed (46.9s), all four pairs logged
+and completed.
 
 Milestone:
 
@@ -530,9 +575,33 @@ tests/matrix/devices.json
       and real-device runner; unknown names fail before any device is touched).
 - [x] Add 3+ peer convergence tests.
 - [x] Test simultaneous joins.
-- [ ] Test concurrent Talk propagation.
-- [ ] Test one device going offline while others continue.
-- [ ] Test peer return and resynchronization.
+- [x] Test concurrent Talk propagation. **Landed 2026-09-18.**
+- [x] Test one device going offline while others continue. **Landed 2026-09-18.**
+- [x] Test peer return and resynchronization. **Landed 2026-09-18.**
+
+**2026-09-18:** new `tests/e2e/native-app/13-android-three-phone-offline-resync.spec.ts`
+(`npm run test:e2e:android-three-phone-resync`, opt-in via
+`E2E_REAL_ANDROID_THREE_PHONE_RESYNC=1`) closes all three bullets in one real three-phone run, all
+using every phone currently connected (android-alice, android-bob, android-charlie): all three
+author AND broadcast a tag Talk in the same `Promise.all` (concurrent propagation, not three
+sequential single-talk broadcasts), then one phone goes offline (`adb shell svc wifi disable`)
+while the other two complete each other's talks (others continue), then the offline phone's Wi-Fi
+is re-enabled and the test polls the phone's OWN local incoming-talk clusters
+(`findIncomingTalkIdByTitle` — the mesh-mirrored-to-local-Gun path CLAUDE.md documents, not an
+injected shortcut) until the talk it missed while offline actually shows up there, then completes
+it — real resynchronization proven end to end, not assumed.
+
+**Real hardware finding along the way:** the "one device offline" mechanism (`adb shell svc wifi
+disable`) is not universal across this fleet — `android-charlie` (a Huawei FRD_L04 on EMUI)
+denies `CHANGE_WIFI_STATE` to the adb shell user outright, confirmed via logcat:
+`SecurityException: WifiService: Neither user 2000 nor current process has
+android.permission.CHANGE_WIFI_STATE`, while `android-alice` and `android-bob` both allow it
+cleanly. This is a genuine per-device OEM restriction, not flakiness, so the test PROBES
+`svc wifi disable`/`enable` on the available phones and picks whichever one actually supports it
+(preferring `android-charlie` when it can, for a stable default) rather than assuming a fixed
+device name — `supportsWifiToggle`'s doc comment records the finding for future test authors on
+this fleet. Verified: **1 passed (1.5m)** with all 3 phones connected (offline candidate picked:
+android-alice, since android-charlie was correctly probed out).
 
 Example target:
 
@@ -701,17 +770,61 @@ and the isolated install directory was removed. Windows code signing remains ope
 
 ##### 4.4 Cross-OS Tests
 
+**2026-09-18: `windows-test` (192.168.10.67) was unreachable for part of this session** — `npm
+run test:e2e:windows:preflight` initially reported `SSH host windows-test is unavailable (ssh:
+connect to host 192.168.10.67 port 22: Operation timed out)`, and the host didn't respond to ICMP
+ping either. The machine's owner turned it back on partway through the session; preflight passed
+immediately afterward (`available: BERNARDJIANGPC (Microsoft Windows 10 Pro, 64-bit)`) — the gap
+was the physical machine being off, not a test-infra problem.
+
+**2026-09-18, continued — Windows landed as a live cross-host peer the same day, ported from the
+Ubuntu mechanism above:** new `tests/e2e/native-app/helpers/windows-live-peer.ts` +
+`15-windows-cross-host-live-peer.spec.ts` (`npm run test:e2e:windows-live-peer`, opt-in via
+`E2E_REAL_WINDOWS_LIVE_PEER=1`) closes "Mac Chromium -> Windows Chromium" and "Windows Chromium ->
+Mac Chromium" below, plus contributes to "Mac browser + Windows browser + Android" — same
+four-peer shape as the Ubuntu spec (macOS Electron, a real Android phone, a local Chromium, and
+the real Windows Chromium over SSH+CDP), same reverse-tunnel fix for the same WebCrypto/
+secure-context trap.
+
+**Three more real, Windows-specific blockers found and fixed, none hypothesized** (see
+`windows-live-peer.ts`'s header comment for full detail): (1) `nohup ... & disown` has no real
+Windows equivalent — `Start-Process`, `Invoke-CimMethod ... Win32_Process Create`, and
+`schtasks /create ... /run` were each tried and each got torn down the instant the launching SSH
+session closed (OpenSSH on Windows appears to kill the whole logon session, and everything under
+it, regardless of how the child was spawned) — fixed by keeping the LAUNCHING ssh connection open
+as a long-lived local process for the peer's whole lifetime instead of fighting the platform. (2)
+Even foreground, plain `& chrome.exe args` returned instantly rather than blocking — a documented
+PowerShell quirk where the call operator doesn't wait for Win32 GUI-subsystem executables the way
+it does for console apps — fixed with `Start-Process -PassThru` + `Wait-Process -Id $proc.Id`,
+which blocks on the specific PID directly. (3) `'--user-data-dir=' + $profileDir` as a runtime
+PowerShell string concatenation inside `-ArgumentList` made chrome exit near-instantly with
+`"Multiple targets are not supported in headless mode."` on stderr (confirmed by redirecting
+stderr to a file and reading it back, not guessed) — fixed by building that argument as one
+literal string instead. Cleanup also needed a real fix: `Get-CimInstance Win32_Process -Filter
+"Name='chrome.exe'"` silently matched zero processes despite real ones existing (confirmed via
+`tasklist` showing several while the CIM filter returned nothing — a WQL-quoting issue never
+fully root-caused) — replaced with a precise `taskkill /F /PID <n>` using the PID Chrome's own
+launch prints, deliberately not a blanket `/IM chrome.exe` (which would also kill the machine
+owner's own everyday Chrome).
+
+Verified end to end: **1 passed (1.0m)** — macOS Electron, real Android (`DUM0219418001663`),
+local Chromium, and real Windows Chromium (`BERNARDJIANGPC`, over SSH+CDP) all joined Global;
+Chromium and Android each authored/broadcast one Talk; all four directional pairs completed
+(Windows -> Mac Chromium, Mac Chromium -> Windows, Windows -> Android, Android -> Windows). No
+stray chrome.exe processes left running afterward (verified via `tasklist`).
+
 Start with simple two-peer combinations:
 
-- [ ] Mac Chromium -> Windows Chromium.
-- [ ] Windows Chromium -> Mac Chromium.
+- [x] Mac Chromium -> Windows Chromium. **Landed 2026-09-18.**
+- [x] Windows Chromium -> Mac Chromium. **Landed 2026-09-18.**
 - [ ] macOS App -> Windows App.
 - [ ] Windows App -> Android.
 - [ ] Android -> Windows App.
 
 Then expand:
 
-- [ ] Mac browser + Windows browser + Android.
+- [x] Mac browser + Windows browser + Android. **Landed 2026-09-18** (same run as above — all
+  three shared one Global room and exchanged Talks).
 - [ ] macOS App + Windows App + Android.
 - [ ] Mixed browser engines across operating systems.
 
@@ -750,14 +863,26 @@ Playwright blob report to the Mac. The optional worker reports `SKIP` when unava
 
 - [x] Chromium (Playwright platform-smoke gate on the real Ubuntu worker).
 - [x] Firefox (Playwright platform-smoke gate on the real Ubuntu worker).
-- [ ] WebKit through Playwright where applicable.
+- [ ] WebKit through Playwright where applicable. **Attempted 2026-09-18, genuinely blocked, not
+  landed:** added `npm run test:e2e:ubuntu:webkit` (`scripts/run-ubuntu-e2e.mjs --webkit`,
+  mirroring the existing `--chromium`/`--firefox` modes). Real run on `ubuntu-test` failed —
+  WebKit needs system packages this worker doesn't have (`sudo npx playwright install-deps` /
+  `sudo apt-get install libavif16` per Playwright's own error). The SSH user has no passwordless
+  sudo (`sudo -n true` → "a password is required"), so this needs the machine's owner to run that
+  install manually before this can land — flagging honestly rather than working around it.
 
 Run:
 
 - [x] Browser tests locally on Ubuntu (first Chromium slice).
-- [ ] Ubuntu browser -> Mac browser.
-- [ ] Ubuntu browser -> Windows browser.
-- [ ] Ubuntu browser -> Android.
+- [x] Ubuntu browser -> Mac browser. **Landed 2026-09-18.**
+- [x] Ubuntu browser -> Windows browser. **Landed 2026-09-18**, once `windows-test` came back
+  online mid-session — new `16-five-way-cross-host-live-peer.spec.ts`
+  (`npm run test:e2e:five-way-live-peer`) combines both live-peer mechanisms into one five-peer
+  run (macOS Electron, real Android, local Chromium, real Ubuntu, real Windows) and proves
+  Ubuntu <-> Windows exchanging directly with each other, not just each independently with the
+  Mac/Android. Verified: **1 passed (1.4m)**, all 5 peers joined Global, Ubuntu <-> Windows
+  completed both directions.
+- [x] Ubuntu browser -> Android. **Landed 2026-09-18.**
 
 Verified 2026-09-10: `npm run test:e2e:ubuntu:chromium` and `npm run
 test:e2e:ubuntu:firefox` each passed both platform-smoke cases on `ubuntu-test` using display
@@ -765,6 +890,43 @@ test:e2e:ubuntu:firefox` each passed both platform-smoke cases on `ubuntu-test` 
 WebSocket, localStorage, IndexedDB, and local Gun read/write in both engines. Each browser
 installation is bounded by a five-minute timeout, and its Playwright blob is returned to and
 merged on the Mac. WebKit and cross-host peer scenarios remain open.
+
+**2026-09-18 — the first genuinely LIVE cross-host peer scenario in this repo**, closing "Ubuntu
+browser -> Mac browser" and "Ubuntu browser -> Android": every prior Ubuntu/Windows test is
+remote-batch (deploy, build, run entirely on that host, ship a report back —
+`environment-availability.ts`'s own doc comment names this exact gap, `livePeerSupport: false`
+for both). New `tests/e2e/native-app/helpers/ubuntu-live-peer.ts` +
+`14-ubuntu-cross-host-live-peer.spec.ts` (`npm run test:e2e:ubuntu-live-peer`, opt-in via
+`E2E_REAL_UBUNTU_LIVE_PEER=1`) make Ubuntu a real fourth peer alongside the macOS Electron app, a
+real Android phone, and a local Mac Chromium, all sharing one LAN Gun hub.
+
+Mechanism: launch Ubuntu's already-installed Playwright Chromium binary over SSH on its real X11
+display with a remote-debugging port, tunnel that port to this Mac, and
+`chromium.connectOverCDP()` into it — the same CDP-attach pattern `native-app-android.ts` already
+uses for a real physical Android WebView. The driving Playwright process stays entirely on the
+Mac, so every existing host-agnostic test helper works completely unmodified against this real
+remote browser.
+
+**Two real, confirmed-not-hypothesized blockers found and fixed before this worked:**
+1. Pointing Ubuntu's browser at the Mac's real LAN IP hit `ERR_SSL_PROTOCOL_ERROR` — the browser's
+   WebCrypto API only works in a "secure context" (HTTPS, or the special-cased
+   `localhost`/`127.0.0.1`), and a plain-HTTP LAN IP doesn't qualify, so Gun's own SEA shim
+   detected `crypto.subtle` missing and self-redirected to `https://`, which this test server
+   doesn't serve. Chrome's own `--unsafely-treat-insecure-origin-as-secure` escape hatch for this
+   exact shape was tried next (with a dedicated `--user-data-dir`, itself required for the flag to
+   take effect at all against a non-default profile) and STILL left `isSecureContext` false on
+   this Chrome build, in both headless and real-X11-display mode — confirmed via a minimal
+   CDP-only repro isolated from the full 4-peer scenario, not assumed.
+2. **Fix:** reverse SSH tunnels (`ssh -R <port>:127.0.0.1:<port>`) expose the Mac's web+gun ports
+   on Ubuntu's OWN loopback instead — Ubuntu's browser then navigates to its own
+   `http://127.0.0.1:<port>`, which every browser always treats as secure with zero special flags.
+   Verified directly with the same minimal repro before wiring it into the full spec:
+   `crypto.subtle`/`isSecureContext` both `true`, real app title loaded.
+
+Verified end to end: **1 passed (48.8s)** — macOS Electron, real Android
+(`DUM0219418001663`), local Chromium, and real Ubuntu Chromium (over SSH+CDP) all joined Global;
+Chromium and Android each authored/broadcast one Talk; all four directional pairs completed
+(Ubuntu -> Mac Chromium, Mac Chromium -> Ubuntu, Ubuntu -> Android, Android -> Ubuntu).
 
 ##### 5.3 Add Ubuntu Desktop App
 
@@ -781,6 +943,40 @@ packaged `iinpublic-desktop` executable on display `:1`, and passed the shared e
 ephemeral extraction, and merged the returned report on the Mac. Ubuntu browser and cross-host
 peer scenarios remain open in §§5.2 and 5.4.
 
+**2026-09-18 — the first LIVE desktop-app (not just browser) cross-host peer scenario, closing
+Stage 5.4's "macOS App + Ubuntu App":** new `tests/e2e/native-app/helpers/ubuntu-desktop-live-peer.ts`
++ `17-macos-ubuntu-desktop-live-peer.spec.ts` (`npm run test:e2e:macos-ubuntu-desktop-live-peer`,
+opt-in via `E2E_REAL_MACOS_UBUNTU_DESKTOP_LIVE_PEER=1`). Deploys the current revision to
+`ubuntu-test` (same git-archive-over-scp pattern and dependency-hash-stamp caching
+`run-ubuntu-e2e.mjs` already uses, same revision-keyed workspace so a build either script triggers
+is reusable by the other), builds the AppImage, extracts it, and launches the packaged
+`iinpublic-desktop` executable on the real X11 display with `--remote-debugging-port` — Electron
+apps are Chromium under the hood and honor this switch even packaged, confirmed by connecting to
+it exactly like any other CDP target (same `chromium.connectOverCDP` mechanism the browser live
+peers use). Unlike the browser peers, no reverse tunnel is needed for the WebCrypto/secure-context
+trap: the app's own UI loads from bundled local files via its own embedded server (same as the
+local macOS Electron app), so `IINPUBLIC_HUB_GUN_URL` just points at the Mac's real LAN Gun URL
+directly.
+
+**Two more real, confirmed-not-assumed gotchas found along the way:** (1) Electron has no true
+headless mode — a real run showed `ERROR:ozone_platform_x11.cc ... Missing X server or $DISPLAY /
+The platform failed to initialize. Exiting.`; fixed with the same DISPLAY/XAUTHORITY pattern
+`run-ubuntu-e2e.mjs`'s own desktop-app test already proves out for this worker. (2) Cleanup
+initially trusted the SSH client's own exit code and retried on "failure" — but a real run showed
+the SSH client can report exit 255 on a `pkill ... || true` command that, confirmed by hand
+immediately after, had ALREADY fully and correctly executed remotely (a `|| true` makes the remote
+shell always exit 0, so 255 there can only be a connection-teardown-level client quirk, not the
+remote command failing — retrying a misreported "failure" wastes time and can't help). Fixed by
+verifying the actual remote process state (`pgrep`) after each cleanup attempt instead of trusting
+SSH's own exit code.
+
+Verified end to end, including a rerun specifically to confirm cleanup no longer leaves the
+process running: **1 passed (57.4s)** both times — the local macOS Electron app and the real
+Ubuntu Electron app (built and launched over SSH+CDP) joined Global together and completed both
+directions of a matching Talk exchange. No stray `iinpublic-desktop` test process left on
+`ubuntu-test` afterward (verified via `ps aux`, careful not to disturb the machine owner's own
+separate, long-running personal instance of the same app found running on that host).
+
 ##### 5.4 Full Cross-Platform Scenarios
 
 Test representative combinations rather than every possible permutation on every commit.
@@ -788,7 +984,7 @@ Test representative combinations rather than every possible permutation on every
 Examples:
 
 - [ ] macOS App + Windows App.
-- [ ] macOS App + Ubuntu App.
+- [x] macOS App + Ubuntu App. **Landed 2026-09-18.**
 - [ ] Windows App + Ubuntu App.
 - [ ] Android + Windows App.
 - [ ] Android + Ubuntu App.
