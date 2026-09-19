@@ -1840,6 +1840,10 @@ Likely implementation ownership:
 - [ ] Later replace the browser v1 password-removal target with a reviewed password-free v3 using
       a non-extractable WebCrypto key where reliable and OS Keychain/Keystore custody in native
       shells. Preserve the same warning semantics, identity, and transactional rollback guarantees.
+      Browser foundation started 2026-09-18: the v3 envelope, non-extractable IndexedDB key store,
+      CAS guards, and transactional copy/verify/delete coordinator are implemented and documented
+      in `docs/security/password-free-identity-custody-v3.md`. Production flow wiring,
+      cross-browser restart proof, native providers, and external review remain open.
 
 **Done when:** fresh installs still open without a password; protected installs require the correct
 password after a defined lock boundary; no reset mechanism exists; and setting/changing/removing a

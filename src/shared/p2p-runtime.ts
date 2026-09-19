@@ -136,6 +136,7 @@ export type SeaPrivateIdentityMaterial = SeaPublicIdentity & {
 
 export type KeyCustodyFormat =
   | 'webcrypto-device-key-v1'
+  | 'webcrypto-nonextractable-v3'
   | 'os-keychain-v1'
   | 'imported-recovery-package-v1'
   | 'password-aead-v2';
@@ -180,7 +181,27 @@ export type PasswordKeyCustodyRecordV2 = {
   updatedAt: string;
 };
 
-export type KeyCustodyRecord = DeviceKeyCustodyRecordV1 | PasswordKeyCustodyRecordV2;
+export type BrowserNonExtractableKeyCustodyRecordV3 = {
+  version: 3;
+  format: 'webcrypto-nonextractable-v3';
+  protection: 'device';
+  provider: 'webcrypto-indexeddb';
+  custodyId: string;
+  publicIdentity: SeaPublicIdentity;
+  aead: {
+    name: 'AES-256-GCM';
+    iv: string;
+    tagBits: 128;
+  };
+  ciphertext: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KeyCustodyRecord =
+  | DeviceKeyCustodyRecordV1
+  | PasswordKeyCustodyRecordV2
+  | BrowserNonExtractableKeyCustodyRecordV3;
 
 export type KeyRecoveryWarning = {
   severity: 'critical';

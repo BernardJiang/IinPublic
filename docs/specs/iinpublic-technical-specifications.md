@@ -5678,6 +5678,15 @@ separate portable format and threat model are reviewed and tested.
 
 localStorage keys: `iinpublic_key_custody_v1`, `iinpublic_key_custody_device_secret_v1`
 
+**Password-free v3 migration (foundation implemented 2026-09-18; not yet the active startup
+path):** supported browsers will replace the adjacent-secret v1 scheme with an
+`extractable: false` AES-256-GCM `CryptoKey` and authenticated v3 ciphertext stored atomically in
+IndexedDB. The record/key store and copy→verify→delete coordinator are implemented with
+compare-and-swap and rollback guards, but startup wiring, real-browser restart proof, OS-native
+providers, and external security review remain rollout gates. Non-extractable WebCrypto storage
+is defense-in-depth against storage copying, not hardware custody and not an XSS defense. See
+`docs/security/password-free-identity-custody-v3.md`.
+
 ### 3. Complete Gun Graph Reference
 
 #### 3.1 User Profiles (Public)

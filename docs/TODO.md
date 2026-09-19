@@ -29,6 +29,15 @@ partial completion is itself the useful signal.
 
 - [ ] Later harden password-free custody beyond v1 with a reviewed non-extractable WebCrypto-key
       format for supported browsers and OS Keychain/Keystore adapters for native shells.
+      **Started 2026-09-18:** the browser v3 foundation now exists: a strict authenticated record,
+      non-extractable AES-256-GCM `CryptoKey`, atomic IndexedDB record+key storage, custody-ID CAS,
+      and copy→verify→delete migration coordinator with rollback/resume behavior. Fifteen focused
+      tests cover non-exportability, round-trip, tampering, wrong/extractable keys, structured-clone
+      persistence, concurrent writers, rollback, cleanup resumption, and identity conflicts. The
+      implementation boundary and platform limitations are documented in
+      `docs/security/password-free-identity-custody-v3.md`. Still open before checking this item:
+      production startup/password-removal wiring, real-browser restart coverage, native
+      Keychain/Keystore providers, and external review.
 - [ ] X3 website↔app remains skipped — needs a real native-shell CI runner (Priority 3), not a
   same-machine mechanism gap like X8 was.
 

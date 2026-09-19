@@ -1,0 +1,83 @@
+# Password-free identity custody v3 — implementation design
+
+Status: **browser foundation implemented; rollout wiring and native adapters still open**.
+
+## Why v3 exists
+
+The original password-free `webcrypto-device-key-v1` record derives its AES wrapping key from a
+random secret stored beside the ciphertext in localStorage. It prevents casual plaintext exposure
+but offers little separation to an attacker who can copy the origin's complete storage.
+
+Browser v3 instead generates an AES-256-GCM `CryptoKey` with `extractable: false`, stores that
+opaque key and the encrypted SEA pair together in IndexedDB, and never serializes raw AES key
+bytes into application data. WebCrypto defines `CryptoKey` as serializable and explicitly calls
+out IndexedDB as the expected persistence mechanism. It also makes the boundary clear:
+non-extractable prevents `exportKey`, but injected same-origin code can still *use* the key, and
+the specification does not guarantee hardware-backed or encrypted-at-rest browser storage.
+
+Primary platform references:
+
+- [W3C Web Cryptography Level 2 — key storage and security considerations](https://www.w3.org/TR/webcrypto-2/#concepts-key-storage)
+- [W3C Web Cryptography Level 2 — CryptoKey serialization](https://www.w3.org/TR/webcrypto-2/#cryptokey-interface-serialization)
+- [W3C Indexed Database API](https://www.w3.org/TR/IndexedDB/)
+- [Android Keystore system](https://developer.android.com/privacy-and-security/keystore)
+- [Apple Keychain Services](https://developer.apple.com/documentation/security/keychain-services)
+
+## Browser record and key
+
+`BrowserNonExtractableKeyCustodyRecordV3` contains only:
+
+- version, format, provider, and protection identifiers;
+- a random 128-bit custody ID;
+- the public SEA identity (`pub`, `epub`);
+- a random 96-bit AES-GCM IV and fixed 128-bit authentication tag setting;
+- ciphertext and canonical timestamps.
+
+Every public metadata field is authenticated as AES-GCM additional data. The plaintext is a
+schema-tagged object containing exactly `pub`, `epub`, `priv`, and `epriv`. Decryption checks that
+the plaintext public fields equal the authenticated metadata. Validation rejects unknown fields,
+non-canonical base64/timestamps, wrong algorithms/usages, extractable keys, and malformed records.
+All unlock failures collapse to one generic message.
+
+The IndexedDB row contains `{ record, wrappingKey }` in one transaction. The wrapping key must be
+a non-extractable 256-bit AES-GCM secret key with exactly `encrypt` and `decrypt` usages. Custody-ID
+compare-and-swap guards prevent two tabs from silently replacing one another.
+
+## Migration transaction
+
+`BrowserPasswordFreeCustodyManager.migrateFrom()` implements copy → verify → delete:
+
+1. decrypt/read the v1 source;
+2. create and preflight a v3 candidate;
+3. commit record and non-extractable key atomically to IndexedDB;
+4. read/decrypt the committed row and compare every SEA field;
+5. only then remove the matching v1 source.
+
+If step 4 fails, the new candidate is deleted (or the prior v3 row is restored). If source cleanup
+fails, both valid copies remain; a later invocation verifies they are byte-identical and resumes
+cleanup. A conflicting v1/v3 identity is a hard failure, never an overwrite.
+
+## Native provider boundary
+
+Native shells must not pretend IndexedDB is an OS keystore. The next slice will expose the same
+write/read/verify/remove contract through narrow native bridges:
+
+- Android: an Android Keystore AES wrapping key whose material remains non-exportable; ciphertext
+  and public metadata may live in app-private storage. Record whether secure hardware actually
+  backs the generated key rather than claiming it universally.
+- macOS/iOS: a Keychain-protected wrapping secret or key reference with an explicit accessibility
+  class. Secure Enclave is not automatically suitable for arbitrary AES wrapping and must not be
+  claimed unless the chosen algorithm and device path genuinely use it.
+- Electron on Windows/Linux: select and review an OS credential-store adapter before enabling v3;
+  do not silently fall back to a plaintext file.
+
+## Rollout gates still open
+
+- Wire browser startup and password-removal flows to the v3 manager while retaining verified v1
+  rollback until migration completes.
+- Update erase-device database removal and protection-status UI.
+- Add Chromium, Firefox, and WebKit reload tests proving a stored non-extractable key survives a
+  real browser restart; unsupported engines must retain v1 rather than deleting it.
+- Implement and physically test Android Keystore and Apple Keychain adapters, then decide the
+  Windows/Linux desktop provider.
+- Obtain external security review before checking the parent TODO item complete.
