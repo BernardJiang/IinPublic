@@ -85,7 +85,7 @@ write/read/verify/remove contract through narrow native bridges:
   `tests/e2e/native-app/18-android-keystore-custody.spec.ts` (no WebView plaintext, ciphertext-only
   prefs, identity survives force-stop).
 - Written, not yet built/run: Apple Keychain (`AppleCustodyBridge.swift`, after-first-unlock, this
-  device only) and Electron macOS `safeStorage` (`platforms/desktop/custody.js`; Windows/Linux
+  device only) and Electron macOS `safeStorage` (`platforms/desktop/custody.js`, verified by spec 22; Windows/Linux
   refused until a provider is reviewed).
 - Decide the Windows/Linux desktop provider.
 - Obtain external security review before checking the parent TODO item complete.

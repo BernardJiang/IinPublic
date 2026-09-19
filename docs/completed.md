@@ -24,8 +24,11 @@ Last updated: 2026-09-19
   hardware backing reported from `KeyInfo`. Verified on all three physical phones by
   `tests/e2e/native-app/18-android-keystore-custody.spec.ts` (3/3 pass, commit `37e90eed`): no
   WebView plaintext, ciphertext-only prefs, identity survives force-stop relaunch.
-- Remaining under OPEN-06 (Keychain build/run, macOS `safeStorage` run, Windows/Linux providers,
-  external review) stays in `docs/TODO.md`.
+- macOS Electron `safeStorage` adapter (`platforms/desktop/custody.js`) verified by spec 22: bridge
+  reports `electron-safe-storage`, no WebView plaintext, ciphertext-only file, identity survives
+  app relaunch. Windows/Linux are refused by design until a provider is reviewed.
+- Remaining under OPEN-06 (iOS Keychain build/run, Windows/Linux providers, external review) stays
+  in `docs/TODO.md`.
 
 ## 2026-09-19 — Canonical TODO reconciliation and completed cross-platform matrix work
 

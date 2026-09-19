@@ -40,12 +40,12 @@ verification evidence to `docs/completed.md`, remove it here, and do not reuse i
 
 ### Tier 2 — Mac mini + Android devices
 
-- [ ] **OPEN-06 — Finish native password-free identity custody.** Android Keystore is implemented
-  and verified on all three physical phones (spec 18); the Apple Keychain (iOS) and Electron macOS
-  `safeStorage` adapters are implemented but not yet compiled/run — accept the Xcode license
-  (`sudo xcodebuild -license`), build the iOS app, and add a macOS Electron custody-restart run.
-  Then select reviewed credential-store providers for Windows/Linux (Electron custody currently
-  refuses them) and obtain external review of the custody/migration boundary.
+- [ ] **OPEN-06 — Finish native password-free identity custody.** Android Keystore and macOS
+  Electron `safeStorage` (login Keychain) are implemented and verified (specs 18, 22). Remaining:
+  accept the Xcode license (`sudo xcodebuild -license` — also needed for `dist:mac` codesigning),
+  then compile and run the iOS Keychain adapter (`AppleCustodyBridge.swift`); select reviewed
+  credential-store providers for Windows/Linux (Electron custody currently refuses them); obtain
+  external review of the custody/migration boundary.
 
 All other standalone Android and Mac↔Android matrix work is complete: logical device selection,
 directional browser/app pairs, multi-phone convergence, background/foreground, force-stop/restart,
