@@ -30,6 +30,10 @@ import {
   type PasswordFreeCustodyMigrationSource,
 } from './browser-password-free-custody-manager';
 import { BrowserPasswordFreeCustodyStore } from './identity-password-free-custody-store';
+import { NativePasswordFreeCustodyManager } from './native-password-free-custody-manager';
+import { detectNativeCustodyBridge } from '../../shared/native-custody-bridge';
+
+type PasswordFreeCustodyManager = BrowserPasswordFreeCustodyManager | NativePasswordFreeCustodyManager;
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
 export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
@@ -235,7 +239,7 @@ export class WebGunService extends EventEmitter {
   /** Serialize authenticated private-namespace writes; GUN/SEA can reject overlapping signs. */
   private privateWriteQueue: Promise<void> = Promise.resolve();
   private identityPasswordManager: IdentityPasswordCustodyManager | null = null;
-  private browserPasswordFreeCustodyManager: BrowserPasswordFreeCustodyManager | null | undefined;
+  private browserPasswordFreeCustodyManager: PasswordFreeCustodyManager | null | undefined;
   /** Cached from the last `getIdentityPasswordProtectionStatus()` read (and kept current by
    * `setIdentityPassword`/`removeIdentityPassword`/`unlockIdentity`) so the synchronous
    * `beforeunload` handler can tell, without awaiting anything, whether there is a
@@ -355,8 +359,13 @@ export class WebGunService extends EventEmitter {
    * reviewed OS Keychain/Keystore bridge. An Electron/WebView IndexedDB CryptoKey is not an OS
    * keystore and must not be presented as one.
    */
-  private getBrowserPasswordFreeCustodyManager(): BrowserPasswordFreeCustodyManager | null {
+  private getBrowserPasswordFreeCustodyManager(): PasswordFreeCustodyManager | null {
     if (this.browserPasswordFreeCustodyManager !== undefined) {
+      return this.browserPasswordFreeCustodyManager;
+    }
+    const nativeBridge = detectNativeCustodyBridge();
+    if (nativeBridge) {
+      this.browserPasswordFreeCustodyManager = new NativePasswordFreeCustodyManager(nativeBridge);
       return this.browserPasswordFreeCustodyManager;
     }
     if (

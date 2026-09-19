@@ -74,6 +74,7 @@ class MainActivity : AppCompatActivity() {
         }
         nearbyBridge = NearbyJavascriptBridge(this, webView)
         webView.addJavascriptInterface(nearbyBridge, "IinPublicNearby")
+        webView.addJavascriptInterface(NativeCustodyBridge(this), "IinPublicCustody")
         setContentView(webView)
 
         ensureNotificationPermissionThenStart()

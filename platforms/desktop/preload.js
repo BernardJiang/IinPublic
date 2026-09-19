@@ -2,7 +2,7 @@
 // talks to the local node over loopback HTTP/WebSocket, so it needs no Node
 // access. We only expose a tiny, read-only surface for the shell to advertise
 // that it is the native host (e.g. to hide "install desktop app" prompts).
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 function finiteEpoch(value) {
   const parsed = Number(value);
@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld('iinpublicNative', {
     : process.platform === 'linux' ? 'ubuntu'
     : process.platform === 'darwin' ? 'macos' : 'unknown',
   shell: 'electron',
+  custody: {
+    describe: () => ipcRenderer.invoke('iinpublic:custody:describe'),
+    read: () => ipcRenderer.invoke('iinpublic:custody:read'),
+    write: (pair) => ipcRenderer.invoke('iinpublic:custody:write', pair),
+    remove: (expected) => ipcRenderer.invoke('iinpublic:custody:remove', expected),
+  },
   embeddedNode: true,
   version: argumentValue('iinpublic-app-version'),
   startup: {

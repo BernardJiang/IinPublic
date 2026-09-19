@@ -79,6 +79,13 @@ write/read/verify/remove contract through narrow native bridges:
 - Completed: erase-device and stage-reset database removal include v3.
 - Completed: Chromium, Firefox, and WebKit tests close and relaunch a persistent browser profile,
   prove the exact private pair survives, and prove the wrapping key remains non-extractable.
-- Implement and physically test Android Keystore and Apple Keychain adapters, then decide the
-  Windows/Linux desktop provider.
+- Completed 2026-09-19: `NativeCustodyBridge` contract (`src/shared/native-custody-bridge.ts`) and
+  `NativePasswordFreeCustodyManager`; Android Keystore AES-256-GCM adapter (public identity bound as
+  AAD, reports hardware backing from `KeyInfo`) verified on three physical phones by
+  `tests/e2e/native-app/18-android-keystore-custody.spec.ts` (no WebView plaintext, ciphertext-only
+  prefs, identity survives force-stop).
+- Written, not yet built/run: Apple Keychain (`AppleCustodyBridge.swift`, after-first-unlock, this
+  device only) and Electron macOS `safeStorage` (`platforms/desktop/custody.js`; Windows/Linux
+  refused until a provider is reviewed).
+- Decide the Windows/Linux desktop provider.
 - Obtain external security review before checking the parent TODO item complete.

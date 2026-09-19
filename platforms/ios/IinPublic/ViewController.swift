@@ -10,11 +10,13 @@ final class ViewController: UIViewController {
 
     private var webView: WKWebView!
     private let connectivityBridge = AppleConnectivityBridge()
+    private let custodyBridge = AppleCustodyBridge()
 
     override func loadView() {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.userContentController.add(connectivityBridge, name: AppleConnectivityBridge.scriptName)
+        config.userContentController.addScriptMessageHandler(custodyBridge, contentWorld: .page, name: AppleCustodyBridge.scriptName)
         webView = WKWebView(frame: .zero, configuration: config)
         connectivityBridge.webView = webView
         view = webView
@@ -23,6 +25,7 @@ final class ViewController: UIViewController {
     deinit {
         connectivityBridge.stop()
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: AppleConnectivityBridge.scriptName)
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: AppleCustodyBridge.scriptName, contentWorld: .page)
     }
 
     override func viewDidLoad() {

@@ -10,7 +10,8 @@
 //
 // The local node dials the public hub upstream for discovery only.
 
-const { app, BrowserWindow, shell, dialog } = require('electron');
+const { app, BrowserWindow, shell, dialog, ipcMain, safeStorage } = require('electron');
+const { registerCustody } = require('./custody');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -169,7 +170,13 @@ app.on('child-process-gone', (_event, details) => {
   }
 });
 
+let custodyRegistered = false;
+
 async function createWindow() {
+  if (!custodyRegistered) {
+    custodyRegistered = true;
+    registerCustody({ ipcMain, safeStorage, userDataDir: app.getPath('userData') });
+  }
   const win = new BrowserWindow({
     width: 1100,
     height: 800,
