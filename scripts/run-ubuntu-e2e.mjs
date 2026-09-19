@@ -17,6 +17,7 @@ const preflightOnly = process.argv.includes('--preflight');
 const desktopMode = process.argv.includes('--desktop');
 const chromiumMode = process.argv.includes('--chromium');
 const firefoxMode = process.argv.includes('--firefox');
+const webkitMode = process.argv.includes('--webkit');
 const sshOptions = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8'];
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
 
@@ -167,9 +168,9 @@ if (preflightOnly) {
   console.log('[ubuntu-e2e] preflight passed; no tests started.');
   process.exit(0);
 }
-if (Number(desktopMode) + Number(chromiumMode) + Number(firefoxMode) !== 1) {
+if (Number(desktopMode) + Number(chromiumMode) + Number(firefoxMode) + Number(webkitMode) !== 1) {
   console.error(
-    '[ubuntu-e2e] specify exactly one of --chromium, --firefox, or --desktop ' +
+    '[ubuntu-e2e] specify exactly one of --chromium, --firefox, --webkit, or --desktop ' +
       '(or use the matching npm script).',
   );
   process.exit(2);
@@ -177,7 +178,7 @@ if (Number(desktopMode) + Number(chromiumMode) + Number(firefoxMode) !== 1) {
 
 const shortRevision = revision.slice(0, 12);
 const workspace = `${remote.home}/${hostConfig.workspaceRoot}/${revision}`;
-const browserName = chromiumMode ? 'chromium' : firefoxMode ? 'firefox' : '';
+const browserName = chromiumMode ? 'chromium' : firefoxMode ? 'firefox' : webkitMode ? 'webkit' : '';
 const modeName = desktopMode ? 'desktop' : browserName;
 const runId = `ubuntu-${modeName}-${shortRevision}-${Date.now()}`;
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-ubuntu-e2e-'));
@@ -272,7 +273,7 @@ timeout --signal=TERM --kill-after=15s 300s ${shellQuote(nodeExe)} ${shellQuote(
 ${shellQuote(nodeExe)} ${shellQuote(npmCli)} run build:embedded
 ${displayEnvironment}
 export E2E_GUN_MEMORY_ONLY=1
-export E2E_CROSS_BROWSER=${firefoxMode ? '1' : '0'}
+export E2E_CROSS_BROWSER=${firefoxMode || webkitMode ? '1' : '0'}
 export E2E_STATIC_WEB=1
 export E2E_VIDEO=off
 export E2E_BLOB=1

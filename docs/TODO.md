@@ -757,6 +757,18 @@ and the isolated install directory was removed. Windows code signing remains ope
 
 ##### 4.4 Cross-OS Tests
 
+**2026-09-18: `windows-test` (192.168.10.67) is currently unreachable** — `npm run
+test:e2e:windows:preflight` reports `SSH host windows-test is unavailable (ssh: connect to host
+192.168.10.67 port 22: Operation timed out)`, and the host doesn't respond to ICMP ping either,
+even though this Mac's ARP cache shows it was seen on the LAN recently (stale entry, not proof of
+current reachability). The Ubuntu live-peer mechanism landed the same day (§5.2 above) is
+host-agnostic infrastructure — nothing about it is Ubuntu-specific beyond which SSH host/binary
+path it targets — so once `windows-test` is reachable again, the same
+`chromium.connectOverCDP`-over-SSH-tunnel approach (`tests/e2e/native-app/helpers/
+ubuntu-live-peer.ts`) should generalize to a Windows worker with modest changes (Windows' own
+installed browser paths, no X11/display wrangling needed). Every bullet below that needs Windows
+is blocked on this connectivity gap, not on missing test-authoring work.
+
 Start with simple two-peer combinations:
 
 - [ ] Mac Chromium -> Windows Chromium.
@@ -806,14 +818,20 @@ Playwright blob report to the Mac. The optional worker reports `SKIP` when unava
 
 - [x] Chromium (Playwright platform-smoke gate on the real Ubuntu worker).
 - [x] Firefox (Playwright platform-smoke gate on the real Ubuntu worker).
-- [ ] WebKit through Playwright where applicable.
+- [ ] WebKit through Playwright where applicable. **Attempted 2026-09-18, genuinely blocked, not
+  landed:** added `npm run test:e2e:ubuntu:webkit` (`scripts/run-ubuntu-e2e.mjs --webkit`,
+  mirroring the existing `--chromium`/`--firefox` modes). Real run on `ubuntu-test` failed —
+  WebKit needs system packages this worker doesn't have (`sudo npx playwright install-deps` /
+  `sudo apt-get install libavif16` per Playwright's own error). The SSH user has no passwordless
+  sudo (`sudo -n true` → "a password is required"), so this needs the machine's owner to run that
+  install manually before this can land — flagging honestly rather than working around it.
 
 Run:
 
 - [x] Browser tests locally on Ubuntu (first Chromium slice).
-- [ ] Ubuntu browser -> Mac browser.
-- [ ] Ubuntu browser -> Windows browser.
-- [ ] Ubuntu browser -> Android.
+- [x] Ubuntu browser -> Mac browser. **Landed 2026-09-18.**
+- [ ] Ubuntu browser -> Windows browser. Blocked on Windows connectivity — see Stage 4 note below.
+- [x] Ubuntu browser -> Android. **Landed 2026-09-18.**
 
 Verified 2026-09-10: `npm run test:e2e:ubuntu:chromium` and `npm run
 test:e2e:ubuntu:firefox` each passed both platform-smoke cases on `ubuntu-test` using display
@@ -821,6 +839,43 @@ test:e2e:ubuntu:firefox` each passed both platform-smoke cases on `ubuntu-test` 
 WebSocket, localStorage, IndexedDB, and local Gun read/write in both engines. Each browser
 installation is bounded by a five-minute timeout, and its Playwright blob is returned to and
 merged on the Mac. WebKit and cross-host peer scenarios remain open.
+
+**2026-09-18 — the first genuinely LIVE cross-host peer scenario in this repo**, closing "Ubuntu
+browser -> Mac browser" and "Ubuntu browser -> Android": every prior Ubuntu/Windows test is
+remote-batch (deploy, build, run entirely on that host, ship a report back —
+`environment-availability.ts`'s own doc comment names this exact gap, `livePeerSupport: false`
+for both). New `tests/e2e/native-app/helpers/ubuntu-live-peer.ts` +
+`14-ubuntu-cross-host-live-peer.spec.ts` (`npm run test:e2e:ubuntu-live-peer`, opt-in via
+`E2E_REAL_UBUNTU_LIVE_PEER=1`) make Ubuntu a real fourth peer alongside the macOS Electron app, a
+real Android phone, and a local Mac Chromium, all sharing one LAN Gun hub.
+
+Mechanism: launch Ubuntu's already-installed Playwright Chromium binary over SSH on its real X11
+display with a remote-debugging port, tunnel that port to this Mac, and
+`chromium.connectOverCDP()` into it — the same CDP-attach pattern `native-app-android.ts` already
+uses for a real physical Android WebView. The driving Playwright process stays entirely on the
+Mac, so every existing host-agnostic test helper works completely unmodified against this real
+remote browser.
+
+**Two real, confirmed-not-hypothesized blockers found and fixed before this worked:**
+1. Pointing Ubuntu's browser at the Mac's real LAN IP hit `ERR_SSL_PROTOCOL_ERROR` — the browser's
+   WebCrypto API only works in a "secure context" (HTTPS, or the special-cased
+   `localhost`/`127.0.0.1`), and a plain-HTTP LAN IP doesn't qualify, so Gun's own SEA shim
+   detected `crypto.subtle` missing and self-redirected to `https://`, which this test server
+   doesn't serve. Chrome's own `--unsafely-treat-insecure-origin-as-secure` escape hatch for this
+   exact shape was tried next (with a dedicated `--user-data-dir`, itself required for the flag to
+   take effect at all against a non-default profile) and STILL left `isSecureContext` false on
+   this Chrome build, in both headless and real-X11-display mode — confirmed via a minimal
+   CDP-only repro isolated from the full 4-peer scenario, not assumed.
+2. **Fix:** reverse SSH tunnels (`ssh -R <port>:127.0.0.1:<port>`) expose the Mac's web+gun ports
+   on Ubuntu's OWN loopback instead — Ubuntu's browser then navigates to its own
+   `http://127.0.0.1:<port>`, which every browser always treats as secure with zero special flags.
+   Verified directly with the same minimal repro before wiring it into the full spec:
+   `crypto.subtle`/`isSecureContext` both `true`, real app title loaded.
+
+Verified end to end: **1 passed (48.8s)** — macOS Electron, real Android
+(`DUM0219418001663`), local Chromium, and real Ubuntu Chromium (over SSH+CDP) all joined Global;
+Chromium and Android each authored/broadcast one Talk; all four directional pairs completed
+(Ubuntu -> Mac Chromium, Mac Chromium -> Ubuntu, Ubuntu -> Android, Android -> Ubuntu).
 
 ##### 5.3 Add Ubuntu Desktop App
 
