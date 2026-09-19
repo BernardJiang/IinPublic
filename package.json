@@ -53,6 +53,7 @@
     "test:e2e:ubuntu-live-peer": "npm run build:embedded && E2E_REAL_UBUNTU_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/14-ubuntu-cross-host-live-peer.spec.ts",
     "test:e2e:windows-live-peer": "npm run build:embedded && E2E_REAL_WINDOWS_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/15-windows-cross-host-live-peer.spec.ts",
     "test:e2e:five-way-live-peer": "npm run build:embedded && E2E_REAL_FIVE_WAY_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/16-five-way-cross-host-live-peer.spec.ts",
+    "test:e2e:macos-windows-desktop-live-peer": "npm run build:embedded && E2E_REAL_MACOS_WINDOWS_DESKTOP_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/20-macos-windows-desktop-live-peer.spec.ts",
     "test:e2e:macos-ubuntu-desktop-live-peer": "npm run build:embedded && E2E_REAL_MACOS_UBUNTU_DESKTOP_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/17-macos-ubuntu-desktop-live-peer.spec.ts",
     "test:e2e:windows": "node scripts/run-windows-e2e.mjs",
     "test:e2e:windows:preflight": "node scripts/run-windows-e2e.mjs --preflight",

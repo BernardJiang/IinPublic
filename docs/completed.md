@@ -2,6 +2,20 @@
 
 Last updated: 2026-09-19
 
+## 2026-09-19 — Windows/Ubuntu desktop live-peer coverage (OPEN-08, OPEN-09, OPEN-11)
+
+- **OPEN-08 macOS App ↔ Windows App:** `windows-desktop-live-peer.ts` builds the NSIS installer on
+  `windows-test`, silently installs it, and drives the installed app over SSH+CDP
+  (`--disable-gpu` is required: the GPU process crashes in the SSH logon session). Spec 20 passes
+  both directions with cleanup (uninstall + PID-scoped kill).
+- **OPEN-09 Windows sleep/wake:** `interactive` launch mode runs the app in the console session via
+  a scheduled task so it survives host suspend. Spec 21 really suspends the PC (S3), wakes it, and
+  proves the same process keeps its identity, rejoins Global, and completes a Talk. The wake-timer
+  task alone did NOT wake this host; Wake-on-LAN from the Mac (MAC in `tests/matrix/hosts.json`) does.
+- **OPEN-11 Ubuntu restart:** `restart()` on the Ubuntu desktop peer kills the app and relaunches
+  on the same profile. Spec 19 passes: same identity, Global membership restored, Talk broadcast
+  during the restart completed.
+
 ## 2026-09-19 — Android Keystore identity custody (part of OPEN-06)
 
 - Added the `NativeCustodyBridge` contract, `NativePasswordFreeCustodyManager`, and

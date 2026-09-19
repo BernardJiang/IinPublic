@@ -40,6 +40,11 @@ export type UbuntuDesktopPeer = {
   browser: Browser;
   page: Page;
   close: () => Promise<void>;
+  /**
+   * Kills the packaged app process (as if quit/crashed) and relaunches it on the SAME profile
+   * directory, then re-attaches over CDP. `browser`/`page` are replaced with the new instances.
+   */
+  restart: () => Promise<void>;
 };
 
 function shellQuote(value: string): string {
@@ -226,37 +231,65 @@ nohup ${shellQuote(installedExe)} --remote-debugging-port=${remotePort} --no-san
   > ${shellQuote(`/tmp/iinpublic-ubuntu-desktop-${remotePort}.log`)} 2>&1 & disown
 echo launched
 `;
-  const launch = await runRemoteWithInput(launchScript, 15_000);
-  if (!launch.stdout.includes('launched')) {
-    throw new Error(`Failed to launch Ubuntu desktop app: ${launch.stdout}${launch.stderr}`);
-  }
+  const launchApp = async (): Promise<void> => {
+    const launch = await runRemoteWithInput(launchScript, 15_000);
+    if (!launch.stdout.includes('launched')) {
+      throw new Error(`Failed to launch Ubuntu desktop app: ${launch.stdout}${launch.stderr}`);
+    }
+  };
+  await launchApp();
 
   let tunnel: ChildProcess | undefined;
   let browser: Browser | undefined;
+  const attach = async (): Promise<{ browser: Browser; page: Page }> => {
+    await waitForCdpReady(localPort, 60_000);
+    const attached = await chromium.connectOverCDP(`http://127.0.0.1:${localPort}`);
+    browser = attached;
+    const context = attached.contexts()[0] ?? await attached.newContext();
+    const page = context.pages()[0] ?? await context.newPage();
+    return { browser: attached, page };
+  };
   try {
     tunnel = spawn('ssh', ['-N', '-L', `${localPort}:127.0.0.1:${remotePort}`, ...SSH_OPTIONS, SSH_HOST], { stdio: 'ignore' });
     const tunnelExitPromise = new Promise<never>((_resolve, reject) => {
       tunnel!.once('exit', (code) => reject(new Error(`SSH tunnel to ${SSH_HOST} exited early (code ${code})`)));
     });
-    await Promise.race([waitForCdpReady(localPort, 60_000), tunnelExitPromise]);
+    const first = await Promise.race([attach(), tunnelExitPromise]);
 
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${localPort}`);
-    const context = browser.contexts()[0] ?? await browser.newContext();
-    const page = context.pages()[0] ?? await context.newPage();
-
-    const cleanup = async (): Promise<void> => {
-      await browser?.close().catch(() => {});
-      tunnel?.kill();
-      await killRemoteInstance(remotePort, installDir, profileDir);
+    const peer: UbuntuDesktopPeer = {
+      browser: first.browser,
+      page: first.page,
+      close: async () => {
+        await browser?.close().catch(() => {});
+        tunnel?.kill();
+        await killRemoteInstance(remotePort, installDir, profileDir);
+      },
+      restart: async () => {
+        await browser?.close().catch(() => {});
+        await killRemoteProcess(remotePort);
+        await launchApp();
+        const next = await attach();
+        peer.browser = next.browser;
+        peer.page = next.page;
+      },
     };
-
-    return { browser, page, close: cleanup };
+    return peer;
   } catch (error) {
     tunnel?.kill();
     await browser?.close().catch(() => {});
     await killRemoteInstance(remotePort, installDir, profileDir);
     throw error;
   }
+}
+
+/** Kills the app process only (profile and install stay) and waits until it is confirmed gone. */
+async function killRemoteProcess(remotePort: number): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await execFileAsync('ssh', [...SSH_OPTIONS, SSH_HOST, `pkill -f 'remote-debugging-port=${remotePort}' || true`], { timeout: 15_000 }).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    if (!(await remoteProcessStillRunning(remotePort))) return;
+  }
+  throw new Error(`Ubuntu desktop app on remote port ${remotePort} would not stop`);
 }
 
 /** True when a process matching this debug port is still alive on the remote host. */

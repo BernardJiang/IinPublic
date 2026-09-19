@@ -57,11 +57,7 @@ Wi-Fi interruption, and offline resynchronization are archived in `docs/complete
   sign the NSIS installer and installed executable, and verify the signature in the Windows
   installed-release gate.
 
-- [ ] **OPEN-08 — Test macOS App ↔ Windows App.** Run both directions with the installed native
-  applications as simultaneous live peers, including cleanup and artifact collection.
 
-- [ ] **OPEN-09 — Test Windows sleep/wake recovery.** Verify the installed app retains identity,
-  reconnects, and converges after real host sleep and wake.
 
 ### Tier 4 — Mac mini + Ubuntu PC
 
@@ -70,8 +66,6 @@ Wi-Fi interruption, and offline resynchronization are archived in `docs/complete
   with sudo; then run `npm run test:e2e:ubuntu:webkit` and retain the returned report. The SSH test
   user intentionally has no passwordless sudo.
 
-- [ ] **OPEN-11 — Test Ubuntu service/app restart recovery.** Restart the installed Ubuntu app or
-  its managed service, then verify identity persistence, peer reconnection, and convergence.
 
 ### Tier 5 — Combined available hardware
 

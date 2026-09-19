@@ -14,6 +14,7 @@
     "type": "host",
     "platform": "windows",
     "sshHost": "windows-test",
+    "wakeOnLanMac": "34:64:A9:22:A2:15",
     "workspaceRoot": "IinPublic.codex-worker",
     "nodeVersion": "24.20.0",
     "nodeArchiveUrl": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-win-x64.zip"
