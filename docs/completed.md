@@ -1,6 +1,77 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
+
+## 2026-09-19 — Canonical TODO reconciliation and completed cross-platform matrix work
+
+Reconciled `docs/TODO.md` after the 2026-09-18 browser, native-device, cross-host, custody, and
+matrix-orchestration work. The active file had accumulated 237 checked boxes, long implementation
+narratives, stale unchecked rollups, and recommendations contradicted by later results. Completed
+material was removed from the active queue; remaining work now has stable `OPEN-nn` execution
+order identifiers. This entry preserves the completion summary; the specs, reports, and commit
+history retain the detailed evidence that was formerly duplicated in the TODO.
+
+### Browser and macOS application coverage
+
+- Added macOS Chromium, WebKit, and Firefox smoke coverage plus every directed mixed-engine pair.
+  Production-mode Firefox tests exercise both granted and denied geolocation permission paths.
+- Added a reusable isolated Electron harness with deterministic startup/shutdown, multiple app
+  instances, app↔browser and app↔app discovery/Talk/matching, browser-to-app synchronization,
+  identity persistence, and full app close/relaunch reconnection coverage.
+- Installed-release Firefox↔macOS Electron and packaged macOS app gates pass. Chatroom leave is the
+  only scenario from this stage intentionally retained as active work.
+
+### Android physical-device matrix
+
+- Added bounded ADB installation, clean reset/launch, WebView/CDP automation, PID-scoped logcat,
+  screenshots, device metadata, stable serial/logical-name mapping, device selection, readiness
+  skips, and a central `tests/matrix/devices.json` inventory.
+- Verified Android in both directions with Chromium, WebKit, Firefox, and the macOS app. Verified
+  Android↔Android discovery/Talk behavior, multi-phone participation, concurrent propagation,
+  background/foreground, force-stop/relaunch identity persistence, real Wi-Fi interruption, and
+  offline return/resynchronization.
+- A seven-runtime run passed with three physical Android phones, macOS Electron, Chromium, WebKit,
+  and Firefox. A later five-runtime rerun proved unavailable phones are skipped rather than
+  crashing the matrix.
+- Added portable pure-JS P-256 signing/verification for embedded Android runtimes lacking reliable
+  WebCrypto, fixing real signaling-relay failures observed on physical phones.
+
+### Windows and Ubuntu workers and live peers
+
+- Added availability-first SSH workers, revision-keyed deployment, builds, clean profiles,
+  deterministic cleanup, logs/artifacts, and installed-release gates for Windows NSIS and Ubuntu
+  AppImage packages. Windows Chromium/Edge/Firefox/WebKit smoke gates and Ubuntu Chromium/Firefox
+  gates pass. Ubuntu WebKit remains active because the host owner must install system packages.
+- Added live Mac-controlled SSH/CDP peers for Windows Chromium and Ubuntu Chromium. Each passed
+  bidirectional Talk/match scenarios with local Chromium, macOS Electron, and a physical Android
+  device. Reverse SSH tunnels preserve the secure localhost context required by WebCrypto.
+- Added a combined five-peer run with macOS Electron, physical Android, local Chromium, real
+  Windows Chromium, and real Ubuntu Chromium; Ubuntu↔Windows passed in both directions.
+- Added live macOS Electron↔Ubuntu AppImage coverage in both directions with verified remote
+  cleanup. Remaining native-app combinations stay in the ordered active backlog.
+
+### Central orchestration, diagnostics, and reliability
+
+- Added the typed common peer lifecycle (`prepare`, `install`, `reset`, `start`, `stop`, scenario
+  action, logs, screenshot, status), availability preflights, logical peer selection, dry-run
+  plans, and `npm run test:matrix -- browsers|android|desktop|discovery|--all` entry points.
+- Added Mac-collected per-scenario JSON, human Markdown summaries, per-peer lifecycle logs,
+  screenshots/traces/platform logs, host/runtime metadata, identities, topology, duration, grouped
+  results, and required failure categorization.
+- Verified offline/reconnect round trips, direct discovery after hub loss, deterministic bounded
+  latency, deterministic first-N packet loss with retry/no duplicates, real relay-process restart,
+  simultaneous updates, stale-state protection, and identity stability. Android lifecycle tests,
+  desktop close/restart, and browser close/reopen also pass.
+
+### Identity custody and completed product priorities
+
+- Browser password-free custody v3 now uses a non-extractable AES-GCM WebCrypto key with atomic
+  IndexedDB persistence, custody-ID compare-and-swap, copy→verify→delete migration, rollback/resume,
+  fail-closed conflict handling, erase/reset integration, and full process-restart verification in
+  Chromium, WebKit, and Firefox. Native Keychain/Keystore providers and review remain active.
+- Priority 4 matching/profile follow-ups, Priority 5 TechSupport productionization, and Priority 6
+  UIManager decomposition plus the measured React decision gate were already recorded in their
+  dated sections below. Their duplicate checked plans were removed from the active TODO.
 
 ## 2026-09-18 — Priority 5 K7: production TechSupport key custody and rotation
 
