@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-19
 
+## 2026-09-19 — Android Keystore identity custody (part of OPEN-06)
+
+- Added the `NativeCustodyBridge` contract, `NativePasswordFreeCustodyManager`, and
+  `WebGunService` wiring; native custody is selected only when an OS bridge is present.
+- Android Keystore AES-256-GCM adapter (`NativeCustodyBridge.kt`), public identity bound as AAD,
+  hardware backing reported from `KeyInfo`. Verified on all three physical phones by
+  `tests/e2e/native-app/18-android-keystore-custody.spec.ts` (3/3 pass, commit `37e90eed`): no
+  WebView plaintext, ciphertext-only prefs, identity survives force-stop relaunch.
+- Remaining under OPEN-06 (Keychain build/run, macOS `safeStorage` run, Windows/Linux providers,
+  external review) stays in `docs/TODO.md`.
+
 ## 2026-09-19 — Canonical TODO reconciliation and completed cross-platform matrix work
 
 Reconciled `docs/TODO.md` after the 2026-09-18 browser, native-device, cross-host, custody, and
