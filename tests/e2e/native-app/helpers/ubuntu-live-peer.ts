@@ -151,14 +151,34 @@ export async function launchUbuntuChromePeer(options: {
     const cleanup = async (): Promise<void> => {
       await browser?.close().catch(() => {});
       tunnel?.kill();
-      await execFileAsync('ssh', [...SSH_OPTIONS, SSH_HOST, `pkill -f 'remote-debugging-port=${remotePort}' || true; rm -rf ${profileDir}`], { timeout: 10_000 }).catch(() => {});
+      await killRemoteChrome(remotePort, profileDir);
     };
 
     return { browser, page, close: cleanup };
   } catch (error) {
     tunnel?.kill();
     await browser?.close().catch(() => {});
-    await execFileAsync('ssh', [...SSH_OPTIONS, SSH_HOST, `pkill -f 'remote-debugging-port=${remotePort}' || true; rm -rf ${profileDir}`], { timeout: 10_000 }).catch(() => {});
+    await killRemoteChrome(remotePort, profileDir);
     throw error;
+  }
+}
+
+/**
+ * This session saw the SSH client itself intermittently exit 255 on an otherwise-correct `pkill`
+ * (a connection-level hiccup, not a logic bug — reproduced manually: the identical command failed
+ * once via SSH and immediately succeeded on retry, confirmed by checking the process was actually
+ * gone). A cleanup step that silently eats one failed attempt can leave a real Chrome process
+ * running on the shared Ubuntu worker indefinitely, so this retries rather than swallowing the
+ * first error like a plain `.catch(() => {})` would.
+ */
+async function killRemoteChrome(remotePort: number, profileDir: string): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await execFileAsync('ssh', [...SSH_OPTIONS, SSH_HOST, `pkill -f 'remote-debugging-port=${remotePort}' || true; rm -rf ${profileDir}`], { timeout: 10_000 });
+      return;
+    } catch (error) {
+      if (attempt === 3) console.log(`[ubuntu-live-peer] cleanup failed after 3 attempts (remote port ${remotePort} may still be running): ${String(error)}`);
+      else await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+    }
   }
 }

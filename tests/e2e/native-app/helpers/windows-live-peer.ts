@@ -115,8 +115,22 @@ async function waitForCdpReady(localPort: number, timeoutMs = 30_000): Promise<v
  * showing several while the CIM filter returned nothing) — a WQL-quoting issue never fully
  * root-caused, sidestepped by using a precise, known PID instead of a filter.
  */
+// This session saw the SSH client itself intermittently exit non-zero on an otherwise-correct
+// remote command (a connection-level hiccup, not a logic bug — reproduced manually on the Ubuntu
+// worker: an identical command failed once via SSH and immediately succeeded on retry, confirmed
+// by checking the process was actually gone). A cleanup step that silently eats one failed
+// attempt can leave a real Chrome process running on the shared Windows worker indefinitely, so
+// this retries rather than swallowing the first error like a plain `.catch(() => {})` would.
 async function killByPid(pid: number): Promise<void> {
-  await execFileAsync('ssh', [...SSH_OPTIONS, SSH_HOST, 'taskkill', '/F', '/PID', String(pid)], { timeout: 10_000 }).catch(() => {});
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await execFileAsync('ssh', [...SSH_OPTIONS, SSH_HOST, 'taskkill', '/F', '/PID', String(pid)], { timeout: 10_000 });
+      return;
+    } catch (error) {
+      if (attempt === 3) console.log(`[windows-live-peer] cleanup failed after 3 attempts (PID ${pid} may still be running): ${String(error)}`);
+      else await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+    }
+  }
 }
 
 /**

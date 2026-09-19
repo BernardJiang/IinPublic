@@ -930,6 +930,40 @@ packaged `iinpublic-desktop` executable on display `:1`, and passed the shared e
 ephemeral extraction, and merged the returned report on the Mac. Ubuntu browser and cross-host
 peer scenarios remain open in §§5.2 and 5.4.
 
+**2026-09-18 — the first LIVE desktop-app (not just browser) cross-host peer scenario, closing
+Stage 5.4's "macOS App + Ubuntu App":** new `tests/e2e/native-app/helpers/ubuntu-desktop-live-peer.ts`
++ `17-macos-ubuntu-desktop-live-peer.spec.ts` (`npm run test:e2e:macos-ubuntu-desktop-live-peer`,
+opt-in via `E2E_REAL_MACOS_UBUNTU_DESKTOP_LIVE_PEER=1`). Deploys the current revision to
+`ubuntu-test` (same git-archive-over-scp pattern and dependency-hash-stamp caching
+`run-ubuntu-e2e.mjs` already uses, same revision-keyed workspace so a build either script triggers
+is reusable by the other), builds the AppImage, extracts it, and launches the packaged
+`iinpublic-desktop` executable on the real X11 display with `--remote-debugging-port` — Electron
+apps are Chromium under the hood and honor this switch even packaged, confirmed by connecting to
+it exactly like any other CDP target (same `chromium.connectOverCDP` mechanism the browser live
+peers use). Unlike the browser peers, no reverse tunnel is needed for the WebCrypto/secure-context
+trap: the app's own UI loads from bundled local files via its own embedded server (same as the
+local macOS Electron app), so `IINPUBLIC_HUB_GUN_URL` just points at the Mac's real LAN Gun URL
+directly.
+
+**Two more real, confirmed-not-assumed gotchas found along the way:** (1) Electron has no true
+headless mode — a real run showed `ERROR:ozone_platform_x11.cc ... Missing X server or $DISPLAY /
+The platform failed to initialize. Exiting.`; fixed with the same DISPLAY/XAUTHORITY pattern
+`run-ubuntu-e2e.mjs`'s own desktop-app test already proves out for this worker. (2) Cleanup
+initially trusted the SSH client's own exit code and retried on "failure" — but a real run showed
+the SSH client can report exit 255 on a `pkill ... || true` command that, confirmed by hand
+immediately after, had ALREADY fully and correctly executed remotely (a `|| true` makes the remote
+shell always exit 0, so 255 there can only be a connection-teardown-level client quirk, not the
+remote command failing — retrying a misreported "failure" wastes time and can't help). Fixed by
+verifying the actual remote process state (`pgrep`) after each cleanup attempt instead of trusting
+SSH's own exit code.
+
+Verified end to end, including a rerun specifically to confirm cleanup no longer leaves the
+process running: **1 passed (57.4s)** both times — the local macOS Electron app and the real
+Ubuntu Electron app (built and launched over SSH+CDP) joined Global together and completed both
+directions of a matching Talk exchange. No stray `iinpublic-desktop` test process left on
+`ubuntu-test` afterward (verified via `ps aux`, careful not to disturb the machine owner's own
+separate, long-running personal instance of the same app found running on that host).
+
 ##### 5.4 Full Cross-Platform Scenarios
 
 Test representative combinations rather than every possible permutation on every commit.
@@ -937,7 +971,7 @@ Test representative combinations rather than every possible permutation on every
 Examples:
 
 - [ ] macOS App + Windows App.
-- [ ] macOS App + Ubuntu App.
+- [x] macOS App + Ubuntu App. **Landed 2026-09-18.**
 - [ ] Windows App + Ubuntu App.
 - [ ] Android + Windows App.
 - [ ] Android + Ubuntu App.
