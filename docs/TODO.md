@@ -757,29 +757,61 @@ and the isolated install directory was removed. Windows code signing remains ope
 
 ##### 4.4 Cross-OS Tests
 
-**2026-09-18: `windows-test` (192.168.10.67) is currently unreachable** — `npm run
-test:e2e:windows:preflight` reports `SSH host windows-test is unavailable (ssh: connect to host
-192.168.10.67 port 22: Operation timed out)`, and the host doesn't respond to ICMP ping either,
-even though this Mac's ARP cache shows it was seen on the LAN recently (stale entry, not proof of
-current reachability). The Ubuntu live-peer mechanism landed the same day (§5.2 above) is
-host-agnostic infrastructure — nothing about it is Ubuntu-specific beyond which SSH host/binary
-path it targets — so once `windows-test` is reachable again, the same
-`chromium.connectOverCDP`-over-SSH-tunnel approach (`tests/e2e/native-app/helpers/
-ubuntu-live-peer.ts`) should generalize to a Windows worker with modest changes (Windows' own
-installed browser paths, no X11/display wrangling needed). Every bullet below that needs Windows
-is blocked on this connectivity gap, not on missing test-authoring work.
+**2026-09-18: `windows-test` (192.168.10.67) was unreachable for part of this session** — `npm
+run test:e2e:windows:preflight` initially reported `SSH host windows-test is unavailable (ssh:
+connect to host 192.168.10.67 port 22: Operation timed out)`, and the host didn't respond to ICMP
+ping either. The machine's owner turned it back on partway through the session; preflight passed
+immediately afterward (`available: BERNARDJIANGPC (Microsoft Windows 10 Pro, 64-bit)`) — the gap
+was the physical machine being off, not a test-infra problem.
+
+**2026-09-18, continued — Windows landed as a live cross-host peer the same day, ported from the
+Ubuntu mechanism above:** new `tests/e2e/native-app/helpers/windows-live-peer.ts` +
+`15-windows-cross-host-live-peer.spec.ts` (`npm run test:e2e:windows-live-peer`, opt-in via
+`E2E_REAL_WINDOWS_LIVE_PEER=1`) closes "Mac Chromium -> Windows Chromium" and "Windows Chromium ->
+Mac Chromium" below, plus contributes to "Mac browser + Windows browser + Android" — same
+four-peer shape as the Ubuntu spec (macOS Electron, a real Android phone, a local Chromium, and
+the real Windows Chromium over SSH+CDP), same reverse-tunnel fix for the same WebCrypto/
+secure-context trap.
+
+**Three more real, Windows-specific blockers found and fixed, none hypothesized** (see
+`windows-live-peer.ts`'s header comment for full detail): (1) `nohup ... & disown` has no real
+Windows equivalent — `Start-Process`, `Invoke-CimMethod ... Win32_Process Create`, and
+`schtasks /create ... /run` were each tried and each got torn down the instant the launching SSH
+session closed (OpenSSH on Windows appears to kill the whole logon session, and everything under
+it, regardless of how the child was spawned) — fixed by keeping the LAUNCHING ssh connection open
+as a long-lived local process for the peer's whole lifetime instead of fighting the platform. (2)
+Even foreground, plain `& chrome.exe args` returned instantly rather than blocking — a documented
+PowerShell quirk where the call operator doesn't wait for Win32 GUI-subsystem executables the way
+it does for console apps — fixed with `Start-Process -PassThru` + `Wait-Process -Id $proc.Id`,
+which blocks on the specific PID directly. (3) `'--user-data-dir=' + $profileDir` as a runtime
+PowerShell string concatenation inside `-ArgumentList` made chrome exit near-instantly with
+`"Multiple targets are not supported in headless mode."` on stderr (confirmed by redirecting
+stderr to a file and reading it back, not guessed) — fixed by building that argument as one
+literal string instead. Cleanup also needed a real fix: `Get-CimInstance Win32_Process -Filter
+"Name='chrome.exe'"` silently matched zero processes despite real ones existing (confirmed via
+`tasklist` showing several while the CIM filter returned nothing — a WQL-quoting issue never
+fully root-caused) — replaced with a precise `taskkill /F /PID <n>` using the PID Chrome's own
+launch prints, deliberately not a blanket `/IM chrome.exe` (which would also kill the machine
+owner's own everyday Chrome).
+
+Verified end to end: **1 passed (1.0m)** — macOS Electron, real Android (`DUM0219418001663`),
+local Chromium, and real Windows Chromium (`BERNARDJIANGPC`, over SSH+CDP) all joined Global;
+Chromium and Android each authored/broadcast one Talk; all four directional pairs completed
+(Windows -> Mac Chromium, Mac Chromium -> Windows, Windows -> Android, Android -> Windows). No
+stray chrome.exe processes left running afterward (verified via `tasklist`).
 
 Start with simple two-peer combinations:
 
-- [ ] Mac Chromium -> Windows Chromium.
-- [ ] Windows Chromium -> Mac Chromium.
+- [x] Mac Chromium -> Windows Chromium. **Landed 2026-09-18.**
+- [x] Windows Chromium -> Mac Chromium. **Landed 2026-09-18.**
 - [ ] macOS App -> Windows App.
 - [ ] Windows App -> Android.
 - [ ] Android -> Windows App.
 
 Then expand:
 
-- [ ] Mac browser + Windows browser + Android.
+- [x] Mac browser + Windows browser + Android. **Landed 2026-09-18** (same run as above — all
+  three shared one Global room and exchanged Talks).
 - [ ] macOS App + Windows App + Android.
 - [ ] Mixed browser engines across operating systems.
 
@@ -830,7 +862,13 @@ Run:
 
 - [x] Browser tests locally on Ubuntu (first Chromium slice).
 - [x] Ubuntu browser -> Mac browser. **Landed 2026-09-18.**
-- [ ] Ubuntu browser -> Windows browser. Blocked on Windows connectivity — see Stage 4 note below.
+- [x] Ubuntu browser -> Windows browser. **Landed 2026-09-18**, once `windows-test` came back
+  online mid-session — new `16-five-way-cross-host-live-peer.spec.ts`
+  (`npm run test:e2e:five-way-live-peer`) combines both live-peer mechanisms into one five-peer
+  run (macOS Electron, real Android, local Chromium, real Ubuntu, real Windows) and proves
+  Ubuntu <-> Windows exchanging directly with each other, not just each independently with the
+  Mac/Android. Verified: **1 passed (1.4m)**, all 5 peers joined Global, Ubuntu <-> Windows
+  completed both directions.
 - [x] Ubuntu browser -> Android. **Landed 2026-09-18.**
 
 Verified 2026-09-10: `npm run test:e2e:ubuntu:chromium` and `npm run

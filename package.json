@@ -51,6 +51,8 @@
     "test:e2e:android-lifecycle": "npm run build:embedded && E2E_REAL_ANDROID_LIFECYCLE=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/12-android-lifecycle-and-network-resilience.spec.ts",
     "test:e2e:android-three-phone-resync": "npm run build:embedded && E2E_REAL_ANDROID_THREE_PHONE_RESYNC=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/13-android-three-phone-offline-resync.spec.ts",
     "test:e2e:ubuntu-live-peer": "npm run build:embedded && E2E_REAL_UBUNTU_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/14-ubuntu-cross-host-live-peer.spec.ts",
+    "test:e2e:windows-live-peer": "npm run build:embedded && E2E_REAL_WINDOWS_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/15-windows-cross-host-live-peer.spec.ts",
+    "test:e2e:five-way-live-peer": "npm run build:embedded && E2E_REAL_FIVE_WAY_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/16-five-way-cross-host-live-peer.spec.ts",
     "test:e2e:windows": "node scripts/run-windows-e2e.mjs",
     "test:e2e:windows:preflight": "node scripts/run-windows-e2e.mjs --preflight",
     "test:e2e:windows:desktop": "node scripts/run-windows-e2e.mjs --desktop",
