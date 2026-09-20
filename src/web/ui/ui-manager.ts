@@ -172,7 +172,7 @@ import {
   tryBuildChatbotAnswersFromFlattened as buildChatbotAnswersFromPreferences,
 } from './answer-preference-resolution';
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
-import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
+import { bindAppShellControls, LAST_TAB_KEY, type AppShellControlsDeps } from './app-shell-controls';
 import { createChatroomShellController, type ChatroomShellController } from './chatroom-shell-controller';
 import { createTalkEditorController, type TalkEditorController } from './talk-editor-controller';
 import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
@@ -791,6 +791,17 @@ export class UIManager extends EventEmitter {
 
   showMainInterface(user: User): void {
     this.chatroomShell().showMainInterface(user);
+  }
+
+  /** Re-opens the bottom-nav tab the user was on when the app last closed (chatrooms is the default). */
+  restoreLastTab(): void {
+    try {
+      const tab = localStorage.getItem(LAST_TAB_KEY);
+      if (!tab || tab === 'chatrooms') return;
+      document.querySelector<HTMLElement>(`.nav-btn[data-view="${tab}"]`)?.click();
+    } catch {
+      /* optional */
+    }
   }
 
   showChatroomList(): void {

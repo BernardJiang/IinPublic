@@ -6,7 +6,7 @@ export function applySettingsSectionView(sectionId: string | null, deps: ApplySe
   const menu = document.getElementById('settings-menu-container');
   const detail = document.getElementById('settings-detail-container');
   const backBtn = document.getElementById('back-to-settings-menu') as HTMLElement | null;
-  const sections = document.querySelectorAll<HTMLElement>('#settings-detail-container .settings-section');
+  const sections = document.querySelectorAll<HTMLElement>('#settings-detail-container .settings-section:not(.settings-section-wrapper .settings-section), #settings-detail-container .settings-section-wrapper');
   const target = sectionId ? document.getElementById(sectionId) : null;
   if (sectionId && !target) {
     // The remembered section no longer exists in this render (shouldn't happen — the same 9

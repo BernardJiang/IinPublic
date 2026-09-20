@@ -240,6 +240,9 @@ function bindPrimaryControls(deps: AppShellControlsDeps): void {
   document.getElementById('back-to-settings-menu')?.addEventListener('click', deps.resetSettingsSection);
 }
 
+/** Bottom-nav tab remembered across app restarts (restored by UIManager.restoreLastTab). */
+export const LAST_TAB_KEY = 'iinpublic_last_tab';
+
 function bindBottomNavigation(deps: AppShellControlsDeps): void {
   const navButtons = document.querySelectorAll('.nav-btn');
   const viewPanels = document.querySelectorAll('.view-panel');
@@ -251,6 +254,7 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
       const targetView = (button as HTMLElement).dataset.view;
       if (!targetView) return;
       document.getElementById('broadcast-preamble-modal')?.remove();
+      try { localStorage.setItem(LAST_TAB_KEY, targetView); } catch { /* optional */ }
       navButtons.forEach((candidate) => candidate.classList.remove('active'));
       button.classList.add('active');
       viewPanels.forEach((panel) => panel.classList.remove('active'));

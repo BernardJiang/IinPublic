@@ -275,6 +275,9 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
       label: deps.t('settingsIdentityDevices'),
       target: 'settings-section-linked-devices',
     },
+    ...(user.id === TECHSUPPORT_ROOT_USER_ID
+      ? []
+      : [{ icon: '🛟', label: deps.t('supportDelegateInviteEntryTitle'), target: 'settings-section-support-delegate' }]),
     { icon: '🗑️', label: deps.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
     { icon: '💾', label: deps.t('settingsStorage'), target: 'settings-storage-inspector' },
     { icon: '❓', label: deps.t('settingsHelp'), target: 'settings-section-help' },
@@ -626,6 +629,11 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
           },
           '',
         )}
+        ${
+          user.id === TECHSUPPORT_ROOT_USER_ID
+            ? ''
+            : '<div id="settings-section-support-delegate" class="settings-section-wrapper"><div id="support-delegate-optin-section"></div></div>'
+        }
         ${renderSettingsSection(
           {
             id: 'settings-section-erase-device',
@@ -674,7 +682,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
       'afterbegin',
       (deps.techSupportDelegateEligible && deps.techSupportDelegateOptedIn
         ? '<div id="support-inbox-section" style="margin-bottom:14px;"></div>'
-        : '') + '<div id="support-delegate-optin-section" style="margin-bottom:14px;"></div>',
+        : ''),
     );
   }
   deps.bindSettingsControls();
