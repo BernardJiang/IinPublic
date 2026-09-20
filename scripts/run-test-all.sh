@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Unified `test:all` runner — single merged Playwright report, minimal overhead. Phases run
-# SEQUENTIALLY by default (correctness first); set CONCURRENT_WAVES=1 on a machine you've
-# verified can sustain it to let independent phases share the wall clock instead.
+# Unified `test:all` runner — single merged Playwright report, minimal overhead. Independent
+# phases use disjoint port bands and run in concurrent waves by default; set
+# CONCURRENT_WAVES=0 on a constrained machine to serialize each wave.
 #
 # Background (measured on one box): the suite is ~83% idle — it waits on Gun sync and
 # timeouts, it does not compute — so running phases concurrently on disjoint port bands
@@ -24,7 +24,7 @@
 #                       time otherwise. Waves are sequenced so the timing-sensitive heavy-staged
 #                       shard (it holds a 30s-budget chatbot spec) always runs alone.
 #
-# Tunables (env): PW_WORKERS(light,12) MASS_WORKERS(2) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
+# Tunables (env): PW_WORKERS(light,6) MASS_WORKERS(2) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
 #                 PW_HEAVY_WORKERS(4) — auto-scaled to the detected core count when unset
 #                 (they only ever scale down, never above their tuned baseline — see
 #                 scale_down_only() below). CONCURRENT_WAVES(1/0, default 1) forces whether
@@ -71,14 +71,12 @@ scale_down_only() {
   if [ "$scaled" -lt "$1" ]; then echo "$scaled"; else echo "$1"; fi
 }
 
-# Light shard default: 12 workers (speed plan Part 4 step 2, bumped 10→12 on 2026-07-17
-# after the 10-worker soak: multiple runs whose only failures were three distinct
-# root-caused test bugs, each fixed — mousedown delegation, block-state race, clock-fake
-# member pruning — plus one fully clean run). Each worker gets fully isolated servers on
-# its own port pair, so parallelism is safe; light sum is ~59 min of test-time and
-# wall ≈ sum/workers (12w ≈ 5.5 min vs 10w ≈ 6.5 min). If light starts flaking on
-# shared-room headcounts or contact replication, drop back with PW_WORKERS=10.
-LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 12)}"
+# Light shard default: 6 workers. Each worker has isolated servers, but each staged spec can
+# launch multiple browser processes and saturate WebRTC/Gun event loops independently of core
+# count. Two 14-core Mac-mini runs at 12 workers produced different load-only failures (including
+# the same route specs twice); every failed spec passed at one worker. Six is the established
+# correctness ceiling and remains overrideable for an explicitly soaked host.
+LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 6)}"
 # mass at 2 workers (bumped from 1, 2026-08-18): split 5 specs across 2 workers — worker 1
 # gets 01+02 (the two long ~9min specs share wall clock), worker 2 gets 03+04+05. On a
 # 14-core M4 with 6GB per-worker heap this is headroom, not contention. Rollback per-run
@@ -122,7 +120,7 @@ TEST_ALL_PORT_OFFSET=$((10#$TEST_ALL_PORT_OFFSET))
 # CPU sat under 10% — the suite is dominated by sync-waits, not compute. The earlier
 # sequential-only default came from a flaky full-concurrency experiment, but that experiment
 # ran with much higher per-phase worker counts (light=20, mesh=6, heavy=3) AND phase-0
-# jest/builds in parallel with e2e; today's tuned counts (light≤8 + mass 4 + stage5 3 in
+# jest/builds in parallel with e2e; today's tuned counts (light≤6 + stage5 3 in
 # wave 1; mesh 4 + two single-worker phases in wave 2; heavy alone in wave 3) are a far
 # lighter simultaneous load. If Gun-sync flakes reappear on a weaker machine, set
 # CONCURRENT_WAVES=0 to restore strictly sequential phases before touching worker counts.

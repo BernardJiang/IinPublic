@@ -18,25 +18,19 @@ verification evidence to `docs/completed.md`, remove it here, and do not reuse i
 
 ### Tier 1 — Mac mini only
 
-- [ ] **OPEN-01 — Re-run the macOS Chromium baseline on the current revision.** Run the canonical
-  Chromium/default suite after the recent matrix merges and record the green revision in
-  `docs/completed.md`.
-
-- [ ] **OPEN-02 — Add chatroom-leave coverage to the macOS app/browser matrix.** Join, leave, and
-  verify durable membership/state propagation across the Electron app and at least one browser.
-
 - [ ] **OPEN-03 — Test Mac sleep/wake recovery.** Verify the native app retains identity,
-  reconnects, and converges after real host sleep and wake.
+  reconnects, and converges after real host sleep and wake. The opt-in native-app scenario and
+  bounded `pmset` helper are implemented (`npm run test:e2e:macos-sleep-wake`), but this Mac's
+  current user lacks the required noninteractive `pmset` sudo permission, so no physical sleep was
+  requested and the real host run remains open.
 
 - [ ] **OPEN-04 — Exercise temporary firewall isolation on the Mac test network.** Block one peer
   with scoped, automatically reverted rules; verify unaffected peers continue, then verify
-  reconnect and convergence after restoring the route. Use only a safe privileged test setup.
-
-- [ ] **OPEN-05 — Record explicit 8-peer and 10+-peer local scale runs.** Start with isolated
-  browser/app profiles on the Mac mini so no additional physical hardware is required. Capture
-  timing, failures, convergence, duplicate handling, and artifacts through the central reporter.
-  Existing two-, three-, five-, seven-, and 20-sender logical coverage does not replace real
-  8/10+ runtime evidence.
+  reconnect and convergence after restoring the route. Use only a safe privileged test setup. The
+  opt-in native-app scenario and loopback/port-scoped PF helper are implemented
+  (`npm run test:e2e:macos-firewall`) with trap-based cleanup, but this Mac's current user lacks the
+  required noninteractive `pfctl` sudo permission, so no firewall rules were changed and the real
+  host run remains open.
 
 ### Tier 2 — Mac mini + Android devices
 

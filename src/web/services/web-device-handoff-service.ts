@@ -14,6 +14,7 @@
  */
 import { getSEA } from '../sea-gun';
 import type { WebGunService } from './web-gun-service';
+import { getGraphRelay, putGraphRelay } from './graph-relay-client';
 import type { HandoffArchive } from '../../shared/device-handoff';
 import {
   HandoffCrypto,
@@ -36,9 +37,11 @@ export type SendHandoffResult = 'sent' | 'no-epub' | 'unavailable';
 
 export class WebDeviceHandoffService {
   private readonly gunService: WebGunService;
+  private readonly apiBase: string | undefined;
 
-  constructor(gunService: WebGunService) {
+  constructor(gunService: WebGunService, apiBase?: string) {
     this.gunService = gunService;
+    this.apiBase = apiBase;
   }
 
   selfPub(): string {
@@ -109,7 +112,9 @@ export class WebDeviceHandoffService {
     if (!pub || !epub) return;
     try {
       const announcement = await buildEpubAnnouncement(pub, epub, this.crypto());
-      await this.gunService.put(this.epubPath(pub), announcement as unknown as Record<string, unknown>);
+      const path = this.epubPath(pub);
+      await this.gunService.put(path, announcement as unknown as Record<string, unknown>);
+      if (this.apiBase) await putGraphRelay(this.apiBase, path, announcement);
     } catch {
       /* best effort */
     }
@@ -117,7 +122,9 @@ export class WebDeviceHandoffService {
 
   /** Resolve and verify `pub`'s published epub, or null if absent/invalid. */
   async resolveEpub(pub: string): Promise<string | null> {
-    const raw = await this.gunService.get(this.epubPath(pub)).catch(() => null);
+    const path = this.epubPath(pub);
+    let raw = await this.gunService.get(path).catch(() => null);
+    if ((!raw || typeof raw !== 'object') && this.apiBase) raw = await getGraphRelay(this.apiBase, path);
     if (!raw || typeof raw !== 'object' || !(raw as EpubAnnouncement).sig) return null;
     const announcement = raw as EpubAnnouncement;
     if (announcement.pub !== pub) return null; // never trust a record found at the wrong path
@@ -132,7 +139,9 @@ export class WebDeviceHandoffService {
     const toEpub = await this.resolveEpub(toPub);
     if (!toEpub) return 'no-epub';
     const envelope = await encryptHandoffArchive({ archive, fromPub, toPub, toEpub, crypto: this.crypto() });
-    await this.gunService.put(this.handoffPath(toPub, fromPub), envelope as unknown as Record<string, unknown>);
+    const path = this.handoffPath(toPub, fromPub);
+    await this.gunService.put(path, envelope as unknown as Record<string, unknown>);
+    if (this.apiBase) await putGraphRelay(this.apiBase, path, envelope);
     return 'sent';
   }
 
@@ -140,7 +149,9 @@ export class WebDeviceHandoffService {
   async readIncomingHandoff(fromPub: string): Promise<HandoffArchive | null> {
     const toPub = this.selfPub();
     if (!toPub || !fromPub) return null;
-    const raw = await this.gunService.get(this.handoffPath(toPub, fromPub)).catch(() => null);
+    const path = this.handoffPath(toPub, fromPub);
+    let raw = await this.gunService.get(path).catch(() => null);
+    if ((!raw || typeof raw !== 'object') && this.apiBase) raw = await getGraphRelay(this.apiBase, path);
     if (!raw || typeof raw !== 'object' || !(raw as HandoffEnvelope).sig) return null;
     const envelope = raw as HandoffEnvelope;
     if (envelope.toPub !== toPub || envelope.fromPub !== fromPub) return null;
@@ -154,7 +165,9 @@ export class WebDeviceHandoffService {
     const fromPub = this.selfPub(); // the receiver signs the ack
     if (!fromPub || !originalSenderPub) return;
     const ack = await buildHandoffAck({ fromPub, toPub: originalSenderPub, crypto: this.crypto() });
-    await this.gunService.put(this.ackPath(originalSenderPub, fromPub), ack as unknown as Record<string, unknown>);
+    const path = this.ackPath(originalSenderPub, fromPub);
+    await this.gunService.put(path, ack as unknown as Record<string, unknown>);
+    if (this.apiBase) await putGraphRelay(this.apiBase, path, ack);
   }
 
   /**
@@ -168,7 +181,9 @@ export class WebDeviceHandoffService {
     const deadline = Date.now() + timeoutMs;
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const raw = await this.gunService.get(this.ackPath(fromPub, receiverPub)).catch(() => null);
+      const path = this.ackPath(fromPub, receiverPub);
+      let raw = await this.gunService.get(path).catch(() => null);
+      if ((!raw || typeof raw !== 'object') && this.apiBase) raw = await getGraphRelay(this.apiBase, path);
       if (raw && typeof raw === 'object' && (raw as HandoffAck).sig) {
         const ack = raw as HandoffAck;
         if (ack.toPub === fromPub && ack.fromPub === receiverPub && await verifyHandoffAck(ack, this.crypto())) {

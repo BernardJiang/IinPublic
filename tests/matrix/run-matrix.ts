@@ -39,6 +39,18 @@ const localController: MatrixPeerMetadata = {
   id: 'mac-controller', host: 'localhost', platform: 'macos', kind: 'controller',
 };
 const profiles: Record<string, Profile> = {
+  'local-scale': {
+    name: 'local-scale',
+    command: npmCommand('test:e2e:local-scale'),
+    topology: Array.from({ length: 10 }, (_, index) => ({
+      id: `mac-scale-browser-${index + 1}`,
+      host: 'localhost',
+      platform: 'macos',
+      kind: 'browser' as const,
+      browser: 'chromium',
+      physicalDevice: 'isolated browser profile',
+    })),
+  },
   browsers: {
     name: 'browsers',
     command: npmCommand('test:e2e:browsers'),

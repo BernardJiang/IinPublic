@@ -465,6 +465,24 @@ export class WebChatroomService {
     }
   }
 
+  /** Remove the server/relay fast-index row as well as the peer's Gun record. */
+  private async syncLeaveWithServer(chatroomId: string, userId: string): Promise<void> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4_000);
+    try {
+      await fetch(
+        `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members/${encodeURIComponent(userId)}`,
+        { method: 'DELETE', signal: controller.signal },
+      );
+    } catch (error) {
+      // Offline-first leave still persists in the local Gun graph. A later
+      // heartbeat cannot resurrect it because stopMembershipHeartbeat ran first.
+      console.warn('syncLeaveWithServer failed (non-fatal):', error);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   /**
    * Record a room visit into the CRDT G-Counter (docs/TODO.md L1).
    *
@@ -637,6 +655,7 @@ export class WebChatroomService {
           },
         );
     });
+    await this.syncLeaveWithServer(chatroomId, userId);
     console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }
 

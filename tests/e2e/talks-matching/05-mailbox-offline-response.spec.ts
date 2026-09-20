@@ -4,12 +4,12 @@
  * Flow:
  *   1. Tom and Jerry both join the room and form a mesh overlay.
  *   2. Tom creates + broadcasts a tag talk.
- *   3. Tom's context is CLOSED (simulating Tom going offline).
+ *   3. Tom's only page is CLOSED (simulating Tom going offline).
  *   4. Jerry answers MATCH. Because Tom is offline, the mesh unicast fails.
  *      The response is posted to the server mailbox as a ciphertext-only envelope.
  *   5. Assert mailbox opacity: GET /api/mailbox/:tomId returns 1 envelope whose
  *      `ciphertext` does NOT contain the answer text in plaintext.
- *   6. Tom reconnects (new browser context, same localStorage state via storageState).
+ *   6. Tom reconnects in the same isolated device context (preserving non-extractable custody).
  *   7. drainMailbox() runs automatically at boot.
  *   8. Tom sees a conversation-list-item for the Tom↔Jerry pair (durable assertion).
  *   9. Mailbox is empty after drain.
@@ -22,8 +22,6 @@
  * See companion 05-mailbox-offline-response.md for a plain-English description.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
@@ -34,7 +32,7 @@ import {
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
-import { webAppURLStableChatroom, gunBaseURL, e2eTestStorageDir } from '../helpers/ports';
+import { webAppURLStableChatroom, gunBaseURL } from '../helpers/ports';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -204,16 +202,14 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
 
     await afterSync();
 
-    // ── 5. Save Tom's localStorage state before going offline ────────────────
-    const storageDir = e2eTestStorageDir();
-    fs.mkdirSync(storageDir, { recursive: true });
-    const tomStoragePath = path.join(storageDir, 'tom-mailbox-state.json');
-    await contextTom.storageState({ path: tomStoragePath });
-
-    // ── 6. Tom goes OFFLINE (close context) ──────────────────────────────────
-    await contextTom.close().catch(() => {});
+    // ── 5–6. Tom goes OFFLINE (close his only page) ──────────────────────────
+    // Keep the isolated context as the device store: storageState JSON cannot carry the
+    // non-extractable WebCrypto key used by password-free custody v3.
+    const tomPub = await pageTom.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+    );
+    await pageTom.close().catch(() => {});
     pageTom = undefined;
-    contextTom = undefined;
 
     await afterAction();
 
@@ -301,13 +297,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
     expect(jerryServerResponseCalls, 'zero POST /api/talks/*/response calls').toBe(0);
 
     // ── 11. Tom reconnects with same identity ────────────────────────────────
-    const tomContextReconnect = await browserTom!.newContext({
-      viewport: { width: 640, height: 1000 },
-      deviceScaleFactor: 1,
-      storageState: tomStoragePath,
-    });
-    contextTom = tomContextReconnect;
-    pageTom = await tomContextReconnect.newPage();
+    pageTom = await contextTom!.newPage();
 
     await gotoAppReady(pageTom, webAppURLStableChatroom());
 
@@ -316,6 +306,9 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
       () => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
     );
     expect(tomIdReconnect, 'Tom reconnects with same userId').toBe(tomId);
+    expect(await pageTom.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+    ), 'Tom reconnects with the same SEA identity').toBe(tomPub);
 
     // drainMailbox is called automatically at boot (after initP2PPresenceAndBridge).
     // Also triggered when syncPeerMeshRoom fires on room join.

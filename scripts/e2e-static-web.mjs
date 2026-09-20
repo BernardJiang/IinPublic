@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(__dirname, '..');
 const port = Number(process.argv[2] || process.env.PORT || 3001);
+const bindHost = process.env.E2E_BIND_HOST || '127.0.0.1';
 
 const DIST_WEB = path.join(PROJECT_ROOT, 'dist', 'web');
 const PUBLIC_DIR = path.join(PROJECT_ROOT, 'public');
@@ -116,7 +117,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, '127.0.0.1', () => {
+server.listen(port, bindHost, () => {
   // eslint-disable-next-line no-console
-  console.log(`[e2e-static-web] serving dist/web + public + gun on http://127.0.0.1:${port}`);
+  console.log(`[e2e-static-web] serving dist/web + public + gun on ${bindHost}:${port}`);
 });

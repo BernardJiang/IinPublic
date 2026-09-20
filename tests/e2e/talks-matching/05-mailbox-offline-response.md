@@ -15,7 +15,9 @@ Two browser peers (Tom / Jerry). Tom is the talk **author**; Jerry is a **matchi
 4. **Ciphertext opacity assertion:** `GET /api/mailbox/:tomId` returns exactly 1 envelope
    whose `ciphertext` field does NOT contain the answer text in plaintext. The server sees
    only an opaque SEA ECDH ciphertext blob.
-5. Tom **reconnects** (new browser context, same identity via `storageState`). On boot,
+5. Tom **reconnects** (new page in the same isolated device context, with both app user id and
+   SEA public key unchanged). Keeping the device context is required because JSON `storageState`
+   cannot serialize custody v3's non-extractable WebCrypto key. On boot,
    `drainMailbox()` is called automatically.
 6. **Durable match assertion:** Tom's side shows a `conversation-list-item` for the
    Tom↔Jerry pair (localStorage-backed — persists while the Conversations tab is active).

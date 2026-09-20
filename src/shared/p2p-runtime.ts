@@ -486,7 +486,12 @@ const PRIVATE_SEA_KEYS = ['priv', 'epriv'] as const;
 export const SEA_IDENTITY_POLICY: SeaIdentityPolicy = {
   publicKeys: ['pub', 'epub'],
   forbiddenPrivateKeys: ['priv', 'epriv'],
-  keyCustodyFormats: ['webcrypto-device-key-v1', 'os-keychain-v1', 'imported-recovery-package-v1'],
+  keyCustodyFormats: [
+    'webcrypto-nonextractable-v3',
+    'webcrypto-device-key-v1',
+    'os-keychain-v1',
+    'imported-recovery-package-v1',
+  ],
   relayEnvelopeRule: 'Relays may store routing metadata, public keys, nonces, signatures, and ciphertext only.',
   directMessageRule: 'Direct P2P message bodies are encrypted per conversation/session and signed by sender pub.',
   linkedDeviceRule: 'Linked devices use random encrypted manifests; relay records must not expose account linkage.',

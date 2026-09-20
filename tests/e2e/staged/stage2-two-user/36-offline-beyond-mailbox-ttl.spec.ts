@@ -11,7 +11,7 @@
  *
  * This spec exercises that boundary with a real matched pair:
  *   1. A and B match (fast-dm-setup); both epubs are resolvable so A can encrypt for B.
- *   2. B goes offline (context closed) with its storageState saved.
+ *   2. B goes offline (its only page is closed; the isolated context retains device custody).
  *   3. While B is offline, A writes TWO envelopes into B's mailbox, both encrypted with the
  *      exact WebMailboxClient path A's own client uses:
  *        - one EXPIRED envelope (ttlMs: 1 → past `expiresAt` after a short wait), and
@@ -28,13 +28,11 @@
  *
  * See companion 36-offline-beyond-mailbox-ttl.md.
  */
-import * as fs from 'fs';
-import * as path from 'path';
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, gotoAppReady } from '../../helpers/timing';
-import { webAppURLStableChatroom, gunBaseURL, e2eTestStorageDir } from '../../helpers/ports';
+import { webAppURLStableChatroom, gunBaseURL } from '../../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { setupLeanMatchedPair, LeanMatchedPair } from '../../helpers/fast-match-lean';
 
@@ -72,16 +70,18 @@ test.describe('Mailbox: an envelope announced while the recipient is offline pas
 
     pair = await setupLeanMatchedPair(browserA, browserB, 'TtlA', 'TtlB');
     mark('setup done');
-    const { pageA, contextB, conversationId, userIdA, userIdB } = pair;
+    const { pageA, pageB, contextB, conversationId, userIdA, userIdB } = pair;
 
     const apiBase = gunBaseURL();
 
-    // ── 1. Save B's identity storageState, then take B offline ────────────────
-    const storageDir = e2eTestStorageDir();
-    fs.mkdirSync(storageDir, { recursive: true });
-    const bStoragePath = path.join(storageDir, 'ttl-b-state.json');
-    await contextB.storageState({ path: bStoragePath });
-    await contextB.close().catch(() => {});
+    // ── 1. Close B's only page, taking it offline while retaining its device store ─
+    // Playwright storageState cannot export a non-extractable CryptoKey: its JSON encoder
+    // turns the v3 wrapping key into `{}`. Keep the isolated context alive with no pages so
+    // there is no network peer, then reopen a page against the same real IndexedDB custody.
+    const bPub = await pageB.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+    );
+    await pageB.close().catch(() => {});
 
     // ── 2. From A, write an EXPIRED envelope (ttlMs: 1) and a FRESH control ────
     //     Both go through the exact WebMailboxClient encrypt+post path A uses live.
@@ -154,10 +154,7 @@ test.describe('Mailbox: an envelope announced while the recipient is offline pas
     expect(listAfterExpiry.count, 'exactly one (fresh) envelope remains').toBe(1);
 
     // ── 4. B reconnects with the SAME identity ────────────────────────────────
-    contextBReconnect = await browserB.newContext({
-      viewport: { width: 640, height: 1000 },
-      storageState: bStoragePath,
-    });
+    contextBReconnect = contextB;
     pageBReconnect = await contextBReconnect.newPage();
     mark('reconnect boot start');
     await gotoAppReady(pageBReconnect, webAppURLStableChatroom());
@@ -168,6 +165,9 @@ test.describe('Mailbox: an envelope announced while the recipient is offline pas
       () => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
     );
     expect(bIdReconnect, 'B reconnects as the same user').toBe(userIdB);
+    expect(await pageBReconnect.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+    ), 'B reconnects with the same SEA identity').toBe(bPub);
 
     // ── 5. Fresh DM drains into B's message store; expired never arrives ───────
     // Read from the durable message store (Gun is authoritative — CLAUDE.md §19.4)

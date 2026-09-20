@@ -835,7 +835,7 @@ export class IinPublicApp {
     this.conversationService = new WebConversationService(this.gunService);
     this.contentNodeService = new WebContentNodeService();
     this.identityLinkService = new WebIdentityLinkService(this.gunService, undefined, this.getBackendApiBase());
-    this.deviceHandoffService = new WebDeviceHandoffService(this.gunService);
+    this.deviceHandoffService = new WebDeviceHandoffService(this.gunService, this.getBackendApiBase());
     this.deviceSyncService = new WebDeviceSyncService(this.gunService, this.getBackendApiBase());
     this.deviceSyncService.setHandlers({
       onPreferencesApplied: (filters) => {
@@ -3306,11 +3306,14 @@ export class IinPublicApp {
    *      worded listings both reaching me): different talkIds, so rule 1 can't find them, but
    *      `buildTalkIdentityKey` hashes the matched CONTENT, which is identical either way.
    */
-  /** See `maybeFinalizeConfirmedDeal`'s use below and `handleRetractTalk`'s guard — closes a
-   * real (load-dependent, not deterministic) race where a conversation's `dealConfirmedByJson`
-   * re-read inside the synchronous retraction cascade a deal-confirmation itself triggers could
-   * transiently see a stale value and wrongly withdraw the conversation it just finalized. */
-  private readonly conversationIdsProtectedFromRetraction = new Set<string>();
+  /**
+   * Conversations this app instance has observed as mutually confirmed. Keep the protection for
+   * the rest of the session: disabling either participant's talk emits retractions over several
+   * asynchronous paths (local cascade, mesh, and mailbox), so a temporary synchronous guard can
+   * disappear before a delayed retraction arrives. The persisted conversation record remains the
+   * cross-session source of truth; this set closes stale-record races within the active session.
+   */
+  private readonly mutuallyConfirmedConversationIds = new Set<string>();
 
   private maybeFinalizeConfirmedDeal(dealConfirmedBy: string[], otherUserId?: string, conversationId?: string): void {
     if (!this.currentUser?.id || !otherUserId) return;
@@ -3340,7 +3343,7 @@ export class IinPublicApp {
         ? [recordedTalkId]
         : Array.from(myActiveDealEligibleTalkIds);
 
-    // `setTalkDisabled(talkId, true)` synchronously floods a hard-retraction event
+    // `setTalkDisabled(talkId, true)` floods a hard-retraction event
     // (talk-broadcast-toggle.ts emits 'retractTalk'), which `handleRetractTalk` handles by
     // RE-READING `getMyConversations()` and re-deriving "is this conversation's deal already
     // mutually confirmed" from `conv.dealConfirmedByJson` — a fresh read of the exact
@@ -3349,19 +3352,14 @@ export class IinPublicApp {
     // for the SAME conversation record (e.g. an unrelated lastActivity heartbeat) landing
     // between that write and this read can transiently overwrite dealConfirmedByJson with a
     // stale value, silently withdrawing the very conversation just finalized — reproduced once
-    // in a real `test:all` run under heavy concurrent load, never in isolation (consistent with
-    // a load-dependent interleaving, not a deterministic logic bug). Registering this
-    // conversationId as protected up front removes the dependency on that re-read entirely for
-    // the one conversation this exact call is finalizing — `handleRetractTalk`'s guard checks
-    // this set first, before ever consulting the (still-kept, still useful for every other
-    // trigger path) `dealConfirmedByJson` re-check.
-    if (conversationId) this.conversationIdsProtectedFromRetraction.add(conversationId);
-    try {
-      for (const talkId of talkIdsToDisable) {
-        this.uiManager.setTalkDisabled(talkId, true);
-      }
-    } finally {
-      if (conversationId) this.conversationIdsProtectedFromRetraction.delete(conversationId);
+    // in real `test:all` runs under heavy concurrent load. Registering this conversationId as
+    // mutually confirmed up front removes the dependency on that re-read for both the immediate
+    // cascade and delayed mesh/mailbox retractions. The guard deliberately lasts for the session:
+    // a finalized successful deal must never be retroactively invalidated by its source talk's
+    // later retraction.
+    if (conversationId) this.mutuallyConfirmedConversationIds.add(conversationId);
+    for (const talkId of talkIdsToDisable) {
+      this.uiManager.setTalkDisabled(talkId, true);
     }
 
     const changedAt = new Date().toISOString();
@@ -3444,7 +3442,7 @@ export class IinPublicApp {
     for (const [conversationId, conv] of Object.entries(allConversations)) {
       if (this.conversationReferencesTalk(conv, talkId)) {
         const otherUserId = String((conv as any).otherUserId || '');
-        if (this.conversationIdsProtectedFromRetraction.has(conversationId)) continue;
+        if (this.mutuallyConfirmedConversationIds.has(conversationId)) continue;
         if (this.isDealMutuallyConfirmed(conv, authorId, otherUserId)) continue;
         this.uiManager.markConversationWithdrawn(
           otherUserId,
@@ -3498,7 +3496,7 @@ export class IinPublicApp {
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
     for (const [conversationId, conv] of Object.entries(allConversations)) {
       if (this.conversationReferencesTalk(conv, payload.talkId) && (conv as any).otherUserId === payload.authorId) {
-        if (this.conversationIdsProtectedFromRetraction.has(conversationId)) break;
+        if (this.mutuallyConfirmedConversationIds.has(conversationId)) break;
         if (this.isDealMutuallyConfirmed(conv, this.currentUser.id, payload.authorId)) break;
         this.uiManager.markConversationWithdrawn(
           payload.authorId,
