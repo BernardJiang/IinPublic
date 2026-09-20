@@ -135,7 +135,8 @@
     "android:build": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew assembleDebug || gradle assembleDebug; }",
     "android:install": "cd android && { [ -x ./gradlew ] && ./gradlew installDebug || gradle installDebug; }",
     "android:install:matrix": "node scripts/install-android-matrix.mjs",
-    "android:run": "npm run android:build && npm run android:install"
+    "android:run": "npm run android:build && npm run android:install",
+    "test:e2e:live-scenario": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/23-live-peer-scenarios.spec.ts --workers=1"
   },
   "keywords": [
     "chatbot",

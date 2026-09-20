@@ -143,12 +143,16 @@ export async function launchWindowsChromePeer(options: {
   remotePort?: number;
   localPort?: number;
   reverseForwardPorts?: number[];
+  /** 'edge' launches the installed Microsoft Edge instead of Playwright's Chromium. */
+  browser?: 'chromium' | 'edge';
 } = {}): Promise<WindowsBrowserPeer> {
   const remotePort = options.remotePort ?? 19_555;
   const localPort = options.localPort ?? remotePort;
   const reverseForwardPorts = options.reverseForwardPorts ?? [];
 
-  const chromeBinary = await findWindowsChromeBinary();
+  const chromeBinary = options.browser === 'edge'
+    ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+    : await findWindowsChromeBinary();
 
   const remoteTempProfileDir = `$env:TEMP\\iinpublic-windows-chrome-profile-${remotePort}`;
   // Runs in the FOREGROUND of this remote session on purpose (see header comment) — the launcher

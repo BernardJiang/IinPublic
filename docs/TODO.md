@@ -57,15 +57,12 @@ Wi-Fi interruption, and offline resynchronization are archived in `docs/complete
   sign the NSIS installer and installed executable, and verify the signature in the Windows
   installed-release gate.
 
-
-
 ### Tier 4 — Mac mini + Ubuntu PC
 
 - [ ] **OPEN-10 — Unblock Ubuntu Playwright WebKit.** The `ubuntu-test` owner must install
   Playwright's missing system dependencies (`libavif16`/`playwright install-deps`, as appropriate)
   with sudo; then run `npm run test:e2e:ubuntu:webkit` and retain the returned report. The SSH test
   user intentionally has no passwordless sudo.
-
 
 ### Tier 5 — Combined available hardware
 
@@ -80,28 +77,6 @@ when a dependency is offline.
 - [ ] **OPEN-13 — Enable X3 website↔native-app linking in CI.** Remove the remaining X3 skip and
   exercise the website-to-app handoff through a real native shell. Depends on OPEN-12; the
   same-device linking mechanism itself is already covered by X8.
-
-- [ ] **OPEN-14 — Test Windows App ↔ Android.** Cover Talk/match delivery in both directions with
-  the installed Windows app and a physical Android device.
-
-- [ ] **OPEN-15 — Test macOS App + Windows App + Android together.** Verify discovery, concurrent
-  participation, and convergence in one three-platform native scenario.
-
-- [ ] **OPEN-16 — Test mixed browser engines across operating systems.** Use at least two engines
-  on different operating systems rather than Chromium on every remote host.
-
-- [ ] **OPEN-17 — Test Windows App ↔ Ubuntu App.** Use the installed Windows executable and Ubuntu
-  AppImage as simultaneous live peers and verify both directions.
-
-- [ ] **OPEN-18 — Test Android ↔ Ubuntu App.** Use a physical Android device and the installed
-  Ubuntu AppImage as simultaneous live peers and verify both directions.
-
-- [ ] **OPEN-19 — Run macOS Chromium + Windows Edge + Ubuntu Firefox.** Exercise the named browser
-  engines concurrently in one Mac-controlled scenario.
-
-- [ ] **OPEN-20 — Run the full multi-device native matrix.** Include at least two Android phones,
-  the macOS app, Windows app, and Ubuntu app in one scenario, with browser peers where useful.
-  Verify simultaneous joins, Talk exchange, matching, offline recovery, and a combined report.
 
 ### Tier 6 — Additional hardware and external dependencies
 

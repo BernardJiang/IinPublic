@@ -2,6 +2,20 @@
 
 Last updated: 2026-09-19
 
+## 2026-09-19 — Tier 5 combined-hardware live-peer scenarios (OPEN-14..20)
+
+All passed on real hardware via `tests/e2e/native-app/23-live-peer-scenarios.spec.ts`
+(`E2E_LIVE_SCENARIO=<name>`; every directed pair authors/broadcasts and match-completes) and
+`24-mixed-browser-engines-cross-os.spec.ts`:
+
+- OPEN-14 Windows app ↔ Android; OPEN-15 macOS + Windows + Android; OPEN-17 Windows app ↔ Ubuntu
+  app; OPEN-18 Android ↔ Ubuntu app; OPEN-20 two phones + macOS + Windows + Ubuntu apps (joins,
+  exchange and matching; offline recovery remains covered by specs 13 and 21).
+- OPEN-16/OPEN-19 macOS Chromium + real Windows Edge + real Ubuntu Firefox (Firefox driven through a
+  remote Playwright server, `ubuntu-firefox-peer.ts`); user agents asserted.
+- Ops note: `ubuntu-test`'s disk hit 100% (each revision gets a full workspace); old revision
+  workspaces under `~/IinPublic.codex-worker` were removed. The owner should free more space.
+
 ## 2026-09-19 — Windows/Ubuntu desktop live-peer coverage (OPEN-08, OPEN-09, OPEN-11)
 
 - **OPEN-08 macOS App ↔ Windows App:** `windows-desktop-live-peer.ts` builds the NSIS installer on
