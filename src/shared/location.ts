@@ -45,13 +45,11 @@ export class LocationPrivacy {
   }
 
   /**
-   * Generate chatroom ID based on region and capacity
-   * Splits regions when they get too crowded
+   * Generate the regional chatroom ID. Overflow is handled by FIFO eviction down the room
+   * hierarchy (CONFIG.CHATROOM_MAX_CAPACITY), not by numbered `_room_N` splits.
    */
-  static generateChatroomId(region: string, userCount: number): string {
-    const maxUsersPerRoom = 50;
-    const roomIndex = Math.floor(userCount / maxUsersPerRoom);
-    return `${region}_room_${roomIndex}`;
+  static generateChatroomId(region: string): string {
+    return `${region}_room_0`;
   }
 
   /**
@@ -178,7 +176,6 @@ export class ChatroomLocationManager {
    */
   static async findOptimalChatroom(
     location: BlurredLocation,
-    _maxUsersPerRoom: number = 50
   ): Promise<string> {
     // Get current user count for the region
     const baseRoomId = `${location.region}_room_0`;
@@ -186,32 +183,6 @@ export class ChatroomLocationManager {
     // In a real implementation, this would query the database
     // For now, return the base room
     return baseRoomId;
-  }
-
-  /**
-   * Handle chatroom splitting when capacity is exceeded
-   */
-  static async handleRoomSplit(
-    chatroomId: string,
-    currentUsers: string[]
-  ): Promise<string[]> {
-    const maxUsersPerRoom = 50;
-    
-    if (currentUsers.length <= maxUsersPerRoom) {
-      return [chatroomId]; // No split needed
-    }
-
-    // Create new rooms
-    const numRooms = Math.ceil(currentUsers.length / maxUsersPerRoom);
-    const newRoomIds: string[] = [];
-    
-    const baseId = chatroomId.split('_room_')[0];
-    
-    for (let i = 0; i < numRooms; i++) {
-      newRoomIds.push(`${baseId}_room_${i}`);
-    }
-
-    return newRoomIds;
   }
 
   /**

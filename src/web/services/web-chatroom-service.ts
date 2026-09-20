@@ -1106,7 +1106,7 @@ export class WebChatroomService {
   ): Promise<void> {
     try {
       const gun = this.gunService.getGun();
-      const capacity = CONFIG.CHATROOM_CAPACITY;
+      const capacity = CONFIG.CHATROOM_MAX_CAPACITY;
       const moveUserToChatroom = this.moveUserToChatroom.bind(this);
 
       return new Promise((resolve) => {

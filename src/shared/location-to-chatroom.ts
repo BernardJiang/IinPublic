@@ -271,7 +271,7 @@ export function findAppropriateChildChatroom(
   // If already at the smallest named hierarchy room, create a blurred regional room.
   if (currentIndex === locationPath.length - 1) {
     const blurred = LocationPrivacy.blurLocation(userLocation);
-    return LocationPrivacy.generateChatroomId(blurred.region, 0);
+    return LocationPrivacy.generateChatroomId(blurred.region);
   }
 
   // Return the next level down in the path

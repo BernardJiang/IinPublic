@@ -21,19 +21,16 @@ const e2eUrlParam = (key: string): string | null => {
   }
 };
 
-/** Max users per chatroom in release builds (local debug uses 3 — see CONFIG.CHATROOM_CAPACITY). */
-export const RELEASE_CHATROOM_CAPACITY = 498;
-
 export const CONFIG = {
   // Chatroom settings
   // Capacity/FIFO rule (one rule for the web bundle, the Node server and the embedded apps):
-  //   release (default)  -> RELEASE_CHATROOM_CAPACITY, FIFO on
+  //   release (default)  -> 498, FIFO on
   //   local debug        -> 3, FIFO on   (webpack `--mode development` and the dev:* scripts bake/export it)
   //   tests              -> whatever they pass explicitly (CHATROOM_MAX_CAPACITY / CHATROOM_ENABLE_FIFO env,
   //                         or `?e2e_capacity=` / `?e2e_fifo=` on the page URL)
   // The `process.env.X` reads are static on purpose so webpack can inline them in the browser bundle.
-  CHATROOM_CAPACITY: parseInt(
-    e2eUrlParam('e2e_capacity') || process.env.CHATROOM_MAX_CAPACITY || String(RELEASE_CHATROOM_CAPACITY),
+  CHATROOM_MAX_CAPACITY: parseInt(
+    e2eUrlParam('e2e_capacity') || process.env.CHATROOM_MAX_CAPACITY || '498',
     10,
   ),
   CHATROOM_ENABLE_FIFO:

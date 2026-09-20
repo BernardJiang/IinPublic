@@ -187,12 +187,8 @@ describe('LocationPrivacy', () => {
   });
 
   describe('generateChatroomId', () => {
-    it('should generate correct chatroom ID based on user count', () => {
-      const region = 'region_40.71_-74.00';
-
-      expect(LocationPrivacy.generateChatroomId(region, 25)).toBe('region_40.71_-74.00_room_0');
-      expect(LocationPrivacy.generateChatroomId(region, 75)).toBe('region_40.71_-74.00_room_1');
-      expect(LocationPrivacy.generateChatroomId(region, 125)).toBe('region_40.71_-74.00_room_2');
+    it('should generate the regional room ID', () => {
+      expect(LocationPrivacy.generateChatroomId('region_40.71_-74.00')).toBe('region_40.71_-74.00_room_0');
     });
   });
 
@@ -220,26 +216,6 @@ describe('ChatroomLocationManager', () => {
 
       const chatroomId = await ChatroomLocationManager.findOptimalChatroom(location);
       expect(chatroomId).toBe('region_40.71_-74.00_room_0');
-    });
-  });
-
-  describe('handleRoomSplit', () => {
-    it('should not split room with few users', async () => {
-      const chatroomId = 'region_40.71_-74.00_room_0';
-      const users = Array.from({ length: 30 }, (_, i) => `user${i}`);
-
-      const result = await ChatroomLocationManager.handleRoomSplit(chatroomId, users);
-      expect(result).toEqual([chatroomId]);
-    });
-
-    it('should split room with too many users', async () => {
-      const chatroomId = 'region_40.71_-74.00_room_0';
-      const users = Array.from({ length: 75 }, (_, i) => `user${i}`);
-
-      const result = await ChatroomLocationManager.handleRoomSplit(chatroomId, users);
-      expect(result).toHaveLength(2);
-      expect(result).toContain('region_40.71_-74.00_room_0');
-      expect(result).toContain('region_40.71_-74.00_room_1');
     });
   });
 
