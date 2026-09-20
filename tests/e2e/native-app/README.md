@@ -21,6 +21,28 @@ Keep these specs narrow. Browser E2E remains the broad UI/regression layer;
 native app E2E should cover packaging, embedded-node startup, profile
 isolation, and mixed browser/app topology.
 
+## macOS app and host gates
+
+The durable app-to-browser leave scenario is safe for an ordinary local run:
+
+```bash
+npm run test:e2e:macos-chatroom-leave
+```
+
+Real sleep/wake and PF isolation are opt-in because they change host state. Both commands first
+require Darwin and narrowly scoped non-interactive `sudo`; without it they stop before requesting
+sleep or changing rules. Sleep schedules a bounded one-shot wake event. PF blocks only the test
+hub port on `127.0.0.2`, leaves `127.0.0.1` peers unaffected, and removes only its own
+`com.apple/iinpublic_e2e` anchor rules on every exit path.
+
+```bash
+npm run test:e2e:macos-sleep-wake
+npm run test:e2e:macos-firewall
+```
+
+Review `scripts/macos-sleep-wake-cycle.sh` and `scripts/macos-pf-peer-isolation.sh` before granting
+the narrowly scoped test privilege on a new Mac.
+
 ## Seven-client real-device matrix
 
 `06-seven-client-real-device-matrix.spec.ts` mirrors the browser-only X1/X2

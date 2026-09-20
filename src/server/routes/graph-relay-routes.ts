@@ -25,6 +25,9 @@ const ALLOWED_RELAY_ROOTS = new Set([
   'device-sync-epub',
   'device-sync-envelope',
   'device-sync-ack',
+  'identity-epub',
+  'handoff',
+  'handoff-ack',
 ]);
 
 export type RegisterGraphRelayRoutesDeps = {

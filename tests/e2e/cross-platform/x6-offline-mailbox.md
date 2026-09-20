@@ -5,9 +5,10 @@ covers: SPEC-19.4, SPEC-9.1
 Two matched clients (`setupLeanMatchedPair`, the overlay-free helper `staged/
 stage2-two-user/36-offline-beyond-mailbox-ttl` already uses) on the shared
 per-worker hub. "Offline" is simulated the same way `talks-matching/
-05-mailbox-offline-response` and spec 36 already do: close the browser context
-(storageState saved first), then later reopen a new context with that same
-storageState so the reconnecting client is the same identity.
+05-mailbox-offline-response` and spec 36 already do: close the browser's only page,
+then later reopen a page in the same isolated device context. This leaves no active
+network peer while preserving custody v3's non-extractable IndexedDB key; the test
+asserts both the app user id and SEA public key remain identical.
 
 Both existing mailbox specs only ever take one side offline. This spec proves
 the same mechanism works in the other direction too, in one continuous run:

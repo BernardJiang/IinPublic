@@ -108,21 +108,28 @@ test.describe('device handoff transfer (§J)', () => {
       await expect(a.page.locator('[data-testid="erase-device-modal"]')).toBeVisible();
       await a.page.locator('[data-testid="erase-sync-first-btn"]').click();
       await expect(a.page.locator('[data-testid="erase-sync-progress-modal"]')).toBeVisible();
-      // The send itself (encrypt + publish the envelope) happens before the ack-wait loop
-      // starts, so by the time all 6 categories show progress the archive is already on
-      // the graph, addressed to B.
+      // Collection finishes before encrypt + publish. The six progress rows therefore prove
+      // archive construction, not network arrival; wait on B's production receiver before
+      // opening its one-shot dialog (opening early would snapshot "no incoming handoff" and
+      // leave a 45s locator wait watching UI that has no reason to re-render).
       await expect(a.page.locator('.erase-sync-status[data-status="done"]')).toHaveCount(6, { timeout: 10_000 });
 
-      // Cross-browser envelope propagation: A's publish of the handoff envelope lands in B's
-      // local Gun graph only after the Gun sync propagates (seconds, and longer under
-      // 12-way parallel load) — bump like INCOMING_CLUSTER_ARRIVAL_MS does for the
-      // cluster-arrival wait.
       const HANDOFF_ENVELOPE_ARRIVAL_MS = 45_000;
+      const senderPub = await a.page.evaluate(
+        () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+      );
+      await expect.poll(
+        () => b.page.evaluate(async (fromPub) => {
+          const app = (window as any).__iinpublic_app?.getApp?.();
+          return !!(await app?.deviceHandoffService?.readIncomingHandoff?.(fromPub));
+        }, senderPub),
+        { timeout: HANDOFF_ENVELOPE_ARRIVAL_MS, intervals: [250, 500, 1000, 2000] },
+      ).toBe(true);
       // ── B: open Identity & devices — discovers the archive addressed to its own pub
       // (not a general scan; see web-device-handoff-service.ts's own doc comment on why
       // no discovery mechanism is needed), reviews, and explicitly imports. ──
       await openIdentityDevices(b.page);
-      await expect(b.page.locator('[data-testid="incoming-handoff-card"]')).toBeVisible({ timeout: HANDOFF_ENVELOPE_ARRIVAL_MS });
+      await expect(b.page.locator('[data-testid="incoming-handoff-card"]')).toBeVisible();
       await b.page.locator('[data-testid="import-handoff-btn"]').click();
       await expect(b.page.locator('[data-testid="incoming-handoff-card"]')).toHaveCount(0, { timeout: 10_000 });
 

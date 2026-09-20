@@ -21,6 +21,7 @@ import { clickBroadcastUntilBulkAck, createRouteTalkViaEditor, type UiRouteNodeS
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { waitForServerConversationBetween } from '../../helpers/conversation-e2e';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -66,6 +67,13 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     contextBob = bob.context;
     pageBob = bob.page;
     await pageBob.click('.chatroom-item:has-text("Global")');
+
+    const [aliceId, bobId] = await Promise.all([
+      pageAlice.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || '')),
+      pageBob.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || '')),
+    ]);
+    expect(aliceId).toBeTruthy();
+    expect(bobId).toBeTruthy();
 
     // Every question in this talk is a single word ("buy", "iphone", "model", "16pro",
     // "condition", "used") by design — the exact tag-like shorthand the real talk uses. The
@@ -139,25 +147,13 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     await chooseAndContinue('used'); // Parallel spec 2/2: condition — both required (threshold "all").
     await waitForResponseModalClosed(pageBob);
 
-    await expect
-      .poll(
-        () =>
-          pageBob.evaluate(() => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-            return Object.keys(conversations).length;
-          }),
-        { timeout: 20_000 },
-      )
-      .toBeGreaterThan(0);
-    await expect
-      .poll(
-        () =>
-          pageAlice.evaluate(() => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-            return Object.values(conversations).some((c: any) => c.otherUserName === 'BobBuyStuff');
-          }),
-        { timeout: 20_000 },
-      )
-      .toBe(true);
+    // Match creation is a durable Gun conversation write. Under the canonical parallel load,
+    // the responder can observe it before the creator's localStorage mirror catches up, so use
+    // the shared durable barrier (local/Gun snapshot with REST fallback) on both participants
+    // instead of racing a 20-second display-name-only localStorage poll.
+    await Promise.all([
+      waitForServerConversationBetween(pageBob, bobId, aliceId),
+      waitForServerConversationBetween(pageAlice, aliceId, bobId),
+    ]);
   });
 });

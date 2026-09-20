@@ -51,7 +51,13 @@ const RECEIVER: Pair = { pub: 'receiver.pub', priv: 'receiver.priv', epub: 'rece
 const OTHER: Pair = { pub: 'other.pub', priv: 'other.priv', epub: 'other.epub', epriv: 'other.epriv' };
 
 describe('WebDeviceHandoffService', () => {
+  const originalFetch = global.fetch;
+
   beforeEach(() => jest.clearAllMocks());
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
 
   it('publishEpub writes a signed pub→epub record', async () => {
     const store = sharedGunStore();
@@ -108,6 +114,39 @@ describe('WebDeviceHandoffService', () => {
 
     const decrypted = await receiver.readIncomingHandoff(SENDER.pub);
     expect(decrypted).toEqual(archive);
+  });
+
+  it('uses the HTTP graph relay when sender and receiver do not share a Gun graph', async () => {
+    const relay = new Map<string, unknown>();
+    global.fetch = jest.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const key = new URL(String(input)).pathname.replace('/api/relay/graph/', '');
+      if (init?.method === 'PUT') {
+        relay.set(key, JSON.parse(String(init.body)).data);
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      return { ok: true, json: async () => ({ data: relay.get(key) ?? null }) } as Response;
+    }) as typeof fetch;
+    const sender = new WebDeviceHandoffService(
+      gunServiceFor(SENDER, sharedGunStore()) as any,
+      'http://relay.test',
+    );
+    const receiver = new WebDeviceHandoffService(
+      gunServiceFor(RECEIVER, sharedGunStore()) as any,
+      'http://relay.test',
+    );
+    await sender.publishEpub();
+    await receiver.publishEpub();
+    const archive = buildHandoffArchive({ fromPub: SENDER.pub, myTalks: { t1: { title: 'relay' } } });
+
+    await expect(sender.sendHandoffArchive(RECEIVER.pub, archive)).resolves.toBe('sent');
+    await expect(receiver.readIncomingHandoff(SENDER.pub)).resolves.toEqual(archive);
+
+    await receiver.acknowledgeHandoff(SENDER.pub);
+    await expect(sender.waitForHandoffAck(RECEIVER.pub, 100, 10)).resolves.toBe(true);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/relay/graph/handoff/receiver.pub/sender.pub'),
+      expect.objectContaining({ method: 'PUT' }),
+    );
   });
 
   it('a third party cannot decrypt an archive addressed to someone else', async () => {

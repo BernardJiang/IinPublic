@@ -44,6 +44,39 @@ All passed on real hardware via `tests/e2e/native-app/23-live-peer-scenarios.spe
 - Remaining under OPEN-06 (iOS Keychain build/run, Windows/Linux providers, external review) stays
   in `docs/TODO.md`.
 
+## 2026-09-19 — Tier 1 macOS baseline, durable leave, and real local scale
+
+Completed OPEN-01, OPEN-02, and OPEN-05 from the hardware-ordered backlog on the Mac mini.
+
+- **Canonical baseline (OPEN-01):** `npm run test:all` run
+  `run-20260919-165854-37068`, on the working tree based on `7828b304`, passed typecheck, lint,
+  Jest, and every one of the 12 E2E report blobs. Light, Stage 5, mesh-batch, mesh-isolated,
+  find-similar, cross-browser (Firefox/WebKit smoke), isolated, heavy-staged, and mass all exited
+  zero in 22m15s. The run generated the merged `playwright-report/index.html` report. The stable
+  light ceiling is now six workers; two prior 12-worker runs produced different load-only failures.
+- **Load/race fixes found by the baseline:** the password-free custody assertion now verifies the
+  current non-extractable WebCrypto v3 record; offline mailbox and handoff tests retain their real
+  IndexedDB/CryptoKey-bearing browser contexts; device handoff uses the graph relay for cross-Gun
+  delivery; route fan-out waits on the durable conversation barrier; and mutually confirmed deal
+  conversations retain session-lifetime protection from delayed talk-retraction frames. The two
+  exact final regressions passed 2/2 in a focused real-browser rerun before the full green run.
+- **Durable packaged-app leave (OPEN-02):** the Electron app and Chromium join Global, the app
+  leaves through the production chatroom service, and both the browser roster and hub state
+  converge to the inactive record (`isActive:false` with `leftAt`). The product now mirrors leave
+  to the relay/server DELETE endpoint while preserving offline-first local state. The freshly built
+  packaged macOS app scenario passed 1/1 in 16.8s with
+  `npm run test:e2e:macos-chatroom-leave` (rerun on alternate free ports because a sibling worktree
+  legitimately occupied the default native-test port).
+- **Real local scale (OPEN-05):** the `local-scale` central matrix profile runs eight isolated
+  Chromium profiles for survey aggregation and ten isolated profiles for flow exchanges. Exact
+  response/vector/aggregate counts prove convergence and absence of duplicates. The matrix run
+  passed in 142,144ms in the final retained-artifact rerun and wrote
+  `test-results/matrix/matrix-2026-09-20T00-26-10-913Z-48806/combined-summary.json`.
+- **Remaining Tier 1 host work:** opt-in real sleep/wake and scoped PF-isolation harnesses are
+  implemented with bounded preflights and cleanup, but physical execution remains OPEN-03/04
+  because this account has neither noninteractive `pmset` nor `pfctl` permission. Their safe
+  preflights exited 77 without sleeping the host or changing firewall rules.
+
 ## 2026-09-19 — Canonical TODO reconciliation and completed cross-platform matrix work
 
 Reconciled `docs/TODO.md` after the 2026-09-18 browser, native-device, cross-host, custody, and
@@ -60,8 +93,8 @@ history retain the detailed evidence that was formerly duplicated in the TODO.
 - Added a reusable isolated Electron harness with deterministic startup/shutdown, multiple app
   instances, app↔browser and app↔app discovery/Talk/matching, browser-to-app synchronization,
   identity persistence, and full app close/relaunch reconnection coverage.
-- Installed-release Firefox↔macOS Electron and packaged macOS app gates pass. Chatroom leave is the
-  only scenario from this stage intentionally retained as active work.
+- Installed-release Firefox↔macOS Electron and packaged macOS app gates pass. Durable app/browser
+  chatroom leave is now also covered and complete.
 
 ### Android physical-device matrix
 

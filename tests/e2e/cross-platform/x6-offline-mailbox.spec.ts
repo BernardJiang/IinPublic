@@ -6,9 +6,9 @@
  * overlay-free helper `staged/stage2-two-user/36-offline-beyond-mailbox-ttl`
  * uses) on the shared per-worker hub. "Offline" is simulated the same way
  * `talks-matching/05-mailbox-offline-response` and spec 36 already do: close
- * the browser context (saving its storageState first), then later reopen a new
- * context with that same storageState so the reconnecting client is the same
- * identity, not a new one.
+ * the browser's only page, then later reopen a page in that same isolated device
+ * context. This preserves password-free custody's non-extractable IndexedDB key;
+ * Playwright's JSON storageState cannot serialize that CryptoKey.
  *
  * Both existing mailbox specs (05, 36) only ever take ONE side offline. This
  * spec's own contribution is proving the SAME mechanism works in the other
@@ -19,13 +19,11 @@
  * (src/web/app/app.ts) rather than 36's manual envelope construction, since X6
  * isn't testing TTL edge cases — just that both directions actually deliver.
  */
-import * as fs from 'fs';
-import * as path from 'path';
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage2Spec } from '../helpers/e2e-stage-pipeline';
 import { headless, gotoAppReady } from '../helpers/timing';
-import { webAppURLStableChatroom, gunBaseURL, e2eTestStorageDir } from '../helpers/ports';
+import { webAppURLStableChatroom, gunBaseURL } from '../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { setupLeanMatchedPair, LeanMatchedPair } from '../helpers/fast-match-lean';
 import { sendConversationMessage } from '../helpers/fast-dm-setup';
@@ -113,50 +111,48 @@ test.describe('X6: offline mailbox across platforms', () => {
     liveContextB = pair.contextB;
     livePageB = pair.pageB;
 
-    const storageDir = e2eTestStorageDir();
-    fs.mkdirSync(storageDir, { recursive: true });
-    const aStoragePath = path.join(storageDir, 'x6-a-state.json');
-    const bStoragePath = path.join(storageDir, 'x6-b-state.json');
-
-    // Capture A's identity up front — needed for A's own offline leg (direction 2)
-    // later, before A's context has been touched at all.
-    await liveContextA.storageState({ path: aStoragePath });
+    const pubA = await livePageA.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+    );
+    const pubB = await livePageB.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+    );
 
     // ── Direction 1: B offline, A sends, B reconnects and drains ──────────────
-    await liveContextB.storageState({ path: bStoragePath });
-    await liveContextB.close().catch(() => {});
-    liveContextB = undefined;
+    await livePageB.close().catch(() => {});
     livePageB = undefined;
 
     const aToB = `a-to-b-${Date.now()}`;
     await sendConversationMessage(livePageA, conversationId, userIdA, aToB);
 
-    liveContextB = await browserB.newContext({ viewport: { width: 640, height: 1000 }, storageState: bStoragePath });
     livePageB = await liveContextB.newPage();
     await gotoAppReady(livePageB, webAppURLStableChatroom());
     const bIdReconnect = await livePageB.evaluate(
       () => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
     );
     expect(bIdReconnect, 'B reconnects as the same user').toBe(userIdB);
+    expect(await livePageB.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+    ), 'B reconnects with the same SEA identity').toBe(pubB);
     await livePageB.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.drainMailbox?.());
     await waitForMessageInStore(livePageB, conversationId, userIdB, userIdA, aToB);
 
     // ── Direction 2: A offline, B (now reconnected) sends, A reconnects and drains ──
     await livePageA.close().catch(() => {});
-    await liveContextA.close().catch(() => {});
-    liveContextA = undefined;
     livePageA = undefined;
 
     const bToA = `b-to-a-${Date.now()}`;
     await sendConversationMessage(livePageB, conversationId, userIdB, bToA);
 
-    liveContextA = await browserA.newContext({ viewport: { width: 640, height: 1000 }, storageState: aStoragePath });
     livePageA = await liveContextA.newPage();
     await gotoAppReady(livePageA, webAppURLStableChatroom());
     const aIdReconnect = await livePageA.evaluate(
       () => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
     );
     expect(aIdReconnect, 'A reconnects as the same user').toBe(userIdA);
+    expect(await livePageA.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
+    ), 'A reconnects with the same SEA identity').toBe(pubA);
     await livePageA.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.drainMailbox?.());
     await waitForMessageInStore(livePageA, conversationId, userIdA, userIdB, bToA);
 

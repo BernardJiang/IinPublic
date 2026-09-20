@@ -283,6 +283,102 @@ test.describe('Native app: browser + Electron app shared hub presence', () => {
       .toBe(true);
   });
 
+  test('desktop app leave is durable and disappears from the browser roster', async () => {
+    browser = await launchBrowserPeer();
+    const browserUser = await bootstrapBrowserUserOnOrigin(
+      browser,
+      `http://127.0.0.1:${WEB_PORT}`,
+      'Leave observer browser',
+      'LeaveObserver',
+      { waitForSupportGreeting: false },
+    );
+    closeBrowserUser = browserUser.close;
+
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-native-leave-e2e-'));
+    native = await launchNativeUser({
+      localPort: APP_PORT,
+      hubGunUrl: `http://127.0.0.1:${HUB_GUN_PORT}/gun`,
+      userDataDir,
+    });
+    const appUserId = await bootstrapNativeWindow(native.window, 'LeavingDesktop', {
+      waitForSupportGreeting: false,
+    });
+
+    await forceJoinGlobal(browserUser.page);
+    await forceJoinGlobal(native.window);
+    await expect
+      .poll(
+        async () => (await readGlobalMembersFromHub(HUB_GUN_PORT))
+          .some((member) => member.userId === appUserId),
+        { timeout: 30_000, intervals: [500, 1000, 2000] },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        () => browserUser.page.evaluate(
+          (uid) => (window as any).__iinpublic_app
+            ?.getApp?.()
+            ?.uiManager?.getCurrentChatroomMembers?.()
+            ?.some((member: { userId?: string }) => member.userId === uid) === true,
+          appUserId,
+        ),
+        { timeout: 30_000, intervals: [500, 1000, 2000] },
+      )
+      .toBe(true);
+
+    await native.window.evaluate(async ({ chatroomId, userId }) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      await app.chatroomService.leaveChatroom(chatroomId, userId);
+    }, { chatroomId: 'global', userId: appUserId });
+
+    await expect
+      .poll(
+        async () => (await readGlobalMembersFromHub(HUB_GUN_PORT))
+          .some((member) => member.userId === appUserId),
+        { timeout: 30_000, intervals: [500, 1000, 2000] },
+      )
+      .toBe(false);
+    await expect
+      .poll(
+        () => browserUser.page.evaluate(
+          (uid) => (window as any).__iinpublic_app
+            ?.getApp?.()
+            ?.uiManager?.getCurrentChatroomMembers?.()
+            ?.some((member: { userId?: string }) => member.userId === uid) === true,
+          appUserId,
+        ),
+        { timeout: 30_000, intervals: [500, 1000, 2000] },
+      )
+      .toBe(false);
+    await expect
+      .poll(
+        () => browserUser.page.evaluate(
+          (uid) => new Promise<{ isActive: unknown; leftAt: unknown }>((resolve) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            let settled = false;
+            const finish = (value: { isActive: unknown; leftAt: unknown }) => {
+              if (settled) return;
+              settled = true;
+              resolve(value);
+            };
+            app.gunService.getGun()
+              .get('chatrooms')
+              .get('global')
+              .get('users')
+              .get(uid)
+              .once((record: any) => finish({
+                isActive: record?.isActive,
+                leftAt: record?.leftAt,
+              }));
+            setTimeout(() => finish({ isActive: undefined, leftAt: undefined }), 1000);
+          }),
+          appUserId,
+        ),
+        { timeout: 30_000, intervals: [500, 1000, 2000] },
+      )
+      .toEqual({ isActive: false, leftAt: expect.any(String) });
+  });
+
   test('browser user and desktop app user exchange a direct message through explicit relay signaling', async () => {
     browser = await launchBrowserPeer();
     const browserUser = await bootstrapBrowserUserOnOrigin(

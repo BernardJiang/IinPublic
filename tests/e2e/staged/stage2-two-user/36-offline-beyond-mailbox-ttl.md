@@ -35,14 +35,16 @@ for that defined behavior on the offline-drain path.
 1. A and B match via `setupLeanMatchedPair` (a lighter variant of `fast-dm-setup` that skips the
    overlay-open WebRTC connect attempts — see `helpers/fast-match-lean.ts`). Both epubs are
    resolvable, so A can SEA-ECDH-encrypt for B exactly as its live client does.
-2. B's `storageState` is saved; B's context is **closed** (offline).
+2. B's only page is **closed** (offline); its isolated device context remains alive with no
+   network peer so the non-extractable IndexedDB custody key stays on that device.
 3. From A, two envelopes are written into B's mailbox through the app's own `WebMailboxClient`:
    - an **EXPIRED** `conversation-message-v1` envelope (`ttlMs: 1`), and
    - a **FRESH** control envelope (default TTL).
 4. Direct server assertion: after the 1ms TTL lapses, `GET` B's mailbox returns exactly the
    fresh envelope; the expired id is absent (pruned) and `count === 1`.
-5. B reconnects in a new context with the **same identity** (`storageState`), asserted by
-   `currentUser.id === userIdB`.
+5. B reconnects by opening a new page in the same isolated device context. Both its app user id
+   and exact SEA public key are asserted unchanged. Playwright `storageState` is deliberately not
+   used because JSON export turns a non-extractable WebCrypto key into an unusable empty object.
 6. B's drain loop runs at boot: the fresh DM is ingested into B's durable message store
    (read back via `conversationService.subscribeToMessages`), the expired text never appears,
    the mailbox ends empty, and the matched conversation is still present (app healthy).

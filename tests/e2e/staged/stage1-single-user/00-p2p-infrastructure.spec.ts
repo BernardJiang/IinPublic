@@ -43,27 +43,41 @@ test.describe('P2P roadmap P2–P7 — infrastructure (merged)', () => {
 
   test('browser stores encrypted key custody while relay exposes only public identity policy', async ({ request }) => {
     const p = page!;
-    const custody = await p.evaluate(() => {
+    const custody = await p.evaluate(async () => {
       const rawPair = localStorage.getItem('iinpublic_keypair');
       const rawCustody = localStorage.getItem('iinpublic_key_custody_v1');
       const deviceSecret = localStorage.getItem('iinpublic_key_custody_device_secret_v1');
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('iinpublic-identity-custody-v3', 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const stored = await new Promise<any>((resolve, reject) => {
+        const transaction = database.transaction('custody', 'readonly');
+        const request = transaction.objectStore('custody').get('active');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      database.close();
       return {
         rawPair,
         rawCustody,
         deviceSecret,
-        custody: rawCustody ? JSON.parse(rawCustody) : null,
+        custody: stored?.record ?? null,
+        keyExtractable: stored?.wrappingKey?.extractable,
+        keyAlgorithm: stored?.wrappingKey?.algorithm?.name,
       };
     });
 
     expect(custody.rawPair).toBeNull();
-    expect(custody.deviceSecret).toBeTruthy();
-    expect(custody.rawCustody).toBeTruthy();
-    expect(custody.rawCustody).not.toContain('"priv"');
-    expect(custody.rawCustody).not.toContain('"epriv"');
+    expect(custody.deviceSecret).toBeNull();
+    expect(custody.rawCustody).toBeNull();
+    expect(custody.keyExtractable).toBe(false);
+    expect(custody.keyAlgorithm).toBe('AES-GCM');
     expect(custody.custody).toEqual(
       expect.objectContaining({
-        version: 1,
-        format: 'webcrypto-device-key-v1',
+        version: 3,
+        format: 'webcrypto-nonextractable-v3',
         publicIdentity: expect.objectContaining({
           pub: expect.any(String),
           epub: expect.any(String),
@@ -91,7 +105,7 @@ test.describe('P2P roadmap P2–P7 — infrastructure (merged)', () => {
     await expect(p.locator('#storage-inspector-sea-identity')).toBeVisible();
     await expect(p.locator('#storage-inspector-sea-identity')).toContainText('SEA Identity Custody');
     await expect(p.locator('#storage-inspector-sea-identity')).toContainText('Relay scan');
-    await expect(p.locator('#storage-inspector-sea-custody')).toContainText('webcrypto-device-key-v1');
+    await expect(p.locator('#storage-inspector-sea-custody')).toContainText('webcrypto-nonextractable-v3');
   });
 
   test('debug storage exposes transport modes and HTTP signaling endpoint is retired', async ({ request }) => {
