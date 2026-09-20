@@ -1,102 +1,114 @@
 # IinPublic TODO
 
-Last reconciled: 2026-09-19.
+Last reconciled: 2026-09-20.
 
-This file contains active work only. Completed implementation history is in
+This file contains the current execution focus plus explicitly deferred open work. Completed
+implementation history is in
 `docs/completed.md`; product requirements and design decisions are authoritative in
 `docs/specs/iinpublic-technical-specifications.md`. The separate
 `docs/IinPublic Identity & Key Architecture TODO.md` is a design specification and keeps its own
 implementation plan.
 
-Open issue IDs define the current execution order. The order is based on the minimum hardware
-needed: finish Mac-mini-only work first, then Android, Windows, Ubuntu, combined available-hardware
-scenarios, and finally unavailable/external dependencies. Run the relevant availability preflight
-before every host- or device-dependent issue. When an issue is completed, move its outcome and
-verification evidence to `docs/completed.md`, remove it here, and do not reuse its ID.
+The current product priority is the **website and Android app**. Work on their shared web runtime,
+browser behavior, Android shell, and website↔Android interoperability before any other platform.
+The order below, not the numeric issue ID, defines execution priority. Do not start a deferred issue
+unless it directly blocks the website/Android focus or the product owner explicitly promotes it.
+Run the Android availability preflight before physical-device work. When an issue is completed,
+move its outcome and verification evidence to `docs/completed.md`, remove it here, and do not reuse
+its ID.
 
-## Ordered active backlog
+## Active execution queue — website and Android first
 
-### Tier 1 — Mac mini only
+### Priority 1 — Website ↔ Android app linking
 
-- [ ] **OPEN-03 — Test Mac sleep/wake recovery.** Verify the native app retains identity,
-  reconnects, and converges after real host sleep and wake. The opt-in native-app scenario and
-  bounded `pmset` helper are implemented (`npm run test:e2e:macos-sleep-wake`), but this Mac's
-  current user lacks the required noninteractive `pmset` sudo permission, so no physical sleep was
-  requested and the real host run remains open.
+- [ ] **OPEN-13 — Verify X3 website↔Android-app linking end to end.** Exercise the website-to-app
+  handoff through the real Android shell with clean profiles and a physical-device availability
+  check. Verify link request/approval, durable linked state on both sides, identity preservation,
+  restart behavior, rejection/cancellation, and unlink/revocation. Remove the X3 skip for this
+  Android-targeted path once it is deterministic. Local physical-device acceptance comes first;
+  running it on managed CI hardware is deferred with OPEN-12. Same-device linking is already
+  covered by X8.
 
-- [ ] **OPEN-04 — Exercise temporary firewall isolation on the Mac test network.** Block one peer
-  with scoped, automatically reverted rules; verify unaffected peers continue, then verify
-  reconnect and convergence after restoring the route. Use only a safe privileged test setup. The
-  opt-in native-app scenario and loopback/port-scoped PF helper are implemented
-  (`npm run test:e2e:macos-firewall`) with trap-based cleanup, but this Mac's current user lacks the
-  required noninteractive `pfctl` sudo permission, so no firewall rules were changed and the real
-  host run remains open.
+### Priority 2 — Website/Android custody boundary
 
-### Tier 2 — Mac mini + Android devices
-
-- [ ] **OPEN-06 — Finish native password-free identity custody.** Android Keystore and macOS
-  Electron `safeStorage` (login Keychain) are implemented and verified (specs 18, 22). Remaining:
-  accept the Xcode license (`sudo xcodebuild -license` — also needed for `dist:mac` codesigning),
-  then compile and run the iOS Keychain adapter (`AppleCustodyBridge.swift`); select reviewed
-  credential-store providers for Windows/Linux (Electron custody currently refuses them); obtain
-  external review of the custody/migration boundary.
+- [ ] **OPEN-06 — Finish the website/Android password-free identity custody scope.** Browser
+  WebCrypto custody v3 and Android Keystore custody are implemented and physically verified.
+  Review their shared custody/migration boundary, close any findings, and retain focused evidence
+  for migration, identity-conflict refusal, erase/reset, force-stop/restart, and reinstall behavior.
+  iOS Keychain compilation and Windows/Linux credential-store selection are deferred below.
 
 All other standalone Android and Mac↔Android matrix work is complete: logical device selection,
 directional browser/app pairs, multi-phone convergence, background/foreground, force-stop/restart,
-Wi-Fi interruption, and offline resynchronization are archived in `docs/completed.md`.
+Wi-Fi interruption, offline resynchronization, and Android Keystore custody are archived in
+`docs/completed.md`.
 
-### Tier 3 — Mac mini + Windows PC
+## Deferred open issues — not in the current execution queue
 
-- [ ] **OPEN-07 — Sign the Windows release artifacts.** Select a trusted code-signing identity,
-  sign the NSIS installer and installed executable, and verify the signature in the Windows
-  installed-release gate.
+The following IDs remain open for traceability, but website/Android work takes precedence. Do not
+start them unless they become a direct blocker or are explicitly promoted.
 
-### Tier 4 — Mac mini + Ubuntu PC
+### macOS-native host testing
 
-- [ ] **OPEN-10 — Unblock Ubuntu Playwright WebKit.** The `ubuntu-test` owner must install
+- [ ] **OPEN-03 — Test Mac sleep/wake recovery (deferred).** The opt-in native-app scenario and
+  bounded `pmset` helper are implemented (`npm run test:e2e:macos-sleep-wake`), but this Mac's
+  current user lacks the required noninteractive `pmset` sudo permission. No physical sleep was
+  requested.
+
+- [ ] **OPEN-04 — Exercise temporary Mac firewall isolation (deferred).** The opt-in scenario and
+  loopback/port-scoped PF helper are implemented (`npm run test:e2e:macos-firewall`) with
+  trap-based cleanup, but this Mac's current user lacks noninteractive `pfctl` sudo permission. No
+  firewall rules were changed.
+
+### Other desktop platforms
+
+- [ ] **OPEN-07 — Sign the Windows release artifacts (deferred).** Select a trusted code-signing
+  identity, sign the NSIS installer and installed executable, and verify the signature in the
+  Windows installed-release gate.
+
+- [ ] **OPEN-10 — Unblock Ubuntu Playwright WebKit (deferred).** The `ubuntu-test` owner must install
   Playwright's missing system dependencies (`libavif16`/`playwright install-deps`, as appropriate)
   with sudo; then run `npm run test:e2e:ubuntu:webkit` and retain the returned report. The SSH test
   user intentionally has no passwordless sudo.
 
-### Tier 5 — Combined available hardware
+### CI infrastructure
 
-These issues use two or more of the Mac mini, Android fleet, Windows PC, and Ubuntu PC. Check every
-required host/device before building, installing, or starting tests; skip with an explicit reason
-when a dependency is offline.
+- [ ] **OPEN-12 — Connect native jobs to real CI runners (deferred).** Register and harden the Mac
+  mini, Windows, and Ubuntu hosts as CI runners for their native-app jobs. Jobs must perform
+  availability checks before installation or tests and retain platform artifacts on failure.
+  Android-targeted X3 acceptance should run locally first; CI scheduling is not a prerequisite for
+  OPEN-13.
 
-- [ ] **OPEN-12 — Connect native jobs to real CI runners.** Register and harden the Mac mini,
-  Windows, and Ubuntu hosts as CI runners for their native-app jobs. Jobs must perform availability
-  checks before installation or tests and retain platform artifacts on failure.
-
-- [ ] **OPEN-13 — Enable X3 website↔native-app linking in CI.** Remove the remaining X3 skip and
-  exercise the website-to-app handoff through a real native shell. Depends on OPEN-12; the
-  same-device linking mechanism itself is already covered by X8.
-
-### Tier 6 — Additional hardware and external dependencies
+### iOS, nearby transports, certification, and external review
 
 Do not start these until the required iPhone/nearby-transport hardware, owner access, or external
-review capacity is available.
+review capacity is available and the issue is promoted after the website/Android queue.
 
-- [ ] **OPEN-21 — Add iPhone native-shell coverage.** Build an iOS shell, add clean-profile and
-  automation support, and include it in the central matrix when suitable hardware is available.
+- **Deferred portion of OPEN-06 — Other platform custody adapters.** Accept the Xcode license,
+  compile and run the existing iOS Keychain adapter (`AppleCustodyBridge.swift`), and select
+  reviewed credential-store providers for Windows/Linux after the website/Android custody scope
+  is complete.
 
-- [ ] **OPEN-22 — Prototype and verify Apple Wi-Fi Aware.** On supported physical devices, test
-  discovery and data paths in both iPhone→Android and Android→iPhone directions, plus same-LAN
-  iOS↔Android Gun convergence.
+- [ ] **OPEN-21 — Add iPhone native-shell coverage (deferred).** Build an iOS shell, add
+  clean-profile and automation support, and include it in the central matrix when suitable
+  hardware is available.
 
-- [ ] **OPEN-23 — Prototype BLE discovery and route upgrade.** Measure throughput, battery use,
-  background behavior, and upgrade to a high-bandwidth route. Do not select BLE as a Gun data
-  transport until measurements demonstrate a product need.
+- [ ] **OPEN-22 — Prototype and verify Apple Wi-Fi Aware (deferred).** On supported physical
+  devices, test discovery and data paths in both iPhone→Android and Android→iPhone directions,
+  plus same-LAN iOS↔Android Gun convergence.
 
-- [ ] **OPEN-24 — Maintain the physical-device certification matrix.** Keep at least two iPhones,
-  two Android devices, and one desktop node across supported OS ranges. Cover foreground,
+- [ ] **OPEN-23 — Prototype BLE discovery and route upgrade (deferred).** Measure throughput,
+  battery use, background behavior, and upgrade to a high-bandwidth route. Do not select BLE as a
+  Gun data transport until measurements demonstrate a product need.
+
+- [ ] **OPEN-24 — Maintain the physical-device certification matrix (deferred).** Keep at least two
+  iPhones, two Android devices, and one desktop node across supported OS ranges. Cover foreground,
   background, locked-screen, normal Wi-Fi, isolated LAN, no-Internet, cellular-NAT, and mixed
   routes; record latency, throughput, battery drain, reconnect time, and forwarding bytes.
   `npm run verify:devices` validates the inventory schema; the physical run inventory is currently
   empty.
 
-- [ ] **OPEN-25 — Complete the external transport security review.** Review cellular peer
-  forwarding and BLE discovery/data transport before either is enabled by default. Track any
+- [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
+  peer forwarding and BLE discovery/data transport before either is enabled by default. Track any
   remediation as new ordered issues.
 
 ## Deferred product decisions
