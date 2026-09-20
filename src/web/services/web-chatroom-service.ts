@@ -54,6 +54,14 @@ export class WebChatroomService {
   /** Set by the app to expose the CURRENT user's stage name to heartbeat beats (see beat()). */
   private membershipStageNameResolver: (() => string) | null = null;
 
+  /**
+   * Every room change (manual switch or eviction) runs through this one queue, so two moves can
+   * never interleave. A manual switch is counted the instant it is REQUESTED (before it waits its
+   * turn) so an eviction that has not started yet always sees it and stands down: manual wins.
+   */
+  private moveQueue: Promise<unknown> = Promise.resolve();
+  private manualMovesPending = 0;
+
   /** FIFO capacity: notice-driven, self-eviction cascade (see chatroom-capacity-controller.ts). */
   private capacity: ChatroomCapacityController;
 
@@ -65,8 +73,8 @@ export class WebChatroomService {
       getCurrentRoom: () => this.currentChatroomId,
       getLocation: (userId) => this.userLocations.get(userId),
       getStageName: (userId) => this.membershipStageNameResolver?.() || this.membershipHeartbeatStageName || userId,
-      leaveRoom: (roomId, userId) => this.leaveChatroom(roomId, userId),
-      joinRoom: (roomId, userId, stageName, onMoved) => this.joinChatroom(roomId, userId, stageName, onMoved),
+      moveForEviction: (from, userId, child, stageName, onMoved) =>
+        this.moveForEviction(from, userId, child, stageName, onMoved),
     });
   }
 
@@ -196,7 +204,9 @@ export class WebChatroomService {
       const timeoutId = setTimeout(() => resolve(false), 700);
       gun.get('chatrooms').get(chatroomId).get('users').get(userId).once((data: any) => {
         clearTimeout(timeoutId);
-        resolve(data?.isActive === true);
+        // A record whose heartbeat has lapsed is a previous stay: rejoining is a NEW join (fresh
+        // joinedAt), so a returning user is a newcomer, not the room's oldest member.
+        resolve(data?.isActive === true && this.isFreshActiveMember(data));
       });
     });
     if (alreadyActive) {
@@ -626,17 +636,66 @@ export class WebChatroomService {
     console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }
 
+  private runMove<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.moveQueue.then(operation, operation);
+    this.moveQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
+   * Manual room switch. Atomic with respect to every other move: it waits for any move already
+   * running, always wins over an eviction that has not started, and puts the user back in the room
+   * they came from if the new join fails, so nobody is left in no room.
+   */
   async switchChatroom(userId: string, newChatroomId: string, stageName?: string): Promise<void> {
-    // A same-room switch is a no-op, not a revisit: joinChatroom()'s alreadyActive
-    // fast path re-records a visit unconditionally (needed for the page-reload case,
-    // where a fresh service instance has no currentChatroomId to compare against).
-    if (this.currentChatroomId === newChatroomId) {
-      return;
+    this.manualMovesPending += 1;
+    try {
+      await this.runMove(async () => {
+        const from = this.currentChatroomId;
+        // A same-room switch is a no-op, not a revisit: joinChatroom()'s alreadyActive
+        // fast path re-records a visit unconditionally (needed for the page-reload case,
+        // where a fresh service instance has no currentChatroomId to compare against).
+        if (from === newChatroomId) return;
+        if (from) await this.leaveChatroom(from, userId);
+        try {
+          await this.joinChatroom(newChatroomId, userId, stageName);
+        } catch (error) {
+          if (from) await this.joinChatroom(from, userId, stageName).catch(() => undefined);
+          throw error;
+        }
+      });
+    } finally {
+      this.manualMovesPending -= 1;
     }
-    if (this.currentChatroomId) {
-      await this.leaveChatroom(this.currentChatroomId, userId);
-    }
-    await this.joinChatroom(newChatroomId, userId, stageName);
+  }
+
+  /**
+   * Eviction move, run by the evictee itself. Returns false without changing anything when a manual
+   * switch is pending (manual wins) or the user is no longer in `from`.
+   */
+  private async moveForEviction(
+    from: string,
+    userId: string,
+    child: string,
+    stageName: string,
+    onMoved?: (roomId: string) => void,
+  ): Promise<boolean> {
+    if (this.manualMovesPending > 0) return false;
+    return this.runMove(async () => {
+      if (this.manualMovesPending > 0 || this.currentChatroomId !== from) return false;
+      await this.leaveChatroom(from, userId);
+      const gun = this.gunService.getGun();
+      gun.get('chatrooms').get(from).get('users').get(userId).put({ movedTo: child });
+      gun.get('chatrooms').get(from).get('locations').get(userId).put(null);
+      try {
+        await this.joinChatroom(child, userId, stageName, onMoved);
+      } catch (error) {
+        console.warn(`Eviction join into ${child} failed; returning ${userId} to ${from}`, error);
+        await this.joinChatroom(from, userId, stageName, onMoved).catch(() => undefined);
+        return false;
+      }
+      return true;
+    });
   }
 
   /**
@@ -1002,9 +1061,23 @@ export class WebChatroomService {
         }, 100); // 100ms debounce
       });
 
+    // A member who goes offline just stops heartbeating: Gun never fires for that, so re-check
+    // freshness on a timer and drop them from the count once their heartbeat has lapsed.
+    const staleSweep = setInterval(() => {
+      let removed = false;
+      for (const [id, data] of activeMembers) {
+        if (!this.isFreshActiveMember(data)) {
+          activeMembers.delete(id);
+          removed = true;
+        }
+      }
+      if (removed && seedHydrated) emitCount();
+    }, 30_000);
+
     // Store unsubscribe function
     this.memberCountSubscriptions.set(chatroomId, () => {
       subscriptionCancelled = true;
+      clearInterval(staleSweep);
       if (updateTimeout) {
         clearTimeout(updateTimeout);
         updateTimeout = null;

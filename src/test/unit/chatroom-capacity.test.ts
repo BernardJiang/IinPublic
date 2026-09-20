@@ -102,6 +102,7 @@ class FakeGun {
   }
 
   node(path: string): any {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- object-literal methods below need the graph
     const self = this;
     return {
       get: (key: string) => self.node(`${path}/${key}`),
@@ -158,15 +159,15 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
       getCurrentRoom: () => peer.room,
       getLocation: () => SF,
       getStageName: () => userId,
-      leaveRoom: async (roomId, id) => {
-        peer.controller.stop(roomId);
-        gun.node(`/chatrooms/${roomId}/users/${id}`).put({ isActive: false, leftAt: nextIso() });
-      },
-      joinRoom: async (roomId, id, _stage, onMoved) => {
-        peer.room = roomId;
+      moveForEviction: async (from, id, child, _stage, onMoved) => {
+        if (peer.room !== from) return false;
+        peer.controller.stop(from);
+        gun.node(`/chatrooms/${from}/users/${id}`).put({ isActive: false, leftAt: nextIso(), movedTo: child });
+        peer.room = child;
         const at = nextIso();
-        gun.node(`/chatrooms/${roomId}/users/${id}`).put({ userId: id, isActive: true, joinedAt: at, lastSeen: at });
-        if (stayConnected) peer.controller.start(roomId, id, onMoved);
+        gun.node(`/chatrooms/${child}/users/${id}`).put({ userId: id, isActive: true, joinedAt: at, lastSeen: at });
+        if (stayConnected) peer.controller.start(child, id, onMoved);
+        return true;
       },
     });
     peers.set(userId, peer);
@@ -175,7 +176,10 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
   async function join(userId: string, room: string): Promise<void> {
     const peer = peers.get(userId)!;
     const onMoved = (r: string) => peer.moved.push(r);
-    await (peer.controller as any).deps.joinRoom(room, userId, userId, onMoved);
+    peer.room = room;
+    const at = nextIso();
+    gun.node(`/chatrooms/${room}/users/${userId}`).put({ userId, isActive: true, joinedAt: at, lastSeen: at });
+    peer.controller.start(room, userId, onMoved);
   }
 
   const activeIn = (room: string): string[] =>

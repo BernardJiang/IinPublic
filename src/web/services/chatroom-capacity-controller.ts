@@ -25,8 +25,17 @@ export interface ChatroomCapacityDeps {
   getCurrentRoom: () => string | undefined;
   getLocation: (userId: string) => GPSCoordinate | undefined;
   getStageName: (userId: string) => string;
-  leaveRoom: (roomId: string, userId: string) => Promise<void>;
-  joinRoom: (roomId: string, userId: string, stageName: string, onMoved?: (roomId: string) => void) => Promise<void>;
+  /**
+   * Atomically move `userId` from `from` to `child` as an eviction. Resolves false (and changes
+   * nothing) when a manual room switch is pending/won, or the user is no longer in `from`.
+   */
+  moveForEviction: (
+    from: string,
+    userId: string,
+    child: string,
+    stageName: string,
+    onMoved?: (roomId: string) => void,
+  ) => Promise<boolean>;
 }
 
 /**
@@ -194,14 +203,9 @@ export class ChatroomCapacityController {
     const onMoved = this.onMoved;
     try {
       console.log(`🚪 Eviction notice: moving ${userId} from ${roomId} to ${child}`);
-      const stageName = this.deps.getStageName(userId);
-      const gun = this.deps.getGun();
-      await this.deps.leaveRoom(roomId, userId);
-      gun.get('chatrooms').get(roomId).get('users').get(userId).put({ movedTo: child });
-      gun.get('chatrooms').get(roomId).get('locations').get(userId).put(null);
-      // An ordinary join: it starts this controller on the child room, which cascades.
-      await this.deps.joinRoom(child, userId, stageName, onMoved);
-      onMoved?.(child);
+      const moved = await this.deps.moveForEviction(roomId, userId, child, this.deps.getStageName(userId), onMoved);
+      // The join into `child` started this controller there, which cascades if it is full too.
+      if (moved) onMoved?.(child);
     } finally {
       this.evicting = false;
     }
