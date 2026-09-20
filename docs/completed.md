@@ -1,6 +1,47 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
+
+## 2026-09-20 — Physical website ↔ Android identity linking (OPEN-13)
+
+- Replaced the skipped X3 placeholder with an opt-in physical-device suite. A clean desktop
+  website profile and clean Android app profile exercise the production embedded-node HTTP relay,
+  while preserving independent SEA identities.
+- Verified on configured Huawei VOG-L29 `android-alice` (`DUM0219418001663`): cancelled website
+  codes leave Android requests one-sided and untrusted; mutual approval creates a verified direct
+  link on both sides; replay is rejected; force-stop/relaunch preserves the Android identity and
+  linked state; website unlink publishes a revocation and both sides converge to Removed without
+  changing either identity. Both scenarios passed in 1.6 minutes.
+- Added `npm run test:e2e:x3-android`. Its runner checks for an authorized configured phone before
+  any build or test, builds the current APK, installs only the selected serial with a bounded
+  four-minute timeout, and retains Playwright Android diagnostics on failure. The shared matrix
+  installer now honors its documented `NATIVE_APP_ANDROID_SERIALS` selector.
+- Managed CI scheduling remains deferred under OPEN-12; local physical acceptance is complete.
+- Removed X8's obsolete raw-Gun test workaround. Same-device linking now passes under the
+  production-default explicit HTTP relay as well (1/1 in 20.2 seconds), so X3 and X8 jointly cover
+  physical Android and local embedded-node distribution paths through the same allowlisted graph
+  classes.
+
+## 2026-09-20 — Website/Android password-free custody boundary (OPEN-06)
+
+- Reviewed the shared browser-v3/native-custody migration boundary and fixed two findings. Native
+  bridge failures now fail closed instead of silently downgrading an Android shell to WebView v1
+  custody. “Erase this device” now removes and reads back OS-keystore custody before clearing web
+  storage/reloading; a failed or ineffective native removal aborts the wipe.
+- Disabled Android application backup. Password-free custody is installation-local: reinstall must
+  create unrelated SEA and Keystore state rather than restore ciphertext whose non-exportable key
+  no longer exists.
+- Expanded physical spec 18 with verified v1→Android-Keystore copy/read-back/source-delete
+  migration, byte-for-byte pair preservation, identity-conflict refusal without mutation,
+  user-visible erase/reset, and actual uninstall/reinstall. The reinstall reuses an on-device copy
+  of the exact tested APK, avoiding another USB transfer while still exercising package removal.
+- Huawei VOG-L29 `DUM0219418001663` passed both custody cases together in 35.9 seconds: fresh
+  Keystore custody plus force-stop/restart, followed by migration/conflict/erase/reinstall. The
+  focused unit suites pass 8/8, TypeScript passes, the Android production build succeeds, and three
+  new wipe tests cover successful deletion plus both fail-closed paths.
+- `npm run test:e2e:android-custody` now performs availability-first selection, builds and installs
+  the APK with a bounded timeout, then runs the physical acceptance suite. iOS and Windows/Linux
+  provider work plus external review moved to deferred OPEN-26.
 
 ## 2026-09-19 — Tier 5 combined-hardware live-peer scenarios (OPEN-14..20)
 

@@ -36,14 +36,18 @@ mobile-profile variants layer on top via the device-profile projects
 (`E2E_DEVICE_PROFILES=1`) and the native-app config
 (`npm run test:e2e:native-app`).
 
-## Nightly (X3, X7)
+## Physical Android X3 and nightly X7
 
-`x3` and `x7` are scaffolded as skipped specs describing the setup each needs
-(a real native Electron build; a hosted website linked to a native webapp for
-sync-then-erase). They are run on the nightly cross-platform lane once the
-harness is wired to a real website/native build on the CI runners (Mac mini
-P2, Windows P3, Linux P4) — see `docs/TODO.md` Priority 3. (`x8-same-device-link`
-already runs for real — landed 2026-08-26, see `docs/completed.md`.)
+`x3-identity-linking` is an opt-in physical website↔Android gate. Run
+`npm run test:e2e:x3-android`; it checks that the selected configured phone is available before
+building, installs the current APK with a bounded timeout, clears the app profile, and covers
+one-sided cancellation plus durable mutual link/restart/revocation behavior. It is not included in
+the ordinary cross-platform command because it is destructive to that app profile and requires
+ADB hardware.
+
+`x7` remains a skipped hosted-website/native-webapp sync-then-erase scaffold pending its managed
+CI hardware. `x8-same-device-link` already runs for real (landed 2026-08-26; see
+`docs/completed.md`).
 
 ## Real-device pass
 

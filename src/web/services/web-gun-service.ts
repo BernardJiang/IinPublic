@@ -1176,6 +1176,12 @@ export class WebGunService extends EventEmitter {
             console.warn('⚠️ Browser custody source cleanup is pending and will resume next startup:', error);
           } else if (hadV3Record || (error instanceof Error && error.message.includes('conflict'))) {
             throw error;
+          } else if (passwordFreeManager instanceof NativePasswordFreeCustodyManager) {
+            // A native shell advertised an OS-keystore boundary but failed to read/write it.
+            // Never downgrade that shell to WebView-local v1 custody: an Android backup restore,
+            // damaged ciphertext, unavailable Keychain, or native bridge regression must fail
+            // closed instead of silently creating/switching identities in weaker storage.
+            throw error;
           } else {
             // Some engines expose IndexedDB/WebCrypto but cannot structured-clone a CryptoKey.
             // Retain the verified v1 path on those engines and never delete its source record.

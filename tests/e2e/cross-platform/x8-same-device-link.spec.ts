@@ -26,22 +26,10 @@
  * `#link=<code>` URL on a real second same-machine instance completes the full mutual
  * link, and reusing that one-time code a second time is correctly rejected.
  *
- * KNOWN GAP surfaced while building this (docs/TODO.md §I): the embedded node's default
- * hub-relay mode (`IINPUBLIC_EMBEDDED_HUB_MODE` unset → `'explicit-http'`) only relays a
- * narrow allowlist between the local node and the hub — `relayOnlyDataClasses:
- * ['discovery', 'signaling', 'presence', 'room-membership']` (`p2p-runtime.ts`).
- * `identity-link-requests/*` is not in that list, so in that (production-default) mode a
- * browser tab and an embedded-node "app" cannot actually complete a mutual link through
- * the real public hub — the same restriction also currently breaks
- * `01-browser-and-embedded-node-peer.spec.ts`'s talk-matching assertion (`clusters=0`),
- * so this is a pre-existing embedded-node/hub-relay gap, not something new to same-device
- * linking. This spec forces `IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` (a real, raw Gun peer
- * link instead of the narrow HTTP relay) purely to get a genuine second same-machine
- * instance sharing one identity graph for the test — it does NOT prove the loopback flow
- * works under the production-default relay mode. Whether `identity-link-requests` (and
- * whatever the S3 spec needs for mesh talk delivery) should join the relay allowlist, or
- * same-device linking should instead lean on LAN discovery to bypass the hub restriction
- * entirely, is an open product/architecture question — not decided here.
+ * The production-default explicit HTTP relay now includes identity-link requests,
+ * attestations, and revocations. This spec deliberately leaves `IINPUBLIC_EMBEDDED_HUB_MODE`
+ * unset so the same-device path continuously verifies that production boundary; X3 separately
+ * verifies the same relay classes through a physical Android embedded node.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
@@ -158,12 +146,8 @@ test.describe('X8: same-device link (app <-> browser)', () => {
           // mechanism a desktop/mobile shell uses to dial the production hub, just pointed
           // at the worker's test server so both same-device sides share one identity graph.
           IINPUBLIC_HUB_GUN_URL: `${gunBaseURL()}/gun`,
-          // KNOWN GAP (see file header): the production DEFAULT relay mode
-          // ('explicit-http') only relays a narrow allowlist that does not include
-          // identity-link-requests, so it cannot carry this test's mutual-link handshake.
-          // Forcing a real raw Gun peer link here is a test-only workaround, not a claim
-          // that same-device linking works under the production-default relay mode.
-          IINPUBLIC_EMBEDDED_HUB_MODE: 'gun-peer',
+          // Leave hub mode unset: production defaults to explicit-http, whose allowlist must
+          // carry all three identity-link graph classes used by this handshake.
           IINPUBLIC_WEB_ROOT: WEB_ROOT,
           IINPUBLIC_DATA_DIR: embeddedNodeDataDir,
           IINPUBLIC_LOOPBACK_ONLY: '1',

@@ -5,8 +5,10 @@
 security-design gate on 2026-08-22. Its reviewed KDF, authenticated envelope, transactional
 storage, atomic legacy migration, startup unlock, explicit lock, and set/change GUI are implemented
 behind the staged non-production release boundary. The initial lifecycle policy is now explicit;
-password removal now returns to v1 with an explicit downgrade warning and verified transactional
-handoff. Native lifecycle adapters/benchmarks and the remaining security release matrix remain.
+password removal now returns to password-free v3 with an explicit downgrade warning and verified
+transactional handoff. Browser v3 and Android Keystore custody, including migration, conflict,
+erase, restart, and reinstall boundaries, are physically verified; other native lifecycle
+adapters/benchmarks and the remaining security release matrix remain.
 WP5's browser-portable foundation now has a frozen data inventory, signed/encrypted manifests,
 verified receiver acknowledgements, receiving-device re-custody, resumable imports, and idempotent
 convergence/conflict detection. Data transfer additionally requires matching category-scoped

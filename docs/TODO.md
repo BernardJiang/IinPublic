@@ -19,23 +19,9 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-### Priority 1 — Website ↔ Android app linking
-
-- [ ] **OPEN-13 — Verify X3 website↔Android-app linking end to end.** Exercise the website-to-app
-  handoff through the real Android shell with clean profiles and a physical-device availability
-  check. Verify link request/approval, durable linked state on both sides, identity preservation,
-  restart behavior, rejection/cancellation, and unlink/revocation. Remove the X3 skip for this
-  Android-targeted path once it is deterministic. Local physical-device acceptance comes first;
-  running it on managed CI hardware is deferred with OPEN-12. Same-device linking is already
-  covered by X8.
-
-### Priority 2 — Website/Android custody boundary
-
-- [ ] **OPEN-06 — Finish the website/Android password-free identity custody scope.** Browser
-  WebCrypto custody v3 and Android Keystore custody are implemented and physically verified.
-  Review their shared custody/migration boundary, close any findings, and retain focused evidence
-  for migration, identity-conflict refusal, erase/reset, force-stop/restart, and reinstall behavior.
-  iOS Keychain compilation and Windows/Linux credential-store selection are deferred below.
+There are currently no open website/Android items. OPEN-13 and the website/Android portion of
+OPEN-06 were completed on physical Android hardware on 2026-09-20; evidence is in
+`docs/completed.md`. Promote a deferred issue only when the product owner changes the focus.
 
 All other standalone Android and Mac↔Android matrix work is complete: logical device selection,
 directional browser/app pairs, multi-phone convergence, background/foreground, force-stop/restart,
@@ -83,10 +69,10 @@ start them unless they become a direct blocker or are explicitly promoted.
 Do not start these until the required iPhone/nearby-transport hardware, owner access, or external
 review capacity is available and the issue is promoted after the website/Android queue.
 
-- **Deferred portion of OPEN-06 — Other platform custody adapters.** Accept the Xcode license,
-  compile and run the existing iOS Keychain adapter (`AppleCustodyBridge.swift`), and select
-  reviewed credential-store providers for Windows/Linux after the website/Android custody scope
-  is complete.
+- [ ] **OPEN-26 — Complete other-platform custody adapters and review (deferred).** Accept the
+  Xcode license, compile and run the existing iOS Keychain adapter (`AppleCustodyBridge.swift`),
+  select reviewed credential-store providers for Windows/Linux, and obtain the external custody
+  security review. The website and Android custody boundary is complete under OPEN-06.
 
 - [ ] **OPEN-21 — Add iPhone native-shell coverage (deferred).** Build an iOS shell, add
   clean-profile and automation support, and include it in the central matrix when suitable

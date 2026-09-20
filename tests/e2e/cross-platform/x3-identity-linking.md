@@ -7,5 +7,11 @@ signed attestations verify. The scenario rejects one-sided claims and confirms t
 link supersedes it for future decisions without merging identity-owned data or erasing historical
 signatures.
 
-The browser-to-browser protocol and GUI are exercised by `stage2/73`. X3 remains the
-website/native-app distribution-channel extension of that same protocol.
+The browser-to-browser protocol and GUI are exercised by `stage2/73`. X3 now runs that protocol
+through a clean desktop website profile and the real Android shell/embedded-node HTTP relay. It
+checks a cancelled one-sided request, mutual approval, replay rejection, stable identities,
+Android force-stop/relaunch durability, and unlink/revocation convergence.
+
+The test is intentionally opt-in because it clears the selected app profile. Run
+`npm run test:e2e:x3-android`; the runner checks ADB availability before building, installs the
+current APK with a bounded timeout, and then executes the two X3 cases.

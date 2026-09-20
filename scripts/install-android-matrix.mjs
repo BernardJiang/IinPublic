@@ -14,13 +14,23 @@ const selectedNames = String(process.env.NATIVE_APP_ANDROID_NAMES || '')
   .split(',')
   .map((name) => name.trim())
   .filter(Boolean);
+const selectedSerials = String(process.env.NATIVE_APP_ANDROID_SERIALS || '')
+  .split(',')
+  .map((serial) => serial.trim())
+  .filter(Boolean);
 const byName = new Map(configuredDevices.map((device) => [device.name, device]));
+const bySerial = new Map(configuredDevices.map((device) => [device.serial, device]));
+if (selectedNames.length && selectedSerials.length) {
+  throw new Error('Select Android devices with NATIVE_APP_ANDROID_NAMES or NATIVE_APP_ANDROID_SERIALS, not both');
+}
 const devices = selectedNames.length
   ? selectedNames.map((name) => {
       const device = byName.get(name);
       if (!device) throw new Error(`Unknown Android logical name ${name}; choose ${[...byName.keys()].join(', ')}`);
       return device;
     })
+  : selectedSerials.length
+    ? selectedSerials.map((serial, index) => bySerial.get(serial) ?? ({ name: `android-${index + 1}`, serial }))
   : configuredDevices;
 const installTimeoutMs = Number(process.env.ANDROID_INSTALL_TIMEOUT_MS || '300000');
 

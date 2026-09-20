@@ -1,7 +1,7 @@
 # Password-free identity custody v3 — implementation design
 
-Status: **browser rollout implemented and cross-engine restart verified; native adapters and
-external review still open**.
+Status: **browser rollout and the Android Keystore boundary are implemented and physically
+verified; other-platform adapters and external review remain deferred under OPEN-26**.
 
 ## Why v3 exists
 
@@ -84,8 +84,13 @@ write/read/verify/remove contract through narrow native bridges:
   AAD, reports hardware backing from `KeyInfo`) verified on three physical phones by
   `tests/e2e/native-app/18-android-keystore-custody.spec.ts` (no WebView plaintext, ciphertext-only
   prefs, identity survives force-stop).
+- Completed 2026-09-20: reviewed the website/Android boundary end to end. Native bridge errors fail
+  closed without a WebView-v1 downgrade; erase verifies OS-custody removal before reload; Android
+  backup is disabled; physical tests preserve every SEA field through v1 migration, refuse a
+  conflicting identity, and prove erase plus uninstall/reinstall each create unrelated native
+  custody. Run the availability-first gate with `npm run test:e2e:android-custody`.
 - Written, not yet built/run: Apple Keychain (`AppleCustodyBridge.swift`, after-first-unlock, this
   device only) and Electron macOS `safeStorage` (`platforms/desktop/custody.js`, verified by spec 22; Windows/Linux
   refused until a provider is reviewed).
 - Decide the Windows/Linux desktop provider.
-- Obtain external security review before checking the parent TODO item complete.
+- Obtain external security review before completing deferred OPEN-26 for the broader platform set.

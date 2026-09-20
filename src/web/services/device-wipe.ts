@@ -5,12 +5,13 @@
  * a brand-new auto-created identity with none of the previous person's data
  * reachable. Verifiable post-reload: localStorage/IndexedDB empty, new pub.
  *
- * Legacy key custody lives in localStorage; password-protected v2 custody lives
- * in its dedicated IndexedDB database. Both, plus Gun radata and caches, are
- * cleared before the caller reloads to a fresh boot.
+ * Legacy key custody lives in localStorage; password-protected/browser-v3 custody lives
+ * in dedicated IndexedDB databases; native custody lives behind an OS-keystore bridge.
+ * All of them, plus Gun radata and caches, are cleared before the caller reloads.
  */
 import { IDENTITY_CUSTODY_DATABASE_NAME } from './identity-custody-store';
 import { PASSWORD_FREE_CUSTODY_DATABASE_NAME } from './identity-password-free-custody-store';
+import { detectNativeCustodyBridge } from '../../shared/native-custody-bridge';
 
 export interface EraseHooks {
   /** Best-effort signed link revocations for any linked identities, while online. */
@@ -21,8 +22,21 @@ export interface EraseHooks {
   reload?: () => void;
 }
 
-/** Clear every device storage surface. Resolves once best-effort clearing is done. */
+/** Clear every device storage surface. Native-custody removal is mandatory and verified. */
 export async function eraseDeviceStorage(): Promise<void> {
+  // Native custody is outside Web Storage/IndexedDB. Clear and verify it first; if the OS
+  // keystore bridge refuses the operation, fail the erase instead of reloading and silently
+  // restoring the supposedly erased identity on the next boot.
+  const nativeCustody = detectNativeCustodyBridge();
+  if (nativeCustody) {
+    const pair = await nativeCustody.read();
+    if (pair) {
+      await nativeCustody.remove({ pub: pair.pub, epub: pair.epub });
+      if (await nativeCustody.read()) {
+        throw new Error('Native identity custody remained after erase');
+      }
+    }
+  }
   try {
     localStorage.clear();
   } catch {
