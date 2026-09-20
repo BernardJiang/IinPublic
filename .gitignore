@@ -72,3 +72,8 @@ data.json
 *.log
 *.bak
 test-logs/
+
+# Android release signing (secrets)
+android/keystore.properties
+*.jks
+*.keystore

@@ -21,6 +21,14 @@ const devTlsEnabled =
 // below). The filesystem cache must be keyed on them: a cached build made under one
 // set of values would otherwise be served for another (e.g. an E2E DISABLE_HMR=true
 // bundle reused for a dev build).
+// Local debug (`webpack serve --mode development`) gets the small dev chatroom capacity;
+// every other build (production bundles for web/Android/desktop) gets the release capacity.
+// E2E overrides via CHATROOM_MAX_CAPACITY / CHATROOM_ENABLE_FIFO (or the DISABLE_HMR branch below).
+const isDevBuild = process.argv.some(
+  (arg, i, all) => arg === '--mode=development' || (arg === 'development' && all[i - 1] === '--mode'),
+);
+const DEFAULT_CHATROOM_CAPACITY = isDevBuild ? '3' : '498';
+
 const BUNDLED_ENV_KEYS = [
   'DISABLE_HMR',
   'TEST_ALL_PORT_OFFSET',
@@ -216,7 +224,7 @@ module.exports = {
         ]
       : [
           new webpack.EnvironmentPlugin({
-            CHATROOM_MAX_CAPACITY: process.env.CHATROOM_MAX_CAPACITY || '3',
+            CHATROOM_MAX_CAPACITY: process.env.CHATROOM_MAX_CAPACITY || DEFAULT_CHATROOM_CAPACITY,
             CHATROOM_ENABLE_FIFO: process.env.CHATROOM_ENABLE_FIFO || 'true',
             // Web client reads this in web-gun-service (AXE off for e2e only). Must be defined here
             // so the bundle does not reference bare `process` in the browser (webpack 5).

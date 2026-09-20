@@ -6,16 +6,6 @@ const getEnv = (key: string, defaultValue: string): string => {
   return defaultValue;
 };
 
-/** Playwright e2e starts the API with E2E_GUN_MEMORY_ONLY — align FIFO/capacity so server matches the e2e web bundle. */
-const e2eServerGun =
-  typeof process !== 'undefined' &&
-  process.env &&
-  (process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true');
-
-const browserLocalLoopback =
-  typeof window !== 'undefined' &&
-  (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost');
-
 /**
  * Read a URL search param at module load time (browser only, non-production).
  * Allows e2e tests to override specific CONFIG values per page by navigating to
@@ -31,17 +21,23 @@ const e2eUrlParam = (key: string): string | null => {
   }
 };
 
+/** Max users per chatroom in release builds (local debug uses 3 — see CONFIG.CHATROOM_CAPACITY). */
+export const RELEASE_CHATROOM_CAPACITY = 498;
+
 export const CONFIG = {
   // Chatroom settings
+  // Capacity/FIFO rule (one rule for the web bundle, the Node server and the embedded apps):
+  //   release (default)  -> RELEASE_CHATROOM_CAPACITY, FIFO on
+  //   local debug        -> 3, FIFO on   (webpack `--mode development` and the dev:* scripts bake/export it)
+  //   tests              -> whatever they pass explicitly (CHATROOM_MAX_CAPACITY / CHATROOM_ENABLE_FIFO env,
+  //                         or `?e2e_capacity=` / `?e2e_fifo=` on the page URL)
+  // The `process.env.X` reads are static on purpose so webpack can inline them in the browser bundle.
   CHATROOM_CAPACITY: parseInt(
-    e2eUrlParam('e2e_capacity') ??
-      getEnv('CHATROOM_MAX_CAPACITY', e2eServerGun || browserLocalLoopback ? '50' : '3'),
+    e2eUrlParam('e2e_capacity') || process.env.CHATROOM_MAX_CAPACITY || String(RELEASE_CHATROOM_CAPACITY),
     10,
   ),
   CHATROOM_ENABLE_FIFO:
-    (e2eUrlParam('e2e_fifo') ??
-      getEnv('CHATROOM_ENABLE_FIFO', e2eServerGun || browserLocalLoopback ? 'false' : 'true')) !==
-    'false',
+    (e2eUrlParam('e2e_fifo') || process.env.CHATROOM_ENABLE_FIFO || 'true') !== 'false',
   GLOBAL_CHATROOM_ID: 'global',
   /** OSM vector basemap used by the lazy MapLibre chatroom view. Override for self-hosting. */
   CHATROOM_MAP_STYLE_URL:

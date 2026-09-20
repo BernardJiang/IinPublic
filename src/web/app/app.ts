@@ -1,4 +1,5 @@
 import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind } from '../../shared/types';
+import { restoreLastTab } from '../ui/app-shell-controls';
 import {
   deriveBackendApiBaseFromLocation,
   KEY_CUSTODY_DEVICE_SECRET_STORAGE,
@@ -1194,7 +1195,7 @@ export class IinPublicApp {
 
     // Show main interface
     this.uiManager.showMainInterface(this.currentUser!);
-    this.uiManager.restoreLastTab();
+    restoreLastTab();
     this.uiManager.showFirstRunWalkthroughIfNeeded();
     this.checkForPendingIdentityLinkFragment();
     // TODO §J — publish this identity's signed pub→epub binding on every boot so a

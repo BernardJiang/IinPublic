@@ -243,6 +243,17 @@ function bindPrimaryControls(deps: AppShellControlsDeps): void {
 /** Bottom-nav tab remembered across app restarts (restored by UIManager.restoreLastTab). */
 export const LAST_TAB_KEY = 'iinpublic_last_tab';
 
+/** Re-opens the bottom-nav tab the user was on when the app last closed (chatrooms is the default). */
+export function restoreLastTab(): void {
+  try {
+    const tab = localStorage.getItem(LAST_TAB_KEY);
+    if (!tab || tab === 'chatrooms') return;
+    document.querySelector<HTMLElement>(`.nav-btn[data-view="${tab}"]`)?.click();
+  } catch {
+    /* optional */
+  }
+}
+
 function bindBottomNavigation(deps: AppShellControlsDeps): void {
   const navButtons = document.querySelectorAll('.nav-btn');
   const viewPanels = document.querySelectorAll('.view-panel');
