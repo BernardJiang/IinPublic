@@ -33,7 +33,7 @@ Run 2026-09-20 against v1.0.47 (+ the `IINPUBLIC_HUB_AXE` switch). Message on th
 | 498 | 60 s | slim | 3.25 | 8.1 | 12.1 MB | 16 | 38 ms |
 
 AXE off, no subscriptions (older run, 30 s, full): 250 clients → 2.1k deliveries/s, 5% core; 500 → 8.3k/s, 12%; 1000 →
-33k/s, 21–25%; 2000 → 133k/s, 65%, 81 MB/s egress, 10 KB/s… per client at 500 clients and 40 KB/s at 2,000, whatever the room size.
+33k/s, 21–25%; 2000 → 133k/s, 65%, 81 MB/s egress. Per client that is about 10 KB/s at 500 clients and 40 KB/s at 2,000, whatever the room size.
 
 ## Budgets used (assumptions — change them if your targets differ)
 
