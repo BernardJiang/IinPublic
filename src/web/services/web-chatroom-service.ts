@@ -20,6 +20,16 @@ import {
 import type { ChallengeGateConfig } from '../../shared/challenge-plugins';
 import { getChallengePlugin } from '../../shared/challenge-plugins';
 
+/**
+ * Membership heartbeat cadence. Every member re-publishes its roster record this often and every
+ * room-mate receives it, so relay/client traffic grows with (room size / interval) — see
+ * docs/testing/room-heartbeat-load-test.md. Kept at a third of the membership TTL (180 s default),
+ * so a member gets three chances before it counts as gone.
+ */
+export const MEMBERSHIP_HEARTBEAT_MAX_MS = 60_000;
+/** Public keys ride on the first heartbeat and then every Nth one (see startMembershipHeartbeat). */
+export const MEMBERSHIP_KEY_REFRESH_BEATS = 10;
+
 export class WebChatroomService {
   private currentChatroomId?: string;
   private activeMembersUnsubscribe?: () => void;
@@ -388,11 +398,12 @@ export class WebChatroomService {
     this.stopMembershipHeartbeat();
     this.membershipHeartbeatKey = key;
     this.membershipHeartbeatStageName = stageName;
+    let beatCount = 0;
     const beat = () => {
       // Read the LIVE stage name on every beat. A snapshot captured at heartbeat start goes
       // stale when a rename races the room join (join completes after the rename and starts
       // the heartbeat with the pre-rename name) — the beats then clobber the renamed member
-      // record back to the old name every ~30s, and peers' rosters never see the new name.
+      // record back to the old name every beat, and peers' rosters never see the new name.
       const liveName = this.membershipStageNameResolver?.() || stageName;
       const now = new Date().toISOString();
       // Carry this member's public keys in the roster record: peers who need to encrypt
@@ -403,6 +414,13 @@ export class WebChatroomService {
       const pair = this.gunService.getStoredPair?.();
       const epub = pair?.epub;
       const pub = pair?.pub;
+      // The keys are ~40% of a heartbeat's bytes and every room-mate receives every beat, so
+      // send them on the first beat and refresh every MEMBERSHIP_KEY_REFRESH_BEATS-th beat only.
+      // Gun merges partial puts into the existing node, so the keys stay on the record (and are
+      // served to anyone who subscribes later by this member's own copy); the periodic refresh
+      // re-asserts them in case a peer joined while no one still held the field.
+      const includeKeys = beatCount % MEMBERSHIP_KEY_REFRESH_BEATS === 0;
+      beatCount += 1;
       if (!epub || !pub) {
         // Diagnostic (2026-08-09 real-device investigation): a member whose heartbeat never
         // carries epub/pub never becomes a WebRTC/mailbox candidate for anyone (peers can't
@@ -424,13 +442,16 @@ export class WebChatroomService {
           lastSeen: now,
           userId,
           stageName: liveName,
-          ...(epub ? { epub } : {}),
-          ...(pub ? { pub } : {}),
+          ...(includeKeys && epub ? { epub } : {}),
+          ...(includeKeys && pub ? { pub } : {}),
         });
       void this.syncMembershipHeartbeatWithServer(chatroomId, userId, liveName, now);
     };
     beat();
-    const heartbeatMs = Math.max(1000, Math.min(30_000, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)));
+    const heartbeatMs = Math.max(
+      1000,
+      Math.min(MEMBERSHIP_HEARTBEAT_MAX_MS, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)),
+    );
     this.membershipHeartbeatTimer = setInterval(beat, heartbeatMs);
   }
 

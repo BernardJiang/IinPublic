@@ -57,3 +57,25 @@ Bandwidth *capacity* is not the constraint: 10 KB/s is 80 kbit/s, far below any 
 - Turn AXE on for the production hub only after running the E2E suite against an AXE hub; stagger client roster
   subscription on join (random jitter) so a crowd arriving together does not stampede the relay.
 - Plan for multiple relays: a single relay process is not the place to serve thousands of connected users.
+
+## Wire audit (2026-09-21): does talk content go through the relay?
+
+`tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts` runs the real flow between two browsers and scans every
+frame/request for unique markers in the talk text.
+
+- **Mesh:** announce + body are delivered over the WebRTC mesh (`iinpublic-dm` data channel, signed frames, ttl-8 gossip).
+- **Server HTTP:** only ciphertext — the signaling relay (`/api/p2p/signaling-relay/...`) and the encrypted mailbox
+  (`/api/mailbox/...`). No plaintext marker in any `/api` request or response.
+- **Gun wire to the hub: plaintext talk content DOES cross it**, sent by the author and by the receiver, and relayed by the hub
+  to the other client: `users/<pub>/talks/<id>`, `users/<pub>/receivedTalks/<author>/<id>`, `users/<pub>/incomingTalkClusters`.
+  Cause: `GunTalkRepository` and the incoming-talk mirror write with plain `gun.put`, and the browser's Gun instance has the
+  hub as a peer, so Gun replicates every write upstream. The hub does not store it (memory-only) but does flood it.
+- Consequence for this document's numbers: these writes add relay traffic on top of heartbeats, and they are readable by
+  anyone connected to the hub.
+
+## Heartbeat change (2026-09-21)
+
+Heartbeat interval is now `min(60 s, TTL / 3)` = 60 s, and the SEA keys ride on the first beat and every 10th only
+(`MEMBERSHIP_HEARTBEAT_MAX_MS`, `MEMBERSHIP_KEY_REFRESH_BEATS` in `web-chatroom-service.ts`). Computed effect for a
+room of 200: 200 / 60 s × ~0.40 KB ≈ 1.3 KB/s per client (was 200 / 30 s × 0.61 ≈ 4 KB/s). Not re-measured end to end.
+Not done: loading the roster from the server's `/members` index instead of per-member Gun subscriptions.
