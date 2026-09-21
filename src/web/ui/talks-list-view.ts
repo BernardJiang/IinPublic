@@ -7,6 +7,7 @@ import type { CreatorReplyRow } from './creator-replies-view';
 import { getMyTalks } from './my-talks-storage';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderListProgressively } from './render-list-progressively';
+import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { filterIncomingTalkClusters, getTalkIntakeFilters } from './talk-intake-filters';
 import { formatTalkExpiryTone, getIncomingQuestionCount } from './talk-list-metadata';
 import { escapeHtml, tagAnswerSuffix } from './ui-formatters';
@@ -23,6 +24,7 @@ type TalksListDocumentState = {
   mousedownDelegationBound: boolean;
   broadcastCheckboxBound: boolean;
   clickDelegationBound: boolean;
+  latestDeps?: DisplayTalksListDeps;
 };
 
 const documentStates = new WeakMap<Document, TalksListDocumentState>();
@@ -91,12 +93,20 @@ export type DisplayTalksListDeps = {
 /** Owns Talks-tab filtering, rendering, delegated events, and progressive-render lifecycle. */
 export function displayTalksList(deps: DisplayTalksListDeps): void {
   const documentState = getDocumentState();
+  documentState.latestDeps = deps;
   const talksList = document.getElementById('talks-list');
   if (!talksList) return;
   const renderSeq = ++documentState.renderSeq;
   deps.syncStatusBarMatchCount();
 
   const myTalks = getMyTalks();
+  const pinnedTalkIds = getPinnedIds('talks');
+  const incomingPinKey = (cluster: any, talkId: string): string => `in:${String(cluster?.identityKey || talkId)}`;
+  const pinButtonHtml = (pinKey: string): string => {
+    const pinned = pinnedTalkIds.has(pinKey);
+    const label = deps.t(pinned ? 'unpinItem' : 'pinItem');
+    return `<button type="button" class="list-pin-button talk-pin-button talk-item-actions ${pinned ? 'is-pinned' : ''}" data-pin-id="${escapeHtml(pinKey)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-pressed="${pinned}">📌</button>`;
+  };
 
   // One-time delegation on body: use mousedown so we run before any re-render can replace the DOM (click fires later and target can be gone)
   if (!documentState.mousedownDelegationBound) {
@@ -426,11 +436,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                   : '➡️';
                 if (talkTypeLower === 'tag') {
                   return `
-      <div class="talk-list-item talk-tag-chip talk-tag-out ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="tag">
+      <div class="talk-list-item talk-tag-chip talk-tag-out ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="tag">
         <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(deps.t('talksTagChecked'))}">
           <input type="checkbox" class="talk-tag-checkbox talk-tag-out-checkbox" data-talk-id="${escapeHtml(talkId)}" checked>
         </label>
         <span class="talk-tag-text">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</span>
+        ${pinButtonHtml(`out:${talkId}`)}
       </div>
     `;
                 }
@@ -446,13 +457,14 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 // its own row button. matchedLine stays visible on the row: it's the interactive
                 // N3 click-to-DM affordance, not decorative detail.
                 return `
-      <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-right:5px solid ${typeAccent};background:var(--surface);">
+      <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-right:5px solid ${typeAccent};background:var(--surface);">
         <div class="talk-item-header">
           <label class="talk-icon-badge" title="${disabled ? deps.t('talksBroadcastOff') : deps.t('talksBroadcastOn')}">
             <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
             <span aria-hidden="true">${typeIcon}</span>
           </label>
           <div class="talk-item-title">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</div>
+          ${pinButtonHtml(`out:${talkId}`)}
           <span class="talk-item-chevron" aria-hidden="true">›</span>
         </div>
         <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
@@ -504,6 +516,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
               const senderInitial = primarySenderName.trim().charAt(0).toUpperCase() || '?';
               const talkId = deps.pickIncomingRowTalkId(cluster);
               const identityKey = String(cluster?.identityKey || '');
+              const pinKey = incomingPinKey(cluster, talkId);
               // TODO §Q build-order item 17: other people I've separately exchanged this same
               // content with (e.g. a different sender who sent me the identical talk), scoped
               // to this device's own talkLedger only. Excludes this cluster's own sender(s).
@@ -559,11 +572,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 : '➡️';
               if (incomingType === 'tag') {
                 return `
-      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag">
+      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag">
         <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(deps.t('talksTagUndetermined'))}">
           <input type="checkbox" class="talk-tag-checkbox talk-tag-in-checkbox" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" data-indeterminate="true" title="${escapeHtml(deps.t('talksTagQuickDecision'))}">
         </label>
         <button type="button" class="talk-tag-text talk-tag-text-button view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
+        ${pinButtonHtml(pinKey)}
       </div>
     `;
               }
@@ -589,10 +603,11 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 questionProgressText,
               ].filter(Boolean);
               return `
-      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};background:var(--accent-soft);">
+      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};background:var(--accent-soft);">
         <div class="talk-item-header">
           <span class="talk-icon-badge" title="${escapeHtml(deps.formatTalkType(String(cluster?.type || 'flow')))}" aria-hidden="true">📥 ${typeIcon}</span>
           <button type="button" class="talk-item-title view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="${titleStyle}background:none;border:none;padding:0;text-align:left;cursor:pointer;font:inherit;">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
+          ${pinButtonHtml(pinKey)}
           <span class="talk-item-chevron" aria-hidden="true">›</span>
         </div>
         <div class="talk-item-status-line" style="margin-top:4px;">
@@ -639,20 +654,22 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     // redundant wording on top of that. When only one direction is checked, the
     // richer OUT-specific sort modes (matches/responses/weighted/...) still apply;
     // mixing both directions together only makes sense sorted by recency.
-    type MergedTalkRow = { direction: 'in' | 'out'; sortTime: number; needsAnswer: boolean; payload: any };
+    type MergedTalkRow = { direction: 'in' | 'out'; sortTime: number; needsAnswer: boolean; pinKey: string; payload: any };
     const outRows: MergedTalkRow[] = filteredOutEntries.map(([id, talk]: [string, any]) => ({
       direction: 'out' as const,
       sortTime: new Date(talk.lastInteraction || 0).getTime(),
       needsAnswer: false,
+      pinKey: `out:${id}`,
       payload: [id, talk] as [string, any],
     }));
     const inRows: MergedTalkRow[] = inEntries.map((cluster: any) => ({
       direction: 'in' as const,
       sortTime: new Date(cluster?.updatedAt || 0).getTime(),
       needsAnswer: !cluster?.isAnswered,
+      pinKey: incomingPinKey(cluster, deps.pickIncomingRowTalkId(cluster)),
       payload: cluster,
     }));
-    const mergedRows: MergedTalkRow[] = (deps.talksShowIncoming && deps.talksShowOutgoing)
+    const mergedRowsByCurrentSort: MergedTalkRow[] = (deps.talksShowIncoming && deps.talksShowOutgoing)
       // Unanswered incoming talks are actionable, so they keep floating to the top
       // (an existing invariant, unrelated to this merge) — recency only breaks ties
       // within that same tier, both for the "needs answer" group and everything else.
@@ -661,6 +678,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           return b.sortTime - a.sortTime;
         })
       : [...inRows, ...outRows];
+    const mergedRows = pinnedFirst(mergedRowsByCurrentSort, 'talks', (row) => row.pinKey);
     const renderMergedRow = (row: MergedTalkRow): string =>
       row.direction === 'out' ? renderOutRow(row.payload) : renderInRow(row.payload);
 
@@ -696,8 +714,21 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         // A row-drag gesture (ignore/copy/delete) or a long-press-for-details just
         // committed or cancelled — the click that naturally follows pointerup should
         // not also open the talk.
-        if (Date.now() < deps.getTalksGestureSuppressClickUntil()) return;
+        const currentDeps = documentState.latestDeps || deps;
+        if (Date.now() < currentDeps.getTalksGestureSuppressClickUntil()) return;
         const target = e.target as HTMLElement;
+
+        const pinButton = target.closest('.talk-pin-button') as HTMLElement | null;
+        if (pinButton) {
+          e.preventDefault();
+          e.stopPropagation();
+          const pinId = pinButton.dataset.pinId;
+          if (pinId) {
+            toggleListItemPin('talks', pinId);
+            displayTalksList(currentDeps);
+          }
+          return;
+        }
 
         // TODO §N3: trace back from a talk row to whom it was exchanged with, then DM
         // them. Single exchange partner navigates straight through the dispatcher;

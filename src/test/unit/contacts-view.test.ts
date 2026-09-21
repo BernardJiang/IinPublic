@@ -164,6 +164,24 @@ describe('Contacts ranking and relationship filters', () => {
     expect(document.getElementById('contacts-list')?.textContent).toContain('8 matches');
   });
 
+  it('pins and unpins a contact at the top without opening its detail', async () => {
+    const contactDeps = deps();
+    await displayContactsList(contactDeps);
+
+    const weakPin = document.querySelector<HTMLButtonElement>('[data-contact-user-id="weak"] .contact-pin-button');
+    weakPin?.click();
+
+    let rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
+    expect(rows).toEqual(['Weak', 'Strong']);
+    expect(document.querySelector('[data-contact-user-id="weak"] .contact-pin-button')?.getAttribute('aria-pressed')).toBe('true');
+    expect(contactDeps.openPeerDetail).not.toHaveBeenCalled();
+    expect(contactDeps.openPeerDetailOnly).not.toHaveBeenCalled();
+
+    document.querySelector<HTMLButtonElement>('[data-contact-user-id="weak"] .contact-pin-button')?.click();
+    rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
+    expect(rows).toEqual(['Strong', 'Weak']);
+  });
+
   it('can filter the list to a saved partner relationship', async () => {
     (document.getElementById('contacts-filter-relation') as HTMLSelectElement).value = 'partner';
     await displayContactsList(deps());

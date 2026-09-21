@@ -1578,6 +1578,50 @@ button:focus:not(:focus-visible) {
   padding: 8px;
 }
 
+/* Shared manual pin control for Contacts, Talks, and Me answer rows. */
+.list-pin-button {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 0.5;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.list-pin-button:hover,
+.list-pin-button:focus-visible {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+  opacity: 1;
+  outline: none;
+}
+
+.list-pin-button.is-pinned {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  opacity: 1;
+}
+
+.answer-question-item {
+  position: relative;
+}
+
+.answer-question-item > .list-pin-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
 .talk-list-item {
   background: var(--surface);
   border-radius: var(--radius-lg);

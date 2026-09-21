@@ -8,6 +8,7 @@ import {
   localTalkHistoryForPeer,
 } from '../services/local-peer-derivation';
 import { renderListProgressively } from './render-list-progressively';
+import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 
 /**
  * TODO §R1: how many contact rows render synchronously, immediately — matches
@@ -742,7 +743,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     const showSupportContact = deps.hasSupportContact() && relationFilter === 'all' && supportNameMatches;
     const tieBreak = (a: PeerSummary, b: PeerSummary): number =>
       deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
-    const visiblePeers = peers
+    const visiblePeersByCurrentSort = peers
       .filter((peer) => {
         // Never show the current user as their own contact.
         if (!peer.peerId || peer.peerId === deps.currentUserId) return false;
@@ -787,6 +788,8 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         const timeDiff = new Date(b.lastInteractionAt || 0).getTime() - new Date(a.lastInteractionAt || 0).getTime();
         return timeDiff !== 0 ? timeDiff : tieBreak(a, b);
       });
+    const visiblePeers = pinnedFirst(visiblePeersByCurrentSort, 'contacts', (peer) => peer.peerId);
+    const pinnedContactIds = getPinnedIds('contacts');
 
     if (peers.length === 0 && !showSupportContact) {
       listEl.innerHTML = `
@@ -834,6 +837,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       const headshotHtml = avatarInnerHtml(deps.getCachedHeadshot?.(peer.peerId) ?? undefined, '?', deps.escapeHtml);
       const online = deps.isUserOnline(peer.peerId);
       const presenceIndicator = `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(peer.peerId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
+      const pinned = pinnedContactIds.has(peer.peerId);
       // Relationship is stated once — buildMetaLine's own trailing segment — not repeated
       // on the second meta line, which now only carries the sent/received counts.
       return `
@@ -848,6 +852,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
                 ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
               </div>
             </div>
+            <button type="button" class="list-pin-button contact-pin-button ${pinned ? 'is-pinned' : ''}" data-pin-id="${deps.escapeHtml(peer.peerId)}" aria-label="${deps.escapeHtml(deps.text(pinned ? 'unpinItem' : 'pinItem'))}" title="${deps.escapeHtml(deps.text(pinned ? 'unpinItem' : 'pinItem'))}" aria-pressed="${pinned}">📌</button>
             <span style="color: #999; flex-shrink: 0;">›</span>
           </div>
         `;
@@ -879,6 +884,17 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         const currentDeps = (listEl as unknown as { __contactsDeps?: ContactsViewDeps }).__contactsDeps;
         if (!currentDeps) return;
         const target = event.target as HTMLElement;
+        const pinButton = target.closest('.contact-pin-button') as HTMLElement | null;
+        if (pinButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          const pinId = pinButton.dataset.pinId;
+          if (pinId) {
+            toggleListItemPin('contacts', pinId);
+            void displayContactsList(currentDeps);
+          }
+          return;
+        }
         const row = target.closest('.contact-item') as HTMLElement | null;
         const userId = row?.dataset.contactUserId;
         const stageName = row?.dataset.contactName;

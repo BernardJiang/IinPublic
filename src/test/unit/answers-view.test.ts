@@ -526,6 +526,25 @@ describe('answers view models', () => {
 
     beforeEach(() => {
       document.body.innerHTML = '<div id="answers-content"></div>';
+      localStorage.clear();
+    });
+
+    it('pins an older question above the newest-first answer order and toggles it off', () => {
+      const deps = baseDeps(3, {
+        // Production calls the filter/sort pass after every chunk; it must preserve
+        // the pinned tier while applying the selected answer ordering beneath it.
+        onRowsRendered: () => applyMeAnswerFilter((key) => uiText('en', key)),
+      });
+      displayAnswersList(deps as any);
+
+      document.querySelector<HTMLButtonElement>('[data-question-id="q-answer-000"] .answer-pin-button')?.click();
+      let ids = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item')).map((row) => row.dataset.questionId);
+      expect(ids).toEqual(['q-answer-000', 'q-answer-002', 'q-answer-001']);
+      expect(document.querySelector('[data-question-id="q-answer-000"] .answer-pin-button')?.getAttribute('aria-pressed')).toBe('true');
+
+      document.querySelector<HTMLButtonElement>('[data-question-id="q-answer-000"] .answer-pin-button')?.click();
+      ids = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item')).map((row) => row.dataset.questionId);
+      expect(ids).toEqual(['q-answer-002', 'q-answer-001', 'q-answer-000']);
     });
 
     it('renders the first chunk immediately; the remainder fills in without dropping or duplicating', async () => {

@@ -9,6 +9,7 @@ import type { FlatAnswerHistoryRecord } from './answer-history-storage';
 import type { UiTranslationKey } from './ui-translations';
 import { renderListProgressively } from './render-list-progressively';
 import { avatarInnerHtml } from './profile-avatar';
+import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 
 /** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
 const ANSWERS_FIRST_CHUNK_SIZE = 25;
@@ -449,6 +450,18 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       const currentDeps = (liveContainer as unknown as { __answersDeps?: AnswersViewDeps } | null)?.__answersDeps;
       if (!currentDeps) return;
 
+      const pinButton = target.closest('.answer-pin-button') as HTMLElement | null;
+      if (pinButton) {
+        e.preventDefault();
+        e.stopPropagation();
+        const pinId = pinButton.dataset.pinId;
+        if (pinId) {
+          toggleListItemPin('answers', pinId);
+          displayAnswersList(currentDeps);
+        }
+        return;
+      }
+
       if (target.closest('#view-preferences-btn')) {
         currentDeps.showPreferencesDialog();
         return;
@@ -506,7 +519,9 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     `
     : '';
 
-  const groups = buildQuestionGroups(deps);
+  const groupsByCurrentSort = buildQuestionGroups(deps);
+  const groups = pinnedFirst(groupsByCurrentSort, 'answers', (group) => normalizeTagText(group.prompt));
+  const pinnedAnswerIds = getPinnedIds('answers');
 
   if (groups.length === 0) {
     container.innerHTML = `
@@ -564,6 +579,9 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     };
 
     const renderQuestionRow = (group: AnswerQuestionGroup): string => {
+      const pinKey = normalizeTagText(group.prompt);
+      const pinned = pinnedAnswerIds.has(pinKey);
+      const pinLabel = deps.text(pinned ? 'unpinItem' : 'pinItem');
       const primary = group.variants[0];
       const rowVariants = distinctContextKeys(group).length > 0 ? contextVariantsFor(group) : [primary];
       const talkTypes = Array.from(new Set(group.variants.map((v) => v.talkType)));
@@ -584,7 +602,8 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           </div>
         `;
       return `
-        <div class="answer-question-item answer-talk-item ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" style="display: flex;flex-direction:column;gap:2px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+        <div class="answer-question-item answer-talk-item ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-pin-id="${deps.escapeHtml(pinKey)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" style="display: flex;flex-direction:column;gap:2px;padding:10px 48px 10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+          <button type="button" class="list-pin-button answer-pin-button ${pinned ? 'is-pinned' : ''}" data-pin-id="${deps.escapeHtml(pinKey)}" aria-label="${deps.escapeHtml(pinLabel)}" title="${deps.escapeHtml(pinLabel)}" aria-pressed="${pinned}">📌</button>
           ${bodyHtml}
         </div>
       `;
@@ -673,6 +692,7 @@ export function applyMeAnswerFilter(t: (key: UiTranslationKey) => string): void 
     list.appendChild(empty);
   }
   if (list) {
+    const pinnedAnswerIds = getPinnedIds('answers');
     const rank = (item: HTMLElement): number => {
       if (sort === 'answered-asc') return Number(item.dataset.answeredAt || 0);
       if (sort === 'chatbot-recent') return -Number(item.dataset.chatbotLastUsedAt || 0);
@@ -682,7 +702,12 @@ export function applyMeAnswerFilter(t: (key: UiTranslationKey) => string): void 
     // docs/TODO.md §LL.2 follow-up: rows live directly under the single flat `#answers-list`
     // now (no more per-talk section containers) — sort them all together.
     Array.from(list.querySelectorAll<HTMLElement>('.answer-talk-item'))
-      .sort((a, b) => rank(a) - rank(b))
+      .sort((a, b) => {
+        const aPinned = pinnedAnswerIds.has(String(a.dataset.pinId || ''));
+        const bPinned = pinnedAnswerIds.has(String(b.dataset.pinId || ''));
+        if (aPinned !== bPinned) return aPinned ? -1 : 1;
+        return rank(a) - rank(b);
+      })
       .forEach((row) => list.appendChild(row));
   }
   if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';

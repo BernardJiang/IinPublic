@@ -138,6 +138,34 @@ describe('displayTalksList', () => {
     expect(emit).toHaveBeenCalledWith('loadTalkForEdit', { talkId: 'talk-1' });
   });
 
+  it('pins an older talk above the current sort and unpins it without opening the row', () => {
+    installTalksDom();
+    localStorage.setItem('myTalks', JSON.stringify({
+      newer: {
+        talkId: 'newer', title: 'Newer talk', type: 'flow', role: 'created',
+        lastInteraction: '2026-09-12T00:00:00.000Z',
+        fullTalk: { id: 'newer', title: 'Newer talk', type: 'flow', questions: [] },
+      },
+      older: {
+        talkId: 'older', title: 'Older talk', type: 'flow', role: 'created',
+        lastInteraction: '2026-09-11T00:00:00.000Z',
+        fullTalk: { id: 'older', title: 'Older talk', type: 'flow', questions: [] },
+      },
+    }));
+    const emit = jest.fn();
+    renderFresh(makeDeps({ emit }));
+
+    document.querySelector<HTMLButtonElement>('[data-talk-id="older"] .talk-pin-button')?.click();
+    let ids = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item')).map((row) => row.dataset.talkId);
+    expect(ids).toEqual(['older', 'newer']);
+    expect(document.querySelector('[data-talk-id="older"] .talk-pin-button')?.getAttribute('aria-pressed')).toBe('true');
+    expect(emit).not.toHaveBeenCalledWith('loadTalkForEdit', expect.anything());
+
+    document.querySelector<HTMLButtonElement>('[data-talk-id="older"] .talk-pin-button')?.click();
+    ids = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item')).map((row) => row.dataset.talkId);
+    expect(ids).toEqual(['newer', 'older']);
+  });
+
   it('delegates the outgoing broadcast checkbox and reports the new state', () => {
     jest.useFakeTimers();
     installTalksDom();
