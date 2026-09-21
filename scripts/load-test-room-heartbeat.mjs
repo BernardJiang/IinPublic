@@ -25,6 +25,12 @@
  *   node scripts/load-test-room-heartbeat.mjs --runs 2000x498 --heartbeat-ms 5000   # 6x stress
  *   node scripts/load-test-room-heartbeat.mjs --url http://127.0.0.1:8080 --runs 300x498
  *   node scripts/load-test-room-heartbeat.mjs --json results.json
+ *   node scripts/load-test-room-heartbeat.mjs --axe --subscribe-members --runs 500x498,500x3   # relay with AXE on
+ *   node scripts/load-test-room-heartbeat.mjs --slim --heartbeat-ms 60000                       # what-if: lighter beats
+ *
+ * Flags: --axe (relay routes by subscription, IINPUBLIC_HUB_AXE=1), --subscribe-members (every client also
+ * subscribes to each room-mate's record, as the app's roster does — needed for AXE to have anything to route
+ * to), --slim (after the join beat, heartbeats omit the ~174-byte SEA keys).
  *
  * A run is `<clients>x<roomSize>`: <clients> connected members split into rooms of <roomSize>.
  * Results are for THIS machine running relay + load generator together; the report includes
@@ -58,6 +64,7 @@ function runWorker() {
   let opened = 0;
   let closed = 0;
   let errors = 0;
+  let bytesAll = 0;
 
   const startMember = (member, cfg) => {
     const ws = new WebSocket(`${cfg.url.replace(/^http/, 'ws')}/gun`);
@@ -70,6 +77,14 @@ function runWorker() {
       opened += 1;
       // Subscribe like the app does (the room roster), then publish the join and start beating.
       ws.send(JSON.stringify({ '#': rid(), get: { '#': roomSoul } }));
+      if (cfg.subscribeMembers) {
+        // The app's roster is `users.map().on(...)`: one subscription per room-mate's record.
+        const roommates = cfg.roomMemberIds[member.room].filter((id) => id !== member.id);
+        for (let i = 0; i < roommates.length; i += 50) {
+          ws.send(JSON.stringify(roommates.slice(i, i + 50).map((id) => ({ '#': rid(), get: { '#': `${room}/${id}` } }))));
+        }
+      }
+      let beats = 0;
       const beat = (extra = {}) => {
         const state = Date.now() + (stateTick++ % 1000) / 1000;
         const fields = {
@@ -77,10 +92,10 @@ function runWorker() {
           userId: member.id,
           stageName: member.id,
           lastSeen: new Date().toISOString(),
-          epub: FAKE_KEY,
-          pub: FAKE_KEY,
+          ...(cfg.slim && beats > 0 ? {} : { epub: FAKE_KEY, pub: FAKE_KEY }),
           ...extra,
         };
+        beats += 1;
         const meta = Object.fromEntries(Object.keys(fields).map((k) => [k, state]));
         ws.send(JSON.stringify({ '#': rid(), put: { [soul]: { _: { '#': soul, '>': meta }, ...fields } } }));
         if (Date.parse(fields.lastSeen) >= steadyStartMs) puts += 1;
@@ -101,6 +116,7 @@ function runWorker() {
         return;
       }
       const now = Date.now();
+      bytesAll += text.length;
       for (const msg of Array.isArray(parsed) ? parsed : [parsed]) {
         if (msg.dam === '?' && !msg['@']) {
           ws.send(JSON.stringify({ '#': rid(), '@': msg['#'], dam: '?', pid: rid() })); // DAM hello reply
@@ -144,7 +160,7 @@ function runWorker() {
 
   setInterval(() => {
     const sample = latencies.length > 4000 ? latencies.filter((_, i) => i % Math.ceil(latencies.length / 4000) === 0) : latencies;
-    process.send?.({ type: 'stats', pid: process.pid, opened, closed, errors, deliveries, puts, bytes, latencies: sample });
+    process.send?.({ type: 'stats', pid: process.pid, opened, closed, errors, bytesAll, deliveries, puts, bytes, latencies: sample });
     deliveries = 0;
     puts = 0;
     bytes = 0;
@@ -156,7 +172,7 @@ function runWorker() {
 // ─────────────────────────────────────── orchestrator ───────────────────────────────────────
 
 function parseArgs(argv) {
-  const opts = { runs: DEFAULT_RUNS, duration: 60, hbMs: 30_000, port: 18300, url: '', json: '', rampSec: 0 };
+  const opts = { runs: DEFAULT_RUNS, duration: 60, hbMs: 30_000, port: 18300, url: '', json: '', rampSec: 0, axe: false, subscribeMembers: false, slim: false };
   for (let i = 0; i < argv.length; i += 1) {
     const [key, inline] = argv[i].split('=');
     const value = () => inline ?? argv[++i];
@@ -167,6 +183,9 @@ function parseArgs(argv) {
     else if (key === '--url') opts.url = value().replace(/\/$/, '');
     else if (key === '--json') opts.json = value();
     else if (key === '--ramp-sec') opts.rampSec = Number(value());
+    else if (key === '--axe') opts.axe = true;
+    else if (key === '--subscribe-members') opts.subscribeMembers = true;
+    else if (key === '--slim') opts.slim = true;
     else if (key === '--help' || key === '-h') {
       console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0]);
       process.exit(0);
@@ -196,14 +215,15 @@ function rssMb(pid) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pct = (sorted, p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] : NaN);
 
-async function startServer(port) {
+async function startServer(port, axe) {
   if (!fs.existsSync(SERVER_ENTRY)) throw new Error(`Missing ${SERVER_ENTRY} — run \`npm run build:server\` first.`);
   const child = spawn(process.execPath, [SERVER_ENTRY], {
     cwd: ROOT,
     env: {
       ...process.env,
       PORT: String(port),
-      RELAY_ONLY_HUB: '1', // how production runs the hub (no application radata, AXE off)
+      RELAY_ONLY_HUB: '1', // how production runs the hub (no application radata; AXE off unless --axe)
+      ...(axe ? { IINPUBLIC_HUB_AXE: '1' } : {}),
       E2E_GUN_MEMORY_ONLY: '1',
       NODE_OPTIONS: '--max-old-space-size=8192',
       IINPUBLIC_DOWNLOADS_DIR: '__load_test_no_downloads__',
@@ -227,11 +247,13 @@ async function runOne(spec, opts, index) {
   const [clients, roomSize] = spec.split('x').map(Number);
   if (!(clients > 0 && roomSize > 0)) throw new Error(`Bad run "${spec}" — expected <clients>x<roomSize>, e.g. 500x498`);
   const external = !!opts.url;
-  const server = external ? { child: null, url: opts.url } : await startServer(opts.port + index);
+  const server = external ? { child: null, url: opts.url } : await startServer(opts.port + index, opts.axe);
   const relayPid = server.child?.pid;
   const workerCount = Math.max(1, Math.min(Math.max(1, os.cpus().length - 2), Math.ceil(clients / 150), 12));
   const rampMs = (opts.rampSec || Math.max(10, clients / 40)) * 1000;
   const members = Array.from({ length: clients }, (_, i) => ({ id: `lt-${i}`, room: Math.floor(i / roomSize) }));
+  const roomMemberIds = Array.from({ length: Math.ceil(clients / roomSize) }, () => []);
+  members.forEach((m) => roomMemberIds[m.room].push(m.id));
   const workers = [];
   const latest = new Map();
   const latencies = [];
@@ -254,7 +276,16 @@ async function runOne(spec, opts, index) {
   }
   await sleep(1000);
   workers.forEach((worker, w) =>
-    worker.send({ type: 'start', url: server.url, hbMs: opts.hbMs, rampMs, members: members.filter((_, i) => i % workerCount === w) }),
+    worker.send({
+      type: 'start',
+      url: server.url,
+      hbMs: opts.hbMs,
+      rampMs,
+      slim: opts.slim,
+      subscribeMembers: opts.subscribeMembers,
+      roomMemberIds,
+      members: members.filter((_, i) => i % workerCount === w),
+    }),
   );
 
   // Join phase: wait until every socket is open (or give up).
@@ -265,6 +296,8 @@ async function runOne(spec, opts, index) {
     await sleep(2000);
   }
   await sleep(Math.min(opts.hbMs, 15_000)); // let the join burst drain before measuring
+
+  const joinBytes = [...latest.values()].reduce((sum, st) => sum + st.bytesAll, 0);
 
   // Steady phase: heartbeats only.
   const steadyStart = Date.now() + 1500;
@@ -316,6 +349,14 @@ async function runOne(spec, opts, index) {
     selectiveModelFanOut: Math.min(roomSize, clients) - 1,
     floodModelFanOut: clients - 1,
     egressMbPerSec: steady.bytes / wall / 1e6,
+    axe: opts.axe,
+    subscribeMembers: opts.subscribeMembers,
+    slim: opts.slim,
+    // What ONE client receives (this is what a phone's radio/data plan pays):
+    perClientKBps: steady.bytes / wall / clients / 1e3,
+    perClientMsgsPerSec: steady.deliveries / wall / clients,
+    bytesPerDelivery: steady.deliveries > 0 ? steady.bytes / steady.deliveries : NaN,
+    joinMbPerClient: joinBytes / clients / 1e6,
     latencyMs: { p50: pct(sorted, 50), p95: pct(sorted, 95), p99: pct(sorted, 99), max: sorted[sorted.length - 1] ?? NaN },
     relayCpuPctOfOneCore: relayCpuPct,
     relayPeakWindowCpuPct: peakWindowCpu,
@@ -355,7 +396,8 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   console.log(
     `Room heartbeat load test — runs ${opts.runs.join(', ')}; heartbeat ${opts.hbMs} ms; steady window ${opts.duration}s; ` +
-      `${opts.url ? `relay ${opts.url}` : 'local RELAY_ONLY_HUB relay per run'}; ${os.cpus().length} cores\n`,
+      `${opts.url ? `relay ${opts.url}` : `local RELAY_ONLY_HUB relay per run${opts.axe ? ' (AXE on)' : ''}`}; ` +
+      `${opts.subscribeMembers ? 'members subscribed to room-mates; ' : ''}${opts.slim ? 'slim heartbeats; ' : ''}${os.cpus().length} cores\n`,
   );
   const results = [];
   for (const [index, spec] of opts.runs.entries()) {
@@ -365,13 +407,13 @@ async function main() {
     console.log(`done (${verdict(result)})`);
   }
   console.log(
-    '\n| run (clients x room) | rooms | puts/s | deliveries/s | fan-out per put | relay behaves as | egress MB/s | latency p50 / p95 / p99 (ms) | relay CPU avg / peak (% of 1 core) | relay RSS (MB) | generator CPU (%) | verdict |',
+    '\n| run (clients x room) | rooms | puts/s | deliveries/s | fan-out per put | relay behaves as | egress MB/s | per-client KB/s (msgs/s) | join MB / client | latency p50 / p95 / p99 (ms) | relay CPU avg / peak (% of 1 core) | relay RSS (MB) | generator CPU (%) | verdict |',
   );
-  console.log('|---|---:|---:|---:|---:|---|---:|---|---|---:|---:|---|');
+  console.log('|---|---:|---:|---:|---:|---|---:|---|---:|---|---|---:|---:|---|');
   for (const r of results) {
     console.log(
       `| ${r.run} | ${r.rooms} | ${fmt(r.putsPerSec, 1)} | ${fmt(r.deliveriesPerSec)} | ${fmt(r.fanOutPerPut, 1)} (room ${r.selectiveModelFanOut}, all ${r.floodModelFanOut}) ` +
-        `| ${model(r)} | ${fmt(r.egressMbPerSec, 2)} | ${fmt(r.latencyMs.p50)} / ${fmt(r.latencyMs.p95)} / ${fmt(r.latencyMs.p99)} ` +
+        `| ${model(r)} | ${fmt(r.egressMbPerSec, 2)} | ${fmt(r.perClientKBps, 2)} (${fmt(r.perClientMsgsPerSec, 1)}) | ${fmt(r.joinMbPerClient, 2)} | ${fmt(r.latencyMs.p50)} / ${fmt(r.latencyMs.p95)} / ${fmt(r.latencyMs.p99)} ` +
         `| ${fmt(r.relayCpuPctOfOneCore)} / ${fmt(r.relayPeakWindowCpuPct)} | ${fmt(r.relayPeakRssMb)} | ${fmt(r.generatorCpuPctTotal)} | ${verdict(r)} |`,
     );
   }
