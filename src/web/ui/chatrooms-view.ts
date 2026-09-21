@@ -1,4 +1,6 @@
 import { getActiveChatroomHierarchy, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import { CONFIG } from '../../shared/config';
+import { splitBaseId, splitIndex } from '../../shared/chatroom-split';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { UiTranslationKey } from './ui-translations';
@@ -137,7 +139,7 @@ function renderCustomRoomMetadata(deps: ChatroomsViewDeps, custom: CustomChatroo
     ${row('chatroomType', deps.text(custom.type === 'business' ? 'chatroomTypeBusiness' : 'chatroomTypeCommunity'))}
     ${row('chatroomDescription', custom.description || deps.text('unavailable'))}
     ${custom.type === 'business' ? row('chatroomBusinessHeadlineLabel', custom.businessInfo?.headline || deps.text('unavailable')) : ''}
-    ${row('chatroomCapacity', custom.capacity || deps.text('unavailable'))}
+    ${row('chatroomCapacity', CONFIG.CHATROOM_MAX_CAPACITY)}
     ${row('chatroomOwner', custom.createdBy || deps.text('unavailable'))}
     ${row('chatroomCreatedDate', createdLabel)}
     ${row('chatroomActiveMembers', memberCount)}
@@ -589,6 +591,9 @@ async function loadMemberStats(
  * the tree but not the flat list), then a title-cased fallback derived from the id itself.
  */
 export function resolveChatroomTitle(chatroomId: string, customChatrooms: readonly CustomChatroomRow[]): string {
+  // A numbered overflow room (`x_part_3`) is shown as its base room plus the number: "Arena (3)".
+  const baseId = splitBaseId(chatroomId);
+  if (baseId !== chatroomId) return `${resolveChatroomTitle(baseId, customChatrooms)} (${splitIndex(chatroomId)})`;
   const custom = customChatrooms.find((c) => c.id === chatroomId);
   if (custom) {
     const icon = custom.type === 'business' ? '🏪' : '💬';

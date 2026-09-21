@@ -23,7 +23,7 @@ describe('custom-chatroom dialogs characterization', () => {
     jest.restoreAllMocks();
   });
 
-  it('validates and collects a trimmed business-room draft with bounded numeric capacity', async () => {
+  it('validates and collects a trimmed business-room draft (capacity is unified, not asked for)', async () => {
     const showWarning = jest.fn();
     const promise = showCreateCustomChatroomDialog({
       text: (key) => key === 'chatroomCreateTitle' ? '<script>New Room</script>' : text(key),
@@ -31,6 +31,8 @@ describe('custom-chatroom dialogs characterization', () => {
     });
 
     expect(document.querySelector('script')).toBeNull();
+    // Every room shares one unified capacity, so there is no per-room capacity field any more.
+    expect(document.querySelector('#custom-room-capacity')).toBeNull();
     const businessGroup = document.querySelector<HTMLElement>('#custom-room-business-headline-group')!;
     const typeSelect = document.querySelector<HTMLSelectElement>('#custom-room-type')!;
     expect(businessGroup.style.display).toBe('none');
@@ -46,7 +48,6 @@ describe('custom-chatroom dialogs characterization', () => {
 
     document.querySelector<HTMLInputElement>('#custom-room-name')!.value = '  Repair Club  ';
     document.querySelector<HTMLTextAreaElement>('#custom-room-description')!.value = '  Fix things together  ';
-    document.querySelector<HTMLInputElement>('#custom-room-capacity')!.value = '42.9';
     document.querySelector<HTMLInputElement>('#custom-room-business-headline')!.value = '  Community repairs  ';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
@@ -54,7 +55,6 @@ describe('custom-chatroom dialogs characterization', () => {
       type: 'business',
       name: 'Repair Club',
       description: 'Fix things together',
-      capacity: 42,
       businessInfo: { headline: 'Community repairs' },
     });
     expect(document.querySelector('.modal-overlay')).toBeNull();
@@ -64,7 +64,6 @@ describe('custom-chatroom dialogs characterization', () => {
     const showWarning = jest.fn();
     const submitPromise = showCreateCustomChatroomDialog({ text, showWarning });
     document.querySelector<HTMLInputElement>('#custom-room-name')!.value = ' Community ';
-    document.querySelector<HTMLInputElement>('#custom-room-capacity')!.value = '0';
     document.querySelector<HTMLInputElement>('#custom-room-business-headline')!.value = 'Ignored';
     document.querySelector<HTMLFormElement>('#create-custom-chatroom-form')!.dispatchEvent(
       new Event('submit', { bubbles: true, cancelable: true }),

@@ -3,6 +3,7 @@ import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-servi
 import { CONFIG } from '../../shared/config';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { ChatroomCapacityController } from './chatroom-capacity-controller';
+import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_GLOBAL_ROOM_ID, techSupportRosterMember } from '../../shared/techsupport';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import {
@@ -69,6 +70,7 @@ export class WebChatroomService {
     this.capacity = new ChatroomCapacityController({
       getGun: () => this.gunService.getGun(),
       fifoEnabled: () => CONFIG.CHATROOM_ENABLE_FIFO,
+      isHierarchyRoom: (roomId) => getAllChatroomIds().includes(roomId),
       isFreshMember: (memberData) => this.isFreshActiveMember(memberData),
       getCurrentRoom: () => this.currentChatroomId,
       getLocation: (userId) => this.userLocations.get(userId),

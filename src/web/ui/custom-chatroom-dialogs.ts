@@ -58,10 +58,6 @@ export function showCreateCustomChatroomDialog(
             <label class="form-label">${escapeHtml(text('chatroomDescriptionOptional'))}</label>
             <textarea class="form-input" id="custom-room-description" rows="2" maxlength="500"></textarea>
           </div>
-          <div class="form-group">
-            <label class="form-label">${escapeHtml(text('chatroomCapacityOptional'))}</label>
-            <input type="number" class="form-input" id="custom-room-capacity" min="1" max="50000" placeholder="${escapeHtml(text('chatroomCapacityPlaceholder'))}" />
-          </div>
           <div class="modal-actions">
             <button type="button" class="btn" id="cancel-custom-room-btn" style="background:var(--text-tertiary);">${escapeHtml(text('chatroomCancel'))}</button>
             <button type="submit" class="btn primary-btn" data-testid="custom-room-submit-btn">${escapeHtml(text('chatroomCreate'))}</button>
@@ -102,10 +98,6 @@ export function showCreateCustomChatroomDialog(
       const description = (
         modal.querySelector('#custom-room-description') as HTMLTextAreaElement
       ).value.trim();
-      const capacityRaw = (
-        modal.querySelector('#custom-room-capacity') as HTMLInputElement
-      ).value.trim();
-      const capacity = capacityRaw ? Math.floor(Number(capacityRaw)) : undefined;
       const headline = (
         modal.querySelector('#custom-room-business-headline') as HTMLInputElement
       ).value.trim();
@@ -115,7 +107,6 @@ export function showCreateCustomChatroomDialog(
       }
       const draft: CustomChatroomDraft = { type, name };
       if (description) draft.description = description;
-      if (capacity != null && Number.isFinite(capacity) && capacity > 0) draft.capacity = capacity;
       if (type === 'business' && headline) draft.businessInfo = { headline };
       cleanup();
       resolve(draft);

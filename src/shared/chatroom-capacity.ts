@@ -1,5 +1,5 @@
 /**
- * Deterministic FIFO chatroom-capacity rule shared by every peer.
+ * Deterministic chatroom-capacity rule shared by every peer (one unified capacity for all rooms).
  *
  * There is no referee: any peer computing this over the same member list gets the same answer.
  * The order is (joinedAt asc, userId asc) — a strict total order, so equal timestamps never
@@ -17,13 +17,6 @@ export interface CapacityMember {
   joinedAt: string;
 }
 
-/** Room capacity record, stored once per room so every peer applies the same number. */
-export interface RoomCapacityRecord {
-  capacity: number;
-  setBy: string;
-  setAt: string;
-}
-
 /** Notice written by the room's newest member to tell an overflow member to move down. */
 export interface EvictionNotice {
   by: string;
@@ -32,8 +25,6 @@ export interface EvictionNotice {
   /** The evictee's `joinedAt` in that room — a notice for an earlier stay is ignored. */
   evicteeJoinedAt: string;
 }
-
-export const ROOM_CAPACITY_PATH = 'chatroomCapacity';
 
 function joinedAtMs(member: CapacityMember): number {
   const ms = Date.parse(member.joinedAt);
@@ -56,16 +47,22 @@ export function overflowMembers(members: readonly CapacityMember[], capacity: nu
   return ordered.length > cap ? ordered.slice(0, ordered.length - cap) : [];
 }
 
+/**
+ * Rooms with no child room (custom rooms, the deepest regional room) overflow the OTHER way:
+ * the `n - capacity` NEWEST members move on to the next numbered room, so nobody already inside is
+ * disturbed. Each such member checks only "am I in this set?" and moves itself. Also monotone under
+ * partial views (an extra member can only push my position up), so a stale view never moves me
+ * wrongly.
+ */
+export function splitOverflowMembers(members: readonly CapacityMember[], capacity: number): CapacityMember[] {
+  const cap = Math.max(1, Math.floor(capacity));
+  return orderMembersFifo(members).slice(cap);
+}
+
 /** The newest member owns overflow resolution for the room (sends the notices). */
 export function capacityOwner(members: readonly CapacityMember[]): string | null {
   const ordered = orderMembersFifo(members);
   return ordered.length > 0 ? ordered[ordered.length - 1].userId : null;
-}
-
-/** A capacity that is safe to apply: a positive whole number, else null. */
-export function parseRoomCapacity(raw: unknown): number | null {
-  const n = typeof raw === 'string' ? Number(raw) : (raw as number);
-  return Number.isInteger(n) && n >= 1 ? n : null;
 }
 
 /** True when `notice` targets the evictee's CURRENT stay in the room. */

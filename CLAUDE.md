@@ -70,8 +70,9 @@ All persistence goes through [Gun.js](https://gun.eco/). The server has a `GunSe
 - `ownerIncomingTalkIndex/<userId>/<identityKey>` — incoming talk clusters, one shared body + a
   `senders` map per cluster (`IncomingTalkClusterWire`, `src/shared/peer-talk-delivery.ts`);
   client-side only, gated by `p2pClientTalkMirror`/`p2pDirectTalkDelivery`
-- `chatroomCapacity/<roomId>` — the room's capacity, written once by the first joiner (default `CONFIG.CHATROOM_MAX_CAPACITY`: 498 release / 3 local debug) and read by every peer
-- `chatrooms/<roomId>/evictions/<evicteeId>/<noticerId>` — FIFO eviction notices: the room's newest member writes one per overflow member (`src/shared/chatroom-capacity.ts` rule); the evictee moves itself down the hierarchy, which cascades (`chatroom-capacity-controller.ts`)
+- `chatrooms/<roomId>/evictions/<evicteeId>/<noticerId>` — FIFO eviction notices for hierarchy rooms: the room's newest member writes one per overflow member (`src/shared/chatroom-capacity.ts` rule); the evictee moves itself down the hierarchy, which cascades (`chatroom-capacity-controller.ts`)
+- `chatroomSplitFrontier/<baseRoomId>` — hint: highest numbered overflow room (`<base>_part_N`) opened recently, so a crowd jumps straight to it
+- Capacity is ONE unified number for every room (`CONFIG.CHATROOM_MAX_CAPACITY`: 498 release / 3 local debug). Hierarchy rooms overflow oldest-first down the tree; rooms with no child (custom rooms, the deepest regional room) send the newest overflow members to `<base>_part_2`, `_part_3`… (`src/shared/chatroom-split.ts`)
 - `conversations/<id>` / `users/<id>/conversations/<convId>` — conversation records
 - `talkAnswerTemplateByUser/<userId>/<identityKey>` — cached answer templates for chatbot auto-reply
 
