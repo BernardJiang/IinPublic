@@ -1,7 +1,7 @@
 import { canonicalSerialize, computeCIDv1 } from './cid';
 import SEA from 'gun/sea';
-import { isTrustedTechSupportDmPub } from './techsupport';
 import { isTrustedTechSupportAuthorPub } from './techsupport-delegate';
+import { isTrustedDmPubWithRecovery, type RecoveryAnchorRecord } from './techsupport-recovery';
 import type { SupportFaqEntry } from './techsupport-faq';
 
 /**
@@ -70,14 +70,19 @@ export async function signFaqBundle(
 
 /**
  * Any client. Verifies: shape, `authorPub` is a trusted DM anchor (or, when `options.fetchGrant`
- * is supplied, a currently-valid K7 delegate — docs/TODO.md K7), `bundleCid` matches the entries
- * (rejects a tampered entry list even if otherwise validly signed), and the signature recovers
- * the exact canonical payload. Returns the verified bundle or null — never throws, so callers can
- * suppress silently (same fail-closed discipline as K2-3).
+ * is supplied, a currently-valid K7 delegate — docs/TODO.md K7; or, when `options.recovery` is
+ * supplied and names it, a recovery-extended DM anchor — docs/TODO.md OPEN-29, and rejected
+ * outright if recovery has revoked it even though it's still compiled-trusted), `bundleCid`
+ * matches the entries (rejects a tampered entry list even if otherwise validly signed), and the
+ * signature recovers the exact canonical payload. Returns the verified bundle or null — never
+ * throws, so callers can suppress silently (same fail-closed discipline as K2-3).
  */
 export async function verifyFaqBundle(
   value: unknown,
-  options?: { fetchGrant?: (delegatePub: string) => Promise<unknown> },
+  options?: {
+    fetchGrant?: (delegatePub: string) => Promise<unknown>;
+    recovery?: RecoveryAnchorRecord | null | undefined;
+  },
 ): Promise<SignedFaqBundle | null> {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<SignedFaqBundle>;
@@ -91,8 +96,8 @@ export async function verifyFaqBundle(
     return null;
   }
   const trusted = options?.fetchGrant
-    ? await isTrustedTechSupportAuthorPub(candidate.authorPub, options.fetchGrant)
-    : isTrustedTechSupportDmPub(candidate.authorPub);
+    ? await isTrustedTechSupportAuthorPub(candidate.authorPub, options.fetchGrant, options.recovery)
+    : isTrustedDmPubWithRecovery(candidate.authorPub, options?.recovery);
   if (!trusted) return null;
 
   const entries = candidate.entries as SupportFaqEntry[];

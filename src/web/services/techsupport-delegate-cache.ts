@@ -5,6 +5,7 @@ import {
   delegateGrantPath,
   type TechSupportDelegateGrant,
 } from '../../shared/techsupport-delegate';
+import { readCachedRecoveryAnchor } from './techsupport-recovery-cache';
 
 /**
  * Local cache of signature-verified TechSupport delegate grants (docs/TODO.md K7).
@@ -65,7 +66,8 @@ export function reconcileVerifiedDelegateGrant(
  * push or an HTTP relay fetch — see `fetchDelegateGrantsFromServer`). Returns null and leaves the
  * cache untouched on any malformed/untrusted input (K2-3 discipline). */
 export async function applyRawDelegateGrant(data: unknown): Promise<TechSupportDelegateGrant | null> {
-  const verified = await verifyDelegateGrant(data);
+  // docs/TODO.md OPEN-29: a grant signed by a since-revoked masterPub is rejected here too.
+  const verified = await verifyDelegateGrant(data, { recovery: readCachedRecoveryAnchor() });
   if (!verified) return null;
   // OPEN-27: Gun paths are writable/replayable transport. Once this installation has observed a
   // newer issue or a revocation, never let an older still-valid signature roll local authority

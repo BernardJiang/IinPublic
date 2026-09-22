@@ -11,5 +11,11 @@
     "trusted": [
       "z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc"
     ]
+  },
+  "recovery": {
+    "current": "IgR2RyMBPxKONffDvQT_EMPi2k77UEF8Nr-yzQPdvMQ.EtjJL3g78nzDa9TMQP4l2EREqRDLzEUcUzmn4V7YJ9Y",
+    "trusted": [
+      "IgR2RyMBPxKONffDvQT_EMPi2k77UEF8Nr-yzQPdvMQ.EtjJL3g78nzDa9TMQP4l2EREqRDLzEUcUzmn4V7YJ9Y"
+    ]
   }
 }

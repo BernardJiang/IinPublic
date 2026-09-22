@@ -17,6 +17,7 @@ function buildApp(
   supportGrantDeps: {
     gunService?: any;
     verifyTechSupportDelegateGrant?: jest.Mock;
+    verifyTechSupportRecoveryAnchor?: jest.Mock;
   } = {},
 ) {
   const app = express();
@@ -695,5 +696,113 @@ describe('system routes', () => {
       ],
       revoked,
     );
+  });
+
+  it('stores only a verified recovery-signed anchor record submitted by the local operator tool (OPEN-29)', async () => {
+    const record = {
+      recoveryPub: 'recovery-pub',
+      revokedDmPubs: ['old-root-pub'],
+      revokedAnnouncementPubs: [],
+      nextDmPub: 'new-root-pub',
+      nextAnnouncementPub: null,
+      issuedAt: '2026-09-22T00:00:00.000Z',
+      reason: 'root key compromised',
+      signature: 'signed-record',
+    };
+    const gunService = {
+      getPath: jest.fn().mockResolvedValue(null),
+      getSet: jest.fn().mockResolvedValue([]),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const verifyTechSupportRecoveryAnchor = jest.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(record);
+    const { app } = buildApp('test', undefined, { gunService, verifyTechSupportRecoveryAnchor });
+
+    const rejected = await request(app)
+      .post('/api/support/recovery')
+      .send({ ...record, signature: 'forged' });
+    expect(rejected.status).toBe(400);
+    expect(gunService.putPath).not.toHaveBeenCalled();
+
+    const accepted = await request(app).post('/api/support/recovery').send(record);
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toEqual({
+      stored: true,
+      recoveryPub: 'recovery-pub',
+      issuedAt: '2026-09-22T00:00:00.000Z',
+    });
+    expect(gunService.putPath).toHaveBeenCalledWith(['techsupport-recovery', 'current'], record);
+    expect(gunService.putPath).toHaveBeenCalledWith(
+      ['techsupport-recovery-history', encodeURIComponent('recovery-pub|2026-09-22T00:00:00.000Z')],
+      record,
+    );
+  });
+
+  it('rejects replay of an older recovery anchor record over a newer one already stored (OPEN-29)', async () => {
+    const older = {
+      recoveryPub: 'recovery-pub',
+      revokedDmPubs: [],
+      revokedAnnouncementPubs: [],
+      nextDmPub: null,
+      nextAnnouncementPub: null,
+      issuedAt: '2026-09-01T00:00:00.000Z',
+      reason: 'first',
+      signature: 'older-signature',
+    };
+    const newer = { ...older, issuedAt: '2026-09-21T00:00:00.000Z', reason: 'second', signature: 'newer-signature' };
+    const gunService = {
+      getPath: jest.fn().mockResolvedValue(newer),
+      getSet: jest.fn().mockResolvedValue([]),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      verifyTechSupportRecoveryAnchor: jest.fn(async (value: any) => value),
+    });
+
+    const response = await request(app).post('/api/support/recovery').send(older);
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain('newer recovery anchor');
+    expect(gunService.putPath).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/support/recovery returns the newest verified record from current + history, dropping unverifiable candidates (OPEN-29)', async () => {
+    const older = {
+      recoveryPub: 'recovery-pub',
+      revokedDmPubs: [],
+      revokedAnnouncementPubs: [],
+      nextDmPub: null,
+      nextAnnouncementPub: null,
+      issuedAt: '2026-09-01T00:00:00.000Z',
+      reason: 'first',
+      signature: 'older-signature',
+    };
+    const newer = { ...older, issuedAt: '2026-09-21T00:00:00.000Z', reason: 'second', signature: 'newer-signature' };
+    const forged = { ...older, reason: 'forged', signature: 'invalid' };
+    const gunService = {
+      getPath: jest.fn().mockResolvedValue(newer),
+      getSet: jest.fn().mockResolvedValue([older, forged]),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      verifyTechSupportRecoveryAnchor: jest.fn(async (value: any) => (
+        value?.signature === 'invalid' ? null : value
+      )),
+    });
+
+    const response = await request(app).get('/api/support/recovery');
+    expect(response.status).toBe(200);
+    expect(response.body.current).toEqual(newer);
+    expect(response.body.history).toEqual(expect.arrayContaining([older, newer]));
+    expect(response.body.history).toHaveLength(2);
+  });
+
+  it('GET /api/support/recovery returns a null current when nothing has ever been published', async () => {
+    const gunService = { getPath: jest.fn().mockResolvedValue(null), getSet: jest.fn().mockResolvedValue([]) };
+    const { app } = buildApp('test', undefined, { gunService });
+    const response = await request(app).get('/api/support/recovery');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ current: null, history: [] });
   });
 });

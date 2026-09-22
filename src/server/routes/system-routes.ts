@@ -67,6 +67,14 @@ import {
   verifyDelegateGrant,
   type TechSupportDelegateGrant,
 } from '../../shared/techsupport-delegate';
+import {
+  RECOVERY_ANCHOR_HISTORY_ROOT,
+  recoveryAnchorPath,
+  recoveryAnchorHistoryPath,
+  isRecoveryAnchorRollback,
+  verifyRecoveryAnchor,
+  type RecoveryAnchorRecord,
+} from '../../shared/techsupport-recovery';
 
 /** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
 function clearRadiskOnDisk(): string[] {
@@ -113,6 +121,8 @@ type RegisterSystemRoutesDeps = {
   techSupportStore?: TechSupportDurableStore;
   /** OPEN-27 test seam; production always uses signature verification rooted in compiled anchors. */
   verifyTechSupportDelegateGrant?: (value: unknown) => Promise<TechSupportDelegateGrant | null>;
+  /** OPEN-29 test seam; production always uses signature verification rooted in compiled anchors. */
+  verifyTechSupportRecoveryAnchor?: (value: unknown) => Promise<RecoveryAnchorRecord | null>;
 };
 
 export function registerSystemRoutes(
@@ -127,6 +137,7 @@ export function registerSystemRoutes(
     hubRelayClient,
     techSupportStore,
     verifyTechSupportDelegateGrant = verifyDelegateGrant,
+    verifyTechSupportRecoveryAnchor = verifyRecoveryAnchor,
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
@@ -453,6 +464,82 @@ export function registerSystemRoutes(
         await hubRelayClient.postDelegateGrant(grant);
       }
       res.json({ stored: true, delegatePub: grant.delegatePub, revoked: !!grant.revokedAt });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // OPEN-29: mirrors the delegate-grants GET route exactly — current mutable slot + append-only
+  // history, reconciled monotonically. Read-only; no root or recovery key required.
+  app.get('/api/support/recovery', async (_req, res) => {
+    const candidates: unknown[] = [];
+    if (gunService) {
+      const [current, history] = await Promise.all([
+        gunService.getPath(recoveryAnchorPath()),
+        gunService.getSet(RECOVERY_ANCHOR_HISTORY_ROOT),
+      ]);
+      if (current) candidates.push(current);
+      candidates.push(...history);
+    }
+    if (hubRelayClient?.listRecoveryAnchors) {
+      try {
+        candidates.push(...(await hubRelayClient.listRecoveryAnchors()));
+      } catch {
+        // Embedded nodes remain usable offline; local/already-cached records still return.
+      }
+    }
+    let current: RecoveryAnchorRecord | null = null;
+    const history: RecoveryAnchorRecord[] = [];
+    for (const raw of candidates) {
+      const record = await verifyTechSupportRecoveryAnchor(raw);
+      if (!record) continue;
+      history.push(record);
+      if (!current || !isRecoveryAnchorRollback(current, record)) current = record;
+    }
+    res.json({ current, history });
+  });
+
+  // OPEN-29 local-root boundary, same shape as delegate-grants POST: the offline recovery tool
+  // signs on its own machine (genuinely separate custody from the DM vault) and submits only
+  // this public record. The relay never holds a recovery key and accepts no unsigned record.
+  app.post('/api/support/recovery', async (req, res) => {
+    try {
+      const record = await verifyTechSupportRecoveryAnchor(req.body);
+      if (!record) {
+        res.status(400).json({ error: 'A valid recovery-signed anchor record is required' });
+        return;
+      }
+      if (!gunService && !hubRelayClient?.postRecoveryAnchor) {
+        res.status(503).json({ error: 'Recovery anchor storage is unavailable' });
+        return;
+      }
+      const currentCandidates: unknown[] = [];
+      if (gunService) {
+        currentCandidates.push(
+          await gunService.getPath(recoveryAnchorPath()),
+          ...(await gunService.getSet(RECOVERY_ANCHOR_HISTORY_ROOT)),
+        );
+      } else if (hubRelayClient?.listRecoveryAnchors) {
+        currentCandidates.push(...(await hubRelayClient.listRecoveryAnchors()));
+      }
+      let current: RecoveryAnchorRecord | null = null;
+      for (const raw of currentCandidates) {
+        const candidate = await verifyTechSupportRecoveryAnchor(raw);
+        if (!candidate) continue;
+        if (!current || !isRecoveryAnchorRollback(current, candidate)) current = candidate;
+      }
+      if (current && isRecoveryAnchorRollback(current, record)) {
+        res.status(409).json({ error: 'Refusing to replace a newer recovery anchor record' });
+        return;
+      }
+      if (gunService) {
+        await gunService.putPath(recoveryAnchorPath(), record);
+        await gunService.putPath(recoveryAnchorHistoryPath(record), record);
+      }
+      if (hubRelayClient?.postRecoveryAnchor) {
+        await hubRelayClient.postRecoveryAnchor(record);
+      }
+      res.json({ stored: true, recoveryPub: record.recoveryPub, issuedAt: record.issuedAt });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }

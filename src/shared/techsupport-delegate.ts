@@ -1,6 +1,6 @@
 import { canonicalSerialize } from './cid';
 import SEA from 'gun/sea';
-import { isTrustedTechSupportDmPub } from './techsupport';
+import { isTrustedDmPubWithRecovery, type RecoveryAnchorRecord } from './techsupport-recovery';
 
 /**
  * Delegated TechSupport answers (docs/TODO.md K7, design note
@@ -85,8 +85,17 @@ export async function signDelegateGrant(
  * `isValidDelegateGrant` for that). Never throws (fail-closed discipline matching
  * `verifyFaqBundle`/`verifyTechSupportGreeting`): callers get null on any malformed or
  * untrusted input.
+ *
+ * `options.recovery` (docs/TODO.md OPEN-29): when supplied, a grant signed by a `masterPub` the
+ * recovery authority has since revoked is rejected even if that pub is still in the compiled
+ * `dm.trusted` list — a compromised root's already-issued delegate grants must stop working the
+ * moment recovery revokes it, not linger until the next client rebuild. Optional and additive:
+ * every existing call site that doesn't pass it keeps its exact current behavior.
  */
-export async function verifyDelegateGrant(value: unknown): Promise<TechSupportDelegateGrant | null> {
+export async function verifyDelegateGrant(
+  value: unknown,
+  options?: { recovery?: RecoveryAnchorRecord | null | undefined },
+): Promise<TechSupportDelegateGrant | null> {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<TechSupportDelegateGrant>;
   if (
@@ -101,7 +110,7 @@ export async function verifyDelegateGrant(value: unknown): Promise<TechSupportDe
   ) {
     return null;
   }
-  if (!isTrustedTechSupportDmPub(candidate.masterPub)) return null;
+  if (!isTrustedDmPubWithRecovery(candidate.masterPub, options?.recovery)) return null;
 
   // GunService deserializes ISO strings to Date objects on server reads. Normalize them back to
   // the exact signed wire representation before canonical verification; browser/Gun wire callers
@@ -186,21 +195,26 @@ export async function verifyValidDelegateGrant(value: unknown, now: Date = new D
 }
 
 /**
- * True when `pub` may author content rendered as TechSupport: either a compiled master anchor,
- * or the holder of a currently-valid delegate grant. `fetchGrant` is injected so this module
- * stays Gun-agnostic (callers supply a live Gun read or a local verified-grant cache). Never
- * throws — a `fetchGrant` failure is treated as "no grant," not an error.
+ * True when `pub` may author content rendered as TechSupport: either a compiled master anchor
+ * (or, docs/TODO.md OPEN-29, a recovery-extended one — and rejected outright if recovery has
+ * revoked it, even though it's still compiled-trusted), or the holder of a currently-valid
+ * delegate grant whose OWN masterPub passes that same recovery-aware check (a grant issued by a
+ * since-revoked master stops authorizing its delegate immediately, not just at the next client
+ * rebuild). `fetchGrant` is injected so this module stays Gun-agnostic (callers supply a live
+ * Gun read or a local verified-grant cache). Never throws — a `fetchGrant` failure is treated as
+ * "no grant," not an error.
  */
 export async function isTrustedTechSupportAuthorPub(
   pub: string | undefined | null,
   fetchGrant: (delegatePub: string) => Promise<unknown>,
+  recovery?: RecoveryAnchorRecord | null,
 ): Promise<boolean> {
   const candidate = String(pub ?? '').trim();
   if (!candidate) return false;
-  if (isTrustedTechSupportDmPub(candidate)) return true;
+  if (isTrustedDmPubWithRecovery(candidate, recovery)) return true;
   try {
     const raw = await fetchGrant(candidate);
-    return isValidDelegateGrant(await verifyDelegateGrant(raw));
+    return isValidDelegateGrant(await verifyDelegateGrant(raw, { recovery }));
   } catch {
     return false;
   }

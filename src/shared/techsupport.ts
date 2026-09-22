@@ -28,6 +28,9 @@ type TechSupportTrustAnchorConfig = {
   version: number;
   dm: { current: string; trusted: string[] };
   announcement: { current: string; trusted: string[] };
+  /** OPEN-29: the independent emergency recovery authority's own anchor, kept in genuinely
+   * separate offline custody from the dm/announcement operator key (never the same key). */
+  recovery: { current: string; trusted: string[] };
 };
 
 const trustAnchors = trustAnchorConfig as TechSupportTrustAnchorConfig;
@@ -62,6 +65,15 @@ export const TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS: readonly string[] =
 
 export const TECHSUPPORT_DM_TRUST_ANCHORS: readonly string[] = Object.freeze([...trustAnchors.dm.trusted]);
 
+/**
+ * OPEN-29: the recovery authority's own trust anchor — deliberately a THIRD, separate list from
+ * dm/announcement. A compromised DM key must never be able to authorize its own recovery, so
+ * nothing in this module ever treats a dm/announcement anchor as a valid recovery signer, or
+ * vice versa.
+ */
+export const TECHSUPPORT_RECOVERY_TRUST_ANCHORS: readonly string[] =
+  Object.freeze([...trustAnchors.recovery.trusted]);
+
 function isTrustedPub(pub: string | undefined | null, anchors: readonly string[]): boolean {
   const candidate = String(pub ?? '').trim();
   if (!candidate) return false;
@@ -78,6 +90,11 @@ export function isTrustedTechSupportDmPub(pub: string | undefined | null): boole
   return isTrustedPub(pub, TECHSUPPORT_DM_TRUST_ANCHORS);
 }
 
+/** True when `pub` may sign a recovery anchor record (docs/TODO.md OPEN-29). */
+export function isTrustedTechSupportRecoveryPub(pub: string | undefined | null): boolean {
+  return isTrustedPub(pub, TECHSUPPORT_RECOVERY_TRUST_ANCHORS);
+}
+
 /** The key to sign with now. Rotation tooling also orders it first, but `current` is authoritative. */
 export function currentTechSupportDmPub(): string {
   return trustAnchors.dm.current;
@@ -85,6 +102,10 @@ export function currentTechSupportDmPub(): string {
 
 export function currentTechSupportAnnouncementPub(): string {
   return trustAnchors.announcement.current;
+}
+
+export function currentTechSupportRecoveryPub(): string {
+  return trustAnchors.recovery.current;
 }
 
 export interface TechSupportSeaPair {

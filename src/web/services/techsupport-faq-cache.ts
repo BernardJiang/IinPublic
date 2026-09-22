@@ -1,6 +1,7 @@
 import { verifyFaqBundle, faqBundlePath, type SignedFaqBundle } from '../../shared/techsupport-faq-bundle';
 import type { SupportFaqEntry } from '../../shared/techsupport-faq';
 import { fetchGrantLive } from './techsupport-delegate-cache';
+import { readCachedRecoveryAnchor } from './techsupport-recovery-cache';
 import techsupportFaqSeedBundle from '../../shared/techsupport-faq-seed.signed.json';
 
 /**
@@ -83,9 +84,13 @@ export async function applyRawFaqBundle(
   data: unknown,
 ): Promise<SignedFaqBundle | null> {
   // Live Gun lookup (not the local grant cache — this may be the first time this bundle version
-  // has been seen, so a delegate's grant may not be cached yet) — docs/TODO.md K7.
+  // has been seen, so a delegate's grant may not be cached yet) — docs/TODO.md K7. `recovery`
+  // (docs/TODO.md OPEN-29) is the local cache, not a live read — this is a hot path called on
+  // every incoming message/subscription tick, and the recovery record's own subscription already
+  // keeps that cache fresh independently.
   const verified = await verifyFaqBundle(faqBundleFromGunWire(data), {
     fetchGrant: (delegatePub) => fetchGrantLive(gun, delegatePub),
+    recovery: readCachedRecoveryAnchor(),
   });
   if (!verified) return null;
   writeCachedFaqBundle(verified);
@@ -124,7 +129,13 @@ let verifiedSeedFaqBundle: SignedFaqBundle | null | undefined; // undefined = no
  */
 export async function readSeedFaqBundle(): Promise<SignedFaqBundle | null> {
   if (verifiedSeedFaqBundle !== undefined) return verifiedSeedFaqBundle;
-  verifiedSeedFaqBundle = await verifyFaqBundle(techsupportFaqSeedBundle);
+  // docs/TODO.md OPEN-29: passes today's cached recovery record so a seed signed by a
+  // since-revoked DM key is rejected. Caveat: this result is memoized on first read — if a
+  // recovery revocation of the seed's signer arrives LATER in the same session, the seed does
+  // not retroactively stop being trusted until reload. Acceptable for v1: the seed is low-stakes
+  // static help text, not live operational content, and the live FAQ bundle path above re-checks
+  // recovery on every update.
+  verifiedSeedFaqBundle = await verifyFaqBundle(techsupportFaqSeedBundle, { recovery: readCachedRecoveryAnchor() });
   return verifiedSeedFaqBundle;
 }
 

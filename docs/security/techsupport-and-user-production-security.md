@@ -171,9 +171,14 @@ purpose and lifetime, and retaining traceability:
 - Finish moving remaining root-only operations and test fixtures off root `localStorage` injection.
 - Split the offline root/delegation authority, DM/decryption operator role, and online announcement
   signer in a versioned protocol.
-- Pin an independent offline recovery authority—or a small threshold of recovery keys—before an
-  emergency occurs, so clients can authenticate a root replacement without trusting the stolen
-  root or relay.
+- ~~Pin an independent offline recovery authority~~ — built (OPEN-29): a single offline recovery
+  key (product decision 2026-09-22 — a solo-operator deployment doesn't yet justify an M-of-N
+  threshold), a signed revocation/next-anchor record (`RecoveryAnchorRecord`) every client
+  verifies independently of the DM/announcement anchors, and `npm run techsupport:recovery` to
+  publish one during an incident. Still needs: the generated key's private half moved off this
+  dev machine to genuine offline/cold storage before relying on it, and a real (non-dry-run) HTTP
+  publish proven against a real deployment — see `docs/TODO.md`'s OPEN-29 entry for exactly
+  what's verified versus outstanding.
 - ~~Tighten CSP, remove `unsafe-eval` where feasible~~ — done (OPEN-30): CSP's `scriptSrc` no
   longer allows `unsafe-eval` anywhere (verified against the current dependency set, including a
   live MapLibre GL map-view render under the tightened policy).

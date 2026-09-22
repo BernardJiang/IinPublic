@@ -44,3 +44,35 @@ export function describeWithRealTechSupportPair(
   }
   describe(name, () => fn(pair));
 }
+
+/**
+ * OPEN-29: the recovery authority's own key, loaded from a SEPARATE `.env.local` setting
+ * (`TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`) — deliberately never the same variable as the DM key's,
+ * matching the real deployment's genuinely separate offline custody for this key.
+ */
+export function loadRealTechSupportRecoveryPair(): TechSupportSeaPair | null {
+  const raw = process.env.TECHSUPPORT_RECOVERY_SEA_PAIR_JSON;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<TechSupportSeaPair>;
+    if (!parsed.pub || !parsed.priv || !parsed.epub || !parsed.epriv) return null;
+    return parsed as TechSupportSeaPair;
+  } catch {
+    return null;
+  }
+}
+
+/** Same shape as {@link describeWithRealTechSupportPair}, for the recovery key. */
+export function describeWithRealTechSupportRecoveryPair(
+  name: string,
+  fn: (pair: TechSupportSeaPair) => void,
+): void {
+  const pair = loadRealTechSupportRecoveryPair();
+  if (!pair) {
+    describe.skip(`${name} (skipped: no TECHSUPPORT_RECOVERY_SEA_PAIR_JSON in .env.local)`, () => {
+      it('is skipped', () => {});
+    });
+    return;
+  }
+  describe(name, () => fn(pair));
+}

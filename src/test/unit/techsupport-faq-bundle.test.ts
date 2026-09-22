@@ -9,8 +9,12 @@ import {
 import { buildSupportFaqEntry, type SupportFaqEntry } from '../../shared/techsupport-faq';
 import { TECHSUPPORT_PUB } from '../../shared/techsupport';
 import { signDelegateGrant } from '../../shared/techsupport-delegate';
+import { signRecoveryAnchor } from '../../shared/techsupport-recovery';
 import SEA from 'gun/sea';
-import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
+import {
+  describeWithRealTechSupportPair,
+  describeWithRealTechSupportRecoveryPair,
+} from '../support/techsupport-real-pair';
 
 function entry(question: string, answer: string): SupportFaqEntry {
   const built = buildSupportFaqEntry({ question, answer, answeredAt: '2026-07-26T00:00:00.000Z' });
@@ -122,6 +126,59 @@ describeWithRealTechSupportPair('techsupport-faq-bundle (docs/TODO.md K5)', (DEV
       const verified = await verifyFaqBundle(signed, { fetchGrant });
       expect(verified).not.toBeNull();
       expect(fetchGrant).not.toHaveBeenCalled();
+    });
+  });
+
+  describeWithRealTechSupportRecoveryPair('verifyFaqBundle + recovery override (docs/TODO.md OPEN-29)', (RECOVERY_PAIR) => {
+    it('rejects a master-signed bundle once recovery has revoked that master pub, even with no fetchGrant', async () => {
+      const signed = await signFaqBundle([entry('q', 'a')], DEV_PAIR);
+      const recovery = await signRecoveryAnchor({ reason: 'compromised', revokedDmPubs: [TECHSUPPORT_PUB] }, RECOVERY_PAIR);
+      expect(await verifyFaqBundle(signed, { recovery })).toBeNull();
+      // Sanity: the exact same bundle verifies fine without the revocation.
+      expect(await verifyFaqBundle(signed)).not.toBeNull();
+    });
+
+    it('rejects a master-signed bundle once recovery has revoked that master pub, even WITH fetchGrant supplied (the bug this session found and fixed: the delegate-grant fallback must not silently bypass a recovery revocation)', async () => {
+      const signed = await signFaqBundle([entry('q', 'a')], DEV_PAIR);
+      const recovery = await signRecoveryAnchor({ reason: 'compromised', revokedDmPubs: [TECHSUPPORT_PUB] }, RECOVERY_PAIR);
+      const fetchGrant = jest.fn().mockResolvedValue(null);
+      expect(await verifyFaqBundle(signed, { fetchGrant, recovery })).toBeNull();
+    });
+
+    it('accepts a bundle signed by a NEW pub recovery names as the next DM anchor, though it is not in the compiled list', async () => {
+      const nextDmPair = await SEA.pair();
+      const recovery = await signRecoveryAnchor({ reason: 'rotate', nextDmPub: nextDmPair.pub }, RECOVERY_PAIR);
+      const signed = await signFaqBundle([entry('q', 'a')], nextDmPair);
+      const verified = await verifyFaqBundle(signed, { recovery });
+      expect(verified).not.toBeNull();
+      expect(verified?.authorPub).toBe(nextDmPair.pub);
+    });
+
+    it('a delegate grant issued by a since-revoked master no longer authorizes that delegate', async () => {
+      const delegatePair = await SEA.pair();
+      const grant = await signDelegateGrant(
+        { delegatePub: delegatePair.pub, delegateUserId: 'user-alice', label: 'Alice', expiresAt: new Date(Date.now() + 60_000).toISOString() },
+        DEV_PAIR, // issued by the now-compromised master
+      );
+      const signed = await signFaqBundle([entry('q', 'a')], delegatePair);
+      const recovery = await signRecoveryAnchor({ reason: 'compromised', revokedDmPubs: [TECHSUPPORT_PUB] }, RECOVERY_PAIR);
+      // Without recovery, the delegate's grant is still perfectly valid.
+      expect(await verifyFaqBundle(signed, { fetchGrant: async () => grant })).not.toBeNull();
+      // With recovery's revocation of the issuing master, that same grant no longer authorizes anything.
+      expect(await verifyFaqBundle(signed, { fetchGrant: async () => grant, recovery })).toBeNull();
+    });
+
+    it('rejects a rolled-back (older) recovery record, and the newer revocation still applies', async () => {
+      const older = await signRecoveryAnchor({ reason: 'first', issuedAt: '2026-01-01T00:00:00.000Z' }, RECOVERY_PAIR);
+      const newer = await signRecoveryAnchor(
+        { reason: 'second', revokedDmPubs: [TECHSUPPORT_PUB], issuedAt: '2026-01-02T00:00:00.000Z' },
+        RECOVERY_PAIR,
+      );
+      const signed = await signFaqBundle([entry('q', 'a')], DEV_PAIR);
+      // Verifying against the older record (as if a stale cache never saw the newer one) still lets it through —
+      // this is exactly why the client-side cache's monotonic reconciliation (techsupport-recovery-cache.ts) exists.
+      expect(await verifyFaqBundle(signed, { recovery: older })).not.toBeNull();
+      expect(await verifyFaqBundle(signed, { recovery: newer })).toBeNull();
     });
   });
 });

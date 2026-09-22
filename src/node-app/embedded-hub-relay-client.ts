@@ -67,6 +67,14 @@ export interface EmbeddedHubRelayClientLike {
   postDelegateRequest(request: unknown): Promise<void>;
   postDelegateGrant?(grant: unknown): Promise<void>;
   listDelegateGrants(): Promise<unknown[]>;
+  /**
+   * OPEN-29: same "embedded node dials the hub for discovery only" gap, one layer up — a native
+   * device needs to be able to discover a published recovery anchor record too, arguably more
+   * urgently than a delegate grant during an actual incident. Optional (like postDelegateGrant)
+   * so existing EmbeddedHubRelayClientLike test doubles don't need updating to keep compiling.
+   */
+  listRecoveryAnchors?(): Promise<unknown[]>;
+  postRecoveryAnchor?(record: unknown): Promise<void>;
   getFaqBundle(): Promise<unknown | null>;
   postFaqBundle(bundle: unknown): Promise<void>;
   /**
@@ -235,6 +243,23 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     return [
       ...(Array.isArray(body.grants) ? body.grants : []),
       ...(Array.isArray(body.revocations) ? body.revocations : []),
+    ];
+  }
+
+  async postRecoveryAnchor(record: unknown): Promise<void> {
+    await this.request('/api/support/recovery', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    });
+  }
+
+  async listRecoveryAnchors(): Promise<unknown[]> {
+    const response = await this.request('/api/support/recovery');
+    const body = (await response.json()) as { current?: unknown; history?: unknown[] };
+    return [
+      ...(body.current ? [body.current] : []),
+      ...(Array.isArray(body.history) ? body.history : []),
     ];
   }
 

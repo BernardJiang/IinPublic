@@ -80,6 +80,10 @@ import {
   fetchFaqBundleFromServer,
 } from '../services/techsupport-faq-cache';
 import {
+  subscribeToRecoveryAnchor,
+  fetchRecoveryAnchorFromServer,
+} from '../services/techsupport-recovery-cache';
+import {
   signDelegateGrant,
   verifyValidDelegateGrant,
   isValidDelegateGrant,
@@ -253,6 +257,8 @@ export class IinPublicApp {
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
   private techSupportFaqBundleUnsubscribe: (() => void) | null = null;
+  /** docs/TODO.md OPEN-29 — live subscription that keeps the local recovery-anchor cache fresh. */
+  private techSupportRecoveryAnchorUnsubscribe: (() => void) | null = null;
   /** docs/TODO.md K7 — live subscription that keeps the local delegate-grant cache verified/fresh. */
   private techSupportDelegateGrantsUnsubscribe: (() => void) | null = null;
   /** docs/TODO.md K7 — this session's OWN currently-valid delegate grant, if any (never the master's). */
@@ -1778,6 +1784,7 @@ export class IinPublicApp {
       console.warn('Support bootstrap failed:', error);
     });
     this.subscribeToTechSupportFaqBundle();
+    this.subscribeToTechSupportRecoveryAnchor();
     this.subscribeToTechSupportDelegateGrants();
     this.startTechSupportDelegateRelayPolling();
     this.subscribeToSupportInboxIfTechSupport();
@@ -3732,6 +3739,25 @@ export class IinPublicApp {
     this.techSupportFaqBundleUnsubscribe = subscribeToFaqBundle(gun, () => this.handleVerifiedFaqBundleUpdate());
   }
 
+  /** docs/TODO.md OPEN-29: keeps the local recovery-anchor cache verified/fresh, the same way
+   * the FAQ bundle and delegate-grant caches already do — a compromised-key incident needs this
+   * device to learn about a revocation/next-anchor without waiting for a reload. */
+  private subscribeToTechSupportRecoveryAnchor(): void {
+    if (this.techSupportRecoveryAnchorUnsubscribe) return;
+    const gun = this.gunService.getGun();
+    this.techSupportRecoveryAnchorUnsubscribe = subscribeToRecoveryAnchor(gun, (record) => {
+      console.warn(
+        `[TechSupport recovery] anchor updated: reason="${record.reason}" ` +
+        `revokedDm=${record.revokedDmPubs.length} revokedAnnouncement=${record.revokedAnnouncementPubs.length} ` +
+        `nextDm=${record.nextDmPub ?? 'unchanged'} nextAnnouncement=${record.nextAnnouncementPub ?? 'unchanged'}`,
+      );
+      // A recovery update changes which authors verify as TechSupport — re-render so a
+      // newly-trusted (or newly-untrusted) message reflects it without a reload, same reasoning
+      // as handleVerifiedFaqBundleUpdate's re-render below.
+      this.uiManager.rerenderOpenConversation();
+    });
+  }
+
   /** Shared by the live Gun subscription above and the HTTP relay poll below (K7 follow-on) —
    * either one learning about a bundle update should have the exact same effect. */
   private handleVerifiedFaqBundleUpdate(): void {
@@ -3821,6 +3847,9 @@ export class IinPublicApp {
         for (const grant of grants) this.handleVerifiedDelegateGrant(grant);
         const bundle = await fetchFaqBundleFromServer(apiBase, this.gunService.getGun());
         if (bundle) this.handleVerifiedFaqBundleUpdate();
+        // docs/TODO.md OPEN-29: same native-device gap, one layer up — a recovery anchor is
+        // arguably the most urgent thing a stuck native client needs to learn during an incident.
+        await fetchRecoveryAnchorFromServer(apiBase);
       } catch {
         /* best-effort — the live Gun subscriptions above still cover browser-to-browser sync */
       } finally {

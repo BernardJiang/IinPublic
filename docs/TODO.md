@@ -50,17 +50,50 @@ phrase complexity into normal use.
   - [ ] Remove `iinpublic_techsupport_keypair_v1`, `dev:techsupport`/root-agent injection, and every
     production code path that exposes `priv`/`epriv` to page JavaScript.
 
-- [ ] **OPEN-28 — Split TechSupport authority by role.** Introduce a versioned identity protocol
-  with separate offline root/delegation authority, support DM/decryption operator keys, and a
-  limited announcement signer. Give each role a distinct trust anchor, rotation window, and
-  compromise procedure; do not make the online announcement role capable of reading questions,
-  issuing delegates, or signing identity continuity.
-
-- [ ] **OPEN-29 — Add an independent emergency recovery authority.** Pin an offline recovery key
-  or a small threshold of recovery keys before an incident. Define a signed revocation/next-anchor
-  record that clients can authenticate without trusting the compromised TechSupport root or the
-  relay. Cover stale website caches, installed Android versions, overlap, rollback, and forced
-  retirement in unit and cross-client tests.
+- [ ] **OPEN-29 — Add an independent emergency recovery authority.** Single offline recovery key
+  (product owner decision 2026-09-22 — a solo-operator deployment doesn't yet justify an M-of-N
+  threshold; the anchor-list-based design extends to one later without breaking clients). A real
+  recovery keypair is generated and pinned (`techsupport-trust-anchors.json`'s `recovery`
+  section) — its private half must still be moved to genuinely offline/cold storage before this
+  is production-ready; it currently sits in this dev machine's `secrets/` (gitignored) for
+  testing.
+  - [x] `src/shared/techsupport-recovery.ts`: `RecoveryAnchorRecord` (revoked dm/announcement
+    pubs + a next dm/announcement pub, one global record, no expiry — trust changes only by a
+    newer signed record), sign/verify, and `isRecoveryAnchorRollback` (strictly-newer-only,
+    mirroring `isDelegateGrantRollback`'s monotonic discipline).
+  - [x] `isTrustedDmPubWithRecovery` / `isTrustedAnnouncementPubWithRecovery`: an explicit
+    revocation wins even over the compiled trust-anchor list; a `next*Pub` extends trust to a pub
+    the compiled list doesn't contain. Wired into `verifyFaqBundle` and `verifyDelegateGrant` /
+    `isTrustedTechSupportAuthorPub` as an optional, additive parameter — every pre-existing call
+    site keeps its exact prior behavior unless it opts in. A delegate grant issued by a
+    since-revoked master stops authorizing its delegate immediately (found and fixed a real bug
+    here during review: the delegate-grant fallback path was initially recovery-unaware and would
+    have silently bypassed a revocation).
+  - [x] Distribution: `GET`/`POST /api/support/recovery` (mutable current slot + append-only
+    history root, same monotonic-reconciliation shape as OPEN-27's delegate-grant hardening),
+    embedded-hub-relay-client passthrough for native devices, client-side cache/subscription
+    (`techsupport-recovery-cache.ts`) wired into `app.ts`'s boot sequence and relay poll.
+  - [x] `scripts/techsupport-recovery-tool.js` (`npm run techsupport:recovery -- generate|publish|
+    status`) — genuinely separate encrypted vault and passphrase env vars from the DM tool;
+    decrypts only in a short-lived local process; publishes only the signed public record.
+    Verified: real generate → real encrypted vault → real signed dry-run record (recoveryPub
+    matches the compiled anchor) against a live embedded-node server.
+  - [x] Unit tests (19, `techsupport-recovery.test.ts`) covering sign/verify/rollback and the
+    actual security property end to end; integration tests (`system-routes.test.ts`) for the
+    routes; CLI arg/passphrase/publish tests (`techsupport-recovery-tool.test.js`); regression
+    tests in `techsupport-faq-bundle.test.ts` proving the revocation-bypass bug above stays fixed.
+  - [ ] A real live HTTP publish round trip (beyond the dry-run) wasn't proven in this session —
+    hit an unresolved local networking quirk (TCP connects, HTTP hangs up) specific to that test
+    session, not a code issue given every other layer (unit, integration via supertest against
+    the real route handlers, and the dry-run signing path) passed. Re-verify with a real publish
+    against a real deployment before relying on this in an actual incident.
+  - [ ] Cross-client "stale cache / installed Android version catches up" scenario has no E2E
+    coverage yet — only unit/integration. The mechanism (client-side monotonic cache +
+    HTTP-relay poll, identical in shape to the already-E2E-tested OPEN-27 delegate-grant
+    hardening) gives reasonable confidence, but this is asserted, not demonstrated end to end.
+  - [ ] No UI surfaces a recovery event to the master operator (e.g. an audit/warning banner) —
+    today it's a `console.warn` on the client and whatever `npm run techsupport:recovery --
+    status` reports. Low priority: this is an emergency operator tool, not routine UI.
 
 - [ ] **OPEN-30 — Harden website release integrity and the browser execution boundary.** Treat CSP
   as defense in depth rather than private-key custody.
@@ -104,6 +137,16 @@ Wi-Fi interruption, offline resynchronization, and Android Keystore custody are 
 
 The following IDs remain open for traceability, but website/Android work takes precedence. Do not
 start them unless they become a direct blocker or are explicitly promoted.
+
+### TechSupport identity protocol
+
+- [ ] **OPEN-28 — Split TechSupport authority by role (deferred).** Introduce a versioned identity
+  protocol with separate offline root/delegation authority, support DM/decryption operator keys,
+  and a limited announcement signer. Give each role a distinct trust anchor, rotation window, and
+  compromise procedure; do not make the online announcement role capable of reading questions,
+  issuing delegates, or signing identity continuity. Deliberately deferred by the product owner
+  2026-09-22: OPEN-27/29/30 must not depend on this, and it adds real protocol complexity (a new
+  versioned identity format, more trust-anchor categories) that isn't worth taking on yet.
 
 ### macOS-native host testing
 

@@ -13,6 +13,7 @@ import {
 import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
 import { fetchGrantFromCache } from '../services/techsupport-delegate-cache';
+import { readCachedRecoveryAnchor } from '../services/techsupport-recovery-cache';
 
 /**
  * K2 (docs/TODO.md): authenticity check for a *stored* TechSupport greeting record —
@@ -47,7 +48,10 @@ export async function filterVerifiedSupportMessages(messages: any[], stageName: 
       const cached = readCachedFaqBundle();
       // docs/TODO.md K7: fetchGrant lets a delegate-signed bundle verify here too — the local
       // grant cache, not a live Gun read, since this render path has no Gun handle of its own.
-      const verifiedBundle = cached ? await verifyFaqBundle(cached, { fetchGrant: fetchGrantFromCache }) : null;
+      // docs/TODO.md OPEN-29: recovery is the same local cache, for the same reason.
+      const verifiedBundle = cached
+        ? await verifyFaqBundle(cached, { fetchGrant: fetchGrantFromCache, recovery: readCachedRecoveryAnchor() })
+        : null;
       if (!verifiedBundle) continue;
       // The message must be attributed to the exact cached bundle version, not merely
       // any validly-signed bundle — otherwise a stale message could survive a bundle
