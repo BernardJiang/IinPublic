@@ -65,6 +65,7 @@ export interface EmbeddedHubRelayClientLike {
    * without one either (found via a real-hardware test: 09-android-techsupport-delegate-answers).
    */
   postDelegateRequest(request: unknown): Promise<void>;
+  postDelegateGrant?(grant: unknown): Promise<void>;
   listDelegateGrants(): Promise<unknown[]>;
   getFaqBundle(): Promise<unknown | null>;
   postFaqBundle(bundle: unknown): Promise<void>;
@@ -217,6 +218,14 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
+    });
+  }
+
+  async postDelegateGrant(grant: unknown): Promise<void> {
+    await this.request('/api/support/delegate-grants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(grant),
     });
   }
 

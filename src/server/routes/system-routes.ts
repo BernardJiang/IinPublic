@@ -59,6 +59,11 @@ import {
 import { TechSupportMessageStore, type TechSupportStoredMessage } from '../services/techsupport-message-store';
 import type { TechSupportDurableStore } from '../services/techsupport-durable-store';
 import { BoundedNonceCache, P2PAbuseDefenseContext } from '../../shared/p2p-abuse-defense';
+import {
+  isDelegateGrantRollback,
+  verifyDelegateGrant,
+  type TechSupportDelegateGrant,
+} from '../../shared/techsupport-delegate';
 
 /** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
 function clearRadiskOnDisk(): string[] {
@@ -103,6 +108,8 @@ type RegisterSystemRoutesDeps = {
    * techsupport-durable-store.ts's doc comment. Falls back to the plain in-memory
    * TechSupportMessageStore when omitted (test callers that don't need real persistence). */
   techSupportStore?: TechSupportDurableStore;
+  /** OPEN-27 test seam; production always uses signature verification rooted in compiled anchors. */
+  verifyTechSupportDelegateGrant?: (value: unknown) => Promise<TechSupportDelegateGrant | null>;
 };
 
 export function registerSystemRoutes(
@@ -116,6 +123,7 @@ export function registerSystemRoutes(
     abuseDefenseConfig,
     hubRelayClient,
     techSupportStore,
+    verifyTechSupportDelegateGrant = verifyDelegateGrant,
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
@@ -382,6 +390,45 @@ export function registerSystemRoutes(
       }
     }
     res.json({ grants });
+  });
+
+  // OPEN-27 local-root boundary: the operator CLI signs on its own machine and submits only this
+  // public credential. The relay has no root key and accepts no unsigned administrative command.
+  app.post('/api/support/delegate-grants', async (req, res) => {
+    try {
+      const grant = await verifyTechSupportDelegateGrant(req.body);
+      if (!grant) {
+        res.status(400).json({ error: 'A valid root-signed TechSupport delegate grant is required' });
+        return;
+      }
+      if (!gunService && !hubRelayClient?.postDelegateGrant) {
+        res.status(503).json({ error: 'Delegate grant storage is unavailable' });
+        return;
+      }
+      let currentRaw: unknown = null;
+      if (gunService) {
+        currentRaw = await gunService.getPath(['techsupport-delegates', grant.delegatePub]);
+      } else if (hubRelayClient) {
+        const remote = await hubRelayClient.listDelegateGrants();
+        currentRaw = remote.find((entry) => (
+          entry as { delegatePub?: unknown } | null
+        )?.delegatePub === grant.delegatePub) ?? null;
+      }
+      const current = await verifyTechSupportDelegateGrant(currentRaw);
+      if (current && isDelegateGrantRollback(current, grant)) {
+        res.status(409).json({ error: 'Refusing to replace a newer or revoked delegate grant' });
+        return;
+      }
+      if (gunService) {
+        await gunService.putPath(['techsupport-delegates', grant.delegatePub], grant);
+      }
+      if (hubRelayClient?.postDelegateGrant) {
+        await hubRelayClient.postDelegateGrant(grant);
+      }
+      res.json({ stored: true, delegatePub: grant.delegatePub, revoked: !!grant.revokedAt });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
   });
 
   app.get('/api/support/faq-bundle', async (_req, res) => {

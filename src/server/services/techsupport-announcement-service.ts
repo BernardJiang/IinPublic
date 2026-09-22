@@ -12,9 +12,30 @@ import { loadTechSupportPairSync } from '../security/techsupport-key-custody';
 
 type SeaPair = { pub: string; epub: string; priv: string; epriv: string };
 
-function configuredPair(): SeaPair | null {
-  if (!process.env.TECHSUPPORT_KEY_FILE && !process.env.TECHSUPPORT_SEA_PAIR_JSON) return null;
-  const pair = loadTechSupportPairSync() as SeaPair;
+type TechSupportKeyEnvironment = Record<string, string | undefined>;
+
+/**
+ * OPEN-27: the public production relay is a verifier/publisher, never a TechSupport signer.
+ * Refuse the configuration before reading or decrypting any key material so a copied `.env.local`
+ * cannot silently turn a relay compromise into a root-key compromise.
+ */
+export function configuredTechSupportPair(
+  env: TechSupportKeyEnvironment = process.env as TechSupportKeyEnvironment,
+): SeaPair | null {
+  const hasKeySource = !!(env.TECHSUPPORT_KEY_FILE || env.TECHSUPPORT_SEA_PAIR_JSON);
+  const hasPrivateConfiguration = !!(
+    hasKeySource ||
+    env.TECHSUPPORT_KEY_PASSPHRASE_FILE ||
+    env.TECHSUPPORT_KEY_PASSPHRASE
+  );
+  if (env.NODE_ENV === 'production' && hasPrivateConfiguration) {
+    throw new Error(
+      'Refusing to load a TechSupport private key in the production relay. ' +
+      'Remove all TECHSUPPORT_KEY_* and TECHSUPPORT_SEA_PAIR_JSON settings; use the local delegate tool.',
+    );
+  }
+  if (!hasKeySource) return null;
+  const pair = loadTechSupportPairSync({ env }) as SeaPair;
   if (pair.pub !== currentTechSupportAnnouncementPub()) {
     throw new Error(
       `Configured TechSupport announcement key (${pair.pub}) is not the current announcement key.`,
@@ -26,7 +47,7 @@ function configuredPair(): SeaPair | null {
 export class TechSupportAnnouncementService {
   private pair: SeaPair | null;
 
-  constructor(private gunService: GunService, pair = configuredPair()) {
+  constructor(private gunService: GunService, pair = configuredTechSupportPair()) {
     this.pair = pair;
   }
 

@@ -13,7 +13,10 @@ import {
   signTechSupportIdentity,
 } from '../../shared/system-announcements';
 import { TECHSUPPORT_NETWORK_ROLE, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
-import { TechSupportAnnouncementService } from '../../server/services/techsupport-announcement-service';
+import {
+  configuredTechSupportPair,
+  TechSupportAnnouncementService,
+} from '../../server/services/techsupport-announcement-service';
 import { sealPair } from '../../server/security/techsupport-key-custody';
 
 describe('system announcements', () => {
@@ -99,6 +102,25 @@ describe('system announcements', () => {
       ['public', 'techsupport-identity'],
       expect.objectContaining({ userId: TECHSUPPORT_ROOT_USER_ID, role: TECHSUPPORT_NETWORK_ROLE }),
     );
+  });
+
+  it('fails closed before reading a TechSupport key configured on a production relay (OPEN-27)', () => {
+    expect(() => configuredTechSupportPair({
+      NODE_ENV: 'production',
+      TECHSUPPORT_KEY_FILE: '/must/not/be/read/techsupport.key.json',
+    })).toThrow('Refusing to load a TechSupport private key in the production relay');
+
+    expect(() => configuredTechSupportPair({
+      NODE_ENV: 'production',
+      TECHSUPPORT_SEA_PAIR_JSON: '{not-even-parsed}',
+    })).toThrow('Refusing to load a TechSupport private key in the production relay');
+
+    expect(() => configuredTechSupportPair({
+      NODE_ENV: 'production',
+      TECHSUPPORT_KEY_PASSPHRASE_FILE: '/must/not/be/read/passphrase',
+    })).toThrow('Refusing to load a TechSupport private key in the production relay');
+
+    expect(configuredTechSupportPair({ NODE_ENV: 'production' })).toBeNull();
   });
 
   it('loads the optional announcement signer from an encrypted production vault', async () => {

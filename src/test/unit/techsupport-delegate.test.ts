@@ -4,6 +4,7 @@ import {
   signDelegateGrant,
   verifyDelegateGrant,
   verifyValidDelegateGrant,
+  isDelegateGrantRollback,
   isValidDelegateGrant,
   isTrustedTechSupportAuthorPub,
   type TechSupportDelegateGrant,
@@ -14,9 +15,10 @@ import { describeWithRealTechSupportPair } from '../support/techsupport-real-pai
 
 const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 const PAST = new Date(Date.now() - 1000).toISOString();
+const OLDER = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
 
 function issuer(devPair: TechSupportSeaPair) {
-  return async function issueGrant(overrides: Partial<{ delegatePub: string; delegateUserId: string; label: string; expiresAt: string; revokedAt: string | null }> = {}): Promise<TechSupportDelegateGrant> {
+  return async function issueGrant(overrides: Partial<{ delegatePub: string; delegateUserId: string; label: string; issuedAt: string; expiresAt: string; revokedAt: string | null }> = {}): Promise<TechSupportDelegateGrant> {
     const delegatePair = await SEA.pair();
     return signDelegateGrant(
       {
@@ -40,6 +42,16 @@ describeWithRealTechSupportPair('techsupport-delegate (docs/TODO.md K7)', (devPa
     expect(verified).not.toBeNull();
     expect(verified?.masterPub).toBe(TECHSUPPORT_PUB);
     expect(isValidDelegateGrant(verified)).toBe(true);
+  });
+
+  it('normalizes GunService Date timestamps back to the signed wire form', async () => {
+    const grant = await issueGrant();
+    const serverRead = {
+      ...grant,
+      issuedAt: new Date(grant.issuedAt),
+      expiresAt: new Date(grant.expiresAt),
+    };
+    await expect(verifyDelegateGrant(serverRead)).resolves.toEqual(grant);
   });
 
   it('rejects a grant signed by an untrusted key', async () => {
@@ -71,14 +83,14 @@ describeWithRealTechSupportPair('techsupport-delegate (docs/TODO.md K7)', (devPa
   });
 
   it('isValidDelegateGrant rejects an expired grant even with a valid signature', async () => {
-    const grant = await issueGrant({ expiresAt: PAST });
+    const grant = await issueGrant({ issuedAt: OLDER, expiresAt: PAST });
     const verified = await verifyDelegateGrant(grant);
     expect(verified).not.toBeNull();
     expect(isValidDelegateGrant(verified)).toBe(false);
   });
 
   it('isValidDelegateGrant rejects a revoked grant even before its expiry', async () => {
-    const grant = await issueGrant({ revokedAt: new Date().toISOString() });
+    const grant = await issueGrant({ issuedAt: OLDER, revokedAt: new Date().toISOString() });
     const verified = await verifyDelegateGrant(grant);
     expect(verified).not.toBeNull();
     expect(isValidDelegateGrant(verified)).toBe(false);
@@ -86,7 +98,7 @@ describeWithRealTechSupportPair('techsupport-delegate (docs/TODO.md K7)', (devPa
 
   it('verifyValidDelegateGrant combines signature and validity in one call', async () => {
     const valid = await issueGrant();
-    const expired = await issueGrant({ expiresAt: PAST });
+    const expired = await issueGrant({ issuedAt: OLDER, expiresAt: PAST });
     expect(await verifyValidDelegateGrant(valid)).not.toBeNull();
     expect(await verifyValidDelegateGrant(expired)).toBeNull();
   });
@@ -103,12 +115,12 @@ describeWithRealTechSupportPair('techsupport-delegate (docs/TODO.md K7)', (devPa
   });
 
   it('isTrustedTechSupportAuthorPub rejects a pub with an expired grant', async () => {
-    const grant = await issueGrant({ expiresAt: PAST });
+    const grant = await issueGrant({ issuedAt: OLDER, expiresAt: PAST });
     expect(await isTrustedTechSupportAuthorPub(grant.delegatePub, async () => grant)).toBe(false);
   });
 
   it('isTrustedTechSupportAuthorPub rejects a pub with a revoked grant', async () => {
-    const grant = await issueGrant({ revokedAt: new Date().toISOString() });
+    const grant = await issueGrant({ issuedAt: OLDER, revokedAt: new Date().toISOString() });
     expect(await isTrustedTechSupportAuthorPub(grant.delegatePub, async () => grant)).toBe(false);
   });
 
@@ -128,5 +140,31 @@ describeWithRealTechSupportPair('techsupport-delegate (docs/TODO.md K7)', (devPa
 
   it('delegateGrantPath produces the expected Gun path', () => {
     expect(delegateGrantPath('abc')).toEqual(['techsupport-delegates', 'abc']);
+  });
+
+});
+
+describe('delegate grant relay rollback protection (OPEN-27)', () => {
+  const grant = (issuedAt: string, revokedAt: string | null = null): TechSupportDelegateGrant => ({
+    delegatePub: 'delegate-pub',
+    delegateUserId: 'delegate-user',
+    label: 'Support phone',
+    issuedAt,
+    expiresAt: '2026-12-01T00:00:00.000Z',
+    revokedAt,
+    masterPub: 'root-pub',
+    signature: `signature-${issuedAt}-${revokedAt || 'active'}`,
+  });
+
+  it('rejects replaying an older or pre-revocation grant over newer relay knowledge', () => {
+    const older = grant('2026-09-01T00:00:00.000Z');
+    const active = grant('2026-09-20T00:00:00.000Z');
+    const revoked = grant('2026-09-20T00:00:00.000Z', '2026-09-21T00:00:00.000Z');
+    const reissued = grant('2026-09-22T00:00:00.000Z');
+
+    expect(isDelegateGrantRollback(revoked, active)).toBe(true);
+    expect(isDelegateGrantRollback(active, older)).toBe(true);
+    expect(isDelegateGrantRollback(revoked, revoked)).toBe(false);
+    expect(isDelegateGrantRollback(revoked, reissued)).toBe(false);
   });
 });

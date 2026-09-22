@@ -66,6 +66,41 @@ TECHSUPPORT_KEY_PASSPHRASE_FILE=secrets/techsupport-master.passphrase
 `TECHSUPPORT_SEA_PAIR_JSON` remains supported only so existing developer environments can migrate;
 it is not an approved production storage method.
 
+## Issue and revoke delegates without a root browser session
+
+The public relay must remain keyless. On the dedicated operator machine, use the local delegate
+tool to decrypt the vault, sign one public credential in a short-lived Node process, and publish
+only that signed credential over HTTPS:
+
+```bash
+export TECHSUPPORT_KEY_FILE="$PWD/secrets/techsupport-master.key.json"
+export TECHSUPPORT_KEY_PASSPHRASE_FILE="$PWD/secrets/techsupport-master.passphrase"
+
+npm run techsupport:delegate -- issue \
+  --api-base https://www.iinpublic.com \
+  --delegate-user-id '<ordinary-user-id>' \
+  --delegate-pub '<independently-verified-user-pub>' \
+  --label 'Support phone' \
+  --ttl-days 30
+```
+
+Verify the delegate public-key fingerprint with that operator over an independent channel before
+issuing. The user id is used for encrypted mailbox routing; the public key is the signed authority.
+Both must belong to the same ordinary identity.
+
+Revoke the current grant by public key:
+
+```bash
+npm run techsupport:delegate -- revoke \
+  --api-base https://www.iinpublic.com \
+  --delegate-pub '<delegate-pub>'
+```
+
+Use `--dry-run` to sign and print the public credential without publishing it. HTTP is refused
+except for loopback development. The command clears its in-process references to `priv` and
+`epriv` before exit; JavaScript strings cannot guarantee physical memory zeroization, so the
+operator host remains a trusted boundary.
+
 ## Rotation procedure
 
 Rotation is deliberately staged across releases. Never jump straight to activation: old clients

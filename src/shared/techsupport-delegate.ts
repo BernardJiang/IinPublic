@@ -40,6 +40,12 @@ export type UnsignedDelegateGrant = Omit<TechSupportDelegateGrant, 'signature'>;
 export const DELEGATE_GRANT_DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const DELEGATE_GRANT_MAX_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
+function normalizedTimestamp(value: unknown): string | null {
+  if (typeof value === 'string' && value) return value;
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString();
+  return null;
+}
+
 export function delegateGrantSigningPayload(grant: UnsignedDelegateGrant): string {
   return canonicalSerialize({
     kind: 'techsupport-delegate-grant',
@@ -95,15 +101,35 @@ export async function verifyDelegateGrant(value: unknown): Promise<TechSupportDe
   }
   if (!isTrustedTechSupportDmPub(candidate.masterPub)) return null;
 
+  // GunService deserializes ISO strings to Date objects on server reads. Normalize them back to
+  // the exact signed wire representation before canonical verification; browser/Gun wire callers
+  // already supply strings.
+  const issuedAt = normalizedTimestamp(candidate.issuedAt);
+  const expiresAt = normalizedTimestamp(candidate.expiresAt);
+  const revokedAt = candidate.revokedAt === null ? null : normalizedTimestamp(candidate.revokedAt);
+  if (!issuedAt || !expiresAt || (candidate.revokedAt !== null && !revokedAt)) return null;
+
   const unsigned: UnsignedDelegateGrant = {
     delegatePub: candidate.delegatePub,
     delegateUserId: candidate.delegateUserId,
     label: candidate.label,
-    issuedAt: candidate.issuedAt,
-    expiresAt: candidate.expiresAt,
-    revokedAt: candidate.revokedAt ?? null,
+    issuedAt,
+    expiresAt,
+    revokedAt,
     masterPub: candidate.masterPub,
   };
+  const issuedAtMs = new Date(unsigned.issuedAt).getTime();
+  const expiresAtMs = new Date(unsigned.expiresAt).getTime();
+  const revokedAtMs = unsigned.revokedAt ? new Date(unsigned.revokedAt).getTime() : null;
+  if (
+    !Number.isFinite(issuedAtMs) ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= issuedAtMs ||
+    expiresAtMs - issuedAtMs > DELEGATE_GRANT_MAX_TTL_MS ||
+    (revokedAtMs !== null && (!Number.isFinite(revokedAtMs) || revokedAtMs < issuedAtMs))
+  ) {
+    return null;
+  }
   try {
     const verified = await SEA.verify(candidate.signature, candidate.masterPub);
     const recovered = typeof verified === 'string' ? verified : canonicalSerialize(verified);
@@ -124,6 +150,30 @@ export function isValidDelegateGrant(
   const expiry = new Date(grant.expiresAt).getTime();
   if (!Number.isFinite(expiry)) return false;
   return expiry > now.getTime();
+}
+
+/**
+ * Relay-side anti-rollback rule for the one-record-per-delegate v1 graph shape. It makes retries
+ * idempotent, permits an explicitly newer re-issue, and refuses an older signed grant (including
+ * the pre-revocation form of the same issue) from replacing newer knowledge. Direct untrusted Gun
+ * writes still require the versioned/tombstone work tracked by OPEN-27.
+ */
+export function isDelegateGrantRollback(
+  current: TechSupportDelegateGrant,
+  incoming: TechSupportDelegateGrant,
+): boolean {
+  if (current.delegatePub !== incoming.delegatePub) return true;
+  const currentIssued = new Date(current.issuedAt).getTime();
+  const incomingIssued = new Date(incoming.issuedAt).getTime();
+  if (!Number.isFinite(incomingIssued)) return true;
+  if (!Number.isFinite(currentIssued)) return false;
+  if (incomingIssued < currentIssued) return true;
+  if (incomingIssued > currentIssued) return false;
+  if (current.revokedAt && !incoming.revokedAt) return true;
+  if (current.revokedAt && incoming.revokedAt) {
+    return new Date(incoming.revokedAt).getTime() < new Date(current.revokedAt).getTime();
+  }
+  return false;
 }
 
 /** Signature-verify AND validity-check in one call — the common case for a trust decision. */

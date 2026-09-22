@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-09-20.
+Last reconciled: 2026-09-21.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -19,9 +19,48 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-There are currently no open website/Android items. OPEN-13 and the website/Android portion of
-OPEN-06 were completed on physical Android hardware on 2026-09-20; evidence is in
-`docs/completed.md`. Promote a deferred issue only when the product owner changes the focus.
+The balanced production-security decision is documented in
+`docs/security/techsupport-and-user-production-security.md`. Implement it in this order; keep the
+ordinary-user browser-v3 and Android Keystore defaults automatic and do not introduce HSM/seed
+phrase complexity into normal use.
+
+- [ ] **OPEN-27 — Remove the TechSupport root from the production browser/relay boundary.**
+  Enforce keyless production-relay startup. Add a local root-control path that can issue and revoke
+  short-lived delegate grants while sending only signed public records to the relay. Migrate every
+  remaining rare root operation to a local signer/decrypter or offline command, then delete the
+  `iinpublic_techsupport_keypair_v1` browser injection and retire the persistent root agent. Prove
+  with tests that production relay startup rejects `TECHSUPPORT_KEY_FILE` and legacy plaintext-key
+  configuration, invalid delegate grants are rejected, and normal website/Android support via a
+  delegate does not expose the root pair.
+  - [x] Fail production relay startup before reading a configured TechSupport vault or legacy key.
+  - [x] Add `npm run techsupport:delegate -- issue|revoke`: signing stays in a short-lived local
+    Node process and the relay receives/verifies only the signed public grant.
+  - [ ] Add monotonic grant revision/revocation semantics so an older signed grant cannot be
+    replayed after revocation, including direct Gun/embedded-node paths.
+  - [ ] Move the remaining root-only operations behind local commands or a narrow native signer and
+    cover the website/Android delegate path without a root browser session.
+  - [ ] Remove `iinpublic_techsupport_keypair_v1`, `dev:techsupport`/root-agent injection, and every
+    production code path that exposes `priv`/`epriv` to page JavaScript.
+
+- [ ] **OPEN-28 — Split TechSupport authority by role.** Introduce a versioned identity protocol
+  with separate offline root/delegation authority, support DM/decryption operator keys, and a
+  limited announcement signer. Give each role a distinct trust anchor, rotation window, and
+  compromise procedure; do not make the online announcement role capable of reading questions,
+  issuing delegates, or signing identity continuity.
+
+- [ ] **OPEN-29 — Add an independent emergency recovery authority.** Pin an offline recovery key
+  or a small threshold of recovery keys before an incident. Define a signed revocation/next-anchor
+  record that clients can authenticate without trusting the compromised TechSupport root or the
+  relay. Cover stale website caches, installed Android versions, overlap, rollback, and forced
+  retirement in unit and cross-client tests.
+
+- [ ] **OPEN-30 — Harden website release integrity and the browser execution boundary.** Remove
+  CSP `unsafe-eval` where production dependencies permit, separate development-only policy, add
+  release-integrity monitoring/reproducible artifact checks, and test that untrusted content cannot
+  become executable markup. Treat CSP as defense in depth rather than private-key custody.
+
+OPEN-13 and the website/Android portion of OPEN-06 were completed on physical Android hardware on
+2026-09-20; evidence is in `docs/completed.md`.
 
 All other standalone Android and Mac↔Android matrix work is complete: logical device selection,
 directional browser/app pairs, multi-phone convergence, background/foreground, force-stop/restart,
@@ -116,6 +155,10 @@ only when it receives an owner and product scope.
    credit/reputation.
 10. **DEFERRED-10 — React Native/Expo product effort.** The measured React DOM pilot was rejected;
     native presentation work requires a separate owner, budget, and migration plan.
+11. **DEFERRED-11 — Enterprise TechSupport custody controls.** Consider HSM/KMS-backed signing,
+    hardware tokens, threshold/two-person approval, centralized monitoring, and formal external
+    audit only when product scale, staffing, regulation, or measured threat level justifies their
+    operating cost. OPEN-27 through OPEN-30 must not depend on these controls.
 
 ## Verification rules
 

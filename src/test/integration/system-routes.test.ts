@@ -11,7 +11,14 @@ import {
 import { peerAckSigningPayload } from '../../shared/p2p-presence';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 
-function buildApp(nodeEnv = 'test', hubRelayClient?: EmbeddedHubRelayClientLike) {
+function buildApp(
+  nodeEnv = 'test',
+  hubRelayClient?: EmbeddedHubRelayClientLike,
+  supportGrantDeps: {
+    gunService?: any;
+    verifyTechSupportDelegateGrant?: jest.Mock;
+  } = {},
+) {
   const app = express();
   app.use(express.json());
   const gun = {
@@ -29,6 +36,7 @@ function buildApp(nodeEnv = 'test', hubRelayClient?: EmbeddedHubRelayClientLike)
     clearForTesting: jest.fn(),
     nodeEnv,
     ...(hubRelayClient ? { hubRelayClient } : {}),
+    ...supportGrantDeps,
   });
   return { app, gun };
 }
@@ -533,5 +541,78 @@ describe('system routes', () => {
         expect.objectContaining({ id: 'support_remote', text: 'From another device' }),
       ]),
     );
+  });
+
+  it('stores only a verified root-signed delegate grant submitted by the local operator tool (OPEN-27)', async () => {
+    const grant = {
+      delegatePub: 'delegate-pub',
+      delegateUserId: 'delegate-user',
+      label: 'Support phone',
+      issuedAt: '2026-09-21T00:00:00.000Z',
+      expiresAt: '2026-10-21T00:00:00.000Z',
+      revokedAt: null,
+      masterPub: 'root-pub',
+      signature: 'signed-grant',
+    };
+    const gunService = {
+      getPath: jest.fn().mockResolvedValue(null),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const verifyTechSupportDelegateGrant = jest.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(grant);
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      verifyTechSupportDelegateGrant,
+    });
+
+    const rejected = await request(app)
+      .post('/api/support/delegate-grants')
+      .send({ ...grant, signature: 'forged' });
+    expect(rejected.status).toBe(400);
+    expect(gunService.putPath).not.toHaveBeenCalled();
+
+    const accepted = await request(app)
+      .post('/api/support/delegate-grants')
+      .send(grant);
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toEqual({ stored: true, delegatePub: 'delegate-pub', revoked: false });
+    expect(gunService.putPath).toHaveBeenCalledWith(
+      ['techsupport-delegates', 'delegate-pub'],
+      grant,
+    );
+  });
+
+  it('rejects replay of a signed pre-revocation delegate grant on the HTTP path (OPEN-27)', async () => {
+    const active = {
+      delegatePub: 'delegate-pub',
+      delegateUserId: 'delegate-user',
+      label: 'Support phone',
+      issuedAt: '2026-09-01T00:00:00.000Z',
+      expiresAt: '2026-10-01T00:00:00.000Z',
+      revokedAt: null,
+      masterPub: 'root-pub',
+      signature: 'old-active-signature',
+    };
+    const revoked = {
+      ...active,
+      revokedAt: '2026-09-21T00:00:00.000Z',
+      signature: 'revocation-signature',
+    };
+    const gunService = {
+      getPath: jest.fn().mockResolvedValue(revoked),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      verifyTechSupportDelegateGrant: jest.fn(async (value: any) => value),
+    });
+
+    const response = await request(app)
+      .post('/api/support/delegate-grants')
+      .send(active);
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain('newer or revoked');
+    expect(gunService.putPath).not.toHaveBeenCalled();
   });
 });
