@@ -8,10 +8,10 @@ export const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
  * announcement and DM anchor lists below both hold it; rotation is via those lists (K3-2), not
  * by editing this constant.
  *
- * The **private** halves live off the client: the DM key on the TechSupport device (replicated
- * across operator machines per K3-4), the announcement key on the relay. Neither is ever
- * compiled into the client bundle — see `assertTechSupportDmPair()` below and
- * `scripts/dev-techsupport-login.js`.
+ * The **private** halves are never compiled into the client bundle or placed on the public relay.
+ * The current protocol uses one pair for both roles, held in the operator's encrypted vault; the
+ * keyless relay publishes committed pre-signed artifacts. See `assertTechSupportDmPair()` below,
+ * `scripts/dev-techsupport-login.js`, and the production security policy.
  *
  * Rotated 2026-09-16: the original value here was a development placeholder whose private half
  * was committed in plaintext across multiple E2E fixture files (`DEV_PAIR`) — in a public repo,
@@ -39,11 +39,11 @@ export const TECHSUPPORT_PUB = trustAnchors.dm.current;
 /**
  * Two keys, two trust anchors (decision K3-1, docs/TODO.md).
  *
- * - **Announcement key** — held by the relay; signs system announcements.
- * - **DM key** — held by the TechSupport *device*; signs greetings, FAQ bundles, and support
- *   replies. Deliberately kept off the relay even under the K3-4 redundancy decision: if the
- *   relay could sign DMs, a relay compromise could author messages as TechSupport, which is
- *   exactly what K2's signature requirement exists to prevent.
+ * - **Announcement key** — intended for a future separate, limited online signer; currently the
+ *   operator signs committed announcement/identity artifacts and the relay stays keyless.
+ * - **DM key** — held by the TechSupport root operator; signs greetings, FAQ bundles, delegate
+ *   grants, and support replies. It is deliberately kept off the relay: if the relay could sign
+ *   DMs, relay compromise could author messages as TechSupport.
  *
  * Both lists currently hold the same key (rotated 2026-09-16, see TECHSUPPORT_PUB's own doc
  * comment), so nothing changes behaviourally until a separate device key is generated for the

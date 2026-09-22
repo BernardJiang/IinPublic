@@ -553,92 +553,42 @@ protection against abuse is the short credential TTL plus this quota, not gateke
 ask for credentials. Raise the quota if legitimate concurrent usage ever needs it; there's no
 reason to raise it preemptively.
 
-## 14. Run the headless TechSupport agent
+## 14. Keep the TechSupport root off the VPS
 
-`scripts/techsupport-agent.js` (`npm run techsupport:agent`) drives a headless Chromium instance
-authenticated as TechSupport, so a real TechSupport session can stay online — greeting/FAQ bundle
-verifiable, presence maintained — without a developer leaving a visible browser tab open on their
-own machine. It reuses the exact same tested `answerSupportQuestion` code path a human operator
-exercises through `npm run dev:techsupport`; see the file's own header comment and
-`docs/design/techsupport-k7-design-note.md` for the full design.
+Normal relay startup publishes the committed, pre-signed TechSupport identity and Global presence
+floor without any private key. Keep all `TECHSUPPORT_KEY_*` and
+`TECHSUPPORT_SEA_PAIR_JSON` variables unset in the VPS environment. Do not install the root vault,
+run `npm run techsupport:agent`, or create a TechSupport `systemd`/`tmux` process on this host.
 
-**This is not a fully unattended bot.** A human still reads and types every answer over the
-process's stdin — auto-answering of previously-answered questions already happens independently,
-client-side, from each asker's own cached FAQ bundle. That means it needs a real terminal attached
-to type into, which rules out a plain `systemd` unit with no TTY (it would start, log a warning,
-and then sit unable to answer anything — see the `isTTY` check in the script). Run it inside
-`tmux` (or `screen`) instead, which persists across SSH disconnects and lets an operator attach
-and detach at will:
+Use short-lived delegate accounts on normal application devices for routine support. The root is
+needed only for rare control operations such as issuing/revoking delegates, signing controlled
+artifacts, or rotating trust anchors.
 
-``` bash
-# One-time, on the VPS: install the browser binary Playwright needs (dev dependencies are
-# already installed per §3; this only pulls the Chromium binary + OS libs for headless launch).
-cd ~/IinPublic
-npx playwright install --with-deps chromium
-```
-
-The preferred deployment keeps the root key off the VPS entirely and runs this operator process on
-a dedicated machine pointed at the live URL. If this VPS must host the process, copy only the
-**encrypted** vault into the gitignored `secrets/` directory, use mode `600`, and follow
-`docs/security/techsupport-key-custody-and-rotation.md` for backups and rotation. Add to
-`~/IinPublic/.env.local` (create it if it doesn't exist yet — never commit it):
+The current `scripts/techsupport-agent.js` is an interim operator tool: it decrypts the root pair
+and injects it into browser `localStorage`, where same-origin JavaScript can read it. If a root
+operation cannot wait for the planned local signer/decrypter boundary, run the agent briefly on a
+dedicated operator machine with no browser extensions after verifying the deployed application
+release. Close the process immediately afterward; do not leave it online for presence or daily
+answers. Its local `.env.local` may contain:
 
 ``` bash
-# The encrypted vault is mode 600. Keep its passphrase in a separately protected mode-600 file;
-# a system secret/credential manager is preferable to storing both on the same host.
-TECHSUPPORT_KEY_FILE=/home/ubuntu/IinPublic/secrets/techsupport-master.key.json
-TECHSUPPORT_KEY_PASSPHRASE_FILE=/home/ubuntu/.config/iinpublic/techsupport-vault.passphrase
-# Point the agent at the live site rather than a local dev server.
+TECHSUPPORT_KEY_FILE=/secure/local/path/techsupport-master.key.json
+TECHSUPPORT_KEY_PASSPHRASE_FILE=/separate/local/path/techsupport-vault.passphrase
 TECHSUPPORT_APP_URL=https://www.iinpublic.com
 ```
 
-Start it in a named tmux session so it survives your SSH session ending:
-
-``` bash
-tmux new -s techsupport-agent
-npm run techsupport:agent
-# Ctrl-b then d to detach; the process keeps running.
-```
-
-Reattach later to answer pending questions or check on it:
-
-``` bash
-tmux attach -t techsupport-agent
-```
-
-If the process (or the tmux session itself) ever dies unexpectedly, just re-run the same
-`tmux new -s techsupport-agent` / `npm run techsupport:agent` pair — there is no separate restart
-command. `TECHSUPPORT_AGENT_POLL_MS` (default 5000) controls how often it polls the inbox.
-
-The legacy plaintext `TECHSUPPORT_SEA_PAIR_JSON` variable is migration-only and must not be placed
-in the production VPS environment. Verify the vault before starting the agent:
+Before that short session, verify the encrypted vault without printing private material:
 
 ``` bash
 npm run techsupport:key -- verify --key "$TECHSUPPORT_KEY_FILE"
+npm run techsupport:agent
 ```
 
-If you only want the "stay verifiable and present" behavior with nobody attached to answer
-questions live, a plain `systemd` unit is fine — just go in with the `isTTY` warning being
-expected, not a bug:
-
-``` ini
-[Unit]
-Description=IinPublic TechSupport headless agent (presence only, no interactive answering)
-After=network.target iinpublic.service
-Wants=iinpublic.service
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/IinPublic
-EnvironmentFile=/home/ubuntu/IinPublic/.env.local
-ExecStart=/usr/bin/npm run techsupport:agent
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
+The legacy plaintext `TECHSUPPORT_SEA_PAIR_JSON` variable is migration-only and must never be
+placed in a production environment. Follow
+`docs/security/techsupport-key-custody-and-rotation.md` for vault generation and rotation, and
+`docs/security/techsupport-and-user-production-security.md` for the approved balanced posture and
+the limitations of this interim session.
 
 ## Troubleshooting
 

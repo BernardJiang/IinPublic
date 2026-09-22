@@ -5,10 +5,15 @@ This runbook is the production contract for the TechSupport root key. The privat
 history, logs, issue tracker, or chat. The relay publishes committed signed artifacts and therefore
 does not need the private key during normal operation.
 
+The security rationale, balanced controls for ordinary users, and staged hardening roadmap are in
+[`techsupport-and-user-production-security.md`](techsupport-and-user-production-security.md).
+
 ## Custody model
 
-- Keep the primary encrypted vault on a dedicated operator machine. Run the interactive
-  TechSupport agent there and point it at production with `TECHSUPPORT_APP_URL`.
+- Keep the primary encrypted vault on a dedicated operator machine. Do not place it on the public
+  relay/VPS. Until the local signer boundary replaces browser `localStorage` injection, use the
+  root only from a reviewed/pinned local application build for short control operations; use
+  delegates for routine support.
 - Keep at least two offline encrypted backups on different media, with one in a different physical
   location. Test a restore and signing verification at least quarterly.
 - Store the vault passphrase separately in the team's password manager. For automation, inject it
