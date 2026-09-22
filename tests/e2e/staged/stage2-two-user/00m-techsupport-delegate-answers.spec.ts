@@ -11,6 +11,7 @@ import { expectCurrentUserIsTechSupportRoot } from '../../helpers/techsupport-co
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { loadRealTechSupportPair } from '../../helpers/techsupport-real-pair';
+import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 // Rotated 2026-09-16: the real TechSupport signing key lives only in this machine's own
 // `.env.local` (never committed — see techsupport.ts's TECHSUPPORT_PUB doc comment), loaded at
@@ -107,6 +108,9 @@ test.describe('TechSupport delegation: master issues a grant, a delegate answers
     await afterNav();
     await danaPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    // Settings is a menu-first drill-down (3503cf13) — Dana's delegate-invite entry form lives
+    // behind its own jump-menu item now, not visible on the Settings landing view.
+    await openSettingsSection(danaPage, SETTINGS_SECTION.supportDelegate);
     await danaPage.fill('#support-delegate-invite-code-input', inviteCode);
     await danaPage.click('#support-delegate-invite-code-submit');
     await expect(danaPage.locator('#support-delegate-invite-code-status')).toBeVisible({ timeout: 10_000 });
@@ -126,6 +130,7 @@ test.describe('TechSupport delegation: master issues a grant, a delegate answers
     await afterNav();
     await danaPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await openSettingsSection(danaPage, SETTINGS_SECTION.supportDelegate);
     const optInToggle = danaPage.locator('#support-delegate-optin-toggle');
     await expect(optInToggle).toBeVisible({ timeout: 20_000 });
     await expect(optInToggle).not.toBeChecked();

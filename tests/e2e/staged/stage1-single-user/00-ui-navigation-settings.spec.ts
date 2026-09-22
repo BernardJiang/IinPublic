@@ -273,7 +273,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(createRoomModal).toContainText('创建社区或商业房间');
     await expect(p.locator('#custom-room-type option[value="custom"]')).toHaveText('社区 / 自定义');
     await expect(p.locator('#custom-room-type option[value="business"]')).toHaveText('商业');
-    await expect(p.locator('#custom-room-capacity')).toHaveAttribute('placeholder', '默认 50');
+    // Capacity is unified for all rooms (77d25137) — no per-room capacity input anymore.
+    await expect(p.locator('#custom-room-capacity')).toHaveCount(0);
     await expect(p.locator('[data-testid="custom-room-submit-btn"]')).toHaveText('创建');
     await p.locator('#cancel-custom-room-btn').click();
     await p.evaluate(() => {
@@ -793,7 +794,7 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#custom-room-business-headline').fill(headline);
     await p.locator('#custom-room-name').fill(roomName);
     await p.locator('#custom-room-description').fill(description);
-    await p.locator('#custom-room-capacity').fill('120');
+    // Capacity is unified for all rooms (77d25137) — no per-room capacity input anymore.
     await p.locator('[data-testid="custom-room-submit-btn"]').click();
 
     await expect

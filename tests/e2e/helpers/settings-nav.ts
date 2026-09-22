@@ -68,4 +68,5 @@ export const SETTINGS_SECTION = {
   eraseDevice: 'settings-section-erase-device',
   storageInspector: 'settings-storage-inspector',
   help: 'settings-section-help',
+  supportDelegate: 'settings-section-support-delegate',
 } as const;
