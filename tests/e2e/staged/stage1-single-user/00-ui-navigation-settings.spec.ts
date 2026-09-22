@@ -235,6 +235,23 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#storage-inspector-server')).toContainText('当前成员映射');
     await backToSettingsMenu(p);
 
+    // Settings → Help browsable FAQ (docs/TODO.md K5): same curated Q&A that seeds
+    // TechSupport's DM auto-answer bundle, rendered directly so a user can look something up
+    // without needing to DM TechSupport and match its exact wording. Still in zh from the
+    // language switch above.
+    await openSettingsSection(p, SETTINGS_SECTION.help);
+    await expect(p.locator('#settings-content')).toContainText('常见问题');
+    const faqList = p.locator('[data-testid="settings-faq-list"]');
+    await expect(faqList).toBeVisible();
+    await expect(p.locator('[data-testid^="settings-faq-item-"]')).not.toHaveCount(0);
+    const firstFaqQuestion = p.locator('[data-testid="settings-faq-question-0"]');
+    await expect(firstFaqQuestion).toContainText('IinPublic');
+    const firstFaqAnswer = p.locator('[data-testid="settings-faq-answer-0"]');
+    await expect(firstFaqAnswer).toBeHidden(); // <details> starts closed
+    await firstFaqQuestion.click();
+    await expect(firstFaqAnswer).toBeVisible();
+    await backToSettingsMenu(p);
+
     await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
     await p.locator('#settings-max-distance').fill('5');
     await p.locator('#settings-max-distance').press('Tab');

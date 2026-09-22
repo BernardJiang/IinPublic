@@ -9,10 +9,13 @@ import {
   faqBundleToGunWire,
   readCachedFaqBundle,
   readCachedFaqEntries,
+  readSeedFaqBundle,
   subscribeToFaqBundle,
 } from '../../web/services/techsupport-faq-cache';
 import { signFaqBundle, verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { buildSupportFaqEntry } from '../../shared/techsupport-faq';
+import { buildSeedFaqEntries } from '../../shared/techsupport-faq-seed';
+import { TECHSUPPORT_PUB } from '../../shared/techsupport';
 import SEA from 'gun/sea';
 import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
@@ -128,5 +131,21 @@ describeWithRealTechSupportPair('techsupport-faq-cache (docs/TODO.md K5)', (DEV_
       expect(faqBundleFromGunWire(null)).toBeNull();
       expect(faqBundleFromGunWire('a string')).toBe('a string');
     });
+  });
+});
+
+describe('readSeedFaqBundle (docs/TODO.md K5, curated starter FAQ)', () => {
+  it('verifies the committed compiled seed bundle, signed by the trusted DM anchor, without touching Gun or localStorage', async () => {
+    const seed = await readSeedFaqBundle();
+    expect(seed).not.toBeNull();
+    expect(seed?.authorPub).toBe(TECHSUPPORT_PUB);
+    expect(seed?.entries.length).toBe(buildSeedFaqEntries('irrelevant-for-count').length);
+    expect(readCachedFaqBundle()).toBeNull(); // untouched — localStorage.clear() ran in beforeEach
+  });
+
+  it('memoizes — repeated calls return the same verified value', async () => {
+    const first = await readSeedFaqBundle();
+    const second = await readSeedFaqBundle();
+    expect(second).toBe(first);
   });
 });

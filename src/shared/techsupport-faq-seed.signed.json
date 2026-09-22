@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "questionKey": "543f4f4e",
+      "canonicalQuestion": "what is iinpublic",
+      "answer": "IinPublic lets you talk to hundreds of people about hundreds of topics at once. You ask a question (a Talk), other people answer it, and the app surfaces the people whose answers are compatible with yours.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "b5c027c0",
+      "canonicalQuestion": "how do i find people nearby",
+      "answer": "Open Chatrooms and join a room by location or topic. Chatrooms help you discover who is around — the actual conversation still happens one-to-one, in Contacts.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "ef83afea",
+      "canonicalQuestion": "what is a talk",
+      "answer": "A Talk is a question you write in plain language, with the possible answers you're willing to accept. No programming needed. Create one once in the Talks tab, then reuse or share it.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "7cd68a26",
+      "canonicalQuestion": "how do matches work",
+      "answer": "When you and someone else both answer the same Talk in a compatible way, that's a match. Matches show up in Contacts, where you can start a real conversation.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "dd266388",
+      "canonicalQuestion": "where do my past answers go",
+      "answer": "Every question you have answered lives in the Me tab. You can review or change any of your past answers there at any time.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "eb038146",
+      "canonicalQuestion": "is my data private",
+      "answer": "Your identity and private data (blocks, contacts, filters) are encrypted under your own device keys — the server cannot read them. You decide how much of your reputation and answers to show.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "c63f1ab6",
+      "canonicalQuestion": "how do i block someone",
+      "answer": "Open that person's detail view (from Contacts or a chatroom member list) and use Block. Once blocked, they can no longer reach you, and you keep the same control over who reaches you as everyone else.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "1dd957b0",
+      "canonicalQuestion": "how do i replay the app tour",
+      "answer": "Go to Settings → Help & Tour and tap \"Replay Tour\" to see the introduction again.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "2efd8f71",
+      "canonicalQuestion": "how do i change the app language",
+      "answer": "Go to Settings → Appearance to change the display language and color scheme.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "e68ae178",
+      "canonicalQuestion": "why do i need to verify my age",
+      "answer": "Some rooms and Talks are age-gated. Verifying raises your account's trust level so those aren't filtered out for you; it does not share your exact age or birthdate with anyone.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "876ad49c",
+      "canonicalQuestion": "what is techsupport",
+      "answer": "TechSupport is IinPublic's built-in help account — every chatroom includes it. Ask a question here: if it's one we've answered before you'll get an instant reply, otherwise it's queued for a person to answer.",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "bb30fc35",
+      "canonicalQuestion": "什么是 iinpublic",
+      "answer": "IinPublic 让你同时和成百上千的人聊成百上千个话题。你提出一个问题（话题），其他人回答它，应用会把回答和你相合的人展现给你。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "eb75682e",
+      "canonicalQuestion": "怎么找到附近的人",
+      "answer": "打开\"聊天室\"，按地点或话题加入一个房间。聊天室帮你发现附近有谁——真正的对话仍然发生在\"联系人\"里，一对一进行。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "ae4c1fe9",
+      "canonicalQuestion": "什么是话题",
+      "answer": "话题是你用日常语言写的一个问题，附带你愿意接受的可能答案，不需要编程。在\"话题\"标签页创建一次，之后可以复用或分享。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "7178f416",
+      "canonicalQuestion": "匹配是怎么形成的",
+      "answer": "当你和另一个人对同一个话题给出相合的回答时，就形成了匹配。匹配会出现在\"联系人\"里，你可以在那里开始真正的对话。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "d65aa723",
+      "canonicalQuestion": "我以前的回答保存在哪里",
+      "answer": "你回答过的每一个问题都保存在\"我\"标签页，你可以随时查看或修改。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "1cc704bf",
+      "canonicalQuestion": "我的数据是私密的吗",
+      "answer": "你的身份和私密数据（屏蔽名单、联系人、过滤器）都在你自己的设备密钥下加密——服务器无法读取。你自己决定展示多少声誉和回答。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "255576ab",
+      "canonicalQuestion": "怎么屏蔽某人",
+      "answer": "打开对方的详情页（从\"联系人\"或聊天室成员列表进入），使用\"屏蔽\"。屏蔽后对方无法再联系你，你和其他人一样拥有同等的控制权。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "cbbf08a7",
+      "canonicalQuestion": "怎么重新播放导览",
+      "answer": "进入\"设置 → 帮助与导览\"，点击\"重新播放导览\"即可再次查看介绍。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "e6d781e9",
+      "canonicalQuestion": "怎么修改应用语言",
+      "answer": "进入\"设置 → 外观\"可以修改显示语言和配色方案。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "f1356ed7",
+      "canonicalQuestion": "为什么需要年龄验证",
+      "answer": "部分房间和话题设有年龄限制。完成验证会提升你账号的信任等级，这些内容就不会被过滤掉；验证过程不会把你的具体年龄或出生日期分享给任何人。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    },
+    {
+      "questionKey": "801b2053",
+      "canonicalQuestion": "什么是 techsupport",
+      "answer": "TechSupport 是 IinPublic 内置的帮助账号，每个聊天室都包含它。在这里提问：如果是我们回答过的问题会立即得到答复，否则会排队等待人工回复。",
+      "answeredAt": "2026-09-22T03:37:30.578Z"
+    }
+  ],
+  "authorPub": "z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc",
+  "bundleCid": "baguqeerahji4sgqzkaccvtjhbeduc5gujhhonu3zoansxdscqvqvxigymp3a",
+  "signature": "SEA{\"m\":{\"authorPub\":\"z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc\",\"bundleCid\":\"baguqeerahji4sgqzkaccvtjhbeduc5gujhhonu3zoansxdscqvqvxigymp3a\",\"entries\":[{\"answer\":\"IinPublic lets you talk to hundreds of people about hundreds of topics at once. You ask a question (a Talk), other people answer it, and the app surfaces the people whose answers are compatible with yours.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"what is iinpublic\",\"questionKey\":\"543f4f4e\"},{\"answer\":\"Open Chatrooms and join a room by location or topic. Chatrooms help you discover who is around — the actual conversation still happens one-to-one, in Contacts.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"how do i find people nearby\",\"questionKey\":\"b5c027c0\"},{\"answer\":\"A Talk is a question you write in plain language, with the possible answers you're willing to accept. No programming needed. Create one once in the Talks tab, then reuse or share it.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"what is a talk\",\"questionKey\":\"ef83afea\"},{\"answer\":\"When you and someone else both answer the same Talk in a compatible way, that's a match. Matches show up in Contacts, where you can start a real conversation.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"how do matches work\",\"questionKey\":\"7cd68a26\"},{\"answer\":\"Every question you have answered lives in the Me tab. You can review or change any of your past answers there at any time.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"where do my past answers go\",\"questionKey\":\"dd266388\"},{\"answer\":\"Your identity and private data (blocks, contacts, filters) are encrypted under your own device keys — the server cannot read them. You decide how much of your reputation and answers to show.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"is my data private\",\"questionKey\":\"eb038146\"},{\"answer\":\"Open that person's detail view (from Contacts or a chatroom member list) and use Block. Once blocked, they can no longer reach you, and you keep the same control over who reaches you as everyone else.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"how do i block someone\",\"questionKey\":\"c63f1ab6\"},{\"answer\":\"Go to Settings → Help & Tour and tap \\\"Replay Tour\\\" to see the introduction again.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"how do i replay the app tour\",\"questionKey\":\"1dd957b0\"},{\"answer\":\"Go to Settings → Appearance to change the display language and color scheme.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"how do i change the app language\",\"questionKey\":\"2efd8f71\"},{\"answer\":\"Some rooms and Talks are age-gated. Verifying raises your account's trust level so those aren't filtered out for you; it does not share your exact age or birthdate with anyone.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"why do i need to verify my age\",\"questionKey\":\"e68ae178\"},{\"answer\":\"TechSupport is IinPublic's built-in help account — every chatroom includes it. Ask a question here: if it's one we've answered before you'll get an instant reply, otherwise it's queued for a person to answer.\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"what is techsupport\",\"questionKey\":\"876ad49c\"},{\"answer\":\"IinPublic 让你同时和成百上千的人聊成百上千个话题。你提出一个问题（话题），其他人回答它，应用会把回答和你相合的人展现给你。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"什么是 iinpublic\",\"questionKey\":\"bb30fc35\"},{\"answer\":\"打开\\\"聊天室\\\"，按地点或话题加入一个房间。聊天室帮你发现附近有谁——真正的对话仍然发生在\\\"联系人\\\"里，一对一进行。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"怎么找到附近的人\",\"questionKey\":\"eb75682e\"},{\"answer\":\"话题是你用日常语言写的一个问题，附带你愿意接受的可能答案，不需要编程。在\\\"话题\\\"标签页创建一次，之后可以复用或分享。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"什么是话题\",\"questionKey\":\"ae4c1fe9\"},{\"answer\":\"当你和另一个人对同一个话题给出相合的回答时，就形成了匹配。匹配会出现在\\\"联系人\\\"里，你可以在那里开始真正的对话。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"匹配是怎么形成的\",\"questionKey\":\"7178f416\"},{\"answer\":\"你回答过的每一个问题都保存在\\\"我\\\"标签页，你可以随时查看或修改。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"我以前的回答保存在哪里\",\"questionKey\":\"d65aa723\"},{\"answer\":\"你的身份和私密数据（屏蔽名单、联系人、过滤器）都在你自己的设备密钥下加密——服务器无法读取。你自己决定展示多少声誉和回答。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"我的数据是私密的吗\",\"questionKey\":\"1cc704bf\"},{\"answer\":\"打开对方的详情页（从\\\"联系人\\\"或聊天室成员列表进入），使用\\\"屏蔽\\\"。屏蔽后对方无法再联系你，你和其他人一样拥有同等的控制权。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"怎么屏蔽某人\",\"questionKey\":\"255576ab\"},{\"answer\":\"进入\\\"设置 → 帮助与导览\\\"，点击\\\"重新播放导览\\\"即可再次查看介绍。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"怎么重新播放导览\",\"questionKey\":\"cbbf08a7\"},{\"answer\":\"进入\\\"设置 → 外观\\\"可以修改显示语言和配色方案。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"怎么修改应用语言\",\"questionKey\":\"e6d781e9\"},{\"answer\":\"部分房间和话题设有年龄限制。完成验证会提升你账号的信任等级，这些内容就不会被过滤掉；验证过程不会把你的具体年龄或出生日期分享给任何人。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"为什么需要年龄验证\",\"questionKey\":\"f1356ed7\"},{\"answer\":\"TechSupport 是 IinPublic 内置的帮助账号，每个聊天室都包含它。在这里提问：如果是我们回答过的问题会立即得到答复，否则会排队等待人工回复。\",\"answeredAt\":\"2026-09-22T03:37:30.578Z\",\"canonicalQuestion\":\"什么是 techsupport\",\"questionKey\":\"801b2053\"}],\"kind\":\"techsupport-faq-bundle\",\"version\":1},\"s\":\"8FCqwYvTxuWSAmIGqI7J4rCFiKKVhU4Wa5cDL1WuS00JNO7oMZqqdhLHn0GRF9TgHXKB5z/KQ33DG/yC2stbZg==\"}"
+}

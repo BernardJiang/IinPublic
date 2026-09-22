@@ -1,6 +1,7 @@
 import { verifyFaqBundle, faqBundlePath, type SignedFaqBundle } from '../../shared/techsupport-faq-bundle';
 import type { SupportFaqEntry } from '../../shared/techsupport-faq';
 import { fetchGrantLive } from './techsupport-delegate-cache';
+import techsupportFaqSeedBundle from '../../shared/techsupport-faq-seed.signed.json';
 
 /**
  * Local cache of the verified TechSupport FAQ bundle (docs/TODO.md K5, design note §Item 1a/2).
@@ -109,6 +110,22 @@ export function subscribeToFaqBundle(
   };
   ref.on(handler);
   return () => ref.off();
+}
+
+let verifiedSeedFaqBundle: SignedFaqBundle | null | undefined; // undefined = not checked yet
+
+/**
+ * The curated starter FAQ (docs/TODO.md K5, `techsupport-faq-seed.ts`), verified once and
+ * memoized. Compiled straight into the client bundle — unlike `readCachedFaqBundle`, this never
+ * touches Gun or localStorage, so it is available even on a brand-new device that has never
+ * synced anything and even if the TechSupport device has never come online. Verification still
+ * runs (never trust a compiled JSON file blindly) so a corrupted build artifact fails closed
+ * exactly like any other untrusted input.
+ */
+export async function readSeedFaqBundle(): Promise<SignedFaqBundle | null> {
+  if (verifiedSeedFaqBundle !== undefined) return verifiedSeedFaqBundle;
+  verifiedSeedFaqBundle = await verifyFaqBundle(techsupportFaqSeedBundle);
+  return verifiedSeedFaqBundle;
 }
 
 /**

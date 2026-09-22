@@ -21,6 +21,7 @@ import {
   type ColorScheme,
 } from './ui-settings-storage';
 import { renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
+import { renderTechSupportFaqHelpList } from './techsupport-faq-help-view';
 import { avatarInnerHtml } from './profile-avatar';
 import { languageOptionLabel, type UiLanguage, type UiTranslationKey } from './ui-translations';
 import {
@@ -659,7 +660,8 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: deps.t('settingsHelpSubtitle'),
             action: `<button type="button" class="btn" id="settings-replay-walkthrough-btn" data-testid="settings-replay-walkthrough-btn">${deps.t('settingsReplayWalkthrough')}</button>`,
           },
-          '',
+          `<div style="font-weight:600;margin-bottom:8px;">${deps.t('settingsHelpFaqHeading')}</div>
+          ${renderTechSupportFaqHelpList(deps.getUiLanguage())}`,
         )}
         </div>
       </div>

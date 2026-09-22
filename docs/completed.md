@@ -1,6 +1,31 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
+
+## 2026-09-21 — Curated starter FAQ shared by TechSupport and Settings → Help (K5 extension)
+
+- Previously TechSupport's DM FAQ bundle (`techsupport-faq.ts`/`techsupport-faq-bundle.ts`) started
+  genuinely empty — a new user got no auto-answer until a human had answered that exact question
+  once — and Settings → Help had no actual Q&A content, only a "Replay Tour" button. The first-run
+  walkthrough (`onboarding-walkthrough.ts`) separately carried similar explanations, unreachable
+  outside the tour.
+- Added `src/shared/techsupport-faq-seed.ts`: one curated bilingual (en/zh) Q&A list, in
+  TechSupport's voice, covering the same ground as the walkthrough — now the single source both
+  surfaces read from instead of tripling the copy.
+  - `scripts/sign-techsupport-faq-seed.js` (`npm run sign:techsupport-faq-seed`) signs it once
+    with the real TechSupport DM key into `techsupport-faq-seed.signed.json`, mirroring the
+    existing K2 greeting/onboarding-tips compiled-artifact pattern — verifiable and usable even if
+    the TechSupport device has never come online.
+  - `handleSupportQuestion` (app.ts) now falls back to this verified seed bundle when the live,
+    organically-grown bundle misses, before queuing a question for a human; a real human answer
+    for the same question always wins once one exists.
+  - Settings → Help (`techsupport-faq-help-view.ts`) renders the identical content as a browsable,
+    always-available `<details>` list — no DM round-trip or exact-wording luck required, works
+    offline.
+- Verified: full unit suite (2467 tests, including real-signature round-trip and tamper-rejection
+  coverage for the new seed bundle) passes; `test:type` and `lint` clean; `build:web`/`build:server`
+  clean; E2E `00-ui-navigation-settings.spec.ts` (9/9) covers the new Help section rendering,
+  closed-by-default/expand-on-click behavior, and Chinese-locale content.
 
 ## 2026-09-20 — Physical website ↔ Android identity linking (OPEN-13)
 
