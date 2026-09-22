@@ -105,7 +105,10 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
   const pinButtonHtml = (pinKey: string): string => {
     const pinned = pinnedTalkIds.has(pinKey);
     const label = deps.t(pinned ? 'unpinItem' : 'pinItem');
-    return `<button type="button" class="list-pin-button talk-pin-button talk-item-actions ${pinned ? 'is-pinned' : ''}" data-pin-id="${escapeHtml(pinKey)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-pressed="${pinned}">📌</button>`;
+    // Not `.talk-item-actions` — that class means "the dedicated actions row", which
+    // compact rows deliberately have none of (37/79 specs assert its count is 0). Gesture
+    // exclusion for this button goes through `.talk-pin-button` instead (talks-row-gestures.ts).
+    return `<button type="button" class="list-pin-button talk-pin-button ${pinned ? 'is-pinned' : ''}" data-pin-id="${escapeHtml(pinKey)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-pressed="${pinned}">📌</button>`;
   };
 
   // One-time delegation on body: use mousedown so we run before any re-render can replace the DOM (click fires later and target can be gone)

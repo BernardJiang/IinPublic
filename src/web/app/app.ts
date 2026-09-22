@@ -75,6 +75,7 @@ import {
   faqBundleToGunWire,
   readCachedFaqBundle,
   readCachedFaqEntries,
+  readSeedFaqBundle,
   subscribeToFaqBundle,
   fetchFaqBundleFromServer,
 } from '../services/techsupport-faq-cache';
@@ -4104,16 +4105,31 @@ export class IinPublicApp {
   ): Promise<void> {
     if (!this.currentUser || isTechSupportUser(this.currentUser)) return;
     const faq = readCachedFaqEntries();
-    const result = lookupSupportAnswer(questionText, faq);
+    let result = lookupSupportAnswer(questionText, faq);
     const now = new Date().toISOString();
 
     if (result.status === 'unanswerable') return;
 
+    // The live, organically-grown bundle missed — fall back to the curated starter FAQ
+    // (docs/TODO.md K5, `techsupport-faq-seed.ts`) before queuing a human. A real human answer
+    // for the same question, once one exists in the live bundle above, always wins; this only
+    // ever fires while that question has never been answered live.
+    let sourceBundle = result.status === 'known' ? readCachedFaqBundle() : null;
+    if (result.status === 'new') {
+      const seedBundle = await readSeedFaqBundle();
+      if (seedBundle) {
+        const seedResult = lookupSupportAnswer(questionText, seedBundle.entries);
+        if (seedResult.status === 'known') {
+          result = seedResult;
+          sourceBundle = seedBundle;
+        }
+      }
+    }
+
     if (result.status === 'known') {
-      const cachedBundle = readCachedFaqBundle();
       // Re-derive the entry from the freshest cache read rather than trusting the lookup
-      // snapshot, and bail if the cache went missing between lookup and here.
-      if (!cachedBundle) return;
+      // snapshot, and bail if the cache/seed bundle went missing between lookup and here.
+      if (!sourceBundle) return;
       // Deliver like handleAnswerSupportQuestion does: via the resolved transport, which
       // persists to the DURABLE server store in addition to local Gun. The known-branch
       // historically used conversationService.upsertMessageRecord (local Gun only, no
@@ -4139,8 +4155,8 @@ export class IinPublicApp {
       // rather than regressing to a toast.
       const faqProvenance = {
         faqQuestionKey: result.questionKey,
-        faqAuthorPub: cachedBundle.authorPub,
-        faqSignature: cachedBundle.signature,
+        faqAuthorPub: sourceBundle.authorPub,
+        faqSignature: sourceBundle.signature,
       };
       let delivered = false;
       try {

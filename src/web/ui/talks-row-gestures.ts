@@ -41,7 +41,7 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
   const MOVE_THRESHOLD = 12;
   const COMMIT_THRESHOLD = 64;
   const LONG_PRESS_MS = 500;
-  const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details';
+  const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-pin-button, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details';
 
   let gestureState: GestureState | null = null;
 

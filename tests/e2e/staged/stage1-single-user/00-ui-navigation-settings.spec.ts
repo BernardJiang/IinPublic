@@ -235,6 +235,23 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#storage-inspector-server')).toContainText('当前成员映射');
     await backToSettingsMenu(p);
 
+    // Settings → Help browsable FAQ (docs/TODO.md K5): same curated Q&A that seeds
+    // TechSupport's DM auto-answer bundle, rendered directly so a user can look something up
+    // without needing to DM TechSupport and match its exact wording. Still in zh from the
+    // language switch above.
+    await openSettingsSection(p, SETTINGS_SECTION.help);
+    await expect(p.locator('#settings-content')).toContainText('常见问题');
+    const faqList = p.locator('[data-testid="settings-faq-list"]');
+    await expect(faqList).toBeVisible();
+    await expect(p.locator('[data-testid^="settings-faq-item-"]')).not.toHaveCount(0);
+    const firstFaqQuestion = p.locator('[data-testid="settings-faq-question-0"]');
+    await expect(firstFaqQuestion).toContainText('IinPublic');
+    const firstFaqAnswer = p.locator('[data-testid="settings-faq-answer-0"]');
+    await expect(firstFaqAnswer).toBeHidden(); // <details> starts closed
+    await firstFaqQuestion.click();
+    await expect(firstFaqAnswer).toBeVisible();
+    await backToSettingsMenu(p);
+
     await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
     await p.locator('#settings-max-distance').fill('5');
     await p.locator('#settings-max-distance').press('Tab');
@@ -273,7 +290,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(createRoomModal).toContainText('创建社区或商业房间');
     await expect(p.locator('#custom-room-type option[value="custom"]')).toHaveText('社区 / 自定义');
     await expect(p.locator('#custom-room-type option[value="business"]')).toHaveText('商业');
-    await expect(p.locator('#custom-room-capacity')).toHaveAttribute('placeholder', '默认 50');
+    // Capacity is unified for all rooms (77d25137) — no per-room capacity input anymore.
+    await expect(p.locator('#custom-room-capacity')).toHaveCount(0);
     await expect(p.locator('[data-testid="custom-room-submit-btn"]')).toHaveText('创建');
     await p.locator('#cancel-custom-room-btn').click();
     await p.evaluate(() => {
@@ -793,7 +811,7 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#custom-room-business-headline').fill(headline);
     await p.locator('#custom-room-name').fill(roomName);
     await p.locator('#custom-room-description').fill(description);
-    await p.locator('#custom-room-capacity').fill('120');
+    // Capacity is unified for all rooms (77d25137) — no per-room capacity input anymore.
     await p.locator('[data-testid="custom-room-submit-btn"]').click();
 
     await expect
