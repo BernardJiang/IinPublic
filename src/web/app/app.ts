@@ -4200,6 +4200,18 @@ export class IinPublicApp {
       } catch {
         // local Gun write failure is non-fatal in both paths
       }
+      // Same 🤖 convention a talk's own saved-answer chatbot already uses
+      // (conversation-list-updates.ts's `respondedByBot`, sticky once true) — surface that this
+      // support conversation has an auto-repeated answer in it, not only a human one. Merges
+      // onto the existing support-conversation record (`ensureSupportConversationRecord`);
+      // `addNewConversation` treats this as an update, not a fresh conversation.
+      this.uiManager.addNewConversation({
+        conversationId,
+        otherUserId: TECHSUPPORT_ROOT_USER_ID,
+        otherUserName: TECHSUPPORT_STAGE_NAME,
+        supportChannel: true,
+        respondedByBot: true,
+      });
       this.uiManager.updateConversationMessage(conversationId, result.entry.answer, now);
       return;
     }

@@ -3587,6 +3587,13 @@ button.talk-icon-btn:hover {
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
 
+/* Inline per-message counterpart to .conversation-bot-badge — TechSupport's own auto-answer
+   indicator (docs/TODO.md K5) inside a message bubble rather than floated over an avatar. */
+.message-bot-badge {
+  display: inline-block;
+  margin-right: 4px;
+}
+
 .conversation-content {
   flex: 1;
   min-width: 0;

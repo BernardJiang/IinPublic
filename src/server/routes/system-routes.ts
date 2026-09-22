@@ -322,6 +322,7 @@ export function registerSystemRoutes(
         text: String(body.text || ''),
         timestamp: String(body.timestamp || new Date().toISOString()),
         channel: String(body.channel || 'public'),
+        ...(body.isFromChatbot ? { isFromChatbot: true } : {}),
       };
       if (!message.senderId || !message.text) {
         res.status(400).json({ error: 'senderId and text are required' });

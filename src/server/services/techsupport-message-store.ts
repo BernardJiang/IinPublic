@@ -5,6 +5,11 @@ export type TechSupportStoredMessage = {
   text: string;
   timestamp: string;
   channel: string;
+  /** Set only on a locally-rendered auto-answer/acknowledgement (handleSupportQuestion, app.ts).
+   * Carried through the durable server store so it survives this transport's 5s poll merge —
+   * without it, TechSupportConversationTransport.loadFromServer previously reconstructed every
+   * message with `isFromChatbot: false`, silently overwriting the correct Gun-sourced value. */
+  isFromChatbot?: boolean;
 };
 
 export class TechSupportMessageStore {

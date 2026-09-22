@@ -180,6 +180,31 @@ test.describe('TechSupport FAQ: a re-asked known question is a hit, not a re-ans
     const answerBubbles = userPage.locator('#conversation-messages').getByText(answer, { exact: false });
     await expect(answerBubbles).toHaveCount(2, { timeout: FAQ_REASK_RENDER_MS });
 
+    // The re-ask's own bot-repeat indicator (docs/TODO.md K5): exactly one of the two answer
+    // bubbles carries the 🤖 badge — the human-delivered original (step 2, isFromChatbot: false)
+    // does not, the locally auto-answered re-ask (this step, handleSupportQuestion's known
+    // branch) does. Scoped to the answer bubbles themselves, not the whole transcript — the
+    // earlier miss-path acknowledgement (step 1) legitimately carries the same badge too.
+    const answerMessageBubbles = userPage.locator('#conversation-messages .message').filter({ hasText: answer });
+    await expect(answerMessageBubbles).toHaveCount(2);
+    await expect(answerMessageBubbles.locator('.message-bot-badge')).toHaveCount(1);
+
+    // ...and the conversation record carries the same sticky respondedByBot flag, reusing the
+    // identical convention a talk's own saved-answer chatbot already uses — the Me tab's
+    // conversation list renders it as the same 🤖 `.conversation-bot-badge`
+    // (conversations-view.ts). Asserted as durable localStorage state rather than by navigating
+    // through the peer-detail overlay this test opened the conversation from (durable state over
+    // a UI click chain — this repo's own testing convention).
+    const respondedByBot = await userPage.evaluate((convIdPrefix: string) => {
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}') as Record<
+        string,
+        { respondedByBot?: boolean }
+      >;
+      const entry = Object.entries(conversations).find(([id]) => id.startsWith(convIdPrefix));
+      return entry?.[1]?.respondedByBot ?? null;
+    }, `conv_support_${TECHSUPPORT_ROOT_USER_ID}_`);
+    expect(respondedByBot).toBe(true);
+
     // 4. No duplicate FAQ row and no inbox regression: handleSupportQuestion's 'known' branch never
     // calls postSupportQuestionToMailbox, so the re-ask cannot touch techsupport-inbox at all, and
     // upsertSupportFaqEntry is never invoked a second time for the same key by this path.

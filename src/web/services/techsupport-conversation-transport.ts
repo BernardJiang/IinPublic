@@ -38,6 +38,10 @@ export class TechSupportConversationTransport implements ConversationTransport {
         text: wire.text,
         timestamp: wire.timestamp,
         channel: wire.channel,
+        // Was dropped here previously — loadFromServer then reconstructed every message with
+        // isFromChatbot: false, and this transport's 5s poll merge (serverMessages applied AFTER
+        // latestGunMessages, same id wins) silently overwrote the correct Gun-sourced value.
+        ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
       }),
     });
     if (!res.ok) {
@@ -59,6 +63,7 @@ export class TechSupportConversationTransport implements ConversationTransport {
         text: string;
         timestamp: string;
         channel?: string;
+        isFromChatbot?: boolean;
       }>;
     };
     return (body.messages || []).map((m) => ({
@@ -68,7 +73,7 @@ export class TechSupportConversationTransport implements ConversationTransport {
       timestamp: new Date(m.timestamp),
       channel: (m.channel as Message['channel']) || 'public',
       readBy: [],
-      isFromChatbot: false,
+      isFromChatbot: !!m.isFromChatbot,
     }));
   }
 

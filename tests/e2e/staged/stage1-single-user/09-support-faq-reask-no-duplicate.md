@@ -27,6 +27,11 @@ question twice does not create a second FAQ bundle row or regress the inbox entr
    - The inbox entry is still `status: answered` (not regressed to pending) — confirmed by code
      inspection too: `handleSupportQuestion`'s `known` branch never calls
      `postSupportQuestionToMailbox`, so a re-ask cannot touch `techsupport-inbox` at all.
+   - The re-ask's answer bubble (and only that one — not the human-delivered original) carries the
+     🤖 "answered by chatbot" badge, and the conversation record's sticky `respondedByBot` flag
+     (asserted as durable localStorage state) is set — the same field the Me tab's conversation
+     list already renders as a 🤖 badge for a talk's own saved-answer chatbot, now wired up for
+     TechSupport's own repeat-answer path too.
 
 > **Scope note:** does not cover the cross-user case (a *different* user benefiting from the same
 > FAQ entry without ever having asked it) — that needs two real ordinary users and is covered by

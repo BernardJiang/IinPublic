@@ -404,10 +404,16 @@ export async function displayConversationMessages(
             `;
         }
       }
+      // TechSupport's own repeat-bot (docs/TODO.md K5): `isFromChatbot` is set only on a
+      // locally-rendered auto-answer/acknowledgement (handleSupportQuestion, app.ts) — never on
+      // an ordinary human-typed message — so this badge only ever appears there today.
+      const botBadge = msg.isFromChatbot
+        ? `<span class="message-bot-badge" title="${escapeHtml(deps.t('conversationBotAnswered'))}" aria-label="${escapeHtml(deps.t('conversationBotAnswered'))}">🤖</span>`
+        : '';
       return `
           <div class="message ${isOwn ? 'message-own' : 'message-other'}">
             <div class="message-content">
-              <div class="message-text">${escapeHtml(text)}</div>
+              <div class="message-text">${botBadge}${escapeHtml(text)}</div>
               <div class="message-time">${deps.formatTalkRelativeTime(new Date(msg.timestamp))}</div>
             </div>
           </div>
