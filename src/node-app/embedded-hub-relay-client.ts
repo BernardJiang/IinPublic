@@ -231,8 +231,11 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
 
   async listDelegateGrants(): Promise<unknown[]> {
     const response = await this.request('/api/support/delegate-grants');
-    const body = (await response.json()) as { grants?: unknown[] };
-    return Array.isArray(body.grants) ? body.grants : [];
+    const body = (await response.json()) as { grants?: unknown[]; revocations?: unknown[] };
+    return [
+      ...(Array.isArray(body.grants) ? body.grants : []),
+      ...(Array.isArray(body.revocations) ? body.revocations : []),
+    ];
   }
 
   async getFaqBundle(): Promise<unknown | null> {

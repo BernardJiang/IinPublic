@@ -556,6 +556,7 @@ describe('system routes', () => {
     };
     const gunService = {
       getPath: jest.fn().mockResolvedValue(null),
+      getSet: jest.fn().mockResolvedValue([]),
       putPath: jest.fn().mockResolvedValue(undefined),
     };
     const verifyTechSupportDelegateGrant = jest.fn()
@@ -601,6 +602,7 @@ describe('system routes', () => {
     };
     const gunService = {
       getPath: jest.fn().mockResolvedValue(revoked),
+      getSet: jest.fn().mockResolvedValue([]),
       putPath: jest.fn().mockResolvedValue(undefined),
     };
     const { app } = buildApp('test', undefined, {
@@ -614,5 +616,84 @@ describe('system routes', () => {
     expect(response.status).toBe(409);
     expect(response.body.error).toContain('newer or revoked');
     expect(gunService.putPath).not.toHaveBeenCalled();
+  });
+
+  it('returns the newest verified delegate state when the graph contains replay candidates (OPEN-27)', async () => {
+    const active = {
+      delegatePub: 'delegate-pub',
+      delegateUserId: 'delegate-user',
+      label: 'Support phone',
+      issuedAt: '2026-09-01T00:00:00.000Z',
+      expiresAt: '2026-10-01T00:00:00.000Z',
+      revokedAt: null,
+      masterPub: 'root-pub',
+      signature: 'old-active-signature',
+    };
+    const revoked = {
+      ...active,
+      revokedAt: '2026-09-21T00:00:00.000Z',
+      signature: 'revocation-signature',
+    };
+    const forged = { ...active, delegatePub: 'forged', signature: 'invalid' };
+    const gunService = {
+      getSet: jest.fn()
+        .mockResolvedValueOnce([active, forged])
+        .mockResolvedValueOnce([revoked]),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      verifyTechSupportDelegateGrant: jest.fn(async (value: any) => (
+        value?.signature === 'invalid' ? null : value
+      )),
+    });
+
+    const response = await request(app).get('/api/support/delegate-grants');
+    expect(response.status).toBe(200);
+    expect(response.body.grants).toEqual([revoked]);
+    expect(response.body.revocations).toEqual([revoked]);
+  });
+
+  it('stores a signed revocation in both the current slot and append-only discovery root (OPEN-27)', async () => {
+    const active = {
+      delegatePub: 'delegate-pub',
+      delegateUserId: 'delegate-user',
+      label: 'Support phone',
+      issuedAt: '2026-09-01T00:00:00.000Z',
+      expiresAt: '2026-10-01T00:00:00.000Z',
+      revokedAt: null,
+      masterPub: 'root-pub',
+      signature: 'active-signature',
+    };
+    const revoked = {
+      ...active,
+      revokedAt: '2026-09-21T00:00:00.000Z',
+      signature: 'revocation-signature',
+    };
+    const gunService = {
+      getPath: jest.fn().mockResolvedValue(active),
+      getSet: jest.fn().mockResolvedValue([]),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      verifyTechSupportDelegateGrant: jest.fn(async (value: any) => value),
+    });
+
+    const response = await request(app)
+      .post('/api/support/delegate-grants')
+      .send(revoked);
+
+    expect(response.status).toBe(200);
+    expect(gunService.putPath).toHaveBeenCalledWith(
+      ['techsupport-delegates', 'delegate-pub'],
+      revoked,
+    );
+    expect(gunService.putPath).toHaveBeenCalledWith(
+      [
+        'techsupport-delegate-revocations',
+        encodeURIComponent('delegate-pub|2026-09-01T00:00:00.000Z|2026-09-21T00:00:00.000Z'),
+      ],
+      revoked,
+    );
   });
 });

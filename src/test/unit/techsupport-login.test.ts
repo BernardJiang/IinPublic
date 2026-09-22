@@ -4,6 +4,12 @@ import {
   TECHSUPPORT_PAIR_MISMATCH_ERROR,
   TECHSUPPORT_PUB,
 } from '../../shared/techsupport';
+import {
+  browserTechSupportRootModeAllowed,
+  readBrowserTechSupportRootPair,
+  TECHSUPPORT_BROWSER_ROOT_DISABLED_ERROR,
+  TECHSUPPORT_KEYPAIR_STORAGE,
+} from '../../web/services/web-gun-service';
 
 // assertTechSupportDmPair only checks shape + trust-anchor list membership — it never actually
 // verifies priv/epriv cryptographically correspond to pub (that happens later, when the caller
@@ -51,5 +57,30 @@ describe('assertTechSupportDmPair (docs/TODO.md K3)', () => {
     const { TECHSUPPORT_DM_TRUST_ANCHORS } = jest.requireActual('../../shared/techsupport');
     expect(TECHSUPPORT_DM_TRUST_ANCHORS).toContain(DEV_PAIR.pub);
     expect(() => assertTechSupportDmPair(DEV_PAIR)).not.toThrow();
+  });
+});
+
+describe('OPEN-27 production browser root boundary', () => {
+  function storageWithPair() {
+    const values = new Map([[TECHSUPPORT_KEYPAIR_STORAGE, JSON.stringify(DEV_PAIR)]]);
+    return {
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => { values.delete(key); },
+    };
+  }
+
+  it('keeps the root fixture available only to development/test builds', () => {
+    expect(browserTechSupportRootModeAllowed('development')).toBe(true);
+    expect(browserTechSupportRootModeAllowed('test')).toBe(true);
+    expect(readBrowserTechSupportRootPair(storageWithPair(), 'test')).toEqual(DEV_PAIR);
+  });
+
+  it('erases an injected root pair and fails closed in production', () => {
+    const storage = storageWithPair();
+    expect(browserTechSupportRootModeAllowed('production')).toBe(false);
+    expect(() => readBrowserTechSupportRootPair(storage, 'production')).toThrow(
+      TECHSUPPORT_BROWSER_ROOT_DISABLED_ERROR,
+    );
+    expect(storage.getItem(TECHSUPPORT_KEYPAIR_STORAGE)).toBeNull();
   });
 });

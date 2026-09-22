@@ -40,10 +40,34 @@ export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
 /**
  * K3 (docs/TODO.md): distinct from KEYPAIR_STORAGE/KEY_CUSTODY_STORAGE so the TechSupport
  * device identity never collides with, or gets migrated into, the device's own ordinary
- * identity. Populated only by `scripts/dev-techsupport-login.js` (dev) or an equivalent
- * operator boot step (production) — never by the web bundle itself.
+ * identity. Populated only by development/E2E launchers; production bundles reject and erase it.
+ * Never populated by the web bundle itself.
  */
 export const TECHSUPPORT_KEYPAIR_STORAGE = 'iinpublic_techsupport_keypair_v1';
+export const TECHSUPPORT_BROWSER_ROOT_DISABLED_ERROR =
+  'TechSupport root browser mode is disabled in production; use a delegated operator identity.';
+
+/** Build-time policy boundary: webpack replaces NODE_ENV, allowing production minification to
+ * remove the root-loader branch while dev/E2E can retain it until their fixtures are migrated. */
+export function browserTechSupportRootModeAllowed(nodeEnv = process.env.NODE_ENV): boolean {
+  return nodeEnv !== 'production';
+}
+
+/** Read the development-only root pair. Production erases it before failing closed. */
+export function readBrowserTechSupportRootPair(
+  storage: Pick<Storage, 'getItem' | 'removeItem'> | undefined,
+  nodeEnv = process.env.NODE_ENV,
+): GunPair | null {
+  const raw = storage?.getItem(TECHSUPPORT_KEYPAIR_STORAGE) ?? null;
+  if (!raw) return null;
+  if (!browserTechSupportRootModeAllowed(nodeEnv)) {
+    storage?.removeItem(TECHSUPPORT_KEYPAIR_STORAGE);
+    throw new Error(TECHSUPPORT_BROWSER_ROOT_DISABLED_ERROR);
+  }
+  const parsed = JSON.parse(raw);
+  assertTechSupportDmPair(parsed);
+  return parsed as GunPair;
+}
 
 /**
  * Pure form of WebGunService's page-origin → Gun-hub-URL derivation, factored
@@ -953,7 +977,11 @@ export class WebGunService extends EventEmitter {
   }
 
   async getIdentityPasswordProtectionStatus(): Promise<IdentityPasswordProtectionStatus> {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem(TECHSUPPORT_KEYPAIR_STORAGE)) {
+    if (
+      browserTechSupportRootModeAllowed() &&
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem(TECHSUPPORT_KEYPAIR_STORAGE)
+    ) {
       this.identityPasswordActive = false;
       return { state: 'not-set' };
     }
@@ -1091,13 +1119,13 @@ export class WebGunService extends EventEmitter {
     // into the ordinary encrypted custody record so the two identities can never merge.
     let techSupportPair: GunPair | null = null;
     try {
-      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(TECHSUPPORT_KEYPAIR_STORAGE) : null;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        assertTechSupportDmPair(parsed);
-        techSupportPair = parsed as GunPair;
-      }
+      techSupportPair = readBrowserTechSupportRootPair(
+        typeof localStorage === 'undefined' ? undefined : localStorage,
+      );
     } catch (error) {
+      if (error instanceof Error && error.message === TECHSUPPORT_BROWSER_ROOT_DISABLED_ERROR) {
+        throw error;
+      }
       if (typeof localStorage !== 'undefined' && localStorage.getItem(TECHSUPPORT_KEYPAIR_STORAGE)) {
         // A pair WAS injected but failed validation — this must fail loudly, not fall through
         // to generating a random device identity that would silently impersonate no one but

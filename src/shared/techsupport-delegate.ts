@@ -39,6 +39,8 @@ export type UnsignedDelegateGrant = Omit<TechSupportDelegateGrant, 'signature'>;
 
 export const DELEGATE_GRANT_DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const DELEGATE_GRANT_MAX_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+export const DELEGATE_GRANTS_ROOT = 'techsupport-delegates';
+export const DELEGATE_REVOCATIONS_ROOT = 'techsupport-delegate-revocations';
 
 function normalizedTimestamp(value: unknown): string | null {
   if (typeof value === 'string' && value) return value;
@@ -153,10 +155,11 @@ export function isValidDelegateGrant(
 }
 
 /**
- * Relay-side anti-rollback rule for the one-record-per-delegate v1 graph shape. It makes retries
+ * Monotonic anti-rollback rule for the one-record-per-delegate v1 graph shape. It makes retries
  * idempotent, permits an explicitly newer re-issue, and refuses an older signed grant (including
- * the pre-revocation form of the same issue) from replacing newer knowledge. Direct untrusted Gun
- * writes still require the versioned/tombstone work tracked by OPEN-27.
+ * the pre-revocation form of the same issue) from replacing newer locally-observed knowledge.
+ * The append-only revocation discovery root supplies first-seen history when available; no local
+ * rule can prove freshness if every transport withholds both current state and that history.
  */
 export function isDelegateGrantRollback(
   current: TechSupportDelegateGrant,
@@ -205,5 +208,16 @@ export async function isTrustedTechSupportAuthorPub(
 
 /** Gun path for one delegate's grant record — one soul per delegate pub, overwritten to edit/revoke. */
 export function delegateGrantPath(delegatePub: string): string[] {
-  return ['techsupport-delegates', delegatePub];
+  return [DELEGATE_GRANTS_ROOT, delegatePub];
+}
+
+/**
+ * Append-only discovery location for a signed revoked grant. The mutable per-delegate slot remains
+ * the fast current-state lookup; this second root preserves each revocation as its own record so a
+ * stale mutable slot cannot, by itself, resurrect authority for a newly installed client.
+ */
+export function delegateRevocationPath(grant: TechSupportDelegateGrant): string[] {
+  if (!grant.revokedAt) throw new Error('A delegate revocation path requires revokedAt');
+  const revision = encodeURIComponent(`${grant.delegatePub}|${grant.issuedAt}|${grant.revokedAt}`);
+  return [DELEGATE_REVOCATIONS_ROOT, revision];
 }

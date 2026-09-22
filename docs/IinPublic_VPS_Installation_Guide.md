@@ -564,31 +564,38 @@ Use short-lived delegate accounts on normal application devices for routine supp
 needed only for rare control operations such as issuing/revoking delegates, signing controlled
 artifacts, or rotating trust anchors.
 
-The current `scripts/techsupport-agent.js` is an interim operator tool: it decrypts the root pair
-and injects it into browser `localStorage`, where same-origin JavaScript can read it. If a root
-operation cannot wait for the planned local signer/decrypter boundary, run the agent briefly on a
-dedicated operator machine with no browser extensions after verifying the deployed application
-release. Close the process immediately afterward; do not leave it online for presence or daily
-answers. Its local `.env.local` may contain:
+Production web builds reject and erase the legacy TechSupport root `localStorage` injection.
+`scripts/techsupport-agent.js` is restricted to loopback development/E2E builds and must not be
+used for production control or routine answers.
+
+On the dedicated operator machine, configure only the encrypted vault and the public API target:
 
 ``` bash
 TECHSUPPORT_KEY_FILE=/secure/local/path/techsupport-master.key.json
 TECHSUPPORT_KEY_PASSPHRASE_FILE=/separate/local/path/techsupport-vault.passphrase
-TECHSUPPORT_APP_URL=https://www.iinpublic.com
+TECHSUPPORT_API_BASE=https://www.iinpublic.com
 ```
 
-Before that short session, verify the encrypted vault without printing private material:
+Verify the encrypted vault without printing private material, then issue or revoke a short-lived
+delegate through the local signer. The root pair exists only in that short-lived Node process; the
+server receives a signed public grant:
 
 ``` bash
 npm run techsupport:key -- verify --key "$TECHSUPPORT_KEY_FILE"
-npm run techsupport:agent
+npm run techsupport:delegate -- issue \
+  --delegate-pub '<delegate SEA pub>' \
+  --delegate-user-id '<delegate user id>' \
+  --label '<operator/device label>' \
+  --days 7
+
+npm run techsupport:delegate -- revoke --delegate-pub '<delegate SEA pub>'
 ```
 
 The legacy plaintext `TECHSUPPORT_SEA_PAIR_JSON` variable is migration-only and must never be
 placed in a production environment. Follow
 `docs/security/techsupport-key-custody-and-rotation.md` for vault generation and rotation, and
 `docs/security/techsupport-and-user-production-security.md` for the approved balanced posture and
-the limitations of this interim session.
+the remaining protocol limitations.
 
 ## Troubleshooting
 

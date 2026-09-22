@@ -35,10 +35,18 @@ phrase complexity into normal use.
   - [x] Fail production relay startup before reading a configured TechSupport vault or legacy key.
   - [x] Add `npm run techsupport:delegate -- issue|revoke`: signing stays in a short-lived local
     Node process and the relay receives/verifies only the signed public grant.
-  - [ ] Add monotonic grant revision/revocation semantics so an older signed grant cannot be
-    replayed after revocation, including direct Gun/embedded-node paths.
-  - [ ] Move the remaining root-only operations behind local commands or a narrow native signer and
-    cover the website/Android delegate path without a root browser session.
+  - [x] Reconcile HTTP, embedded-node, live Gun, and cached grant reads monotonically: once an
+    installation or relay request has observed a newer issue/revocation, an older signed record
+    cannot restore authority.
+  - [x] Publish signed revocations under a separate append-only discovery root and reconcile that
+    history with mutable HTTP, embedded-node, live Gun, and cached state. This protects a fresh
+    install from a stale mutable slot; no protocol can prove freshness if every transport withholds
+    both the current record and its tombstone, so independent recovery/checkpoints remain OPEN-29.
+  - [x] Reject and erase root injection in production web builds and restrict the legacy headless
+    root harness to loopback development/E2E origins.
+  - [x] Move production issue/revoke behind the local signer, use delegates for routine answering,
+    and cover the website/Android delegate path without a root browser session in the opt-in
+    `09-android-techsupport-delegate-answers` physical-device scenario.
   - [ ] Remove `iinpublic_techsupport_keypair_v1`, `dev:techsupport`/root-agent injection, and every
     production code path that exposes `priv`/`epriv` to page JavaScript.
 

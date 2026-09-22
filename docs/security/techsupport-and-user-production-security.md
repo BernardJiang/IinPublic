@@ -77,29 +77,41 @@ IinPublic needs enterprise infrastructure.
 This is the minimum balanced production posture. It does **not** require an HSM, a security team,
 or multi-party ceremonies for an early deployment.
 
-### Current browser-agent limitation
+### Browser-root boundary
 
-`scripts/techsupport-agent.js` currently decrypts the root pair and injects it into
-`localStorage` before the application loads. This keeps the key out of the repository and relay,
-but every script executing in that origin can read it. OWASP advises against putting sensitive
-information in `localStorage` because one XSS or compromised same-origin script can disclose it:
+Production web builds reject and erase the legacy TechSupport root `localStorage` injection. The
+public relay also refuses to start when any root vault or legacy plaintext-key setting is present.
+Rare production issue/revoke operations use `npm run techsupport:delegate -- issue|revoke`: a
+short-lived local Node process decrypts and signs, while the server receives only the signed public
+grant.
+
+`scripts/techsupport-agent.js` remains temporarily as a loopback-only development/E2E harness. It
+decrypts the root pair and injects it into `localStorage`, where every same-origin script can read
+it. OWASP advises against putting sensitive information in `localStorage` because one XSS or
+compromised same-origin script can disclose it:
 [OWASP HTML5 Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html).
 
 Therefore:
 
-- do not run the root agent on the public VPS;
-- do not point a persistent root session at application JavaScript fetched from the public host;
-- if a root action is necessary before the signer boundary is implemented, use a dedicated browser
-  profile with no extensions on the operator machine, a reviewed/pinned local application build,
-  and close/wipe the session immediately afterward; and
+- do not run the root agent on the public VPS or point it at a remote origin (the script refuses
+  non-loopback URLs);
+- use the encrypted-vault local CLI for production issue/revoke actions; and
 - use delegates, not the root agent, for routine support.
 
-The target fix is a narrow local signer/decrypter boundary. The browser sends a canonical operation
-to a trusted local process or native bridge and receives only the result; it never receives the
-root private fields. Hardware-backed or non-exportable custody can be added behind that boundary
-later. Since the current SEA pair contains both signing (`priv`) and ECDH/decryption (`epriv`)
-material in an exportable format, true HSM/OS-keystore custody requires a versioned protocol or
-signing API change rather than simply moving the existing JSON into a cloud secret manager.
+Issue/revoke now uses the narrow local signer boundary. Remaining root-only browser operations and
+development fixtures must still move to local commands or delegated flows before the legacy
+injection key and harness can be deleted. Hardware-backed or non-exportable custody can be added
+behind that boundary later. Since the current SEA pair contains both signing (`priv`) and
+ECDH/decryption (`epriv`) material in an exportable format, true HSM/OS-keystore custody requires a
+versioned protocol or signing API change rather than simply moving the existing JSON into a cloud
+secret manager.
+
+Revocations are also published as separately keyed, root-signed tombstones. Clients reconcile the
+mutable current slot, tombstone history, embedded-node relay reads, live Gun updates, and their
+verified local cache monotonically. This prevents an older signed grant from restoring authority
+after a client has seen—or can discover—the tombstone. A transport that withholds every newer
+record can still present a stale view; independent recovery authority/checkpoints are the OPEN-29
+solution to that availability/freshness limit.
 
 ## Balanced defaults for ordinary users
 
@@ -156,7 +168,7 @@ purpose and lifetime, and retaining traceability:
 
 ### Before TechSupport becomes high-volume or high-trust
 
-- Replace root `localStorage` injection with a local signer/decrypter boundary.
+- Finish moving remaining root-only operations and test fixtures off root `localStorage` injection.
 - Split the offline root/delegation authority, DM/decryption operator role, and online announcement
   signer in a versioned protocol.
 - Pin an independent offline recovery authority—or a small threshold of recovery keys—before an

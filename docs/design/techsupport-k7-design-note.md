@@ -209,10 +209,11 @@ Two paths, depending on what "the phone" is running:
 
 **"How do I keep the TechSupport private key in my own local environment while iinpublic.com is
 live?"** The production relay never needs the root private key during normal operation. Keep the
-encrypted vault on the operator machine that runs `npm run dev:techsupport` or
-`npm run techsupport:agent`, pointed at production via `TECHSUPPORT_APP_URL=https://www.iinpublic.com`.
-The concrete generation, migration, backup, staged rotation, and rollback commands are now defined
-in `docs/security/techsupport-key-custody-and-rotation.md`; plaintext
+encrypted vault on the operator machine and use `npm run techsupport:delegate -- issue|revoke` for
+the rare production control actions. That short-lived local process sends only a signed public
+grant to iinpublic.com; production web builds reject browser-root injection and the legacy agent is
+loopback-only. The concrete generation, migration, backup, staged rotation, and rollback commands
+are defined in `docs/security/techsupport-key-custody-and-rotation.md`; plaintext
 `TECHSUPPORT_SEA_PAIR_JSON` is retained only for migration compatibility.
 
 **"How do I turn one phone into a TechSupport agent that answers all questions?"** With K7: don't
@@ -221,9 +222,11 @@ whichever device holds the master key. It gets the same Support Inbox UI and can
 questions, fully audited, revocable at any time, without ever touching the private key that must
 stay in your custody.
 
-**"How do I assign a TechSupport agent?"** That's the "Delegates" panel above: pick the person's
-account, set an expiry, click Issue. No key handling on your side beyond the one device that
-already holds the master key.
+**"How do I assign a TechSupport agent?"** Verify the ordinary user's ID and SEA public key, then
+run the local `techsupport:delegate issue` command with a short expiry. The older "Delegates" panel
+remains a development fixture until all root-browser paths are removed. No key handling beyond the
+dedicated operator machine is required; the delegated device
+already holds its own ordinary identity keys.
 
 ## Open decisions this note needs your call on before implementation starts
 

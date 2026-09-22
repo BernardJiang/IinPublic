@@ -8,25 +8,25 @@
  * PM1LHMA7A2707315 is the Essential Phone, android-charlie / RNV0217207000190 is the Honor phone).
  *
  * Topology:
- * - TechSupport root: desktop browser, K3 mode (real signed DM keypair) — the only participant
- *   that ever touches the master private key, exactly once, to issue Honor's delegate grant.
- * - Honor phone (android-charlie): boots as an ordinary user, redeems a master-issued invite code,
+ * - TechSupport root: a short-lived local Node signer issues Honor's grant directly to the
+ *   keyless relay. No browser page or remotely served JavaScript ever receives the root pair.
+ * - Honor phone (android-charlie): boots as an ordinary user, receives a locally signed grant,
  *   opts in, and answers both askers' questions signed with her OWN key — never the master's.
  * - Essential phone (android-bob): ordinary asker, asks TechSupport a question over adb/WebView.
  * - MacMini app (packaged Electron build, platforms/desktop/dist/mac-arm64): ordinary asker, asks
  *   a second, independent question.
  *
- * Both phones and the Electron app plus the desktop TechSupport browser share this suite's own
+ * Both phones and the Electron app share this suite's own
  * hub/web servers (native-app/playwright.config.ts), never the main config's parallelSlot()-derived
  * ports. Phones reach the hub over the real LAN (adb over USB is only the automation control
- * channel); the Electron app and the desktop TechSupport browser use loopback.
+ * channel); the Electron app and local signer use loopback.
  *
  * Opt-in, real-hardware test: skips itself (does not fail) unless
  * E2E_REAL_ANDROID_TECHSUPPORT_DELEGATE=1 is set and both configured Android devices are connected
  * and authorized (adb devices). See 05-android-device-boots.spec.ts's header for one-time phone
  * setup (USB debugging).
  */
-import { chromium, test, expect, type Browser as PlaywrightBrowser, type BrowserContext, type Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -39,17 +39,12 @@ import {
 } from './helpers/native-app-android';
 import { configuredAndroidDevices } from './helpers/android-device-config';
 import { bootstrapNativeWindow, forceJoinGlobal, launchNativeUser, type NativeUser } from './helpers/native-app';
-import { injectIdbClear, gotoWebApp } from '../helpers/clear-database';
-import { ensureWindowFitsViewport } from '../helpers/browser-window';
-import { afterLoad, afterNav, afterSync, delay, headless } from '../helpers/timing';
-import { attachE2eBrowserTabLabel } from '../helpers/e2e-tab-title';
-import { expectCurrentUserIsTechSupportRoot } from '../helpers/techsupport-contract';
+import { afterNav, afterSync, headless } from '../helpers/timing';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
+import { signDelegateGrant } from '../../../src/shared/techsupport-delegate';
 import { loadRealTechSupportPair } from '../helpers/techsupport-real-pair';
 
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
-// Mirrors native-app/playwright.config.ts's own derivation exactly (see 08's identical comment).
-const WEB_PORT = HUB_GUN_PORT - 8080 + 3001;
 // Distinct from every localPort already used by other native-app specs (19111/19121/19122/19141/19161).
 const ELECTRON_LOCAL_PORT = 19171;
 
@@ -75,27 +70,6 @@ function resolveLanIp(): string {
     }
   }
   throw new Error('No LAN IPv4 address found; set NATIVE_APP_ANDROID_HOST.');
-}
-
-/** Desktop TechSupport session (K3 mode: real signed DM keypair), pointed at this suite's own
- *  web/hub servers — mirrors 00m/08's helper of the same name, just against WEB_PORT. */
-async function bootstrapTechSupportMode(browser: PlaywrightBrowser): Promise<{ context: BrowserContext; page: Page }> {
-  const context = await browser.newContext({ viewport: { width: 720, height: 960 }, deviceScaleFactor: 1 });
-  const page = await context.newPage();
-  page.on('console', (m) => console.log('[TechSupport]:', m.text()));
-  await injectIdbClear(page);
-  await context.addInitScript(
-    ({ userId, keypairStorageKey, pairJson }) => {
-      window.localStorage.setItem('iinpublic_user_id', userId);
-      window.localStorage.setItem(keypairStorageKey, pairJson);
-    },
-    { userId: TECHSUPPORT_ROOT_USER_ID, keypairStorageKey: 'iinpublic_techsupport_keypair_v1', pairJson: JSON.stringify(DEV_PAIR) },
-  );
-  await gotoWebApp(page, `http://127.0.0.1:${WEB_PORT}`);
-  await ensureWindowFitsViewport(page, 720, 960);
-  await afterLoad();
-  attachE2eBrowserTabLabel(page, 'TechSupport');
-  return { context, page };
 }
 
 async function currentUserPub(page: Page): Promise<string> {
@@ -125,9 +99,6 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
   let essential: AndroidUser | undefined;
   let electron: NativeUser | undefined;
   let userDataDir = '';
-  let techSupportBrowser: PlaywrightBrowser | undefined;
-  let techSupportContext: BrowserContext | undefined;
-  let techSupportPage: Page | undefined;
 
   test.afterEach(async () => {
     if (honor) await clearAndroidE2ETestProjections(honor);
@@ -139,12 +110,6 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     await electron?.app.close().catch(() => {});
     electron = undefined;
     if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
-    await techSupportPage?.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
-    await techSupportContext?.close().catch(() => {});
-    await techSupportBrowser?.close().catch(() => {});
-    techSupportPage = undefined;
-    techSupportContext = undefined;
-    techSupportBrowser = undefined;
   });
 
   test('Honor phone becomes a delegate and answers real questions from the Essential phone and the MacMini app', async () => {
@@ -159,13 +124,7 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     const lanHubUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
     const loopbackHubUrl = `http://127.0.0.1:${HUB_GUN_PORT}/gun`;
 
-    // 1. Local website as TechSupport root — the ONLY participant that ever holds the master
-    // private key. Used exactly once below, to issue Honor's grant.
-    techSupportBrowser = await chromium.launch({ headless, slowMo: headless ? 0 : delay(50, 150) });
-    ({ context: techSupportContext, page: techSupportPage } = await bootstrapTechSupportMode(techSupportBrowser));
-    await expectCurrentUserIsTechSupportRoot(techSupportPage);
-
-    // 2. Honor phone boots as an ordinary registered user — no key handling on the phone at all.
+    // 1. Honor phone boots as an ordinary registered user — no root-key handling on the phone.
     // resetAppData: true — required so a prior run's on-device identity doesn't leak into this
     // one (reference_android_test_devices memory: "Real gap found (harness, not app)").
     honor = await launchAndroidUserViaAdb({ deviceSerial: DELEGATE_SERIAL, hubGunUrl: lanHubUrl, resetAppData: true });
@@ -175,59 +134,24 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     expect(honorUserId).toBeTruthy();
     await forceJoinGlobal(honor.window);
 
-    // 3. Master generates a one-time invite code; Honor enters it on her own phone to publish a
-    // signed self-identifying request — the master never has to type her raw user id, and her
-    // phone never sees the master key.
-    await techSupportPage.click('.nav-btn[data-view="me"]');
-    await afterNav();
-    await techSupportPage.click('.nav-btn[data-view="settings"]');
-    await afterNav();
-    await techSupportPage.click('#support-delegate-invite-btn');
-    const inviteCode = (await techSupportPage.locator('[data-testid="support-delegate-invite-code"]').textContent())?.trim() || '';
-    expect(inviteCode).toBeTruthy();
-    await techSupportPage.click('#support-delegate-invite-done');
+    // 2. The local signer performs the production-style root action without a root browser. The
+    // relay receives only the public signed grant, exactly like `techsupport:delegate issue`.
+    const honorPub = await currentUserPub(honor.window);
+    expect(honorPub).toBeTruthy();
+    const grant = await signDelegateGrant({
+      delegatePub: honorPub,
+      delegateUserId: honorUserId,
+      label: 'Honor phone',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    }, DEV_PAIR);
+    const published = await fetch(`http://127.0.0.1:${HUB_GUN_PORT}/api/support/delegate-grants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(grant),
+    });
+    expect(published.ok, await published.text()).toBe(true);
 
-    await honor.window.click('.nav-btn[data-view="me"]');
-    await afterNav();
-    await honor.window.click('.nav-btn[data-view="settings"]');
-    await afterNav();
-    await honor.window.fill('#support-delegate-invite-code-input', inviteCode);
-    await honor.window.click('#support-delegate-invite-code-submit');
-    await expect(honor.window.locator('#support-delegate-invite-code-status')).toBeVisible({ timeout: 15_000 });
-    console.log('[test] Honor invite-code-status text:', await honor.window.locator('#support-delegate-invite-code-status').textContent());
-
-    // 4. Master's panel picks up Honor's signed request live and approves it into a real grant —
-    // the only step in this whole test that touches the master key. Real hardware over a LAN Gun
-    // link needs more slack than the desktop-only 00m spec's 20s.
-    // DIAGNOSTIC: check whether the raw Gun record is even reaching the master's OWN peer at
-    // all, independent of the app's live `.map().on()` subscription — isolates a Gun sync/relay
-    // gap (embedded-node Android write never reaches the hub the desktop reads from, matching
-    // the documented chatroom-membership propagation gap in 08's own header comment) from a
-    // subscription-wiring bug in app.ts.
-    const rawRequestSeenAt = await techSupportPage.evaluate(async (uid) => {
-      const started = Date.now();
-      const gun = (window as any).__iinpublic_app.getApp().gunService.getGun();
-      return new Promise<number | null>((resolve) => {
-        const timer = setTimeout(() => resolve(null), 90_000);
-        const ref = gun.get('techsupport-delegate-requests').map();
-        ref.on((raw: any) => {
-          if (raw && String(raw.candidateUserId || '') === uid) {
-            clearTimeout(timer);
-            resolve(Date.now() - started);
-          }
-        });
-      });
-    }, honorUserId);
-    console.log('[test] raw Gun record for Honor\'s request seen by master\'s own peer after (ms):', rawRequestSeenAt);
-
-    const pendingRow = techSupportPage.locator('.support-delegate-pending-item', { hasText: honorUserId });
-    await expect(pendingRow).toBeVisible({ timeout: 30_000 });
-    await pendingRow.locator('[data-testid="support-delegate-pending-label"]').fill('Honor phone');
-    await pendingRow.locator('[data-testid="support-delegate-approve-btn"]').click();
-    await afterSync();
-    await expect(techSupportPage.locator('.support-delegate-item', { hasText: 'Honor phone' })).toBeVisible({ timeout: 20_000 });
-
-    // 5. Honor's own device picks up the grant live and shows an opt-in prompt — she must
+    // 3. Honor's own device picks up the grant live and shows an opt-in prompt — she must
     // explicitly accept before delegate mode turns on.
     await honor.window.click('.nav-btn[data-view="me"]');
     await afterNav();
@@ -239,10 +163,8 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     await optInToggle.check();
     await afterSync();
     await expect(honor.window.locator('#support-inbox-section')).toBeVisible({ timeout: 15_000 });
-    const honorPub = await currentUserPub(honor.window);
-    expect(honorPub).toBeTruthy();
 
-    // 6. Essential phone: a completely different, real ordinary user asking a real question.
+    // 4. Essential phone: a completely different, real ordinary user asking a real question.
     essential = await launchAndroidUserViaAdb({ deviceSerial: ASKER_SERIAL, hubGunUrl: lanHubUrl, resetAppData: true });
     essential.window.on('console', (m) => console.log('[Essential]:', m.text()));
     essential.window.on('pageerror', (e) => console.log('[Essential] pageerror:', e.message));
@@ -252,7 +174,7 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     const essentialAnswer = 'That is expected on a slow connection — messages still sync once you have a stronger signal.';
     await askTechSupport(essential.window, essentialQuestion);
 
-    // 7. MacMini app (packaged Electron build): the second, independent asker.
+    // 5. MacMini app (packaged Electron build): the second, independent asker.
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-techsupport-delegate-e2e-'));
     electron = await launchNativeUser({ localPort: ELECTRON_LOCAL_PORT, hubGunUrl: loopbackHubUrl, userDataDir });
     electron.window.on('console', (m) => console.log('[MacMini]:', m.text()));
@@ -263,7 +185,7 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     const macAnswer = 'Not yet — conversation export is planned but not shipped in this build.';
     await askTechSupport(electron.window, macQuestion);
 
-    // 8. Honor — not the master — sees and answers both pending questions from her own phone,
+    // 6. Honor — not the master — sees and answers both pending questions from her own phone,
     // signing each answer with her OWN key.
     for (const { question, answer } of [
       { question: essentialQuestion, answer: essentialAnswer },
@@ -287,21 +209,26 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
       }).toPass({ timeout: 45_000, intervals: [500, 1000, 2000] });
     }
 
-    // 9. Both askers receive their real answers, still attributed to TechSupport — neither ever
+    // 7. Both askers receive their real answers, still attributed to TechSupport — neither ever
     // learns Honor exists.
     await expect(essential.window.locator('#conversation-messages')).toContainText(essentialAnswer, { timeout: 30_000 });
     await expect(electron.window.locator('#conversation-messages')).toContainText(macAnswer, { timeout: 30_000 });
 
-    // 10. The master's own audit view — never either asker's — shows Honor answered both.
-    await expect(techSupportPage.locator('#support-delegates-section')).toContainText(
-      new RegExp(essentialQuestion.slice(0, 20), 'i'),
-      { timeout: 20_000 },
-    );
-    await expect(techSupportPage.locator('#support-delegates-section')).toContainText(
-      new RegExp(macQuestion.slice(0, 20), 'i'),
-      { timeout: 20_000 },
-    );
-    await expect(techSupportPage.locator('#support-delegates-section')).toContainText(honorPub.slice(0, 12), { timeout: 5_000 });
+    // 8. The keyless relay's signed audit artifact records Honor as the author of both answers;
+    // this validates auditability without reopening a root browser session.
+    await expect(async () => {
+      const response = await fetch(`http://127.0.0.1:${HUB_GUN_PORT}/api/support/faq-bundle`);
+      expect(response.ok).toBe(true);
+      const { bundle } = await response.json() as { bundle?: { entriesJson?: string } };
+      const entries = JSON.parse(bundle?.entriesJson || '[]') as Array<{
+        answer?: string;
+        answeredByDelegate?: string;
+      }>;
+      expect(entries).toEqual(expect.arrayContaining([
+        expect.objectContaining({ answer: essentialAnswer, answeredByDelegate: honorPub }),
+        expect.objectContaining({ answer: macAnswer, answeredByDelegate: honorPub }),
+      ]));
+    }).toPass({ timeout: 30_000, intervals: [500, 1000, 2000] });
 
     if (!headless) await new Promise((resolve) => setTimeout(resolve, 5_000));
   });

@@ -1,4 +1,5 @@
 import {
+  delegateRevocationPath,
   delegateGrantSigningPayload,
   delegateGrantPath,
   signDelegateGrant,
@@ -166,5 +167,18 @@ describe('delegate grant relay rollback protection (OPEN-27)', () => {
     expect(isDelegateGrantRollback(active, older)).toBe(true);
     expect(isDelegateGrantRollback(revoked, revoked)).toBe(false);
     expect(isDelegateGrantRollback(revoked, reissued)).toBe(false);
+  });
+
+  it('gives each signed revocation its own deterministic discovery path', () => {
+    const revoked = grant('2026-09-20T00:00:00.000Z', '2026-09-21T00:00:00.000Z');
+    expect(delegateRevocationPath(revoked)).toEqual([
+      'techsupport-delegate-revocations',
+      encodeURIComponent(
+        'delegate-pub|2026-09-20T00:00:00.000Z|2026-09-21T00:00:00.000Z',
+      ),
+    ]);
+    expect(() => delegateRevocationPath(grant('2026-09-20T00:00:00.000Z'))).toThrow(
+      'requires revokedAt',
+    );
   });
 });

@@ -8,8 +8,9 @@ import type { TechSupportSeaPair } from '../../../src/shared/techsupport';
  * private half sat in plaintext across multiple E2E spec files in a public repo, so it was
  * never actually private.
  *
- * Specs that need to boot a real browser/WebView as TechSupport (K3 mode) call this and
- * `test.skip(!pair, ...)` when it's unset, rather than hardcoding a fixture.
+ * Specs that need a real TechSupport signature call this and `test.skip(!pair, ...)` when it is
+ * unset, rather than hardcoding a fixture. OPEN-27 coverage signs grants in the Node test process
+ * and never injects this pair into a browser; older dev-only K3 specs still use browser mode.
  *
  * CI impact: unless a CI job is separately given `TECHSUPPORT_SEA_PAIR_JSON` as a secret, these
  * specs will skip there. That's the intended tradeoff of not committing the real key anywhere —

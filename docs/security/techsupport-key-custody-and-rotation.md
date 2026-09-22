@@ -11,9 +11,8 @@ The security rationale, balanced controls for ordinary users, and staged hardeni
 ## Custody model
 
 - Keep the primary encrypted vault on a dedicated operator machine. Do not place it on the public
-  relay/VPS. Until the local signer boundary replaces browser `localStorage` injection, use the
-  root only from a reviewed/pinned local application build for short control operations; use
-  delegates for routine support.
+  relay/VPS. Use the local CLI signer for short production control operations; production browser
+  builds reject root `localStorage` injection. Use delegates for routine support.
 - Keep at least two offline encrypted backups on different media, with one in a different physical
   location. Test a restore and signing verification at least quarterly.
 - Store the vault passphrase separately in the team's password manager. For automation, inject it

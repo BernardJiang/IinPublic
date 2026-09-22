@@ -1,4 +1,6 @@
 import {
+  DELEGATE_REVOCATIONS_ROOT,
+  isDelegateGrantRollback,
   verifyDelegateGrant,
   delegateGrantPath,
   type TechSupportDelegateGrant,
@@ -49,14 +51,27 @@ function writeCachedDelegateGrant(grant: TechSupportDelegateGrant): void {
   writeAll(all);
 }
 
+/** Reconcile a signature-verified record with this installation's monotonic local knowledge. */
+export function reconcileVerifiedDelegateGrant(
+  verified: TechSupportDelegateGrant,
+): TechSupportDelegateGrant {
+  const current = readCachedDelegateGrant(verified.delegatePub);
+  if (current && isDelegateGrantRollback(current, verified)) return current;
+  writeCachedDelegateGrant(verified);
+  return verified;
+}
+
 /** Verifies + caches one raw grant record, regardless of where it came from (a live Gun `.on()`
  * push or an HTTP relay fetch — see `fetchDelegateGrantsFromServer`). Returns null and leaves the
  * cache untouched on any malformed/untrusted input (K2-3 discipline). */
 export async function applyRawDelegateGrant(data: unknown): Promise<TechSupportDelegateGrant | null> {
   const verified = await verifyDelegateGrant(data);
   if (!verified) return null;
-  writeCachedDelegateGrant(verified);
-  return verified;
+  // OPEN-27: Gun paths are writable/replayable transport. Once this installation has observed a
+  // newer issue or a revocation, never let an older still-valid signature roll local authority
+  // backward. Returning the current record also makes subscribers immediately re-apply the safe
+  // state instead of treating the replay as fresh authority.
+  return reconcileVerifiedDelegateGrant(verified);
 }
 
 /**
@@ -70,9 +85,17 @@ export async function fetchDelegateGrantsFromServer(apiBase: string): Promise<Te
   try {
     const res = await fetch(`${apiBase}/api/support/delegate-grants`);
     if (!res.ok) return [];
-    const body = (await res.json()) as { grants?: unknown[] };
-    const verified = await Promise.all((body.grants || []).map((raw) => applyRawDelegateGrant(raw)));
-    return verified.filter((grant): grant is TechSupportDelegateGrant => !!grant);
+    const body = (await res.json()) as { grants?: unknown[]; revocations?: unknown[] };
+    const grants = Array.isArray(body.grants) ? body.grants : [];
+    const revocations = Array.isArray(body.revocations) ? body.revocations : [];
+    const verified: TechSupportDelegateGrant[] = [];
+    // Apply current slots first and append-only tombstones second. Reconciliation is monotonic in
+    // either order, but this ordering also makes the fresh-install behavior explicit and stable.
+    for (const raw of [...grants, ...revocations]) {
+      const grant = await applyRawDelegateGrant(raw);
+      if (grant) verified.push(grant);
+    }
+    return verified;
   } catch {
     return [];
   }
@@ -93,26 +116,38 @@ export function subscribeToDelegateGrants(
   gun: { get: (key: string) => any },
   onVerified?: (grant: TechSupportDelegateGrant) => void,
 ): () => void {
-  const ref = gun.get(delegateGrantPath('')[0]).map();
-  const handler = async (data: unknown, delegatePub: string) => {
-    if (!delegatePub || delegatePub.startsWith('_')) return;
+  const grantRef = gun.get(delegateGrantPath('')[0]).map();
+  const revocationRef = gun.get(DELEGATE_REVOCATIONS_ROOT).map();
+  const handler = async (data: unknown, recordKey: string) => {
+    if (!recordKey || recordKey.startsWith('_')) return;
     const verified = await applyRawDelegateGrant(data);
     if (!verified) return;
     onVerified?.(verified);
   };
-  ref.on(handler);
-  return () => ref.off();
+  grantRef.on(handler);
+  revocationRef.on(handler);
+  return () => {
+    grantRef.off();
+    revocationRef.off();
+  };
 }
 
-/** Live (uncached) single-grant fetch, for a trust decision that must not trust a stale cache — e.g. answering. */
-export function fetchGrantLive(gun: { get: (key: string) => any }, delegatePub: string, timeoutMs = 800): Promise<unknown> {
+/**
+ * Live single-grant fetch reconciled against monotonic verified local knowledge. The transport
+ * read is live, but a replayed older Gun value cannot roll a previously-seen revocation back.
+ */
+export function fetchGrantLive(
+  gun: { get: (key: string) => any },
+  delegatePub: string,
+  timeoutMs = 800,
+): Promise<TechSupportDelegateGrant | null> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), timeoutMs);
     let ref = gun.get(delegateGrantPath(delegatePub)[0]);
     for (const segment of delegateGrantPath(delegatePub).slice(1)) ref = ref.get(segment);
-    ref.once((data: unknown) => {
+    ref.once(async (data: unknown) => {
       clearTimeout(timer);
-      resolve(data);
+      resolve(await applyRawDelegateGrant(data));
     });
   });
 }

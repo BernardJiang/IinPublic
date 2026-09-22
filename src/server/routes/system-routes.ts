@@ -60,6 +60,9 @@ import { TechSupportMessageStore, type TechSupportStoredMessage } from '../servi
 import type { TechSupportDurableStore } from '../services/techsupport-durable-store';
 import { BoundedNonceCache, P2PAbuseDefenseContext } from '../../shared/p2p-abuse-defense';
 import {
+  DELEGATE_GRANTS_ROOT,
+  DELEGATE_REVOCATIONS_ROOT,
+  delegateRevocationPath,
   isDelegateGrantRollback,
   verifyDelegateGrant,
   type TechSupportDelegateGrant,
@@ -375,21 +378,37 @@ export function registerSystemRoutes(
   });
 
   app.get('/api/support/delegate-grants', async (_req, res) => {
-    let grants: unknown[] = gunService ? await gunService.getSet('techsupport-delegates') : [];
+    const candidates: unknown[] = [];
+    if (gunService) {
+      const [grants, revocations] = await Promise.all([
+        gunService.getSet(DELEGATE_GRANTS_ROOT),
+        gunService.getSet(DELEGATE_REVOCATIONS_ROOT),
+      ]);
+      candidates.push(...grants, ...revocations);
+    }
     if (hubRelayClient) {
       try {
         const remote = await hubRelayClient.listDelegateGrants();
-        const byPub = new Map<string, unknown>();
-        for (const grant of [...grants, ...remote]) {
-          const pub = (grant as { delegatePub?: string } | null)?.delegatePub;
-          if (pub) byPub.set(pub, grant);
-        }
-        grants = Array.from(byPub.values());
+        candidates.push(...remote);
       } catch {
         // Embedded nodes remain usable offline; local/already-cached grants still return.
       }
     }
-    res.json({ grants });
+    const byPub = new Map<string, TechSupportDelegateGrant>();
+    const revocations = new Map<string, TechSupportDelegateGrant>();
+    for (const raw of candidates) {
+      const grant = await verifyTechSupportDelegateGrant(raw);
+      if (!grant) continue;
+      if (grant.revokedAt) {
+        revocations.set(`${grant.delegatePub}|${grant.issuedAt}|${grant.revokedAt}`, grant);
+      }
+      const current = byPub.get(grant.delegatePub);
+      if (!current || !isDelegateGrantRollback(current, grant)) byPub.set(grant.delegatePub, grant);
+    }
+    res.json({
+      grants: Array.from(byPub.values()),
+      revocations: Array.from(revocations.values()),
+    });
   });
 
   // OPEN-27 local-root boundary: the operator CLI signs on its own machine and submits only this
@@ -405,22 +424,29 @@ export function registerSystemRoutes(
         res.status(503).json({ error: 'Delegate grant storage is unavailable' });
         return;
       }
-      let currentRaw: unknown = null;
+      const currentCandidates: unknown[] = [];
       if (gunService) {
-        currentRaw = await gunService.getPath(['techsupport-delegates', grant.delegatePub]);
+        currentCandidates.push(
+          await gunService.getPath([DELEGATE_GRANTS_ROOT, grant.delegatePub]),
+          ...(await gunService.getSet(DELEGATE_REVOCATIONS_ROOT)),
+        );
       } else if (hubRelayClient) {
         const remote = await hubRelayClient.listDelegateGrants();
-        currentRaw = remote.find((entry) => (
-          entry as { delegatePub?: unknown } | null
-        )?.delegatePub === grant.delegatePub) ?? null;
+        currentCandidates.push(...remote);
       }
-      const current = await verifyTechSupportDelegateGrant(currentRaw);
+      let current: TechSupportDelegateGrant | null = null;
+      for (const raw of currentCandidates) {
+        const candidate = await verifyTechSupportDelegateGrant(raw);
+        if (!candidate || candidate.delegatePub !== grant.delegatePub) continue;
+        if (!current || !isDelegateGrantRollback(current, candidate)) current = candidate;
+      }
       if (current && isDelegateGrantRollback(current, grant)) {
         res.status(409).json({ error: 'Refusing to replace a newer or revoked delegate grant' });
         return;
       }
       if (gunService) {
-        await gunService.putPath(['techsupport-delegates', grant.delegatePub], grant);
+        await gunService.putPath([DELEGATE_GRANTS_ROOT, grant.delegatePub], grant);
+        if (grant.revokedAt) await gunService.putPath(delegateRevocationPath(grant), grant);
       }
       if (hubRelayClient?.postDelegateGrant) {
         await hubRelayClient.postDelegateGrant(grant);

@@ -10,8 +10,9 @@ const { loadTechSupportPairSync } = require('../src/server/security/techsupport-
 const ROOT = path.join(__dirname, '..');
 const DIST_TECHSUPPORT_MODULE = path.join(ROOT, 'dist', 'server', 'shared', 'techsupport.js');
 
-// Mirror dev-techsupport-login.js's dev TLS detection; TECHSUPPORT_APP_URL overrides it
-// entirely for pointing this agent at a real deployment instead of a local dev server.
+// Mirror dev-techsupport-login.js's dev TLS detection. OPEN-27 deliberately limits this legacy
+// browser-root harness to loopback development/E2E builds; production root operations use the
+// short-lived local CLI signer and never inject the root pair into remotely served JavaScript.
 const devKeyPath = process.env.TLS_KEY_PATH || path.resolve(ROOT, 'certs/dev-key.pem');
 const devCertPath = process.env.TLS_CERT_PATH || path.resolve(ROOT, 'certs/dev-cert.pem');
 const devTlsEnabled =
@@ -34,17 +35,29 @@ const POLL_INTERVAL_MS = Number(process.env.TECHSUPPORT_AGENT_POLL_MS || 5000);
  * panel's "Publish" button emits (ui-manager.ts), so it runs through the identical, already-
  * tested `handleAnswerSupportQuestion` in app.ts — no support-answering logic is duplicated here.
  *
- * This is deliberately NOT a fully unattended agent: a human still reads and types every answer
- * (auto-answering of previously-answered questions already happens independently, client-side,
- * from each asker's own cached FAQ bundle — see techsupport-faq.ts). What this process buys is
- * *presence*: the TechSupport identity, greeting, and FAQ bundle stay live and verifiable without
- * a developer's visible browser tab open, so it's meant to run as a standing process (pm2,
- * systemd, a container, etc.) pointed at a real deployment via TECHSUPPORT_APP_URL.
+ * This is deliberately NOT a production agent. It remains temporarily for localhost development
+ * and E2E coverage while those fixtures move to delegated identities. It must never load remotely
+ * served application code because every same-origin script could read the injected root pair.
  *
  * Production key custody uses the encrypted TECHSUPPORT_KEY_FILE vault and passphrase source
  * documented in docs/security/techsupport-key-custody-and-rotation.md. The legacy plaintext
  * TECHSUPPORT_SEA_PAIR_JSON input remains migration-only.
  */
+function assertLoopbackAppUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`TECHSUPPORT_APP_URL must be a valid loopback URL (received ${value})`);
+  }
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) {
+    throw new Error(
+      'TechSupport browser-root mode is development/E2E-only and may target only localhost. ' +
+      'Use `npm run techsupport:delegate -- issue|revoke` for production root operations.',
+    );
+  }
+}
+
 function requireCompiledTechSupport() {
   try {
     return require(DIST_TECHSUPPORT_MODULE);
@@ -187,6 +200,7 @@ async function runAgentLoop(page) {
 let browser;
 
 (async () => {
+  assertLoopbackAppUrl(APP_URL);
   const techsupport = requireCompiledTechSupport();
   const pair = loadPair(techsupport);
 
