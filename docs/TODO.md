@@ -62,10 +62,35 @@ phrase complexity into normal use.
   relay. Cover stale website caches, installed Android versions, overlap, rollback, and forced
   retirement in unit and cross-client tests.
 
-- [ ] **OPEN-30 — Harden website release integrity and the browser execution boundary.** Remove
-  CSP `unsafe-eval` where production dependencies permit, separate development-only policy, add
-  release-integrity monitoring/reproducible artifact checks, and test that untrusted content cannot
-  become executable markup. Treat CSP as defense in depth rather than private-key custody.
+- [ ] **OPEN-30 — Harden website release integrity and the browser execution boundary.** Treat CSP
+  as defense in depth rather than private-key custody.
+  - [x] Remove CSP `scriptSrc: 'unsafe-eval'` (`src/server/bootstrap/http-bootstrap.ts`). Verified
+    against the current dependency set (webpack `devtool` is `source-map`, never
+    `eval-source-map`; the built bundle's only `new Function(...)` call is webpack's own benign
+    `__webpack_require__.g` global-object shim, which falls back to `window`; MapLibre GL JS
+    compiles style expressions to a safe interpreter, not `eval`) and confirmed live: the
+    embedded-node server booted under the tightened policy, the app loaded, and the chatroom map
+    view rendered (MapLibre worker + WebGL init included) with no CSP-violation console errors.
+    No dev-only carve-out was needed — `npm run dev`'s split webpack-dev-server never goes through
+    this Express/helmet CSP at all, only the embedded-node/production/desktop path does.
+  - [x] "Untrusted content cannot become executable markup" already has real, if scattered, unit
+    coverage (`conversation-message-cards.test.ts`, `chatroom-message-view.test.ts`, etc. assert
+    `<script>`/`onerror=` payloads are neutralized) on top of the codebase's `escapeHtml` rendering
+    convention (52 files). Not yet a single consolidated audit/test across every rendering surface
+    (stage names, delegate labels, FAQ content, ...) — worth doing but not urgent given existing
+    coverage.
+  - [x] Release-integrity checks: published `SHA256SUMS` per release. `npm run build:embedded`
+    writes `dist/web/SHA256SUMS`; `scripts/stage-app-download.mjs` writes
+    `public/downloads/SHA256SUMS` for desktop installers + the Android APK. Both are
+    `sha256sum -c`-compatible. `npm run release:verify-checksums -- --dir <path>` or
+    `-- --base-url <origin>` re-hashes and reports any mismatch/missing file — verified live
+    against a running embedded-node server, including that it actually catches a tampered file.
+  - [ ] Turn the point-in-time `release:verify-checksums` check into an always-on monitor (cron/CI
+    scheduling it against the production origin, alerting on failure) — not built; a manual or
+    externally-scheduled check for now.
+  - [ ] Subresource Integrity on `index.html`'s script/style tags — a stronger, browser-enforced
+    complement to the checksum manifest (a tampered `bundle.js` would fail to execute at all, not
+    just fail a later human check), deferred as separate build-pipeline work.
 
 OPEN-13 and the website/Android portion of OPEN-06 were completed on physical Android hardware on
 2026-09-20; evidence is in `docs/completed.md`.

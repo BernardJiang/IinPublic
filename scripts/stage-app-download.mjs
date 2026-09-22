@@ -4,6 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+// OPEN-30: same manifest helper generate-web-checksums.js uses for dist/web — one publishable
+// SHA-256 per release artifact, not just for the web bundle.
+const { generateManifestForDir } = require('./lib/sha256sums');
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rootPackage = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
@@ -75,3 +81,11 @@ const destination = path.join(downloadsDir, `IinPublic-${version}-${platform}${o
 fs.mkdirSync(downloadsDir, { recursive: true });
 fs.copyFileSync(sourcePath, destination);
 console.log(`Staged ${path.relative(projectRoot, destination)} from ${path.relative(projectRoot, sourcePath)}`);
+
+// OPEN-30: regenerate the whole manifest (cheap — a handful of installers/APKs, not a large
+// tree) rather than appending, so a manually removed/replaced file never leaves a stale entry.
+// `public/downloads/` deliberately keeps old-version artifacts around (buildDownloadManifest,
+// downloads-routes.ts, only offers the CURRENT version, but old files stay downloadable by
+// direct link) — the manifest covers all of them, not just this run's file.
+const checksumEntries = generateManifestForDir(downloadsDir, 'SHA256SUMS');
+console.log(`Updated ${path.relative(projectRoot, path.join(downloadsDir, 'SHA256SUMS'))} (${checksumEntries.length} files)`);

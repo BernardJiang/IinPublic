@@ -68,7 +68,16 @@ export function configureHttpMiddleware(app: express.Application): void {
         directives: {
           defaultSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          scriptSrc: ["'self'", "'unsafe-eval'"],
+          // OPEN-30: dropped 'unsafe-eval'. Verified against the current production
+          // dependency set (webpack devtool is 'source-map', never 'eval-source-map'; the
+          // built bundle's only `new Function(...)` call is webpack's own benign
+          // `__webpack_require__.g` global-object shim, which already falls back to `window`
+          // if the CSP blocks it; MapLibre GL JS compiles style expressions to a safe
+          // interpreter, not `eval`) and confirmed live: the embedded-node server booted with
+          // this directive, the app loaded, the chatroom map view rendered (MapLibre worker +
+          // WebGL init included), and no CSP-violation console errors appeared. Re-verify
+          // this comment's claims before reintroducing 'unsafe-eval' for a new dependency.
+          scriptSrc: ["'self'"],
           imgSrc: ["'self'", 'data:', 'https:'],
           connectSrc: [
             "'self'",

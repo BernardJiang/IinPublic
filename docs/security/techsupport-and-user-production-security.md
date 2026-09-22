@@ -174,7 +174,17 @@ purpose and lifetime, and retaining traceability:
 - Pin an independent offline recovery authority—or a small threshold of recovery keys—before an
   emergency occurs, so clients can authenticate a root replacement without trusting the stolen
   root or relay.
-- Tighten CSP, remove `unsafe-eval` where feasible, and add release-integrity monitoring.
+- ~~Tighten CSP, remove `unsafe-eval` where feasible~~ — done (OPEN-30): CSP's `scriptSrc` no
+  longer allows `unsafe-eval` anywhere (verified against the current dependency set, including a
+  live MapLibre GL map-view render under the tightened policy).
+- ~~Add release-integrity monitoring~~ — done (OPEN-30) for the web bundle and downloadable
+  installers/APK: `npm run build:embedded` writes `dist/web/SHA256SUMS`, and
+  `scripts/stage-app-download.mjs` writes `public/downloads/SHA256SUMS`, both
+  `sha256sum -c`-compatible. `npm run release:verify-checksums -- --base-url <origin>` fetches a
+  live deployment's manifest and every file it lists and reports any mismatch — this is a
+  point-in-time check you run (by hand, or from cron/CI), not an always-on monitor; nothing pages
+  anyone automatically yet. Regenerate and redeploy together — a manifest that doesn't match the
+  live files is worse than none, since it invites a false "verified" conclusion.
 
 ### Only when scale, regulation, staffing, or threat level justifies it
 
