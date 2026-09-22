@@ -84,6 +84,11 @@ All persistence goes through [Gun.js](https://gun.eco/). The server has a `GunSe
   Device-side, size-triggered pruning (oldest `updatedAt` first, mirroring the room-visit-counter
   prune below) keeps this path bounded — see `planIncomingTalkClusterPrune` in
   `src/shared/peer-talk-delivery.ts`.
+  **Caveat (wire audit 2026-09-21, `tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`):**
+  the browser's Gun instance is connected to the hub, so those "local" writes — `users/<pub>/talks/<id>`,
+  `users/<pub>/receivedTalks/<author>/<id>` and `users/<pub>/incomingTalkClusters` — are still sent to the hub
+  as PLAINTEXT and relayed to every other connected client. Delivery itself is mesh-only; the server HTTP
+  calls carry ciphertext only. Fixing this is tracked by that spec's `test.fail`.
 - Cross-worker disk races in `clearGunDatabases()` are a known flakiness source — servers run `E2E_GUN_MEMORY_ONLY=1` so disk clears are not required.
 
 ### Server: `src/server/`

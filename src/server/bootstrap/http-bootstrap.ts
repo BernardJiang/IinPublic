@@ -288,7 +288,10 @@ export function attachGun(server: HttpServer): any {
     localStorage: false,
     // Embedded nodes always persist on-device (Gun-on-device is source of truth).
     radisk: embedded.enabled ? true : !isolatedGun,
-    ...(isolatedGun ? { peers: [], axe: false, multicast: false } : {}),
+    // IINPUBLIC_HUB_AXE=1 turns Gun AXE (subscription-based routing) ON for a relay-only/isolated hub, so a
+    // write is forwarded only to peers that asked for it instead of flooding every connected client.
+    // Off by default (unchanged behaviour); used by scripts/load-test-room-heartbeat.mjs --axe.
+    ...(isolatedGun ? { peers: [], axe: process.env.IINPUBLIC_HUB_AXE === '1', multicast: false } : {}),
     ...(upstreamHubPeers.length > 0
       ? { peers: upstreamHubPeers, axe: false, multicast: false }
       : {}),
