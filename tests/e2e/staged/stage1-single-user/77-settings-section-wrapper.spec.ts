@@ -49,8 +49,16 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
     await expect(page.locator('#settings-content section')).toHaveCount(0);
     // Every declared settings section is rendered up front (stable DOM identity across a
     // menu/detail switch) — just not all visible at once. The menu list is the default view.
+    //
+    // SETTINGS_SECTION.supportDelegate is deliberately excluded from this count: unlike the
+    // other entries, it's the conditionally-rendered delegate opt-in view (settings-view.ts),
+    // wrapped in its own `.settings-section-wrapper` rather than the shared
+    // `renderSettingsSection()` template's `.settings-section` — it's a valid
+    // openSettingsSection() navigation target (hence still in the map), just not one of the
+    // uniform sections this assertion is checking for.
+    const uniformSectionCount = Object.values(SETTINGS_SECTION).length - 1;
     const sections = page.locator('#settings-detail-container > div > .settings-section');
-    await expect(sections).toHaveCount(Object.values(SETTINGS_SECTION).length);
+    await expect(sections).toHaveCount(uniformSectionCount);
     await expect(page.locator('#settings-menu-container')).toBeVisible();
     await expect(page.locator('[data-testid="settings-product-promise"]')).toHaveText(
       'Your identity. Your answers. Your data.',
