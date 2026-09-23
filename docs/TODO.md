@@ -99,8 +99,60 @@ phrase complexity into normal use.
     resolution were never the problem. Fix: use the array `fetchDelegateGrantsFromServer` already
     fetched and verified directly, instead of re-reading it back through the cache. Verified type-
     check + full unit suite clean; rebuilt and redeployed to production (`a692d8be`) and republished
-    fresh 1.0.49 installers (mac/windows/linux/android) to the downloads page. Not yet re-confirmed
-    against the real Huawei phone with the fixed build (next step, not yet done this session).
+    fresh 1.0.49 installers (mac/windows/linux/android) to the downloads page. This fix was real and
+    correct, but re-tested against the real Huawei phone (fresh 1.0.49 install) and still failed
+    identically — see the entry directly below for the actual, conclusive root cause.
+  - [x] **The real root cause, found 2026-09-23 (`62acd81f`): `SEA.verify` was completely broken
+    inside the Android embedded-mobile bundle, unconditionally, for every build that has ever
+    shipped.** `scripts/build-embedded-mobile.js` esbuild-bundles the whole embedded server
+    (including `src/shared/techsupport-delegate.ts`) into one CJS file for on-device performance
+    (fewer files for `NodeBridge.unpackIfNeeded` to copy one-at-a-time). esbuild's CJS bundling of
+    `gun/sea` silently breaks its default-export interop: the bundled call site saw
+    `import_sea.default.verify is not a function`, even though `gun/sea`'s own `module.exports` has
+    a real `.verify` function — the plain (non-bundled) tsc server build, requiring the same module
+    normally, verifies correctly. Every `verifyDelegateGrant`/recovery-anchor/FAQ-bundle signature
+    check therefore failed unconditionally on Android, silently: the HTTP routes all still returned
+    200 with empty results, indistinguishable from "nothing published yet" from any log, client
+    symptom, or the two earlier (real, but insufficient) fixes above.
+    - Found by booting the *actual built Android artifact* (`dist/embedded-mobile/server/node-
+      app/embedded-node.js`) standalone against a real hub, outside any Playwright/adb harness —
+      confirmed the relay fetch itself returned real, correctly-signed grants (4/4), but
+      `verifyTechSupportDelegateGrant` rejected all 4; traced the rejection to the exact
+      `SEA.verify` call throwing `TypeError: import_sea3.default.verify is not a function`. A
+      parallel test of the plain tsc build (`dist/server/node-app/embedded-node.js`, what the
+      Electron desktop app actually runs) verified all 4 grants correctly, confirming this was
+      bundling-specific, not a code-logic bug — desktop was never affected by this particular
+      regression, since it doesn't use this esbuild bundle at all.
+    - Fix: `gun`/`gun/sea` are external to the bundle instead of inlined.
+      `platforms/mobile/nodejs-project/node_modules/gun` was already staged on-device as a real
+      dependency (previously only for the browser Worker's static assets, per this project's
+      existing convention); it sits well within plain Node module resolution's normal upward walk
+      from the bundle's own on-device location, so externalizing just leaves an ordinary
+      `require('gun')`/`require('gun/sea')` at runtime instead of esbuild's broken interop
+      wrapper — matching the already-working tsc build exactly. Bundle size dropped
+      ~2.57MB -> ~2.23MB as a side effect.
+    - New permanent regression coverage: `scripts/verify-embedded-mobile-bundle.js` boots the
+      just-built bundle as a real child process and runs a real signed grant through its actual
+      HTTP route end to end, wired into `build-embedded-mobile.js` so it runs automatically on
+      every rebuild (skips gracefully without a local signing key). Confirmed it actually catches
+      this exact regression: temporarily reverting the externalization made the smoke test fail
+      immediately, with the identical original symptom, on the very next build.
+    - Verified the actual shipped artifact, not just the dist output: decompressed the signed
+      1.0.51 release APK and byte-compared its bundled server against the fixed dist build —
+      identical. Rebuilt and republished 1.0.51 across all four platforms (mac/windows/linux/
+      android) to the downloads page and redeployed production. Not yet re-confirmed against the
+      real Huawei phone with this build (the user was asleep) — this is the first still-open,
+      concrete next step for the morning: install 1.0.51, ask a question, confirm the delegate's
+      inbox receives it.
+    - Also added `tests/e2e/staged/stage2-two-user/00n-techsupport-delegate-answers-cold-asker.spec.ts`
+      (proves the browser-only fan-out path works for a cold asker — passes, confirms the earlier
+      localStorage-round-trip fix is real) and
+      `tests/e2e/native-app/25-macmini-app-techsupport-delegate-cold-asker.spec.ts` (same scenario
+      through the packaged Electron app — reproduced the bug's exact symptom without physical
+      Android hardware, though Electron itself was never affected by the gun/sea regression since
+      it runs the plain tsc build; this spec's own Electron-launch readiness flakiness on this dev
+      machine is a separate, unresolved, lower-priority loose end — two follow-up runs timed out in
+      `bootstrapNativeWindow` before ever reaching the app's own logic, unrelated to this fix).
   - [ ] Remove `iinpublic_techsupport_keypair_v1`, `dev:techsupport`/root-agent injection, and every
     production code path that exposes `priv`/`epriv` to page JavaScript.
 
