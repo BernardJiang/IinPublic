@@ -2544,9 +2544,18 @@ export class IinPublicApp {
     // answers) can ask its very first question before that poll's first tick has even resolved,
     // silently fanning out to master only. A synchronous fetch right before addressing removes
     // the race outright, independent of any poll interval.
-    await fetchDelegateGrantsFromServer(this.getBackendApiBase()).catch(() => []);
+    //
+    // Real-device regression (2026-09-23, Huawei phone): the original fix here awaited the fetch
+    // but then discarded its result and re-derived `validDelegates` via `readCachedDelegateGrants()`
+    // — a second, independent round trip through localStorage. Confirmed live: the fetch got a
+    // fresh 200 with the correct grant, `verifyDelegateGrant` accepted it, and the delegate's epub
+    // was resolvable — yet no mailbox envelope was ever posted for the delegate, only for the
+    // master. The verified, already-in-memory list from the fetch itself is used directly now,
+    // removing that unnecessary write-then-read-back dependency entirely (still fine to also let
+    // the fetch populate the cache for its other readers, e.g. the master's own admin panel).
+    const freshDelegateGrants = await fetchDelegateGrantsFromServer(this.getBackendApiBase()).catch(() => []);
     const now = new Date();
-    const validDelegates = readCachedDelegateGrants().filter((g) => isValidDelegateGrant(g, now));
+    const validDelegates = freshDelegateGrants.filter((g) => isValidDelegateGrant(g, now));
     for (const grant of validDelegates) {
       try {
         const epub = await this.resolvePeerEpub(grant.delegateUserId);
