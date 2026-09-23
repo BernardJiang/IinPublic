@@ -45,35 +45,43 @@ phrase complexity into normal use.
   - [x] Reject and erase root injection in production web builds and restrict the legacy headless
     root harness to loopback development/E2E origins.
   - [x] Move production issue/revoke behind the local signer, use delegates for routine answering.
-  - [ ] **Regression found 2026-09-22, first real-hardware run since the local-signer rewrite
+  - [x] **Regression found 2026-09-22, first real-hardware run since the local-signer rewrite
     (`4e2dd21b`, 2026-09-21): the opt-in `09-android-techsupport-delegate-answers` physical-device
-    scenario does not actually pass.** The rewrite replaced the old desktop-TechSupport-browser
-    approve flow (Honor's signed request seen live over Gun, master approves in the UI — lots of
-    natural wall-clock time and a real Gun live-subscription path) with a direct
-    `fetch(POST /api/support/delegate-grants)` from the test process itself, mirroring
-    `techsupport:delegate issue`. Root-caused on real hardware (Honor/RNV0217207000190):
-    - The POST succeeds (`published.ok === true`).
-    - Honor's on-device embedded-node relay is correctly configured (confirmed via `adb logcat`:
-      `hub=http://<mac-lan-ip>:9078/gun`, matching the test's own hub exactly — not a
-      production/test-hub mismatch).
-    - A direct `fetch(apiBase + '/api/support/delegate-grants')` from Honor's own WebView, run
-      manually mid-test, gets a clean `200 {"grants":[],"revocations":[]}` — the relay chain
-      itself works end-to-end, but the grant is simply not there.
-    - `techSupportDelegateOptedIn`/`techSupportDelegateGrant` on Honor's app never become
-      truthy across 30+ seconds of 5s-interval relay polling — not a slow-sync timing issue.
-    - Ruled out: this session's own OPEN-29 relay-poll addition (`fetchRecoveryAnchorFromServer`)
-      — disabling it and rebuilding made no difference; the poll's delegate-grants step was
-      already returning empty before that call ever runs in the same tick.
-    - Likely a genuine gap in `GET/POST /api/support/delegate-grants`'s server-side
-      `gunService.getSet(DELEGATE_GRANTS_ROOT)` (or the write side) specific to the *native relay
-      poll* code path — 00m (the browser-only sibling scenario) never exercises this route at all,
-      since a browser session relies entirely on its own live Gun `.on()` subscription instead.
-      This exact server route may genuinely never have been verified end-to-end against real
-      Android hardware since the rewrite.
-    - Separately (and already fixed in this pass): the settings-tab menu-first drill-down
+    scenario did not pass — root-caused and fixed 2026-09-22 (`cde15762`).** The rewrite replaced
+    the old desktop-TechSupport-browser approve flow (Honor's signed request seen live over Gun,
+    master approves in the UI) with a direct `fetch(POST /api/support/delegate-grants)`, mirroring
+    `techsupport:delegate issue`. Initial diagnosis on real hardware (Honor/RNV0217207000190) ruled
+    out a hub-URL mismatch and this session's own OPEN-29 relay-poll addition, and pointed at
+    `GET/POST /api/support/delegate-grants`'s server-side storage — but the true root cause wasn't
+    device-specific at all: **`system-routes.ts` wrote delegate grants through the main relay's
+    `gunService`, whose Gun instance is permanently `radisk:false`** (deliberate — see
+    `p2p-runtime.ts`). That config silently drops multi-level chained Gun writes
+    (`gun.get(a).get(b).put()`'s ack never fires, data never reaches `gun._.graph`) — the exact bug
+    class `techsupport-durable-store.ts`'s class doc already documented from 2026-09-02 and fixed
+    for TechSupport's message/mailbox channel via an isolated `radisk:true` Gun instance, but never
+    extended to the newer delegate-grant/recovery-anchor routes. Confirmed live against production
+    (`www.iinpublic.com`) with a real Safari-session grant, *before* the fix: `POST` returned
+    `{stored: true}` but a moments-later `GET` (from the hub itself, no relay chain involved) came
+    back empty — 100% reproducible, platform-agnostic (would hit any client: browser or Android).
+    Fix: `TechSupportDurableStore` gained generic `putPath`/`getPath`/`getSet` (delegating to its
+    existing, already-proven `put`/`get`/`collectMap`); `system-routes.ts`'s delegate-grant and
+    recovery-anchor routes now prefer the injected durable store over `gunService`, matching the
+    existing message-channel idiom. Verified live in production after redeploy: issued a real
+    signed grant via `techsupport:delegate issue`, confirmed it was readable immediately, then
+    **restarted the production service and confirmed the grant was still there** — proving real
+    disk durability, not just warm-process memory. Test coverage: two new integration tests in
+    `system-routes.test.ts` proving the durable store is preferred over `gunService` for both
+    routes' reads and writes (a direct Jest unit test against a real `TechSupportDurableStore`
+    was attempted first but hits a pre-existing Radisk/ts-jest incompatibility — same limitation
+    `gun-message-store.test.ts`'s doc comment already describes for bare in-memory Gun).
+    - Separately (and already fixed in the prior pass): the settings-tab menu-first drill-down
       (`3503cf13`) also broke this test's navigation to `#support-delegate-optin-toggle` — fixed
-      with the same `openSettingsSection` call 00m already needed. That fix is real and necessary
-      but not sufficient; the grant-visibility gap above remains open.
+      with the same `openSettingsSection` call this scenario already needed.
+    - Not yet re-run against real Android hardware since this fix (the fix was verified via direct
+      HTTP round trip + production restart, not the Playwright native-app spec itself) — worth a
+      real-device confirmation pass if native-device delegate assignment needs to be demonstrated
+      again, but the underlying bug was never Android-specific, so this is confidence-building
+      rather than expected to surface anything new.
   - [ ] Remove `iinpublic_techsupport_keypair_v1`, `dev:techsupport`/root-agent injection, and every
     production code path that exposes `priv`/`epriv` to page JavaScript.
 
@@ -114,6 +122,18 @@ phrase complexity into normal use.
     session, not a code issue given every other layer (unit, integration via supertest against
     the real route handlers, and the dry-run signing path) passed. Re-verify with a real publish
     against a real deployment before relying on this in an actual incident.
+    - Update 2026-09-22: `/api/support/recovery` shared the exact `radisk:false` write-loss bug
+      just found and fixed for delegate grants (same `system-routes.ts` pattern, same fix — see
+      OPEN-27's regression entry above), so a publish attempted before that fix would have
+      appeared to succeed and then silently vanished regardless of the networking quirk. The fix
+      is deployed and the *delegate-grant* route's round trip is now proven live (published,
+      read back, survived a production service restart) — the *recovery-anchor* route runs
+      through the identical `putSupportPath`/`getSupportPath` code, so it shares that fix, but a
+      real recovery-anchor publish specifically was deliberately not attempted live: it's a
+      trust-rotation action (can revoke the current master's authority), not something to test
+      against production without the product owner present. Still worth a real publish + restart
+      check the next time a recovery rotation is actually exercised, or against a non-production
+      deployment.
   - [ ] Cross-client "stale cache / installed Android version catches up" scenario has no E2E
     coverage yet — only unit/integration. The mechanism (client-side monotonic cache +
     HTTP-relay poll, identical in shape to the already-E2E-tested OPEN-27 delegate-grant
