@@ -28,6 +28,49 @@ to ignored `public/downloads/`. The server also ignores any older files left in
 that directory. Supported extensions are `.dmg`, `.exe`, `.AppImage`, `.deb`,
 `.apk`, and `.ipa`.
 
+### Android release signing (added 2026-09-22)
+
+`android/app/build.gradle`'s `release` build type only signs the APK when
+`IINPUBLIC_ANDROID_KEYSTORE` is set in the environment — left unset,
+`./gradlew assembleRelease` still builds, just unsigned (same as before this
+config existed). The release keystore itself (`secrets/android-release.keystore`,
+gitignored, 4096-bit RSA, ~30-year validity) and its passphrase
+(`secrets/android-release.keystore.passphrase`) must be preserved indefinitely —
+losing them means no future release can update an already-installed app; back
+both up somewhere durable outside this machine (a password manager entry
+holding the passphrase plus an encrypted copy of the keystore file is enough).
+
+```bash
+cd android
+IINPUBLIC_ANDROID_KEYSTORE="$(pwd)/../secrets/android-release.keystore" \
+IINPUBLIC_ANDROID_KEYSTORE_PASSWORD="$(cat ../secrets/android-release.keystore.passphrase)" \
+IINPUBLIC_ANDROID_KEY_ALIAS="iinpublic-release" \
+./gradlew assembleRelease
+```
+
+Output lands at `android/app/build/outputs/apk/release/app-release.apk`. The
+stager's android auto-discovery only looks at the `debug` output dir, so stage
+a release build with an explicit path:
+`node scripts/stage-app-download.mjs android android/app/build/outputs/apk/release/app-release.apk`.
+Verify signing before publishing:
+`apksigner verify --print-certs <path-to-apk>` should show the `CN=IinPublic`
+certificate, not a debug-keystore identity.
+
+Desktop installers built on this Mac are ad-hoc signed on macOS (see
+`platforms/desktop/afterPack.js`'s doc comment — this is the project's normal,
+accepted state, not a gap to fix) and unsigned on Windows/Linux — no paid
+code-signing certificate is set up for those yet, so first-run OS warnings
+(Gatekeeper "unidentified developer", SmartScreen) are expected.
+
+After building, push new-version artifacts straight to `~/IinPublic/public/downloads/`
+on the VPS (`scp`, matching the `IinPublic-<version>-<platform>.<ext>` naming
+`stage-app-download.mjs` produces) and regenerate that directory's manifest
+remotely — no rebuild/restart of the running service is needed for a
+downloads-only update:
+```bash
+ssh ovh "cd ~/IinPublic && node -e \"require('./scripts/lib/sha256sums').generateManifestForDir('public/downloads', 'SHA256SUMS')\""
+```
+
 ## Container check
 
 ```bash

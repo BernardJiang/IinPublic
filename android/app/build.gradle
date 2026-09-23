@@ -44,10 +44,29 @@ android {
         }
     }
 
+    // Release signing reads only from env vars, never from a committed value — the keystore
+    // itself lives in the repo-root, gitignored secrets/ dir (see docs/guides/DEPLOY_PRODUCTION.md).
+    // Left unset, `assembleRelease` still builds (an unsigned APK, same as before this config
+    // existed) so this is a no-op for any dev who hasn't set up release signing.
+    def releaseKeystorePath = System.getenv("IINPUBLIC_ANDROID_KEYSTORE")
+    if (releaseKeystorePath) {
+        signingConfigs {
+            release {
+                storeFile file(releaseKeystorePath)
+                storePassword System.getenv("IINPUBLIC_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("IINPUBLIC_ANDROID_KEY_ALIAS") ?: "iinpublic-release"
+                keyPassword System.getenv("IINPUBLIC_ANDROID_KEY_PASSWORD") ?: System.getenv("IINPUBLIC_ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (releaseKeystorePath) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     compileOptions {
