@@ -40,6 +40,7 @@ import {
 import { configuredAndroidDevices } from './helpers/android-device-config';
 import { bootstrapNativeWindow, forceJoinGlobal, launchNativeUser, type NativeUser } from './helpers/native-app';
 import { afterNav, afterSync, headless } from '../helpers/timing';
+import { openSettingsSection, SETTINGS_SECTION } from '../helpers/settings-nav';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
 import { signDelegateGrant } from '../../../src/shared/techsupport-delegate';
 import { loadRealTechSupportPair } from '../helpers/techsupport-real-pair';
@@ -157,6 +158,11 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     await afterNav();
     await honor.window.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    // Settings is a menu-first drill-down (3503cf13) — the delegate opt-in toggle lives behind
+    // its own jump-menu item now, not visible on the Settings landing view. Same gap
+    // 00m-techsupport-delegate-answers.spec.ts had before it was fixed for the browser-only
+    // scenario; this physical-device spec needed the identical fix.
+    await openSettingsSection(honor.window, SETTINGS_SECTION.supportDelegate);
     const optInToggle = honor.window.locator('#support-delegate-optin-toggle');
     await expect(optInToggle).toBeVisible({ timeout: 30_000 });
     await expect(optInToggle).not.toBeChecked();

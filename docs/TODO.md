@@ -44,9 +44,36 @@ phrase complexity into normal use.
     both the current record and its tombstone, so independent recovery/checkpoints remain OPEN-29.
   - [x] Reject and erase root injection in production web builds and restrict the legacy headless
     root harness to loopback development/E2E origins.
-  - [x] Move production issue/revoke behind the local signer, use delegates for routine answering,
-    and cover the website/Android delegate path without a root browser session in the opt-in
-    `09-android-techsupport-delegate-answers` physical-device scenario.
+  - [x] Move production issue/revoke behind the local signer, use delegates for routine answering.
+  - [ ] **Regression found 2026-09-22, first real-hardware run since the local-signer rewrite
+    (`4e2dd21b`, 2026-09-21): the opt-in `09-android-techsupport-delegate-answers` physical-device
+    scenario does not actually pass.** The rewrite replaced the old desktop-TechSupport-browser
+    approve flow (Honor's signed request seen live over Gun, master approves in the UI — lots of
+    natural wall-clock time and a real Gun live-subscription path) with a direct
+    `fetch(POST /api/support/delegate-grants)` from the test process itself, mirroring
+    `techsupport:delegate issue`. Root-caused on real hardware (Honor/RNV0217207000190):
+    - The POST succeeds (`published.ok === true`).
+    - Honor's on-device embedded-node relay is correctly configured (confirmed via `adb logcat`:
+      `hub=http://<mac-lan-ip>:9078/gun`, matching the test's own hub exactly — not a
+      production/test-hub mismatch).
+    - A direct `fetch(apiBase + '/api/support/delegate-grants')` from Honor's own WebView, run
+      manually mid-test, gets a clean `200 {"grants":[],"revocations":[]}` — the relay chain
+      itself works end-to-end, but the grant is simply not there.
+    - `techSupportDelegateOptedIn`/`techSupportDelegateGrant` on Honor's app never become
+      truthy across 30+ seconds of 5s-interval relay polling — not a slow-sync timing issue.
+    - Ruled out: this session's own OPEN-29 relay-poll addition (`fetchRecoveryAnchorFromServer`)
+      — disabling it and rebuilding made no difference; the poll's delegate-grants step was
+      already returning empty before that call ever runs in the same tick.
+    - Likely a genuine gap in `GET/POST /api/support/delegate-grants`'s server-side
+      `gunService.getSet(DELEGATE_GRANTS_ROOT)` (or the write side) specific to the *native relay
+      poll* code path — 00m (the browser-only sibling scenario) never exercises this route at all,
+      since a browser session relies entirely on its own live Gun `.on()` subscription instead.
+      This exact server route may genuinely never have been verified end-to-end against real
+      Android hardware since the rewrite.
+    - Separately (and already fixed in this pass): the settings-tab menu-first drill-down
+      (`3503cf13`) also broke this test's navigation to `#support-delegate-optin-toggle` — fixed
+      with the same `openSettingsSection` call 00m already needed. That fix is real and necessary
+      but not sufficient; the grant-visibility gap above remains open.
   - [ ] Remove `iinpublic_techsupport_keypair_v1`, `dev:techsupport`/root-agent injection, and every
     production code path that exposes `priv`/`epriv` to page JavaScript.
 
