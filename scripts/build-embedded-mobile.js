@@ -21,23 +21,32 @@
  * What still ships as loose files (unaffected by this script):
  *   - dist/web/**            — the web SPA, served as static files, never
  *                               executed by Node; already a webpack bundle.
- *   - node_modules/gun/*.js  — express.static('/node_modules/gun') serves
- *                               these directly to the browser/WebView's own
- *                               Web Worker (public/worker.js does
- *                               importScripts('/node_modules/gun/gun.js') and
- *                               .../sea.js) — this is a static-file HTTP
- *                               response, not a Node require(), so bundling
- *                               the *server's* code can never eliminate it.
- *                               platforms/mobile/nodejs-project/package.json
- *                               keeps "gun" as its one real dependency for
- *                               exactly this reason.
+ *   - node_modules/gun/*.js  — needed twice over, not just once:
+ *                               (1) express.static('/node_modules/gun') serves these directly to
+ *                               the browser/WebView's own Web Worker (public/worker.js does
+ *                               importScripts('/node_modules/gun/gun.js') and .../sea.js) — a
+ *                               static-file HTTP response, not a Node require(), so bundling the
+ *                               *server's* code could never eliminate it on its own; and
+ *                               (2) `gun`/`gun/sea` are deliberately left OUT of this bundle
+ *                               (`external:` below) and required normally by the server's own
+ *                               process at runtime — bundling them broke `SEA.verify` outright
+ *                               (found live 2026-09-23: esbuild's CJS interop for `gun/sea`'s
+ *                               default export silently produced an object with no `.verify`
+ *                               method, so every delegate-grant/recovery-anchor/FAQ-bundle
+ *                               signature check failed unconditionally on Android — the identical
+ *                               plain tsc build, requiring the same module normally, verified
+ *                               correctly). `platforms/mobile/nodejs-project/package.json` keeps
+ *                               "gun" as its one real dependency for exactly this now-dual reason,
+ *                               and its `node_modules/gun` sits well within plain Node resolution's
+ *                               upward walk from this bundle's own on-device location.
  *
  * Verified safe to bundle everything else: the only bare (non-bundled)
  * require() calls esbuild leaves in the output are `aws-sdk` (Gun's optional
- * rs3.js S3 adapter, gated behind `opt.s3`/AWS_S3_BUCKET — never reached) and
+ * rs3.js S3 adapter, gated behind `opt.s3`/AWS_S3_BUCKET — never reached),
  * `bufferutil`/`utf-8-validate` (ws's optional native perf accelerators,
- * already wrapped in their own try/catch with a pure-JS fallback). All three
- * are guarded by a try/catch in the ORIGINAL source, which is exactly the
+ * already wrapped in their own try/catch with a pure-JS fallback), and the
+ * deliberately-external `gun`/`gun/sea` described above. The first three are
+ * guarded by a try/catch in the ORIGINAL source, which is exactly the
  * pattern esbuild requires before it will leave a require() unresolved
  * instead of failing the build — see the `[ignored-dynamic-import]` esbuild
  * diagnostic. None of the three are shipped, and none need to be.
@@ -69,19 +78,34 @@ async function main() {
     sourcemap: true,
     logLevel: 'info',
     metafile: true,
+    // Real bug found live 2026-09-23 (Huawei phone, every TechSupport delegate-grant/recovery-
+    // anchor/FAQ-bundle verification silently failing): esbuild's CJS bundling of `gun/sea`
+    // breaks its default-export interop — the bundled call site sees
+    // `import_sea.default.verify is not a function` even though `gun/sea`'s own module.exports
+    // has a real `.verify` function, and the plain (non-bundled) tsc build of this exact same
+    // code, requiring `gun/sea` normally, verifies correctly. `gun` never needed bundling in the
+    // first place: `node_modules/gun` is already staged as a real on-device dependency (see this
+    // file's header comment — the browser Worker serves it as static files), sitting at
+    // `nodejs-project/node_modules/gun` a few directories above this bundle's own
+    // `dist/server/node-app/embedded-node.js` — well within plain Node module resolution's normal
+    // upward walk. Externalizing leaves an ordinary `require('gun')`/`require('gun/sea')` in the
+    // output instead of esbuild's interop-wrapped inline copy, matching the tsc build's (working)
+    // behavior exactly.
+    external: ['gun', 'gun/sea'],
   });
 
   const bytes = Buffer.byteLength(require('fs').readFileSync(outfile));
   console.log(
     `[build-embedded-mobile] wrote ${path.relative(repoRoot, outfile)} ` +
-      `(${(bytes / 1024 / 1024).toFixed(2)} MiB, single file — no node_modules required at runtime except node_modules/gun's static browser assets)`,
+      `(${(bytes / 1024 / 1024).toFixed(2)} MiB, single file — requires node_modules/gun to be staged alongside it at runtime, same as the browser Worker's static assets)`,
   );
 
   // Fail loudly if a NEW unresolved bare import shows up that isn't one of the
-  // three already-audited, guarded ones — anything else is a real missing
-  // dependency, not a safe-to-ignore optional path, and should stop the build
-  // rather than silently ship a broken embedded node.
-  const expectedExternal = new Set(['aws-sdk', 'bufferutil', 'utf-8-validate']);
+  // already-audited ones — anything else is a real missing dependency, not a
+  // safe-to-ignore optional path, and should stop the build rather than
+  // silently ship a broken embedded node. `gun`/`gun/sea` are deliberately
+  // external (see the `external:` option above) — expected, not a gap.
+  const expectedExternal = new Set(['aws-sdk', 'bufferutil', 'utf-8-validate', 'gun', 'gun/sea']);
   const builtins = new Set(require('module').builtinModules);
   const isNodeBuiltin = (name) => builtins.has(name) || builtins.has(name.replace(/^node:/, ''));
   const seen = new Set();
@@ -102,6 +126,22 @@ async function main() {
     return;
   }
   console.log(`[build-embedded-mobile] verified unresolved imports match the audited list: ${[...seen].join(', ') || '(none)'}`);
+
+  // Boots the bundle we just wrote and runs a real signed grant through its actual HTTP route —
+  // catches a broken bundling step (like the 2026-09-23 gun/sea interop regression this file's
+  // header comment describes) that a clean esbuild exit code alone would never surface. Skips
+  // gracefully (does not fail the build) when no real signing key is configured locally; see that
+  // script's own header comment.
+  const { execFileSync } = require('child_process');
+  try {
+    execFileSync(process.execPath, [path.join(__dirname, 'verify-embedded-mobile-bundle.js')], {
+      cwd: repoRoot,
+      stdio: 'inherit',
+    });
+  } catch {
+    console.error('[build-embedded-mobile] FAIL: the just-built bundle did not pass its post-build smoke test (see output above).');
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {
