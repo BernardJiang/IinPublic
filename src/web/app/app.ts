@@ -2556,11 +2556,22 @@ export class IinPublicApp {
     const freshDelegateGrants = await fetchDelegateGrantsFromServer(this.getBackendApiBase()).catch(() => []);
     const now = new Date();
     const validDelegates = freshDelegateGrants.filter((g) => isValidDelegateGrant(g, now));
+    // Diagnostic (2026-09-23, Huawei-phone fan-out investigation): the two prior fixes to this
+    // function (the synchronous pre-fetch, then removing the localStorage round-trip) both looked
+    // correct in isolation and both failed to fix the actual real-device symptom — the delegate
+    // never received an envelope, master always did. Every failure in this loop was previously
+    // silently swallowed (by design, so one delegate's failure can't block another's — see the
+    // comment above), which made it impossible to tell from server-side logs alone whether
+    // validDelegates was empty, or non-empty but epub resolution failed. This makes both
+    // observable without changing the swallow-and-continue behavior itself.
+    console.log(`🔍 [Mailbox] fan-out: fetched ${freshDelegateGrants.length} grant(s), ${validDelegates.length} currently valid`);
     for (const grant of validDelegates) {
       try {
         const epub = await this.resolvePeerEpub(grant.delegateUserId);
+        console.log(`🔍 [Mailbox] resolvePeerEpub(${grant.delegateUserId}) ->`, epub ? epub.slice(0, 12) + '…' : '(empty)');
         if (epub) recipients.push({ id: grant.delegateUserId, epub });
-      } catch {
+      } catch (err) {
+        console.warn(`🔍 [Mailbox] resolvePeerEpub(${grant.delegateUserId}) threw:`, err);
         /* one delegate's unresolved epub must not block the rest */
       }
     }
