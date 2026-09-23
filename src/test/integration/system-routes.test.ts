@@ -16,6 +16,7 @@ function buildApp(
   hubRelayClient?: EmbeddedHubRelayClientLike,
   supportGrantDeps: {
     gunService?: any;
+    techSupportStore?: any;
     verifyTechSupportDelegateGrant?: jest.Mock;
     verifyTechSupportRecoveryAnchor?: jest.Mock;
   } = {},
@@ -585,6 +586,55 @@ describe('system routes', () => {
     );
   });
 
+  it('prefers the durable techSupportStore over the ephemeral gunService for delegate-grant reads and writes (2026-09-22 durability fix)', async () => {
+    // Regression coverage for the production bug found 2026-09-22: delegate grants published
+    // through the main relay's gunService (permanently radisk:false) returned {stored: true}
+    // but were never actually readable back — a multi-level chained Gun write silently dropped.
+    // system-routes.ts now prefers an injected techSupportStore (isolated, radisk:true) whenever
+    // one is present; this proves that preference, not just that *a* storage path works.
+    const grant = {
+      delegatePub: 'delegate-pub-durable',
+      delegateUserId: 'delegate-user',
+      label: 'Support phone',
+      issuedAt: '2026-09-22T00:00:00.000Z',
+      expiresAt: '2026-10-22T00:00:00.000Z',
+      revokedAt: null,
+      masterPub: 'root-pub',
+      signature: 'signed-grant',
+    };
+    const techSupportStore = {
+      getPath: jest.fn().mockResolvedValue(null),
+      getSet: jest.fn().mockResolvedValue([]),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const gunService = {
+      getPath: jest.fn().mockResolvedValue(null),
+      getSet: jest.fn().mockResolvedValue([]),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      techSupportStore,
+      verifyTechSupportDelegateGrant: jest.fn(async (value: any) => value),
+    });
+
+    const posted = await request(app).post('/api/support/delegate-grants').send(grant);
+    expect(posted.status).toBe(200);
+    expect(techSupportStore.putPath).toHaveBeenCalledWith(
+      ['techsupport-delegates', 'delegate-pub-durable'],
+      grant,
+    );
+    // The ephemeral gunService must not be touched at all once a durable store is available.
+    expect(gunService.putPath).not.toHaveBeenCalled();
+    expect(gunService.getPath).not.toHaveBeenCalled();
+    expect(gunService.getSet).not.toHaveBeenCalled();
+
+    const listed = await request(app).get('/api/support/delegate-grants');
+    expect(listed.status).toBe(200);
+    expect(techSupportStore.getSet).toHaveBeenCalledWith('techsupport-delegates');
+    expect(gunService.getSet).not.toHaveBeenCalled();
+  });
+
   it('rejects replay of a signed pre-revocation delegate grant on the HTTP path (OPEN-27)', async () => {
     const active = {
       delegatePub: 'delegate-pub',
@@ -737,6 +787,50 @@ describe('system routes', () => {
       ['techsupport-recovery-history', encodeURIComponent('recovery-pub|2026-09-22T00:00:00.000Z')],
       record,
     );
+  });
+
+  it('prefers the durable techSupportStore over the ephemeral gunService for recovery-anchor reads and writes (2026-09-22 durability fix)', async () => {
+    // Same regression class as the delegate-grants case above, for the recovery-anchor route.
+    const record = {
+      recoveryPub: 'recovery-pub-durable',
+      revokedDmPubs: ['old-root-pub'],
+      revokedAnnouncementPubs: [],
+      nextDmPub: 'new-root-pub',
+      nextAnnouncementPub: null,
+      issuedAt: '2026-09-22T00:00:00.000Z',
+      reason: 'root key compromised',
+      signature: 'signed-record',
+    };
+    const techSupportStore = {
+      getPath: jest.fn().mockResolvedValue(null),
+      getSet: jest.fn().mockResolvedValue([]),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const gunService = {
+      getPath: jest.fn().mockResolvedValue(null),
+      getSet: jest.fn().mockResolvedValue([]),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      techSupportStore,
+      verifyTechSupportRecoveryAnchor: jest.fn(async (value: any) => value),
+    });
+
+    const posted = await request(app).post('/api/support/recovery').send(record);
+    expect(posted.status).toBe(200);
+    expect(techSupportStore.putPath).toHaveBeenCalledWith(['techsupport-recovery', 'current'], record);
+    expect(techSupportStore.putPath).toHaveBeenCalledWith(
+      ['techsupport-recovery-history', encodeURIComponent('recovery-pub-durable|2026-09-22T00:00:00.000Z')],
+      record,
+    );
+    expect(gunService.putPath).not.toHaveBeenCalled();
+    expect(gunService.getPath).not.toHaveBeenCalled();
+
+    const fetched = await request(app).get('/api/support/recovery');
+    expect(fetched.status).toBe(200);
+    expect(techSupportStore.getPath).toHaveBeenCalledWith(['techsupport-recovery', 'current']);
+    expect(gunService.getPath).not.toHaveBeenCalled();
   });
 
   it('rejects replay of an older recovery anchor record over a newer one already stored (OPEN-29)', async () => {

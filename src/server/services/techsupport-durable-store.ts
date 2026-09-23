@@ -180,6 +180,30 @@ export class TechSupportDurableStore {
     this.gun = this.newGunInstance();
   }
 
+  // ── Generic path accessors (delegate grants, recovery anchors) ─────────────────────────────
+  //
+  // Signature-compatible with the subset of GunService's API the delegate-grant and recovery-
+  // anchor routes use (system-routes.ts) — lets those routes swap the main, ephemeral
+  // (radisk:false) gunService for this isolated, durable (radisk:true) store with no other
+  // change at the call site. Same escape hatch this whole class exists for (see the class doc
+  // above), extended past messages/mailbox to two more TechSupport-trust channels that hit the
+  // identical "multi-level chained write silently dropped on radisk:false" bug — confirmed live
+  // 2026-09-22: a delegate grant published to production via `POST /api/support/delegate-grants`
+  // returned `{stored: true}` but never actually became readable via the relay's own GET route,
+  // moments later, from either the production hub itself or a real Android phone's relay poll.
+
+  async putPath(pathSegs: string[], data: unknown): Promise<void> {
+    await this.put(pathSegs, data);
+  }
+
+  async getPath(pathSegs: string[]): Promise<Record<string, unknown> | null> {
+    return this.get(pathSegs);
+  }
+
+  async getSet(rootKey: string): Promise<Record<string, unknown>[]> {
+    return this.collectMap([rootKey]);
+  }
+
   // ── Low-level Gun helpers ───────────────────────────────────────────────────────────────
 
   private put(pathSegs: string[], data: unknown): Promise<void> {

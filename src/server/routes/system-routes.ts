@@ -180,6 +180,20 @@ export function registerSystemRoutes(
   const listSupportMessages = (conversationId: string): Promise<TechSupportStoredMessage[]> | TechSupportStoredMessage[] =>
     techSupportStore ? techSupportStore.listMessages(conversationId) : fallbackMessages!.list(conversationId);
 
+  // Delegate grants and the recovery anchor need the SAME durable escape hatch messages/mailbox
+  // already use (see techsupport-durable-store.ts's class doc): the main gunService's graph is
+  // permanently radisk:false, which silently drops the multi-level chained writes these routes
+  // make (confirmed live 2026-09-22 — a published delegate grant never became readable). Prefer
+  // techSupportStore; fall back to gunService only for test callers that construct routes
+  // without a durable store at all.
+  const putSupportPath = (path: string[], data: unknown): Promise<void> | void | undefined =>
+    techSupportStore ? techSupportStore.putPath(path, data) : gunService?.putPath(path, data);
+  const getSupportPath = (path: string[]): Promise<unknown> | undefined =>
+    techSupportStore ? techSupportStore.getPath(path) : gunService?.getPath(path);
+  const getSupportSet = (rootKey: string): Promise<unknown[]> | undefined =>
+    techSupportStore ? techSupportStore.getSet(rootKey) : gunService?.getSet(rootKey);
+  const hasSupportStorage = !!(techSupportStore || gunService);
+
   const prunePresence = (now = new Date()): void => {
     prunePresenceRecords(presenceByUserId, now);
     for (const [toPub, inbox] of peerAckInbox) {
@@ -391,12 +405,12 @@ export function registerSystemRoutes(
 
   app.get('/api/support/delegate-grants', async (_req, res) => {
     const candidates: unknown[] = [];
-    if (gunService) {
+    if (hasSupportStorage) {
       const [grants, revocations] = await Promise.all([
-        gunService.getSet(DELEGATE_GRANTS_ROOT),
-        gunService.getSet(DELEGATE_REVOCATIONS_ROOT),
+        getSupportSet(DELEGATE_GRANTS_ROOT),
+        getSupportSet(DELEGATE_REVOCATIONS_ROOT),
       ]);
-      candidates.push(...grants, ...revocations);
+      candidates.push(...(grants ?? []), ...(revocations ?? []));
     }
     if (hubRelayClient) {
       try {
@@ -432,15 +446,15 @@ export function registerSystemRoutes(
         res.status(400).json({ error: 'A valid root-signed TechSupport delegate grant is required' });
         return;
       }
-      if (!gunService && !hubRelayClient?.postDelegateGrant) {
+      if (!hasSupportStorage && !hubRelayClient?.postDelegateGrant) {
         res.status(503).json({ error: 'Delegate grant storage is unavailable' });
         return;
       }
       const currentCandidates: unknown[] = [];
-      if (gunService) {
+      if (hasSupportStorage) {
         currentCandidates.push(
-          await gunService.getPath([DELEGATE_GRANTS_ROOT, grant.delegatePub]),
-          ...(await gunService.getSet(DELEGATE_REVOCATIONS_ROOT)),
+          await getSupportPath([DELEGATE_GRANTS_ROOT, grant.delegatePub]),
+          ...((await getSupportSet(DELEGATE_REVOCATIONS_ROOT)) ?? []),
         );
       } else if (hubRelayClient) {
         const remote = await hubRelayClient.listDelegateGrants();
@@ -456,9 +470,9 @@ export function registerSystemRoutes(
         res.status(409).json({ error: 'Refusing to replace a newer or revoked delegate grant' });
         return;
       }
-      if (gunService) {
-        await gunService.putPath([DELEGATE_GRANTS_ROOT, grant.delegatePub], grant);
-        if (grant.revokedAt) await gunService.putPath(delegateRevocationPath(grant), grant);
+      if (hasSupportStorage) {
+        await putSupportPath([DELEGATE_GRANTS_ROOT, grant.delegatePub], grant);
+        if (grant.revokedAt) await putSupportPath(delegateRevocationPath(grant), grant);
       }
       if (hubRelayClient?.postDelegateGrant) {
         await hubRelayClient.postDelegateGrant(grant);
@@ -473,13 +487,13 @@ export function registerSystemRoutes(
   // history, reconciled monotonically. Read-only; no root or recovery key required.
   app.get('/api/support/recovery', async (_req, res) => {
     const candidates: unknown[] = [];
-    if (gunService) {
+    if (hasSupportStorage) {
       const [current, history] = await Promise.all([
-        gunService.getPath(recoveryAnchorPath()),
-        gunService.getSet(RECOVERY_ANCHOR_HISTORY_ROOT),
+        getSupportPath(recoveryAnchorPath()),
+        getSupportSet(RECOVERY_ANCHOR_HISTORY_ROOT),
       ]);
       if (current) candidates.push(current);
-      candidates.push(...history);
+      candidates.push(...(history ?? []));
     }
     if (hubRelayClient?.listRecoveryAnchors) {
       try {
@@ -509,15 +523,15 @@ export function registerSystemRoutes(
         res.status(400).json({ error: 'A valid recovery-signed anchor record is required' });
         return;
       }
-      if (!gunService && !hubRelayClient?.postRecoveryAnchor) {
+      if (!hasSupportStorage && !hubRelayClient?.postRecoveryAnchor) {
         res.status(503).json({ error: 'Recovery anchor storage is unavailable' });
         return;
       }
       const currentCandidates: unknown[] = [];
-      if (gunService) {
+      if (hasSupportStorage) {
         currentCandidates.push(
-          await gunService.getPath(recoveryAnchorPath()),
-          ...(await gunService.getSet(RECOVERY_ANCHOR_HISTORY_ROOT)),
+          await getSupportPath(recoveryAnchorPath()),
+          ...((await getSupportSet(RECOVERY_ANCHOR_HISTORY_ROOT)) ?? []),
         );
       } else if (hubRelayClient?.listRecoveryAnchors) {
         currentCandidates.push(...(await hubRelayClient.listRecoveryAnchors()));
@@ -532,9 +546,9 @@ export function registerSystemRoutes(
         res.status(409).json({ error: 'Refusing to replace a newer recovery anchor record' });
         return;
       }
-      if (gunService) {
-        await gunService.putPath(recoveryAnchorPath(), record);
-        await gunService.putPath(recoveryAnchorHistoryPath(record), record);
+      if (hasSupportStorage) {
+        await putSupportPath(recoveryAnchorPath(), record);
+        await putSupportPath(recoveryAnchorHistoryPath(record), record);
       }
       if (hubRelayClient?.postRecoveryAnchor) {
         await hubRelayClient.postRecoveryAnchor(record);
