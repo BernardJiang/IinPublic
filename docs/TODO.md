@@ -77,11 +77,30 @@ phrase complexity into normal use.
     - Separately (and already fixed in the prior pass): the settings-tab menu-first drill-down
       (`3503cf13`) also broke this test's navigation to `#support-delegate-optin-toggle` — fixed
       with the same `openSettingsSection` call this scenario already needed.
-    - Not yet re-run against real Android hardware since this fix (the fix was verified via direct
-      HTTP round trip + production restart, not the Playwright native-app spec itself) — worth a
-      real-device confirmation pass if native-device delegate assignment needs to be demonstrated
-      again, but the underlying bug was never Android-specific, so this is confidence-building
-      rather than expected to surface anything new.
+    - Re-run against real Android hardware 2026-09-23 (a real Huawei phone, real app, real
+      question typed through the actual Contacts → TechSupport UI, against the now-durable
+      delegate-grants storage from the fix above) — confirmed the grants storage bug itself is
+      genuinely gone (the phone correctly fetched the live grant roster with a fresh 200, and it
+      verified correctly), but surfaced a **second, independent bug**: see below.
+  - [x] **Regression found 2026-09-23, first real-hardware run of an actual asker (not the
+    delegate) since the K7 follow-on synchronous-fetch fix — root-caused and fixed 2026-09-23
+    (`a692d8be`).** `postSupportQuestionToMailbox` (app.ts) fetches and verifies the live
+    delegate-grant roster fresh from the server before fanning out a mailbox envelope to each
+    valid delegate (the exact fix the K7 follow-on comment describes) — but then discarded that
+    freshly-verified return value and re-derived `validDelegates` by calling
+    `readCachedDelegateGrants()`, a second, independent round trip through `localStorage`. Three
+    real questions asked from a real Huawei phone (against a real Mac-mini Safari delegate,
+    opted in and holding a valid, durably-stored grant) each produced a mailbox envelope for
+    TechSupport's own master mailbox but never one for the delegate — confirmed via VPS server
+    logs (`POST /api/mailbox/iinpublic-root-techsupport` ×3, zero `POST /api/mailbox/<delegate>`
+    across the whole session) and a from-scratch Node simulation of the exact fetch → verify →
+    filter → resolve-epub sequence against the live server, which succeeded cleanly at every
+    step — proving the server side, the signature verification, and the delegate's epub
+    resolution were never the problem. Fix: use the array `fetchDelegateGrantsFromServer` already
+    fetched and verified directly, instead of re-reading it back through the cache. Verified type-
+    check + full unit suite clean; rebuilt and redeployed to production (`a692d8be`) and republished
+    fresh 1.0.49 installers (mac/windows/linux/android) to the downloads page. Not yet re-confirmed
+    against the real Huawei phone with the fixed build (next step, not yet done this session).
   - [ ] Remove `iinpublic_techsupport_keypair_v1`, `dev:techsupport`/root-agent injection, and every
     production code path that exposes `priv`/`epriv` to page JavaScript.
 
