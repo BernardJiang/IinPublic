@@ -92,6 +92,15 @@ async function main() {
       IINPUBLIC_USER_DATA_DIR: dataDir,
       IINPUBLIC_DATA_DIR: dataDir,
       IINPUBLIC_LAN_DISCOVERY_ENABLED: '0',
+      // Real mistake made 2026-09-23, first time this script ran: left unset, an embedded node
+      // with no explicit hub URL defaults to the REAL PRODUCTION hub (EMBEDDED_NODE_DEFAULT_HUB,
+      // embedded-node-config.ts) — three throwaway smoke-test grants got posted straight onto the
+      // live relay before this was caught. 'gun-peer' mode means registerSystemRoutes never
+      // constructs a hubRelayClient at all (see src/server/index.ts's construction guard), so this
+      // smoke test can never touch any real or fake network hub, by construction — not just by
+      // remembering to pass a harmless URL. POST/GET still exercise real local verification
+      // (hasSupportStorage's own Gun storage path), which is all this test needs.
+      IINPUBLIC_EMBEDDED_HUB_MODE: 'gun-peer',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
