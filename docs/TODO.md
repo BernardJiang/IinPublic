@@ -243,6 +243,62 @@ phrase complexity into normal use.
     complement to the checksum manifest (a tampered `bundle.js` would fail to execute at all, not
     just fail a later human check), deferred as separate build-pipeline work.
 
+- [ ] **OPEN-31 — TechSupport FAQ bundle does not scale (found 2026-09-24, product owner: think
+  through the design, do not implement yet).** The whole Q&A history is ONE array, re-signed and
+  re-published as a single unit on every new answer (`signFaqBundle`), and every asker's client
+  downloads and caches the ENTIRE bundle (`fetchFaqBundleFromServer`) just to look up one
+  question. Two real, compounding problems as the FAQ grows: (1) writes get slower over time —
+  answering question N+1 re-signs and re-publishes all N previous answers; (2) every device
+  caches the full history in `localStorage` — the exact storage that hit its quota and broke a
+  real delegate session live tonight (`QuotaExceededError`, forced a full site-data reset
+  mid-session). It's explicitly marked "v1" in the code (`techsupport-faq-bundle.ts`'s own
+  comment: the distribution layer is meant to be swapped out later) but no detailed replacement
+  design exists yet.
+  - **The lookup itself is already O(1) and needs no change.** `supportQuestionKey(question)`
+    (`techsupport-faq.ts`) normalizes (trim/lowercase/strip trailing punctuation) and hashes
+    (FNV-1a) the question text entirely client-side, with no network call — exact key match only,
+    deliberately no fuzzy/semantic matching ("a wrong fuzzy hit answers a user's real question
+    with something unrelated, which is worse than honestly saying 'this is new'"). The bottleneck
+    is purely that this key currently has to be checked against an array that was fully
+    downloaded first, not that the lookup itself is inefficient.
+  - **Two real options were discussed, not yet decided between:**
+    1. *Per-entry keyed Gun storage* (the more mechanical fix): store each `SupportFaqEntry` at
+       its own Gun node addressed by its existing `questionKey`
+       (e.g. `techsupport-faq-entries/<questionKey>`) instead of one growing `entriesJson` blob,
+       and sign each entry individually at publish time instead of re-signing the aggregate. An
+       asker's client does one targeted `gun.get(...)`/HTTP-relay read per question instead of a
+       full-bundle download; writes become O(1) instead of O(n). This is the same pattern already
+       used for message history (`merkle-checkpoint.ts`'s checkpoint/pruning system), not a new
+       concept for this codebase. As a side effect, this alone already keeps an ordinary asker's
+       local cache proportional to *their own* question history, never the global FAQ size — they
+       never "keep a large copy" regardless of how big the FAQ gets globally, and the instant,
+       offline-capable auto-answer stays intact (the asker still resolves a known question locally
+       and immediately, without needing anyone else online).
+    2. *Route every question through a delegate, ordinary users never sync any FAQ data at all*
+       (product owner's proposal): only delegates/master hold a local FAQ cache; an asker's
+       question always goes out via the existing mailbox fan-out, and a delegate's own client
+       recognizes and auto-answers a known question on the delegate's behalf, invisibly. Guarantees
+       zero FAQ data on ordinary devices, at real costs: the instant/offline auto-answer is lost
+       for everyone (a well-known answer now waits on *some* delegate device being online and
+       processing it); multiple simultaneously-online delegates could race to auto-answer the same
+       question (today's mailbox fan-out already handles this class of race for *human* answers —
+       "first to answer wins, others see it's already answered" — the same pattern would need to
+       extend to auto-answers); and it does not fix the underlying per-write re-sign inefficiency
+       for delegates themselves, who would still hold the full growing history and eventually hit
+       the same storage wall a real delegate session hit tonight — just for a smaller population
+       (delegates only, not every asker).
+  - **Recommendation for whoever decides:** option 1 (per-entry keyed storage) appears to resolve
+    the product owner's actual concern (ordinary users never accumulate a large local copy) as a
+    natural side effect, without sacrificing the instant/offline auto-answer UX or leaving
+    delegates exposed to the same unbounded growth — but this needs the product owner's own
+    review before implementation, not a unilateral pick. Scope if approved: `techsupport-faq-
+    bundle.ts` (per-entry signing), `techsupport-faq-cache.ts` (per-key fetch instead of whole-
+    bundle fetch), `system-routes.ts`'s faq-bundle route (per-key GET/POST, matching the pattern
+    already used for delegate-grants/recovery), `embedded-hub-relay-client.ts` (per-key relay
+    methods), and `app.ts`'s `handleSupportQuestion`/`handleAnswerSupportQuestion` (call the new
+    per-key fetch instead of `readCachedFaqEntries()`/`signFaqBundle` over the whole array). A
+    real, moderately-sized refactor — not a quick patch.
+
 OPEN-13 and the website/Android portion of OPEN-06 were completed on physical Android hardware on
 2026-09-20; evidence is in `docs/completed.md`.
 
