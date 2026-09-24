@@ -4153,6 +4153,15 @@ export class IinPublicApp {
     questionText: string,
   ): Promise<void> {
     if (!this.currentUser || isTechSupportUser(this.currentUser)) return;
+    // K7 follow-on, same class of bug already fixed for delegate-grant fan-out
+    // (postSupportQuestionToMailbox): the FAQ bundle otherwise only syncs via the 5s
+    // techSupportRelayPollTimer tick, so an asker whose session is fresh (or who asks again
+    // faster than that poll's own interval) can race a just-published answer and see "new
+    // question" for something that was, in fact, already answered moments earlier — confirmed
+    // live 2026-09-24, re-asking a question right after a delegate had just answered it. A
+    // synchronous fetch right before the lookup removes the race outright, independent of any
+    // poll interval; best-effort (falls back to whatever the cache already has on failure).
+    await fetchFaqBundleFromServer(this.getBackendApiBase(), this.gunService.getGun()).catch(() => null);
     const faq = readCachedFaqEntries();
     let result = lookupSupportAnswer(questionText, faq);
     const now = new Date().toISOString();
