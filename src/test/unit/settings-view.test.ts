@@ -146,6 +146,51 @@ describe('settings view extraction', () => {
     expect(deps.bindSettingsControls).not.toHaveBeenCalled();
   });
 
+  describe('app version line', () => {
+    // Real bug found live 2026-09-24: a plain browser session showed the literal word "web"
+    // instead of an actual version number — process.env.IINPUBLIC_APP_VERSION (webpack.config.js's
+    // DefinePlugin, baked in from package.json) didn't exist yet. Jest never runs webpack, so
+    // these tests set/clear the env var directly to exercise the same fallback chain the built
+    // bundle goes through.
+    const originalEnv = process.env.IINPUBLIC_APP_VERSION;
+    afterEach(() => {
+      if (originalEnv === undefined) delete process.env.IINPUBLIC_APP_VERSION;
+      else process.env.IINPUBLIC_APP_VERSION = originalEnv;
+    });
+
+    it('shows the build-time package version for a plain web session, labeled "web"', () => {
+      process.env.IINPUBLIC_APP_VERSION = '1.0.51';
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      expect(document.getElementById('settings-app-version')?.textContent).toContain('1.0.51');
+      expect(document.getElementById('settings-app-version')?.textContent).toContain('web');
+    });
+
+    it('falls back to the literal "web" only when no build-time version was ever injected', () => {
+      delete process.env.IINPUBLIC_APP_VERSION;
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      expect(document.getElementById('settings-app-version')?.textContent).toContain('web');
+    });
+
+    it('prefers a native shell\'s own reported version and platform over the build-time web version', () => {
+      process.env.IINPUBLIC_APP_VERSION = '1.0.51';
+      (window as unknown as { iinpublicNative?: { version?: string; platform?: string } }).iinpublicNative = {
+        version: '1.0.51-android',
+        platform: 'android',
+      };
+      try {
+        document.body.innerHTML = '<div id="settings-content"></div>';
+        renderSettingsView(makeUser(), viewDeps());
+        const text = document.getElementById('settings-app-version')?.textContent || '';
+        expect(text).toContain('1.0.51-android');
+        expect(text).toContain('android');
+      } finally {
+        delete (window as unknown as { iinpublicNative?: unknown }).iinpublicNative;
+      }
+    });
+  });
+
   it('routes drill-down selection through the manager-owned state callback', () => {
     document.body.innerHTML = `
       <div id="settings-jump-menu">

@@ -87,6 +87,37 @@ describe('support settings controller', () => {
     expect(renderSettingsView).toHaveBeenCalledWith(user);
   });
 
+  it('does not rerender Settings for a repeated no-op eligibility update (real bug, 2026-09-24)', () => {
+    // setDelegateEligibility fires on nearly every tick of the live delegate-grant subscription,
+    // almost always with the exact same values as last time. Before this fix, each of those ticks
+    // unconditionally rebuilt the whole Settings view — including #support-inbox-section's own
+    // container — silently wiping whatever an operator was mid-typing into the inbox's answer
+    // field, confirmed live answering a real question from a real Huawei phone ("it just
+    // automatically disappeared while I was typing").
+    document.body.innerHTML = '<div id="settings-view" class="active"></div>';
+    const user = { id: 'self', stageName: 'Self' } as any;
+    const renderSettingsView = jest.fn();
+    const controller = createSupportSettingsController(makeDeps({
+      getCurrentUser: () => user,
+      renderSettingsView,
+    }));
+
+    controller.setDelegateEligibility(true, 'Helper phone', true);
+    expect(renderSettingsView).toHaveBeenCalledTimes(1);
+
+    // Same values again, repeatedly — matches a live-subscription re-fire with no real change.
+    controller.setDelegateEligibility(true, 'Helper phone', true);
+    controller.setDelegateEligibility(true, 'Helper phone', true);
+    expect(renderSettingsView).toHaveBeenCalledTimes(1);
+    expect(controller.isDelegateEligible()).toBe(true);
+    expect(controller.isDelegateOptedIn()).toBe(true);
+
+    // A genuine change (opted out) must still rerender.
+    controller.setDelegateEligibility(true, 'Helper phone', false);
+    expect(renderSettingsView).toHaveBeenCalledTimes(2);
+    expect(controller.isDelegateOptedIn()).toBe(false);
+  });
+
   it('renders opt-in state and emits explicit toggle changes', () => {
     document.body.innerHTML = '<div id="support-delegate-optin-section"></div>';
     const emit = jest.fn();

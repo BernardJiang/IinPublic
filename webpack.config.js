@@ -133,6 +133,15 @@ module.exports = {
     new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
       resource.request = resource.request.replace(/^node:/, '');
     }),
+    // Settings' "IinPublic version" line (settings-view.ts) fell back to the literal word "web"
+    // for every plain-browser session — native shells pass their own version through a
+    // window.iinpublicNative bridge or ?app_version= query param, but the web build never baked
+    // in package.json's actual version at all. Found live 2026-09-24 ("there is no version
+    // number, it just said web version"). Always on (not gated behind DISABLE_HMR like the E2E
+    // block below), so every real build — dev, production, the VPS — shows the real version.
+    new webpack.DefinePlugin({
+      'process.env.IINPUBLIC_APP_VERSION': JSON.stringify(require('./package.json').version),
+    }),
     new HtmlWebpackPlugin({
       template: './src/web/index.html',
       title: 'IinPublic',

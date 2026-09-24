@@ -73,9 +73,21 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
     renderDelegates,
     renderInbox,
     setDelegateEligibility(eligible: boolean, label: string, optedIn: boolean): void {
+      // Real bug found live 2026-09-24, answering a real question from a real Huawei phone: this
+      // is invoked on nearly every tick of the live delegate-grant subscription (checkOwnDelegate-
+      // Eligibility/handleVerifiedDelegateGrant, app.ts), almost always with the exact same values
+      // as last time — but it unconditionally called the FULL settings view's own re-render, which
+      // rebuilds `#support-inbox-section`'s container from scratch, destroying it before the
+      // inbox's own (targeted) re-render logic ever got a chance to preserve an in-progress
+      // answer. That inbox-level fix (support-inbox-view.ts, same date) alone could never have
+      // been enough — the real destructive re-render was happening one level up, here. Skipping a
+      // no-op update removes the vast majority of these full-page rebuilds outright, for every
+      // input on the whole settings view, not just the inbox.
+      const unchanged = eligible === delegateEligible && label === delegateLabel && optedIn === delegateOptedIn;
       delegateEligible = eligible;
       delegateLabel = label;
       delegateOptedIn = optedIn;
+      if (unchanged) return;
       const currentUser = deps.getCurrentUser();
       if (currentUser && document.getElementById('settings-view')?.classList.contains('active')) {
         deps.renderSettingsView(currentUser);
