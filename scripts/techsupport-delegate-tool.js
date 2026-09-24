@@ -7,6 +7,16 @@
  * The encrypted TechSupport pair is decrypted only in this short-lived Node process. The tool
  * signs a public delegate credential locally and sends only that credential to the keyless relay;
  * it never starts a browser or writes the pair to Web Storage.
+ *
+ * `invite`/`approve` (added 2026-09-24) are the CLI counterpart of the in-app invite-code flow
+ * (support-delegates-view.ts's "Invite delegate" dialog / support-delegate-optin-view.ts's "enter
+ * invite code" form) — the actual production-intended way for an ordinary browser/app user to
+ * become a delegate, with NO console snippet and NO manually copy-pasted raw public key. That
+ * in-app flow's "generate invite" half only ever worked from a `dev:techsupport`-mode root
+ * browser session, which production deliberately can't have (OPEN-27) — these two commands close
+ * that gap without ever touching a browser: `invite` generates the same code format the existing
+ * "enter invite code" field already accepts, and `approve` reviews + signs the resulting request
+ * once the candidate has entered it, exactly like the master's in-app "pending requests" panel.
  */
 
 const path = require('path');
@@ -20,15 +30,40 @@ const ROOT = path.join(__dirname, '..');
 const DEFAULT_TTL_DAYS = 30;
 const MAX_TTL_DAYS = 90;
 const REQUEST_TIMEOUT_MS = 10_000;
+const POLL_INTERVAL_MS = 3_000;
 
 function usage() {
   return `TechSupport local delegate control
 
 Usage:
+  npm run techsupport:delegate -- invite \\
+    --api-base https://www.iinpublic.com \\
+    [--poll-timeout-seconds 300] [--dry-run]
+
+    Generates a short-lived invite code (same format the app's own "enter invite
+    code" field accepts — Settings, before a candidate has a grant) and prints it
+    for you to hand to the candidate over any channel you trust (read it aloud,
+    text it, etc.). Then polls the relay for the resulting signed request. Never
+    signs or publishes anything on its own — prints the exact 'approve' command to
+    run once a request arrives, so you can review who's asking before trusting them.
+    --dry-run prints the code without polling.
+
+  npm run techsupport:delegate -- approve \\
+    --api-base https://www.iinpublic.com \\
+    --request-id <id-from-invite> --label "Support phone" [--ttl-days 30] [--dry-run]
+
+    Re-fetches and re-verifies the specific pending request by id, then signs and
+    publishes an ordinary delegate grant for its candidate — the only step here
+    that touches the master key.
+
   npm run techsupport:delegate -- issue \\
     --api-base https://www.iinpublic.com \\
     --delegate-user-id <user-id> --delegate-pub <verified-pub> \\
     --label "Support phone" [--ttl-days 30] [--dry-run]
+
+    Direct issue when you already have the candidate's own pub/userId through some
+    other verified channel. Prefer 'invite'/'approve' when the candidate can act on
+    their own device — it never requires them to hand you a raw key by hand.
 
   npm run techsupport:delegate -- revoke \\
     --api-base https://www.iinpublic.com \\
@@ -98,11 +133,27 @@ function parseTtlDays(value) {
   return days;
 }
 
+function parsePollTimeoutSeconds(value, defaultSeconds) {
+  if (value === undefined) return defaultSeconds;
+  const seconds = Number(value);
+  if (!Number.isInteger(seconds) || seconds < 1) {
+    throw new Error('--poll-timeout-seconds must be a positive integer.');
+  }
+  return seconds;
+}
+
+function randomSecretHex() {
+  // Matches the browser's own randomSecretHex() (app.ts) byte count — not required for
+  // correctness (verification is symmetric regardless of length), just for consistency.
+  return require('crypto').randomBytes(18).toString('hex');
+}
+
 function compiledModules() {
   try {
     return {
       delegates: require(path.join(ROOT, 'dist', 'server', 'shared', 'techsupport-delegate.js')),
       techsupport: require(path.join(ROOT, 'dist', 'server', 'shared', 'techsupport.js')),
+      invite: require(path.join(ROOT, 'dist', 'server', 'shared', 'techsupport-delegate-invite.js')),
     };
   } catch {
     throw new Error('Compiled server modules are missing. Run `npm run build:server` first.');
@@ -141,6 +192,25 @@ async function requestJson(url, options = {}) {
       throw new Error(`Relay request timed out after ${REQUEST_TIMEOUT_MS}ms.`);
     }
     throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** GET a possibly-404 resource without throwing — 404 just means "not there yet" while polling. */
+async function requestJsonOrNull(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (response.status === 404) return null;
+    const text = await response.text();
+    let body = {};
+    try { body = text ? JSON.parse(text) : {}; } catch { /* fall through */ }
+    if (!response.ok) return null;
+    return body;
+  } catch {
+    return null;
   } finally {
     clearTimeout(timeout);
   }
@@ -189,11 +259,76 @@ async function revoke(options, pair, delegates, apiBase, request = requestJson) 
   return grant;
 }
 
+/**
+ * Generates and prints an invite code, then (unless --dry-run) polls the relay for the resulting
+ * signed request. Deliberately never signs or publishes anything itself — a candidate obtaining
+ * the code is not the same as the operator trusting them, so this only ever hands back the
+ * verified candidate details plus the exact 'approve' command to run.
+ */
+async function invite(options, inviteModule, apiBase, request = requestJsonOrNull) {
+  const payload = inviteModule.createDelegateInvite(randomSecretHex);
+  const code = inviteModule.encodeDelegateInviteCode(payload);
+  const result = { payload, code, matched: null };
+
+  console.log('Invite code (enter this in Settings → "Become a support delegate"):');
+  console.log(code);
+  console.log(`Expires: ${new Date(payload.expiresAt).toISOString()}`);
+
+  if (options.dryRun) return result;
+
+  const defaultTimeoutSeconds = Math.max(1, Math.round((payload.expiresAt - Date.now()) / 1000));
+  const timeoutSeconds = parsePollTimeoutSeconds(options['poll-timeout-seconds'], defaultTimeoutSeconds);
+  console.log(`Waiting up to ${timeoutSeconds}s for the candidate to enter it...`);
+
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  while (Date.now() < deadline) {
+    const raw = await request(`${apiBase}/api/support/delegate-requests/${encodeURIComponent(payload.requestId)}`);
+    if (raw) {
+      const verified = await inviteModule.verifyDelegateRequest(raw);
+      if (verified && await inviteModule.delegateRequestMatchesInvite(verified, payload)) {
+        result.matched = verified;
+        console.log('\nA matching, signature-verified request arrived:');
+        console.log(`  candidateUserId: ${verified.candidateUserId}`);
+        console.log(`  candidatePub fingerprint: ${fingerprint(verified.candidatePub)}`);
+        console.log(`  requestedAt: ${verified.requestedAt}`);
+        console.log('\nVerify that fingerprint against the candidate over an independent channel, then run:');
+        console.log(
+          `  npm run techsupport:delegate -- approve --api-base ${apiBase} ` +
+          `--request-id ${payload.requestId} --label "<label>" [--ttl-days ${DEFAULT_TTL_DAYS}]`,
+        );
+        return result;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  console.log('\nNo matching request arrived before the code expired. Run `invite` again for a fresh code.');
+  return result;
+}
+
+async function approve(options, pair, delegates, inviteModule, apiBase, request = requestJson) {
+  const requestId = boundedText(options, 'request-id', 256);
+  const label = boundedText(options, 'label', 120);
+  const ttlDays = parseTtlDays(options['ttl-days']);
+  const raw = await request(`${apiBase}/api/support/delegate-requests/${encodeURIComponent(requestId)}`);
+  const verified = await inviteModule.verifyDelegateRequest(raw);
+  if (!verified) throw new Error('No verifiable pending request exists for that request id (it may have expired or was never received).');
+  const grant = await delegates.signDelegateGrant({
+    delegatePub: verified.candidatePub,
+    delegateUserId: verified.candidateUserId,
+    label,
+    expiresAt: new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString(),
+  }, pair);
+  if (!options.dryRun) await publishGrant(apiBase, grant, request);
+  return grant;
+}
+
 function clearPrivateFields(pair) {
   if (!pair || typeof pair !== 'object') return;
   pair.priv = '';
   pair.epriv = '';
 }
+
+const COMMANDS_NEEDING_MASTER_KEY = new Set(['issue', 'revoke', 'approve']);
 
 async function main(argv = process.argv.slice(2), dependencies = {}) {
   const options = parseOptions(argv);
@@ -202,18 +337,29 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
     console.log(usage());
     return;
   }
-  if (command !== 'issue' && command !== 'revoke') throw new Error(`Unknown command.\n\n${usage()}`);
+  const knownCommands = new Set(['issue', 'revoke', 'invite', 'approve']);
+  if (!knownCommands.has(command)) throw new Error(`Unknown command.\n\n${usage()}`);
 
   const apiBase = normalizeApiBase(options['api-base'] || process.env.TECHSUPPORT_API_BASE);
   const modules = dependencies.modules || compiledModules();
+
+  if (command === 'invite') {
+    const request = dependencies.requestJsonOrNull || requestJsonOrNull;
+    await invite(options, modules.invite, apiBase, request);
+    return;
+  }
+
+  // issue/revoke/approve all sign with the master key — load and clear it as tightly as possible.
   const pair = dependencies.pair || loadEncryptedOperatorPair(options);
   try {
     modules.techsupport.assertTechSupportDmPair(pair);
     const request = dependencies.requestJson || requestJson;
     const grant = command === 'issue'
       ? await issue(options, pair, modules.delegates, apiBase, request)
-      : await revoke(options, pair, modules.delegates, apiBase, request);
-    console.log(`${options.dryRun ? 'Signed (not published)' : 'Published'} ${command} credential.`);
+      : command === 'approve'
+        ? await approve(options, pair, modules.delegates, modules.invite, apiBase, request)
+        : await revoke(options, pair, modules.delegates, apiBase, request);
+    console.log(`${options.dryRun ? 'Signed (not published)' : 'Published'} ${command === 'approve' ? 'issue' : command} credential.`);
     console.log(`Delegate pub fingerprint: ${fingerprint(grant.delegatePub)}`);
     console.log(`Master pub fingerprint: ${fingerprint(grant.masterPub)}`);
     console.log(`Expires: ${grant.expiresAt}`);
@@ -233,15 +379,21 @@ if (require.main === module) {
 }
 
 module.exports = {
+  COMMANDS_NEEDING_MASTER_KEY,
   DEFAULT_TTL_DAYS,
   MAX_TTL_DAYS,
+  approve,
   clearPrivateFields,
+  invite,
   issue,
   loadEncryptedOperatorPair,
   main,
   normalizeApiBase,
   parseOptions,
+  parsePollTimeoutSeconds,
   parseTtlDays,
   publishGrant,
+  randomSecretHex,
+  requestJsonOrNull,
   revoke,
 };

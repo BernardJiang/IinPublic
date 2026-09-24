@@ -67,6 +67,7 @@ import {
   verifyDelegateGrant,
   type TechSupportDelegateGrant,
 } from '../../shared/techsupport-delegate';
+import { delegateRequestPath } from '../../shared/techsupport-delegate-invite';
 import {
   RECOVERY_ANCHOR_HISTORY_ROOT,
   recoveryAnchorPath,
@@ -395,12 +396,33 @@ export function registerSystemRoutes(
         res.status(400).json({ error: 'requestId, candidatePub and signature are required' });
         return;
       }
-      if (gunService) void gunService.putPath(['techsupport-delegate-requests', String(request.requestId)], request);
+      // Same radisk:false chained-write bug the delegate-grants/recovery routes were fixed for
+      // 2026-09-22/23 (see their own comments above) — a plain gunService.putPath here would
+      // silently vanish on production's main (ephemeral) graph too. Prefer the durable store,
+      // matching every other support-channel write in this file.
+      if (hasSupportStorage) await putSupportPath(delegateRequestPath(String(request.requestId)), request);
       if (hubRelayClient) await hubRelayClient.postDelegateRequest(request).catch(() => undefined);
       res.json({ stored: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
+  });
+
+  // A local CLI signer (e.g. `techsupport:delegate invite`) has no live Gun subscription to
+  // discover a candidate's resulting request the way the master's browser panel does — it's a
+  // short-lived, stateless process. This is that discovery path: poll for one specific,
+  // already-known requestId (the CLI generated it locally before ever contacting the relay).
+  app.get('/api/support/delegate-requests/:requestId', async (req, res) => {
+    if (!hasSupportStorage) {
+      res.status(503).json({ error: 'Delegate request storage is unavailable' });
+      return;
+    }
+    const raw = await getSupportPath(delegateRequestPath(req.params.requestId));
+    if (!raw) {
+      res.status(404).json({ error: 'No request found for that id' });
+      return;
+    }
+    res.json(raw);
   });
 
   app.get('/api/support/delegate-grants', async (_req, res) => {

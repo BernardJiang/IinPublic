@@ -165,8 +165,9 @@ export async function delegateRequestMatchesInvite(
  * addressable (the master already knows the requestId it generated; no roster scan
  * needed to check on a specific invite, though the master's panel also live-subscribes
  * to the whole root to surface requests without a manual "check" click). */
+export const DELEGATE_REQUESTS_ROOT = 'techsupport-delegate-requests';
 export function delegateRequestPath(requestId: string): string[] {
-  return ['techsupport-delegate-requests', requestId];
+  return [DELEGATE_REQUESTS_ROOT, requestId];
 }
 
 // --- base64url helpers ---------------------------------------------------------
