@@ -4513,3 +4513,281 @@ body.iinpublic-debug .conversation-health-status {
   background: var(--accent-hover);
   color: white;
 }
+
+/* Talk editor — compact, scroll-safe composer.
+   The shell itself never scrolls: the form body does, while the header and submit bar remain
+   reachable. Optional delivery/media/preview controls use progressive disclosure so a simple
+   tag stays genuinely simple without removing any capability. */
+.talk-editor-shell {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, calc(100vw - 40px));
+  max-width: 1000px;
+  max-height: 90dvh;
+  padding: 0;
+  overflow: hidden;
+}
+
+.talk-editor-header {
+  flex: 0 0 auto;
+  align-items: center !important;
+  margin: 0;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.talk-editor-header .modal-title {
+  margin: 0;
+}
+
+.talk-editor-promise {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.talk-editor-close {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+}
+
+.talk-editor-close:hover {
+  background: var(--bg-subtle);
+}
+
+.talk-editor-form {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 24px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.talk-editor-description {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+#browse-talk-templates-btn {
+  justify-content: center;
+  width: 100%;
+}
+
+.talk-type-picker {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.talk-type-picker .form-label {
+  padding: 0;
+}
+
+.talk-type-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.talk-type-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.talk-type-option:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.talk-type-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.talk-type-option input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+}
+
+.talk-type-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.talk-type-option:has(input:checked) .talk-type-icon {
+  background: var(--accent);
+  color: #fff;
+}
+
+#tag-like-group,
+#tag-pair-group {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.talk-editor-more {
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.talk-editor-more > summary {
+  min-height: 44px;
+  padding: 11px 14px;
+  color: var(--text-secondary);
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+
+.talk-editor-more[open] > summary {
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.talk-editor-more-body {
+  padding: 16px 16px 0;
+}
+
+.talk-editor-actions {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 4;
+  margin: 0;
+  padding: 12px 24px max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: 0 -8px 18px rgb(15 23 42 / 8%);
+  backdrop-filter: blur(8px);
+}
+
+.talk-editor-actions #talk-submit-btn {
+  min-width: 140px;
+}
+
+@media (max-width: 600px) {
+  .talk-editor-shell.modal-fullscreen {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .talk-editor-header {
+    padding: 11px 14px 9px;
+  }
+
+  .talk-editor-header .modal-title {
+    font-size: 1.25rem;
+  }
+
+  .talk-editor-promise {
+    display: none;
+  }
+
+  .talk-editor-close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .talk-editor-form {
+    padding: 12px 14px 16px;
+    scrollbar-gutter: auto;
+  }
+
+  .talk-editor-description {
+    margin-bottom: 12px;
+    font-size: 0.84rem;
+  }
+
+  .talk-editor-form .form-group {
+    margin-bottom: 14px;
+  }
+
+  .talk-type-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .talk-type-option {
+    min-height: 46px;
+    padding: 8px;
+  }
+
+  .talk-editor-form input,
+  .talk-editor-form select,
+  .talk-editor-form textarea {
+    font-size: 16px;
+  }
+
+  .talk-type-option input,
+  .talk-send-chatroom-label input {
+    width: 20px;
+    height: 20px;
+    min-height: 0;
+  }
+
+  .talk-editor-more-body {
+    padding: 14px 12px 0;
+  }
+
+  .talk-editor-actions {
+    flex-direction: row;
+    align-items: stretch;
+    margin: 0;
+    padding: 10px 14px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .talk-editor-actions > button,
+  .talk-editor-actions > .btn {
+    width: auto;
+    min-height: 48px;
+  }
+
+  .talk-editor-actions #cancel-talk-btn {
+    flex: 1 1 34%;
+  }
+
+  .talk-editor-actions #talk-submit-btn {
+    flex: 2 1 66%;
+    min-width: 0;
+  }
+}
