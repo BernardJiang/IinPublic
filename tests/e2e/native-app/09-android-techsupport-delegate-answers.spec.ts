@@ -223,13 +223,12 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     // 8. The keyless relay's signed audit artifact records Honor as the author of both answers;
     // this validates auditability without reopening a root browser session.
     await expect(async () => {
-      const response = await fetch(`http://127.0.0.1:${HUB_GUN_PORT}/api/support/faq-bundle`);
+      // docs/TODO.md OPEN-31: one signed record per answer (listed newest-first, server-capped).
+      const response = await fetch(`http://127.0.0.1:${HUB_GUN_PORT}/api/support/faq-entries?limit=100`);
       expect(response.ok).toBe(true);
-      const { bundle } = await response.json() as { bundle?: { entriesJson?: string } };
-      const entries = JSON.parse(bundle?.entriesJson || '[]') as Array<{
-        answer?: string;
-        answeredByDelegate?: string;
-      }>;
+      const { entries = [] } = await response.json() as {
+        entries?: Array<{ answer?: string; answeredByDelegate?: string }>;
+      };
       expect(entries).toEqual(expect.arrayContaining([
         expect.objectContaining({ answer: essentialAnswer, answeredByDelegate: honorPub }),
         expect.objectContaining({ answer: macAnswer, answeredByDelegate: honorPub }),

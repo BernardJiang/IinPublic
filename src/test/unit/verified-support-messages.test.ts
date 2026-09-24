@@ -1,22 +1,26 @@
 import { filterVerifiedSupportMessages } from '../../web/ui/verified-support-messages';
 import { signGreeting, signSupportAck, signOnboardingTips } from '../../shared/techsupport-greeting';
 import { signFaqBundle } from '../../shared/techsupport-faq-bundle';
+import { signFaqEntry } from '../../shared/techsupport-faq-entry';
+import SEA from 'gun/sea';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 jest.mock('../../web/services/techsupport-faq-cache', () => ({
   readCachedFaqBundle: jest.fn(),
+  readSeedFaqBundle: jest.fn().mockResolvedValue(null),
 }));
 jest.mock('../../web/services/techsupport-delegate-cache', () => ({
   fetchGrantFromCache: jest.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { readCachedFaqBundle } = require('../../web/services/techsupport-faq-cache');
+const { readCachedFaqBundle, readSeedFaqBundle } = require('../../web/services/techsupport-faq-cache');
 
 describeWithRealTechSupportPair('filterVerifiedSupportMessages', (DEV_PAIR) => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (readSeedFaqBundle as jest.Mock).mockResolvedValue(null);
   });
 
   it('passes an ordinary message through unchanged', async () => {
@@ -199,6 +203,87 @@ describeWithRealTechSupportPair('filterVerifiedSupportMessages', (DEV_PAIR) => {
       };
       expect(await filterVerifiedSupportMessages([msg], 'Bob')).toEqual([]);
     });
+  });
+
+  describe('per-entry FAQ answer (docs/TODO.md OPEN-31) — self-verifying, no cache needed', () => {
+    const base = {
+      questionKey: 'placeholder',
+      canonicalQuestion: 'why is the sky blue',
+      answer: 'Rayleigh scattering.',
+      answeredAt: '2026-09-24T00:00:00.000Z',
+    };
+    const built = async () => {
+      const { supportQuestionKey } = require('../../shared/techsupport-faq');
+      const entry = { ...base, questionKey: supportQuestionKey(base.canonicalQuestion) };
+      const signed = await signFaqEntry(entry, DEV_PAIR);
+      const msg = {
+        senderId: TECHSUPPORT_ROOT_USER_ID,
+        text: entry.answer,
+        faqQuestionKey: entry.questionKey,
+        faqAuthorPub: signed.authorPub,
+        faqSignature: signed.signature,
+        faqEntryJson: JSON.stringify(signed),
+      };
+      return { signed, msg };
+    };
+
+    it('keeps the answer even though NO bundle is cached', async () => {
+      (readCachedFaqBundle as jest.Mock).mockReturnValue(null);
+      const { msg } = await built();
+      expect(await filterVerifiedSupportMessages([msg], 'Bob')).toEqual([msg]);
+    });
+
+    it('drops it when the message text was altered after signing', async () => {
+      const { msg } = await built();
+      expect(await filterVerifiedSupportMessages([{ ...msg, text: 'tampered' }], 'Bob')).toEqual([]);
+    });
+
+    it('drops it when the carried record is signed by an untrusted key', async () => {
+      const { supportQuestionKey } = require('../../shared/techsupport-faq');
+      const stranger = await SEA.pair();
+      const entry = { ...base, questionKey: supportQuestionKey(base.canonicalQuestion) };
+      const signed = await signFaqEntry(entry, stranger);
+      const msg = {
+        senderId: TECHSUPPORT_ROOT_USER_ID,
+        text: entry.answer,
+        faqQuestionKey: entry.questionKey,
+        faqAuthorPub: signed.authorPub,
+        faqSignature: signed.signature,
+        faqEntryJson: JSON.stringify(signed),
+      };
+      expect(await filterVerifiedSupportMessages([msg], 'Bob')).toEqual([]);
+    });
+
+    it('drops it when the message attribution does not match the carried record', async () => {
+      const { msg } = await built();
+      expect(await filterVerifiedSupportMessages([{ ...msg, faqSignature: 'other' }], 'Bob')).toEqual([]);
+      expect(await filterVerifiedSupportMessages([{ ...msg, faqQuestionKey: 'other' }], 'Bob')).toEqual([]);
+    });
+
+    it('drops it when the carried JSON is not parseable', async () => {
+      const { msg } = await built();
+      expect(await filterVerifiedSupportMessages([{ ...msg, faqEntryJson: '{not json' }], 'Bob')).toEqual([]);
+    });
+  });
+
+  it('keeps a seed-sourced FAQ answer (bundle signature matches the compiled seed, not the live cache)', async () => {
+    const entry = {
+      questionKey: 's1',
+      canonicalQuestion: 'seed question',
+      answer: 'Seed answer.',
+      answeredAt: '2026-01-01T00:00:00.000Z',
+    };
+    const seed = await signFaqBundle([entry], DEV_PAIR);
+    (readCachedFaqBundle as jest.Mock).mockReturnValue(null);
+    (readSeedFaqBundle as jest.Mock).mockResolvedValue(seed);
+    const msg = {
+      senderId: TECHSUPPORT_ROOT_USER_ID,
+      text: entry.answer,
+      faqQuestionKey: entry.questionKey,
+      faqAuthorPub: seed.authorPub,
+      faqSignature: seed.signature,
+    };
+    expect(await filterVerifiedSupportMessages([msg], 'Bob')).toEqual([msg]);
   });
 
   it('preserves relative order across a mix of kept and dropped messages', async () => {

@@ -1,6 +1,7 @@
 import { verifyFaqBundle, faqBundlePath, type SignedFaqBundle } from '../../shared/techsupport-faq-bundle';
 import type { SupportFaqEntry } from '../../shared/techsupport-faq';
-import { fetchGrantLive } from './techsupport-delegate-cache';
+import { verifyFaqEntry, isFaqEntryRollback, type SignedFaqEntry } from '../../shared/techsupport-faq-entry';
+import { fetchGrantFromCache, fetchGrantLive } from './techsupport-delegate-cache';
 import { readCachedRecoveryAnchor } from './techsupport-recovery-cache';
 import techsupportFaqSeedBundle from '../../shared/techsupport-faq-seed.signed.json';
 
@@ -157,5 +158,131 @@ export async function fetchFaqBundleFromServer(
     return await applyRawFaqBundle(gun, body.bundle);
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Per-entry cache (docs/TODO.md OPEN-31)
+//
+// The live FAQ is no longer one whole-history bundle: a client fetches only the signed record its
+// own question hashes to, and caches only records it has actually looked up. The cache is
+// therefore proportional to what THIS device asked, never to the global FAQ — and is additionally
+// hard-capped (least-recently-cached first) so it can never grow into the localStorage quota that
+// broke a real session with the old bundle cache.
+// ---------------------------------------------------------------------------------------------
+
+const FAQ_ENTRIES_STORAGE_KEY = 'iinpublic_techsupport_faq_entries_v1';
+export const FAQ_ENTRY_CACHE_MAX = 100;
+
+/**
+ * Grant lookup for a delegate-signed entry: the local verified-grant cache first (kept fresh by
+ * the relay poll, and the only source that works on a native embedded node with no live Gun
+ * peering to the hub), then a live Gun read for a grant published moments ago.
+ */
+function grantCacheThenLive(gun: { get: (key: string) => any }) {
+  return async (delegatePub: string): Promise<unknown> =>
+    (await fetchGrantFromCache(delegatePub)) ?? (await fetchGrantLive(gun, delegatePub));
+}
+
+type CachedFaqEntryRecord = { entry: SignedFaqEntry; cachedAt: number };
+
+function readFaqEntryCacheMap(): Record<string, CachedFaqEntryRecord> {
+  try {
+    const raw = localStorage.getItem(FAQ_ENTRIES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeFaqEntryCacheMap(map: Record<string, CachedFaqEntryRecord>): void {
+  const keys = Object.keys(map);
+  if (keys.length > FAQ_ENTRY_CACHE_MAX) {
+    keys
+      .sort((a, b) => (map[a]?.cachedAt ?? 0) - (map[b]?.cachedAt ?? 0))
+      .slice(0, keys.length - FAQ_ENTRY_CACHE_MAX)
+      .forEach((key) => delete map[key]);
+  }
+  try {
+    localStorage.setItem(FAQ_ENTRIES_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    /* localStorage unavailable/full — the verified entry is still returned to the caller this session */
+  }
+}
+
+/** The locally cached signed record for one question, or null. Re-verify before trusting for anything that renders. */
+export function readCachedFaqEntry(questionKey: string): SignedFaqEntry | null {
+  return readFaqEntryCacheMap()[questionKey]?.entry ?? null;
+}
+
+/** Verifies one raw record from any source; caches and returns it only if it verifies and is not older than what we already hold. */
+export async function applyRawFaqEntry(
+  gun: { get: (key: string) => any },
+  data: unknown,
+): Promise<SignedFaqEntry | null> {
+  const verified = await verifyFaqEntry(data, {
+    fetchGrant: grantCacheThenLive(gun),
+    recovery: readCachedRecoveryAnchor(),
+  });
+  if (!verified) return null;
+  const map = readFaqEntryCacheMap();
+  const existing = map[verified.questionKey]?.entry;
+  if (existing && isFaqEntryRollback(existing, verified)) return existing;
+  map[verified.questionKey] = { entry: verified, cachedAt: Date.now() };
+  writeFaqEntryCacheMap(map);
+  return verified;
+}
+
+/**
+ * One targeted read for one question. Never throws: on any network/verification failure it falls
+ * back to whatever verified record this device already cached (so a known question still
+ * auto-answers offline), or null when there is none.
+ */
+export async function fetchFaqEntryFromServer(
+  apiBase: string,
+  gun: { get: (key: string) => any },
+  questionKey: string,
+): Promise<SignedFaqEntry | null> {
+  try {
+    const res = await fetch(`${apiBase}/api/support/faq-entries/${encodeURIComponent(questionKey)}`);
+    if (res.ok) {
+      const body = (await res.json()) as { entry?: unknown };
+      if (body.entry) {
+        const applied = await applyRawFaqEntry(gun, body.entry);
+        if (applied) return applied;
+      }
+    }
+  } catch {
+    /* fall through to the local cache */
+  }
+  return readCachedFaqEntry(questionKey);
+}
+
+/**
+ * Newest-first, server-capped listing for the master's "Delegate activity" audit view. Verified
+ * but deliberately NOT cached — an admin listing must not fill the same bounded cache askers use.
+ */
+export async function fetchRecentFaqEntriesFromServer(
+  apiBase: string,
+  gun: { get: (key: string) => any },
+  limit = 100,
+): Promise<SignedFaqEntry[]> {
+  try {
+    const res = await fetch(`${apiBase}/api/support/faq-entries?limit=${encodeURIComponent(String(limit))}`);
+    if (!res.ok) return [];
+    const body = (await res.json()) as { entries?: unknown[] };
+    const out: SignedFaqEntry[] = [];
+    for (const raw of Array.isArray(body.entries) ? body.entries : []) {
+      const verified = await verifyFaqEntry(raw, {
+        fetchGrant: grantCacheThenLive(gun),
+        recovery: readCachedRecoveryAnchor(),
+      });
+      if (verified) out.push(verified);
+    }
+    return out;
+  } catch {
+    return [];
   }
 }

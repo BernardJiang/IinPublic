@@ -11,7 +11,8 @@ import {
   type OnboardingTipsLocale,
 } from '../../shared/techsupport-greeting';
 import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
-import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
+import { verifyFaqEntry } from '../../shared/techsupport-faq-entry';
+import { readCachedFaqBundle, readSeedFaqBundle } from '../services/techsupport-faq-cache';
 import { fetchGrantFromCache } from '../services/techsupport-delegate-cache';
 import { readCachedRecoveryAnchor } from '../services/techsupport-recovery-cache';
 
@@ -44,16 +45,43 @@ export async function filterVerifiedSupportMessages(messages: any[], stageName: 
     const isAck = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.ackSignature;
     const isTip = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.tipSignature;
 
+    if (isFaqAnswer && typeof msg.faqEntryJson === 'string' && msg.faqEntryJson) {
+      // docs/TODO.md OPEN-31: the message carries its OWN signed per-entry record, so this check
+      // needs no cache at all — nothing to evict, nothing to race, and it works for a message
+      // rendered long after the asker's device stopped caching that entry.
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(msg.faqEntryJson);
+      } catch {
+        parsed = null;
+      }
+      const verifiedEntry = await verifyFaqEntry(parsed, {
+        fetchGrant: fetchGrantFromCache,
+        recovery: readCachedRecoveryAnchor(),
+      });
+      if (!verifiedEntry) continue;
+      if (verifiedEntry.authorPub !== msg.faqAuthorPub || verifiedEntry.signature !== msg.faqSignature) continue;
+      if (verifiedEntry.questionKey !== msg.faqQuestionKey || verifiedEntry.answer !== String(msg.text || '')) continue;
+      kept.push(msg);
+      continue;
+    }
+
     if (isFaqAnswer) {
+      // Legacy path: an answer rendered from a signed BUNDLE — either the (pre-OPEN-31) live
+      // bundle cache, or the compiled seed FAQ. The seed used to be unverifiable here (only the
+      // live cache was consulted), so a seed-sourced auto-answer was silently dropped on re-render.
       const cached = readCachedFaqBundle();
       // docs/TODO.md K7: fetchGrant lets a delegate-signed bundle verify here too — the local
       // grant cache, not a live Gun read, since this render path has no Gun handle of its own.
       // docs/TODO.md OPEN-29: recovery is the same local cache, for the same reason.
-      const verifiedBundle = cached
-        ? await verifyFaqBundle(cached, { fetchGrant: fetchGrantFromCache, recovery: readCachedRecoveryAnchor() })
-        : null;
+      const verifyOptions = { fetchGrant: fetchGrantFromCache, recovery: readCachedRecoveryAnchor() };
+      let verifiedBundle = cached ? await verifyFaqBundle(cached, verifyOptions) : null;
+      if (!verifiedBundle || verifiedBundle.signature !== msg.faqSignature) {
+        const seed = await readSeedFaqBundle();
+        if (seed && seed.signature === msg.faqSignature) verifiedBundle = seed;
+      }
       if (!verifiedBundle) continue;
-      // The message must be attributed to the exact cached bundle version, not merely
+      // The message must be attributed to the exact bundle version, not merely
       // any validly-signed bundle — otherwise a stale message could survive a bundle
       // rotation with a mismatched answer for the same questionKey.
       if (verifiedBundle.authorPub !== msg.faqAuthorPub || verifiedBundle.signature !== msg.faqSignature) continue;

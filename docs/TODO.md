@@ -243,8 +243,38 @@ phrase complexity into normal use.
     complement to the checksum manifest (a tampered `bundle.js` would fail to execute at all, not
     just fail a later human check), deferred as separate build-pipeline work.
 
-- [ ] **OPEN-31 — TechSupport FAQ bundle does not scale (found 2026-09-24, product owner: think
-  through the design, do not implement yet).** The whole Q&A history is ONE array, re-signed and
+- [x] **OPEN-31 — TechSupport FAQ bundle does not scale (found 2026-09-24; IMPLEMENTED 2026-09-24, option 1: per-entry keyed storage).**
+  - **Implemented (option 1).** Each answered question is now its own flat, individually signed record
+    (`src/shared/techsupport-faq-entry.ts`: `signFaqEntry`/`verifyFaqEntry`/`isFaqEntryRollback`),
+    stored at `techsupport-faq-entries/<questionKey>` in the hub's DURABLE support store (the legacy
+    bundle route wrote to the radisk:false main graph — a latent durability bug, fixed as part of this).
+    Publishing answer N+1 is one sign + one write (O(1)). Routes (`system-routes.ts`):
+    `GET /api/support/faq-entries/:questionKey`, `GET /api/support/faq-entries?limit=` (newest-first,
+    hard-capped at 500, master audit view only), `POST /api/support/faq-entries` (the relay VERIFIES
+    author trust — master/recovery anchor/valid delegate grant, looked up in the durable store, the
+    main Gun graph for grants approved via the in-app panel, or the hub relay — and refuses a stale
+    answer overwriting a newer one with 409). Embedded nodes relay via `getFaqEntry`/`postFaqEntry`/
+    `listFaqEntries` on `EmbeddedHubRelayClient`.
+  - **Client.** `handleSupportQuestion` does ONE synchronous per-key fetch right before its lookup
+    (no background whole-FAQ sync, no poll-interval race) and falls back to a per-entry localStorage
+    cache — capped at 100 records, least-recently-cached evicted — so a known question still
+    auto-answers offline and a device's cache is proportional to what IT asked, never to the global FAQ.
+    The auto/human answer message carries its own signed record (`faqEntryJson`), so
+    `filterVerifiedSupportMessages` verifies it with no cache at all. The whole-bundle subscription and
+    5s bundle poll are gone; operator sessions instead do a per-pending-key check (to hide rows another
+    delegate already answered) and the master's "Delegate activity" list uses the capped listing.
+  - **Side fix.** A seed-FAQ-sourced auto-answer used to fail `filterVerifiedSupportMessages` on
+    re-render (only the live cache was consulted); it now also verifies against the compiled seed bundle.
+  - **Migration / compatibility.** The legacy `GET/POST /api/support/faq-bundle` routes remain (read
+    falls back to the old main-graph location) so already-installed APKs keep working. Answers that
+    exist ONLY in the legacy bundle (e.g. production's "question 2") need a one-time
+    `npm run techsupport:delegate -- migrate-faq --api-base https://www.iinpublic.com` (verifies the
+    bundle first, then re-signs each answer as its own record with the master key; `--dry-run` first).
+    Until that is run they are not auto-answered by new clients.
+  - **Not done / still open:** option 2 (delegate-only FAQ) was not pursued. FNV-1a 32-bit key
+    collisions are guarded only by `canonicalQuestion` equality inside `lookupSupportAnswer`.
+    Original analysis below kept as the design record.
+  **Original analysis (written before implementation, kept as the design record):** the whole Q&A history was ONE array, re-signed and
   re-published as a single unit on every new answer (`signFaqBundle`), and every asker's client
   downloads and caches the ENTIRE bundle (`fetchFaqBundleFromServer`) just to look up one
   question. Two real, compounding problems as the FAQ grows: (1) writes get slower over time —

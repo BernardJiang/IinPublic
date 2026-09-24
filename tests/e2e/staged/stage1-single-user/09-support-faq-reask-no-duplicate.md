@@ -6,7 +6,7 @@ covers: docs/TODO.md K5 Item 6 (offline auto-answer + no duplicate FAQ row)
 **Features tested:** two of K5's remaining Item 6 slices, combined into one flow since they share
 the same setup: (a) a *known* question is still auto-answered even while TechSupport's device is
 stopped, because the hit path never needs TechSupport online at all, and (b) asking the same
-question twice does not create a second FAQ bundle row or regress the inbox entry back to pending.
+question twice does not create a second FAQ record or regress the inbox entry back to pending.
 
 ---
 
@@ -15,7 +15,7 @@ question twice does not create a second FAQ bundle row or regress the inbox entr
 1. One ordinary user asks a brand-new question (miss path, spec 06's flow).
 2. TechSupport boots (K3 mode), drains the mailbox, answers the question, then **stops for good**
    — its browser context is closed and no TechSupport page exists for the rest of the test.
-3. Snapshot check: exactly one FAQ bundle entry exists for the question's `questionKey`, and the
+3. Snapshot check: the per-entry record (`GET /api/support/faq-entries/<key>`) exists for the question's `questionKey`, and the
    `techsupport-inbox/<key>` entry is `status: answered`.
 4. The **same user's still-open tab** asks the identical question a second time. Because TechSupport
    is gone, this only works if the answer comes from the asker's own locally cached, verified FAQ
@@ -23,7 +23,7 @@ question twice does not create a second FAQ bundle row or regress the inbox entr
 5. **Core assertions:**
    - The FAQ answer text renders a second time immediately (two answer bubbles total) — proving the
      re-ask took the hit branch.
-   - The FAQ bundle still has exactly **one** entry for this `questionKey` (no duplicate row).
+   - The record for this `questionKey` is unchanged, and the asker's device holds NO whole-FAQ bundle in localStorage — at most the one per-entry record it looked up (OPEN-31).
    - The inbox entry is still `status: answered` (not regressed to pending) — confirmed by code
      inspection too: `handleSupportQuestion`'s `known` branch never calls
      `postSupportQuestionToMailbox`, so a re-ask cannot touch `techsupport-inbox` at all.

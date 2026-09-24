@@ -78,6 +78,13 @@ export interface EmbeddedHubRelayClientLike {
   getFaqBundle(): Promise<unknown | null>;
   postFaqBundle(bundle: unknown): Promise<void>;
   /**
+   * docs/TODO.md OPEN-31: per-entry FAQ records, addressed by questionKey. Optional (like the
+   * recovery methods) so existing EmbeddedHubRelayClientLike test doubles keep compiling.
+   */
+  getFaqEntry?(questionKey: string): Promise<unknown | null>;
+  listFaqEntries?(limit?: number): Promise<unknown[]>;
+  postFaqEntry?(entry: unknown): Promise<void>;
+  /**
    * docs/TODO.md K7 follow-on, second layer: `mailbox-routes.ts`'s generic store
    * (`MailboxStore`) is per-server in-memory with NO relay — only mail addressed to
    * `TECHSUPPORT_ROOT_USER_ID` gets the durable, hub-visible `TechSupportDurableStore` instead.
@@ -274,6 +281,27 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bundle),
+    });
+  }
+
+  async getFaqEntry(questionKey: string): Promise<unknown | null> {
+    const response = await this.request(`/api/support/faq-entries/${encodeURIComponent(questionKey)}`);
+    const body = (await response.json()) as { entry?: unknown };
+    return body.entry ?? null;
+  }
+
+  async listFaqEntries(limit?: number): Promise<unknown[]> {
+    const query = limit ? `?limit=${encodeURIComponent(String(limit))}` : '';
+    const response = await this.request(`/api/support/faq-entries${query}`);
+    const body = (await response.json()) as { entries?: unknown[] };
+    return Array.isArray(body.entries) ? body.entries : [];
+  }
+
+  async postFaqEntry(entry: unknown): Promise<void> {
+    await this.request('/api/support/faq-entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
     });
   }
 

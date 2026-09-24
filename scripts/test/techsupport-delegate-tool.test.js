@@ -11,6 +11,7 @@ const {
   invite,
   issue,
   loadEncryptedOperatorPair,
+  migrateFaq,
   normalizeApiBase,
   parseOptions,
   parsePollTimeoutSeconds,
@@ -224,4 +225,84 @@ test('approve refuses a request id with nothing verifiable behind it', async () 
     () => approve({ 'request-id': 'missing', label: 'x' }, { pub: 'p' }, {}, inviteModule, 'https://www.iinpublic.com', request),
     /No verifiable pending request/,
   );
+});
+
+test('migrate-faq verifies the legacy bundle first, then re-signs each entry as its own record and publishes only those', async () => {
+  const pair = { pub: 'root-pub', epub: 'root-epub', priv: 'root-private', epriv: 'root-eprivate' };
+  const entries = [
+    { questionKey: 'k1', canonicalQuestion: 'question one', answer: 'a1', answeredAt: '2026-09-01T00:00:00.000Z' },
+    { questionKey: 'k2', canonicalQuestion: 'question two', answer: 'a2', answeredAt: '2026-09-02T00:00:00.000Z' },
+  ];
+  const posted = [];
+  const request = async (url, options) => {
+    if (url.endsWith('/api/support/faq-bundle')) {
+      return { bundle: { version: 1, entriesJson: JSON.stringify(entries), authorPub: 'delegate-pub', bundleCid: 'c', signature: 's' } };
+    }
+    if (url.endsWith('/api/support/delegate-grants') && !options) return { grants: [{ delegatePub: 'delegate-pub' }] };
+    if (url.endsWith('/api/support/faq-entries')) {
+      posted.push(JSON.parse(options.body));
+      return { stored: true };
+    }
+    throw new Error(`unexpected ${url}`);
+  };
+  const seenBundles = [];
+  const modules = {
+    faqBundle: {
+      verifyFaqBundle: async (bundle, opts) => {
+        seenBundles.push(bundle);
+        assert.equal((await opts.fetchGrant('delegate-pub')).delegatePub, 'delegate-pub');
+        return { entries: bundle.entries };
+      },
+    },
+    faqEntry: {
+      signFaqEntry: async (entry, signer) => {
+        assert.equal(signer, pair);
+        return { ...entry, version: 1, authorPub: pair.pub, signature: `sig-${entry.questionKey}` };
+      },
+    },
+  };
+  const result = await migrateFaq({}, pair, modules, 'https://www.iinpublic.com', request);
+  assert.equal(result.length, 2);
+  assert.deepEqual(posted.map((e) => e.questionKey), ['k1', 'k2']);
+  assert.ok(posted.every((e) => e.authorPub === 'root-pub'));
+  // entriesJson (the Gun wire form) was decoded into a real entries array before verification.
+  assert.equal(seenBundles[0].entriesJson, undefined);
+  assert.equal(seenBundles[0].entries.length, 2);
+  assert.equal(JSON.stringify(posted).includes(pair.priv), false);
+});
+
+test('migrate-faq refuses to re-sign a bundle that fails verification (a tampered relay must not get master-signed text)', async () => {
+  const pair = { pub: 'root-pub', priv: 'p', epub: 'e', epriv: 'ep' };
+  const posted = [];
+  const request = async (url, options) => {
+    if (url.endsWith('/api/support/faq-bundle')) return { bundle: { entries: [{ questionKey: 'k', answer: 'evil' }] } };
+    if (url.endsWith('/api/support/delegate-grants')) return { grants: [] };
+    posted.push(options);
+    return {};
+  };
+  const modules = {
+    faqBundle: { verifyFaqBundle: async () => null },
+    faqEntry: { signFaqEntry: async () => { throw new Error('must not sign'); } },
+  };
+  await assert.rejects(() => migrateFaq({}, pair, modules, 'https://x.example', request), /failed verification/);
+  assert.equal(posted.length, 0);
+});
+
+test('migrate-faq --dry-run signs but never publishes, and an empty relay is a no-op', async () => {
+  const pair = { pub: 'root-pub', priv: 'p', epub: 'e', epriv: 'ep' };
+  const entry = { questionKey: 'k', canonicalQuestion: 'q', answer: 'a', answeredAt: '2026-09-01T00:00:00.000Z' };
+  let published = 0;
+  const request = async (url, options) => {
+    if (url.endsWith('/api/support/faq-bundle')) return { bundle: { entries: [entry] } };
+    if (url.endsWith('/api/support/delegate-grants')) return { grants: [] };
+    published += 1;
+    return {};
+  };
+  const modules = {
+    faqBundle: { verifyFaqBundle: async (b) => ({ entries: b.entries }) },
+    faqEntry: { signFaqEntry: async (e) => ({ ...e, signature: 's' }) },
+  };
+  assert.equal((await migrateFaq({ dryRun: true }, pair, modules, 'https://x.example', request)).length, 1);
+  assert.equal(published, 0);
+  assert.deepEqual(await migrateFaq({}, pair, modules, 'https://x.example', async () => ({ bundle: null })), []);
 });

@@ -66,18 +66,15 @@ import {
   lookupSupportAnswer,
   supportAutoAnswerMessageId,
   supportHumanAnswerMessageId,
-  upsertSupportFaqEntry,
+  supportQuestionKey,
   type SupportInboxEntry,
 } from '../../shared/techsupport-faq';
-import { signFaqBundle } from '../../shared/techsupport-faq-bundle';
+import { signFaqEntry, faqEntryOf, type SignedFaqEntry } from '../../shared/techsupport-faq-entry';
 import {
-  faqBundleFromGunWire,
-  faqBundleToGunWire,
-  readCachedFaqBundle,
-  readCachedFaqEntries,
+  applyRawFaqEntry,
+  fetchFaqEntryFromServer,
+  fetchRecentFaqEntriesFromServer,
   readSeedFaqBundle,
-  subscribeToFaqBundle,
-  fetchFaqBundleFromServer,
 } from '../services/techsupport-faq-cache';
 import {
   subscribeToRecoveryAnchor,
@@ -256,7 +253,6 @@ export class IinPublicApp {
   private mailboxClient: WebMailboxClient | null = null;
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
-  private techSupportFaqBundleUnsubscribe: (() => void) | null = null;
   /** docs/TODO.md OPEN-29 — live subscription that keeps the local recovery-anchor cache fresh. */
   private techSupportRecoveryAnchorUnsubscribe: (() => void) | null = null;
   /** docs/TODO.md K7 — live subscription that keeps the local delegate-grant cache verified/fresh. */
@@ -276,6 +272,11 @@ export class IinPublicApp {
   private delegateExpiryWarned: Set<string> = new Set();
   /** Guards `subscribeToSupportInboxIfTechSupport` against double-subscribing — it is now called both at boot and when a delegate opts in later in the session. */
   private supportInboxSubscribed = false;
+  /** docs/TODO.md OPEN-31: every inbox row this session knows, and which pending ones already have a published answer elsewhere. */
+  private supportInboxRows = new Map<string, SupportInboxEntry>();
+  private supportAnsweredKeys = new Set<string>();
+  private supportAnsweredCheckInFlight = false;
+  private techSupportAdminPanelTick = 0;
   private mailboxDrainPromise: Promise<void> | null = null;
   /**
    * GUN/SEA signs writes in the authenticated user namespace. Overlapping talk completions
@@ -1783,7 +1784,6 @@ export class IinPublicApp {
     await this.ensureSupportBootstrapForCurrentUser().catch((error) => {
       console.warn('Support bootstrap failed:', error);
     });
-    this.subscribeToTechSupportFaqBundle();
     this.subscribeToTechSupportRecoveryAnchor();
     this.subscribeToTechSupportDelegateGrants();
     this.startTechSupportDelegateRelayPolling();
@@ -2637,7 +2637,6 @@ export class IinPublicApp {
     if (!this.currentUser || !this.isTechSupportOperatorSession()) return;
     if (this.supportInboxSubscribed) return;
     this.supportInboxSubscribed = true;
-    const entries = new Map<string, SupportInboxEntry>();
     const gun = this.gunService.getGun();
     gun
       .get('techsupport-inbox')
@@ -2645,21 +2644,58 @@ export class IinPublicApp {
       .on((data: any, questionKey: string) => {
         if (!questionKey || questionKey.startsWith('_')) return;
         if (!data || typeof data !== 'object') {
-          entries.delete(questionKey);
+          this.supportInboxRows.delete(questionKey);
         } else {
-          entries.set(questionKey, { ...data, questionKey } as SupportInboxEntry);
+          this.supportInboxRows.set(questionKey, { ...data, questionKey } as SupportInboxEntry);
         }
-        // docs/TODO.md K7: with fan-out delivery, more than one device can hold the same
-        // pending row (master + every delegate each got their own envelope). No cross-device
-        // "claim" lock — whichever device answers first publishes `techsupport-faq/<key>`,
-        // which every other device already subscribes to; treat that as "someone already
-        // answered this" and hide the row rather than inviting a redundant answer.
-        const alreadyPublished = new Set(readCachedFaqEntries().map((e) => e.questionKey));
-        const visible = Array.from(entries.values()).filter(
-          (entry) => entry.status !== 'pending' || !alreadyPublished.has(entry.questionKey),
-        );
-        this.uiManager.updateSupportInboxEntries(visible);
+        this.renderSupportInbox();
+        void this.refreshSupportAnsweredKeys();
       });
+  }
+
+  /**
+   * docs/TODO.md K7: with fan-out delivery, more than one device can hold the same pending row
+   * (master + every delegate each got their own envelope). No cross-device "claim" lock —
+   * whichever device answers first publishes the signed per-entry record
+   * (`techsupport-faq-entries/<key>`); treat that as "someone already answered this" and hide the
+   * row rather than inviting a redundant answer.
+   */
+  private renderSupportInbox(): void {
+    const visible = Array.from(this.supportInboxRows.values()).filter(
+      (entry) => entry.status !== 'pending' || !this.supportAnsweredKeys.has(entry.questionKey),
+    );
+    this.uiManager.updateSupportInboxEntries(visible);
+  }
+
+  /**
+   * docs/TODO.md OPEN-31: one targeted per-key read for each pending row (the old code diffed
+   * against a locally cached whole bundle). Re-run on every inbox change and every relay-poll tick,
+   * because a competing delegate's answer arrives over the relay, not through this inbox.
+   */
+  private async refreshSupportAnsweredKeys(): Promise<void> {
+    if (this.supportAnsweredCheckInFlight) return;
+    const apiBase = this.getBackendApiBase();
+    if (!apiBase) return;
+    const pending = Array.from(this.supportInboxRows.values()).filter(
+      (entry) => entry.status === 'pending' && !this.supportAnsweredKeys.has(entry.questionKey),
+    );
+    if (pending.length === 0) return;
+    this.supportAnsweredCheckInFlight = true;
+    try {
+      let changed = false;
+      for (const row of pending) {
+        const found = await fetchFaqEntryFromServer(apiBase, this.gunService.getGun(), row.questionKey);
+        if (found) {
+          this.supportAnsweredKeys.add(row.questionKey);
+          changed = true;
+        }
+      }
+      if (changed) this.renderSupportInbox();
+    } catch {
+      /* best-effort — the row simply stays visible */
+    } finally {
+      this.supportAnsweredCheckInFlight = false;
+    }
   }
 
   /**
@@ -2706,34 +2742,29 @@ export class IinPublicApp {
     if (!entry) return;
 
     const gun = this.gunService.getGun();
-    const currentBundleRaw = await new Promise<unknown>((resolve) => {
-      const timer = setTimeout(() => resolve(null), 1500);
-      gun.get('techsupport-faq').get('bundle').once((data: unknown) => {
-        clearTimeout(timer);
-        resolve(data);
-      });
-    });
-    const currentBundle = faqBundleFromGunWire(currentBundleRaw) as
-      | { entries?: import('../../shared/techsupport-faq').SupportFaqEntry[] }
-      | null;
-    const nextEntries = upsertSupportFaqEntry(currentBundle?.entries || [], entry);
-    const signedBundle = await signFaqBundle(nextEntries, pair as import('../sea-gun').GunPair & { pub: string; priv: string });
-
-    gun.get('techsupport-faq').get(entry.questionKey).put(entry);
-    const bundleWire = faqBundleToGunWire(signedBundle);
-    gun.get('techsupport-faq').get('bundle').put(bundleWire);
-    // K7 follow-on: the raw Gun write above never reaches the hub from a native (embedded-node)
-    // device — without it, an asker on a real phone can never verify (and so never even sees) a
-    // delegate's answer, and the master's own audit view never learns it happened. Found via a
-    // real-hardware test (09-android-techsupport-delegate-answers).
+    // docs/TODO.md OPEN-31: sign and publish exactly this ONE entry (O(1)) — no read-modify-write
+    // of a whole-history bundle. The record goes to the hub's durable support store via HTTP: a
+    // native (embedded-node) device has no generic Gun peering to the hub, and the relay is also
+    // where every other delegate/asker reads it from. Awaited (not fire-and-forget) so a failed
+    // publish is reported instead of silently telling the asker an unpublished answer.
+    const signedEntry = await signFaqEntry(entry, pair as import('../sea-gun').GunPair & { pub: string; priv: string });
     const apiBaseForFaq = this.getBackendApiBase();
     if (apiBaseForFaq) {
-      void fetch(`${apiBaseForFaq}/api/support/faq-bundle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bundleWire),
-      }).catch(() => undefined);
+      try {
+        const res = await fetch(`${apiBaseForFaq}/api/support/faq-entries`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(signedEntry),
+        });
+        if (!res.ok) console.warn('[Support] FAQ entry publish rejected:', res.status);
+      } catch (err) {
+        console.warn('[Support] FAQ entry publish failed — the answer is still delivered to the asker', err);
+      }
     }
+    await applyRawFaqEntry(gun, signedEntry);
+    this.supportAnsweredKeys.add(input.questionKey);
+    this.supportAnsweredKeys.add(entry.questionKey);
+    const faqEntryJson = JSON.stringify(signedEntry);
 
     await this.conversationService.sendMessage(
       input.conversationId,
@@ -2761,8 +2792,9 @@ export class IinPublicApp {
           .get(supportHumanAnswerMessageId(input.questionKey))
           .put({
             faqQuestionKey: entry.questionKey,
-            faqAuthorPub: signedBundle.authorPub,
-            faqSignature: signedBundle.signature,
+            faqAuthorPub: signedEntry.authorPub,
+            faqSignature: signedEntry.signature,
+            faqEntryJson,
           });
       } catch {
         /* local Gun write failure is non-fatal — the message text itself already delivered */
@@ -3752,13 +3784,6 @@ export class IinPublicApp {
     }
   }
 
-  /** docs/TODO.md K5, design note §Item 1a: keeps the local FAQ-bundle cache verified/fresh. */
-  private subscribeToTechSupportFaqBundle(): void {
-    if (this.techSupportFaqBundleUnsubscribe) return;
-    const gun = this.gunService.getGun();
-    this.techSupportFaqBundleUnsubscribe = subscribeToFaqBundle(gun, () => this.handleVerifiedFaqBundleUpdate());
-  }
-
   /** docs/TODO.md OPEN-29: keeps the local recovery-anchor cache verified/fresh, the same way
    * the FAQ bundle and delegate-grant caches already do — a compromised-key incident needs this
    * device to learn about a revocation/next-anchor without waiting for a reload. */
@@ -3772,24 +3797,9 @@ export class IinPublicApp {
         `nextDm=${record.nextDmPub ?? 'unchanged'} nextAnnouncement=${record.nextAnnouncementPub ?? 'unchanged'}`,
       );
       // A recovery update changes which authors verify as TechSupport — re-render so a
-      // newly-trusted (or newly-untrusted) message reflects it without a reload, same reasoning
-      // as handleVerifiedFaqBundleUpdate's re-render below.
+      // newly-trusted (or newly-untrusted) message reflects it without a reload.
       this.uiManager.rerenderOpenConversation();
     });
-  }
-
-  /** Shared by the live Gun subscription above and the HTTP relay poll below (K7 follow-on) —
-   * either one learning about a bundle update should have the exact same effect. */
-  private handleVerifiedFaqBundleUpdate(): void {
-    // docs/TODO.md K7: a delegate answering on their own device publishes this same bundle —
-    // the master's own session only learns about it through this subscription, never directly.
-    if (this.currentUser?.id === TECHSUPPORT_ROOT_USER_ID) this.refreshDelegateAdminPanel();
-    // K7 race: an asker's conversation can render the delegate's answer message before this
-    // bundle finishes syncing to this device — `filterVerifiedSupportMessages` fails closed
-    // against the (then-stale) cached bundle and drops it, and no further conversation
-    // message ever arrives to trigger a retry. Re-render the open conversation now that the
-    // cache is fresh so that answer doesn't stay hidden indefinitely.
-    this.uiManager.rerenderOpenConversation();
   }
 
   /**
@@ -3865,8 +3875,16 @@ export class IinPublicApp {
         if (!apiBase) return;
         const grants = await fetchDelegateGrantsFromServer(apiBase);
         for (const grant of grants) this.handleVerifiedDelegateGrant(grant);
-        const bundle = await fetchFaqBundleFromServer(apiBase, this.gunService.getGun());
-        if (bundle) this.handleVerifiedFaqBundleUpdate();
+        // docs/TODO.md OPEN-31: no whole-FAQ poll any more — an asker's answer message carries its
+        // own signed record. Only operator sessions have FAQ state to refresh: hide pending rows a
+        // competing delegate already answered, and (master) refresh the "Delegate activity" audit
+        // list, which is a capped server listing so it runs on a slower cadence (~10s, master only).
+        if (this.currentUser && this.isTechSupportOperatorSession()) {
+          void this.refreshSupportAnsweredKeys();
+          if (this.currentUser.id === TECHSUPPORT_ROOT_USER_ID && this.techSupportAdminPanelTick++ % 2 === 0) {
+            this.refreshDelegateAdminPanel();
+          }
+        }
         // docs/TODO.md OPEN-29: same native-device gap, one layer up — a recovery anchor is
         // arguably the most urgent thing a stuck native client needs to learn during an incident.
         await fetchRecoveryAnchorFromServer(apiBase);
@@ -4042,11 +4060,10 @@ export class IinPublicApp {
   private refreshDelegateAdminPanel(): void {
     if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return;
     this.uiManager.updateTechSupportDelegates(readCachedDelegateGrants());
-    const gun = this.gunService.getGun();
-    gun.get('techsupport-faq').get('bundle').once((data: unknown) => {
-      const bundle = faqBundleFromGunWire(data) as { entries?: import('../../shared/techsupport-faq').SupportFaqEntry[] } | null;
-      const delegateActivity = (bundle?.entries || []).filter((e) => !!e.answeredByDelegate);
-      this.uiManager.updateDelegateActivity(delegateActivity);
+    const apiBase = this.getBackendApiBase();
+    if (!apiBase) return;
+    void fetchRecentFaqEntriesFromServer(apiBase, this.gunService.getGun(), 200).then((entries) => {
+      this.uiManager.updateDelegateActivity(entries.filter((e) => !!e.answeredByDelegate).map(faqEntryOf));
     });
   }
 
@@ -4153,41 +4170,58 @@ export class IinPublicApp {
     questionText: string,
   ): Promise<void> {
     if (!this.currentUser || isTechSupportUser(this.currentUser)) return;
-    // K7 follow-on, same class of bug already fixed for delegate-grant fan-out
-    // (postSupportQuestionToMailbox): the FAQ bundle otherwise only syncs via the 5s
-    // techSupportRelayPollTimer tick, so an asker whose session is fresh (or who asks again
-    // faster than that poll's own interval) can race a just-published answer and see "new
-    // question" for something that was, in fact, already answered moments earlier — confirmed
-    // live 2026-09-24, re-asking a question right after a delegate had just answered it. A
-    // synchronous fetch right before the lookup removes the race outright, independent of any
-    // poll interval; best-effort (falls back to whatever the cache already has on failure).
-    await fetchFaqBundleFromServer(this.getBackendApiBase(), this.gunService.getGun()).catch(() => null);
-    const faq = readCachedFaqEntries();
-    let result = lookupSupportAnswer(questionText, faq);
+    // docs/TODO.md OPEN-31: ONE targeted read for the ONE record this question hashes to, made
+    // synchronously right before the lookup — a just-published answer is visible immediately
+    // (no poll-interval race, the bug the old whole-bundle sync had), and the device downloads and
+    // caches only what it actually asked about. Falls back to the local per-entry cache when the
+    // relay is unreachable, so a previously-seen answer still auto-answers offline.
+    const questionKey = supportQuestionKey(questionText);
+    if (!questionKey) return;
+    const apiBase = this.getBackendApiBase();
+    const signedEntry: SignedFaqEntry | null = apiBase
+      ? await fetchFaqEntryFromServer(apiBase, this.gunService.getGun(), questionKey)
+      : null;
+    let result = lookupSupportAnswer(questionText, signedEntry ? [faqEntryOf(signedEntry)] : []);
     const now = new Date().toISOString();
 
     if (result.status === 'unanswerable') return;
 
-    // The live, organically-grown bundle missed — fall back to the curated starter FAQ
+    // The live per-entry record missed — fall back to the curated starter FAQ
     // (docs/TODO.md K5, `techsupport-faq-seed.ts`) before queuing a human. A real human answer
-    // for the same question, once one exists in the live bundle above, always wins; this only
-    // ever fires while that question has never been answered live.
-    let sourceBundle = result.status === 'known' ? readCachedFaqBundle() : null;
+    // for the same question, once one exists live, always wins; this only ever fires while that
+    // question has never been answered live. `faqProvenance` is what the rendered answer carries
+    // so a later render pass can re-verify it.
+    let faqProvenance: {
+      faqQuestionKey: string;
+      faqAuthorPub: string;
+      faqSignature: string;
+      faqEntryJson?: string;
+    } | null =
+      result.status === 'known' && signedEntry
+        ? {
+            faqQuestionKey: result.questionKey,
+            faqAuthorPub: signedEntry.authorPub,
+            faqSignature: signedEntry.signature,
+            faqEntryJson: JSON.stringify(signedEntry),
+          }
+        : null;
     if (result.status === 'new') {
       const seedBundle = await readSeedFaqBundle();
       if (seedBundle) {
         const seedResult = lookupSupportAnswer(questionText, seedBundle.entries);
         if (seedResult.status === 'known') {
           result = seedResult;
-          sourceBundle = seedBundle;
+          faqProvenance = {
+            faqQuestionKey: seedResult.questionKey,
+            faqAuthorPub: seedBundle.authorPub,
+            faqSignature: seedBundle.signature,
+          };
         }
       }
     }
 
     if (result.status === 'known') {
-      // Re-derive the entry from the freshest cache read rather than trusting the lookup
-      // snapshot, and bail if the cache/seed bundle went missing between lookup and here.
-      if (!sourceBundle) return;
+      if (!faqProvenance) return;
       // Deliver like handleAnswerSupportQuestion does: via the resolved transport, which
       // persists to the DURABLE server store in addition to local Gun. The known-branch
       // historically used conversationService.upsertMessageRecord (local Gun only, no
@@ -4211,11 +4245,6 @@ export class IinPublicApp {
       // question). Fall back to the previous local-only render on any failure — the
       // subscription-based recovery is best-effort; the fallback preserves prior behavior
       // rather than regressing to a toast.
-      const faqProvenance = {
-        faqQuestionKey: result.questionKey,
-        faqAuthorPub: sourceBundle.authorPub,
-        faqSignature: sourceBundle.signature,
-      };
       let delivered = false;
       try {
         await this.conversationService.sendMessage(

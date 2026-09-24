@@ -69,6 +69,13 @@ import {
 } from '../../shared/techsupport-delegate';
 import { delegateRequestPath } from '../../shared/techsupport-delegate-invite';
 import {
+  FAQ_ENTRIES_ROOT,
+  faqEntryRecordPath,
+  isFaqEntryRollback,
+  verifyFaqEntry,
+  type SignedFaqEntry,
+} from '../../shared/techsupport-faq-entry';
+import {
   RECOVERY_ANCHOR_HISTORY_ROOT,
   recoveryAnchorPath,
   recoveryAnchorHistoryPath,
@@ -581,8 +588,123 @@ export function registerSystemRoutes(
     }
   });
 
+  // docs/TODO.md OPEN-31: per-entry FAQ records. Each answered question is its own signed record at
+  // `techsupport-faq-entries/<questionKey>` in the DURABLE support store (same radisk:false
+  // reasoning as the grant/recovery routes above). The relay verifies author trust itself before
+  // storing — unlike the legacy bundle route it never accepts an arbitrary self-declared
+  // `authorPub`, since these records are keyed by an attacker-choosable hash and would otherwise be
+  // an unbounded write surface.
+  const faqEntryVerifyOptions = async (): Promise<{
+    fetchGrant: (delegatePub: string) => Promise<unknown>;
+    recovery: RecoveryAnchorRecord | null;
+  }> => {
+    let remoteGrants: Promise<unknown[]> | null = null;
+    const fetchGrant = async (delegatePub: string): Promise<unknown> => {
+      const local = hasSupportStorage ? await getSupportPath([DELEGATE_GRANTS_ROOT, delegatePub]) : null;
+      if (local) return local;
+      // A grant a browser master approved through the in-app Delegates panel is a plain Gun write
+      // to the relay's main graph (only the operator CLI posts to the durable store). The grant is
+      // itself root-signed and re-verified by `verifyFaqEntry`, so the source needs no trust.
+      const viaGraph = gunService ? await gunService.getPath([DELEGATE_GRANTS_ROOT, delegatePub]).catch(() => null) : null;
+      if (viaGraph) return viaGraph;
+      if (!hubRelayClient) return null;
+      remoteGrants ??= hubRelayClient.listDelegateGrants().catch(() => []);
+      const list = await remoteGrants;
+      return (
+        list.find((g) => (g as { delegatePub?: string } | null)?.delegatePub === delegatePub && !(g as { revokedAt?: unknown }).revokedAt) ??
+        null
+      );
+    };
+    let recovery: RecoveryAnchorRecord | null = null;
+    if (hasSupportStorage) {
+      const raws = [await getSupportPath(recoveryAnchorPath()), ...((await getSupportSet(RECOVERY_ANCHOR_HISTORY_ROOT)) ?? [])];
+      for (const raw of raws) {
+        const candidate = raw ? await verifyTechSupportRecoveryAnchor(raw) : null;
+        if (!candidate) continue;
+        if (!recovery || !isRecoveryAnchorRollback(recovery, candidate)) recovery = candidate;
+      }
+    }
+    return { fetchGrant, recovery };
+  };
+
+  app.get('/api/support/faq-entries/:questionKey', async (req, res) => {
+    const questionKey = String(req.params.questionKey || '');
+    const candidates: unknown[] = [];
+    if (hasSupportStorage) candidates.push(await getSupportPath(faqEntryRecordPath(questionKey)));
+    if (hubRelayClient?.getFaqEntry) {
+      candidates.push(await hubRelayClient.getFaqEntry(questionKey).catch(() => null));
+    }
+    const present = candidates.filter(Boolean);
+    let best: SignedFaqEntry | null = null;
+    if (present.length > 0) {
+      const options = await faqEntryVerifyOptions();
+      for (const raw of present) {
+        const candidate = await verifyFaqEntry(raw, options);
+        if (!candidate || candidate.questionKey !== questionKey) continue;
+        if (!best || !isFaqEntryRollback(best, candidate)) best = candidate;
+      }
+    }
+    res.json({ entry: best });
+  });
+
+  // Master audit view ("Delegate activity") and any admin listing: newest first, hard-capped so a
+  // large FAQ can never turn this into an unbounded download.
+  app.get('/api/support/faq-entries', async (req, res) => {
+    const requested = Number.parseInt(String(req.query.limit ?? ''), 10);
+    const limit = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 500) : 100;
+    const raws: unknown[] = hasSupportStorage ? (await getSupportSet(FAQ_ENTRIES_ROOT)) ?? [] : [];
+    if (hubRelayClient?.listFaqEntries) {
+      raws.push(...(await hubRelayClient.listFaqEntries(limit).catch(() => [])));
+    }
+    const options = await faqEntryVerifyOptions();
+    const byKey = new Map<string, SignedFaqEntry>();
+    for (const raw of raws) {
+      const entry = await verifyFaqEntry(raw, options);
+      if (!entry) continue;
+      const existing = byKey.get(entry.questionKey);
+      if (!existing || !isFaqEntryRollback(existing, entry)) byKey.set(entry.questionKey, entry);
+    }
+    const entries = Array.from(byKey.values())
+      .sort((a, b) => Date.parse(b.answeredAt) - Date.parse(a.answeredAt))
+      .slice(0, limit);
+    res.json({ entries });
+  });
+
+  app.post('/api/support/faq-entries', async (req, res) => {
+    try {
+      const options = await faqEntryVerifyOptions();
+      const entry = await verifyFaqEntry(req.body, options);
+      if (!entry) {
+        res.status(400).json({ error: 'A valid, trusted-author signed FAQ entry is required' });
+        return;
+      }
+      if (!hasSupportStorage && !hubRelayClient?.postFaqEntry) {
+        res.status(503).json({ error: 'FAQ entry storage is unavailable' });
+        return;
+      }
+      if (hasSupportStorage) {
+        const rawCurrent = await getSupportPath(faqEntryRecordPath(entry.questionKey));
+        const current = rawCurrent ? await verifyFaqEntry(rawCurrent, options) : null;
+        if (current && isFaqEntryRollback(current, entry)) {
+          res.status(409).json({ error: 'Refusing to replace a newer FAQ answer with an older one' });
+          return;
+        }
+        await putSupportPath(faqEntryRecordPath(entry.questionKey), entry);
+      }
+      if (hubRelayClient?.postFaqEntry) await hubRelayClient.postFaqEntry(entry);
+      res.json({ stored: true, questionKey: entry.questionKey });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Legacy whole-bundle routes, kept read-compatible for clients older than OPEN-31 (an already
+  // installed APK still fetches this) and now backed by the durable store like everything else on
+  // this channel. New clients neither read nor write the bundle.
   app.get('/api/support/faq-bundle', async (_req, res) => {
-    let bundle = gunService ? await gunService.getPath(['techsupport-faq', 'bundle']) : null;
+    let bundle = hasSupportStorage ? await getSupportPath(['techsupport-faq', 'bundle']) : null;
+    // A bundle published before this route moved to the durable store lives in the main graph.
+    if (!bundle && gunService) bundle = await gunService.getPath(['techsupport-faq', 'bundle']);
     if (!bundle && hubRelayClient) {
       bundle = await hubRelayClient.getFaqBundle().catch(() => null);
     }
@@ -596,7 +718,7 @@ export function registerSystemRoutes(
         res.status(400).json({ error: 'signature and authorPub are required' });
         return;
       }
-      if (gunService) void gunService.putPath(['techsupport-faq', 'bundle'], bundle);
+      if (hasSupportStorage) await putSupportPath(['techsupport-faq', 'bundle'], bundle);
       if (hubRelayClient) await hubRelayClient.postFaqBundle(bundle).catch(() => undefined);
       res.json({ stored: true });
     } catch (error) {

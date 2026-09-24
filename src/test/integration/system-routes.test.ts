@@ -10,6 +10,10 @@ import {
 } from '../../shared/p2p-runtime';
 import { peerAckSigningPayload } from '../../shared/p2p-presence';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
+import { signFaqEntry } from '../../shared/techsupport-faq-entry';
+import { buildSupportFaqEntry, supportQuestionKey } from '../../shared/techsupport-faq';
+import { signDelegateGrant } from '../../shared/techsupport-delegate';
+import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 function buildApp(
   nodeEnv = 'test',
@@ -898,5 +902,146 @@ describe('system routes', () => {
     const response = await request(app).get('/api/support/recovery');
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ current: null, history: [] });
+  });
+});
+
+describeWithRealTechSupportPair('per-entry FAQ routes (docs/TODO.md OPEN-31)', (DEV_PAIR) => {
+  /** Map-backed stand-in for TechSupportDurableStore: same putPath/getPath/getSet contract. */
+  function fakeStore() {
+    const data = new Map<string, unknown>();
+    return {
+      data,
+      putPath: jest.fn(async (path: string[], value: unknown) => void data.set(path.join('/'), value)),
+      getPath: jest.fn(async (path: string[]) => data.get(path.join('/')) ?? null),
+      getSet: jest.fn(async (root: string) =>
+        Array.from(data.entries()).filter(([k]) => k.startsWith(`${root}/`)).map(([, v]) => v)),
+    };
+  }
+  const answer = (question: string, text: string, answeredAt: string, by?: string) => {
+    const e = buildSupportFaqEntry({ question, answer: text, answeredAt, ...(by ? { answeredByDelegate: by } : {}) });
+    if (!e) throw new Error('bad entry');
+    return e;
+  };
+
+  it('stores one signed entry in the durable store and serves exactly that key back', async () => {
+    const techSupportStore = fakeStore();
+    const { app } = buildApp('test', undefined, { techSupportStore });
+    const signed = await signFaqEntry(answer('How do I log in?', 'Use Settings.', '2026-09-24T00:00:00.000Z'), DEV_PAIR);
+
+    const posted = await request(app).post('/api/support/faq-entries').send(signed);
+    expect(posted.status).toBe(200);
+    expect(techSupportStore.putPath).toHaveBeenCalledWith(['techsupport-faq-entries', signed.questionKey], signed);
+
+    const got = await request(app).get(`/api/support/faq-entries/${signed.questionKey}`);
+    expect(got.body.entry).toEqual(signed);
+    const miss = await request(app).get(`/api/support/faq-entries/${supportQuestionKey('never asked')}`);
+    expect(miss.body.entry).toBeNull();
+  });
+
+  it('answering question N+1 writes exactly one record and touches no other answer (O(1) publish)', async () => {
+    const techSupportStore = fakeStore();
+    const { app } = buildApp('test', undefined, { techSupportStore });
+    for (let i = 0; i < 5; i++) {
+      await request(app).post('/api/support/faq-entries').send(await signFaqEntry(answer(`q${i}`, `a${i}`, '2026-09-24T00:00:00.000Z'), DEV_PAIR));
+    }
+    techSupportStore.putPath.mockClear();
+    await request(app).post('/api/support/faq-entries').send(await signFaqEntry(answer('q5', 'a5', '2026-09-24T00:00:00.000Z'), DEV_PAIR));
+    expect(techSupportStore.putPath).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unsigned/forged entry and an untrusted author (no arbitrary writes to an attacker-chosen key)', async () => {
+    const techSupportStore = fakeStore();
+    const { app } = buildApp('test', undefined, { techSupportStore });
+    const stranger = await SEA.pair();
+    const byStranger = await signFaqEntry(answer('q', 'a', '2026-09-24T00:00:00.000Z'), stranger);
+    expect((await request(app).post('/api/support/faq-entries').send(byStranger)).status).toBe(400);
+    const good = await signFaqEntry(answer('q', 'a', '2026-09-24T00:00:00.000Z'), DEV_PAIR);
+    expect((await request(app).post('/api/support/faq-entries').send({ ...good, answer: 'tampered' })).status).toBe(400);
+    expect((await request(app).post('/api/support/faq-entries').send({})).status).toBe(400);
+    expect(techSupportStore.putPath).not.toHaveBeenCalled();
+  });
+
+  it('refuses to replace a newer answer with an older one, but accepts an update and an idempotent re-publish', async () => {
+    const techSupportStore = fakeStore();
+    const { app } = buildApp('test', undefined, { techSupportStore });
+    const older = await signFaqEntry(answer('q', 'old', '2026-09-01T00:00:00.000Z'), DEV_PAIR);
+    const newer = await signFaqEntry(answer('q', 'new', '2026-09-02T00:00:00.000Z'), DEV_PAIR);
+    expect((await request(app).post('/api/support/faq-entries').send(newer)).status).toBe(200);
+    expect((await request(app).post('/api/support/faq-entries').send(older)).status).toBe(409);
+    expect((await request(app).post('/api/support/faq-entries').send(newer)).status).toBe(200);
+    const got = await request(app).get(`/api/support/faq-entries/${newer.questionKey}`);
+    expect(got.body.entry.answer).toBe('new');
+  });
+
+  it('accepts an entry signed by a delegate whose grant is in the store, and rejects it once no grant exists', async () => {
+    const techSupportStore = fakeStore();
+    const { app } = buildApp('test', undefined, { techSupportStore });
+    const delegate = await SEA.pair();
+    const signed = await signFaqEntry(answer('q', 'a', '2026-09-24T00:00:00.000Z', delegate.pub), delegate);
+    expect((await request(app).post('/api/support/faq-entries').send(signed)).status).toBe(400);
+    const grant = await signDelegateGrant(
+      { delegatePub: delegate.pub, delegateUserId: 'u', label: 'A', expiresAt: new Date(Date.now() + 60_000).toISOString() },
+      DEV_PAIR,
+    );
+    await techSupportStore.putPath(['techsupport-delegates', delegate.pub], grant);
+    expect((await request(app).post('/api/support/faq-entries').send(signed)).status).toBe(200);
+  });
+
+  it('accepts a delegate entry whose grant was approved via the in-app browser panel (a Gun write to the main graph, not the durable store)', async () => {
+    const techSupportStore = fakeStore();
+    const delegate = await SEA.pair();
+    const grant = await signDelegateGrant(
+      { delegatePub: delegate.pub, delegateUserId: 'u', label: 'A', expiresAt: new Date(Date.now() + 60_000).toISOString() },
+      DEV_PAIR,
+    );
+    const gunService = {
+      getPath: jest.fn(async (path: string[]) => (path[1] === delegate.pub ? grant : null)),
+      getSet: jest.fn().mockResolvedValue([]),
+      putPath: jest.fn(),
+    };
+    const { app } = buildApp('test', undefined, { techSupportStore, gunService });
+    const signed = await signFaqEntry(answer('q', 'a', '2026-09-24T00:00:00.000Z', delegate.pub), delegate);
+    expect((await request(app).post('/api/support/faq-entries').send(signed)).status).toBe(200);
+  });
+
+  it('lists newest first, honours and caps the limit', async () => {
+    const techSupportStore = fakeStore();
+    const { app } = buildApp('test', undefined, { techSupportStore });
+    for (let i = 0; i < 4; i++) {
+      await request(app)
+        .post('/api/support/faq-entries')
+        .send(await signFaqEntry(answer(`q${i}`, `a${i}`, `2026-09-0${i + 1}T00:00:00.000Z`), DEV_PAIR));
+    }
+    const listed = await request(app).get('/api/support/faq-entries?limit=2');
+    expect(listed.body.entries.map((e: any) => e.answer)).toEqual(['a3', 'a2']);
+    const all = await request(app).get('/api/support/faq-entries');
+    expect(all.body.entries).toHaveLength(4);
+  });
+
+  it('a GET serves a record the durable store does not have from the hub relay (embedded node), and POST forwards to it', async () => {
+    const signed = await signFaqEntry(answer('q', 'a', '2026-09-24T00:00:00.000Z'), DEV_PAIR);
+    const hubRelayClient = {
+      getFaqEntry: jest.fn().mockResolvedValue(signed),
+      postFaqEntry: jest.fn().mockResolvedValue(undefined),
+      listFaqEntries: jest.fn().mockResolvedValue([]),
+      listDelegateGrants: jest.fn().mockResolvedValue([]),
+      getFaqBundle: jest.fn().mockResolvedValue(null),
+      postFaqBundle: jest.fn(),
+    } as unknown as EmbeddedHubRelayClientLike;
+    const { app } = buildApp('test', hubRelayClient, { techSupportStore: fakeStore() });
+    const got = await request(app).get(`/api/support/faq-entries/${signed.questionKey}`);
+    expect(got.body.entry).toEqual(signed);
+    expect((await request(app).post('/api/support/faq-entries').send(signed)).status).toBe(200);
+    expect(hubRelayClient.postFaqEntry).toHaveBeenCalledWith(signed);
+  });
+
+  it('legacy faq-bundle routes now persist to the durable store, and still read a bundle from the old main graph', async () => {
+    const techSupportStore = fakeStore();
+    const gunService = { getPath: jest.fn().mockResolvedValue({ legacy: true, signature: 's', authorPub: 'p' }), putPath: jest.fn() };
+    const { app } = buildApp('test', undefined, { techSupportStore, gunService });
+    expect((await request(app).get('/api/support/faq-bundle')).body.bundle).toEqual({ legacy: true, signature: 's', authorPub: 'p' });
+    await request(app).post('/api/support/faq-bundle').send({ signature: 's2', authorPub: 'p2' });
+    expect(techSupportStore.putPath).toHaveBeenCalledWith(['techsupport-faq', 'bundle'], { signature: 's2', authorPub: 'p2' });
+    expect(gunService.putPath).not.toHaveBeenCalled();
   });
 });

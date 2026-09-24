@@ -46,14 +46,11 @@ async function fetchGunGraph(): Promise<Record<string, any>> {
   return snapshot.gunGraph || {};
 }
 
-function faqBundleEntries(graph: Record<string, any>): Array<{ questionKey: string; answer: string }> {
-  const bundle = graph['techsupport-faq/bundle'];
-  if (typeof bundle?.entriesJson !== 'string') return [];
-  try {
-    return JSON.parse(bundle.entriesJson);
-  } catch {
-    return [];
-  }
+/** The published per-entry record for one question, read straight from the hub (docs/TODO.md OPEN-31). */
+async function fetchFaqEntry(questionKey: string): Promise<{ questionKey: string; answer: string } | null> {
+  const res = await fetch(`${gunBaseURL()}/api/support/faq-entries/${questionKey}`);
+  const body = (await res.json()) as { entry?: { questionKey: string; answer: string } | null };
+  return body.entry ?? null;
 }
 
 test.describe('TechSupport FAQ: a re-asked known question is a hit, not a re-answer (docs/TODO.md K5 Item 6)', () => {
@@ -129,41 +126,21 @@ test.describe('TechSupport FAQ: a re-asked known question is a hit, not a re-ans
     // Snapshot state right after the one real answer: exactly one FAQ entry for this key, one
     // answered inbox entry.
     const graphAfterAnswer = await fetchGunGraph();
-    const entriesAfterAnswer = faqBundleEntries(graphAfterAnswer).filter((e) => e.questionKey === questionKey);
-    expect(entriesAfterAnswer).toHaveLength(1);
+    const entryAfterAnswer = await fetchFaqEntry(questionKey);
+    expect(entryAfterAnswer?.answer).toBe(answer);
     expect(graphAfterAnswer[`techsupport-inbox/${questionKey}`]?.status).toBe('answered');
 
     // 3. TechSupport is gone. The SAME user's still-open tab re-asks the identical question.
     // This must be an instant local hit — no TechSupport process is running to answer it again.
     //
-    // Root cause of the former flake: the re-ask only routes to the 'known' (local
-    // auto-answer) branch if THIS user client has already cached + verified the FAQ
-    // bundle that TechSupport just published into Gun. That happens via the user's
-    // subscribeToFaqBundle Gun subscription + verifyFaqBundle write to localStorage —
-    // which lags the TechSupport-side write by a Gun propagation + crypto-verify window.
-    // If the re-ask fires before it lands, readCachedFaqEntries() is empty and
-    // handleSupportQuestion silently takes the MISS path (renders an ack, posts to the
-    // now-dead mailbox), so a second answer bubble never appears. Waiting for the cache
-    // to be present in THIS page's localStorage is the guarantee the test actually needs
-    // (same "wait for the recorder's own evidence" pattern as 00f's localTalkExchanges).
-    const faqBundleStorageKey = 'iinpublic_techsupport_faq_bundle_v1';
+    // docs/TODO.md OPEN-31: the re-ask does ONE synchronous per-key fetch right before its lookup, so
+    // there is no longer any background bundle sync to wait for (the source of the former flake
+    // where a re-ask fired before the cache landed and silently took the MISS path). The
+    // scaling property is asserted instead: after the asker's own answered question, this device
+    // holds no whole-FAQ bundle, only (at most) the one per-entry record it looked up.
     await expect
-      .poll(
-        () => userPage.evaluate(({ key, qk }: { key: string; qk: string }) => {
-          const raw = localStorage.getItem(key);
-          if (!raw) return 'no-bundle';
-          try {
-            const parsed = JSON.parse(raw);
-            const entries = parsed?.entries ?? [];
-            const hit = entries.some((e: any) => e?.questionKey === qk);
-            return hit ? 'cached' : `bundle-without-key(${entries.length} entries)`;
-          } catch {
-            return 'bundle-malformed';
-          }
-        }, { key: faqBundleStorageKey, qk: questionKey }),
-        { timeout: 45_000, intervals: [200, 400, 800, 1500] },
-      )
-      .toBe('cached');
+      .poll(async () => (await fetchFaqEntry(questionKey))?.answer, { timeout: 15_000 })
+      .toBe(answer);
 
     await userPage.fill('#conversation-message-input', question);
     await userPage.click('#send-conversation-message');
@@ -209,9 +186,13 @@ test.describe('TechSupport FAQ: a re-asked known question is a hit, not a re-ans
     // calls postSupportQuestionToMailbox, so the re-ask cannot touch techsupport-inbox at all, and
     // upsertSupportFaqEntry is never invoked a second time for the same key by this path.
     const graphAfterReask = await fetchGunGraph();
-    const entriesAfterReask = faqBundleEntries(graphAfterReask).filter((e) => e.questionKey === questionKey);
-    expect(entriesAfterReask).toHaveLength(1);
-    expect(entriesAfterReask[0].answer).toBe(answer);
+    expect((await fetchFaqEntry(questionKey))?.answer).toBe(answer);
+    const localFaqState = await userPage.evaluate(() => ({
+      bundle: localStorage.getItem('iinpublic_techsupport_faq_bundle_v1'),
+      entries: Object.keys(JSON.parse(localStorage.getItem('iinpublic_techsupport_faq_entries_v1') || '{}')),
+    }));
+    expect(localFaqState.bundle).toBeNull();
+    expect(localFaqState.entries.length).toBeLessThanOrEqual(1);
     expect(graphAfterReask[`techsupport-inbox/${questionKey}`]?.status).toBe('answered');
 
     await userPage.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());

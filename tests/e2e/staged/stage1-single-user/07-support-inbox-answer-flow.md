@@ -5,7 +5,7 @@ covers: docs/TODO.md K5 (design note §Items 4+5)
 **File:** 07-support-inbox-answer-flow.spec.ts
 **Features tested:** the full operator loop — a pending question (delivered via the offline
 mailbox, spec 06's miss path) appears in the support-inbox section of a `dev:techsupport`-mode
-session; the operator answers it inline; the answer is delivered to the asker, the FAQ bundle is
+session; the operator answers it inline; the answer is delivered to the asker, the answer is published as its own signed per-entry FAQ record (OPEN-31) and is
 published, and the inbox row disappears (flips to answered).
 
 ---
@@ -22,11 +22,11 @@ published, and the inbox row disappears (flips to answered).
    section (`.support-inbox-item`), proving the live `techsupport-inbox/*` subscription and the
    inbox UI are wired correctly end to end.
 4. The operator fills the answer field and clicks "Answer & Publish" — one action that signs the
-   updated FAQ bundle with the DM pair, publishes `techsupport-faq/<key>` and
-   `techsupport-faq/bundle`, delivers the answer as a real DM to the asker's support thread, and
+   updated FAQ bundle with the DM pair, signs and publishes ONE per-entry record (`techsupport-faq-entries/<key>`, via the hub's
+   durable store), delivers the answer as a real DM to the asker's support thread, and
    flips the inbox entry to `answered`.
 5. Assertions: the inbox row disappears (only pending entries render), the asker's support thread
-   shows the delivered answer, and the published FAQ bundle contains the new entry.
+   shows the delivered answer, and `GET /api/support/faq-entries/<key>` returns the new entry.
 
 > **Scope note:** this covers the operator-answers-once path. Re-ask-is-a-hit-with-no-duplicate
 > and the `stage2` cross-user auto-answer are the remaining Item 6 tests tracked in

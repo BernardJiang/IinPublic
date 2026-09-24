@@ -69,6 +69,15 @@ Usage:
     --api-base https://www.iinpublic.com \\
     --delegate-pub <pub> [--dry-run]
 
+  npm run techsupport:delegate -- migrate-faq \\
+    --api-base https://www.iinpublic.com [--dry-run]
+
+    One-time (docs/TODO.md OPEN-31): the FAQ used to be ONE signed bundle. Fetches that legacy
+    bundle, verifies it against the current delegate roster, and re-signs each of its answers
+    as its own per-entry record with the master key, so answers that only ever existed in the
+    old bundle stay auto-answerable. Idempotent — re-running just re-publishes the same
+    records. --dry-run prints what would be signed without publishing.
+
 The encrypted vault is read from TECHSUPPORT_KEY_FILE (or --key) and its passphrase from
 TECHSUPPORT_KEY_PASSPHRASE_FILE. Verify the delegate public-key fingerprint over an independent
 channel before issuing a grant. HTTP is accepted only for loopback development URLs.`;
@@ -154,6 +163,8 @@ function compiledModules() {
       delegates: require(path.join(ROOT, 'dist', 'server', 'shared', 'techsupport-delegate.js')),
       techsupport: require(path.join(ROOT, 'dist', 'server', 'shared', 'techsupport.js')),
       invite: require(path.join(ROOT, 'dist', 'server', 'shared', 'techsupport-delegate-invite.js')),
+      faqBundle: require(path.join(ROOT, 'dist', 'server', 'shared', 'techsupport-faq-bundle.js')),
+      faqEntry: require(path.join(ROOT, 'dist', 'server', 'shared', 'techsupport-faq-entry.js')),
     };
   } catch {
     throw new Error('Compiled server modules are missing. Run `npm run build:server` first.');
@@ -322,13 +333,53 @@ async function approve(options, pair, delegates, inviteModule, apiBase, request 
   return grant;
 }
 
+/**
+ * OPEN-31 one-time migration: legacy whole-bundle FAQ -> per-entry records. The bundle is verified
+ * (author must be the master or a currently-valid delegate) BEFORE anything is signed, because
+ * re-signing as the master vouches for the text — a relay-tampered bundle must never become a
+ * master-signed answer.
+ */
+async function migrateFaq(options, pair, modules, apiBase, request = requestJson) {
+  const fetched = await request(`${apiBase}/api/support/faq-bundle`);
+  if (!fetched || !fetched.bundle) {
+    console.log('No legacy FAQ bundle on the relay — nothing to migrate.');
+    return [];
+  }
+  const rawBundle = fetched.bundle;
+  const bundle = typeof rawBundle.entriesJson === 'string'
+    ? { ...rawBundle, entries: JSON.parse(rawBundle.entriesJson) }
+    : rawBundle;
+  delete bundle.entriesJson;
+  const grantsBody = await request(`${apiBase}/api/support/delegate-grants`);
+  const grants = Array.isArray(grantsBody.grants) ? grantsBody.grants : [];
+  const verified = await modules.faqBundle.verifyFaqBundle(bundle, {
+    fetchGrant: async (delegatePub) => grants.find((grant) => grant.delegatePub === delegatePub) || null,
+  });
+  if (!verified) throw new Error('The legacy FAQ bundle failed verification — refusing to re-sign it.');
+  const signedEntries = [];
+  for (const entry of verified.entries) {
+    const signed = await modules.faqEntry.signFaqEntry(entry, pair);
+    signedEntries.push(signed);
+    console.log(`${options.dryRun ? 'Would publish' : 'Publishing'}: ${entry.questionKey}  ${JSON.stringify(entry.canonicalQuestion)}`);
+    if (!options.dryRun) {
+      await request(`${apiBase}/api/support/faq-entries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(signed),
+      });
+    }
+  }
+  console.log(`${options.dryRun ? 'Signed (not published)' : 'Published'} ${signedEntries.length} FAQ entr${signedEntries.length === 1 ? 'y' : 'ies'}.`);
+  return signedEntries;
+}
+
 function clearPrivateFields(pair) {
   if (!pair || typeof pair !== 'object') return;
   pair.priv = '';
   pair.epriv = '';
 }
 
-const COMMANDS_NEEDING_MASTER_KEY = new Set(['issue', 'revoke', 'approve']);
+const COMMANDS_NEEDING_MASTER_KEY = new Set(['issue', 'revoke', 'approve', 'migrate-faq']);
 
 async function main(argv = process.argv.slice(2), dependencies = {}) {
   const options = parseOptions(argv);
@@ -337,7 +388,7 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
     console.log(usage());
     return;
   }
-  const knownCommands = new Set(['issue', 'revoke', 'invite', 'approve']);
+  const knownCommands = new Set(['issue', 'revoke', 'invite', 'approve', 'migrate-faq']);
   if (!knownCommands.has(command)) throw new Error(`Unknown command.\n\n${usage()}`);
 
   const apiBase = normalizeApiBase(options['api-base'] || process.env.TECHSUPPORT_API_BASE);
@@ -354,6 +405,9 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
   try {
     modules.techsupport.assertTechSupportDmPair(pair);
     const request = dependencies.requestJson || requestJson;
+    if (command === 'migrate-faq') {
+      return await migrateFaq(options, pair, modules, apiBase, request);
+    }
     const grant = command === 'issue'
       ? await issue(options, pair, modules.delegates, apiBase, request)
       : command === 'approve'
@@ -388,6 +442,7 @@ module.exports = {
   issue,
   loadEncryptedOperatorPair,
   main,
+  migrateFaq,
   normalizeApiBase,
   parseOptions,
   parsePollTimeoutSeconds,

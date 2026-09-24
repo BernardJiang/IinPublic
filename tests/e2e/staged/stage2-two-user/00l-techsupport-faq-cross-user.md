@@ -3,7 +3,7 @@
 covers: docs/TODO.md K5 Item 6 (stage2 cross-user auto-answer)
 
 **File:** 00l-techsupport-faq-cross-user.spec.ts
-**Features tested:** the FAQ bundle is genuinely global — once TechSupport answers a question for
+**Features tested:** the FAQ is genuinely global — once TechSupport answers a question for
 one asker, a completely different asker who has never interacted with TechSupport about that topic
 gets the same answer instantly, with **zero** developer/TechSupport involvement in their own turn.
 
@@ -19,7 +19,7 @@ gets the same answer instantly, with **zero** developer/TechSupport involvement 
    conversation and asks the **exact same question text** Tom asked.
 4. **Core assertion:** Jerry's conversation immediately shows the real answer TechSupport gave Tom
    — not the "a human will get back to you here" new-question ack — proving the answer came from
-   the public FAQ bundle cache, not from any live TechSupport round trip for Jerry.
+   the per-entry FAQ record fetched for that one question, not from any live TechSupport round trip for Jerry.
 
 This is the multi-user counterpart to `stage1/09-support-faq-reask-no-duplicate.spec.ts`, which
 covers the same-user re-ask case at stage1; this one specifically needs two distinct real users, so

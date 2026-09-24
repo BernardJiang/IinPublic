@@ -2895,7 +2895,7 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   question renders a signed ack, verifies, and posts to the TechSupport mailbox envelope.
 - `tests/e2e/staged/stage1-single-user/07-support-inbox-answer-flow.spec.ts` (K5) — full operator
   loop: question asked → mailbox delivery → TechSupport drains inbox → operator answers → asker
-  receives the answer → FAQ bundle independently readable and verifiable.
+  receives the answer → per-entry FAQ record (`techsupport-faq-entries/<questionKey>`, OPEN-31) independently readable and verifiable.
 - `acceptsIncomingTalks()` (`src/shared/techsupport.ts`), checked at the top of
   `shouldAcceptIncomingTalkAsync` (`src/web/app/app.ts`) before any filter runs (K5 talk-exclusion
   invariant above).

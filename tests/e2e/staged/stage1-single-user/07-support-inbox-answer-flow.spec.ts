@@ -1,3 +1,4 @@
+import { supportQuestionKey } from '../../../../src/shared/techsupport-faq';
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
@@ -117,17 +118,13 @@ test.describe('TechSupport support-inbox: operator answers a pending question (d
     // 4. Asker's support thread receives the answer.
     await expect(userPage.locator('#conversation-messages')).toContainText(answer, { timeout: 20_000 });
 
-    // 5. The FAQ entry is published and independently readable — both the per-key soul (a flat
-    // object) and the whole signed bundle (Gun cannot store the `entries` array directly, so it
-    // is wire-encoded as `entriesJson`, per faqBundleToGunWire/faqBundleFromGunWire).
+    // 5. The FAQ entry is published as its OWN signed per-entry record (docs/TODO.md OPEN-31),
+    // independently readable by key from the hub — not as part of a whole-history bundle.
     await expect
       .poll(async () => {
-        const res = await fetch(`${gunBaseURL()}/api/test/export-snapshot`);
-        const snapshot = (await res.json()) as { gunGraph?: Record<string, any> };
-        const bundle = snapshot.gunGraph?.['techsupport-faq/bundle'];
-        if (typeof bundle?.entriesJson !== 'string') return false;
-        const entries = JSON.parse(bundle.entriesJson);
-        return Array.isArray(entries) && entries.some((e: any) => e?.answer === answer);
+        const res = await fetch(`${gunBaseURL()}/api/support/faq-entries/${supportQuestionKey(question)}`);
+        const body = (await res.json()) as { entry?: { answer?: string } | null };
+        return body.entry?.answer === answer;
       }, { timeout: 15_000 })
       .toBe(true);
 

@@ -194,6 +194,12 @@ export type ConversationMessageWire = {
   faqAuthorPub?: string;
   faqSignature?: string;
   /**
+   * docs/TODO.md OPEN-31: the whole signed per-entry FAQ record (JSON string — Gun can't store a
+   * nested object as one field) the answer was rendered from. Present instead of relying on a
+   * cached bundle; `faqAuthorPub`/`faqSignature` above mirror the record's own fields.
+   */
+  faqEntryJson?: string;
+  /**
    * K5: present only on the signed "new question" acknowledgement. Same re-verify-on-render
    * discipline as the greeting fields above (`verifySupportAck`).
    */
@@ -475,6 +481,7 @@ export class GunMessageStore {
       ...(wire.faqQuestionKey ? { faqQuestionKey: wire.faqQuestionKey } : {}),
       ...(wire.faqAuthorPub ? { faqAuthorPub: wire.faqAuthorPub } : {}),
       ...(wire.faqSignature ? { faqSignature: wire.faqSignature } : {}),
+      ...(wire.faqEntryJson ? { faqEntryJson: wire.faqEntryJson } : {}),
       ...(wire.ackLocale ? { ackLocale: wire.ackLocale } : {}),
       ...(wire.ackSignature ? { ackSignature: wire.ackSignature } : {}),
       ...(wire.ackAuthorPub ? { ackAuthorPub: wire.ackAuthorPub } : {}),
@@ -764,6 +771,7 @@ export class GunMessageStore {
       faqQuestionKey: null,
       faqAuthorPub: null,
       faqSignature: null,
+      faqEntryJson: null,
       ackLocale: null,
       ackSignature: null,
       ackAuthorPub: null,
