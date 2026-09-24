@@ -298,6 +298,23 @@ phrase complexity into normal use.
     methods), and `app.ts`'s `handleSupportQuestion`/`handleAnswerSupportQuestion` (call the new
     per-key fetch instead of `readCachedFaqEntries()`/`signFaqBundle` over the whole array). A
     real, moderately-sized refactor — not a quick patch.
+  - **Related question resolved 2026-09-24, not a gap: how does a new question route to multiple
+    online delegates?** Confirmed against the code: it's broadcast to every currently-valid
+    delegate (plus the master), each getting their own encrypted mailbox envelope
+    (`postSupportQuestionToMailbox`'s K7 fan-out loop) — never routed to just one based on
+    distance, load, or any other condition; no such routing exists anywhere in the codebase.
+    Whoever answers first wins; every other delegate's device sees the FAQ bundle publish and
+    quietly hides its own copy of the pending row (no cross-device claim lock). Deliberately kept
+    this way, not a gap to close: this is a P2P system with no guaranteed-online infrastructure —
+    routing to a single pre-selected delegate would introduce a new single point of failure (that
+    delegate being offline stalls the question with no fallback, unless a whole timeout/reassign
+    mechanism is built), for a domain (async, text-based support) where "distance" carries no
+    real latency or quality benefit anyway. The only cost of broadcasting is a few delegates each
+    reading the same pending question — no wasted work, since only the first to actually answer
+    does anything. If specialization-based routing (e.g. a billing-only delegate) is ever wanted,
+    the right shape is "notify the specialist first, broadcast to everyone else after a short
+    delay if they don't respond" — additive, not a replacement for the broadcast — to keep the
+    same reliability. Not currently needed or planned.
 
 OPEN-13 and the website/Android portion of OPEN-06 were completed on physical Android hardware on
 2026-09-20; evidence is in `docs/completed.md`.
