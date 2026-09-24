@@ -144,18 +144,53 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         })
       : '';
     modal.innerHTML = `
-      <div class="modal-content size-xl modal-fullscreen" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
-        <div class="modal-header">
-          <h2 class="modal-title">${isEdit ? text('editorEditTitle', 'Edit Talk') : text('editorCreateTitle', 'Create a Talk')}</h2>
-          <p class="talk-editor-promise" style="margin:4px 0 0;font-weight:650;color:var(--text-secondary);">${text('editorPromise', 'Write conversations, not code.')}</p>
-          <p class="talk-editor-description">${text('editorDescription', 'Build a branching conversation flow - each answer can lead to a different question')}</p>
+      <div class="modal-content size-xl modal-fullscreen talk-editor-shell">
+        <div class="modal-header talk-editor-header">
+          <div>
+            <h2 class="modal-title">${isEdit ? text('editorEditTitle', 'Edit Talk') : text('editorCreateTitle', 'Create a Talk')}</h2>
+            <p class="talk-editor-promise">${text('editorPromise', 'Write conversations, not code.')}</p>
+          </div>
+          <button type="button" class="close-button talk-editor-close" id="close-talk-editor-btn" aria-label="${text('close', 'Close')}">&times;</button>
         </div>
-        <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${isOwnedEdit ? existingTalk.id : ''}" data-revise-source-talk="${!isOwnedEdit && existingTalk?.id ? options.escapeHtml(JSON.stringify(existingTalk)) : ''}">
+        <form id="talk-editor-form" class="talk-editor-form" data-editing-talk-id="${isOwnedEdit ? existingTalk.id : ''}" data-revise-source-talk="${!isOwnedEdit && existingTalk?.id ? options.escapeHtml(JSON.stringify(existingTalk)) : ''}">
+          <p class="talk-editor-description">${text('editorDescription', 'Build a branching conversation flow - each answer can lead to a different question')}</p>
           ${!existingTalk ? `
           <div class="form-group">
             <button type="button" class="btn btn-secondary" id="browse-talk-templates-btn" style="width: 100%;">${text('editorBrowseTemplates', '🎨 Start from a template')}</button>
           </div>
           ` : ''}
+          <fieldset class="form-group talk-type-picker">
+            <legend class="form-label">${text('editorType', 'Type')}</legend>
+            <div class="talk-type-grid">
+              <label class="talk-type-option">
+                <input type="radio" name="talk-type-radio" value="tag" ${existingTalk?.type === 'tag' || !existingTalk ? 'checked' : ''}>
+                <span class="talk-type-icon" aria-hidden="true">#</span>
+                <span>${text('editorTagTypeName' as UiTranslationKey, 'Tag')}</span>
+              </label>
+              <label class="talk-type-option">
+                <input type="radio" name="talk-type-radio" value="flow" ${existingTalk?.type === 'flow' ? 'checked' : ''}>
+                <span class="talk-type-icon" aria-hidden="true">→</span>
+                <span>${text('editorFlowTypeName' as UiTranslationKey, 'Flow')}</span>
+              </label>
+              <label class="talk-type-option">
+                <input type="radio" name="talk-type-radio" value="survey" ${existingTalk?.type === 'survey' ? 'checked' : ''}>
+                <span class="talk-type-icon" aria-hidden="true">☷</span>
+                <span>${text('editorSurveyTypeName' as UiTranslationKey, 'Survey')}</span>
+              </label>
+              <label class="talk-type-option">
+                <input type="radio" name="talk-type-radio" value="route" ${existingTalk?.type === 'route' ? 'checked' : ''}>
+                <span class="talk-type-icon" aria-hidden="true">⑂</span>
+                <span>${text('editorRouteTypeName' as UiTranslationKey, 'Route')}</span>
+              </label>
+            </div>
+            <select class="form-input" id="talk-type" aria-hidden="true" style="position: absolute; left: -9999px;" tabindex="-1">
+              <option value="tag">Tag</option>
+              <option value="flow">Flow</option>
+              <option value="survey">Survey</option>
+              <option value="route">Route</option>
+            </select>
+          </fieldset>
+
           <div class="form-group">
             <label class="form-label">${text('editorTalkTitle', 'Talk Title')}</label>
             <input type="text" class="form-input" id="talk-title" placeholder="${text('editorTitlePlaceholder', 'e.g., Coffee Meetup, Quick Survey')}" required value="${existingTalk ? options.escapeHtml(existingTalk.title) : ''}">
@@ -185,34 +220,6 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               placeholder="${text('editorTagAnswerPlaceholder' as UiTranslationKey, "e.g. sell — or leave as the same word to match fellow buy people")}"
             >
             <p id="talk-answer-preview" style="margin: 6px 0 0 0; font-size: 0.85em; color: var(--text-secondary);"></p>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">${text('editorType', 'Type')}</label>
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-              <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
-                <input type="radio" name="talk-type-radio" value="tag" ${existingTalk?.type === 'tag' || !existingTalk ? 'checked' : ''}>
-                <span>${text('editorTagOption', 'Tag (single keyword; answer with one checkbox - match or ignore)')}</span>
-              </label>
-              <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
-                <input type="radio" name="talk-type-radio" value="flow" ${existingTalk?.type === 'flow' ? 'checked' : ''}>
-                <span>${text('editorFlowOption', 'Flow - sequential questions that find compatible people')}</span>
-              </label>
-              <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
-                <input type="radio" name="talk-type-radio" value="survey" ${existingTalk?.type === 'survey' ? 'checked' : ''}>
-                <span>${text('editorSurveyOption', 'Survey - independent questions that collect aggregate counts')}</span>
-              </label>
-              <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
-                <input type="radio" name="talk-type-radio" value="route" ${existingTalk?.type === 'route' ? 'checked' : ''}>
-                <span>${text('editorRouteOption', 'Route - branching DAG of questions (tree editor)')}</span>
-              </label>
-            </div>
-            <select class="form-input" id="talk-type" aria-hidden="true" style="position: absolute; left: -9999px;" tabindex="-1">
-              <option value="tag">Tag</option>
-              <option value="flow">Flow</option>
-              <option value="survey">Survey</option>
-              <option value="route">Route</option>
-            </select>
           </div>
 
           <div class="form-group" id="questions-form-group">
@@ -249,6 +256,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             <div id="talk-autofix-banner" class="talk-autofix-banner" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid var(--success); background: var(--success-soft); color: var(--success-text); border-radius: 6px; font-size: 0.9em;"></div>
           </div>
 
+          <details class="talk-editor-more" id="talk-editor-more" ${isEdit ? 'open' : ''}>
+            <summary>${text('editorMoreOptions' as UiTranslationKey, 'More options')}</summary>
+            <div class="talk-editor-more-body">
           <div class="form-group" id="talk-options-group">
             <label class="form-label">${text('editorExpiration', 'Expiration')}</label>
             <select class="form-input" id="talk-expires" aria-label="Talk expiration">
@@ -290,11 +300,13 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             <div id="talk-attachment-name" style="margin-top: 6px; font-size: 0.85em; color: var(--text-tertiary);"></div>
           </div>
           <div class="form-group" id="talk-preview-panel"></div>
-          <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" id="cancel-talk-btn">${text('editorCancel', 'Cancel')}</button>
-            <button type="submit" class="btn" id="talk-submit-btn">${isEdit ? text('editorSave', 'Save changes') : text('editorCreate', 'Create')}</button>
-          </div>
+            </div>
+          </details>
         </form>
+          <div class="modal-actions talk-editor-actions">
+            <button type="button" class="btn btn-secondary" id="cancel-talk-btn">${text('editorCancel', 'Cancel')}</button>
+            <button type="submit" class="btn" id="talk-submit-btn" form="talk-editor-form">${isEdit ? text('editorSave', 'Save changes') : text('editorCreate', 'Create')}</button>
+          </div>
       </div>
     `;
 
@@ -440,13 +452,14 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement | null;
     const questionsFormGroup = document.getElementById('questions-form-group');
     const routeFormGroup = document.getElementById('route-form-group');
+    const advancedOptions = document.getElementById('talk-editor-more') as HTMLDetailsElement | null;
     const questionsTypeHint = document.getElementById('talk-editor-type-hint');
     const questionsFormLabel = document.getElementById('questions-form-label');
 
     const updateFormForType = (): void => {
       const type = talkTypeSelect?.value || 'tag';
       const titleInput = document.getElementById('talk-title') as HTMLInputElement | null;
-      const desc = document.querySelector('.talk-editor-description');
+      const desc = modal.querySelector('.talk-editor-description');
       if (questionsFormGroup) questionsFormGroup.style.display = 'none';
       if (routeFormGroup) routeFormGroup.style.display = 'none';
       if (tagLikeGroup) tagLikeGroup.style.display = 'none';
@@ -462,6 +475,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       }
 
       if (type === 'tag') {
+        // A simple tag needs only a keyword and the two tag toggles. Keep optional controls one
+        // tap away instead of forcing phone users to scroll through them before reaching Create.
+        if (advancedOptions && !isEdit) advancedOptions.open = false;
         if (tagLikeGroup) tagLikeGroup.style.display = 'block';
         if (tagLikeCheckbox && !isEdit && tagLikeCheckbox.checked === false) tagLikeCheckbox.checked = true;
         if (tagPairGroup) tagPairGroup.style.display = 'block';
@@ -478,6 +494,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         return;
       }
 
+      // Flow/survey/route authors commonly need delivery, expiry and preview controls while they
+      // build the longer form. Keep those visible by default; they can still collapse the panel.
+      if (advancedOptions) advancedOptions.open = true;
       if (talkOptionsGroup) talkOptionsGroup.style.display = 'block';
       if (talkLocationGroup) talkLocationGroup.style.display = 'block';
       if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = isEdit ? 'none' : 'block';
@@ -564,6 +583,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     });
 
     options.setupTalkFormHandlers(modal);
+    document.getElementById('close-talk-editor-btn')?.addEventListener('click', () => {
+      if (document.body.contains(modal)) document.body.removeChild(modal);
+    });
     // §DD: covers both a prefilled Dating template and reopening an existing ageRange talk for
     // edit — the per-question builtin-kind change listener (talk-editor-form-helpers.ts) handles
     // every subsequent edit from here.
