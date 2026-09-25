@@ -34,18 +34,25 @@ export async function waitForChatroomMemberCountViaApi(
         .__iinpublic_app?.getApp?.()?.currentUser?.id || '',
     ),
   );
-  const roomId = await page.evaluate(() =>
-    String(
-      (
-        window as unknown as {
-          __iinpublic_app?: { getApp: () => { chatroomService?: { getCurrentChatroomId: () => string } } };
-        }
-      ).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.() || 'global',
-    ),
-  );
+  // Re-read the room on EVERY poll tick, not once up front: the chatroom UI can already be showing a
+  // room's detail view while the service's "current room" still says the previous one (the join
+  // is async and updates it a moment later). Sampling once froze the poll on the wrong room —
+  // e.g. 'global' for a user who had just entered a city room — and it then watched a room the
+  // peers were never in for the whole timeout (cold-server failure of 05-taxi-local-chatroom-match).
+  const currentRoomId = () =>
+    page.evaluate(() =>
+      String(
+        (
+          window as unknown as {
+            __iinpublic_app?: { getApp: () => { chatroomService?: { getCurrentChatroomId: () => string } } };
+          }
+        ).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.() || 'global',
+      ),
+    );
   await expect
     .poll(
       async () => {
+        const roomId = await currentRoomId();
         const rows = await fetchMembersFromNode(roomId);
         const count = Array.isArray(rows)
           ? rows.filter((r) => r.userId && r.userId !== me && r.userId !== TECHSUPPORT_ROOT_USER_ID).length
