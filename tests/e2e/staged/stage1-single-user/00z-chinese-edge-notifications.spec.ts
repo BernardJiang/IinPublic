@@ -82,7 +82,7 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     await p.locator('#create-talk-btn').click();
     await p.waitForSelector('#talk-editor-form');
     await p.fill('#talk-title', 'D2 Edge Test Talk');
-    await p.click('#talk-editor-form button[type="submit"]');
+    await p.click('#talk-submit-btn');
     // Talk must propagate to the OUT list before Broadcast.
     await afterCreateTalkBeforeBroadcast();
 

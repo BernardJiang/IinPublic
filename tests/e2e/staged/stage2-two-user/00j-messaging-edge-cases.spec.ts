@@ -143,7 +143,7 @@ test.describe('Messaging edge cases', () => {
     await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await page.click('#talk-editor-form button[type="submit"]');
+    await page.click('#talk-submit-btn');
     await afterSync();
     return computeTalkIdFromTalkData({
       title,

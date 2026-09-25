@@ -249,7 +249,7 @@ test.describe('Chatroom peer detail views', () => {
       await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
       await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No thanks.');
       await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-      await pageTom.click('#talk-editor-form button[type="submit"]');
+      await pageTom.click('#talk-submit-btn');
       await afterSync();
 
       // Re-enter the chatroom detail and broadcast
@@ -338,7 +338,7 @@ test.describe('Chatroom peer detail views', () => {
       await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
       await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
       await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-      await pageTom.click('#talk-editor-form button[type="submit"]');
+      await pageTom.click('#talk-submit-btn');
       await afterSync();
 
       // Tom creates a second talk that will expire before the peer send action.
@@ -359,7 +359,7 @@ test.describe('Chatroom peer detail views', () => {
       // so it would legitimately reach Jerry and the expired-exclusion assertions below
       // could never hold.
       await pageTom.uncheck('#talk-send-to-chatroom');
-      await pageTom.click('#talk-editor-form button[type="submit"]');
+      await pageTom.click('#talk-submit-btn');
       await afterSync();
 
       // Both enter Global chatroom
@@ -455,7 +455,7 @@ test.describe('Chatroom peer detail views', () => {
       await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
       await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
       await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-      await pageTom.click('#talk-editor-form button[type="submit"]');
+      await pageTom.click('#talk-submit-btn');
       await afterSync();
 
       // Both enter Global chatroom

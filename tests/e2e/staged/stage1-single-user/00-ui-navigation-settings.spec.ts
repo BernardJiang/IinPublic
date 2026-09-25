@@ -7,6 +7,7 @@ import { gotoWebApp, injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { version as APP_VERSION } from '../../../../package.json';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 test.describe('UI navigation and settings shell', () => {
@@ -795,7 +796,7 @@ test.describe('UI navigation and settings shell', () => {
   test('Settings menu shows the running app version', async () => {
     const p = page!;
     await p.click('.nav-btn[data-view="settings"]');
-    await expect(p.getByTestId('settings-app-version')).toHaveText('IinPublic version web');
+    await expect(p.getByTestId('settings-app-version')).toHaveText(`IinPublic version ${APP_VERSION} · web`);
   });
 
   test('custom room creation opens the newly created room', async () => {

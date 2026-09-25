@@ -71,7 +71,7 @@ test.describe('Talks: create and edit', () => {
     await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await page.click('#talk-editor-form button[type="submit"]');
+    await page.click('#talk-submit-btn');
     await afterSync();
 
     await page.click('.nav-btn[data-view="talks"]');
@@ -95,7 +95,7 @@ test.describe('Talks: create and edit', () => {
     // the title on every save, see `detectTalkLanguage` in talk-form-processor.ts).
     await expect(page.locator('#talk-language')).toHaveCount(0);
     await page.fill('#talk-title', TALK_TITLE_EDITED);
-    await page.click('#talk-editor-form button[type="submit"]');
+    await page.click('#talk-submit-btn');
     await afterSync();
     const editedTalkItem = page.locator('.talk-list-item').filter({ hasText: TALK_TITLE_EDITED }).first();
     await expect(editedTalkItem).toBeVisible({ timeout: 15000 });
@@ -122,7 +122,7 @@ test.describe('Talks: create and edit', () => {
     await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await page.click('#talk-editor-form button[type="submit"]');
+    await page.click('#talk-submit-btn');
     await afterSync();
 
     await page.click('.nav-btn[data-view="talks"]');

@@ -23,7 +23,7 @@ export async function createSimpleFlowTalkAndBroadcast(
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
+  await page.click('#talk-submit-btn');
   await afterSync();
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterAction();

@@ -43,7 +43,7 @@ so adjacent users share the most tags and rank highest by match rate.
 | Open create-talk dialog | `#create-talk-btn` |
 | Select tag type | `input[name="talk-type-radio"][value="tag"]` |
 | Tag keyword field | `#talk-title` |
-| Submit talk | `#talk-editor-form button[type="submit"]` |
+| Submit talk | `#talk-submit-btn` |
 | OUT list items | `.talk-list-item[data-role="created"]` |
 | Enable chatbot | `#settings-chatbot-enabled` |
 | Broadcast | `app.deliverPendingBroadcastTalksForE2e(n, { skipAudiencePreview: true })` (offers + announcement, no preview HTTP) |

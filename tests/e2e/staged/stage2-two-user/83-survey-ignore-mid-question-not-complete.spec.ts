@@ -115,7 +115,7 @@ test.describe('Survey: Ignore on a non-last question does not end the response e
     await q2.locator('.answer-item').nth(1).locator('.answer-text').fill('Q3 Match');
     await q2.locator('.answer-item').nth(1).locator('.answer-next').selectOption('noticed');
 
-    await pageTechSupport.click('#talk-editor-form button[type="submit"]');
+    await pageTechSupport.click('#talk-submit-btn');
     await afterSync();
     await clickBroadcastUntilBulkAck(pageTechSupport);
     await afterSync();

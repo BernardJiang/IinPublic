@@ -171,7 +171,7 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
     await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTom.click('#talk-editor-form button[type="submit"]');
+    await pageTom.click('#talk-submit-btn');
     await afterSync();
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');

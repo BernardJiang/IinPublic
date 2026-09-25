@@ -122,7 +122,7 @@ test.describe('Talk Response: option paths', () => {
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
     await afterAction();
     await pageAlice.fill('#talk-title', 'Hiking');
-    await pageAlice.click('#talk-editor-form button[type="submit"]');
+    await pageAlice.click('#talk-submit-btn');
     await afterSync();
     mark('createTalk');
 

@@ -108,7 +108,11 @@ test.describe('Blocking system — block stops delivery', () => {
     await expect(pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Blocked' }).first()).toBeVisible({ timeout: 10000 });
 
     await enterGlobalChatroom(pageTom);
-    const jerryMember = pageTom.locator('.chatroom-member-item').filter({ hasText: 'Jerry' }).first();
+    // Located by user id, not display name. Peers' rosters are Gun-synced, and after an earlier spec
+    // has run on the same server a peer's roster row can still carry the generated pre-rename
+    // name for a while (server /members already has the real one) — a rename-propagation timing
+    // detail this block/visibility test does not exercise.
+    const jerryMember = pageTom.locator(`.chatroom-member-item[data-user-id="${jerryUserId}"]`);
     await expect(jerryMember).toBeVisible({ timeout: 15000 });
     await jerryMember.click();
     // N2a: dismiss the auto-opened DM conversation first.
@@ -144,7 +148,11 @@ test.describe('Blocking system — block stops delivery', () => {
         { timeout: 10_000 },
       )
       .toBe(true);
-    const tomMember = pageJerry.locator('.chatroom-member-item').filter({ hasText: 'Tom' }).first();
+    // Located by user id, not display name. Peers' rosters are Gun-synced, and after an earlier spec
+    // has run on the same server a peer's roster row can still carry the generated pre-rename
+    // name for a while (server /members already has the real one) — a rename-propagation timing
+    // detail this block/visibility test does not exercise.
+    const tomMember = pageJerry.locator(`.chatroom-member-item[data-user-id="${tomUserId}"]`);
     await expect(tomMember).toBeVisible({ timeout: 15000 });
     await tomMember.click();
     await expect(pageJerry.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });

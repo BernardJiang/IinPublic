@@ -331,7 +331,7 @@ export async function submitTalkEditorAndWaitForOut(
   titleSubstring: string,
   timeoutMs = E2E_ASSERT_TIMEOUT_MS,
 ): Promise<void> {
-  await page.click('#talk-editor-form button[type="submit"]');
+  await page.click('#talk-submit-btn');
   await page.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: timeoutMs });
   await waitForOutgoingTalkRow(page, titleSubstring, timeoutMs);
   await afterCreateTalkBeforeBroadcast();

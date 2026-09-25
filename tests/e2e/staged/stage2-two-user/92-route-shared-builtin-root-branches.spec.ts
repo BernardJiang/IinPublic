@@ -127,7 +127,7 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
     await pageAlice.locator('.route-builtin-quantity-input[data-qid="q_3"]').fill('1');
 
     await pageAlice.locator('#talk-send-to-chatroom').setChecked(false);
-    await pageAlice.locator('#talk-editor-form button[type="submit"]').click();
+    await pageAlice.locator('#talk-submit-btn').click();
     await expect(pageAlice.locator('#talk-validation-errors')).not.toBeVisible();
     await pageAlice.waitForSelector('#talk-editor-modal', { state: 'detached' });
 

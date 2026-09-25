@@ -99,7 +99,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTechSupport.click('#talk-editor-form button[type="submit"]');
+    await pageTechSupport.click('#talk-submit-btn');
     await afterSync();
 
     await clickBroadcastUntilBulkAck(pageTechSupport);

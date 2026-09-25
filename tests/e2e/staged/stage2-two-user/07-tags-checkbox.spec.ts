@@ -137,7 +137,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
     await afterAction();
     await pageAlice.fill('#talk-title', TAG_COFFEE);
-    await pageAlice.click('#talk-editor-form button[type="submit"]');
+    await pageAlice.click('#talk-submit-btn');
     await afterSync();
 
     // 3) Alice creates tag "Cat"
@@ -147,7 +147,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
     await afterAction();
     await pageAlice.fill('#talk-title', TAG_CAT);
-    await pageAlice.click('#talk-editor-form button[type="submit"]');
+    await pageAlice.click('#talk-submit-btn');
     await afterSync();
 
     await clickBroadcastUntilBulkAck(pageAlice);

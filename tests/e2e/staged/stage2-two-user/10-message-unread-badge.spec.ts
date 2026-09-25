@@ -223,7 +223,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTom.click('#talk-editor-form button[type="submit"]');
+    await pageTom.click('#talk-submit-btn');
     await afterSync();
     await ensureChatroomList(pageTom);
     await pageTom.click('.chatroom-item:has-text("Global")');

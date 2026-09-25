@@ -34,7 +34,7 @@ async function createFlowTalk(page: Page, title: string, question: string): Prom
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
+  await page.click('#talk-submit-btn');
   await afterSync();
 }
 
@@ -49,7 +49,7 @@ async function createSurveyTalk(page: Page, title: string, question: string): Pr
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('ignore');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('Option B');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
+  await page.click('#talk-submit-btn');
   await afterSync();
 }
 

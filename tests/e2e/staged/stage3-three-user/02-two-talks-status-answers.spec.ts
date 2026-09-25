@@ -90,7 +90,7 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await q1.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q1.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q1.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTom.click('#talk-editor-form button[type="submit"]');
+    await pageTom.click('#talk-submit-btn');
     await pageTom.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });
     await waitForOutgoingTalkRow(pageTom, TITLE_TENNIS, E2E_ASSERT_TIMEOUT_MS);
     await pageTom.click('#create-talk-btn');
@@ -103,7 +103,7 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await q2.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q2.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q2.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTom.click('#talk-editor-form button[type="submit"]');
+    await pageTom.click('#talk-submit-btn');
     await pageTom.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });
     await waitForOutgoingTalkRow(pageTom, TITLE_COFFEE, E2E_ASSERT_TIMEOUT_MS);
     await afterCreateTalkBeforeBroadcast();

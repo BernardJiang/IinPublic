@@ -43,7 +43,7 @@ async function createExpiringFlowTalk(
     // "receiver must not have it" assertion can never hold.
     await page.uncheck('#talk-send-to-chatroom');
   }
-  await page.click('#talk-editor-form button[type="submit"]');
+  await page.click('#talk-submit-btn');
   await afterSync();
 }
 

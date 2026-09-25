@@ -96,7 +96,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     await flowQ.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await flowQ.locator('.answer-item').nth(1).locator('.answer-text').fill('No thanks');
     await flowQ.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTechSupport.click('#talk-editor-form button[type="submit"]');
+    await pageTechSupport.click('#talk-submit-btn');
     await afterSync();
     await clickBroadcastUntilBulkAck(pageTechSupport);
     await afterSync();
@@ -169,7 +169,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     await sq2.locator('.answer-item').nth(0).locator('.answer-next').selectOption('ignore');
     await sq2.locator('.answer-item').nth(1).locator('.answer-text').fill('S3 B');
     await sq2.locator('.answer-item').nth(1).locator('.answer-next').selectOption('noticed');
-    await pageTechSupport.click('#talk-editor-form button[type="submit"]');
+    await pageTechSupport.click('#talk-submit-btn');
     await afterSync();
     await clickBroadcastUntilBulkAck(pageTechSupport);
     await afterSync();
