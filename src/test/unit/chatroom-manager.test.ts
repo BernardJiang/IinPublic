@@ -269,3 +269,46 @@ describe('ChatroomManager TechSupport built-in presence (docs/TODO.md K1)', () =
     expect(Date.parse(second.lastSeen)).toBeGreaterThanOrEqual(Date.parse(first.lastSeen));
   });
 });
+
+describe('ChatroomManager durable-presence reconciliation vs. renames', () => {
+  const nowIso = () => new Date().toISOString();
+
+  function buildWithDurable(durableMembers: any[]) {
+    const gun = new MemoryGunService();
+    const presenceStore = {
+      getActiveMembers: jest.fn(async () => durableMembers),
+      upsertMember: jest.fn(async () => undefined),
+      markLeft: jest.fn(async () => undefined),
+    };
+    const manager = new ChatroomManager(gun as unknown as GunService, presenceStore as any);
+    return { manager, gun };
+  }
+
+  it('does not revert a renamed member to the older name the durable store still holds', async () => {
+    const seen = nowIso();
+    const { manager, gun } = buildWithDurable([
+      { userId: 'tom', stageName: 'User7bj3rd42tpj0um', isActive: true, joinedAt: seen, lastSeen: seen },
+    ]);
+    // In-process roster already carries the rename (what touchMemberFast does on the rename PATCH).
+    await manager.addMemberFast('global', 'tom', 'User7bj3rd42tpj0um');
+    await manager.touchMemberFast('global', 'tom', { stageName: 'Tom' });
+
+    await (manager as any).reconcilePresenceFromDurableStore('global');
+
+    const written = await gun.getPath(['chatrooms', 'global', 'users', 'tom']);
+    expect(written.stageName).toBe('Tom');
+    (manager as any).staleMemberCountSweepTimer && clearInterval((manager as any).staleMemberCountSweepTimer);
+  });
+
+  it('still restores a durable member the in-process roster no longer knows (its actual purpose)', async () => {
+    const seen = nowIso();
+    const { manager, gun } = buildWithDurable([
+      { userId: 'ghost-after-restart', stageName: 'Ann', isActive: true, joinedAt: seen, lastSeen: seen },
+    ]);
+    await (manager as any).reconcilePresenceFromDurableStore('global');
+
+    const written = await gun.getPath(['chatrooms', 'global', 'users', 'ghost-after-restart']);
+    expect(written.stageName).toBe('Ann');
+    (manager as any).staleMemberCountSweepTimer && clearInterval((manager as any).staleMemberCountSweepTimer);
+  });
+});

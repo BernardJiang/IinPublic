@@ -30,6 +30,7 @@
  * is confirmed NOT to trip §CC's mandatory financial-data guard (financial-data-guard.ts only
  * flags actual Luhn-valid, network-prefixed card numbers, never brand-name mentions).
  */
+import { dismissNotificationOverlays } from '../../helpers/durable-ui';
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage4Spec } from '../../helpers/e2e-stage-pipeline';
@@ -365,7 +366,13 @@ async function confirmDealWith(page: Page, otherUserId: string): Promise<void> {
   await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 20_000 });
   const confirmBtn = page.locator('#conversation-confirm-deal-btn');
   await expect(confirmBtn).toBeVisible({ timeout: 10_000 });
-  await confirmBtn.click();
+  // "Match! …" toasts (one per matched listing, re-shown as further matches land) stack over the
+  // conversation overlay and intercept pointer events for as long as they live; in a busy run a
+  // fresh one can appear between dismissal and click. Clear them and retry the click until it lands.
+  await expect(async () => {
+    await dismissNotificationOverlays(page);
+    await confirmBtn.click({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000, intervals: [100, 250, 500] });
   await afterSync();
 }
 

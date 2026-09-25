@@ -105,11 +105,26 @@ export class ChatroomManager {
     if (!this.presenceStore) return;
     const members = await this.presenceStore.getActiveMembers(chatroomId);
     await Promise.all(
-      members.map((member) =>
-        this.gunService.putPath(['chatrooms', chatroomId, 'users', member.userId], member).catch(() => {
+      members.map((durable) => {
+        // The in-process roster is authoritative for anyone it currently knows: a durable read can
+        // legitimately return an OLDER version of a record that was overwritten moments ago (radisk
+        // serves the on-disk copy after newer in-memory writes), and re-asserting that into the graph
+        // browsers subscribe to reverts a rename to the generated placeholder name — peers then
+        // freeze that placeholder into match conversations / roster rows (07-tags-checkbox and
+        // 15b failed on every repeat run for this reason). Durable data only fills in members the
+        // in-memory roster no longer has, which is its actual purpose (restart / lost write).
+        const live = this.fastActiveMembers.get(chatroomId)?.get(durable.userId);
+        const member = live
+          ? {
+              ...durable,
+              stageName: live.stageName,
+              lastSeen: Date.parse(live.lastSeen) > Date.parse(durable.lastSeen) ? live.lastSeen : durable.lastSeen,
+            }
+          : durable;
+        return this.gunService.putPath(['chatrooms', chatroomId, 'users', member.userId], member).catch(() => {
           /* best-effort — the next sweep tick tries again */
-        }),
-      ),
+        });
+      }),
     );
   }
 
