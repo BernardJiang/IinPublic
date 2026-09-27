@@ -274,22 +274,48 @@ phrase complexity into normal use.
   - **Not implemented yet** — product owner chose to file this as a TODO rather than implement
     immediately (session was already mid-deploy of an unrelated fix).
 
-- [ ] **OPEN-34 — Android Keystore custody migration leaves the legacy v1 record non-null (found 2026-09-27).**
-  `18-android-keystore-custody.spec.ts`'s "migrates atomically, refuses identity conflict, erases custody, and
-  resets on reinstall" test: after simulating a v1->v3 migration (write the v1 legacy localStorage record with
-  the real active pair, remove native custody, reload — production's actual startup migration boundary), the
-  migrated pair is correct (`migrated!.read.pair` equals the original), but
-  `localStorage.getItem('iinpublic_key_custody_v1')` is NOT null afterward as expected — it holds a
-  `webcrypto-device-key-v1`-shaped JSON blob (the NATIVE custody record's own shape, not the legacy v1 shape),
-  suggesting either the "delete v1 after migration" step isn't running, or something is writing a v3-shaped
-  record back into the v1 key name. Reproduced on RNV0217207000190 (Honor) across 3 separate runs; not yet
-  checked on the other two phones (their runs happened to fail earlier at the launch step before reaching this
-  assertion, in the runs where this was investigated — see the geolocation-prompt fix, a separate and unrelated
-  regression, for why). Does not affect the pair itself (identity is correct either way) — a stale v1 record
-  left behind is a leftover-plaintext-adjacent hygiene issue, not a correctness bug in the active identity, but
-  worth root-causing before it's trusted for OPEN-06 custody claims. Start in
-  `NativeCustodyBridge.kt`/`identity-password-custody-manager.ts`'s migration path (`persistCustodyRecord` +
-  whatever clears `iinpublic_key_custody_v1`).
+- [ ] **OPEN-34 — Android Keystore custody migration intermittently leaves the legacy v1 record non-null
+  (found 2026-09-27, investigated in depth, MITIGATED but not conclusively fixed).**
+  `18-android-keystore-custody.spec.ts`'s "migrates atomically..." test on RNV0217207000190 (Honor): after a
+  v1->v3 migration (write the v1 legacy localStorage record with the real active pair, remove native custody,
+  reload — production's actual startup migration boundary), the migrated pair is always correct, but
+  `localStorage.getItem('iinpublic_key_custody_v1')` intermittently comes back non-null afterward — the SAME
+  identity's original encrypted blob, not a different/stale record from an earlier run (confirmed by comparing
+  `publicIdentity.pub` against the active pair — they match).
+  - **Ruled out with direct evidence, not just reasoning:**
+    - `IdentityPasswordCustodyManager` (a separate subsystem that also names `iinpublic_key_custody_v1` as ITS
+      OWN legacy key) — its `getStatus()` is read-only when no password is set; never called on this path.
+    - A second write from `persistCustodyRecord` via the `pairStoredInV3`-guarded fallback path — instrumented
+      every call site with a stack trace; it fired exactly once, from the test's own setup, before the delete.
+    - A source-level trace on `removeIfMatches` — confirmed the delete runs and reads back `null` immediately.
+    - A **global `Storage.prototype.setItem`/`removeItem` trap**, installed via Playwright `addInitScript` (runs
+      before ANY bundled module's own top-level code, closing the gap where a module could cache the original
+      method reference before a same-bundle trap installs) — across a full test run, exactly ONE `removeItem`
+      fired (the real migration code) and ZERO further writes of any kind occurred anywhere in the page's JS
+      realm, yet the record still reappeared moments later.
+  - That is conclusive that no JS-level code in this page writes the key a second time — the reappearance is a
+    storage-engine effect (WebView's `localStorage` is synchronous at the JS API level but backed by an
+    async-flushing store), not an application logic bug in `migrateFrom`/`removeIfMatches`.
+  - **Attempted fixes, both evidence-based, neither conclusively resolved it:**
+    1. A 1.5s wait between writing the v1 fixture and reloading (`18-android-keystore-custody.spec.ts`) — kept,
+       doesn't hurt, but alone did not fix it (still failed 4/4 with it added).
+    2. `NativePasswordFreeCustodyManager.migrateFrom` (`native-password-free-custody-manager.ts`) now re-checks
+       `source.readPair()` after the delete and retries `removeIfMatches` up to 4 times with backoff (250ms x
+       1..4) — real, safe, evidence-grounded hardening against exactly the flush-race class of bug, kept
+       committed. **Measured pass rate with this fix: 1/9 (11%) across repeated trials on the same device — not
+       statistically distinguishable from the failure rate without it.** The retry does not appear to be hitting
+       the actual window where the stale write lands; whatever the precise mechanism is (possibly a
+       multi-process WebView storage-partition sync effect, possibly something below the JS engine entirely),
+       it was not pinned down further before ending this investigation.
+  - **Still open:** the real mechanism. Does not affect the active identity (always correct in every trial) —
+    remains a leftover-plaintext-adjacent hygiene concern, not a correctness bug, but worth resolving before
+    trusting it for any OPEN-06 custody guarantee. Only reproduced/investigated on RNV0217207000190 (Honor); not
+    checked on the other two phones. Next step if resumed: check whether a genuine cold `am force-stop` + full
+    process relaunch (not same-process `location.reload()`) exhibits the same behavior — `reload()` keeps the
+    renderer/storage-partition connection alive in a way a real process death does not, and this device is
+    independently documented elsewhere in this codebase as one that can restart its foreground-service process
+    mid-cold-boot, which is a class of behavior no diagnostic pass in this session actually checked for despite
+    being a documented, real behavior of this exact harness.
 
 - [ ] **OPEN-32 — Production `GET /api/support/delegate-grants` silently returned an EMPTY roster after ~1 day of uptime (found 2026-09-25, cause NOT yet known).**
   Evidence: the durable store file (`techsupport-radata-8080/!`) still held all 5 grant records (one valid: "Safari (Mac)",

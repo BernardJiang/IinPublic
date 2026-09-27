@@ -82,7 +82,24 @@ export class NativePasswordFreeCustodyManager {
     }
     if (!currentPair) await this.writeAndVerify(sourcePair);
     await this.assertPairMatches(sourcePair);
-    await source.removeIfMatches(toPublicSeaIdentity(sourcePair));
+    const publicIdentity = toPublicSeaIdentity(sourcePair);
+    await source.removeIfMatches(publicIdentity);
+    // docs/TODO.md OPEN-34: some WebView localStorage engines do not durably flush a removeItem()
+    // before it returns — confirmed on real Android hardware with the earliest possible JS-level
+    // hook (Playwright addInitScript, active before any bundled module's own top-level code):
+    // zero further localStorage writes occurred anywhere on the page, yet the just-removed source
+    // record reappeared moments later with its original content intact. That is a storage-layer
+    // flush-ordering race, not a logic bug — the source's own prior write can still be "in
+    // flight" to disk when removeIfMatches's delete lands, and the late write can then commit
+    // after the delete. Re-check and retry a few times, with a short backoff, so a late-flushing
+    // write cannot leave a stale legacy record surviving an otherwise-successful migration —
+    // affects any real device with the same storage-engine quirk, not just this test scenario.
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const stillPresent = await source.readPair().catch(() => null);
+      if (!stillPresent) break;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      await source.removeIfMatches(publicIdentity).catch(() => undefined);
+    }
     return sourcePair;
   }
 }

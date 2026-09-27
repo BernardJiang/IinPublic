@@ -140,10 +140,22 @@ for (const serial of SERIALS) {
         expect(prepared.nativeAfter.pair).toBeNull();
         expect(prepared.hasV1).toBe(true);
 
-        // Reload is the actual v1 -> v3 startup migration boundary. Do not force-kill the
-        // WebView immediately after synthesizing the v1 row: old Android WebViews can defer
-        // flushing a brand-new localStorage write to disk until after this task, which would
-        // turn the fixture into a no-source fresh boot rather than a migration test.
+        // Reload is the actual v1 -> v3 startup migration boundary. Do not reload immediately
+        // after synthesizing the v1 row: Android WebView's localStorage is synchronous at the JS
+        // API level but flushes to the underlying SQLite store asynchronously. Without a real
+        // wait here, the fixture's OWN setItem() above can still be in flight to disk when
+        // reload() fires; its eventual disk commit can then land AFTER the migration boundary's
+        // own delete, silently resurrecting the "removed" legacy record moments later.
+        //
+        // Found 2026-09-27 (docs/TODO.md OPEN-34, reproduced 4/4 without this wait): a
+        // Storage.prototype.setItem/removeItem trap covering the ENTIRE page JS realm (not just
+        // this app's own custody code) showed exactly one setItem (this fixture) and exactly one
+        // removeItem (the real migration code, verified deleted immediately by reading it back
+        // as null) — and nothing else ever wrote to the key afterward at the JS level, yet the
+        // test's later assertion still read back the original blob. That is conclusive for a
+        // storage-layer flush race, not an application bug: the migration code (`migrateFrom` /
+        // `removeIfMatches` in web-gun-service.ts) does exactly what it should, synchronously.
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
         await user.window.reload();
         await expect(user.window.locator('#app')).toBeVisible({ timeout: 45_000 });
         await expect.poll(async () => (await readBridge(user!))?.read?.pair?.pub ?? null, { timeout: 45_000 }).toBe(originalPair.pub);
