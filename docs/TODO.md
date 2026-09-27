@@ -274,6 +274,23 @@ phrase complexity into normal use.
   - **Not implemented yet** — product owner chose to file this as a TODO rather than implement
     immediately (session was already mid-deploy of an unrelated fix).
 
+- [ ] **OPEN-34 — Android Keystore custody migration leaves the legacy v1 record non-null (found 2026-09-27).**
+  `18-android-keystore-custody.spec.ts`'s "migrates atomically, refuses identity conflict, erases custody, and
+  resets on reinstall" test: after simulating a v1->v3 migration (write the v1 legacy localStorage record with
+  the real active pair, remove native custody, reload — production's actual startup migration boundary), the
+  migrated pair is correct (`migrated!.read.pair` equals the original), but
+  `localStorage.getItem('iinpublic_key_custody_v1')` is NOT null afterward as expected — it holds a
+  `webcrypto-device-key-v1`-shaped JSON blob (the NATIVE custody record's own shape, not the legacy v1 shape),
+  suggesting either the "delete v1 after migration" step isn't running, or something is writing a v3-shaped
+  record back into the v1 key name. Reproduced on RNV0217207000190 (Honor) across 3 separate runs; not yet
+  checked on the other two phones (their runs happened to fail earlier at the launch step before reaching this
+  assertion, in the runs where this was investigated — see the geolocation-prompt fix, a separate and unrelated
+  regression, for why). Does not affect the pair itself (identity is correct either way) — a stale v1 record
+  left behind is a leftover-plaintext-adjacent hygiene issue, not a correctness bug in the active identity, but
+  worth root-causing before it's trusted for OPEN-06 custody claims. Start in
+  `NativeCustodyBridge.kt`/`identity-password-custody-manager.ts`'s migration path (`persistCustodyRecord` +
+  whatever clears `iinpublic_key_custody_v1`).
+
 - [ ] **OPEN-32 — Production `GET /api/support/delegate-grants` silently returned an EMPTY roster after ~1 day of uptime (found 2026-09-25, cause NOT yet known).**
   Evidence: the durable store file (`techsupport-radata-8080/!`) still held all 5 grant records (one valid: "Safari (Mac)",
   expires 2026-10-24), and a COPY of that directory read back all 5 with the same `dist` code under both the VPS's Node 24 and a
