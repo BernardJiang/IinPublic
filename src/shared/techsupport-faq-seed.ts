@@ -48,7 +48,7 @@ export const TECHSUPPORT_FAQ_SEED_TEMPLATES = {
     {
       question: 'What is a Talk?',
       answer:
-        'A Talk is a single question, or a set of questions, with the predefined answers you care about. Use the Talk editor to create one from scratch, or copy and edit an existing Talk.',
+        "A Talk is a single question, or a set of questions, with the predefined answers you care about — written in plain language, no programming needed. When you find yourself asking or answering the same question often enough, create a Talk so your chatbot can repeat the answer for you. Use the Talk editor to build one from scratch, or copy and edit an existing Talk.",
     },
     {
       question: 'How do matches work?',
@@ -101,7 +101,7 @@ export const TECHSUPPORT_FAQ_SEED_TEMPLATES = {
     },
     {
       question: '什么是话题？',
-      answer: '话题是一个问题，或一组问题，附带你在意的预设答案。你可以用话题编辑器从头创建一个话题，也可以复制并编辑已有的话题。',
+      answer: '话题是一个问题，或一组问题，附带你在意的预设答案——用日常语言写成，不需要编程。当你发现自己经常问、或经常回答同一个问题时，就可以创建一个话题，让你的聊天机器人替你重复作答。你可以用话题编辑器从头创建，也可以复制并编辑已有的话题。',
     },
     {
       question: '匹配是怎么形成的？',
