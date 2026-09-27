@@ -104,6 +104,7 @@ const STEPS: WalkthroughStep[] = [
     bodyKey: 'walkthroughMeBody',
     bodyFallback: 'Your public image grows from what you ask, answer, create, and contribute—not just from a self-written bio.',
     points: [
+      { icon: '🪞', key: 'walkthroughMeIdentity', fallback: 'Who am I? A public record of the questions and answers you choose to share.' },
       { icon: '📖', key: 'walkthroughMeStory', fallback: 'Your answers tell your story. Review or change them any time.' },
     ],
   },

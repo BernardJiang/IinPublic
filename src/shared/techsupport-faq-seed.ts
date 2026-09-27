@@ -48,7 +48,7 @@ export const TECHSUPPORT_FAQ_SEED_TEMPLATES = {
     {
       question: 'What is a Talk?',
       answer:
-        "A Talk is a question you write in plain language, with the possible answers you're willing to accept. No programming needed. Create one once in the Talks tab, then reuse or share it.",
+        'A Talk is a single question, or a set of questions, with the predefined answers you care about. Use the Talk editor to create one from scratch, or copy and edit an existing Talk.',
     },
     {
       question: 'How do matches work?',
@@ -101,7 +101,7 @@ export const TECHSUPPORT_FAQ_SEED_TEMPLATES = {
     },
     {
       question: '什么是话题？',
-      answer: '话题是你用日常语言写的一个问题，附带你愿意接受的可能答案，不需要编程。在"话题"标签页创建一次，之后可以复用或分享。',
+      answer: '话题是一个问题，或一组问题，附带你在意的预设答案。你可以用话题编辑器从头创建一个话题，也可以复制并编辑已有的话题。',
     },
     {
       question: '匹配是怎么形成的？',
