@@ -153,8 +153,27 @@ phrase complexity into normal use.
       it runs the plain tsc build; this spec's own Electron-launch readiness flakiness on this dev
       machine is a separate, unresolved, lower-priority loose end — two follow-up runs timed out in
       `bootstrapNativeWindow` before ever reaching the app's own logic, unrelated to this fix).
-  - [ ] Remove `iinpublic_techsupport_keypair_v1`, `dev:techsupport`/root-agent injection, and every
-    production code path that exposes `priv`/`epriv` to page JavaScript.
+  - [x] **Retired `dev:techsupport`'s root-key browser injection (2026-09-27).** Production paths
+    were already hardened and tested (see the checked items above); this closed the last place a
+    real TechSupport private key ever touched a browser process at all, even in dev.
+    `scripts/dev-techsupport-login.js` no longer reads/injects the root pair into the browser —
+    it boots a normal browser session (an ordinary, freshly-generated device identity, same as any
+    other user), then issues that device's own pub a short-lived (1-day) delegate grant through
+    the existing local-signer CLI (`techsupport-delegate-tool.js issue`, in-process, same code path
+    a real production operator uses) and opts it in automatically
+    (`iinpublic_techsupport_delegate_optin_v1`). The root pair is decrypted only in that
+    short-lived Node process and never serialized to the browser. Also purges a stale
+    `iinpublic_user_id`/`iinpublic_techsupport_keypair_v1` left in an existing
+    `user_data/techsupport-operator` profile by a pre-rewrite run of this script, so an old dev
+    profile can't silently resume the root identity. Verified live end to end against a real dev
+    server: fresh ordinary device identity generated, delegate grant published and confirmed
+    readable, `isTechSupportOperatorSession()` true on reload, all using a pub distinct from the
+    real compiled TechSupport root pub. `scripts/techsupport-agent.js` (the separate headless
+    inbox-watcher tool, explicitly documented as loopback/E2E-only and never run in production —
+    `docs/IinPublic_VPS_Installation_Guide.md` §14) and the E2E suite's own root-mode test
+    fixtures were deliberately left unconverted: both are already gated to non-production builds
+    and loopback origins (tested), so converting them is a separate, much larger refactor with no
+    corresponding production-risk reduction — worth doing eventually for hygiene, not blocking.
 
 - [ ] **OPEN-29 — Add an independent emergency recovery authority.** Single offline recovery key
   (product owner decision 2026-09-22 — a solo-operator deployment doesn't yet justify an M-of-N
