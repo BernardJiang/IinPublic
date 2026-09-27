@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — IinPublic</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    line-height: 1.55;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 4rem;
+    color: #1b1f23;
+    background: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e6e6; background: #14161a; }
+    a { color: #7db8ff; }
+    .callout { background: #1f232b; border-color: #33394a; }
+    code { background: #23262d; }
+  }
+  h1 { font-size: 1.7rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.2rem; border-bottom: 1px solid rgba(127,127,127,0.3); padding-bottom: 0.3rem; }
+  .subtitle { color: #6a737d; margin-top: 0; margin-bottom: 2rem; }
+  .callout {
+    background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 8px;
+    padding: 1rem 1.25rem; margin: 1.25rem 0;
+  }
+  code { background: #f0f2f4; padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.92em; }
+  ul { padding-left: 1.3rem; }
+  li { margin-bottom: 0.4rem; }
+  footer { margin-top: 3rem; color: #6a737d; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>IinPublic Privacy Policy</h1>
+<p class="subtitle">Effective September 27, 2026</p>
+
+<div class="callout">
+  <strong>The short version:</strong> IinPublic is a decentralized, peer-to-peer app.
+  There is no sign-up with an email or password, and no central account database of
+  your conversations, profile answers, or location. The name is the design: you
+  decide what's <em>in public</em>, one answer at a time, and you can change your
+  mind later. The one exception is messages you send to TechSupport, our built-in
+  support account — see below. IinPublic is also open source (MIT license), so
+  you don't have to take our word for any of this — see below.
+</div>
+
+<h2>No account, no email, no password</h2>
+<p>
+  Creating an identity on IinPublic does not require an email address, phone
+  number, or password. Your identity is a cryptographic key pair generated and
+  kept on your own device. We never see or store it, and we cannot reset or
+  recover it for you if it's lost — that's the trade-off of not holding an
+  account database in the first place.
+</p>
+
+<h2>Talks, profile answers, and chat messages</h2>
+<p>
+  Talks (the questions you send or answer) and post-match chat messages are
+  exchanged directly between members' devices over an encrypted peer-to-peer
+  connection, and stored on those devices — not in a central database we
+  operate. Our relay servers help devices discover and reach each other, but
+  are designed not to retain a readable copy of that content.
+</p>
+<p>
+  Your profile Q&amp;A is only shared with the visibility you choose for each
+  answer (public, contacts-only, or private). Nothing you haven't answered, and
+  nothing you've marked private, is shared at all.
+</p>
+
+<h2>Changing your mind about a public answer</h2>
+<p>
+  If you answered a question publicly and later regret it, you can:
+</p>
+<ul>
+  <li>Switch it from <strong>auto</strong> back to <strong>manual</strong>, so your
+    chatbot stops repeating it to people who ask in the future, or</li>
+  <li>Remove the question/answer from your profile entirely.</li>
+</ul>
+<p>
+  Either way, this takes effect immediately for anything shared from that point
+  forward. Because IinPublic is peer-to-peer rather than a central service,
+  this cannot reach back and erase a copy that another member's device already
+  received before you made the change — there is no central database for us to
+  delete it from on your behalf. Think of it like anything you've said in
+  public: you can stop saying it, but you can't unsay it to people who already
+  heard it.
+</p>
+
+<h2>Location</h2>
+<p>
+  If you allow location access, it's used to place you in a regional chat
+  room and to support distance-based matching. Your device blurs your precise
+  coordinates to a coarse (roughly 2km × 2km) area <em>before</em> anything is
+  shared with the network — we only ever receive and store that coarse area,
+  never your exact location. Location access is optional; declining it just
+  limits region-based features.
+</p>
+
+<h2>Camera</h2>
+<p>
+  Camera access is used only when you choose to take a profile photo, or scan
+  a QR code to link a second device to your existing identity. We don't access
+  the camera at any other time, and photos aren't analyzed or shared beyond
+  what you explicitly add to your profile.
+</p>
+
+<h2>Large files, photos, and videos</h2>
+<p>
+  Beyond a profile photo, you can also attach larger files, photos, and
+  videos to a talk or conversation. These are sent over IPFS, a
+  peer-to-peer file network, directly to the people you share them with —
+  the same peer-to-peer design as your talks and messages. We don't collect
+  or store copies of these attachments on our servers.
+</p>
+
+<h2>Financial transactions</h2>
+<p>
+  IinPublic never supports payments, money transfers, or any other financial
+  transaction — there is no feature for it anywhere in the app. As a safety
+  measure, the app automatically detects and blocks anything that looks like
+  a payment card number, bank account/routing number, or similar financial
+  detail before it can be sent to another member, whether or not you meant
+  to send it. Never rely on this app to exchange money.
+</p>
+
+<h2>Nearby devices (Bluetooth / Wi-Fi)</h2>
+<p>
+  On Android, IinPublic can request Bluetooth and Wi-Fi nearby-device
+  permissions to discover other IinPublic devices nearby for direct,
+  local peer-to-peer message delivery — for example, when the internet is
+  unavailable. These permissions are declared to Android as
+  <strong>never used for location</strong>, and we do not use them to determine
+  or track where you are.
+</p>
+
+<h2>Age verification</h2>
+<p>
+  Some content is age-gated (for example, questions about dating or age
+  range). Age verification on IinPublic is peer-based: other members confirm
+  your age through the app, rather than you submitting a government ID or
+  other document to us. We never collect a copy of any ID.
+</p>
+
+<h2>Blocking</h2>
+<p>
+  Your block list is encrypted and stored under your own key. We cannot read
+  who you've blocked.
+</p>
+
+<h2>TechSupport</h2>
+<p>
+  TechSupport is the one built-in account operated by us, for in-app help.
+  It may be answered by more than one person on our side, not a single
+  individual. Unlike ordinary talks and messages, conversations you have
+  with TechSupport are handled by our own server-backed system so we (the
+  people running TechSupport) can see and respond to them. Don't send
+  anything to TechSupport you wouldn't want us to read.
+</p>
+
+<h2>Deleting your data</h2>
+<p>
+  Because your content lives on your own device (and, once shared, on the
+  devices of the people you shared it with) rather than in a central database,
+  uninstalling the app or clearing its site data removes your local copy.
+  There is no "delete my account" request to send us, because there is no
+  account of your content for us to hold.
+</p>
+
+<h2>Children</h2>
+<p>
+  IinPublic is not directed at children under 13, and we do not knowingly
+  collect information from anyone under 13.
+</p>
+
+<h2>Open source</h2>
+<p>
+  IinPublic's source code is public and published under the MIT license at
+  <a href="https://github.com/BernardJiang/IinPublic">github.com/BernardJiang/IinPublic</a> —
+  anyone can read exactly how data is handled rather than relying solely on
+  this description of it.
+</p>
+
+<h2>Changes to this policy</h2>
+<p>
+  If this policy changes, we'll update the effective date above and post the
+  revised version at this same address.
+</p>
+
+<h2>Contact</h2>
+<p>
+  Questions about this policy or your data can be sent to
+  <a href="mailto:iinpublic2026@gmail.com">iinpublic2026@gmail.com</a>.
+</p>
+
+<footer>IinPublic — <a href="https://iinpublic.com">iinpublic.com</a></footer>
+
+</body>
+</html>

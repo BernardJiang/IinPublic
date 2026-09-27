@@ -86,7 +86,22 @@ export const TECHSUPPORT_FAQ_SEED_TEMPLATES = {
     {
       question: 'What is TechSupport?',
       answer:
-        "TechSupport is IinPublic's built-in help account — every chatroom includes it. Ask a question here: if it's one we've answered before you'll get an instant reply, otherwise it's queued for a person to answer.",
+        "TechSupport is IinPublic's built-in help account — every chatroom includes it. Ask a question here: if it's one we've answered before you'll get an instant reply, otherwise it's queued for our support team to answer.",
+    },
+    {
+      question: 'Can I send or receive money through IinPublic?',
+      answer:
+        'No. IinPublic never supports payments, money transfers, or any other financial transaction. Anything that looks like a payment card number, bank account number, or similar financial detail is automatically blocked before it can be sent — never use this app to exchange money.',
+    },
+    {
+      question: 'How are large photos, videos, and files shared?',
+      answer:
+        'A talk or conversation can include larger attachments beyond text. These are sent over IPFS, a peer-to-peer file network, directly to the people you share them with — the same peer-to-peer design as the rest of IinPublic. We do not collect or store copies of these files.',
+    },
+    {
+      question: 'Is IinPublic open source?',
+      answer:
+        'Yes. The full source code is public under the MIT license at github.com/BernardJiang/IinPublic, so anyone can verify how the app actually handles data.',
     },
   ],
   zh: [
@@ -133,7 +148,19 @@ export const TECHSUPPORT_FAQ_SEED_TEMPLATES = {
     },
     {
       question: '什么是 TechSupport？',
-      answer: 'TechSupport 是 IinPublic 内置的帮助账号，每个聊天室都包含它。在这里提问：如果是我们回答过的问题会立即得到答复，否则会排队等待人工回复。',
+      answer: 'TechSupport 是 IinPublic 内置的帮助账号，每个聊天室都包含它。在这里提问：如果是我们回答过的问题会立即得到答复，否则会排队等待我们的支持团队人工回复。',
+    },
+    {
+      question: '可以通过 IinPublic 转账或收款吗？',
+      answer: '不可以。IinPublic 从不支持支付、转账或任何形式的资金往来。任何看起来像银行卡号、账户号码等金融信息的内容，在发送前都会被自动拦截——请不要用这个应用交换金钱。',
+    },
+    {
+      question: '较大的照片、视频和文件是怎么分享的？',
+      answer: '话题或对话中可以附带文字之外的较大附件。这些内容通过 IPFS（一种点对点文件网络）直接发送给你分享的对象——采用和 IinPublic 其他部分相同的点对点设计。我们不会收集或保存这些文件的副本。',
+    },
+    {
+      question: 'IinPublic 是开源的吗？',
+      answer: '是的。完整源代码以 MIT 许可证公开在 github.com/BernardJiang/IinPublic，任何人都可以验证应用实际是如何处理数据的。',
     },
   ],
 } as const;
