@@ -29,6 +29,7 @@ import {
 import { normalizeCustomBlockedTerms, normalizeDirtyWords } from '../../shared/talk-intake-filters';
 import { bindDirtyWordEditor } from './dirty-word-editor';
 import { avatarInnerHtml } from './profile-avatar';
+import { ProfilePhotoError, shrinkProfilePhoto } from './profile-photo';
 import type { UiTranslationKey } from './ui-translations';
 
 interface ProfileUpdates {
@@ -404,22 +405,17 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
   };
   const readPhoto = async (file?: File): Promise<void> => {
     if (!file) return;
-    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
-      deps.showNotification(deps.t('settingsPhotoInvalidType'), 'error');
+    // No size or format gate here: modern cameras produce 8-15 MB originals, and refusing them just
+    // turns users away. Whatever image the device can decode is centre-cropped and shrunk to a small
+    // square JPEG (profile-photo.ts); only a file the device cannot read as an image is rejected.
+    let dataUrl: string;
+    try {
+      dataUrl = await shrinkProfilePhoto(file);
+    } catch (error) {
+      const tooLarge = error instanceof ProfilePhotoError && error.code === 'too-large-source';
+      deps.showNotification(deps.t(tooLarge ? 'settingsPhotoTooLarge' : 'settingsPhotoInvalidType'), 'error');
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      deps.showNotification(deps.t('settingsPhotoTooLarge'), 'error');
-      return;
-    }
-    const reader = new FileReader();
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      reader.addEventListener('load', () => resolve(String(reader.result || '')));
-      reader.addEventListener('error', () =>
-        reject(reader.error || new Error(deps.t('settingsPhotoReadFailed'))),
-      );
-      reader.readAsDataURL(file);
-    });
     showCameraStatus('');
     if (await confirmPhoto(dataUrl)) await saveHeadshot(dataUrl);
   };
@@ -488,11 +484,20 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
       const sx = Math.max(0, (video.videoWidth - size) / 2);
       const sy = Math.max(0, (video.videoHeight - size) / 2);
       const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 512;
-      canvas.getContext('2d')?.drawImage(video, sx, sy, size, size, 0, 0, 512, 512);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      canvas.width = size;
+      canvas.height = size;
+      canvas.getContext('2d')?.drawImage(video, sx, sy, size, size, 0, 0, size, size);
       stopAndClose();
+      // Same shrink pipeline as a chosen file, so a camera frame also lands inside the small Gun budget.
+      const frame = await new Promise<Blob | null>((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.92));
+      let dataUrl: string;
+      try {
+        if (!frame) throw new ProfilePhotoError('unreadable');
+        dataUrl = await shrinkProfilePhoto(frame);
+      } catch {
+        deps.showNotification(deps.t('settingsPhotoReadFailed'), 'error');
+        return;
+      }
       showCameraStatus('');
       if (await confirmPhoto(dataUrl)) await saveHeadshot(dataUrl);
     });

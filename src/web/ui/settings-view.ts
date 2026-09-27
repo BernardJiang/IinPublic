@@ -344,7 +344,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
                 <button class="btn" type="button" id="settings-take-photo-btn">${deps.t('settingsTakePhoto')}</button>
                 <button class="btn" type="button" id="settings-remove-photo-btn">${deps.t('settingsRemove')}</button>
               </div>
-              <input class="visually-hidden" type="file" id="settings-photo-input" accept="image/png,image/jpeg,image/webp,image/gif">
+              <input class="visually-hidden" type="file" id="settings-photo-input" accept="image/*">
               <input class="visually-hidden" type="file" id="settings-camera-input" accept="image/*" capture="user">
               <div style="font-size:0.78em;color:var(--text-tertiary);">${deps.t('settingsPhotoHelp')}</div>
               <div id="settings-camera-status" role="status" style="display:none;font-size:0.8em;color:var(--danger-hover);"></div>

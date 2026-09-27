@@ -43,6 +43,8 @@ export type ChatroomShellControllerDeps = {
   emit: (eventName: string, payload: unknown) => void;
   isTechSupportOnline: () => boolean;
   isUserOnline: (userId: string) => boolean;
+  getCachedHeadshot?: (userId: string) => string | null;
+  resolvePeerHeadshot?: (userId: string) => Promise<string | null>;
   formatDate: (date: Date) => string;
   t: (key: any) => string;
   tf: (key: any, values: Record<string, string | number>) => string;
@@ -80,6 +82,8 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     formatDate: deps.formatDate,
     isTechSupportOnline: deps.isTechSupportOnline,
     isUserOnline: deps.isUserOnline,
+    ...(deps.getCachedHeadshot ? { getCachedHeadshot: deps.getCachedHeadshot } : {}),
+    ...(deps.resolvePeerHeadshot ? { resolvePeerHeadshot: deps.resolvePeerHeadshot } : {}),
     onChatroomDetailOpened: (chatroomId) => deps.setChatroomsDetailRoomId(chatroomId),
   });
 

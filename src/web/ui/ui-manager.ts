@@ -173,6 +173,7 @@ import {
 } from './answer-preference-resolution';
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
 import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
+import { PeerHeadshotCache } from './peer-headshot-cache';
 import { createChatroomShellController, type ChatroomShellController } from './chatroom-shell-controller';
 import { createTalkEditorController, type TalkEditorController } from './talk-editor-controller';
 import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
@@ -253,7 +254,7 @@ export class UIManager extends EventEmitter {
   private contactPreRenderSync: ContactPreRenderSync | undefined;
   private peerLocationReader: PeerLocationReader | undefined;
   private peerLocationCache = new Map<string, GPSCoordinate | null>();
-  private peerHeadshotCache = new Map<string, string | null>();
+  private peerHeadshots = new PeerHeadshotCache();
   /** Incoming messages already surfaced via a "hidden by your filters" toast (dedupe, §9). */
   private hiddenMessageToastIds = new Set<string>();
   /** Last message set rendered into the open conversation, for filter-toggle re-render (§9). */
@@ -486,18 +487,8 @@ export class UIManager extends EventEmitter {
    * per-peer, non-blocking, from contacts-view.ts's row-patch loop instead; a headshot is a
    * full base64 payload so this is worth caching, not re-fetching on every re-sort/filter.
    */
-  private async resolvePeerHeadshot(peerId: string): Promise<string | null> {
-    if (this.peerHeadshotCache.has(peerId)) return this.peerHeadshotCache.get(peerId) ?? null;
-    if (!this.publicProfileFoundationReader) return null;
-    try {
-      const foundation = await this.publicProfileFoundationReader(peerId);
-      const headshot = foundation?.headshot ?? null;
-      this.peerHeadshotCache.set(peerId, headshot);
-      return headshot;
-    } catch {
-      this.peerHeadshotCache.set(peerId, null);
-      return null;
-    }
+  private resolvePeerHeadshot(peerId: string): Promise<string | null> {
+    return this.peerHeadshots.resolve(peerId, this.publicProfileFoundationReader);
   }
 
   private distanceMilesFromCache(userId: string): number | undefined {
@@ -899,6 +890,8 @@ export class UIManager extends EventEmitter {
         emit: (eventName, payload) => this.emit(eventName, payload),
         isTechSupportOnline: () => this.isTechSupportOnline(),
         isUserOnline: (userId) => this.isUserOnline(userId),
+        getCachedHeadshot: (userId) => this.peerHeadshots.get(userId),
+        resolvePeerHeadshot: (userId) => this.resolvePeerHeadshot(userId),
         formatDate: (date) => this.formatUiDate(date),
         t: (key) => this.t(key),
         tf: (key, values) => this.tf(key, values),
@@ -982,7 +975,7 @@ export class UIManager extends EventEmitter {
         await this.prefetchPeerLocations(peer.getKnownPeople().map((p) => p.userId));
       },
       distanceMiles: (userId: string) => this.distanceMilesFromCache(userId),
-      getCachedHeadshot: (userId: string) => this.peerHeadshotCache.get(userId) ?? null,
+      getCachedHeadshot: (userId: string) => this.peerHeadshots.get(userId),
       resolvePeerHeadshot: (userId: string) => this.resolvePeerHeadshot(userId),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     };

@@ -1372,6 +1372,7 @@ button:focus:not(:focus-visible) {
 .chatroom-member-avatar {
   width: 40px;
   height: 40px;
+  overflow: hidden;
   border-radius: 50%;
   background: var(--gradient-accent);
   color: white;

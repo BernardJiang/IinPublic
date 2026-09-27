@@ -273,8 +273,8 @@ test.describe('UI navigation and settings shell', () => {
       mimeType: 'text/plain',
       buffer: Buffer.from('not an image'),
     });
-    await expect(p.locator('.notification').filter({ hasText: '请选择 PNG、JPEG、WebP 或 GIF 图片。' })).toBeVisible();
-    await p.locator('.notification').filter({ hasText: '请选择 PNG、JPEG、WebP 或 GIF 图片。' }).click();
+    await expect(p.locator('.notification').filter({ hasText: '该文件不是本设备可读取的图片。' })).toBeVisible();
+    await p.locator('.notification').filter({ hasText: '该文件不是本设备可读取的图片。' }).click();
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
     await expect(p.locator('.chatroom-item.current-room .current-room-badge')).toHaveText('当前');

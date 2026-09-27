@@ -3,6 +3,7 @@ import { CONFIG } from '../../shared/config';
 import { splitBaseId, splitIndex } from '../../shared/chatroom-split';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
@@ -47,6 +48,10 @@ type ChatroomsViewDeps = {
   isTechSupportOnline: () => boolean;
   /** Same real-presence signal as isTechSupportOnline, generalized to any member. */
   isUserOnline: (userId: string) => boolean;
+  /** A peer's profile photo already in the session cache (sync, never fetches), or null. */
+  getCachedHeadshot?: (userId: string) => string | null;
+  /** Fetch (or refresh) a peer's profile photo; non-blocking, called after the roster renders. */
+  resolvePeerHeadshot?: (userId: string) => Promise<string | null>;
   /**
    * Fired every time showChatroomDetail actually opens a room's detail panel — both the Tree
    * row click and the Map marker click (via the openChatroom callback below) go through this
@@ -416,6 +421,7 @@ export function updateChatroomMembers(
       `;
     } else {
       renderMemberList(chatroomMembersList, otherMembers, deps);
+      hydrateMemberHeadshots(chatroomMembersList, otherMembers, deps);
       if (deps.apiBase && currentUserId) {
         void loadMemberStats(chatroomMembersList, otherMembers, currentUserId, deps);
       }
@@ -423,6 +429,34 @@ export function updateChatroomMembers(
   }
 
   syncStatusBroadcastButtonVisibility(deps.currentChatroom);
+}
+
+/**
+ * Profile photos are not part of the room roster record (a photo is a full base64 payload), so the
+ * roster first renders whatever the session cache already holds and then, non-blocking, resolves
+ * each member's photo and patches the avatar in place — the same approach the Contacts tab uses.
+ * Re-resolving on every render is cheap: the resolver caches with a short TTL, which is also what
+ * lets a peer's NEW photo appear without a reload.
+ */
+function hydrateMemberHeadshots(container: HTMLElement, members: ChatroomMember[], deps: ChatroomsViewDeps): void {
+  const resolve = deps.resolvePeerHeadshot;
+  if (!resolve) return;
+  for (const member of members) {
+    if (member.userId === TECHSUPPORT_ROOT_USER_ID) continue;
+    void resolve(member.userId)
+      .then((headshot) => {
+        const escapeId = window.CSS?.escape ?? ((value: string) => value);
+        const avatar = container.querySelector(
+          `.chatroom-member-item[data-user-id="${escapeId(member.userId)}"] .chatroom-member-avatar`,
+        ) as HTMLElement | null;
+        if (!avatar) return;
+        const signature = headshot ? String(headshot.length) : '';
+        if ((avatar.dataset.headshotSig || '') === signature) return;
+        avatar.dataset.headshotSig = signature;
+        avatar.innerHTML = avatarInnerHtml(headshot ?? undefined, member.stageName.charAt(0).toUpperCase(), deps.escapeHtml);
+      })
+      .catch(() => undefined);
+  }
 }
 
 /**
@@ -457,7 +491,7 @@ function renderOrdinaryMemberRow(member: ChatroomMember, deps: ChatroomsViewDeps
   const onlineIndicator = `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(member.userId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
   return `
     <div class="chatroom-member-item ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}"${isMatched ? ' data-matched="true"' : ''}>
-      <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
+      <div class="chatroom-member-avatar">${avatarInnerHtml(deps.getCachedHeadshot?.(member.userId) ?? undefined, member.stageName.charAt(0).toUpperCase(), deps.escapeHtml)}</div>
       <div class="chatroom-member-info">
         <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}${onlineIndicator}</div>
         <div class="chatroom-member-status">${statusText}</div>

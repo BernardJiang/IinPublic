@@ -184,7 +184,7 @@ test.describe('Profile foundation', () => {
     await expect(page.locator('[data-testid="settings-photo-preview-modal"]')).toBeVisible({ timeout: 10000 });
     await page.click('[data-testid="settings-photo-preview-confirm"]');
     await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
-    await expect.poll(publicHeadshot, { timeout: 30000 }).toContain('data:image/png;base64,');
+    await expect.poll(publicHeadshot, { timeout: 30000 }).toContain('data:image/jpeg;base64,');
     await page.reload();
     await afterLoad();
     await expect
@@ -192,7 +192,7 @@ test.describe('Profile foundation', () => {
         () => page.evaluate(() => String((window as any).__iinpublic_app?.getApp()?.currentUser?.headshot || '')),
         { timeout: 30000, message: 'reloaded owner session should load the public profile photo' },
       )
-      .toContain('data:image/png;base64,');
+      .toContain('data:image/jpeg;base64,');
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await openSettingsSection(page, SETTINGS_SECTION.profile);
@@ -234,6 +234,9 @@ test.describe('Profile foundation', () => {
 
     const tomMember = peerPage.locator(`.chatroom-member-item[data-user-id="${tomUserId}"]`).filter({ hasText: 'Tom' }).first();
     await expect(tomMember).toBeVisible({ timeout: 15000 });
+    // Tom set a profile photo above: the chatroom roster must show it too, not just the initial letter
+    // (it used to appear only on Contacts / peer detail).
+    await expect(tomMember.locator('.chatroom-member-avatar .profile-avatar-image')).toBeVisible({ timeout: 20_000 });
     await tomMember.click();
     await afterNav();
     // Rule N2a: dismiss the auto-opened DM conversation to interact with the User layout.
@@ -334,5 +337,52 @@ test.describe('Profile foundation', () => {
     });
     await page.click('#settings-take-photo-btn');
     await expect(page.locator('#settings-camera-status')).toContainText('Camera capture is unavailable', { timeout: 10000 });
+  });
+  test('a multi-megabyte photo is accepted and shrunk to a small square JPEG (no 2 MB limit)', async () => {
+    const me = await bootstrapUser(browser, 'Tom');
+    context = me.context;
+    page = me.page;
+    await openSettingsSection(page, SETTINGS_SECTION.profile);
+
+    // A real ~12 MB PNG: 2000x2000 of random noise (incompressible), fed through the file input.
+    const originalBytes = await page.evaluate(async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2000;
+      canvas.height = 2000;
+      const ctx = canvas.getContext('2d')!;
+      const image = ctx.createImageData(2000, 2000);
+      for (let offset = 0; offset < image.data.length; offset += 65536) {
+        crypto.getRandomValues(image.data.subarray(offset, Math.min(offset + 65536, image.data.length)));
+      }
+      for (let i = 3; i < image.data.length; i += 4) image.data[i] = 255;
+      ctx.putImageData(image, 0, 0);
+      const blob: Blob = await new Promise((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([blob], 'huge-camera-photo.png', { type: 'image/png' }));
+      const input = document.getElementById('settings-photo-input') as HTMLInputElement;
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return blob.size;
+    });
+    expect(originalBytes).toBeGreaterThan(4 * 1024 * 1024);
+
+    await expect(page.locator('[data-testid="settings-photo-preview-modal"]')).toBeVisible({ timeout: 30_000 });
+    await page.click('[data-testid="settings-photo-preview-confirm"]');
+    await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10_000 });
+
+    const stored = await page.evaluate(() => String((window as any).__iinpublic_app?.getApp()?.currentUser?.headshot || ''));
+    expect(stored).toContain('data:image/jpeg;base64,');
+    const storedBytes = Math.floor(((stored.length - stored.indexOf(',') - 1) * 3) / 4);
+    expect(storedBytes).toBeLessThanOrEqual(48 * 1024);
+    const dimensions = await page.evaluate(
+      (src) => new Promise<{ w: number; h: number }>((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+        img.src = src;
+      }),
+      stored,
+    );
+    expect(dimensions.w).toBe(dimensions.h);
+    expect(dimensions.w).toBeLessThanOrEqual(320);
   });
 });
