@@ -47,6 +47,9 @@ IINPUBLIC_ANDROID_KEYSTORE_PASSWORD="$(cat ../secrets/android-release.keystore.p
 IINPUBLIC_ANDROID_KEY_ALIAS="iinpublic-release" \
 ./gradlew assembleRelease
 ```
+(or from the repo root: `npm run android:build:release`, with the same three
+env vars set — it also runs `mobile:stage` first, same as `npm run
+android:build` does for the debug APK.)
 
 Output lands at `android/app/build/outputs/apk/release/app-release.apk`. The
 stager's android auto-discovery only looks at the `debug` output dir, so stage
@@ -54,7 +57,56 @@ a release build with an explicit path:
 `node scripts/stage-app-download.mjs android android/app/build/outputs/apk/release/app-release.apk`.
 Verify signing before publishing:
 `apksigner verify --print-certs <path-to-apk>` should show the `CN=IinPublic`
-certificate, not a debug-keystore identity.
+certificate, not a debug-keystore identity. `apksigner verify --min-sdk-version
+21 --verbose` should additionally report `Verified using v1 scheme (JAR
+signing): true` — AGP drops v1 signing above minSdk 24 by default
+(`android/app/build.gradle`'s `enableV1Signing true`/`enableV2Signing true`
+override this; without it some vendor installers reject the APK with "The
+installation package does not contain any certificates" even though it
+verifies fine with `adb install`/Google Play — found 2026-09-26).
+
+### Google Play submission (Android App Bundle)
+
+Play Console requires an `.aab` (Android App Bundle) upload, not the sideload
+APK above — the APK above is for direct/website distribution only (this repo's
+own `/downloads` page) and is never uploaded to Play.
+
+```bash
+cd android
+IINPUBLIC_ANDROID_KEYSTORE="$(pwd)/../secrets/android-release.keystore" \
+IINPUBLIC_ANDROID_KEYSTORE_PASSWORD="$(cat ../secrets/android-release.keystore.passphrase)" \
+IINPUBLIC_ANDROID_KEY_ALIAS="iinpublic-release" \
+./gradlew bundleRelease
+```
+(or `npm run android:bundle:release` from the repo root, same env vars, runs
+`mobile:stage` first.)
+
+Output lands at `android/app/build/outputs/bundle/release/app-release.aab`.
+Verify it's signed with the real release key (not unsigned/debug) before
+uploading: `jarsigner -verify -verbose -certs app-release.aab` should print
+`jar verified` and show the `CN=IinPublic` certificate — `apksigner` does not
+operate on `.aab` files directly, only on the APKs Play/`bundletool` later
+generate from one. The "PKIX path building failed... unable to find valid
+certification path" warning `jarsigner` also prints is expected and harmless:
+an Android app-signing key is self-signed by design and is never meant to
+chain to a public CA root; Android's own package-manager verification (and
+Play's) doesn't use PKIX/browser-style trust chains at all.
+
+On first upload, enroll in **Play App Signing** (Play Console's default and
+recommended path since 2021): upload this `.aab` signed with the key above as
+the "upload key," and Google re-signs the distributed APKs with its own
+managed app-signing key. Keep `secrets/android-release.keystore` regardless —
+it remains the upload key for every future release and is what
+`apksigner`/`jarsigner` verify against locally; losing it means Play Console's
+key-reset process, not a full republish, so it's still worth the same
+indefinite backup treatment as any other release key (see above).
+
+A Play Store listing additionally requires, outside this repo: a privacy
+policy URL, the Data Safety form (what data the app collects/shares — see
+`docs/guides/PLAY_STORE_SUBMISSION.md` for a first-draft answer set grounded
+in this app's actual code), the content rating questionnaire, and
+permission-usage justifications for sensitive runtime permissions (camera,
+location, nearby devices) in the Console's app content section.
 
 Desktop installers built on this Mac are ad-hoc signed on macOS (see
 `platforms/desktop/afterPack.js`'s doc comment — this is the project's normal,
