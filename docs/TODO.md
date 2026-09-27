@@ -243,6 +243,37 @@ phrase complexity into normal use.
     complement to the checksum manifest (a tampered `bundle.js` would fail to execute at all, not
     just fail a later human check), deferred as separate build-pipeline work.
 
+- [ ] **OPEN-33 — App update checks/reminders (found 2026-09-27, product owner asked "how can an
+  app check there is new updates? or gets reminder of new updates?").** Current state per platform:
+  - **Web:** nothing needed — a page load always serves the current deployed build.
+  - **Desktop (Electron):** `electron-updater` is already wired in `platforms/desktop/main.js`
+    (`autoDownload: true`, checks on launch and periodically, "Restart now / Later" dialog on
+    `update-downloaded`) but is currently NON-FUNCTIONAL: `platforms/desktop/package.json`'s
+    `build.publish` targets `{ provider: "github", owner: "BernardJiang", repo: "IinPublic" }`, and
+    this project has never published a GitHub Release — installers are `scp`'d straight to
+    `~/IinPublic/public/downloads/` on the VPS (`scripts/stage-app-download.mjs` + the deploy
+    procedure in this doc / `docs/guides/DEPLOY_PRODUCTION.md`). `checkForUpdates()` therefore finds
+    nothing every time; the failure is swallowed to a log line
+    (`log('periodic check failed', err)`), so it has never surfaced as a visible bug. Fix: switch
+    `publish` to `{ provider: "generic", url: "https://www.iinpublic.com/downloads/" }` (electron-
+    builder already writes `latest.yml`/`latest-mac.yml` next to the installers in
+    `platforms/desktop/dist/` on every build — confirmed present 2026-09-27) and extend the deploy
+    step to upload those two files alongside the installer, not just the installer itself. No other
+    code change needed; the dialog/quit-and-install flow already exists and is presumably correct,
+    just never reachable.
+  - **Android:** no update channel at all (sideloaded APK, not Play Store) — a real gap, not a config
+    fix. Proposed design: on launch (or a daily timer), fetch `GET /api/downloads` (already returns
+    `{version, android, ...}`, see `downloads-routes.ts`), compare against the running
+    `BuildConfig.VERSION_NAME`, and show a dismissible banner (Settings, and/or a small badge on the
+    gear icon like the existing unread-message badge convention) linking to `/downloads/<file>` when
+    the server's version is newer. This can only ever be a reminder — a sideloaded app cannot silently
+    self-update — the user still taps through the browser download + install flow (the same v1+v2
+    signing fix from OPEN-32's sibling work means that flow itself now works broadly). A shared
+    semver-compare helper belongs in `src/shared/` so web/Electron could reuse it too, e.g. for
+    surfacing the same reminder in a browser tab.
+  - **Not implemented yet** — product owner chose to file this as a TODO rather than implement
+    immediately (session was already mid-deploy of an unrelated fix).
+
 - [ ] **OPEN-32 — Production `GET /api/support/delegate-grants` silently returned an EMPTY roster after ~1 day of uptime (found 2026-09-25, cause NOT yet known).**
   Evidence: the durable store file (`techsupport-radata-8080/!`) still held all 5 grant records (one valid: "Safari (Mac)",
   expires 2026-10-24), and a COPY of that directory read back all 5 with the same `dist` code under both the VPS's Node 24 and a
