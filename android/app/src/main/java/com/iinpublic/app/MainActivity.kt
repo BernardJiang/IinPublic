@@ -75,20 +75,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    // navigator.geolocation
-    private var pendingGeolocationOrigin: String? = null
-    private var pendingGeolocationCallback: GeolocationPermissions.Callback? = null
-    private val locationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-            val callback = pendingGeolocationCallback
-            val origin = pendingGeolocationOrigin
-            pendingGeolocationCallback = null
-            pendingGeolocationOrigin = null
-            // Coarse OR fine is enough; do not retain the choice (retain = false) so revoking the
-            // permission in system Settings takes effect on the next request.
-            if (callback != null && origin != null) callback.invoke(origin, grants.values.any { it }, false)
-        }
-
     // <input type="file"> (headshot "Choose photo", talk media attachment, conversation attach)
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private val fileChooserLauncher =
@@ -131,32 +117,26 @@ class MainActivity : AppCompatActivity() {
             if (pendingWebPermissionRequest === request) pendingWebPermissionRequest = null
         }
 
+        // web/index.ts's location bootstrap calls navigator.geolocation automatically on every
+        // boot, deliberately unprompted by any user gesture ("Cache-first UI: never block first
+        // paint on geolocation... resolves the real fix in the background"). A bare WebViewClient
+        // (before this WebChromeClient existed) silently denied this with no dialog, which is
+        // exactly the fallback-gracefully behavior that bootstrap is designed around. Raising a
+        // REAL native permission dialog here — as onPermissionRequest correctly does for the
+        // user-gesture-triggered camera case — instead surfaced a blocking, unscriptable system
+        // dialog on every fresh install/data-clear, found via real-device E2E (18-android-
+        // keystore-custody, 06-seven-client-real-device-matrix both hung on it). Only grant
+        // silently when a permission already exists from some other flow; never prompt.
         override fun onGeolocationPermissionsShowPrompt(
             origin: String,
             callback: GeolocationPermissions.Callback,
         ) {
             runOnUiThread {
-                if (!isTrustedOrigin(Uri.parse(origin))) {
-                    callback.invoke(origin, false, false)
-                    return@runOnUiThread
-                }
-                val already = listOf(
+                val granted = isTrustedOrigin(Uri.parse(origin)) && listOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION,
                 ).any { ContextCompat.checkSelfPermission(this@MainActivity, it) == PackageManager.PERMISSION_GRANTED }
-                if (already) {
-                    callback.invoke(origin, true, false)
-                } else {
-                    pendingGeolocationCallback?.let { it.invoke(pendingGeolocationOrigin ?: origin, false, false) }
-                    pendingGeolocationOrigin = origin
-                    pendingGeolocationCallback = callback
-                    locationPermissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                        )
-                    )
-                }
+                callback.invoke(origin, granted, false)
             }
         }
 
