@@ -243,6 +243,19 @@ phrase complexity into normal use.
     complement to the checksum manifest (a tampered `bundle.js` would fail to execute at all, not
     just fail a later human check), deferred as separate build-pipeline work.
 
+- [ ] **OPEN-32 — Production `GET /api/support/delegate-grants` silently returned an EMPTY roster after ~1 day of uptime (found 2026-09-25, cause NOT yet known).**
+  Evidence: the durable store file (`techsupport-radata-8080/!`) still held all 5 grant records (one valid: "Safari (Mac)",
+  expires 2026-10-24), and a COPY of that directory read back all 5 with the same `dist` code under both the VPS's Node 24 and a
+  Mac's Node 26 — including under overlapping concurrent `getSet` calls (`.map().on()` + `.off()` from several pollers). Only the
+  long-running production process returned `{"grants":[],"revocations":[]}` (3 consecutive polls); `sudo systemctl restart
+  iinpublic` immediately restored all 5. `faq-entries` (same store, same `collectMap`) kept working, so the degradation is
+  specific to nodes that were only ever on disk, not written since boot. Impact: while empty, no delegate could verify its own
+  grant ("Cannot answer — grant missing") and askers could not verify a delegate-signed answer. Watcher script logging grants/faq
+  counts + RSS every 2 min was started 2026-09-25 23:51 UTC to timestamp the next occurrence. Suspects: repeated `.off()` on the
+  shared `techsupport-delegates` chain of a radisk-backed Gun (`TechSupportDurableStore.collectMap`, 600 ms window) unloading
+  in-memory state; radisk read-cache eviction. Candidate fixes: cache the last verified non-empty roster in the route (revocation
+  records still applied), or read grants by explicit key instead of `.map()`, or reopen the store's Gun when a read returns empty
+  against a non-empty index.
 - [x] **OPEN-31 — TechSupport FAQ bundle does not scale (found 2026-09-24; IMPLEMENTED 2026-09-24, option 1: per-entry keyed storage).**
   - **Implemented (option 1).** Each answered question is now its own flat, individually signed record
     (`src/shared/techsupport-faq-entry.ts`: `signFaqEntry`/`verifyFaqEntry`/`isFaqEntryRollback`),

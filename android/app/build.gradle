@@ -56,6 +56,12 @@ android {
                 storePassword System.getenv("IINPUBLIC_ANDROID_KEYSTORE_PASSWORD")
                 keyAlias System.getenv("IINPUBLIC_ANDROID_KEY_ALIAS") ?: "iinpublic-release"
                 keyPassword System.getenv("IINPUBLIC_ANDROID_KEY_PASSWORD") ?: System.getenv("IINPUBLIC_ANDROID_KEYSTORE_PASSWORD")
+                // AGP drops the legacy v1 (JAR) signature when minSdk >= 24, leaving a v2-only APK.
+                // Vendor installers (seen 2026-09-26 on a Xiaomi/HyperOS-style phone installing from
+                // Chrome: "The installation package does not contain any certificates") and some
+                // sideload paths only look for v1 and reject a v2-only APK. Keep both.
+                enableV1Signing true
+                enableV2Signing true
             }
         }
     }
