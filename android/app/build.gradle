@@ -11,8 +11,8 @@ android {
         applicationId "com.iinpublic.app"
         minSdk 24
         targetSdk 34
-        versionCode 1000054
-        versionName "1.0.54"
+        versionCode 1000055
+        versionName "1.0.55"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 

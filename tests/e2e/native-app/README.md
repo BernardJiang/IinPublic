@@ -94,3 +94,17 @@ NATIVE_APP_ANDROID_HOST=192.168.10.50 \
 npx playwright test --config tests/e2e/native-app/playwright.config.ts \
   tests/e2e/native-app/07-android-authoritative-talk-commit.spec.ts
 ```
+
+Camera / file-picker permissions (regression for 1.0.54, where the manifest had no CAMERA
+permission and the WebView had no WebChromeClient, so "Take photo" always said "Camera access was
+denied"). The first test only reads `dumpsys package` and works on any installed build; the other
+three drive the WebView and need the DEBUG build from `npm run android:build`:
+
+```bash
+E2E_REAL_ANDROID_CAMERA=1 \
+NATIVE_APP_ANDROID_SERIAL=serial \
+NATIVE_APP_ANDROID_HOST=192.168.10.50 \
+npx playwright test --config tests/e2e/native-app/playwright.config.ts \
+  tests/e2e/native-app/26-android-camera-and-file-permissions.spec.ts
+```
+

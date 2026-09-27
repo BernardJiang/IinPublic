@@ -15,6 +15,16 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Headshot "Take photo" (getUserMedia live preview) and the QR link-code scanner. Without this
+         declaration Android never offers the app a Camera permission at all (nothing to grant in
+         Settings → Apps), and the WebView's getUserMedia is denied. Runtime prompt is raised from
+         MainActivity's WebChromeClient.onPermissionRequest. Audio is NOT requested: every
+         getUserMedia call in the web app is video-only. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- A camera is optional: the app is fully usable (and "Choose photo" still works) without one,
+         so don't hide it from tablets/emulators that lack a camera. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
         android:allowBackup="false"

@@ -1,10 +1,16 @@
 package com.iinpublic.app
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,6 +59,128 @@ class MainActivity : AppCompatActivity() {
             nearbyBridge.permissionResult(grants)
         }
 
+    // ── WebView → Android permission / picker bridge ────────────────────────────────────────────
+    // A bare WebViewClient handles none of these: getUserMedia is silently denied ("Camera access
+    // was denied" in the web UI), <input type=file> never opens a picker, and navigator.geolocation
+    // is denied without a prompt. Each request is answered from the WebChromeClient below.
+
+    // getUserMedia (camera) — one outstanding request at a time; a newer one denies the older.
+    private var pendingWebPermissionRequest: PermissionRequest? = null
+    private val cameraPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val request = pendingWebPermissionRequest
+            pendingWebPermissionRequest = null
+            if (request != null) {
+                if (granted) request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) else request.deny()
+            }
+        }
+
+    // navigator.geolocation
+    private var pendingGeolocationOrigin: String? = null
+    private var pendingGeolocationCallback: GeolocationPermissions.Callback? = null
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            val callback = pendingGeolocationCallback
+            val origin = pendingGeolocationOrigin
+            pendingGeolocationCallback = null
+            pendingGeolocationOrigin = null
+            // Coarse OR fine is enough; do not retain the choice (retain = false) so revoking the
+            // permission in system Settings takes effect on the next request.
+            if (callback != null && origin != null) callback.invoke(origin, grants.values.any { it }, false)
+        }
+
+    // <input type="file"> (headshot "Choose photo", talk media attachment, conversation attach)
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private val fileChooserLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val callback = fileChooserCallback
+            fileChooserCallback = null
+            callback?.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+            )
+        }
+
+    /** Only the app's own embedded node origin may use device capabilities. */
+    private fun isTrustedOrigin(origin: Uri?): Boolean =
+        origin != null && (origin.host == "127.0.0.1" || origin.host == "localhost")
+
+    private val appChromeClient = object : WebChromeClient() {
+        override fun onPermissionRequest(request: PermissionRequest) {
+            runOnUiThread {
+                // Video only. The web app never records audio, and RECORD_AUDIO is deliberately not
+                // declared — an audio request is denied rather than silently widened.
+                val wantsVideoOnly = request.resources.isNotEmpty() &&
+                    request.resources.all { it == PermissionRequest.RESOURCE_VIDEO_CAPTURE }
+                if (!isTrustedOrigin(request.origin) || !wantsVideoOnly) {
+                    request.deny()
+                    return@runOnUiThread
+                }
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
+                } else {
+                    pendingWebPermissionRequest?.deny()
+                    pendingWebPermissionRequest = request
+                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            }
+        }
+
+        override fun onPermissionRequestCanceled(request: PermissionRequest) {
+            if (pendingWebPermissionRequest === request) pendingWebPermissionRequest = null
+        }
+
+        override fun onGeolocationPermissionsShowPrompt(
+            origin: String,
+            callback: GeolocationPermissions.Callback,
+        ) {
+            runOnUiThread {
+                if (!isTrustedOrigin(Uri.parse(origin))) {
+                    callback.invoke(origin, false, false)
+                    return@runOnUiThread
+                }
+                val already = listOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ).any { ContextCompat.checkSelfPermission(this@MainActivity, it) == PackageManager.PERMISSION_GRANTED }
+                if (already) {
+                    callback.invoke(origin, true, false)
+                } else {
+                    pendingGeolocationCallback?.let { it.invoke(pendingGeolocationOrigin ?: origin, false, false) }
+                    pendingGeolocationOrigin = origin
+                    pendingGeolocationCallback = callback
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                        )
+                    )
+                }
+            }
+        }
+
+        override fun onShowFileChooser(
+            webView: WebView,
+            filePathCallback: ValueCallback<Array<Uri>>,
+            fileChooserParams: FileChooserParams,
+        ): Boolean {
+            // A page can re-trigger before the previous chooser returns; the WebView requires the
+            // old callback to be completed (with null) or the input stays wedged.
+            fileChooserCallback?.onReceiveValue(null)
+            fileChooserCallback = filePathCallback
+            return try {
+                // System document picker (ACTION_GET_CONTENT / OpenDocument): needs no storage permission.
+                fileChooserLauncher.launch(fileChooserParams.createIntent())
+                true
+            } catch (_: ActivityNotFoundException) {
+                fileChooserCallback = null
+                filePathCallback.onReceiveValue(null)
+                false
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -71,6 +199,7 @@ class MainActivity : AppCompatActivity() {
             settings.databaseEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             webViewClient = WebViewClient()
+            webChromeClient = appChromeClient
         }
         nearbyBridge = NearbyJavascriptBridge(this, webView)
         webView.addJavascriptInterface(nearbyBridge, "IinPublicNearby")
