@@ -7,6 +7,8 @@ import {
   isTrustedAnnouncementPubWithRecovery,
   recoveryAnchorPath,
   recoveryAnchorHistoryPath,
+  recoveryAnchorToDurableWire,
+  recoveryAnchorFromDurableWire,
   type RecoveryAnchorRecord,
 } from '../../shared/techsupport-recovery';
 import { TECHSUPPORT_PUB } from '../../shared/techsupport';
@@ -108,6 +110,54 @@ describeWithRealTechSupportRecoveryPair('techsupport-recovery (docs/TODO.md OPEN
 
   it('recoveryAnchorPath is the fixed mutable current slot', () => {
     expect(recoveryAnchorPath()).toEqual(['techsupport-recovery', 'current']);
+  });
+
+  describe('recoveryAnchorToDurableWire / recoveryAnchorFromDurableWire (2026-09-27 durability fix)', () => {
+    it('round-trips a record with non-empty revocation arrays, dropping the plain-array fields Gun cannot store', async () => {
+      const signed = await signRecoveryAnchor(
+        { reason: 'x', revokedDmPubs: ['a', 'b'], revokedAnnouncementPubs: ['c'] },
+        RECOVERY_PAIR,
+      );
+      const wire = recoveryAnchorToDurableWire(signed);
+      expect(wire).not.toHaveProperty('revokedDmPubs');
+      expect(wire).not.toHaveProperty('revokedAnnouncementPubs');
+      expect(wire.revokedDmPubsJson).toBe(JSON.stringify(['a', 'b']));
+      expect(wire.revokedAnnouncementPubsJson).toBe(JSON.stringify(['c']));
+
+      const decoded = recoveryAnchorFromDurableWire(wire);
+      expect(decoded).toEqual(signed);
+      // Verification (real signature check) must still pass on the round-tripped shape — this is
+      // the actual property that matters, not just structural equality.
+      await expect(verifyRecoveryAnchor(decoded)).resolves.toEqual(signed);
+    });
+
+    it('round-trips a record whose revocation arrays are empty (the shape that broke live, 2026-09-27)', async () => {
+      const signed = await signRecoveryAnchor({ reason: 'OPEN-29 empty-array regression' }, RECOVERY_PAIR);
+      const wire = recoveryAnchorToDurableWire(signed);
+      expect(wire.revokedDmPubsJson).toBe('[]');
+      expect(wire.revokedAnnouncementPubsJson).toBe('[]');
+      expect(recoveryAnchorFromDurableWire(wire)).toEqual(signed);
+    });
+
+    it('recoveryAnchorFromDurableWire passes through an already-plain-array record unchanged', () => {
+      const plain: RecoveryAnchorRecord = {
+        recoveryPub: 'r',
+        revokedDmPubs: ['x'],
+        revokedAnnouncementPubs: [],
+        nextDmPub: null,
+        nextAnnouncementPub: null,
+        issuedAt: '2026-09-01T00:00:00.000Z',
+        reason: 'legacy-shape',
+        signature: 'sig',
+      };
+      expect(recoveryAnchorFromDurableWire(plain)).toBe(plain);
+    });
+
+    it('recoveryAnchorFromDurableWire tolerates null/non-object input', () => {
+      expect(recoveryAnchorFromDurableWire(null)).toBeNull();
+      expect(recoveryAnchorFromDurableWire(undefined)).toBeUndefined();
+      expect(recoveryAnchorFromDurableWire('not-an-object')).toBe('not-an-object');
+    });
   });
 
   describe('isRecoveryAnchorRollback — monotonic anti-rollback', () => {

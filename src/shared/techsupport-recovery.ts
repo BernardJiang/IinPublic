@@ -186,6 +186,55 @@ export function isTrustedAnnouncementPubWithRecovery(
   return !!recovery && recovery.nextAnnouncementPub === pub;
 }
 
+/**
+ * Gun-safe wire encoding for durable storage ONLY (see CLAUDE.md: "Gun cannot store nested
+ * arrays"). `revokedDmPubs`/`revokedAnnouncementPubs` are real arrays, which
+ * `TechSupportDurableStore`'s generic `putPath` cannot persist directly — found live 2026-09-27
+ * while proving OPEN-29's real publish round trip: the route returned `{stored: true}`, but a
+ * moments-later read came back empty, with the server logging `[TechSupportDurableStore] put ack
+ * error: "Invalid data: Array at techsupport-recovery.current...`. Every other generic-accessor
+ * consumer (delegate grants, FAQ entries) has no array fields and was never affected by this.
+ * Used only at the `system-routes.ts` durable-store boundary — never changes the signed payload,
+ * `recoveryAnchorSigningPayload`, or the shape any other transport (the POST body, the embedded-
+ * hub-relay HTTP client) sees.
+ */
+export function recoveryAnchorToDurableWire(record: RecoveryAnchorRecord): Record<string, unknown> {
+  const { revokedDmPubs, revokedAnnouncementPubs, ...rest } = record;
+  return {
+    ...rest,
+    revokedDmPubsJson: JSON.stringify(revokedDmPubs),
+    revokedAnnouncementPubsJson: JSON.stringify(revokedAnnouncementPubs),
+  };
+}
+
+/**
+ * Reverses {@link recoveryAnchorToDurableWire}. Tolerant of a value that was never wire-encoded
+ * (already-plain arrays) so it stays safe to apply defensively to anything read back from the
+ * durable store, including a stale record written before this fix existed.
+ */
+export function recoveryAnchorFromDurableWire(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const candidate = raw as Record<string, unknown>;
+  if (Array.isArray(candidate.revokedDmPubs) || Array.isArray(candidate.revokedAnnouncementPubs)) {
+    return raw;
+  }
+  const parseArray = (json: unknown): string[] => {
+    if (typeof json !== 'string') return [];
+    try {
+      const parsed = JSON.parse(json);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  const { revokedDmPubsJson, revokedAnnouncementPubsJson, ...rest } = candidate;
+  return {
+    ...rest,
+    revokedDmPubs: parseArray(revokedDmPubsJson),
+    revokedAnnouncementPubs: parseArray(revokedAnnouncementPubsJson),
+  };
+}
+
 /** Gun path for the mutable "current" slot every client subscribes to. */
 export const RECOVERY_ANCHOR_ROOT = 'techsupport-recovery';
 export function recoveryAnchorPath(): string[] {

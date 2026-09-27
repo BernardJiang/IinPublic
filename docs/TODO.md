@@ -207,23 +207,36 @@ phrase complexity into normal use.
     actual security property end to end; integration tests (`system-routes.test.ts`) for the
     routes; CLI arg/passphrase/publish tests (`techsupport-recovery-tool.test.js`); regression
     tests in `techsupport-faq-bundle.test.ts` proving the revocation-bypass bug above stays fixed.
-  - [ ] A real live HTTP publish round trip (beyond the dry-run) wasn't proven in this session —
-    hit an unresolved local networking quirk (TCP connects, HTTP hangs up) specific to that test
-    session, not a code issue given every other layer (unit, integration via supertest against
-    the real route handlers, and the dry-run signing path) passed. Re-verify with a real publish
-    against a real deployment before relying on this in an actual incident.
-    - Update 2026-09-22: `/api/support/recovery` shared the exact `radisk:false` write-loss bug
-      just found and fixed for delegate grants (same `system-routes.ts` pattern, same fix — see
-      OPEN-27's regression entry above), so a publish attempted before that fix would have
-      appeared to succeed and then silently vanished regardless of the networking quirk. The fix
-      is deployed and the *delegate-grant* route's round trip is now proven live (published,
-      read back, survived a production service restart) — the *recovery-anchor* route runs
-      through the identical `putSupportPath`/`getSupportPath` code, so it shares that fix, but a
-      real recovery-anchor publish specifically was deliberately not attempted live: it's a
-      trust-rotation action (can revoke the current master's authority), not something to test
-      against production without the product owner present. Still worth a real publish + restart
-      check the next time a recovery rotation is actually exercised, or against a non-production
-      deployment.
+  - [x] **Real live HTTP publish round trip, done against local dev (2026-09-27) — found and
+    fixed a genuine, previously-undetected bug, not just a missing proof.** Deliberately run
+    against a local dev server rather than production (a recovery-anchor publish is a real
+    trust-rotation action; production needs the product owner present for that, per the note this
+    replaces). Publishing a real signed record returned `{stored: true}`, but a moments-later read
+    came back `{current: null, history: []}` — the server log showed
+    `[TechSupportDurableStore] put ack error: "Invalid data: Array at techsupport-recovery.current...`.
+    Root cause: `RecoveryAnchorRecord`'s `revokedDmPubs`/`revokedAnnouncementPubs` are real JS
+    arrays (even when empty), and Gun cannot store a nested array under a compound path (the same
+    documented quirk this file's own "Gun.js quirks to know" section already names) —
+    `TechSupportDurableStore`'s generic `putPath` passes the record straight to Gun with no
+    workaround. Every OTHER generic-accessor consumer (delegate grants, FAQ entries) has no array
+    fields and was never affected, which is why this was never caught before despite those routes
+    sharing the exact same code path. **This means every recovery-anchor publish ever attempted
+    against a real deployment, including this exact route, would silently fail to persist** —
+    the dry-run signing path (the only thing previously verified) never touches Gun at all, so it
+    could not have caught this.
+    - Fix: `recoveryAnchorToDurableWire`/`recoveryAnchorFromDurableWire`
+      (`src/shared/techsupport-recovery.ts`) — JSON-serializes the two array fields only at the
+      `system-routes.ts` durable-store read/write boundary, mirroring this codebase's existing
+      `questionsJson`-style idiom for the same Gun limitation. Never changes the signed payload,
+      the POST body shape, or the embedded-hub-relay HTTP shape — only what actually reaches Gun.
+    - Verified live end to end: published a real record, confirmed it read back correctly (real
+      arrays, signature verifies), then **restarted the dev server process and confirmed the
+      record was still there** — the same disk-durability bar the delegate-grant fix was held to.
+    - Test coverage: 4 new unit tests (`techsupport-recovery.test.ts`) covering the wire round
+      trip for both non-empty and empty arrays (the exact shape that broke live) plus
+      pass-through/null-safety; 2 existing integration tests updated
+      (`system-routes.test.ts`) that had encoded the old (buggy) plain-array `putPath` call as
+      the expected behavior.
   - [ ] Cross-client "stale cache / installed Android version catches up" scenario has no E2E
     coverage yet — only unit/integration. The mechanism (client-side monotonic cache +
     HTTP-relay poll, identical in shape to the already-E2E-tested OPEN-27 delegate-grant

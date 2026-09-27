@@ -13,6 +13,7 @@ import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-rel
 import { signFaqEntry } from '../../shared/techsupport-faq-entry';
 import { buildSupportFaqEntry, supportQuestionKey } from '../../shared/techsupport-faq';
 import { signDelegateGrant } from '../../shared/techsupport-delegate';
+import { recoveryAnchorToDurableWire } from '../../shared/techsupport-recovery';
 import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 function buildApp(
@@ -786,10 +787,13 @@ describe('system routes', () => {
       recoveryPub: 'recovery-pub',
       issuedAt: '2026-09-22T00:00:00.000Z',
     });
-    expect(gunService.putPath).toHaveBeenCalledWith(['techsupport-recovery', 'current'], record);
+    // Stored in the Gun-safe wire shape (docs/TODO.md OPEN-29 durability fix, 2026-09-27): Gun
+    // cannot persist the record's own revokedDmPubs/revokedAnnouncementPubs arrays directly.
+    const wireRecord = recoveryAnchorToDurableWire(record);
+    expect(gunService.putPath).toHaveBeenCalledWith(['techsupport-recovery', 'current'], wireRecord);
     expect(gunService.putPath).toHaveBeenCalledWith(
       ['techsupport-recovery-history', encodeURIComponent('recovery-pub|2026-09-22T00:00:00.000Z')],
-      record,
+      wireRecord,
     );
   });
 
@@ -823,10 +827,11 @@ describe('system routes', () => {
 
     const posted = await request(app).post('/api/support/recovery').send(record);
     expect(posted.status).toBe(200);
-    expect(techSupportStore.putPath).toHaveBeenCalledWith(['techsupport-recovery', 'current'], record);
+    const wireRecord = recoveryAnchorToDurableWire(record);
+    expect(techSupportStore.putPath).toHaveBeenCalledWith(['techsupport-recovery', 'current'], wireRecord);
     expect(techSupportStore.putPath).toHaveBeenCalledWith(
       ['techsupport-recovery-history', encodeURIComponent('recovery-pub-durable|2026-09-22T00:00:00.000Z')],
-      record,
+      wireRecord,
     );
     expect(gunService.putPath).not.toHaveBeenCalled();
     expect(gunService.getPath).not.toHaveBeenCalled();

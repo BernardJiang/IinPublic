@@ -79,6 +79,8 @@ import {
   RECOVERY_ANCHOR_HISTORY_ROOT,
   recoveryAnchorPath,
   recoveryAnchorHistoryPath,
+  recoveryAnchorFromDurableWire,
+  recoveryAnchorToDurableWire,
   isRecoveryAnchorRollback,
   verifyRecoveryAnchor,
   type RecoveryAnchorRecord,
@@ -521,8 +523,8 @@ export function registerSystemRoutes(
         getSupportPath(recoveryAnchorPath()),
         getSupportSet(RECOVERY_ANCHOR_HISTORY_ROOT),
       ]);
-      if (current) candidates.push(current);
-      candidates.push(...(history ?? []));
+      if (current) candidates.push(recoveryAnchorFromDurableWire(current));
+      candidates.push(...(history ?? []).map(recoveryAnchorFromDurableWire));
     }
     if (hubRelayClient?.listRecoveryAnchors) {
       try {
@@ -559,8 +561,8 @@ export function registerSystemRoutes(
       const currentCandidates: unknown[] = [];
       if (hasSupportStorage) {
         currentCandidates.push(
-          await getSupportPath(recoveryAnchorPath()),
-          ...((await getSupportSet(RECOVERY_ANCHOR_HISTORY_ROOT)) ?? []),
+          recoveryAnchorFromDurableWire(await getSupportPath(recoveryAnchorPath())),
+          ...((await getSupportSet(RECOVERY_ANCHOR_HISTORY_ROOT)) ?? []).map(recoveryAnchorFromDurableWire),
         );
       } else if (hubRelayClient?.listRecoveryAnchors) {
         currentCandidates.push(...(await hubRelayClient.listRecoveryAnchors()));
@@ -576,8 +578,9 @@ export function registerSystemRoutes(
         return;
       }
       if (hasSupportStorage) {
-        await putSupportPath(recoveryAnchorPath(), record);
-        await putSupportPath(recoveryAnchorHistoryPath(record), record);
+        const wireRecord = recoveryAnchorToDurableWire(record);
+        await putSupportPath(recoveryAnchorPath(), wireRecord);
+        await putSupportPath(recoveryAnchorHistoryPath(record), wireRecord);
       }
       if (hubRelayClient?.postRecoveryAnchor) {
         await hubRelayClient.postRecoveryAnchor(record);
@@ -617,7 +620,10 @@ export function registerSystemRoutes(
     };
     let recovery: RecoveryAnchorRecord | null = null;
     if (hasSupportStorage) {
-      const raws = [await getSupportPath(recoveryAnchorPath()), ...((await getSupportSet(RECOVERY_ANCHOR_HISTORY_ROOT)) ?? [])];
+      const raws = [
+        recoveryAnchorFromDurableWire(await getSupportPath(recoveryAnchorPath())),
+        ...((await getSupportSet(RECOVERY_ANCHOR_HISTORY_ROOT)) ?? []).map(recoveryAnchorFromDurableWire),
+      ];
       for (const raw of raws) {
         const candidate = raw ? await verifyTechSupportRecoveryAnchor(raw) : null;
         if (!candidate) continue;
