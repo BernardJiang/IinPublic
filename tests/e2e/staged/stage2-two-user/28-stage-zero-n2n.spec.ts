@@ -224,7 +224,11 @@ test.describe('Stage zero N2N smoke', () => {
 
     await page.click('.nav-btn[data-view="talks"]');
     await afterNav();
-    await expect(page.locator('#talks-list')).toContainText('One answer. Hundreds of conversations.');
+    // Actionable starter Talk onboarding (dev.codex, 2026-09-27): a genuinely fresh account with
+    // no talk history at all now shows the starter template shelf here instead of the old plain
+    // "no talks yet" message (talksNoTalks) — Adam is brand new at this point, so the starter
+    // shelf is the correct thing to assert on.
+    await expect(page.locator('#talks-list')).toContainText('What would you like IinPublic to repeat for you?');
 
     for (const talk of talkSet('Adam', runId)) {
       if (talk.type === 'tag') {

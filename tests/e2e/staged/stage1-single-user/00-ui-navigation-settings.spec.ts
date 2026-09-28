@@ -458,7 +458,12 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('加权表现');
     await expect(p.locator('#reply-filter-language option[value="zh"]')).toHaveText('中文');
     await expect(p.locator('#talks-stats-strip')).toContainText('统计：');
-    await expect(p.locator('#talks-list')).toContainText('一次回答，开启数百场对话');
+    // Actionable starter Talk onboarding (dev.codex, 2026-09-27): a genuinely fresh account with
+    // no talk history at all now shows the starter template shelf here instead of the old plain
+    // "no talks yet" message (talksNoTalks) — that older text only shows once the account has SOME
+    // talk history but the current filter happens to hide all of it. This account is still fresh
+    // at this point in the test, so the starter shelf is the correct thing to assert on.
+    await expect(p.locator('#talks-list')).toContainText('你希望 IinPublic 替你重复什么？');
     await p.evaluate(() => {
       localStorage.setItem('myTalks', JSON.stringify({
         localized_created: {
