@@ -131,6 +131,56 @@ in this app's actual code), the content rating questionnaire, and
 permission-usage justifications for sensitive runtime permissions (camera,
 location, nearby devices) in the Console's app content section.
 
+### Android distribution channel strategy (decided 2026-09-28)
+
+Both the website's sideload `.apk` (`downloads:stage -- android`) and the
+Play Store's `.aab`-derived install share one fixed `applicationId
+"com.iinpublic.app"` (`android/app/build.gradle`) — there is no flavor split
+between them. Once Play App Signing is enrolled (mandatory for all new apps
+since 2021, see above), the two are signed with **different** certificates:
+the website's copy with `secrets/android-release.keystore` directly, the Play
+copy re-signed by Google's own managed key. Same `applicationId` + different
+certificate is exactly the case Android refuses to let coexist — a device
+with one already installed will reject installing the other
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`) until the first is uninstalled, and
+because this is a local-first app, uninstalling loses that device's identity/
+keys/contacts unless explicitly moved first (see below).
+
+This has no bearing on networking: peer discovery, matching, and chat all run
+over the same relay hub and Gun.js protocol regardless of which channel a
+device installed from — a sideloaded user and a Play Store user find and
+talk to each other exactly like any other two devices. The channel only
+affects how one phone installs the app, never who it can reach afterward.
+
+**Decision: Play Store becomes the one primary Android channel.** The
+website's `/downloads` page keeps offering the `.apk`, but only as a
+secondary "direct install" option (testers, anyone who can't use Play) —
+not the path ordinary users are steered toward. Revisit this default if
+Play rejection/review risk, F-Droid-style distribution, or a real
+sideload-only user base ever makes a second first-class channel worth the
+cost below. Not yet implemented: no copy change has been made to the
+`/downloads` page or its banners to actually reflect "Play is primary" —
+this section records the decision; the messaging update is a separate,
+still-open task.
+
+**Backup plan A — separate `applicationId` for the sideload build**, if
+true side-by-side coexistence on one device is ever wanted (e.g.
+`com.iinpublic.app.direct`, the common "direct download" vs. "store" variant
+pattern). They'd become two fully independent apps with no install
+conflict — but also two separate local identities with nothing shared
+between them unless a user manually links devices; not a free upgrade path,
+just a coexistence one.
+
+**Backup plan B — a documented device-linking migration path** for anyone
+who already sideloaded and wants to move to the Play Store copy: open
+Linked Devices in the sideloaded app (`linked-devices-dialog.ts` /
+`WebIdentityLinkService` / `WebDeviceHandoffService` — the existing QR-code
+device-linking feature) → link a new device → install the Play Store
+version → confirm the link → only then uninstall the sideload install.
+Nothing in the app currently tells a user this is the right sequence —
+worth a short in-app or FAQ note once Play is actually live and this
+scenario can occur for real.
+
 Desktop installers built on this Mac are ad-hoc signed on macOS (see
 `platforms/desktop/afterPack.js`'s doc comment — this is the project's normal,
 accepted state, not a gap to fix) and unsigned on Windows/Linux — no paid
