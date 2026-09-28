@@ -1,9 +1,8 @@
 /**
- * First-run walkthrough: a short, skippable slide deck introducing the four tabs
- * (Chatrooms / Talks / Contacts / Me) plus Settings. Shown once automatically after
- * a brand-new browser/device completes boot (gated by `getHasSeenWalkthrough` in
- * ui-settings-storage.ts, a device-local flag — not tied to the account), and
- * replayable any time from Settings → Help & Tour.
+ * Optional product-reference tour: a short slide deck introducing the four tabs
+ * (Chatrooms / Talks / Contacts / Me) plus Settings. First run now uses the actionable
+ * guide in actionable-onboarding-guide.ts; this deeper introduction remains available
+ * from its final step and Settings → Help & Tour.
  */
 import { activateModalAccessibility } from './modal-accessibility';
 

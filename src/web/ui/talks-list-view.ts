@@ -5,6 +5,7 @@ import { getTalkContentKey } from './answer-history-storage';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 import type { CreatorReplyRow } from './creator-replies-view';
 import { getMyTalks } from './my-talks-storage';
+import { FEATURED_TALK_TEMPLATES, type TalkTemplateId } from './talk-templates';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderListProgressively } from './render-list-progressively';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
@@ -83,6 +84,8 @@ export type DisplayTalksListDeps = {
   getPreferredTalkLanguage: () => string;
   pickIncomingRowTalkId: (cluster: any) => string;
   showTalkEditorDialog: (existingTalk?: any) => void;
+  showTalkTemplatePicker: () => void;
+  openStarterTalk: (templateId: TalkTemplateId) => void;
   navigateToGraphNode: (target: PersonTarget) => void;
   showChooseWhoToDmPicker: (people: Array<{ id: string; name: string }>) => void;
   emit: (event: string, payload: unknown) => unknown;
@@ -357,14 +360,40 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
   if (talksDateTo) talksDateTo.value = deps.talksDateTo;
 
   if (filteredOutEntries.length === 0 && inEntries.length === 0) {
-    talksList.innerHTML = `
+    const hasTalkHistory = allEntries.length > 0 || rawIncomingEntries.length > 0;
+    const starterCards = FEATURED_TALK_TEMPLATES.map((template) => `
+      <button type="button" class="talks-starter-card" data-starter-template-id="${template.id}" data-testid="talks-starter-${template.id}">
+        <span class="talks-starter-icon" aria-hidden="true">${template.icon}</span>
+        <span><strong>${escapeHtml(deps.t(template.labelKey))}</strong><small>${escapeHtml(deps.t(template.descKey))}</small></span>
+      </button>`).join('');
+    talksList.innerHTML = hasTalkHistory ? `
       <div class="empty-state" style="padding: 60px 20px; text-align: center;">
         <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
         <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">${deps.t('talksNoTalks')}</p>
         <p style="font-size: 0.9em; color: #999;">${deps.t('talksNoTalksHelp')}</p>
         ${hiddenReasonsText ? `<p style="font-size: 0.85em; color: #999; margin-top: 8px;">${escapeHtml(hiddenReasonsText)}</p>` : ''}
       </div>
+    ` : `
+      <section class="talks-starter-shelf" data-testid="talks-starter-shelf" aria-labelledby="talks-starter-title">
+        <div class="talks-starter-heading">
+          <div class="talks-starter-mark" aria-hidden="true">💬</div>
+          <div><h2 id="talks-starter-title">${escapeHtml(deps.t('talksStarterTitle'))}</h2><p>${escapeHtml(deps.t('talksStarterBody'))}</p></div>
+        </div>
+        <div class="talks-starter-grid">${starterCards}</div>
+        <div class="talks-starter-actions">
+          <button type="button" class="btn" id="talks-starter-more" data-testid="talks-starter-more">${escapeHtml(deps.t('talksStarterMore'))}</button>
+          <button type="button" class="btn" id="talks-starter-scratch" data-testid="talks-starter-scratch">${escapeHtml(deps.t('talksStarterScratch'))}</button>
+        </div>
+      </section>
     `;
+    talksList.querySelectorAll<HTMLElement>('[data-starter-template-id]').forEach((card) => {
+      card.addEventListener('click', () => {
+        const id = card.dataset.starterTemplateId as TalkTemplateId | undefined;
+        if (id) deps.openStarterTalk(id);
+      });
+    });
+    talksList.querySelector('#talks-starter-more')?.addEventListener('click', deps.showTalkTemplatePicker);
+    talksList.querySelector('#talks-starter-scratch')?.addEventListener('click', () => deps.showTalkEditorDialog());
   } else {
     // TODO §R2: named so it can be passed to renderListProgressively as `renderRow`,
     // instead of an inline .map() callback over the entire list at once.

@@ -1,4 +1,4 @@
-import type { UiTranslationKey } from './ui-translations';
+import type { UiLanguage, UiTranslationKey } from './ui-translations';
 
 /**
  * Built-in "start from a template" library (talk editor usability follow-up — the editor's
@@ -8,11 +8,11 @@ import type { UiTranslationKey } from './ui-translations';
  * sites in ui-manager.ts), so a template opens the ordinary editor pre-filled and fully
  * editable, and is created fresh on save rather than edited-in-place.
  *
- * All eight are `type: 'route'` — a real branching DAG (contextPath-tracked, one node per
+ * The advanced real-life templates are `type: 'route'` — a real branching DAG (contextPath-tracked, one node per
  * root-to-leaf position — `docs/`, `src/shared/talk-engine.ts`), not the simpler linear `flow`
- * shape. A Pair-tag root (`Question.reciprocalTagContext`) still opens every template exactly
- * like the old flow versions did (offerer tag vs. counterpart tag, e.g. buy/sell), but the body
- * now genuinely branches — e.g. Buy/Sell's "sell" answer fans out (parallel, not chained) across
+ * shape. In those route templates, a Pair-tag root (`Question.reciprocalTagContext`) opens the
+ * exchange (offerer tag vs. counterpart tag, e.g. buy/sell), while the body genuinely branches —
+ * e.g. Buy/Sell's "sell" answer fans out (parallel, not chained) across
  * every item for sale, each item its own Simple tag whose one answer itself fans out into
  * independent Model/Condition/Price-range specs that must all check out — matching how a real
  * screening conversation would fork, and how a second/third item gets added to the same talk.
@@ -25,15 +25,124 @@ import type { UiTranslationKey } from './ui-translations';
  * ui-manager.ts) regenerates all of that fresh from the editor's live state at save time, the
  * same as if the author had built the DAG by hand in the route editor.
  */
-export type TalkTemplateId = 'buySell' | 'taxi' | 'job' | 'dating' | 'roommate' | 'lostFound' | 'petSitting' | 'tutor';
+export const STARTER_TALK_CATALOG_VERSION = 1;
+
+export type TalkTemplateId =
+  | 'sharedInterest'
+  | 'activityMeetup'
+  | 'quickPoll'
+  | 'buySell'
+  | 'taxi'
+  | 'job'
+  | 'dating'
+  | 'roommate'
+  | 'lostFound'
+  | 'petSitting'
+  | 'tutor';
 
 export type TalkTemplateDefinition = {
   id: TalkTemplateId;
+  version: number;
   icon: string;
+  type: 'tag' | 'flow' | 'survey' | 'route';
+  category: 'social' | 'community' | 'exchange' | 'opportunity' | 'advanced';
+  featured: boolean;
   labelKey: UiTranslationKey;
   descKey: UiTranslationKey;
-  build: () => any;
+  build: (locale?: UiLanguage) => any;
 };
+
+const language = (locale?: UiLanguage): UiLanguage => (locale === 'zh' ? 'zh' : 'en');
+
+function buildSharedInterestTemplate(locale: UiLanguage = 'en'): any {
+  const zh = language(locale) === 'zh';
+  const title = zh ? '共同兴趣' : 'Shared Interest';
+  return {
+    type: 'tag',
+    title,
+    isAdult: false,
+    language: language(locale),
+    questions: [{
+      id: 'q_0',
+      text: title,
+      tagKind: 'simple',
+      answers: [
+        { id: 'q_0_match', text: title, isMatch: true, isTerminal: true },
+        { id: 'q_0_ignore', text: zh ? '不感兴趣' : 'Not interested', isIgnore: true, isTerminal: true },
+      ],
+    }],
+  };
+}
+
+function buildActivityMeetupTemplate(locale: UiLanguage = 'en'): any {
+  const zh = language(locale) === 'zh';
+  return {
+    type: 'flow',
+    title: zh ? '周末活动' : 'Weekend Activity',
+    isAdult: false,
+    language: language(locale),
+    questions: [
+      {
+        id: 'q_0',
+        text: zh ? '你想一起参加活动吗？' : 'Would you like to join an activity?',
+        answers: [
+          { id: 'q_0_yes', text: zh ? '想参加' : 'Yes, I am interested', nextQuestionId: 'q_1' },
+          { id: 'q_0_no', text: zh ? '暂时不参加' : 'Not right now', isIgnore: true, isTerminal: true },
+        ],
+      },
+      {
+        id: 'q_1',
+        text: zh ? '这个周末方便吗？' : 'Does this weekend work for you?',
+        answers: [
+          { id: 'q_1_yes', text: zh ? '方便，聊聊吧' : "Yes, let's talk", isMatch: true, isTerminal: true },
+          { id: 'q_1_no', text: zh ? '这个周末不方便' : 'Not this weekend', isIgnore: true, isTerminal: true },
+        ],
+      },
+    ],
+  };
+}
+
+function buildQuickPollTemplate(locale: UiLanguage = 'en'): any {
+  const zh = language(locale) === 'zh';
+  return {
+    type: 'survey',
+    title: zh ? '社区快速投票' : 'Quick Community Poll',
+    isAdult: false,
+    language: language(locale),
+    questions: [{
+      id: 'q_0',
+      text: zh ? '你最想参加哪种社区活动？' : 'Which community activity would you most like to join?',
+      isAggregatable: true,
+      contextHashId: '',
+      answers: [
+        { id: 'q_0_outdoors', text: zh ? '户外活动' : 'Outdoor activity', isTerminal: true, counter: 0 },
+        { id: 'q_0_food', text: zh ? '美食聚会' : 'Food meetup', isTerminal: true, counter: 0 },
+        { id: 'q_0_learning', text: zh ? '学习交流' : 'Learning together', isTerminal: true, counter: 0 },
+        { id: 'q_0_other', text: zh ? '其他' : 'Something else', isTerminal: true, counter: 0 },
+        { id: 'q_0_ignore', text: zh ? '跳过' : 'Skip', isIgnore: true, isTerminal: true },
+      ],
+    }],
+  };
+}
+
+export function buildCustomPromptTalkDraft(prompt: string, locale: UiLanguage = 'en'): any {
+  const zh = language(locale) === 'zh';
+  const clean = String(prompt || '').trim();
+  return {
+    type: 'flow',
+    title: clean,
+    isAdult: false,
+    language: language(locale),
+    questions: [{
+      id: 'q_0',
+      text: clean,
+      answers: [
+        { id: 'q_0_match', text: zh ? '愿意，聊聊吧' : "Yes, let's talk", isMatch: true, isTerminal: true },
+        { id: 'q_0_ignore', text: zh ? '不适合我' : 'Not for me', isIgnore: true, isTerminal: true },
+      ],
+    }],
+  };
+}
 
 /** One node of a hand-authored route DAG, before ids/contextPath are assigned. */
 type RouteAnswerSpec = {
@@ -111,8 +220,8 @@ function flattenRouteTree(root: RouteQuestionSpec): any[] {
   return out;
 }
 
-function buildRouteTalk(title: string, root: RouteQuestionSpec, isAdult = false): any {
-  return { type: 'route', title, isAdult, questions: flattenRouteTree(root) };
+function buildRouteTalk(title: string, root: RouteQuestionSpec, isAdult = false, locale: UiLanguage = 'en'): any {
+  return { type: 'route', title, isAdult, language: language(locale), questions: flattenRouteTree(root) };
 }
 
 /**
@@ -130,6 +239,7 @@ function buildPairTagBranchRoute(opts: {
   finalQuestionText: string;
   finalMatchText: string;
   finalIgnoreText: string;
+  locale?: UiLanguage;
 }): any {
   return buildRouteTalk(opts.title, {
     text: opts.tag,
@@ -153,7 +263,7 @@ function buildPairTagBranchRoute(opts: {
       },
       { text: opts.ignoreTagText, isIgnore: true },
     ],
-  });
+  }, false, opts.locale ?? 'en');
 }
 
 /**
@@ -168,7 +278,8 @@ function buildPairTagBranchRoute(opts: {
  * same talk is just another "+Parallel Q" on that same answer in the route editor, not a new
  * talk.
  */
-function buildBuySellTemplate(): any {
+function buildBuySellTemplate(locale: UiLanguage = 'en'): any {
+  const zh = language(locale) === 'zh';
   const item = (opts: {
     name: string;
     modelText: string;
@@ -181,10 +292,10 @@ function buildBuySellTemplate(): any {
       {
         text: opts.name,
         parallel: [
-          { text: 'Model', answers: [{ text: opts.modelText, isMatch: true }] },
-          { text: 'condition', answers: [{ text: 'used', isMatch: true }] },
+          { text: zh ? '型号' : 'Model', answers: [{ text: opts.modelText, isMatch: true }] },
+          { text: zh ? '成色' : 'condition', answers: [{ text: zh ? '二手' : 'used', isMatch: true }] },
           {
-            text: 'price range',
+            text: zh ? '价格范围' : 'price range',
             builtIn: { kind: 'priceRange', priceRange: { min: opts.priceMin, max: opts.priceMax } },
             answers: [],
           },
@@ -193,21 +304,21 @@ function buildBuySellTemplate(): any {
     ],
   });
 
-  return buildRouteTalk('Buy / Sell', {
-    text: 'buy',
+  return buildRouteTalk(zh ? '买 / 卖' : 'Buy / Sell', {
+    text: zh ? '买' : 'buy',
     reciprocalTagContext: true,
     answers: [
       {
-        text: 'sell',
+        text: zh ? '卖' : 'sell',
         parallelThreshold: 1,
         parallel: [
-          item({ name: 'iPhone', modelText: 'iPhone 15 or newer', priceMin: 300, priceMax: 400 }),
-          item({ name: 'iPad', modelText: 'iPad 10th gen or newer', priceMin: 200, priceMax: 350 }),
+          item({ name: 'iPhone', modelText: zh ? 'iPhone 15 或更新型号' : 'iPhone 15 or newer', priceMin: 300, priceMax: 400 }),
+          item({ name: 'iPad', modelText: zh ? 'iPad 第十代或更新型号' : 'iPad 10th gen or newer', priceMin: 200, priceMax: 350 }),
         ],
       },
-      { text: 'Not interested', isIgnore: true },
+      { text: zh ? '不感兴趣' : 'Not interested', isIgnore: true },
     ],
-  });
+  }, false, locale);
 }
 
 function buildTaxiTemplate(): any {
@@ -224,17 +335,19 @@ function buildTaxiTemplate(): any {
   });
 }
 
-function buildJobTemplate(): any {
+function buildJobTemplate(locale: UiLanguage = 'en'): any {
+  const zh = language(locale) === 'zh';
   return buildPairTagBranchRoute({
-    title: 'Job Seeker / Hiring',
-    tag: 'job seeker',
-    counterpartTag: 'hiring',
-    ignoreTagText: 'Not looking',
-    branchQuestionText: 'What role are you interested in?',
-    branchAnswers: ['Engineering', 'Sales', 'Support'],
-    finalQuestionText: 'How many years of experience?',
-    finalMatchText: '2+ years',
-    finalIgnoreText: 'Less than 2 years',
+    title: zh ? '求职 / 招聘' : 'Job Seeker / Hiring',
+    tag: zh ? '求职' : 'job seeker',
+    counterpartTag: zh ? '招聘' : 'hiring',
+    ignoreTagText: zh ? '暂时不找' : 'Not looking',
+    branchQuestionText: zh ? '你对哪类职位感兴趣？' : 'What role are you interested in?',
+    branchAnswers: zh ? ['工程', '销售', '支持'] : ['Engineering', 'Sales', 'Support'],
+    finalQuestionText: zh ? '你有多少年相关经验？' : 'How many years of experience?',
+    finalMatchText: zh ? '两年以上' : '2+ years',
+    finalIgnoreText: zh ? '不足两年' : 'Less than 2 years',
+    locale,
   });
 }
 
@@ -258,17 +371,19 @@ function buildRoommateTemplate(): any {
   });
 }
 
-function buildLostFoundTemplate(): any {
+function buildLostFoundTemplate(locale: UiLanguage = 'en'): any {
+  const zh = language(locale) === 'zh';
   return buildPairTagBranchRoute({
-    title: 'Lost & Found',
-    tag: 'lost something',
-    counterpartTag: 'found something',
-    ignoreTagText: 'Nothing lost',
-    branchQuestionText: 'What did you lose?',
-    branchAnswers: ['Wallet', 'Phone', 'Keys', 'Something else'],
-    finalQuestionText: 'Where did you lose/find it?',
-    finalMatchText: 'Same neighborhood',
-    finalIgnoreText: 'Different area',
+    title: zh ? '失物招领' : 'Lost & Found',
+    tag: zh ? '丢失物品' : 'lost something',
+    counterpartTag: zh ? '捡到物品' : 'found something',
+    ignoreTagText: zh ? '没有丢东西' : 'Nothing lost',
+    branchQuestionText: zh ? '你丢了什么？' : 'What did you lose?',
+    branchAnswers: zh ? ['钱包', '手机', '钥匙', '其他'] : ['Wallet', 'Phone', 'Keys', 'Something else'],
+    finalQuestionText: zh ? '在哪里丢失或捡到的？' : 'Where did you lose/find it?',
+    finalMatchText: zh ? '同一片区域' : 'Same neighborhood',
+    finalIgnoreText: zh ? '不同区域' : 'Different area',
+    locale,
   });
 }
 
@@ -413,13 +528,26 @@ function buildDatingTemplate(): any {
   };
 }
 
+const template = (
+  definition: Omit<TalkTemplateDefinition, 'version'>,
+): TalkTemplateDefinition => ({ version: STARTER_TALK_CATALOG_VERSION, ...definition });
+
 export const TALK_TEMPLATES: TalkTemplateDefinition[] = [
-  { id: 'buySell', icon: '🤝', labelKey: 'talkTemplateBuySell', descKey: 'talkTemplateBuySellDesc', build: buildBuySellTemplate },
-  { id: 'taxi', icon: '🚕', labelKey: 'talkTemplateTaxi', descKey: 'talkTemplateTaxiDesc', build: buildTaxiTemplate },
-  { id: 'job', icon: '💼', labelKey: 'talkTemplateJob', descKey: 'talkTemplateJobDesc', build: buildJobTemplate },
-  { id: 'dating', icon: '❤️', labelKey: 'talkTemplateDating', descKey: 'talkTemplateDatingDesc', build: buildDatingTemplate },
-  { id: 'roommate', icon: '🏠', labelKey: 'talkTemplateRoommate', descKey: 'talkTemplateRoommateDesc', build: buildRoommateTemplate },
-  { id: 'lostFound', icon: '🔍', labelKey: 'talkTemplateLostFound', descKey: 'talkTemplateLostFoundDesc', build: buildLostFoundTemplate },
-  { id: 'petSitting', icon: '🐾', labelKey: 'talkTemplatePetSitting', descKey: 'talkTemplatePetSittingDesc', build: buildPetSittingTemplate },
-  { id: 'tutor', icon: '📚', labelKey: 'talkTemplateTutor', descKey: 'talkTemplateTutorDesc', build: buildTutorTemplate },
+  template({ id: 'sharedInterest', icon: '✨', type: 'tag', category: 'social', featured: true, labelKey: 'talkTemplateSharedInterest', descKey: 'talkTemplateSharedInterestDesc', build: buildSharedInterestTemplate }),
+  template({ id: 'activityMeetup', icon: '🏃', type: 'flow', category: 'social', featured: true, labelKey: 'talkTemplateActivityMeetup', descKey: 'talkTemplateActivityMeetupDesc', build: buildActivityMeetupTemplate }),
+  template({ id: 'quickPoll', icon: '📊', type: 'survey', category: 'community', featured: true, labelKey: 'talkTemplateQuickPoll', descKey: 'talkTemplateQuickPollDesc', build: buildQuickPollTemplate }),
+  template({ id: 'buySell', icon: '🤝', type: 'route', category: 'exchange', featured: true, labelKey: 'talkTemplateBuySell', descKey: 'talkTemplateBuySellDesc', build: buildBuySellTemplate }),
+  template({ id: 'job', icon: '💼', type: 'route', category: 'opportunity', featured: true, labelKey: 'talkTemplateJob', descKey: 'talkTemplateJobDesc', build: buildJobTemplate }),
+  template({ id: 'lostFound', icon: '🔍', type: 'route', category: 'community', featured: true, labelKey: 'talkTemplateLostFound', descKey: 'talkTemplateLostFoundDesc', build: buildLostFoundTemplate }),
+  template({ id: 'taxi', icon: '🚕', type: 'route', category: 'advanced', featured: false, labelKey: 'talkTemplateTaxi', descKey: 'talkTemplateTaxiDesc', build: buildTaxiTemplate }),
+  template({ id: 'dating', icon: '❤️', type: 'route', category: 'advanced', featured: false, labelKey: 'talkTemplateDating', descKey: 'talkTemplateDatingDesc', build: buildDatingTemplate }),
+  template({ id: 'roommate', icon: '🏠', type: 'route', category: 'advanced', featured: false, labelKey: 'talkTemplateRoommate', descKey: 'talkTemplateRoommateDesc', build: buildRoommateTemplate }),
+  template({ id: 'petSitting', icon: '🐾', type: 'route', category: 'advanced', featured: false, labelKey: 'talkTemplatePetSitting', descKey: 'talkTemplatePetSittingDesc', build: buildPetSittingTemplate }),
+  template({ id: 'tutor', icon: '📚', type: 'route', category: 'advanced', featured: false, labelKey: 'talkTemplateTutor', descKey: 'talkTemplateTutorDesc', build: buildTutorTemplate }),
 ];
+
+export const FEATURED_TALK_TEMPLATES = TALK_TEMPLATES.filter((entry) => entry.featured);
+
+export function findTalkTemplate(id: string): TalkTemplateDefinition | undefined {
+  return TALK_TEMPLATES.find((entry) => entry.id === id);
+}

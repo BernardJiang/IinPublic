@@ -8,7 +8,17 @@ import {
 import { TECHSUPPORT_PUB } from '../../shared/techsupport';
 import signedBundle from '../../shared/techsupport-onboarding-tips.signed.json';
 import SEA from 'gun/sea';
+import fs from 'node:fs';
+import path from 'node:path';
 import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
+
+describe('legacy TechSupport onboarding-tip boundary', () => {
+  it('keeps verification support without creating new tip messages during bootstrap', () => {
+    const appSource = fs.readFileSync(path.join(process.cwd(), 'src/web/app/app.ts'), 'utf8');
+    expect(appSource).not.toContain('support_tip_');
+    expect(appSource).not.toContain('techsupportOnboardingTipsBundle');
+  });
+});
 
 describeWithRealTechSupportPair('techsupport-onboarding-tips (docs/TODO.md K2, extended)', (DEV_PAIR) => {
   it('the committed signed bundle verifies for every compiled locale', async () => {

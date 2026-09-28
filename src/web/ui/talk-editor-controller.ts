@@ -112,6 +112,7 @@ export function createTalkEditorController(deps: TalkEditorControllerDeps) {
   const showTalkTemplatePicker = (): void => {
     renderTalkTemplatePicker({
       t: deps.t,
+      language: deps.getUiLanguage(),
       openEditor: (existingTalk) => showTalkEditorDialog(existingTalk),
     });
   };
@@ -155,5 +156,6 @@ export function createTalkEditorController(deps: TalkEditorControllerDeps) {
     renderRouteEditor: renderRouteEditorView,
     setRouteEditorQuestions: (questions: RouteEditorQuestion[]) => { routeQuestions = questions; },
     showTalkEditorDialog,
+    showTalkTemplatePicker,
   };
 }

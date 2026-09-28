@@ -1,9 +1,9 @@
 /**
- * First-run walkthrough regression coverage.
+ * Actionable first-run guide plus the optional product-reference tour.
  *
- * Automated E2E bundles suppress the automatic modal so feature-agnostic specs can
- * interact with the app shell. This spec explicitly opts in and proves that the real
- * first-run, once-per-device, and Settings replay paths remain covered.
+ * Most E2E bundles suppress automatic onboarding so unrelated specs can use the app shell. This
+ * spec opts in and covers the real once-per-device entry, draft-only boundary, tour return path,
+ * empty-Talk starters, Settings replay actions, and narrow-phone layout.
  */
 import type { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -13,13 +13,13 @@ import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-na
 import { afterNav, reloadAppReady } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 
-test.describe('First-run walkthrough', () => {
+test.describe('Actionable first-run guide', () => {
   let context: BrowserContext | undefined;
   let page: Page | undefined;
 
   test.beforeEach(async ({ browser }) => {
     await clearGunForStage1Spec();
-    context = await browser.newContext();
+    context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     page = await context.newPage();
     await injectIdbClear(page);
   });
@@ -30,73 +30,84 @@ test.describe('First-run walkthrough', () => {
     await clearGunForStage1Spec();
   });
 
-  test('opens once automatically, stays dismissed, and remains replayable from Settings', async () => {
+  test('chooses a starter, returns from the reference tour, and opens only an editable draft', async () => {
     const p = page!;
     const url = new URL(webAppURLStableChatroom());
     url.searchParams.set('e2e_walkthrough', '1');
-
     await gotoWebApp(p, url.toString());
     await expect(p).toHaveTitle(/IinPublic — Build Your Digital You$/);
 
-    const modal = p.locator('[data-testid="walkthrough-modal"]');
-    await expect(modal).toBeVisible();
-    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toBeVisible();
-    await expect(p.locator('#walkthrough-title')).toHaveText('Welcome to IinPublic');
-    await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText(
-      'Talk to hundreds of people about hundreds of topics—simultaneously.',
+    const guide = p.locator('[data-testid="actionable-guide-modal"]');
+    await expect(guide).toBeVisible();
+    await expect(p.locator('[data-testid="actionable-guide-step-0"]')).toContainText(
+      'Say it once. Let IinPublic repeat it.',
     );
+    await p.locator('[data-testid="actionable-guide-next"]').click();
+    await expect(p.locator('.actionable-starter-card')).toHaveCount(6);
+    await p.locator('[data-testid="actionable-starter-quickPoll"]').click();
+    await p.locator('[data-testid="actionable-guide-next"]').click();
+    await expect(p.locator('[data-testid="actionable-choice-preview"]')).toHaveText('Quick Community Poll');
 
-    await p.locator('[data-testid="walkthrough-next-btn"]').click();
-    await expect(p.locator('[data-testid="walkthrough-step-1"]')).toBeVisible();
-    await expect(p.locator('#walkthrough-title')).toHaveText('Chatrooms');
-    await p.locator('[data-testid="walkthrough-next-btn"]').click();
-    await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText('Talks are mini-programs you write in natural language.');
-    await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText(
-      'A chatbot that repeats you—not invents you. It reuses your approved answer when the same exact question returns.',
-    );
-    await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText("You only need to answer what's new.");
-    await p.locator('[data-testid="walkthrough-skip-btn"]').click();
+    await p.locator('[data-testid="actionable-guide-product-tour"]').click();
+    await expect(p.locator('[data-testid="walkthrough-modal"]')).toBeVisible();
+    await expect(guide).toBeHidden();
+    await p.keyboard.press('Escape');
+    await expect(p.locator('[data-testid="walkthrough-modal"]')).toHaveCount(0);
+    await expect(guide).toBeVisible();
+    await expect(p.locator('[data-testid="actionable-choice-preview"]')).toHaveText('Quick Community Poll');
 
-    await expect(modal).toHaveCount(0);
-    await expect.poll(() => p.evaluate(() => localStorage.getItem('iinpublic_walkthrough_seen'))).toBe('true');
+    const talksBefore = await p.evaluate(() => localStorage.getItem('myTalks'));
+    await p.locator('[data-testid="actionable-guide-next"]').click();
+    await expect(guide).toHaveCount(0);
+    await expect(p.locator('#talk-editor-form')).toBeVisible();
+    await expect(p.locator('#talk-title')).toHaveValue('Quick Community Poll');
+    expect(await p.evaluate(() => localStorage.getItem('myTalks'))).toBe(talksBefore);
+    await expect.poll(() => p.evaluate(() => localStorage.getItem('iinpublic_actionable_guide_seen_v1'))).toBe('true');
+    await p.locator('#cancel-talk-btn').click();
 
     await reloadAppReady(p);
-    await expect(modal).toHaveCount(0);
+    await expect(guide).toHaveCount(0);
 
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
-    await expect(p.locator('#talks-list')).toContainText('One answer. Hundreds of conversations.');
-    await p.locator('#create-talk-btn').click();
-    await expect(p.locator('.talk-editor-promise')).toHaveText('Write conversations, not code.');
-    await p.locator('#cancel-talk-btn').click();
-
-    await p.locator('.nav-btn[data-view="contacts"]').click();
-    await afterNav();
-    await expect(p.locator('[data-testid="contacts-product-promise"]')).toHaveText(
-      'Find people through what matters to you.',
-    );
+    await expect(p.locator('[data-testid="talks-starter-shelf"]')).toBeVisible();
+    await expect(p.locator('.talks-starter-card')).toHaveCount(6);
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
-    await expect(p.locator('[data-testid="settings-product-promise"]')).toHaveText(
-      'Your identity. Your answers. Your data.',
-    );
     await openSettingsSection(p, SETTINGS_SECTION.help);
+    await expect(p.locator('[data-testid="settings-start-guide-btn"]')).toBeVisible();
+    await expect(p.locator('[data-testid="settings-replay-walkthrough-btn"]')).toHaveText('How IinPublic works');
     await p.locator('[data-testid="settings-replay-walkthrough-btn"]').click();
-    await expect(modal).toBeVisible();
-    await p.locator('[data-testid="walkthrough-dot-4"]').click();
-    await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText(
-      'Build your digital you, one answer at a time.',
-    );
-    await p.locator('[data-testid="walkthrough-dot-5"]').click();
-    await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText(
-      'Your reputation is earned from others. You decide how much to show.',
-    );
-    await expect(p.locator('[data-testid="walkthrough-points"]')).toContainText(
-      'Choose what reaches you. Block who can reach you. Everyone else has the same control.',
-    );
-
+    await expect(p.locator('[data-testid="walkthrough-modal"]')).toBeVisible();
     await p.keyboard.press('Escape');
-    await expect(modal).toHaveCount(0);
+    await p.locator('[data-testid="settings-start-guide-btn"]').click();
+    await expect(guide).toBeVisible();
+    await p.locator('[data-testid="actionable-guide-close"]').click();
+  });
+
+  test('keeps custom text and controls usable at a 320px phone width', async () => {
+    const p = page!;
+    await p.setViewportSize({ width: 320, height: 700 });
+    const url = new URL(webAppURLStableChatroom());
+    url.searchParams.set('e2e_walkthrough', '1');
+    await gotoWebApp(p, url.toString());
+
+    await p.locator('[data-testid="actionable-guide-next"]').click();
+    await p.locator('[data-testid="actionable-custom-prompt"]').fill('Would anyone like to practice Spanish together?');
+    await p.locator('[data-testid="actionable-guide-next"]').click();
+    await expect(p.locator('[data-testid="actionable-choice-preview"]')).toHaveText(
+      'Would anyone like to practice Spanish together?',
+    );
+    await expect(p.locator('[data-testid="actionable-guide-next"]')).toBeInViewport();
+    const widths = await p.locator('[data-testid="actionable-guide-modal"]').evaluate((element) => ({
+      client: element.clientWidth,
+      scroll: element.scrollWidth,
+    }));
+    expect(widths.scroll).toBeLessThanOrEqual(widths.client);
+
+    await p.locator('[data-testid="actionable-guide-next"]').click();
+    await expect(p.locator('#talk-title')).toHaveValue('Would anyone like to practice Spanish together?');
+    expect(await p.evaluate(() => localStorage.getItem('myTalks'))).toBeNull();
   });
 });

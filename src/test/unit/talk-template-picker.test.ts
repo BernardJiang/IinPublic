@@ -12,7 +12,7 @@ beforeEach(() => {
 describe('showTalkTemplatePicker', () => {
   it('renders one row per built-in template plus a "start from scratch" row', () => {
     const openEditor = jest.fn();
-    showTalkTemplatePicker({ t, openEditor });
+    showTalkTemplatePicker({ t, language: 'en', openEditor });
     const rows = document.querySelectorAll('.talk-template-row');
     expect(rows.length).toBe(TALK_TEMPLATES.length + 1);
     expect(document.querySelector('[data-testid="talk-template-scratch"]')).not.toBeNull();
@@ -23,20 +23,20 @@ describe('showTalkTemplatePicker', () => {
 
   it('opens the editor built from the chosen template and closes the modal', () => {
     const openEditor = jest.fn();
-    showTalkTemplatePicker({ t, openEditor });
+    showTalkTemplatePicker({ t, language: 'en', openEditor });
     const first = TALK_TEMPLATES[0];
     document
       .querySelector(`[data-testid="talk-template-${first.id}"]`)!
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(openEditor).toHaveBeenCalledTimes(1);
-    expect(openEditor).toHaveBeenCalledWith(first.build());
+    expect(openEditor).toHaveBeenCalledWith(first.build('en'));
     expect(document.getElementById('talk-template-picker-modal')).toBeNull();
   });
 
   it('opens the editor with no argument when "start from scratch" is chosen', () => {
     const openEditor = jest.fn();
-    showTalkTemplatePicker({ t, openEditor });
+    showTalkTemplatePicker({ t, language: 'en', openEditor });
     document
       .querySelector('[data-testid="talk-template-scratch"]')!
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -46,7 +46,7 @@ describe('showTalkTemplatePicker', () => {
 
   it('closes without opening the editor via the close button', () => {
     const openEditor = jest.fn();
-    showTalkTemplatePicker({ t, openEditor });
+    showTalkTemplatePicker({ t, language: 'en', openEditor });
     document.getElementById('close-talk-template-picker')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('talk-template-picker-modal')).toBeNull();
     expect(openEditor).not.toHaveBeenCalled();
@@ -54,7 +54,7 @@ describe('showTalkTemplatePicker', () => {
 
   it('closes on a backdrop click but not on a click inside the modal content', () => {
     const openEditor = jest.fn();
-    showTalkTemplatePicker({ t, openEditor });
+    showTalkTemplatePicker({ t, language: 'en', openEditor });
     const modal = document.getElementById('talk-template-picker-modal')!;
     modal.querySelector('.modal-content')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('talk-template-picker-modal')).not.toBeNull();
@@ -64,8 +64,8 @@ describe('showTalkTemplatePicker', () => {
   });
 
   it('replaces a stale modal from a previous call', () => {
-    showTalkTemplatePicker({ t, openEditor: jest.fn() });
-    showTalkTemplatePicker({ t, openEditor: jest.fn() });
+    showTalkTemplatePicker({ t, language: 'en', openEditor: jest.fn() });
+    showTalkTemplatePicker({ t, language: 'en', openEditor: jest.fn() });
     expect(document.querySelectorAll('#talk-template-picker-modal').length).toBe(1);
   });
 });

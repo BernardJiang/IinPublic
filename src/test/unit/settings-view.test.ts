@@ -85,6 +85,7 @@ function controlsDeps(overrides: Partial<SettingsControlsDeps> = {}): SettingsCo
     displayTalksList: jest.fn(),
     openLinkedDevicesDialog: jest.fn(async () => undefined),
     openEraseDeviceDialog: jest.fn(),
+    showActionableGuide: jest.fn(),
     showWalkthrough: jest.fn(),
     onStageNameChange: undefined,
     onProfileChange: undefined,
@@ -130,6 +131,8 @@ describe('settings view extraction', () => {
 
     expect(document.querySelector('#settings-jump-menu')).not.toBeNull();
     expect(document.querySelector('#settings-section-languages')).not.toBeNull();
+    expect(document.querySelector('#settings-start-guide-btn')).not.toBeNull();
+    expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
     expect(document.querySelector<HTMLInputElement>('#settings-stage-name-input')?.value).toBe(
       '<Settings>',
     );
@@ -204,6 +207,20 @@ describe('settings view extraction', () => {
 
     expect(deps.setSettingsActiveSectionId).toHaveBeenCalledWith('settings-section-profile');
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
+  });
+
+  it('keeps the actionable guide and reference tour as separate Help actions', () => {
+    document.body.innerHTML = `
+      <button id="settings-start-guide-btn">Start</button>
+      <button id="settings-replay-walkthrough-btn">How it works</button>`;
+    const deps = controlsDeps();
+    bindSettingsControls(deps);
+
+    document.getElementById('settings-start-guide-btn')?.click();
+    document.getElementById('settings-replay-walkthrough-btn')?.click();
+
+    expect(deps.showActionableGuide).toHaveBeenCalledTimes(1);
+    expect(deps.showWalkthrough).toHaveBeenCalledTimes(1);
   });
 
   it('preserves stage-name validation without calling the persistence hook', () => {

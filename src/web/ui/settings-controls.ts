@@ -56,6 +56,7 @@ export interface SettingsControlsDeps {
   displayTalksList: () => void;
   openLinkedDevicesDialog: () => Promise<void>;
   openEraseDeviceDialog: () => void;
+  showActionableGuide: () => void;
   showWalkthrough: () => void;
   onStageNameChange: ((userId: string, newStageName: string) => Promise<void>) | undefined;
   onProfileChange: ((userId: string, updates: ProfileUpdates) => Promise<void>) | undefined;
@@ -288,6 +289,9 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
   document
     .getElementById('settings-replay-walkthrough-btn')
     ?.addEventListener('click', () => deps.showWalkthrough());
+  document
+    .getElementById('settings-start-guide-btn')
+    ?.addEventListener('click', () => deps.showActionableGuide());
   document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
     deps.emit('setHomeChatroom', {
       chatroomId: (event.currentTarget as HTMLSelectElement).value,

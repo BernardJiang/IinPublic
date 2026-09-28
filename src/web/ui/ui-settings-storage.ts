@@ -102,6 +102,19 @@ export function setHasSeenWalkthrough(seen: boolean): void {
   localStorage.setItem('iinpublic_walkthrough_seen', String(seen));
 }
 
+/**
+ * Versioned device-local gate for the actionable first-run guide. The legacy walkthrough
+ * flag counts as seen so an existing installation is never surprised by a new automatic modal.
+ */
+export function getHasSeenActionableGuide(): boolean {
+  return localStorage.getItem('iinpublic_actionable_guide_seen_v1') === 'true'
+    || getHasSeenWalkthrough();
+}
+
+export function setHasSeenActionableGuide(seen: boolean): void {
+  localStorage.setItem('iinpublic_actionable_guide_seen_v1', String(seen));
+}
+
 export function getChatbotTemplate(talkId: string): ChatbotTemplate | null {
   try {
     const raw = localStorage.getItem('chatbotTemplates');

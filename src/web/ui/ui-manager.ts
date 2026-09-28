@@ -105,15 +105,14 @@ import {
   getChatbotTemplate as loadChatbotTemplate,
   getCopyTalkAutoSave,
   getDefaultTalkLanguagePreference,
-  getHasSeenWalkthrough,
   getKeepOldTalkOnEdit,
   getUiLanguagePreference,
   saveChatbotTemplate as storeChatbotTemplate,
   setChatbotEnabled,
   setCopyTalkAutoSave,
-  setHasSeenWalkthrough,
 } from './ui-settings-storage';
-import { showWalkthroughDialog } from './onboarding-walkthrough';
+import { findTalkTemplate } from './talk-templates';
+import { showActionableFirstRun, showFirstRunIfNeeded, showProductReferenceTour } from './first-run-controller';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
 import {
@@ -1160,6 +1159,11 @@ export class UIManager extends EventEmitter {
       getPreferredTalkLanguage: () => this.getPreferredTalkLanguage(),
       pickIncomingRowTalkId: (cluster) => this.pickIncomingRowTalkId(cluster),
       showTalkEditorDialog: (talk) => this.showTalkEditorDialog(talk),
+      showTalkTemplatePicker: () => this.talkEditor().showTalkTemplatePicker(),
+      openStarterTalk: (templateId) => {
+        const template = findTalkTemplate(templateId);
+        if (template) this.showTalkEditorDialog(template.build(this.getUiLanguage()));
+      },
       navigateToGraphNode: (target) => this.navigateToGraphNode(target),
       showChooseWhoToDmPicker: (people) => this.showChooseWhoToDmPicker(people),
       emit: (event, payload) => this.emit(event, payload),
@@ -1652,6 +1656,7 @@ export class UIManager extends EventEmitter {
       displayTalksList: () => this.displayTalksList(),
       openLinkedDevicesDialog: () => this.openLinkedDevicesDialog(),
       openEraseDeviceDialog: () => this.openEraseDeviceDialog(),
+      showActionableGuide: () => this.showActionableGuide(),
       showWalkthrough: () => this.showWalkthrough(),
       onStageNameChange: this.onStageNameChange,
       onProfileChange: this.onProfileChange,
@@ -2459,23 +2464,17 @@ export class UIManager extends EventEmitter {
     saveQuestionAnswersFromCompletionStorage(talkData, answers, location, () => this.displayAnswersList());
   }
 
-  /** Shows the first-run walkthrough once per device, after boot finishes. No-op on replay. */
-  showFirstRunWalkthroughIfNeeded(): void {
-    if (getHasSeenWalkthrough()) return;
-    const enabledForE2E = new URLSearchParams(window.location.search).get('e2e_walkthrough') === '1';
-    if (process.env.DISABLE_HMR === 'true' && !enabledForE2E) return;
-    this.showWalkthrough();
-  }
+  /** Shows the actionable first-run guide once per device, after boot finishes. */
+  showFirstRunWalkthroughIfNeeded(): void { showFirstRunIfNeeded(this.firstRunDeps()); }
 
-  /** Settings → Help & Tour "Replay Tour" button, and the automatic first-run trigger. */
-  showWalkthrough(): void {
-    showWalkthroughDialog({
-      text: (key, fallback) => {
-        const value = this.t(key as UiTranslationKey);
-        return value && value !== key ? value : (fallback ?? key);
-      },
-      onClose: () => setHasSeenWalkthrough(true),
-    });
+  /** The optional six-slide product reference, available from Settings and the action guide. */
+  showWalkthrough(onClose: () => void = () => {}): void { showProductReferenceTour(this.firstRunDeps(), onClose); }
+
+  /** Settings and first-run entry point: guides the user into an editable, unsaved draft. */
+  showActionableGuide(): void { showActionableFirstRun(this.firstRunDeps()); }
+
+  private firstRunDeps() {
+    return { t: (key: UiTranslationKey) => this.t(key), getLanguage: () => this.getUiLanguage(), openTalkDraft: (draft: any) => this.showTalkEditorDialog(draft) };
   }
 
   showPreferencesDialog(): void {
