@@ -72,6 +72,15 @@ export function buildDownloadManifest(
     );
     manifest[platform] = match ? `/downloads/${encodeURIComponent(match)}` : null;
   }
+  // Decided 2026-09-28 (docs/guides/DEPLOY_PRODUCTION.md's "Android distribution channel
+  // strategy"): Play Store becomes the one primary Android channel, so the website stops
+  // offering a direct-download APK for the release — forced null regardless of any staged file
+  // or IINPUBLIC_DOWNLOAD_ANDROID_URL override, which is exactly the same state every other
+  // not-yet-published platform (currently iOS) already renders as "Coming soon" everywhere a
+  // consumer reads this manifest (Settings' download rows, the app-download banner, and OPEN-33's
+  // Android update-reminder banner, which already no-ops entirely when this is null). Revert this
+  // one line to re-open direct-download distribution later; no other code depends on it.
+  manifest.android = null;
   return manifest;
 }
 
