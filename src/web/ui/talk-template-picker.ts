@@ -1,16 +1,17 @@
 import { escapeHtml } from './ui-formatters';
 import { TALK_TEMPLATES } from './talk-templates';
-import type { UiTranslationKey } from './ui-translations';
+import type { UiLanguage, UiTranslationKey } from './ui-translations';
 
 export type TalkTemplatePickerDeps = {
   t: (key: UiTranslationKey) => string;
+  language: UiLanguage;
   /** Opens the talk editor, optionally pre-built from the chosen template ("Start from scratch" passes undefined). */
   openEditor: (existingTalk?: any) => void;
 };
 
 /** "+ Create Talk" entry point: pick a built-in template or start from scratch. */
 export function showTalkTemplatePicker(deps: TalkTemplatePickerDeps): void {
-  const { t, openEditor } = deps;
+  const { t, openEditor, language } = deps;
   document.getElementById('talk-template-picker-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'talk-template-picker-modal';
@@ -58,7 +59,7 @@ export function showTalkTemplatePicker(deps: TalkTemplatePickerDeps): void {
       const templateId = row.dataset.templateId || '';
       close();
       const template = TALK_TEMPLATES.find((t2) => t2.id === templateId);
-      openEditor(template?.build());
+      openEditor(template?.build(language));
     });
   });
 }

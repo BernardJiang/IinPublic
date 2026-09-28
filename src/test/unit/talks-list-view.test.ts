@@ -53,6 +53,8 @@ function makeDeps(overrides: Partial<DisplayTalksListDeps> = {}): DisplayTalksLi
     getPreferredTalkLanguage: () => 'en',
     pickIncomingRowTalkId: (cluster) => String(cluster?.latestTalkId || ''),
     showTalkEditorDialog: jest.fn(),
+    showTalkTemplatePicker: jest.fn(),
+    openStarterTalk: jest.fn(),
     navigateToGraphNode: jest.fn(),
     showChooseWhoToDmPicker: jest.fn(),
     emit: jest.fn(),
@@ -94,12 +96,18 @@ describe('displayTalksList', () => {
     expect(deps.syncStatusBarMatchCount).not.toHaveBeenCalled();
   });
 
-  it('renders the empty state and synchronizes controls and summary callbacks', () => {
+  it('renders the starter shelf for a truly empty history and routes its actions', () => {
     installTalksDom();
     const deps = makeDeps({ talksShowIncoming: false, talksQuery: 'needle' });
     renderFresh(deps);
 
-    expect(document.getElementById('talks-list')?.textContent).toContain('talksNoTalks');
+    expect(document.querySelector('[data-testid="talks-starter-shelf"]')).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('[data-testid="talks-starter-sharedInterest"]')?.click();
+    expect(deps.openStarterTalk).toHaveBeenCalledWith('sharedInterest');
+    document.querySelector<HTMLButtonElement>('[data-testid="talks-starter-more"]')?.click();
+    expect(deps.showTalkTemplatePicker).toHaveBeenCalledTimes(1);
+    document.querySelector<HTMLButtonElement>('[data-testid="talks-starter-scratch"]')?.click();
+    expect(deps.showTalkEditorDialog).toHaveBeenCalledWith();
     expect((document.getElementById('talks-filter-incoming') as HTMLInputElement).checked).toBe(false);
     expect((document.getElementById('talks-filter-query') as HTMLInputElement).value).toBe('needle');
     expect(deps.displayContextualStatistics).toHaveBeenCalledWith(
@@ -136,6 +144,21 @@ describe('displayTalksList', () => {
     expect(emit).toHaveBeenCalledWith('needTalkStats', { talkIds: ['talk-1'] });
     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(emit).toHaveBeenCalledWith('loadTalkForEdit', { talkId: 'talk-1' });
+  });
+
+  it('does not show starters when existing Talk history is merely hidden by a filter', () => {
+    installTalksDom();
+    localStorage.setItem('myTalks', JSON.stringify({
+      existing: {
+        talkId: 'existing', title: 'Existing history', type: 'flow', role: 'created',
+        lastInteraction: '2026-09-12T00:00:00.000Z',
+        fullTalk: { id: 'existing', title: 'Existing history', type: 'flow', questions: [] },
+      },
+    }));
+    renderFresh(makeDeps({ talksQuery: 'does-not-match' }));
+
+    expect(document.querySelector('[data-testid="talks-starter-shelf"]')).toBeNull();
+    expect(document.getElementById('talks-list')?.textContent).toContain('talksNoTalks');
   });
 
   it('pins an older talk above the current sort and unpins it without opening the row', () => {

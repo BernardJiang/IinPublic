@@ -28,8 +28,9 @@ import { readCachedRecoveryAnchor } from '../services/techsupport-recovery-cache
  *
  * K5 (docs/TODO.md): same discipline extended to two more TechSupport-authored,
  * locally-rendered message types — a FAQ auto-answer (`faqSignature`) and the new-question
- * ack (`ackSignature`) — plus the K2-extended "getting started" tips sequence
- * (`tipSignature`, one signed bundle per locale covering the whole ordered list). All fail
+ * ack (`ackSignature`) — plus legacy K2 "getting started" tips already stored before OPEN-32
+ * (`tipSignature`, one signed bundle per locale covering the whole ordered list). New clients no
+ * longer manufacture those tips, but old records must remain verifiable. All message types fail
  * closed (K2-3): a verify failure drops the message silently, no error toast, no
  * impersonated message rendered. Everything else passes through unchanged.
  */

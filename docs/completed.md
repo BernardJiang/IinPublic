@@ -1,6 +1,30 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-21
+Last updated: 2026-09-27
+
+## 2026-09-27 — Actionable first-run starter Talks (OPEN-32)
+
+- Replaced the automatic six-slide tab tour with a three-step action-first guide: “Say it once,”
+  choose a useful starter or enter custom text, then review the result in the existing Talk editor.
+  The handoff creates only an in-memory draft; save and broadcast remain behind the editor's
+  explicit **Create** action.
+- Added a versioned, device-local seen flag with legacy-walkthrough compatibility. Existing users
+  are not surprised by new automatic onboarding; Settings → Help & Tour permanently offers both
+  **Create a starter Talk** and the optional **How IinPublic works** six-slide reference. Opening
+  the reference from the guide returns to the guide with the user's choice intact.
+- Added catalog version 1 with six featured, bilingual, editable starters: Shared Interest (tag),
+  Activity / Meetup (flow), Quick Community Poll (survey), Buy / Sell, Job Seeker / Hiring, and
+  Lost & Found (routes). The empty Talks tab shows these only when there is no Talk history; the
+  existing full template library remains under **More templates**.
+- Preserved TechSupport's verified greeting but stopped creating five synthetic tab-tip messages
+  for new users. The old signed bundle and verifier remain available to authenticate legacy data.
+- Documented product, safety, localization, and acceptance decisions in
+  `docs/design/actionable-first-run-starter-talks.md` and updated technical specification §12.4.
+- Verification: TypeScript and ESLint pass; production web and server builds pass; the full unit
+  command passes (247 suites, 2,409 tests, plus TechSupport key/delegate/recovery and release
+  checksum tools); focused Playwright coverage passes both scenarios, including first-launch,
+  reference-tour return, no-save draft handoff, Settings replay, empty-state starters, and a 320px
+  phone viewport.
 
 ## 2026-09-21 — Curated starter FAQ shared by TechSupport and Settings → Help (K5 extension)
 

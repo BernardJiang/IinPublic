@@ -661,7 +661,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             id: 'settings-section-help',
             title: deps.t('settingsHelp'),
             subtitle: deps.t('settingsHelpSubtitle'),
-            action: `<button type="button" class="btn" id="settings-replay-walkthrough-btn" data-testid="settings-replay-walkthrough-btn">${deps.t('settingsReplayWalkthrough')}</button>`,
+            action: `<div class="settings-inline-actions"><button type="button" class="btn primary-btn" id="settings-start-guide-btn" data-testid="settings-start-guide-btn">${deps.t('settingsStartGuide')}</button><button type="button" class="btn" id="settings-replay-walkthrough-btn" data-testid="settings-replay-walkthrough-btn">${deps.t('settingsReplayWalkthrough')}</button></div>`,
           },
           `<div style="font-weight:600;margin-bottom:8px;">${deps.t('settingsHelpFaqHeading')}</div>
           ${renderTechSupportFaqHelpList(deps.getUiLanguage())}`,

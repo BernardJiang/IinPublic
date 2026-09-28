@@ -1676,12 +1676,27 @@ Decision order:
 
 ### 12.4 First-Run Experience
 
-On the very first launch:
+On the very first launch the runtime establishes identity and room context:
 
 1. The app **auto-generates a unique ID** (Gun SEA public key pair) and a random **stageName** (changeable at any time; not unique).
 2. The SEA key pair is stored locally — it is the sole proof of identity.
 3. The user is immediately placed in the appropriate chatroom based on device location.
-4. The initial screen shows three lists: **nearby users**, **public chatroom**, and **talk list**.
+4. The app opens its normal shell and shows a three-step, actionable guide. It asks what the user
+   wishes they did not have to repeat, offers six bilingual starter Talks plus custom text, and
+   ends by opening the selected content in the normal Talk editor for review.
+
+The guide is a drafting aid, not an automation grant. It MUST NOT save, publish, broadcast, or send
+anything. Those effects remain behind the editor's explicit **Create** action. Its versioned seen
+flag is device-local; the previous walkthrough flag also counts as seen for upgrade compatibility.
+The six-slide tab introduction remains an optional **How IinPublic works** reference in Settings →
+Help & Tour and from the last guide step. Closing that reference returns to the guide without
+losing the current choice.
+
+An empty Talks tab shows the six featured starter drafts (tag, flow, survey, Buy/Sell, Job/Hiring,
+and Lost & Found), plus the full template library and a blank-editor choice. It stops showing this
+starter shelf as soon as any incoming or outgoing Talk history exists. See
+`docs/design/actionable-first-run-starter-talks.md` for copy, safety, localization, and acceptance
+details.
 
 ```typescript
 async function initFirstRun(): Promise<UserSession> {
