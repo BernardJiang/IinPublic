@@ -413,19 +413,40 @@ phrase complexity into normal use.
     mid-cold-boot, which is a class of behavior no diagnostic pass in this session actually checked for despite
     being a documented, real behavior of this exact harness.
 
-- [ ] **OPEN-32 — Production `GET /api/support/delegate-grants` silently returned an EMPTY roster after ~1 day of uptime (found 2026-09-25, cause NOT yet known).**
+- [x] **OPEN-32 — Production `GET /api/support/delegate-grants` silently returned an EMPTY roster after ~1 day of uptime
+  (found 2026-09-25). User-facing impact mitigated 2026-09-27; the underlying root cause is still NOT known.**
   Evidence: the durable store file (`techsupport-radata-8080/!`) still held all 5 grant records (one valid: "Safari (Mac)",
   expires 2026-10-24), and a COPY of that directory read back all 5 with the same `dist` code under both the VPS's Node 24 and a
   Mac's Node 26 — including under overlapping concurrent `getSet` calls (`.map().on()` + `.off()` from several pollers). Only the
   long-running production process returned `{"grants":[],"revocations":[]}` (3 consecutive polls); `sudo systemctl restart
   iinpublic` immediately restored all 5. `faq-entries` (same store, same `collectMap`) kept working, so the degradation is
   specific to nodes that were only ever on disk, not written since boot. Impact: while empty, no delegate could verify its own
-  grant ("Cannot answer — grant missing") and askers could not verify a delegate-signed answer. Watcher script logging grants/faq
-  counts + RSS every 2 min was started 2026-09-25 23:51 UTC to timestamp the next occurrence. Suspects: repeated `.off()` on the
-  shared `techsupport-delegates` chain of a radisk-backed Gun (`TechSupportDurableStore.collectMap`, 600 ms window) unloading
-  in-memory state; radisk read-cache eviction. Candidate fixes: cache the last verified non-empty roster in the route (revocation
-  records still applied), or read grants by explicit key instead of `.map()`, or reopen the store's Gun when a read returns empty
-  against a non-empty index.
+  grant ("Cannot answer — grant missing") and askers could not verify a delegate-signed answer. Suspects (still unconfirmed):
+  repeated `.off()` on the shared `techsupport-delegates` chain of a radisk-backed Gun (`TechSupportDurableStore.collectMap`,
+  600 ms window) unloading in-memory state; radisk read-cache eviction.
+  - **2026-09-27 follow-up: the watcher script mentioned in the original write-up (started 2026-09-25 23:51 UTC to log
+    grants/faq counts + RSS every 2 min) never actually captured anything** — checked the VPS (no running process, no tmux/
+    screen session, no log file) and it had evidently died silently at some point (most likely when the SSH session that
+    launched it, without `nohup`/`systemd`/`tmux`, disconnected) without that being noticed. So the live-recurrence
+    investigation this note describes was never actually completed; treat the root cause as still fully open.
+  - **Implemented instead: the first candidate fix ("cache the last verified non-empty roster in the route").** This fixes the
+    actual user-facing impact without needing the root cause — `GET /api/support/delegate-grants`
+    (`src/server/routes/system-routes.ts`) now keeps an in-memory `lastNonEmptyDelegateRoster` (single long-running process,
+    matching the actual deployment this was observed on), and only falls back to it in the EXACT observed shape: both `grants`
+    and `revocations` come back completely empty from a fresh read while the cache isn't. A read that legitimately finds
+    anything at all (including a real revocation) is trusted as-is and updates the cache normally — a genuine revocation can
+    never be masked by this fallback, since revoking a delegate always produces a non-empty read at the moment it happens.
+    4 new integration tests (`system-routes.test.ts`): the exact empty-then-recovers sequence, a genuine revocation correctly
+    overriding the cache, and a genuinely-empty (never-populated) deployment still returning empty rather than erroring.
+  - **Not done:** the POST route's own internal pre-write existing-grant lookup could hit the same transient-empty-read glitch
+    (would incorrectly treat an existing grant as absent, defeating rollback protection for that one write) — narrower/rarer
+    impact than the GET route (operator-initiated, not continuously polled), left unprotected for now; extend the same pattern
+    there if it's ever observed to matter in practice. The actual root cause is still open — re-establish a DURABLE watcher
+    (systemd timer, not a bare shell loop over an SSH session) if/when actually investigating it further; the impact-mitigating
+    fix above means this is no longer urgent.
+  - **Not yet deployed to production** — committed and pushed to `origin/dev`, pulled onto the VPS's working tree, but
+    `npm run build:production` + `systemctl restart iinpublic` (the actual deploy) was deliberately left as a separate step
+    (same reasoning as every other fix from this session — see the top of this file's recent history).
 - [x] **OPEN-31 — TechSupport FAQ bundle does not scale (found 2026-09-24; IMPLEMENTED 2026-09-24, option 1: per-entry keyed storage).**
   - **Implemented (option 1).** Each answered question is now its own flat, individually signed record
     (`src/shared/techsupport-faq-entry.ts`: `signFaqEntry`/`verifyFaqEntry`/`isFaqEntryRollback`),

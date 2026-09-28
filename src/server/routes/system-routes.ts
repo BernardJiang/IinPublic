@@ -204,6 +204,13 @@ export function registerSystemRoutes(
     techSupportStore ? techSupportStore.getSet(rootKey) : gunService?.getSet(rootKey);
   const hasSupportStorage = !!(techSupportStore || gunService);
 
+  // docs/TODO.md OPEN-32: see the GET /api/support/delegate-grants handler below for why this
+  // exists. Single long-running process, in-memory is the right shape (matches the actual
+  // deployment this bug was observed on — no clustering/multiple workers).
+  let lastNonEmptyDelegateRoster:
+    | { grants: Map<string, TechSupportDelegateGrant>; revocations: Map<string, TechSupportDelegateGrant>; at: string }
+    | null = null;
+
   const prunePresence = (now = new Date()): void => {
     prunePresenceRecords(presenceByUserId, now);
     for (const [toPub, inbox] of peerAckInbox) {
@@ -461,6 +468,32 @@ export function registerSystemRoutes(
       }
       const current = byPub.get(grant.delegatePub);
       if (!current || !isDelegateGrantRollback(current, grant)) byPub.set(grant.delegatePub, grant);
+    }
+
+    // docs/TODO.md OPEN-32 (found 2026-09-25): production once returned {"grants":[],
+    // "revocations":[]} from a long-running (many-hours-uptime) process, three polls in a row,
+    // while a copy of the exact same on-disk store read back all 5 real records fine elsewhere —
+    // root cause not pinned down (suspected Gun chain-reference/radisk-cache staleness on a node
+    // that's only ever been read from, never written to, since boot), but the actual USER-FACING
+    // impact (no delegate could verify its own grant, no asker could verify a delegate-signed
+    // answer) is fixable without understanding that root cause: never let a transient empty read
+    // regress an already-established, non-empty roster. Only kicks in for the exact observed
+    // shape (a completely empty read where the cache isn't) — a read that legitimately finds SOME
+    // data (including a real revocation) is trusted as-is and updates the cache normally, so a
+    // genuine revocation is never masked by this fallback.
+    if (byPub.size === 0 && revocations.size === 0 && lastNonEmptyDelegateRoster) {
+      logger.warn(
+        { cachedAt: lastNonEmptyDelegateRoster.at },
+        '[OPEN-32] /api/support/delegate-grants read back completely empty — serving the last known non-empty roster instead of regressing every client to "grant missing"',
+      );
+      res.json({
+        grants: Array.from(lastNonEmptyDelegateRoster.grants.values()),
+        revocations: Array.from(lastNonEmptyDelegateRoster.revocations.values()),
+      });
+      return;
+    }
+    if (byPub.size > 0 || revocations.size > 0) {
+      lastNonEmptyDelegateRoster = { grants: byPub, revocations, at: new Date().toISOString() };
     }
     res.json({
       grants: Array.from(byPub.values()),
