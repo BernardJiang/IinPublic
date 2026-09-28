@@ -49,5 +49,9 @@ for (const [d, px] of Object.entries(dens)) {
 }
 await render(1024, { scale: 0.86, bg: CREAM, radius: 224 }, path.join(root, 'assets/icon/app-icon-1024.png'));
 await render(1024, { scale: 1 }, path.join(root, 'assets/icon/app-icon-1024-transparent.png'));
+// Play Console's Store listing "App icon" slot: 512x512, full-bleed (opaque corners — Play
+// doesn't crop/mask the listing icon itself, so a self-contained rounded-square treatment like
+// this one is fine, same style as app-icon-1024.png above, just Play's own exact required size).
+await render(512, { scale: 0.86, bg: CREAM, radius: 112 }, path.join(root, 'assets/icon/play-store-icon-512.png'));
 await browser.close();
 console.log('done');
