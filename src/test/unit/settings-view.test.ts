@@ -60,6 +60,7 @@ function viewDeps(overrides: Partial<SettingsViewDeps> = {}): SettingsViewDeps {
     renderSupportInboxSectionIfPresent: jest.fn(),
     renderSupportDelegatesSectionIfPresent: jest.fn(),
     renderSupportDelegateOptInSectionIfPresent: jest.fn(),
+    renderTechSupportRecoveryBannerIfPresent: jest.fn(),
     applySettingsSectionView: jest.fn(),
     settingsActiveSectionId: null,
     ...overrides,

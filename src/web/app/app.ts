@@ -79,6 +79,7 @@ import {
 import {
   subscribeToRecoveryAnchor,
   fetchRecoveryAnchorFromServer,
+  readCachedRecoveryAnchor,
 } from '../services/techsupport-recovery-cache';
 import {
   signDelegateGrant,
@@ -3789,6 +3790,13 @@ export class IinPublicApp {
    * device to learn about a revocation/next-anchor without waiting for a reload. */
   private subscribeToTechSupportRecoveryAnchor(): void {
     if (this.techSupportRecoveryAnchorUnsubscribe) return;
+    // Seed instantly from the local monotonic cache (no Gun round trip needed) so the master's
+    // own recovery banner (docs/TODO.md OPEN-29) doesn't wait on the live subscription below to
+    // paint an incident that already happened in an earlier session. Routed through
+    // refreshDelegateAdminPanel rather than a direct currentUser check here — this method runs
+    // early in boot, often before `currentUser` itself has resolved, so a one-shot guarded push
+    // right here can silently miss the only time Gun's `.on()` ever delivers an unchanged record.
+    this.refreshDelegateAdminPanel();
     const gun = this.gunService.getGun();
     this.techSupportRecoveryAnchorUnsubscribe = subscribeToRecoveryAnchor(gun, (record) => {
       console.warn(
@@ -3796,6 +3804,9 @@ export class IinPublicApp {
         `revokedDm=${record.revokedDmPubs.length} revokedAnnouncement=${record.revokedAnnouncementPubs.length} ` +
         `nextDm=${record.nextDmPub ?? 'unchanged'} nextAnnouncement=${record.nextAnnouncementPub ?? 'unchanged'}`,
       );
+      // docs/TODO.md OPEN-29: surface this to the master operator, not just the console — a
+      // compromised-key incident shouldn't depend on someone having devtools open.
+      this.refreshDelegateAdminPanel();
       // A recovery update changes which authors verify as TechSupport — re-render so a
       // newly-trusted (or newly-untrusted) message reflects it without a reload.
       this.uiManager.rerenderOpenConversation();
@@ -4056,10 +4067,15 @@ export class IinPublicApp {
     this.refreshDelegateAdminPanel();
   }
 
-  /** docs/TODO.md K7: pushes the current roster + delegate-answered FAQ entries to the master's Delegates panel. */
+  /** docs/TODO.md K7: pushes the current roster + delegate-answered FAQ entries to the master's Delegates panel.
+   * Also pushes the latest known recovery-anchor record (OPEN-29) — called from every point in the
+   * lifecycle where the master's own identity is confirmed, unlike the live Gun subscription
+   * (subscribeToTechSupportRecoveryAnchor) alone, which can fire before `currentUser` resolves at
+   * boot and would otherwise never re-deliver the same unchanged record afterward. */
   private refreshDelegateAdminPanel(): void {
     if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return;
     this.uiManager.updateTechSupportDelegates(readCachedDelegateGrants());
+    this.uiManager.updateTechSupportRecoveryAnchor(readCachedRecoveryAnchor());
     const apiBase = this.getBackendApiBase();
     if (!apiBase) return;
     void fetchRecentFaqEntriesFromServer(apiBase, this.gunService.getGun(), 200).then((entries) => {

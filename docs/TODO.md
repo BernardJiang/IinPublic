@@ -241,9 +241,22 @@ phrase complexity into normal use.
     coverage yet — only unit/integration. The mechanism (client-side monotonic cache +
     HTTP-relay poll, identical in shape to the already-E2E-tested OPEN-27 delegate-grant
     hardening) gives reasonable confidence, but this is asserted, not demonstrated end to end.
-  - [ ] No UI surfaces a recovery event to the master operator (e.g. an audit/warning banner) —
-    today it's a `console.warn` on the client and whatever `npm run techsupport:recovery --
-    status` reports. Low priority: this is an emergency operator tool, not routine UI.
+  - [x] **Master-operator recovery banner (2026-09-27).** `techsupport-recovery-banner-view.ts`
+    renders a warning banner (reason, issued date, revoked-key count) at the top of the master's
+    own Settings, above the Delegates section — only for a session logged in as
+    `TECHSUPPORT_ROOT_USER_ID`; renders nothing in the normal no-incident state. The `console.warn`
+    stays as-is for anyone with devtools open. Wired through the existing
+    `support-settings-controller.ts` factory (`updateRecoveryAnchor`/`renderRecoveryBanner`,
+    matching the delegates/inbox pattern exactly) and pushed from `refreshDelegateAdminPanel` — NOT
+    from a one-shot check inside the live Gun subscription itself, which fires early in boot
+    (often before `currentUser` resolves) and found a real timing bug during manual verification:
+    the very first implementation silently never painted the banner because its only push
+    happened at that early, pre-login moment. `refreshDelegateAdminPanel` already runs from every
+    later point in the lifecycle where the master's identity is confirmed, so re-routing through it
+    (reading the always-current `readCachedRecoveryAnchor()`) fixed it. Verified live against a
+    real dev server + the real recovery vault: published a real anchor record, loaded a fresh
+    browser as the TechSupport root, and confirmed the banner rendered with the real reason/
+    timestamp/revocation-count.
 
 - [ ] **OPEN-30 — Harden website release integrity and the browser execution boundary.** Treat CSP
   as defense in depth rather than private-key custody.

@@ -2,10 +2,12 @@ import type { User } from '../../shared/types';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import type { TechSupportDelegateRequest } from '../../shared/techsupport-delegate-invite';
 import type { SupportFaqEntry, SupportInboxEntry } from '../../shared/techsupport-faq';
+import type { RecoveryAnchorRecord } from '../../shared/techsupport-recovery';
 import { escapeHtml } from './ui-formatters';
 import { renderSupportInboxSection } from './support-inbox-view';
 import { renderSupportDelegatesSection } from './support-delegates-view';
 import { renderSupportDelegateOptInSection } from './support-delegate-optin-view';
+import { renderTechSupportRecoveryBanner } from './techsupport-recovery-banner-view';
 import type { UiTranslationKey } from './ui-translations';
 
 export type SupportSettingsControllerDeps = {
@@ -29,6 +31,7 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
   let delegateEligible = false;
   let delegateLabel = '';
   let delegateOptedIn = false;
+  let recoveryAnchor: RecoveryAnchorRecord | null = null;
 
   const renderInbox = (): void => {
     if (!document.getElementById('support-inbox-section')) return;
@@ -53,6 +56,16 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
     }, delegateGrants, delegateActivity, delegatePendingRequests);
   };
 
+  const renderRecoveryBanner = (): void => {
+    if (!document.getElementById('techsupport-recovery-banner-section')) return;
+    renderTechSupportRecoveryBanner({
+      escapeHtml,
+      text: deps.t,
+      formatDate: deps.formatDate,
+      record: recoveryAnchor,
+    });
+  };
+
   const renderDelegateOptIn = (): void => {
     if (!document.getElementById('support-delegate-optin-section')) return;
     renderSupportDelegateOptInSection({
@@ -72,6 +85,7 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
     renderDelegateOptIn,
     renderDelegates,
     renderInbox,
+    renderRecoveryBanner,
     setDelegateEligibility(eligible: boolean, label: string, optedIn: boolean): void {
       // Real bug found live 2026-09-24, answering a real question from a real Huawei phone: this
       // is invoked on nearly every tick of the live delegate-grant subscription (checkOwnDelegate-
@@ -108,6 +122,10 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
     updateInbox(entries: SupportInboxEntry[]): void {
       inboxEntries = entries;
       renderInbox();
+    },
+    updateRecoveryAnchor(record: RecoveryAnchorRecord | null): void {
+      recoveryAnchor = record;
+      renderRecoveryBanner();
     },
   };
 }

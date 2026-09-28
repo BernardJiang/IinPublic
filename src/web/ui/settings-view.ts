@@ -59,6 +59,7 @@ export interface SettingsViewDeps {
   renderSupportInboxSectionIfPresent: () => void;
   renderSupportDelegatesSectionIfPresent: () => void;
   renderSupportDelegateOptInSectionIfPresent: () => void;
+  renderTechSupportRecoveryBannerIfPresent: () => void;
   applySettingsSectionView: (sectionId: string | null) => void;
   settingsActiveSectionId: string | null;
 }
@@ -676,7 +677,8 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   if (user.id === TECHSUPPORT_ROOT_USER_ID) {
     container.insertAdjacentHTML(
       'afterbegin',
-      '<div id="support-delegates-section" style="margin-bottom:14px;"></div>' +
+      '<div id="techsupport-recovery-banner-section"></div>' +
+        '<div id="support-delegates-section" style="margin-bottom:14px;"></div>' +
         '<div id="support-inbox-section" style="margin-bottom:14px;"></div>',
     );
   } else {
@@ -695,6 +697,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   void deps.refreshDownloadAppSection();
   deps.renderSupportInboxSectionIfPresent();
   deps.renderSupportDelegatesSectionIfPresent();
+  deps.renderTechSupportRecoveryBannerIfPresent();
   deps.renderSupportDelegateOptInSectionIfPresent();
   deps.applySettingsSectionView(deps.settingsActiveSectionId);
 }

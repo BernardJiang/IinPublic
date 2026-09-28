@@ -43,6 +43,7 @@ import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
+import type { RecoveryAnchorRecord } from '../../shared/techsupport-recovery';
 import type { TechSupportDelegateRequest } from '../../shared/techsupport-delegate-invite';
 import {
   createSupportSettingsController,
@@ -1379,6 +1380,7 @@ export class UIManager extends EventEmitter {
       renderSupportInboxSectionIfPresent: support.renderInbox,
       renderSupportDelegatesSectionIfPresent: support.renderDelegates,
       renderSupportDelegateOptInSectionIfPresent: support.renderDelegateOptIn,
+      renderTechSupportRecoveryBannerIfPresent: support.renderRecoveryBanner,
       applySettingsSectionView: (sectionId) => this.applySettingsSectionView(sectionId),
       settingsActiveSectionId: this.settingsActiveSectionId,
     });
@@ -2793,6 +2795,10 @@ export class UIManager extends EventEmitter {
 
   updateTechSupportDelegates(grants: TechSupportDelegateGrant[]): void {
     this.supportSettings().updateDelegates(grants);
+  }
+
+  updateTechSupportRecoveryAnchor(record: RecoveryAnchorRecord | null): void {
+    this.supportSettings().updateRecoveryAnchor(record);
   }
 
   updateTechSupportDelegateRequests(requests: TechSupportDelegateRequest[]): void {
