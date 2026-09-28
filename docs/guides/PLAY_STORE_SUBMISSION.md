@@ -125,8 +125,9 @@ network or analytics vendor would be. IinPublic has neither.
 | Approximate location | Yes | No | App functionality (regional chat rooms, distance-based matching) | Yes | Yes — local only, no server record beyond the coarse region |
 | Precise location | **No** | No | Blurred to ~2km on-device before anything leaves the device; raw GPS is never transmitted | — | — |
 | Photos (profile photo) | Yes | No | App functionality (profile photo) | Yes | Yes — removable from profile |
-| Photos, videos, files (talk/chat attachments) | **No** | No | Sent directly device-to-device over IPFS (a peer-to-peer file network), not through our servers | Yes | N/A — never held by us |
-| Messages (in-app chat) | Yes* | No | App functionality (talks and post-match conversations) | N/A (core feature) | Local-only storage; see note below |
+| Videos, files (talk/chat attachments) | **No** | No | Sent directly device-to-device over IPFS (a peer-to-peer file network), not through our servers | Yes | N/A — never held by us |
+| Messages — "Other in-app messages" | Yes* | No | App functionality (talks and post-match conversations) | N/A (core feature) | Local-only storage; see note below |
+| Messages — "SMS or MMS" | **No** | No | The app never uses the device's native SMS/telephony system at all (no SMS/MMS permission anywhere in the manifest) — everything is in-app messaging over its own P2P transport | — | — |
 | Financial/payment info | No | No | Not a feature — the app has no payment or money-transfer functionality of any kind. As a safety measure it actively detects and blocks anything resembling a card number or bank account number from being sent, but does not collect this data itself | — | — |
 | User IDs | Yes | No | App functionality — a device-generated cryptographic key pair identifies your account; no email/phone/username collected | No | Deleting the app removes the local identity |
 | Name, email, phone number | No | No | Not collected — there is no sign-up | — | — |
