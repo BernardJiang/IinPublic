@@ -5,12 +5,15 @@ plugins {
 
 android {
     namespace 'com.iinpublic.app'
-    compileSdk 34
+    // Play Console requires targeting the latest API level for new releases (currently 36,
+    // Android 16) — found 2026-09-27 as a hard error blocking release creation. minSdk stays 24;
+    // this only raises the ceiling the app declares itself compatible with, not the floor.
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.iinpublic.app"
         minSdk 24
-        targetSdk 34
+        targetSdk 36
         versionCode 1000058
         versionName "1.0.58"
 
