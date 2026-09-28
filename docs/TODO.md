@@ -284,9 +284,23 @@ phrase complexity into normal use.
   - [ ] Turn the point-in-time `release:verify-checksums` check into an always-on monitor (cron/CI
     scheduling it against the production origin, alerting on failure) — not built; a manual or
     externally-scheduled check for now.
-  - [ ] Subresource Integrity on `index.html`'s script/style tags — a stronger, browser-enforced
-    complement to the checksum manifest (a tampered `bundle.js` would fail to execute at all, not
-    just fail a later human check), deferred as separate build-pipeline work.
+  - [x] **Subresource Integrity on `index.html`'s entry scripts (2026-09-27).**
+    `scripts/add-sri.js` computes a real sha384 digest of `startup-head.js` (served from
+    `public/`) and webpack's `bundle.js` entry (`dist/web/`) and injects
+    `integrity`/`crossorigin="anonymous"` into their `<script>` tags, wired into
+    `build:embedded` right after `build:web` and before `generate-web-checksums.js` (so the
+    checksum manifest hashes the SRI-patched file actually served, not a pre-patch copy) — idempotent
+    on re-run. **Deliberately scoped to the two statically-referenced entry scripts only, NOT
+    webpack's dynamically-imported async chunks** (maplibre-gl, helia/IPFS, libp2p — this app has
+    many via code-splitting); covering those correctly needs a dedicated webpack plugin
+    (`webpack-subresource-integrity`) and is real, separate build-pipeline work, since a wrong/
+    stale hash on an async chunk fails differently (a feature silently breaks for legitimate users
+    at runtime) than a bad entry-script hash (fails loudly at the very first load). Verified live:
+    built, loaded the real page in a browser (booted cleanly, no integrity errors) — then
+    deliberately appended a byte to the built `bundle.js` and reloaded: Chrome blocked it outright
+    (`Failed to find a valid digest in the 'integrity' attribute ... resource has been blocked`),
+    confirming this actually enforces, not just decorates. New test coverage:
+    `scripts/test/add-sri.test.js` (6 tests, `npm run test:add-sri`, wired into `test:unit`).
 
 - [ ] **OPEN-33 — App update checks/reminders (found 2026-09-27, product owner asked "how can an
   app check there is new updates? or gets reminder of new updates?").** Current state per platform:
