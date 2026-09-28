@@ -24,7 +24,7 @@ The balanced production-security decision is documented in
 ordinary-user browser-v3 and Android Keystore defaults automatic and do not introduce HSM/seed
 phrase complexity into normal use.
 
-- [ ] **OPEN-27 — Remove the TechSupport root from the production browser/relay boundary.**
+- [x] **OPEN-27 — Remove the TechSupport root from the production browser/relay boundary.**
   Enforce keyless production-relay startup. Add a local root-control path that can issue and revoke
   short-lived delegate grants while sending only signed public records to the relay. Migrate every
   remaining rare root operation to a local signer/decrypter or offline command, then delete the
@@ -258,7 +258,7 @@ phrase complexity into normal use.
     browser as the TechSupport root, and confirmed the banner rendered with the real reason/
     timestamp/revocation-count.
 
-- [ ] **OPEN-30 — Harden website release integrity and the browser execution boundary.** Treat CSP
+- [x] **OPEN-30 — Harden website release integrity and the browser execution boundary.** Treat CSP
   as defense in depth rather than private-key custody.
   - [x] Remove CSP `scriptSrc: 'unsafe-eval'` (`src/server/bootstrap/http-bootstrap.ts`). Verified
     against the current dependency set (webpack `devtool` is `source-map`, never
