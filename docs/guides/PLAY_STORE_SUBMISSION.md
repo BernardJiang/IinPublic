@@ -11,6 +11,92 @@ See also: `docs/guides/DEPLOY_PRODUCTION.md` (signed `.aab` build) and
 `https://iinpublic.com/privacy.html` once deployed; that's the URL to enter
 in Play Console's "Privacy policy" field).
 
+## Store listing text
+
+Character limits verified against Play Console's current documentation
+(2026-09-28) — 30 / 80 / 4,000, per-language.
+
+**App name** (≤30 chars — "IinPublic" is 9, well under; a descriptor-
+augmented name is optional, not required):
+```
+IinPublic
+```
+
+**Short description** (≤80 chars) — the app's own established meta-
+description tagline (`src/web/index.html`), not a new paraphrase:
+```
+Build your digital you, one answer at a time.
+```
+(45 characters — room to spare if you'd rather use the longer established
+tagline instead: "Talk to hundreds of people about hundreds of
+topics—simultaneously." — 67 characters, also fits.)
+
+**Full description** (≤4,000 chars; the draft below is ~2,100 — deliberately
+not maxed out, a store listing that's skimmable beats one that's exhaustive):
+```
+Build your digital you, one answer at a time.
+
+IinPublic lets you talk to hundreds of people about hundreds of topics at
+once — without scrolling through profiles or repeating yourself. Write a
+question in plain language (a "Talk"), other people answer it, and the app
+surfaces who you're actually compatible with.
+
+HOW IT WORKS
+• Write a Talk once — a real question you'd genuinely ask or answer often.
+• Your chatbot repeats your approved answer whenever the same question
+  comes up again. It never invents an answer for you — only reuses one you
+  already gave.
+• When you and someone else answer a Talk compatibly, that's a match —
+  find them in Contacts and start a real conversation.
+• Join chat rooms by location or topic to discover who's around. The
+  conversation itself always stays one-to-one.
+
+NO ACCOUNT NEEDED
+There's no email, password, or sign-up. Your identity is a cryptographic
+key generated on your own device the first time you open the app.
+
+PEER-TO-PEER BY DESIGN
+Talks and messages travel directly between members' devices, not through a
+central company database. Your precise location is never shared — only a
+coarse (~2 km) region, and only if you allow location access at all.
+
+YOU CONTROL WHAT'S PUBLIC
+Every answer you give can be public, visible to contacts only, or private.
+Change your mind later: switch an answer back to private, or remove it
+from your profile — future sharing stops immediately.
+
+SAFETY
+• Age-gated content (like dating-related Talks) is only delivered to
+  members the community has verified as 18+ — no ID upload required.
+• Block anyone, any time — a blocked member can no longer reach you.
+• IinPublic never supports payments or money transfers of any kind, and
+  automatically blocks anything that looks like a payment card or bank
+  account number before it can be sent.
+
+OPEN SOURCE
+IinPublic's full source code is public under the MIT license — you don't
+have to take our word for how it handles your data.
+
+This is a closed beta test build. Expect rough edges, and please tell us
+what you find — TechSupport is one tap away inside the app.
+```
+
+**Category:** Social (Communication is the other reasonable fit — Social
+matches the matching/Talks-based positioning better than a pure messenger).
+
+**Contact details:** iinpublic2026@gmail.com (same address as the privacy
+policy). Play also asks for a website — `https://iinpublic.com` — and
+optionally a phone number, which can be left blank.
+
+**Graphic assets** (generated 2026-09-28, `scripts/gen-app-icons.mjs` /
+`scripts/gen-play-feature-graphic.mjs`, re-run either to regenerate from the
+same brand SVG source if the design ever changes):
+- App icon (512×512): `assets/icon/play-store-icon-512.png`
+- Feature graphic (1024×500): `assets/icon/play-store-feature-graphic-1024x500.png`
+- Phone screenshots (4, 1082×2202, real captures from a clean dev build,
+  simulating a real Android client so no browser-only UI leaks in):
+  `assets/screenshots/play-store/1-welcome.png` through `4-settings.png`
+
 ## Data Safety form
 
 Play's Data Safety form asks, per data type: does the app **collect** it
