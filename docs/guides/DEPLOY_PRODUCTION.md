@@ -28,6 +28,29 @@ to ignored `public/downloads/`. The server also ignores any older files left in
 that directory. Supported extensions are `.dmg`, `.exe`, `.AppImage`, `.deb`,
 `.apk`, and `.ipa`.
 
+### Desktop auto-update manifest (added 2026-09-27, docs/TODO.md OPEN-33)
+
+Electron's in-app auto-updater (`platforms/desktop/main.js`'s `autoUpdater`,
+already wired: `autoDownload: true`, checks on launch and periodically) reads
+`build.publish` in `platforms/desktop/package.json`, now `{ provider: "generic",
+url: "https://www.iinpublic.com/downloads/" }` — it needs `latest.yml` (Windows),
+`latest-mac.yml` (macOS), or `latest-linux.yml` (Linux) reachable at that same
+URL, alongside the exact filename electron-builder itself produced (**not**
+`downloads:stage`'s renamed `IinPublic-<version>-<platform>.<ext>` copy — the
+auto-updater and the app's own `/downloads` page use two different, coexisting
+filenames for the same release). After building a desktop installer, stage its
+update manifest too:
+
+```bash
+npm run downloads:stage-autoupdate -- mac      # or windows, linux
+```
+
+This reads `platforms/desktop/dist/latest*.yml` directly (the real source of
+truth for what electron-builder actually named things — never re-derives or
+assumes a naming pattern) and copies it plus every file it references into
+`public/downloads/`, failing loudly if a referenced file is missing rather than
+silently shipping a broken auto-update path.
+
 ### Android release signing (added 2026-09-22)
 
 `android/app/build.gradle`'s `release` build type only signs the APK when

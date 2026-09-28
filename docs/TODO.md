@@ -314,34 +314,48 @@ phrase complexity into normal use.
 
 - [ ] **OPEN-33 — App update checks/reminders (found 2026-09-27, product owner asked "how can an
   app check there is new updates? or gets reminder of new updates?").** Current state per platform:
-  - **Web:** nothing needed — a page load always serves the current deployed build.
-  - **Desktop (Electron):** `electron-updater` is already wired in `platforms/desktop/main.js`
-    (`autoDownload: true`, checks on launch and periodically, "Restart now / Later" dialog on
-    `update-downloaded`) but is currently NON-FUNCTIONAL: `platforms/desktop/package.json`'s
-    `build.publish` targets `{ provider: "github", owner: "BernardJiang", repo: "IinPublic" }`, and
-    this project has never published a GitHub Release — installers are `scp`'d straight to
-    `~/IinPublic/public/downloads/` on the VPS (`scripts/stage-app-download.mjs` + the deploy
-    procedure in this doc / `docs/guides/DEPLOY_PRODUCTION.md`). `checkForUpdates()` therefore finds
-    nothing every time; the failure is swallowed to a log line
-    (`log('periodic check failed', err)`), so it has never surfaced as a visible bug. Fix: switch
-    `publish` to `{ provider: "generic", url: "https://www.iinpublic.com/downloads/" }` (electron-
-    builder already writes `latest.yml`/`latest-mac.yml` next to the installers in
-    `platforms/desktop/dist/` on every build — confirmed present 2026-09-27) and extend the deploy
-    step to upload those two files alongside the installer, not just the installer itself. No other
-    code change needed; the dialog/quit-and-install flow already exists and is presumably correct,
-    just never reachable.
-  - **Android:** no update channel at all (sideloaded APK, not Play Store) — a real gap, not a config
-    fix. Proposed design: on launch (or a daily timer), fetch `GET /api/downloads` (already returns
-    `{version, android, ...}`, see `downloads-routes.ts`), compare against the running
+  - [x] **Web:** nothing needed — a page load always serves the current deployed build.
+  - [x] **Desktop (Electron), fixed 2026-09-27.** `electron-updater` was already wired in
+    `platforms/desktop/main.js` (`autoDownload: true`, checks on launch and periodically, "Restart
+    now / Later" dialog on `update-downloaded`) but was NON-FUNCTIONAL: `build.publish` targeted
+    `{ provider: "github", ... }`, and this project has never published a GitHub Release, so
+    `checkForUpdates()` found nothing every time (the failure was swallowed to a log line, never
+    surfaced as a visible bug). Fixed: `publish` now targets
+    `{ provider: "generic", url: "https://www.iinpublic.com/downloads/" }`. Since
+    `downloads:stage`'s existing renamed-filename copy (`IinPublic-<version>-<platform>.<ext>`,
+    for the app's own `/downloads` page) is a DIFFERENT filename than the one
+    `latest.yml`/`latest-mac.yml`/`latest-linux.yml` actually reference (electron-builder's own
+    naming), a new `scripts/stage-autoupdate-manifest.mjs`
+    (`npm run downloads:stage-autoupdate -- mac|windows|linux`) reads the real manifest electron-
+    builder just wrote and stages it plus every file it references, unmodified — both filenames now
+    coexist in `public/downloads/`. Documented in `DEPLOY_PRODUCTION.md`. Test coverage: 7 unit
+    tests (`scripts/test/stage-autoupdate-manifest.test.js`, `npm run test:stage-autoupdate-
+    manifest`, wired into `test:unit`) — including a regression test for a REAL inconsistency found
+    while building this: this repo's own `platforms/desktop/dist/latest.yml` (a stale leftover from
+    an earlier build) referenced a filename that didn't match what was actually on disk
+    (`IinPublic-Setup-1.0.57.exe` in the yml vs `IinPublic Setup 1.0.57.exe`, dash vs literal space,
+    on disk) — the script fails loudly on this rather than silently staging a broken auto-update
+    path; confirmed by testing live against the real (if inconsistent) local dist output for all
+    three platforms. No other code change needed; the dialog/quit-and-install flow already existed.
+    **Not yet re-verified against a genuinely fresh, current desktop build** (only tested against
+    pre-existing `platforms/desktop/dist/` output of mixed vintage) — worth a real end-to-end check
+    (build → stage → install an older version → confirm the in-app updater actually finds and
+    installs the new one) the next time a desktop release is cut.
+  - [ ] **Android:** no update channel at all (sideloaded APK, not Play Store) — a real gap, not a
+    config fix. Proposed design: on launch (or a daily timer), fetch `GET /api/downloads` (already
+    returns `{version, android, ...}`, see `downloads-routes.ts`), compare against the running
     `BuildConfig.VERSION_NAME`, and show a dismissible banner (Settings, and/or a small badge on the
     gear icon like the existing unread-message badge convention) linking to `/downloads/<file>` when
     the server's version is newer. This can only ever be a reminder — a sideloaded app cannot silently
     self-update — the user still taps through the browser download + install flow (the same v1+v2
     signing fix from OPEN-32's sibling work means that flow itself now works broadly). A shared
     semver-compare helper belongs in `src/shared/` so web/Electron could reuse it too, e.g. for
-    surfacing the same reminder in a browser tab.
-  - **Not implemented yet** — product owner chose to file this as a TODO rather than implement
-    immediately (session was already mid-deploy of an unrelated fix).
+    surfacing the same reminder in a browser tab. **Note (2026-09-27): once on Google Play, Play
+    itself handles update delivery/notification for that distribution channel — this remains a real
+    gap only for the sideloaded-APK distribution path** (this repo's own `/downloads` page), so its
+    priority depends on how much sideload distribution still matters after the Play Store launch.
+  - **Not yet implemented: Android.** Product owner chose to defer this half; the desktop half above
+    is done.
 
 - [ ] **OPEN-34 — Android Keystore custody migration intermittently leaves the legacy v1 record non-null
   (found 2026-09-27, investigated in depth, MITIGATED but not conclusively fixed).**

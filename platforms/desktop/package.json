@@ -100,9 +100,8 @@
     },
     "publish": [
       {
-        "provider": "github",
-        "owner": "BernardJiang",
-        "repo": "IinPublic"
+        "provider": "generic",
+        "url": "https://www.iinpublic.com/downloads/"
       }
     ]
   }
