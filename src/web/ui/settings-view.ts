@@ -22,6 +22,7 @@ import {
 } from './ui-settings-storage';
 import { renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { renderTechSupportFaqHelpList } from './techsupport-faq-help-view';
+import { readNativeHostInfo } from './native-host-info';
 import { avatarInnerHtml } from './profile-avatar';
 import { languageOptionLabel, type UiLanguage, type UiTranslationKey } from './ui-translations';
 import {
@@ -136,18 +137,7 @@ function datetimeLocalValue(value: string | undefined): string {
 
 export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   const connectivity = loadConnectivitySettings();
-  const nativeHost = (
-    window as unknown as {
-      iinpublicNative?: { version?: string; platform?: string };
-    }
-  ).iinpublicNative;
-  const nativeQuery = new URLSearchParams(window.location.search);
-  const queryPlatform = nativeQuery.get('native_platform') || '';
-  // process.env.IINPUBLIC_APP_VERSION is baked in at build time from package.json
-  // (webpack.config.js's DefinePlugin) — every real build (dev, production, the VPS) has it; the
-  // literal 'web' fallback only ever fires for some non-webpack test context.
-  const appVersion = String(nativeHost?.version || nativeQuery.get('app_version') || process.env.IINPUBLIC_APP_VERSION || 'web');
-  const appPlatform = nativeHost?.platform || queryPlatform || 'web';
+  const { version: appVersion, platform: appPlatform } = readNativeHostInfo();
   const container = document.getElementById('settings-content');
   if (!container) return;
   // adoptSessionUser can now trigger this render as soon as this device's local Gun read

@@ -1,5 +1,6 @@
 import { escapeHtml } from './ui-formatters';
 import type { UiTranslationKey } from './ui-translations';
+import { readNativeHostInfo } from './native-host-info';
 
 export type DownloadPlatform = 'mac' | 'windows' | 'linux' | 'android' | 'ios';
 
@@ -29,14 +30,11 @@ export type AppDownloadBannerDeps = {
  * reports 'Electron' in its UA.
  */
 export async function renderAppDownloadBanner(deps: AppDownloadBannerDeps): Promise<void> {
-  const nativeHost = (window as unknown as {
-    iinpublicNative?: { version?: string; platform?: string };
-  }).iinpublicNative;
-  const nativePlatform = new URLSearchParams(window.location.search).get('native_platform');
   // Electron identifies itself through both its preload bridge and UA. Mobile shells use a
   // query marker because their UI is served by the embedded loopback node inside a WebView.
   // Neither is a web-version visitor and neither should be invited to download itself.
-  if (nativeHost?.platform || nativePlatform || /Electron/i.test(navigator.userAgent || '')) return;
+  const { platform: nativePlatform } = readNativeHostInfo();
+  if (nativePlatform !== 'web' || /Electron/i.test(navigator.userAgent || '')) return;
   if (sessionStorage.getItem('iinpublic_dismissed_app_download_banner')) return;
   const shell = document.querySelector('.app-container');
   if (!shell || document.getElementById('app-download-banner')) return;

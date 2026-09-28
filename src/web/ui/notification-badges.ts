@@ -34,3 +34,19 @@ export function renderMatchBadge(conversations: Record<string, { unread?: boolea
     }
   }
 }
+
+/** docs/TODO.md OPEN-33: a small badge on the Settings gear icon — same `.notification-badge`
+ * element/CSS class the unread-message badges above already use, just a "!" instead of a count,
+ * for the Android sideload update reminder (app-update-reminder-view.ts). */
+export function renderUpdateAvailableBadge(hasUpdate: boolean): void {
+  const settingsTab = document.querySelector('.nav-btn[data-view="settings"] .nav-icon');
+  if (!settingsTab) return;
+  const existingBadge = settingsTab.querySelector('.notification-badge');
+  if (existingBadge) existingBadge.remove();
+  if (hasUpdate) {
+    const badge = document.createElement('span');
+    badge.className = 'notification-badge';
+    badge.textContent = '!';
+    settingsTab.appendChild(badge);
+  }
+}

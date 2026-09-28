@@ -11,6 +11,7 @@ import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { completeTalk as completeTalkImpl, saveMyTalk as saveMyTalkImpl } from './talk-completion';
 import { renderAppDownloadBanner as renderAppDownloadBannerImpl } from './app-download-banner';
+import { renderAppUpdateReminderBanner as renderAppUpdateReminderBannerImpl } from './app-update-reminder-view';
 import { openAnswerPreferencesDialog } from './answer-preference-mutations';
 import {
   displayContextualStatistics as displayContextualStatisticsImpl,
@@ -2689,6 +2690,15 @@ export class UIManager extends EventEmitter {
       openDownloadAppSettingsSection: () => {
         this.applySettingsSectionView((this.settingsActiveSectionId = 'settings-section-download-app'));
       },
+    });
+  }
+
+  /** docs/TODO.md OPEN-33: Android-only sideload-update reminder — see app-update-reminder-view.ts. */
+  async renderAppUpdateReminderBanner(): Promise<void> {
+    await renderAppUpdateReminderBannerImpl({
+      apiBase: this.apiBase,
+      t: (key) => this.t(key),
+      tf: (key, values) => this.tf(key, values),
     });
   }
 

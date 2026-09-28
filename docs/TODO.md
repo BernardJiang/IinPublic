@@ -312,8 +312,9 @@ phrase complexity into normal use.
     confirming this actually enforces, not just decorates. New test coverage:
     `scripts/test/add-sri.test.js` (6 tests, `npm run test:add-sri`, wired into `test:unit`).
 
-- [ ] **OPEN-33 — App update checks/reminders (found 2026-09-27, product owner asked "how can an
-  app check there is new updates? or gets reminder of new updates?").** Current state per platform:
+- [x] **OPEN-33 — App update checks/reminders (found 2026-09-27, product owner asked "how can an
+  app check there is new updates? or gets reminder of new updates?"). All three platforms done
+  2026-09-27.** State per platform:
   - [x] **Web:** nothing needed — a page load always serves the current deployed build.
   - [x] **Desktop (Electron), fixed 2026-09-27.** `electron-updater` was already wired in
     `platforms/desktop/main.js` (`autoDownload: true`, checks on launch and periodically, "Restart
@@ -341,21 +342,33 @@ phrase complexity into normal use.
     pre-existing `platforms/desktop/dist/` output of mixed vintage) — worth a real end-to-end check
     (build → stage → install an older version → confirm the in-app updater actually finds and
     installs the new one) the next time a desktop release is cut.
-  - [ ] **Android:** no update channel at all (sideloaded APK, not Play Store) — a real gap, not a
-    config fix. Proposed design: on launch (or a daily timer), fetch `GET /api/downloads` (already
-    returns `{version, android, ...}`, see `downloads-routes.ts`), compare against the running
-    `BuildConfig.VERSION_NAME`, and show a dismissible banner (Settings, and/or a small badge on the
-    gear icon like the existing unread-message badge convention) linking to `/downloads/<file>` when
-    the server's version is newer. This can only ever be a reminder — a sideloaded app cannot silently
-    self-update — the user still taps through the browser download + install flow (the same v1+v2
-    signing fix from OPEN-32's sibling work means that flow itself now works broadly). A shared
-    semver-compare helper belongs in `src/shared/` so web/Electron could reuse it too, e.g. for
-    surfacing the same reminder in a browser tab. **Note (2026-09-27): once on Google Play, Play
-    itself handles update delivery/notification for that distribution channel — this remains a real
-    gap only for the sideloaded-APK distribution path** (this repo's own `/downloads` page), so its
-    priority depends on how much sideload distribution still matters after the Play Store launch.
-  - **Not yet implemented: Android.** Product owner chose to defer this half; the desktop half above
-    is done.
+  - [x] **Android, implemented 2026-09-27.** On launch, fetches `GET /api/downloads` and compares
+    `version` against this device's own running version (the `?app_version=` query param
+    `MainActivity.kt` already appends — same value `settings-view.ts`'s "IinPublic version" line
+    reads) via a new shared, dependency-free `src/shared/semver-compare.ts`
+    (`isNewerVersion`/`compareVersions` — web/Electron could reuse it too, not wired in either
+    since desktop now has its own real in-app updater and web is always current). When the server's
+    published version is newer, shows a dismissible banner (`app-update-reminder-view.ts`, reusing
+    the app-download-banner's exact CSS class) linking straight to the APK, plus a small `!` badge
+    on the Settings gear icon (`notification-badges.ts`'s `renderUpdateAvailableBadge`, same
+    `.notification-badge` element the unread-message badges already use). This can only ever be a
+    reminder — a sideloaded app cannot silently self-update — the user still taps through the
+    browser download + install flow (the v1+v2 signing fix from OPEN-32's sibling work means that
+    flow itself now works broadly). Dismissal is per-version (`localStorage`): dismissing hides the
+    reminder for that exact version, but a still-newer version published afterward reminds again.
+    Deliberately Android-only (`native_platform=android`) — desktop has its own updater, web is
+    always current on load. Refactored the pre-existing native-host/version detection (previously
+    duplicated slightly differently in `settings-view.ts` and `app-download-banner.ts`) into one
+    shared `native-host-info.ts` all three now read from. 22 new unit tests (`semver-compare.test.ts`,
+    `app-update-reminder-view.test.ts`) plus live verification against a real dev server: loaded
+    the app as `native_platform=android&app_version=1.0.50` against a real published `1.0.57`,
+    confirmed the banner + badge both appeared with the real version/link, dismissing removed both
+    immediately and persisted (`localStorage`), and the banner correctly stayed hidden after a
+    reload for the same already-dismissed version. **Not implemented:** a periodic re-check while
+    the app stays open (only checks on launch) — the TODO's own "(or a daily timer)" phrasing
+    treated these as alternatives, and Android processes get restarted by the OS often enough that
+    launch-time alone covers the common case; add a timer later if that assumption turns out wrong
+    in practice.
 
 - [ ] **OPEN-34 — Android Keystore custody migration intermittently leaves the legacy v1 record non-null
   (found 2026-09-27, investigated in depth, MITIGATED but not conclusively fixed).**

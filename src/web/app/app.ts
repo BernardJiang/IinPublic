@@ -1010,6 +1010,7 @@ export class IinPublicApp {
     // Finish wiring the already-visible UI.
     this.uiManager.setApiBase(this.getBackendApiBase());
     void this.uiManager.renderAppDownloadBanner();
+    void this.uiManager.renderAppUpdateReminderBanner();
     this.uiManager.setPublicProfileFoundationReader(async (userId: string) => {
       const [data, reputation] = await Promise.all([
         this.gunService.get(`user-public-profile/${userId}`),
