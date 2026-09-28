@@ -1,14 +1,16 @@
 {
   "version": 1,
   "dm": {
-    "current": "z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc",
+    "current": "g35P25RL1NgXjTZz2KlV3OYUfUepP5C7y9N0_O1evdU.cw9XuawRa_d8eFiocWX8XR7FzuQoLMY0N7V3zOXCb2s",
     "trusted": [
+      "g35P25RL1NgXjTZz2KlV3OYUfUepP5C7y9N0_O1evdU.cw9XuawRa_d8eFiocWX8XR7FzuQoLMY0N7V3zOXCb2s",
       "z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc"
     ]
   },
   "announcement": {
-    "current": "z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc",
+    "current": "g35P25RL1NgXjTZz2KlV3OYUfUepP5C7y9N0_O1evdU.cw9XuawRa_d8eFiocWX8XR7FzuQoLMY0N7V3zOXCb2s",
     "trusted": [
+      "g35P25RL1NgXjTZz2KlV3OYUfUepP5C7y9N0_O1evdU.cw9XuawRa_d8eFiocWX8XR7FzuQoLMY0N7V3zOXCb2s",
       "z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc"
     ]
   },

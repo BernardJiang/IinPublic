@@ -4,14 +4,14 @@
     {
       "locale": "en",
       "template": "Welcome to IinPublic, {name}. TechSupport is here if you need help.",
-      "authorPub": "z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc",
-      "signature": "SEA{\"m\":{\"authorPub\":\"z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc\",\"kind\":\"techsupport-greeting\",\"locale\":\"en\",\"template\":\"Welcome to IinPublic, {name}. TechSupport is here if you need help.\"},\"s\":\"gHYqc5S1cuG11r6qihjomrEXe5LMkGGO+GJE/W7Z5034178O6OmE95iTgn1BOiDCXVuHgvBFMC92Fh6Svwbtjg==\"}"
+      "authorPub": "g35P25RL1NgXjTZz2KlV3OYUfUepP5C7y9N0_O1evdU.cw9XuawRa_d8eFiocWX8XR7FzuQoLMY0N7V3zOXCb2s",
+      "signature": "SEA{\"m\":{\"authorPub\":\"g35P25RL1NgXjTZz2KlV3OYUfUepP5C7y9N0_O1evdU.cw9XuawRa_d8eFiocWX8XR7FzuQoLMY0N7V3zOXCb2s\",\"kind\":\"techsupport-greeting\",\"locale\":\"en\",\"template\":\"Welcome to IinPublic, {name}. TechSupport is here if you need help.\"},\"s\":\"IuhYXVRQfXnujxUw2gLFU+vQ5apeY0lda6bxruozEmIJ5rQGXDmHGESft3ZPD2KFt9qEmSKCRejt+4uaxTir1A==\"}"
     },
     {
       "locale": "zh",
       "template": "欢迎来到 IinPublic，{name}。如需帮助，TechSupport 随时为你服务。",
-      "authorPub": "z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc",
-      "signature": "SEA{\"m\":{\"authorPub\":\"z14f_7x5zh8o4MRfmMtDbkXDVBLW5xCIwx6vBmfziqc.7ZUeJMkJMX2thZX-RcsbAtohVvmdNv664bPG5tLN_Uc\",\"kind\":\"techsupport-greeting\",\"locale\":\"zh\",\"template\":\"欢迎来到 IinPublic，{name}。如需帮助，TechSupport 随时为你服务。\"},\"s\":\"TNDfSHPvR/3acRuNyBmHopcu34iIpGNHV7xHkhD/lgM44Utb87f8iKCa7nrBsuEY1hRZx+7XErPDMbCU5TUfkA==\"}"
+      "authorPub": "g35P25RL1NgXjTZz2KlV3OYUfUepP5C7y9N0_O1evdU.cw9XuawRa_d8eFiocWX8XR7FzuQoLMY0N7V3zOXCb2s",
+      "signature": "SEA{\"m\":{\"authorPub\":\"g35P25RL1NgXjTZz2KlV3OYUfUepP5C7y9N0_O1evdU.cw9XuawRa_d8eFiocWX8XR7FzuQoLMY0N7V3zOXCb2s\",\"kind\":\"techsupport-greeting\",\"locale\":\"zh\",\"template\":\"欢迎来到 IinPublic，{name}。如需帮助，TechSupport 随时为你服务。\"},\"s\":\"1LVOc4p64vN87D5Wb41QyATy1Q6fvTgKeckNVtRNTYMJEkY5V72IQaJxHTrKEyjGDYSGhjpia8KJUya+PKYlCg==\"}"
     }
   ]
 }
