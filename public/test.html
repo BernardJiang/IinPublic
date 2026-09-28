@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Become a Tester — IinPublic</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --text: #1b1f23;
+    --text-subtle: #6a737d;
+    --box-bg: #f6f8fa;
+    --box-border: #e1e4e8;
+    --code-bg: #f0f2f4;
+    --link: #0969da;
+    --accent: #cc6b1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --text: #e6e6e6;
+      --text-subtle: #9aa2ad;
+      --box-bg: #1f232b;
+      --box-border: #33394a;
+      --code-bg: #23262d;
+      --link: #7db8ff;
+      --accent: #e08a3f;
+    }
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    line-height: 1.55;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 4rem;
+    color: var(--text);
+    background: var(--bg);
+  }
+  a { color: var(--link); }
+  h1 { font-size: 1.7rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.2rem; border-bottom: 1px solid var(--box-border); padding-bottom: 0.3rem; }
+  .subtitle { color: var(--text-subtle); margin-top: 0; margin-bottom: 2rem; }
+  .callout, .step {
+    background: var(--box-bg); border: 1px solid var(--box-border); border-radius: 8px;
+    padding: 1rem 1.25rem; margin: 1.25rem 0;
+  }
+  .step { padding: 0.9rem 1.1rem; margin: 0.8rem 0; }
+  .step strong { display: block; margin-bottom: 0.2rem; }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.92em; }
+  .btn {
+    display: inline-block; background: var(--accent); color: white; text-decoration: none;
+    padding: 0.7em 1.4em; border-radius: 8px; font-weight: 600; margin: 0.5rem 0;
+  }
+  ul, ol { padding-left: 1.3rem; }
+  li { margin-bottom: 0.5rem; }
+  footer { margin-top: 3rem; color: var(--text-subtle); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>Become an IinPublic tester</h1>
+<p class="subtitle">A closed test on Google Play, before the public launch — takes about 5 minutes to join.</p>
+
+<div class="callout">
+  <strong>Build your digital you, one answer at a time.</strong> Talk to hundreds of people about
+  hundreds of topics, simultaneously — write a question once (a "Talk"), and your chatbot repeats
+  your approved answer for you, every time it comes up again. It never invents an answer for you,
+  only reuses one you already gave. It's peer-to-peer: your identity and conversations live on your
+  own device, not in a company database.
+</div>
+
+<h2>1. Join the test</h2>
+<div class="step">
+  <strong>Tap the button below, signed into the Google account you want to test with.</strong>
+  Google requires an explicit opt-in click — being on this page isn't enough.
+  <p style="margin-top:0.8rem;"><a class="btn" href="PLAY_OPT_IN_URL_PLACEHOLDER">Become a tester on Google Play</a></p>
+</div>
+<div class="step">
+  <strong>Click "Become a tester," then "Download it on Google Play."</strong>
+  Install and open the app like any other Play Store app.
+</div>
+<div class="step">
+  <strong>Stay opted in for the whole test.</strong> Google requires testers to stay continuously
+  opted in — if you opt out early, even by uninstalling and it triggering an opt-out, your days
+  don't carry over. If you're not going to have time to actually use it, it's more useful for us
+  if you opt out right away rather than partway through.
+</div>
+
+<h2>2. What to actually do in the app</h2>
+<p>No login, no account setup — the app generates your identity on first launch. A short guided
+tour walks you through writing your first real Talk (an actual editable draft, not a demo).</p>
+<ul>
+  <li>Write at least one real Talk — a genuine question you'd actually want an answer to.</li>
+  <li>Answer a few Talks from other people in your regional chat room.</li>
+  <li>If you know another tester, try to actually match with them — join the same room, answer
+    each other's Talks, and see a real conversation form. This is the part that's hardest to test
+    alone.</li>
+  <li>Poke around Settings — language, appearance, and the "Download the app" section (which will
+    correctly say Android is "Coming soon" there for now — that's expected, not a bug).</li>
+</ul>
+
+<h2>3. Send feedback</h2>
+<p>The fastest way: open <strong>Contacts → TechSupport</strong> right inside the app and just
+ask or say what you found — that channel goes straight to us. For anything with a screenshot or
+more detail worth writing up, use
+<a href="https://github.com/BernardJiang/IinPublic/issues">GitHub Issues</a> instead (the project
+is open source).</p>
+<p>Useful things to mention: anything confusing in the first-run guide, anything that crashed or
+froze, whether matching actually found you real people, and anything you expected the app to do
+that it didn't.</p>
+
+<h2>Privacy</h2>
+<p>See the full <a href="/privacy.html">privacy policy</a> — short version: no email/password
+signup, your talks and messages travel device-to-device, and precise location is never shared
+(only a coarse ~2km region). The one exception is TechSupport, which is answered by us directly,
+so don't send anything there you wouldn't want us to read.</p>
+
+<footer>IinPublic — <a href="https://iinpublic.com">iinpublic.com</a></footer>
+
+</body>
+</html>
