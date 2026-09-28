@@ -97,6 +97,20 @@ same brand SVG source if the design ever changes):
   simulating a real Android client so no browser-only UI leaks in):
   `assets/screenshots/play-store/1-welcome.png` through `4-settings.png`
 
+**Release notes for the first closed-testing release** (≤500 chars,
+verified — draft is 385; written for testers specifically, since there's
+no prior public version to compare against):
+```
+Welcome to the IinPublic closed beta! Build your digital you — write a
+question once (a Talk), and your chatbot repeats your approved answer
+whenever it comes up again. No account needed; your identity lives on
+your own device.
+
+This is our first Play Store test build. Expect rough edges — tell us
+what you find via Contacts → TechSupport in the app, or on GitHub.
+Thanks for testing!
+```
+
 ## Data Safety form
 
 Play's Data Safety form asks, per data type: does the app **collect** it
