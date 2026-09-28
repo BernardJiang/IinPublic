@@ -187,6 +187,65 @@ journalctl -u iinpublic -f
 Once systemd manages production, normally do not run `npm start`
 manually.
 
+### Release-checksum monitor (added 2026-09-27)
+
+Turns the point-in-time `npm run release:verify-checksums` check (see "Release integrity" in
+`docs/guides/DEPLOY_PRODUCTION.md`) into an always-on periodic one (docs/TODO.md OPEN-30):
+`scripts/monitor-release-checksums.sh` re-hashes every file `https://www.iinpublic.com/SHA256SUMS`
+lists against what the live site actually serves, and writes `~/IinPublic/checksum-monitor-
+status.json` (`{"status": "ok"|"failed", ...}`) on every run — a mismatch also fails the systemd
+unit outright, visible in `journalctl`. No outbound email/webhook; check the status file or
+`systemctl status` / journal when you want to know.
+
+``` bash
+sudo nano /etc/systemd/system/iinpublic-checksum-monitor.service
+```
+
+``` ini
+[Unit]
+Description=IinPublic release-checksum monitor (docs/TODO.md OPEN-30)
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/IinPublic
+ExecStart=/home/ubuntu/IinPublic/scripts/monitor-release-checksums.sh
+```
+
+``` bash
+sudo nano /etc/systemd/system/iinpublic-checksum-monitor.timer
+```
+
+``` ini
+[Unit]
+Description=Run the IinPublic release-checksum monitor periodically
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable it:
+
+``` bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now iinpublic-checksum-monitor.timer
+systemctl list-timers iinpublic-checksum-monitor.timer
+```
+
+Useful commands:
+
+``` bash
+sudo systemctl start iinpublic-checksum-monitor.service   # run one check immediately
+journalctl -u iinpublic-checksum-monitor -f                # follow logs
+cat ~/IinPublic/checksum-monitor-status.json                # last check's outcome
+```
+
 ## 7. Install Caddy
 
 ``` bash

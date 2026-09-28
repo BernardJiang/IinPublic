@@ -57,6 +57,7 @@ techsupport-radata*/
 presence-radata*/
 user_data/
 logs/
+checksum-monitor-status.json
 data.json
 .env.local
 

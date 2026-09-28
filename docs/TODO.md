@@ -281,9 +281,19 @@ phrase complexity into normal use.
     `sha256sum -c`-compatible. `npm run release:verify-checksums -- --dir <path>` or
     `-- --base-url <origin>` re-hashes and reports any mismatch/missing file — verified live
     against a running embedded-node server, including that it actually catches a tampered file.
-  - [ ] Turn the point-in-time `release:verify-checksums` check into an always-on monitor (cron/CI
-    scheduling it against the production origin, alerting on failure) — not built; a manual or
-    externally-scheduled check for now.
+  - [x] **Always-on release-checksum monitor (2026-09-27).** `scripts/monitor-release-checksums.sh`
+    wraps `release:verify-checksums --base-url` for a periodic systemd timer
+    (`docs/IinPublic_VPS_Installation_Guide.md`'s new "Release-checksum monitor" section, right
+    after the main service section) — every 6h + 10min after boot, `Persistent=true` so a missed
+    run (VPS reboot) still fires once it's back up. A mismatch both fails the systemd unit outright
+    (visible in `journalctl -u iinpublic-checksum-monitor`) and writes a `checksum-monitor-
+    status.json` marker file with the failure detail, so the outcome is checkable without journal
+    access. Deliberately no outbound email/webhook (product-owner decision 2026-09-27 — no
+    alerting infra exists yet to wire into honestly; journal + marker file is the real, checkable
+    thing available today). Verified live: ran the wrapper against the real production origin
+    (passed, 44 files, wrote a real `ok` status file) and separately against a deliberately
+    unreachable URL (failed with the right exit code and a real `failed` status file capturing the
+    error) before installing.
   - [x] **Subresource Integrity on `index.html`'s entry scripts (2026-09-27).**
     `scripts/add-sri.js` computes a real sha384 digest of `startup-head.js` (served from
     `public/`) and webpack's `bundle.js` entry (`dist/web/`) and injects
