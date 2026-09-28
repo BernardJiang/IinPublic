@@ -19,6 +19,24 @@ its ID.
 
 ## Active execution queue — website and Android first
 
+- [ ] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
+  "no deobfuscation file associated with this App Bundle").** `android/app/build.gradle`'s release
+  buildType has `minifyEnabled false`, and references a `proguard-rules.pro` that has never
+  actually existed (`proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+  'proguard-rules.pro'` — silently unused while minify is off; AGP only reads the file list when
+  minification is actually on). Deliberately NOT flipped on blind for the first closed-testing
+  release: two classes expose `@JavascriptInterface` methods the WebView calls **by exact name**
+  from JavaScript (`NativeCustodyBridge` — the Android-Keystore-backed identity custody read/
+  write path — and `NearbyJavascriptBridge`), and R8's default behavior without explicit keep
+  rules is to rename/strip anything it can't see a Kotlin-side call site for. A regression there
+  wouldn't crash loudly; it would silently break identity load/save for real users. To do this
+  properly: write real keep rules for both `@JavascriptInterface` classes and any JNI native
+  method declarations, enable `minifyEnabled`, build a release AAB, and verify on a real Android
+  test phone (identity read/write survives, nearby discovery still works) before trusting it —
+  not just a clean Gradle build. Low priority: this is a non-blocking Play Console warning, not an
+  error; the app publishes and functions fine without it, just slightly larger and without
+  crash-report symbolication.
+
 The balanced production-security decision is documented in
 `docs/security/techsupport-and-user-production-security.md`. Implement it in this order; keep the
 ordinary-user browser-v3 and Android Keystore defaults automatic and do not introduce HSM/seed
