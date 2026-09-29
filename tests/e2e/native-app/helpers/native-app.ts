@@ -168,6 +168,18 @@ async function dismissAutomaticWalkthroughForBootstrap(page: Page): Promise<void
   await expect(modal).toHaveCount(0);
 }
 
+// Native-app tests run against a static production build (build:web, DISABLE_HMR not forced
+// true), unlike browser e2e which suppresses this guide entirely via DISABLE_HMR — so a genuinely
+// fresh install (e.g. after uninstall/reinstall for a debug<->release swap) shows the first-run
+// actionable onboarding guide, which overlays and intercepts clicks on the bottom nav. Dismiss it
+// defensively before navigating, same pattern as dismissAutomaticWalkthroughForBootstrap above.
+async function dismissActionableGuideIfPresent(page: Page): Promise<void> {
+  const modal = page.locator('[data-testid="actionable-guide-modal"]');
+  if (!(await modal.isVisible().catch(() => false))) return;
+  await page.locator('[data-testid="actionable-guide-close"]').click();
+  await expect(modal).toHaveCount(0);
+}
+
 export async function bootstrapNativeWindow(
   page: Page,
   stageName: string,
@@ -249,6 +261,7 @@ export async function bootstrapNativeWindow(
       .toBe(stageName);
   }
   await publishCurrentPublicUserForRelay(page);
+  await dismissActionableGuideIfPresent(page);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   if (options.pinStableLocation !== false) await pinStableE2eLocation(page);
@@ -295,6 +308,7 @@ export async function bootstrapBrowserUserOnOrigin(
     )
     .toBe(stageName);
   await publishCurrentPublicUserForRelay(page);
+  await dismissActionableGuideIfPresent(page);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   await pinStableE2eLocation(page);
