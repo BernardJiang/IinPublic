@@ -7,6 +7,7 @@ import {
   setBlocked as setBlockedImpl,
   type ContactsViewDeps,
 } from './contacts-view';
+import type { BlockNotifyResult } from './block-notify-modal';
 import { getPeerNameCache, rememberPeerName } from './peer-name-cache';
 import { registerTalkForPeer } from './talk-peer-registration';
 import { openPeerDetailView } from './user-detail-view';
@@ -56,7 +57,7 @@ export interface PeerController {
   ): Promise<void>;
   submitPeerReview(userId: string, rating: number): Promise<void>;
   vouchAgeVerified(userId: string): Promise<void>;
-  setBlocked(userId: string, blocked: boolean): Promise<void>;
+  setBlocked(userId: string, blocked: boolean, notify?: BlockNotifyResult): Promise<void>;
   getPeerName(userId: string, fallbackName?: string): string;
   rememberPeerName(userId: string, stageName: string): void;
   resolvePeerStageNameLive(userId: string): Promise<string | null>;
@@ -142,6 +143,8 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
       registerTalkForPeer,
       isBlockedByMe: controller.isBlockedByMe,
       setBlocked: controller.setBlocked,
+      getKnownPeople: controller.getKnownPeople,
+      getReceivedBlockSignals: () => deps.getCurrentUser()?.receivedBlockSignals,
       isSupportContact: (candidateId) => candidateId === TECHSUPPORT_ROOT_USER_ID,
       isSupportNotificationsMuted: controller.isSupportNotificationsMuted,
       setSupportNotificationsMuted: controller.setSupportNotificationsMuted,
@@ -244,14 +247,14 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
     async vouchAgeVerified(userId) {
       deps.emit('vouchAgeVerified', { userId });
     },
-    async setBlocked(userId, blocked) {
+    async setBlocked(userId, blocked, notify) {
       return setBlockedImpl(userId, blocked, {
         getCurrentUser: deps.getCurrentUser,
         apiBase: deps.getApiBase(),
         currentUserId: deps.getCurrentUserId(),
         emit: deps.emit,
         refreshContactsList: () => void deps.displayContactsList(),
-      });
+      }, notify);
     },
     getPeerName(userId, fallbackName) {
       const currentMember = deps.getCurrentChatroomMembers()

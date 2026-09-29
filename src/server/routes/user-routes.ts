@@ -136,14 +136,9 @@ export function registerUserRoutes(
     }
   });
 
-  app.get('/api/users/:id/blocks', async (req, res) => {
-    try {
-      const blockedUserIds = await userService.getBlockedUserIds(req.params.id);
-      res.json({ blockedUserIds });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
+  // No GET /api/users/:id/blocks — that would enumerate a user's full block list, which the
+  // block-pairs storage (src/shared/block-pair.ts) deliberately doesn't support. Use
+  // block-status/:targetId below for a specific-pair check instead.
 
   app.get('/api/users/:id/block-status/:targetId', async (req, res) => {
     try {

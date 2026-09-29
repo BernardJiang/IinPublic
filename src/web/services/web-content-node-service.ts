@@ -267,6 +267,13 @@ export class WebContentNodeService {
     return String(cid);
   }
 
+  /**
+   * This class has no block-status awareness of its own — it just knows an epub/cid, not a
+   * user identity to check. Block enforcement for attachment transfer lives upstream, in
+   * app.ts's callers (autoShareMatchedTalkAttachments/shareConversationMedia on the send side,
+   * maybeFetchSharedAttachmentBytes/ingestAttachmentShareFromMailbox on the receive side), all
+   * sharing app.ts's `resolveBlockStatusEitherWay` — the same gate talk delivery already uses.
+   */
   async publishAttachmentBytes(params: {
     talkId: string;
     attachment: unknown;
@@ -371,6 +378,18 @@ export class WebContentNodeService {
    * Read a stored block's raw bytes from this device's local blockstore (no decryption).
    * Used to serve a shared attachment to a peer over the DM DataChannel — for public
    * (enc 'none') media these bytes are the file itself.
+   *
+   * KNOWN RESIDUAL GAP (not closed by the block-enforcement work covering send/receive of
+   * share messages, see publishAttachmentBytes's doc comment): the DataChannel request that
+   * reaches this method carries only a bare `cid` (via WebConversationService's
+   * getAttachmentBytesForCid hook), never the requesting peer's identity — so this method
+   * cannot itself check block status. In practice this narrows but does not eliminate the gap:
+   * a peer who never received the share message (now block-gated upstream) has no legitimate
+   * way to learn the cid to request it here, but a peer who already knew a cid before being
+   * blocked could still request raw bytes over an existing DM session. Fully closing this
+   * requires plumbing the requester's peer id through the DataChannel request handling in
+   * peer-mesh-service.ts — a larger transport-layer change, tracked as a fast-follow rather
+   * than attempted here.
    */
   async readLocalBlock(cid: string): Promise<Uint8Array | null> {
     const cidString = String(cid || '').trim();

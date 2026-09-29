@@ -87,19 +87,23 @@ test.describe('Peer actions in AppBar', () => {
     await expect(blockBtn).toBeVisible();
     await expect(blockBtn).toContainText('Block User');
 
-    // Blocking from the bar takes real effect (server block edge appears — 15b's signal).
+    // Blocking from the bar takes real effect (server block relationship appears — 15b's signal).
+    // No GET /blocks enumeration endpoint (block-pairs storage is deliberately non-enumerable,
+    // see src/shared/block-pair.ts) — poll the specific-pair block-status check instead.
     await blockBtn.click();
     await expect(tom.locator('#peer-detail-overlay')).toBeHidden({ timeout: 10_000 });
     await expect
       .poll(
         async () => {
-          const res = await tom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomId)}/blocks`);
-          if (!res.ok()) return [];
-          return ((await res.json()) as { blockedUserIds: string[] }).blockedUserIds;
+          const res = await tom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(tomId)}/block-status/${encodeURIComponent(jerryId)}`,
+          );
+          if (!res.ok()) return false;
+          return Boolean(((await res.json()) as { blocked?: boolean }).blocked);
         },
         { timeout: 15_000 },
       )
-      .toContain(jerryId);
+      .toBe(true);
 
     // Reopen: the same ⋯ item now unblocks.
     await jerryRow.click();
@@ -111,12 +115,14 @@ test.describe('Peer actions in AppBar', () => {
     await expect
       .poll(
         async () => {
-          const res = await tom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomId)}/blocks`);
-          if (!res.ok()) return [jerryId];
-          return ((await res.json()) as { blockedUserIds: string[] }).blockedUserIds;
+          const res = await tom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(tomId)}/block-status/${encodeURIComponent(jerryId)}`,
+          );
+          if (!res.ok()) return true;
+          return Boolean(((await res.json()) as { blocked?: boolean }).blocked);
         },
         { timeout: 15_000 },
       )
-      .not.toContain(jerryId);
+      .toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import { GunService } from '../../server/services/gun-service';
 import { UserService } from '../../server/services/user-service';
 import { TalkService } from '../../server/services/talk-service';
 import { ReputationService } from '../../server/services/reputation-service';
+import { blockPairHash } from '../../shared/block-pair';
 
 // Mock Gun.js for integration tests
 jest.mock('gun', () => {
@@ -360,11 +361,12 @@ describe('Service Integration Tests', () => {
             return null;
         }
       });
+      const pairHash = blockPairHash('viewer', 'target');
+      let pairNode: { blockerId: string; targetId: string; blockedAt: string } | null = null;
       jest.spyOn(gunService, 'getPath').mockImplementation(async (path: string[]) => {
         const key = path.join('/');
-        if (key === 'user-blocks/viewer/target') {
-          // Model an eventually visible Gun write: the API must still unblock its own recent block.
-          return null;
+        if (key === `block-pairs/${pairHash}`) {
+          return pairNode;
         }
         // readReputation uses getPath(['users/target', 'reputation'])
         if (key === 'users/target/reputation') {
@@ -373,25 +375,27 @@ describe('Service Integration Tests', () => {
         return null;
       });
 
-      const putPathSpy = jest.spyOn(gunService, 'putPath').mockResolvedValue(undefined);
-
-      // getBlockedUserIds now uses raw Gun map().once() — spy on it directly
-      const getBlockedSpy = jest.spyOn(userService, 'getBlockedUserIds')
-        .mockResolvedValueOnce(['target'])
-        .mockResolvedValueOnce([]);
+      const putPathSpy = jest.spyOn(gunService, 'putPath').mockImplementation(async (path: string[], data: unknown) => {
+        const key = path.join('/');
+        if (key === `block-pairs/${pairHash}`) {
+          pairNode = data as typeof pairNode;
+        }
+        return undefined;
+      });
 
       const blockResult = await userService.blockUser('viewer', 'target');
-      expect(blockResult.changed).toBe(true);
-      expect(blockResult.blockedUserIds).toEqual(['target']);
-      expect(putPathSpy).toHaveBeenCalledWith(['user-blocks', 'viewer', 'target'], expect.any(Object));
-      expect(putPathSpy).toHaveBeenCalledWith(['user-blocked-by', 'target', 'viewer'], expect.any(Object));
+      expect(blockResult).toEqual({ changed: true });
+      expect(putPathSpy).toHaveBeenCalledWith(
+        ['block-pairs', pairHash],
+        { blockerId: 'viewer', targetId: 'target', blockedAt: expect.any(String) },
+      );
 
       const unblockResult = await userService.unblockUser('viewer', 'target');
-      expect(unblockResult.changed).toBe(true);
-      expect(unblockResult.blockedUserIds).toEqual([]);
-      expect(putPathSpy).toHaveBeenCalledWith(['user-blocks', 'viewer', 'target'], null);
-      expect(putPathSpy).toHaveBeenCalledWith(['user-blocked-by', 'target', 'viewer'], null);
-      expect(getBlockedSpy).toHaveBeenCalledTimes(2);
+      expect(unblockResult).toEqual({ changed: true });
+      expect(putPathSpy).toHaveBeenCalledWith(['block-pairs', pairHash], null);
+
+      // No enumeration primitive survives the redesign.
+      expect((userService as unknown as { getBlockedUserIds?: unknown }).getBlockedUserIds).toBeUndefined();
     });
   });
 

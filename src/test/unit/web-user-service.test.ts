@@ -171,6 +171,8 @@ describe('WebUserService', () => {
           },
         ],
         blockedUserIds: ['blocked-1'],
+        receivedBlockSignals: { 'target-1': ['sig-a', 'sig-b'] },
+        sharedBlockSignals: { 'target-2': { groupId: 'coworker', signalId: 'sig-c', sharedAt: '2026-04-21T12:00:00.000Z' } },
         talkFilters: {
           allowedLanguages: ['en', 'zh'],
           requireGoodGrammar: true,
@@ -193,6 +195,11 @@ describe('WebUserService', () => {
     // normalizes to `labels` on read so it isn't silently dropped from its group.
     expect(user.knownPeople?.[0].labels).toEqual(['friend']);
     expect(user.blockedUserIds).toEqual(['blocked-1']);
+    // Regression coverage: these two were added to buildPrivateUserData (the write side) but
+    // initially missed here in mergePrivateUserData (the read side) — getUser() silently
+    // dropped them on every fresh read despite the private blob genuinely containing them.
+    expect(user.receivedBlockSignals).toEqual({ 'target-1': ['sig-a', 'sig-b'] });
+    expect(user.sharedBlockSignals).toEqual({ 'target-2': { groupId: 'coworker', signalId: 'sig-c', sharedAt: '2026-04-21T12:00:00.000Z' } });
     expect(user.talkFilters?.allowedLanguages).toEqual(['en', 'zh']);
   });
 
@@ -510,11 +517,25 @@ describe('WebUserService', () => {
       pub: pair.pub,
       epub: pair.epub,
     };
-    // Mock Gun graph: gun.get(segment).get(segment).put(data, cb) -> cb({ok:true})
-    const mockGun = {
-      get: jest.fn().mockReturnThis(),
-      put: jest.fn((_data, _cb) => _cb && _cb({ ok: true })),
-    };
+    // Mock Gun graph: gun.get(segment).get(segment).put(data, cb) -> cb({ok:true}).
+    // Each .get() call returns a NEW chainable node carrying its own path-so-far, so an
+    // unrelated .get() probe elsewhere (e.g. readReputationSubNode's feature-detection call)
+    // can't pollute the path recorded for a later, different .get() chain's .put().
+    const capturedPutPaths: string[][] = [];
+    function makeGunNode(pathSoFar: string[]): { get: jest.Mock; put: jest.Mock; once: jest.Mock } {
+      const node = {
+        get: jest.fn((segment: string) => makeGunNode([...pathSoFar, segment])),
+        put: jest.fn((_data: unknown, _cb?: (ack: { ok: boolean }) => void) => {
+          capturedPutPaths.push(pathSoFar);
+          return _cb && _cb({ ok: true });
+        }),
+        once: jest.fn((cb?: (data: unknown) => void) => {
+          cb && cb(null);
+        }),
+      };
+      return node;
+    }
+    const mockGun = makeGunNode([]);
     const gunService = {
       get: jest.fn().mockResolvedValue(currentUser),
       getPrivate: jest.fn().mockResolvedValue(null),
@@ -536,12 +557,16 @@ describe('WebUserService', () => {
       (call: [string, any]) => call[0]?.startsWith('users/user-2/reputation')
     );
     expect(hasReputationUpdate).toBe(true);
-    // putNested calls: user-blocks/user-1/user-2 and user-blocked-by/user-2/user-1
-    expect(mockGun.put).toHaveBeenCalledTimes(2);
+    // A single non-enumerable block-pairs/<hash> node now holds the whole relationship (see
+    // src/shared/block-pair.ts) — one write, not two separate plaintext edges.
+    expect(capturedPutPaths).toHaveLength(1);
+    expect(capturedPutPaths[0]).toEqual(['block-pairs', expect.any(String)]);
 
     gunService.get.mockResolvedValue({ ...currentUser, blockedUserIds: ['user-2'] });
     const unblocked = await service.unblockUser('user-1', 'user-2');
     expect(unblocked).toEqual([]);
-    // unblock also calls putNested twice (null) and put() for reputation
+    // unblock also calls putNested once (null) and put() for reputation
+    expect(capturedPutPaths).toHaveLength(2);
+    expect(capturedPutPaths[1]).toEqual(capturedPutPaths[0]); // same pair hash, symmetric key
   });
 });

@@ -31,11 +31,17 @@ import {
   USER_TAGS_KEY,
   type UserTagsEnvelope,
 } from '../../shared/user-tags';
+import { blockPairHash } from '../../shared/block-pair';
+import { recordBlockSignal, recordSharedBlockSignal as mergeSharedBlockSignal } from '../../shared/block-signal';
 
 const USER_TAGS_DELTA_KEY = 'user-tags-delta';
 const TAG_INDEX_KEY = 'tag-index';
 
-type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'blockedUserIds' | 'talkFilters'> & {
+type PrivateUserData = Pick<
+  User,
+  | 'profile' | 'languages' | 'interests' | 'knownPeople' | 'blockedUserIds'
+  | 'receivedBlockSignals' | 'sharedBlockSignals' | 'talkFilters'
+> & {
   headshot?: string;
 };
 
@@ -70,8 +76,8 @@ type PublicProfileFoundation = {
 const PRIVATE_USER_DATA_KEY = 'profile';
 const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
-const USER_BLOCKS_KEY = 'user-blocks';
-const USER_BLOCKED_BY_KEY = 'user-blocked-by';
+// Non-enumerable existence marker per block relationship — see src/shared/block-pair.ts.
+const BLOCK_PAIRS_KEY = 'block-pairs';
 const TECHSUPPORT_ROOT_META_KEY = 'network-root-techsupport';
 
 export class WebUserService {
@@ -215,6 +221,8 @@ export class WebUserService {
       interests: user.interests || [],
       knownPeople: user.knownPeople ?? [],
       blockedUserIds: user.blockedUserIds ?? [],
+      receivedBlockSignals: user.receivedBlockSignals ?? {},
+      sharedBlockSignals: user.sharedBlockSignals ?? {},
       ...(user.talkFilters ? { talkFilters: user.talkFilters } : {}),
       headshot: user.headshot || '',
     };
@@ -407,6 +415,8 @@ export class WebUserService {
         interests: privateData.interests || user.interests || [],
         knownPeople: normalizeKnownPeople(privateData.knownPeople ?? user.knownPeople ?? []),
         blockedUserIds: privateData.blockedUserIds ?? user.blockedUserIds ?? [],
+        receivedBlockSignals: privateData.receivedBlockSignals ?? user.receivedBlockSignals ?? {},
+        sharedBlockSignals: privateData.sharedBlockSignals ?? user.sharedBlockSignals ?? {},
         ...((privateData.talkFilters ?? user.talkFilters)
           ? { talkFilters: privateData.talkFilters ?? user.talkFilters! }
           : {}),
@@ -816,7 +826,55 @@ export class WebUserService {
     }
   }
 
-  private async updateBlockAtApi(userId: string, targetId: string, blocked: boolean): Promise<string[] | null> {
+  /**
+   * Records one received friend-circle block signal (see src/shared/block-signal.ts). Modeled
+   * directly on addKnownPerson — a locked read-modify-write of this account's own SEA-private
+   * data. Called from app.ts's mailbox drain dispatch when a 'block-signal-v1' payload arrives.
+   * Best-effort like addKnownPerson: a lagging graph shouldn't throw out of the mailbox loop.
+   */
+  async recordReceivedBlockSignal(userId: string, targetIdentity: string, signalId: string): Promise<void> {
+    try {
+      await this.withPrivateDataLock(async () => {
+        const u = await this.getUser(userId);
+        const next = recordBlockSignal(u.receivedBlockSignals, targetIdentity, signalId);
+        await this.putPrivateUserData({ ...u, receivedBlockSignals: next });
+      });
+    } catch {
+      /* graph may lag */
+    }
+  }
+
+  /**
+   * Persists this account's own current share scope for a blocked identity (see
+   * src/shared/block-signal.ts — a status, last-write-wins, not a log). Called from app.ts
+   * right after the initial fan-out; resendSharedBlockSignalsToNewContact reads this back to
+   * catch up a contact who's added/relabeled into a matching scope later.
+   */
+  async recordSharedBlockSignal(
+    userId: string,
+    targetIdentity: string,
+    groupId: string,
+    signalId: string,
+  ): Promise<void> {
+    try {
+      await this.withPrivateDataLock(async () => {
+        const u = await this.getUser(userId);
+        const next = mergeSharedBlockSignal(u.sharedBlockSignals, targetIdentity, groupId, signalId);
+        await this.putPrivateUserData({ ...u, sharedBlockSignals: next });
+      });
+    } catch {
+      /* graph may lag */
+    }
+  }
+
+  /**
+   * Returns whether the server-side write succeeded (null means no apiBase configured — the
+   * caller falls back to the direct-Gun path below). The server no longer echoes back a full
+   * block list (there is no enumerable list left to echo, see src/shared/block-pair.ts) — the
+   * client's own SEA-private `blockedUserIds` remains the sole source of truth for what this
+   * account has blocked.
+   */
+  private async updateBlockAtApi(userId: string, targetId: string, blocked: boolean): Promise<boolean | null> {
     const apiBase = this.getApiBase();
     if (!apiBase) return null;
     const url = blocked
@@ -830,13 +888,7 @@ export class WebUserService {
         }
       : { method: 'DELETE' });
     if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
-    const result = await response.json() as { blockedUserIds?: unknown };
-    const returnedIds = Array.isArray(result.blockedUserIds)
-      ? result.blockedUserIds.map((candidate) => String(candidate)).filter(Boolean)
-      : [];
-    return blocked
-      ? Array.from(new Set([...returnedIds, targetId]))
-      : returnedIds.filter((candidate) => candidate !== targetId);
+    return true;
   }
 
   async blockUser(userId: string, targetId: string): Promise<string[]> {
@@ -845,20 +897,16 @@ export class WebUserService {
     // TechSupport is unblockable (docs/TODO.md K6). Refuse before touching the API or
     // the SEA-private block list, so no half-written block edge can survive locally.
     assertBlockTargetAllowed(targetId);
-    const apiBlockedUserIds = await this.updateBlockAtApi(userId, targetId, true);
-    if (apiBlockedUserIds) {
-      // The server block graph is updated, but the client's SEA-encrypted private
-      // blockedUserIds is the on-device source of truth (the server cannot read it).
-      // Without this write the block list is lost on browser restart.
+    const apiOk = await this.updateBlockAtApi(userId, targetId, true);
+    if (apiOk) {
+      // The server block-pairs graph is updated (non-enumerable, see block-pair.ts), but the
+      // client's SEA-encrypted private blockedUserIds is the on-device source of truth (the
+      // server cannot read it). Without this write the block list is lost on browser restart.
       return await this.withPrivateDataLock(async () => {
-        try {
-          const user = await this.getUser(userId);
-          const merged = Array.from(new Set([...(user.blockedUserIds || []), ...apiBlockedUserIds]));
-          await this.putPrivateUserData({ ...user, blockedUserIds: merged });
-          return merged;
-        } catch {
-          return apiBlockedUserIds;
-        }
+        const user = await this.getUser(userId);
+        const merged = Array.from(new Set([...(user.blockedUserIds || []), targetId]));
+        await this.putPrivateUserData({ ...user, blockedUserIds: merged });
+        return merged;
       });
     }
     return await this.withPrivateDataLock(async () => {
@@ -871,10 +919,9 @@ export class WebUserService {
           blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) + 1),
         });
       }
-      await this.putNested([USER_BLOCKS_KEY, userId, targetId], {
-        blockedAt: new Date().toISOString(),
-      });
-      await this.putNested([USER_BLOCKED_BY_KEY, targetId, userId], {
+      await this.putNested([BLOCK_PAIRS_KEY, blockPairHash(userId, targetId)], {
+        blockerId: userId,
+        targetId,
         blockedAt: new Date().toISOString(),
       });
       await this.putPrivateUserData({ ...user, blockedUserIds });
@@ -884,20 +931,14 @@ export class WebUserService {
 
   async unblockUser(userId: string, targetId: string): Promise<string[]> {
     if (!userId || !targetId) throw new Error('userId and targetId required');
-    const apiBlockedUserIds = await this.updateBlockAtApi(userId, targetId, false);
-    if (apiBlockedUserIds) {
+    const apiOk = await this.updateBlockAtApi(userId, targetId, false);
+    if (apiOk) {
       // Mirror the unblock into private data too (see blockUser).
       return await this.withPrivateDataLock(async () => {
-        try {
-          const user = await this.getUser(userId);
-          const merged = Array.from(
-            new Set([...(user.blockedUserIds || []), ...apiBlockedUserIds]),
-          ).filter((candidate) => candidate !== targetId);
-          await this.putPrivateUserData({ ...user, blockedUserIds: merged });
-          return merged;
-        } catch {
-          return apiBlockedUserIds;
-        }
+        const user = await this.getUser(userId);
+        const merged = (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
+        await this.putPrivateUserData({ ...user, blockedUserIds: merged });
+        return merged;
       });
     }
     return await this.withPrivateDataLock(async () => {
@@ -910,8 +951,7 @@ export class WebUserService {
           blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) - 1),
         });
       }
-      await this.putNested([USER_BLOCKS_KEY, userId, targetId], null);
-      await this.putNested([USER_BLOCKED_BY_KEY, targetId, userId], null);
+      await this.putNested([BLOCK_PAIRS_KEY, blockPairHash(userId, targetId)], null);
       await this.putPrivateUserData({ ...user, blockedUserIds });
       return blockedUserIds;
     });

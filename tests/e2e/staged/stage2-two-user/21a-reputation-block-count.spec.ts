@@ -28,10 +28,14 @@ async function setBlockViaApi(page: Page, blockerId: string, targetId: string, b
 }
 
 async function isBlockedViaApi(page: Page, blockerId: string, targetId: string): Promise<boolean> {
-  const res = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(blockerId)}/blocks`);
+  // No GET /blocks enumeration endpoint (block-pairs storage is deliberately non-enumerable,
+  // see src/shared/block-pair.ts) — use the specific-pair block-status check instead.
+  const res = await page.request.get(
+    `${gunBaseURL()}/api/users/${encodeURIComponent(blockerId)}/block-status/${encodeURIComponent(targetId)}`,
+  );
   if (!res.ok()) return false;
-  const body = (await res.json()) as { blockedUserIds?: string[] };
-  return Array.isArray(body.blockedUserIds) && body.blockedUserIds.includes(targetId);
+  const body = (await res.json()) as { blocked?: boolean };
+  return Boolean(body.blocked);
 }
 
 test.describe('Reputation system — block count propagation', () => {

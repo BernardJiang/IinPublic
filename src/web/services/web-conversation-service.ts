@@ -26,6 +26,12 @@ type DirectCapableTransport = ConversationTransport & {
     handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
   ): void;
   setAttachmentHooks?(hooks: {
+    // KNOWN RESIDUAL GAP: this hook is invoked with only a bare cid, never the requesting
+    // peer's identity, so the block-enforcement work covering attachment share messages
+    // (app.ts's resolveBlockStatusEitherWay, used by autoShareMatchedTalkAttachments /
+    // shareConversationMedia / maybeFetchSharedAttachmentBytes / ingestAttachmentShareFromMailbox)
+    // cannot reach this path. See web-content-node-service.ts's readLocalBlock doc comment for
+    // the full explanation and why this narrows but doesn't eliminate the gap.
     getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
     onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
   }): void;

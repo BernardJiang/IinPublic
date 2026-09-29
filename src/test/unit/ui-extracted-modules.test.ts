@@ -246,6 +246,8 @@ describe('extracted UI helpers', () => {
         registerTalkForPeer: jest.fn().mockResolvedValue(undefined),
         isBlockedByMe: () => false,
         setBlocked: jest.fn().mockResolvedValue(undefined),
+        getKnownPeople: () => [],
+        getReceivedBlockSignals: () => undefined,
         isSupportContact: () => false,
         isSupportNotificationsMuted: () => false,
         setSupportNotificationsMuted: jest.fn().mockResolvedValue(undefined),

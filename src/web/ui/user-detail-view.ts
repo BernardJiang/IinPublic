@@ -11,6 +11,8 @@ import { matchScore } from '../../shared/talk-engine';
 import { shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { buildTalkIdentityKey } from '../../shared/cid';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
+import { meetsBlockSignalThreshold, type ReceivedBlockSignals } from '../../shared/block-signal';
 
 type PublicProfileFoundation = {
   headshot?: string | null;
@@ -30,7 +32,13 @@ export type UserDetailViewDeps = {
   showConversationDetail: (conversationId: string, threadTalkId?: string) => void;
   registerTalkForPeer: (talkId: string, talkData: any, peerId: string, peerName: string) => Promise<void>;
   isBlockedByMe: (userId: string) => boolean;
-  setBlocked: (userId: string, blocked: boolean) => Promise<void>;
+  setBlocked: (userId: string, blocked: boolean, notify?: BlockNotifyResult) => Promise<void>;
+  /** For the opt-in friend-circle block-notify modal (showBlockNotifyModal, contacts-view.ts). */
+  getKnownPeople: () => KnownPerson[];
+  /** This viewer's own received friend-circle block signals (src/shared/block-signal.ts) —
+   *  purely local, never a network call. Used to show the contact-scoped threshold warning,
+   *  distinct from the public reputation.blockCount flag. */
+  getReceivedBlockSignals: () => ReceivedBlockSignals | undefined;
   isSupportContact: (userId: string) => boolean;
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
@@ -334,7 +342,18 @@ export function openPeerDetailView(
       if (supportContact) {
         await deps.setSupportNotificationsMuted(!supportMuted);
       } else {
-        await deps.setBlocked(peerId, !deps.isBlockedByMe(peerId));
+        const nextBlocked = !deps.isBlockedByMe(peerId);
+        // Same opt-in friend-circle notification as the Contacts relationship modal
+        // (showBlockNotifyModal, contacts-view.ts) — only offered on the block direction.
+        const notify = nextBlocked
+          ? await showBlockNotifyModal({
+              getKnownPeople: deps.getKnownPeople,
+              isBlockedByMe: deps.isBlockedByMe,
+              escapeHtml,
+              text: deps.text,
+            })
+          : null;
+        await deps.setBlocked(peerId, nextBlocked, notify ?? undefined);
       }
       closePeerDetailView();
     });
@@ -514,7 +533,7 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
     }
 
     if (statsEl) {
-      statsEl.innerHTML = renderProfileHtml(publicUser, deps) +
+      statsEl.innerHTML = renderProfileHtml(publicUser, deps, peerId) +
         renderTransportHtml(deps) +
         renderStatsHtml(stats, deps);
     }
@@ -530,7 +549,7 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
 
 // renderStatsUnavailableHtml removed — P0 step 5 uses inline error handling.
 
-function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
+function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps, peerId: string): string {
   const headshot = String(publicUser?.headshot || '').trim();
   const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
   const ownLanguages = new Set(
@@ -561,6 +580,15 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
         <span title="Flags">⚑ ${Number(reputation.blockCount || 0)}</span>
       </div>`
     : '';
+  // Friend-circle block signal (src/shared/block-signal.ts) — entirely local, distinct from
+  // the public reputation.blockCount flag above: this only reflects THIS viewer's own
+  // contacts, never visible to anyone else, and makes no network call.
+  const showsContactBlockWarning = meetsBlockSignalThreshold(deps.getReceivedBlockSignals(), peerId);
+  const contactBlockWarningHtml = showsContactBlockWarning
+    ? `<div class="peer-contact-block-warning" data-testid="peer-contact-block-warning" title="${escapeHtml(deps.text('contactCircleBlockWarningTitle'))}" style="margin-top:8px;padding:8px 10px;border:1px solid var(--warning-border);border-radius:8px;background:var(--warning-soft);color:var(--text-primary);font-size:0.85em;">
+        ⚠ ${escapeHtml(deps.text('contactCircleBlockWarning'))}
+      </div>`
+    : '';
   return `
     <div class="peer-stat-card contact-public-profile-summary" style="margin-bottom:12px;">
       <div style="display:flex; gap:12px; align-items:flex-start;">
@@ -575,6 +603,7 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
           ${interests.length > 0 ? `<div style="font-size:0.85em; color:var(--text-secondary); margin-top:4px;">${deps.text('interestsLabel')}: ${escapeHtml(interests.join(', '))}</div>` : ''}
           ${sharedInterests.length > 0 ? `<div class="peer-shared-tags"><strong>Shared tags</strong><span>${escapeHtml(sharedInterests.join(', '))}</span></div>` : ''}
           ${reputationHtml}
+          ${contactBlockWarningHtml}
           <div style="display:grid; gap:8px; margin-top:10px;">
             ${
               profile.length > 0

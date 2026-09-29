@@ -29,7 +29,8 @@ export type BroadcastControllerDeps = {
 
 export type BroadcastController = ReturnType<typeof createBroadcastController>;
 
-function formatContactGroupLabel(group: ContactGroupOption, t: BroadcastControllerDeps['t']): string {
+/** Exported for reuse by contacts-view.ts's block-notify group picker — same group-id → label mapping. */
+export function formatContactGroupLabel(group: ContactGroupOption, t: BroadcastControllerDeps['t']): string {
   const builtInKeys: Record<string, string> = {
     all: 'allRelations',
     friend: 'friends',

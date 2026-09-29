@@ -76,19 +76,21 @@ test.describe('Blocklist persists after browser restart', () => {
     expect(blockedAfterCall).toContain(bobbyUserId);
     await afterSync();
 
-    // Verify Bobby is blocked by checking the API
+    // Verify Bobby is blocked by checking the API. No GET /blocks enumeration endpoint
+    // (block-pairs storage is deliberately non-enumerable, see src/shared/block-pair.ts) —
+    // poll the specific-pair block-status check instead.
     await expect
       .poll(
         async () => {
           const res = await pageAlice.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(aliceUserId)}/blocks`,
+            `${gunBaseURL()}/api/users/${encodeURIComponent(aliceUserId)}/block-status/${encodeURIComponent(bobbyUserId)}`,
           );
-          if (!res.ok()) return [];
-          return (await res.json() as { blockedUserIds: string[] }).blockedUserIds;
+          if (!res.ok()) return false;
+          return Boolean(((await res.json()) as { blocked?: boolean }).blocked);
         },
         { timeout: E2E_ASSERT_TIMEOUT_MS },
       )
-      .toContain(bobbyUserId);
+      .toBe(true);
 
     // === RESTART Alice's browser with page reload ===
     // Simply reload the page to simulate a browser restart while preserving storage
@@ -112,13 +114,13 @@ test.describe('Blocklist persists after browser restart', () => {
       )
       .toContain(bobbyUserId);
 
-    // And the server block graph still has the edge (delivery suppression source).
-    const finalBlocks = await pageAlice.request.get(
-      `${gunBaseURL()}/api/users/${encodeURIComponent(aliceUserId)}/blocks`,
+    // And the server block-pairs graph still has the relationship (delivery suppression source).
+    const finalBlockStatus = await pageAlice.request.get(
+      `${gunBaseURL()}/api/users/${encodeURIComponent(aliceUserId)}/block-status/${encodeURIComponent(bobbyUserId)}`,
     );
-    expect(finalBlocks.ok()).toBeTruthy();
-    const blockedList = (await finalBlocks.json()) as { blockedUserIds: string[] };
-    expect(blockedList.blockedUserIds).toContain(bobbyUserId);
+    expect(finalBlockStatus.ok()).toBeTruthy();
+    const blockStatus = (await finalBlockStatus.json()) as { blocked: boolean };
+    expect(blockStatus.blocked).toBe(true);
 
     await pageAlice.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
   });

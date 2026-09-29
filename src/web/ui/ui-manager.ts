@@ -2046,6 +2046,10 @@ export class UIManager extends EventEmitter {
     return this.tf('mediaShareUploading', { name: fileName });
   }
 
+  public formatMediaShareBlockedRecipient(): string {
+    return this.t('mediaShareBlockedRecipient');
+  }
+
   public formatConversationLoadFailed(reason: string): string {
     return this.tf('conversationLoadFailed', { reason });
   }

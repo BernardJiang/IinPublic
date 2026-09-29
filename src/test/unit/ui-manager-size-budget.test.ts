@@ -14,7 +14,10 @@ import path from 'path';
 // sync" handshake and its live-settings-refresh on an incoming synced preference), same rationale.
 // Bumped again 2026-09-27 for real feature work (docs/TODO.md OPEN-33: renderAppUpdateReminderBanner,
 // the Android sideload update-reminder banner wiring), same rationale.
-const UI_MANAGER_LINE_BUDGET = 3_090;
+// Bumped again 2026-09-29 for real feature work (block enforcement extended to IPFS attachment
+// transfer: formatMediaShareBlockedRecipient, the "cannot share media with a blocked user"
+// notification for the shareConversationMedia handler), same rationale — not an extraction.
+const UI_MANAGER_LINE_BUDGET = 3_100;
 
 describe('UIManager architecture budget', () => {
   it(`keeps ui-manager.ts at or below ${UI_MANAGER_LINE_BUDGET.toLocaleString()} lines`, () => {

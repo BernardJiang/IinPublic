@@ -129,16 +129,20 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await pageTom.click('#contact-block-toggle-btn'); // Block
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
 
+    // No GET /blocks enumeration endpoint (block-pairs storage is deliberately non-enumerable,
+    // see src/shared/block-pair.ts) — poll the specific-pair block-status check instead.
     await expect
       .poll(
         async () => {
-          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/blocks`);
-          if (!res.ok()) return [];
-          return (await res.json() as { blockedUserIds: string[] }).blockedUserIds;
+          const res = await pageTom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/block-status/${encodeURIComponent(jerryUserId)}`,
+          );
+          if (!res.ok()) return false;
+          return Boolean(((await res.json()) as { blocked?: boolean }).blocked);
         },
         { timeout: 15000 },
       )
-      .toContain(jerryUserId);
+      .toBe(true);
 
     await pageTom.click('#back-from-peer-detail');
     await afterAction();
@@ -175,13 +179,15 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await expect
       .poll(
         async () => {
-          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/blocks`);
-          if (!res.ok()) return [jerryUserId];
-          return (await res.json() as { blockedUserIds: string[] }).blockedUserIds;
+          const res = await pageTom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/block-status/${encodeURIComponent(jerryUserId)}`,
+          );
+          if (!res.ok()) return true;
+          return Boolean(((await res.json()) as { blocked?: boolean }).blocked);
         },
         { timeout: 15000 },
       )
-      .not.toContain(jerryUserId);
+      .toBe(false);
 
     await pageTom.click('#back-from-peer-detail');
     await afterAction();

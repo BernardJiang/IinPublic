@@ -1,5 +1,13 @@
 export type RelationshipLabel = 'friend' | 'relative' | 'coworker' | 'acquaintance' | 'partner' | 'custom';
 
+/** `{ [targetIdentity]: signalId[] }` — see src/shared/block-signal.ts for the aggregation logic. */
+export type ReceivedBlockSignals = Record<string, string[]>;
+
+/** `{ [targetIdentity]: { groupId, signalId, sharedAt } }` — the SENDER's own record of which
+ *  group scope they've shared each blocked identity with (a status, not a log — one active
+ *  scope per target). See src/shared/block-signal.ts's resolveSharedSignalsForContact. */
+export type SharedBlockSignals = Record<string, { groupId: string; signalId: string; sharedAt: string }>;
+
 export interface TalkIntakeFilters {
   minDistanceMiles?: number;
   maxDistanceMiles?: number;
@@ -52,6 +60,21 @@ export interface User {
   epub?: string;
   knownPeople?: KnownPerson[];
   blockedUserIds?: string[];
+  /**
+   * Friend-circle block signal tally — `{ [targetIdentity]: signalId[] }`. Populated by
+   * pairwise mailbox-encrypted signals from this account's own contacts (see
+   * src/shared/block-signal.ts, app.ts's fanOutBlockSignal/ingestBlockSignalFromMailbox).
+   * Local-only in spirit (never re-shared), but persisted via the same SEA-private round trip
+   * as knownPeople/blockedUserIds so it survives restarts and syncs across linked devices.
+   */
+  receivedBlockSignals?: ReceivedBlockSignals;
+  /**
+   * This account's own record of which group scope it has shared each blocked identity with —
+   * a status, re-sent to a contact who newly qualifies (added or relabeled into a matching
+   * group), not a one-time push. See src/shared/block-signal.ts's resolveSharedSignalsForContact
+   * and app.ts's resendSharedBlockSignalsToNewContact.
+   */
+  sharedBlockSignals?: SharedBlockSignals;
   talkFilters?: TalkIntakeFilters;
   networkRole?: 'root-techsupport';
   supportMuted?: boolean;

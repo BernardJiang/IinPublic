@@ -7,11 +7,14 @@ import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
 import { v4 as uuidv4 } from 'uuid';
 import { assertBlockTargetAllowed, assertStageNameAllowed, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { buildUserTagsEnvelope, USER_TAGS_KEY } from '../../shared/user-tags';
+import { blockPairHash } from '../../shared/block-pair';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
-const USER_BLOCKS_KEY = 'user-blocks';
-const USER_BLOCKED_BY_KEY = 'user-blocked-by';
+// Non-enumerable existence marker per block relationship — see src/shared/block-pair.ts.
+// Replaces the old open `user-blocks/<blocker>/<target>` / `user-blocked-by/<target>/<blocker>`
+// maps, which let anyone reaching the relay enumerate a user's entire block list via `.map()`.
+const BLOCK_PAIRS_KEY = 'block-pairs';
 const AGE_VERIF_KEY = 'user-age-verification';
 
 export class UserService {
@@ -95,24 +98,6 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     this.writeReputation(targetUserId, nextReputation);
   }
 
-  private async getBlockCountForUser(userId: string): Promise<number> {
-    const blockers = new Set<string>();
-    const gun = this.gunService.getGun();
-    await new Promise<void>((resolve) => {
-      gun.get(USER_BLOCKED_BY_KEY).get(userId).map().once((data: any, key: string) => {
-        if (data != null && key && !key.startsWith('_')) blockers.add(key);
-      });
-      setTimeout(resolve, 300);
-    });
-    for (const [key, blocked] of this.recentBlockMutations.entries()) {
-      const [blockerId, targetId] = key.split('\0');
-      if (!blockerId || targetId !== userId) continue;
-      if (blocked) blockers.add(blockerId);
-      else blockers.delete(blockerId);
-    }
-    return blockers.size;
-  }
-
   private parseTalkFilters(value: unknown, seedLanguages?: string[]): TalkIntakeFilters {
     const fallback = getDefaultTalkIntakeFilters(seedLanguages);
     if (typeof value !== 'string') return fallback;
@@ -180,10 +165,9 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       filtersJson: JSON.stringify(userData.talkFilters || getDefaultTalkIntakeFilters(user.languages)),
     });
     for (const blockedUserId of user.blockedUserIds || []) {
-      await this.gunService.putPath([USER_BLOCKS_KEY, user.id, blockedUserId], {
-        blockedAt: new Date().toISOString(),
-      });
-      await this.gunService.putPath([USER_BLOCKED_BY_KEY, blockedUserId, user.id], {
+      await this.gunService.putPath([BLOCK_PAIRS_KEY, blockPairHash(user.id, blockedUserId)], {
+        blockerId: user.id,
+        targetId: blockedUserId,
         blockedAt: new Date().toISOString(),
       });
     }
@@ -348,40 +332,32 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     }
 
     if (!publicProfile) {
-      // Same independent-reads-in-parallel fix as fromGun/publicProfile above: reputation
-      // resolution and blockCount don't depend on each other.
-      const [reputation, blockCount] = await Promise.all([
-        (async () =>
-          this.mergeAgeVerificationIntoReputation(
-            userId,
-            user.reputation ?? (await this.readReputation(userId)),
-          ))(),
-        this.getBlockCountForUser(userId),
-      ]);
+      // blockCount is carried on the reputation object itself now — applyBlockCountDelta is
+      // the sole writer (see its own doc comment), so no separate scan/reconciliation is needed.
+      const reputation = await this.mergeAgeVerificationIntoReputation(
+        userId,
+        user.reputation ?? (await this.readReputation(userId)),
+      );
       return {
         ...user,
         profile,
-        reputation: { ...reputation, blockCount },
+        reputation,
       };
     }
 
     // Server reputation updates are written to `users/<id>/reputation`.
     // Ensure we always resolve that sub-node into the returned object.
     const storedReputation = this.recentReputationWrites.get(userId) ?? user.reputation;
-    const [reputation, blockCount] = await Promise.all([
-      (async () =>
-        this.mergeAgeVerificationIntoReputation(
-          userId,
-          storedReputation
-            ? { ...UserService.DEFAULT_REPUTATION, ...storedReputation }
-            : await this.readReputation(userId),
-        ))(),
-      this.getBlockCountForUser(userId),
-    ]);
+    const reputation = await this.mergeAgeVerificationIntoReputation(
+      userId,
+      storedReputation
+        ? { ...UserService.DEFAULT_REPUTATION, ...storedReputation }
+        : await this.readReputation(userId),
+    );
     const { headshot: _storedHeadshot, ...userWithoutStaleHeadshot } = user;
     return {
       ...userWithoutStaleHeadshot,
-      reputation: { ...reputation, blockCount },
+      reputation,
       ...(publicProfile.headshot ? { headshot: publicProfile.headshot } : {}),
       languages: this.parseJsonArray(publicProfile.languagesJson, user.languages || ['en']),
       profile,
@@ -421,27 +397,6 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return !!(node && typeof node === 'object' && (node as { userId?: string }).userId);
   }
 
-  async getBlockedUserIds(userId: string): Promise<string[]> {
-    // Use chained navigation to match how the browser writes blocks via putNested.
-    // gun.get('user-blocks/userId') is a flat soul unrelated to gun.get('user-blocks').get(userId).
-    const gun = this.gunService.getGun();
-    return new Promise((resolve) => {
-      const ids = new Set<string>();
-      gun.get(USER_BLOCKS_KEY).get(userId).map().once((data: any, key: string) => {
-        if (data != null && key && !key.startsWith('_')) ids.add(key);
-      });
-      setTimeout(() => {
-        for (const [key, blocked] of this.recentBlockMutations.entries()) {
-          const [blockerId, targetId] = key.split('\0');
-          if (blockerId !== userId || !targetId) continue;
-          if (blocked) ids.add(targetId);
-          else ids.delete(targetId);
-        }
-        resolve([...ids]);
-      }, 500);
-    });
-  }
-
   private blockMutationKey(blockerId: string, targetId: string): string {
     return `${blockerId}\0${targetId}`;
   }
@@ -457,12 +412,20 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return this.isBlocked(blockerId, targetId);
   }
 
+  /**
+   * Specific-pair check only — by design, there is no enumeration primitive left (no
+   * `getBlockedUserIds`). A caller who doesn't already know both ids learns nothing.
+   */
   async isBlocked(blockerId: string, targetId: string): Promise<boolean> {
     if (!blockerId || !targetId) return false;
     const recentMutation = this.recentBlockMutations.get(this.blockMutationKey(blockerId, targetId));
     if (recentMutation !== undefined) return recentMutation;
-    const node = await this.gunService.getPath([USER_BLOCKS_KEY, blockerId, targetId], 300, 500);
-    return !!node;
+    const node = (await this.gunService.getPath(
+      [BLOCK_PAIRS_KEY, blockPairHash(blockerId, targetId)],
+      300,
+      500,
+    )) as { blockerId?: string; targetId?: string } | null;
+    return !!node && node.blockerId === blockerId && node.targetId === targetId;
   }
 
   async getBlockStatus(viewerId: string, targetId: string): Promise<{
@@ -481,7 +444,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     };
   }
 
-  async blockUser(blockerId: string, targetId: string): Promise<{ changed: boolean; blockedUserIds: string[] }> {
+  async blockUser(blockerId: string, targetId: string): Promise<{ changed: boolean }> {
     if (!blockerId || !targetId) {
       throw new Error('blockerId and targetId required');
     }
@@ -492,38 +455,35 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     assertBlockTargetAllowed(targetId);
     const alreadyBlocked = await this.readEffectiveBlockState(blockerId, targetId);
     const blockedAt = new Date().toISOString();
-    if (alreadyBlocked) {
-      // Heal partial state instead of bailing: a client-side Gun write can create the
-      // forward user-blocks edge without the reverse user-blocked-by edge reaching this
-      // server yet. Returning early here left getBlockCountForUser (which counts the
-      // REVERSE edge + mutations) permanently at 0 for a user everyone agrees is blocked.
-      // The writes below are idempotent, and recording the mutation makes the count
-      // correct immediately regardless of which side originally wrote the block.
-      await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], { blockedAt });
-      this.recentBlockMutations.set(this.blockMutationKey(blockerId, targetId), true);
-      return { changed: false, blockedUserIds: await this.getBlockedUserIds(blockerId) };
-    }
-    await this.gunService.putPath([USER_BLOCKS_KEY, blockerId, targetId], { blockedAt });
-    await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], { blockedAt });
+    // A single node now holds the whole pair relationship (see src/shared/block-pair.ts), so
+    // there is no longer a "forward edge without reverse edge" partial-write state to heal —
+    // writing it again when already blocked is just an idempotent no-op refresh of blockedAt.
+    await this.gunService.putPath([BLOCK_PAIRS_KEY, blockPairHash(blockerId, targetId)], {
+      blockerId,
+      targetId,
+      blockedAt,
+    });
     // Gun propagation can lag the subsequent API request; reflect confirmed writes immediately.
     this.recentBlockMutations.set(this.blockMutationKey(blockerId, targetId), true);
+    if (alreadyBlocked) {
+      return { changed: false };
+    }
     await this.applyBlockCountDelta(targetId, 1);
-    return { changed: true, blockedUserIds: await this.getBlockedUserIds(blockerId) };
+    return { changed: true };
   }
 
-  async unblockUser(blockerId: string, targetId: string): Promise<{ changed: boolean; blockedUserIds: string[] }> {
+  async unblockUser(blockerId: string, targetId: string): Promise<{ changed: boolean }> {
     if (!blockerId || !targetId) {
       throw new Error('blockerId and targetId required');
     }
     const alreadyBlocked = await this.readEffectiveBlockState(blockerId, targetId);
     if (!alreadyBlocked) {
-      return { changed: false, blockedUserIds: await this.getBlockedUserIds(blockerId) };
+      return { changed: false };
     }
-    await this.gunService.putPath([USER_BLOCKS_KEY, blockerId, targetId], null);
-    await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], null);
+    await this.gunService.putPath([BLOCK_PAIRS_KEY, blockPairHash(blockerId, targetId)], null);
     this.recentBlockMutations.set(this.blockMutationKey(blockerId, targetId), false);
     await this.applyBlockCountDelta(targetId, -1);
-    return { changed: true, blockedUserIds: await this.getBlockedUserIds(blockerId) };
+    return { changed: true };
   }
 
   async getUserTalkFilters(userId: string): Promise<TalkIntakeFilters> {

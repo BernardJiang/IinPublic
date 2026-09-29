@@ -1,4 +1,11 @@
-import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind } from '../../shared/types';
+import { User, GPSCoordinate, Talk, type Tag, type KnownPerson, type IpfsAttachment, InteractionKind } from '../../shared/types';
+import {
+  BLOCK_SIGNAL_PAYLOAD_KIND,
+  recordBlockSignal,
+  recordSharedBlockSignal as mergeSharedBlockSignal,
+  resolveSharedSignalsForContact,
+  type BlockSignalPayload,
+} from '../../shared/block-signal';
 import { restoreLastTab } from '../ui/app-shell-controls';
 import {
   deriveBackendApiBaseFromLocation,
@@ -618,6 +625,13 @@ export class IinPublicApp {
     if (this.attachmentFetchInFlight.has(cid)) return;
     this.attachmentFetchInFlight.add(cid);
 
+    // Same block gate as talk delivery (resolveBlockStatusEitherWay) — a blocked-by peer's
+    // shared attachment is never decrypted/ingested. See that method's doc comment.
+    if (await this.resolveBlockStatusEitherWay(senderUserId)) {
+      this.attachmentFetchInFlight.delete(cid);
+      return;
+    }
+
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) { this.attachmentFetchInFlight.delete(cid); return; }
 
@@ -703,6 +717,10 @@ export class IinPublicApp {
     if (!this.currentUser?.id || this.currentUser.id !== params.authorId) return;
     const attachments = this.getTalkAttachmentsForShare(params.talkData);
     if (attachments.length === 0) return;
+    // Courtesy/efficiency check, not the security boundary (that's the receive-side gate in
+    // maybeFetchSharedAttachmentBytes/ingestAttachmentShareFromMailbox) — skip encrypting and
+    // publishing to IPFS for a peer we already know is blocked either-way.
+    if (await this.resolveBlockStatusEitherWay(params.responderId)) return;
 
     for (const attachment of attachments) {
       try {
@@ -759,6 +777,10 @@ export class IinPublicApp {
     const messageId = String(payload.messageId || '').trim();
     if (!messageId) return;
     if (this.attachmentShareSentIds.has(messageId)) return;
+    // The actual enforcement boundary (a modified sender client could skip the send-side check
+    // in autoShareMatchedTalkAttachments) — never create a message record for, or fetch bytes
+    // from, a blocked-either-way sender.
+    if (await this.resolveBlockStatusEitherWay(payload.senderId)) return;
 
     this.conversationService.upsertMessageRecord(
       payload.conversationId,
@@ -780,6 +802,109 @@ export class IinPublicApp {
     }
     this.attachmentShareSentIds.add(messageId);
     this.persistAttachmentShareSentIds();
+  }
+
+  /**
+   * Receive side of the friend-circle block signal (src/shared/block-signal.ts). Records only
+   * the opaque signalId, never the sender's identity — recordReceivedBlockSignal's on-device
+   * tally is what user-detail-view.ts's threshold check reads. Rides the existing mailbox
+   * drain loop, no new polling.
+   */
+  private async ingestBlockSignalFromMailbox(payload: BlockSignalPayload): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const targetIdentity = String(payload.targetIdentity || '').trim();
+    const signalId = String(payload.signalId || '').trim();
+    if (!targetIdentity || !signalId) return;
+    await this.userService.recordReceivedBlockSignal(this.currentUser.id, targetIdentity, signalId);
+    // Reflect immediately in the in-memory currentUser so a profile view opened right after
+    // this drain sees the updated tally without waiting for a separate reload.
+    this.currentUser.receivedBlockSignals = recordBlockSignal(
+      this.currentUser.receivedBlockSignals,
+      targetIdentity,
+      signalId,
+    );
+  }
+
+  /** One pairwise mailbox-encrypted send — the atomic unit both fanOutBlockSignal and
+   *  resendSharedBlockSignalsToNewContact loop over. No one-to-many encryption primitive
+   *  exists in this codebase (see web-mailbox-client.ts's doc comment), so every "notify N
+   *  contacts" case is N calls to this. Best-effort: caller decides whether one failure stops
+   *  the rest (it doesn't, in both current callers). */
+  private async sendBlockSignalPayload(payload: BlockSignalPayload, recipientId: string): Promise<void> {
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return;
+    const recipientEpub = await this.resolvePeerEpub(recipientId);
+    if (!recipientEpub) return;
+    const mailbox = this.ensureMailboxClient();
+    const ciphertext = await mailbox.encryptForRecipient(
+      recipientEpub,
+      pair as import('../sea-gun').GunPair,
+      payload,
+    );
+    await mailbox.postEnvelope({
+      id: `blocksig_${payload.signalId}_${recipientId}`,
+      recipientId,
+      ciphertext,
+    });
+  }
+
+  /**
+   * Send side of the friend-circle block signal (src/shared/block-signal.ts) — fans out to an
+   * already-resolved recipient list (the UI layer picked 'all contacts' or one contact-group,
+   * see contacts-view.ts's block-notify modal; resolveContactGroupUserIds already excludes
+   * blocked users). Also PERSISTS the share as this account's current status for that target
+   * (recordSharedBlockSignal) — a block-share is a status, not a one-time push: when a contact
+   * is later added or relabeled into a matching group, resendSharedBlockSignalsToNewContact
+   * catches them up using this same persisted signalId.
+   */
+  private async fanOutBlockSignal(targetIdentity: string, groupId: string, recipientUserIds: string[]): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const signalId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const payload: BlockSignalPayload = {
+      kind: BLOCK_SIGNAL_PAYLOAD_KIND,
+      targetIdentity,
+      at: new Date().toISOString(),
+      signalId,
+    };
+    // Persist the status FIRST, unconditionally — a group can legitimately have zero CURRENT
+    // members (e.g. shared with 'coworker' before any contact is labeled that yet). The status
+    // must still be recorded so resendSharedBlockSignalsToNewContact can catch up whoever
+    // qualifies later; only the immediate send loop below is skippable when there's no one to
+    // send to right now.
+    await this.userService.recordSharedBlockSignal(this.currentUser.id, targetIdentity, groupId, signalId);
+    this.currentUser.sharedBlockSignals = mergeSharedBlockSignal(
+      this.currentUser.sharedBlockSignals, targetIdentity, groupId, signalId,
+    );
+    if (recipientUserIds.length === 0) return;
+    for (const recipientId of recipientUserIds) {
+      try {
+        await this.sendBlockSignalPayload(payload, recipientId);
+      } catch (err) {
+        console.warn('[BlockSignal] fan-out to contact failed (best-effort):', recipientId, err);
+      }
+    }
+  }
+
+  /**
+   * "Block is a status, not a one-time notification": called from the 'saveKnownPerson'
+   * handler whenever a contact is added or relabeled. Checks this account's persisted share
+   * scopes (sharedBlockSignals) against the contact's CURRENT labels and re-sends any match —
+   * e.g. Tom relabeled 'coworker' now receives a block-share that was scoped to 'coworker'
+   * before Tom was ever added, using the ORIGINAL signalId (so if Tom happens to already have
+   * it from some other path, his recordBlockSignal dedup is a no-op, not a double-count).
+   */
+  private async resendSharedBlockSignalsToNewContact(contact: KnownPerson): Promise<void> {
+    const matches = resolveSharedSignalsForContact(this.currentUser?.sharedBlockSignals, contact);
+    for (const { targetIdentity, signalId } of matches) {
+      try {
+        await this.sendBlockSignalPayload(
+          { kind: BLOCK_SIGNAL_PAYLOAD_KIND, targetIdentity, at: new Date().toISOString(), signalId },
+          contact.userId,
+        );
+      } catch (err) {
+        console.warn('[BlockSignal] catch-up resend failed (best-effort):', contact.userId, targetIdentity, err);
+      }
+    }
   }
 
   private async markSharedAttachmentLinksDead(params: {
@@ -1818,7 +1943,13 @@ export class IinPublicApp {
     }, 5_000);
   }
 
-  /** P0: apply the same intake gates as POST /received (filters, age, block list). */
+  /**
+   * P0: apply the same intake gates as POST /received (filters, age, block list). Also the
+   * shared block gate for IPFS attachment transfer (send: autoShareMatchedTalkAttachments,
+   * shareConversationMedia handler; receive: maybeFetchSharedAttachmentBytes,
+   * ingestAttachmentShareFromMailbox) — call this directly from a new call site rather than
+   * re-deriving block status, same as the talk-delivery path already does.
+   */
   private async resolveBlockStatusEitherWay(peerId: string): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || !peerId) return false;
@@ -2347,6 +2478,7 @@ export class IinPublicApp {
           | MailboxAttachmentSharePayload
           | MailboxConversationMessagePayload
           | MailboxSupportQuestionPayload
+          | BlockSignalPayload
         >(
           envelope.ciphertext,
           pair as import('../sea-gun').GunPair,
@@ -2364,6 +2496,7 @@ export class IinPublicApp {
         //   - kind 'conversation-message-v1' → offline DM (Phase 4)
         //   - kind 'ipfs-conversation-share-v1' → attachment share link
         //   - kind 'support-question-v1' → TechSupport inbox delivery (K5)
+        //   - kind 'block-signal-v1' → friend-circle block signal (src/shared/block-signal.ts)
         //   - has `talkData` → talk-body payload from R-a mailbox fallback
         //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
@@ -2373,6 +2506,8 @@ export class IinPublicApp {
           await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
         } else if ((payload as any).kind === 'support-question-v1') {
           await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
+        } else if ((payload as any).kind === BLOCK_SIGNAL_PAYLOAD_KIND) {
+          await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
         } else if ((payload as any).talkData !== undefined) {
           await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
         } else if (typeof (payload as any).retractedAt === 'number') {
@@ -6423,6 +6558,14 @@ export class IinPublicApp {
             data.nickname,
             extras,
           );
+          // "Block is a status, not a one-time notification" — a contact added or relabeled
+          // into a group scope this account already shared a block with catches up now.
+          void this.resendSharedBlockSignalsToNewContact({
+            userId: data.userId,
+            labels: data.labels,
+            addedAt: new Date(),
+            ...extras,
+          }).catch((err) => console.warn('[BlockSignal] catch-up on saveKnownPerson failed:', err));
         } catch (error) {
           console.warn('Failed to save known person:', error);
         }
@@ -6446,23 +6589,39 @@ export class IinPublicApp {
       }
     });
 
-    this.uiManager.on('setUserBlocked', async (data: { userId: string; blocked: boolean }) => {
-      if (!this.currentUser) return;
-      try {
-        const blockedUserIds = data.blocked
-          ? await this.userService.blockUser(this.currentUser.id, data.userId)
-          : await this.userService.unblockUser(this.currentUser.id, data.userId);
-        this.currentUser.blockedUserIds = blockedUserIds;
-        this.writeCachedUser(this.currentUser);
-        this.uiManager.adoptSessionUser(this.currentUser);
-        this.uiManager.showNotification(
-          this.uiManager.formatUserBlockChanged(data.blocked),
-          'success',
-        );
-      } catch (error) {
-        console.warn('Failed to update block state:', error);
-      }
-    });
+    this.uiManager.on(
+      'setUserBlocked',
+      async (data: {
+        userId: string;
+        blocked: boolean;
+        notify?: { groupId: string; recipientUserIds: string[] };
+      }) => {
+        if (!this.currentUser) return;
+        try {
+          const blockedUserIds = data.blocked
+            ? await this.userService.blockUser(this.currentUser.id, data.userId)
+            : await this.userService.unblockUser(this.currentUser.id, data.userId);
+          this.currentUser.blockedUserIds = blockedUserIds;
+          this.writeCachedUser(this.currentUser);
+          this.uiManager.adoptSessionUser(this.currentUser);
+          this.uiManager.showNotification(
+            this.uiManager.formatUserBlockChanged(data.blocked),
+            'success',
+          );
+          // Opt-in friend-circle notification (src/shared/block-signal.ts) — the UI layer
+          // already resolved which group and current members to notify; skipped entirely
+          // when the blocker declined or when unblocking.
+          if (data.blocked && data.notify && data.notify.recipientUserIds.length > 0) {
+            const { groupId, recipientUserIds } = data.notify;
+            void this.fanOutBlockSignal(data.userId, groupId, recipientUserIds).catch((err) => {
+              console.warn('[BlockSignal] fan-out failed:', err);
+            });
+          }
+        } catch (error) {
+          console.warn('Failed to update block state:', error);
+        }
+      },
+    );
 
     // Handle stage name changes
     this.uiManager.onStageNameChange = async (userId: string, newStageName: string) => {
@@ -7272,6 +7431,13 @@ export class IinPublicApp {
           if (!this.currentUser) throw new Error('Not logged in');
           const conversation = this.uiManager.getMyConversations()[data.conversationId];
           const otherUserId = conversation?.otherUserId ? String(conversation.otherUserId) : undefined;
+          // Courtesy/efficiency check (the real enforcement boundary is receive-side, see
+          // maybeFetchSharedAttachmentBytes/ingestAttachmentShareFromMailbox) — don't even
+          // upload to IPFS for a peer we already know is blocked either-way.
+          if (otherUserId && await this.resolveBlockStatusEitherWay(otherUserId)) {
+            this.uiManager.showNotification(this.uiManager.formatMediaShareBlockedRecipient(), 'error');
+            return;
+          }
           this.uiManager.showNotification(this.uiManager.formatMediaShareUploading(data.file.name), 'info');
           const attachment = await this.publishMediaFileToIpfs(data.file, data.conversationId);
           const payload: AttachmentShareMessagePayload = {

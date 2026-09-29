@@ -9,6 +9,7 @@ import {
 } from '../services/local-peer-derivation';
 import { renderListProgressively } from './render-list-progressively';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
+import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
 
 /**
  * TODO §R1: how many contact rows render synchronously, immediately — matches
@@ -60,7 +61,7 @@ export type ContactsViewDeps = {
   ) => Promise<void>;
   submitPeerReview: (userId: string, rating: number) => Promise<void>;
   vouchAgeVerified: (userId: string) => Promise<void>;
-  setBlocked: (userId: string, blocked: boolean) => Promise<void>;
+  setBlocked: (userId: string, blocked: boolean, notify?: BlockNotifyResult) => Promise<void>;
   hasSupportContact: () => boolean;
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
@@ -93,7 +94,7 @@ export type ContactsViewDeps = {
   resolvePeerHeadshot?: (userId: string) => Promise<string | null>;
 };
 
-function formatText(deps: ContactsViewDeps, key: UiTranslationKey, values: Record<string, string | number>): string {
+function formatText(deps: Pick<ContactsViewDeps, 'text'>, key: UiTranslationKey, values: Record<string, string | number>): string {
   return Object.entries(values).reduce(
     (text, [name, value]) => text.replace(`{${name}}`, String(value)),
     deps.text(key),
@@ -581,9 +582,9 @@ export async function openRelationshipDialog(
     close();
   });
   (document.getElementById('contact-block-toggle-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
-    const nextBlocked = !deps.isBlockedByMe(userId);
+    const nextBlocked = !deps.isBlockedByMe(userId); // opt-in notify only on block, see block-notify-modal.ts
     close();
-    await deps.setBlocked(userId, nextBlocked);
+    await deps.setBlocked(userId, nextBlocked, (nextBlocked ? await showBlockNotifyModal(deps) : null) ?? undefined);
     document.getElementById('broadcast-preamble-modal')?.remove();
   });
   (document.getElementById('contact-relationship-save-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
@@ -1161,17 +1162,17 @@ export function saveKnownPerson(
   deps.refreshContactsList();
 }
 
+type SetBlockedDeps = {
+  getCurrentUser: () => { blockedUserIds?: string[] } | null | undefined;
+  apiBase: string;
+  currentUserId: string | undefined;
+  emit: (event: string, payload: unknown) => void;
+  refreshContactsList: () => void;
+};
+
 /** Blocks or unblocks a user: server call (when online) + local `currentUser.blockedUserIds` mutation, then notifies and refreshes the Contacts list. */
 export async function setBlocked(
-  userId: string,
-  blocked: boolean,
-  deps: {
-    getCurrentUser: () => { blockedUserIds?: string[] } | null | undefined;
-    apiBase: string;
-    currentUserId: string | undefined;
-    emit: (event: string, payload: unknown) => void;
-    refreshContactsList: () => void;
-  },
+  userId: string, blocked: boolean, deps: SetBlockedDeps, notify?: BlockNotifyResult,
 ): Promise<void> {
   const currentUser = deps.getCurrentUser();
   if (!currentUser) return;
@@ -1194,6 +1195,6 @@ export async function setBlocked(
   currentUser.blockedUserIds = blocked
     ? Array.from(new Set([...(currentUser.blockedUserIds || []), userId]))
     : (currentUser.blockedUserIds || []).filter((candidate) => candidate !== userId);
-  deps.emit('setUserBlocked', { userId, blocked });
+  deps.emit('setUserBlocked', { userId, blocked, ...(notify?.recipientUserIds.length ? { notify } : {}) });
   deps.refreshContactsList();
 }

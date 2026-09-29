@@ -252,10 +252,11 @@ const MATCHERS: Matcher[] = [
   },
   {
     key: 'blocks',
-    pattern: 'user-blocks|user-blocked-by/<id>/<id>',
+    // Non-enumerable pair-hash marker, not per-user-keyed — see src/shared/block-pair.ts.
+    // No userOf(): the hash key itself carries no user id to attribute growth to.
+    pattern: 'block-pairs/<hash>',
     growth: 'per-user',
-    test: (s) => /^user-block(s|ed-by)\/[^/]+\/[^/]+$/.test(s),
-    userOf: (s) => soulSegment(s, 1),
+    test: (s) => /^block-pairs\/[^/]+$/.test(s),
   },
   {
     key: 'public-aggregates',
