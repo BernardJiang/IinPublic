@@ -3,6 +3,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterLoad, delay, headless } from '../../helpers/timing';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 import {
   TECH_SUPPORT_NAME,
   TOM_NAME,
@@ -122,11 +123,16 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     // `localTalkExchanges` trace on either side either.)
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
+    await openCollapsedFilters(pageTom, 'talks-filter-toggle');
     await pageTom.locator('#talks-filter-completion').selectOption('answered');
     await afterSync();
     await expect(
       pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: flowTitle }),
     ).toHaveClass(/talk-incoming-answered/);
+    // Reset back to the default completion filter — Part 2's survey talk arrives unanswered
+    // and would otherwise stay hidden behind the "Answered" filter left set above.
+    await pageTom.locator('#talks-filter-completion').selectOption('all');
+    await afterSync();
 
     // TechSupport (the sender) must receive nothing at all — no local record of any kind,
     // held for a few seconds to make sure a delayed mesh delivery isn't just slow to land.

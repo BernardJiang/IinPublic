@@ -9,6 +9,7 @@ import { afterSync, afterAction } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 
 import {
   bootstrapUser,
@@ -108,6 +109,7 @@ test.describe('Talks matching — tag answer retained in IN history', () => {
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await pageTom.locator('#talks-filter-outgoing').uncheck();
+    await openCollapsedFilters(pageTom, 'talks-filter-toggle');
     await pageTom.locator('#talks-filter-completion').selectOption('answered');
     await afterSync();
     await expect(pageTom.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: TAG_TITLE })).toHaveCount(1);

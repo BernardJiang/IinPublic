@@ -8,6 +8,7 @@ import { afterSync, afterAction } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 
 import {
   bootstrapUser,
@@ -122,6 +123,7 @@ test.describe('Talks matching — answered incoming remains in IN history', () =
     await waitForResponseModalClosed(pageJerry);
     await waitForTabActive(pageJerry, 'talks');
     await pageJerry.locator('#talks-filter-outgoing').uncheck();
+    await openCollapsedFilters(pageJerry, 'talks-filter-toggle');
     await pageJerry.locator('#talks-filter-completion').selectOption('answered');
     await afterSync();
     await expect(pageJerry.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: 'E2E Ignore Then Match Tennis' })).toHaveCount(1);

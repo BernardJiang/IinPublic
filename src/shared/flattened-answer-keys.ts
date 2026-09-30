@@ -178,15 +178,31 @@ export function immediateParentQAPairs(
   const questions = talk.questions || [];
   let parentQuestionId: string | undefined;
 
+  // A Pair-tag ancestor's own (text, answer) differs by construction between independently-
+  // authored talks (buy vs sell, myGender vs myGender) — it's excluded from the rolling context
+  // exactly like `tryBuildChatbotAnswersFromFlattened`'s own DAG walk excludes it from
+  // `nextPairs` (answer-preference-resolution.ts), so both must agree on the same nearest
+  // NON-reciprocal ancestor. Walking straight to `contextPath.at(-1)` (or stopping at the first
+  // sessionAnswers hit below) would stop AT the Pair-tag node and previously just gave up
+  // (returned no context at all) instead of continuing past it to the ancestor beyond — a
+  // mismatch that silently broke every zero-click contextual match through a Pair-tag branch
+  // (e.g. the Dating template's reciprocal gender declaration) because saveAnswerPreference and
+  // the resolver ended up hashing two different contexts for the same logical position.
   if (talk.type === 'route' && Array.isArray(currentQuestion.contextPath)) {
-    parentQuestionId = currentQuestion.contextPath.at(-1)?.questionId;
+    for (let i = currentQuestion.contextPath.length - 1; i >= 0; i -= 1) {
+      const candidateId = currentQuestion.contextPath[i]?.questionId;
+      const candidateQuestion = questions.find((candidate) => candidate.id === candidateId);
+      if (candidateQuestion?.reciprocalTagContext) continue;
+      parentQuestionId = candidateId;
+      break;
+    }
   }
 
   if (!parentQuestionId) {
     for (let i = sessionAnswers.length - 1; i >= 0 && !parentQuestionId; i -= 1) {
       const sessionAnswer = sessionAnswers[i];
       const sourceQuestion = questions.find((candidate) => candidate.id === sessionAnswer.questionId);
-      if (!sourceQuestion) continue;
+      if (!sourceQuestion || sourceQuestion.reciprocalTagContext) continue;
       const selected = sourceQuestion.answers?.find((candidate) =>
         sessionAnswer.answerId
           ? candidate.id === sessionAnswer.answerId

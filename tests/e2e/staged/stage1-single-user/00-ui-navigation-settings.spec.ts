@@ -548,8 +548,11 @@ test.describe('UI navigation and settings shell', () => {
       }],
     }, { skipAutoAnswer: true }));
     await expect(p.locator('#talk-response-modal')).toContainText('问题 1 共 1');
-    await expect(p.locator('#talk-response-modal')).toContainText('自动');
-    await expect(p.locator('#talk-response-modal')).toContainText('手动');
+    // Contextual chatbot choice memory (2026-09-30): the old global auto/manual toggle was
+    // replaced by a per-answer "same context" vs "just once" remember choice — see
+    // docs/design/contextual-chatbot-memory.md and ui-translations.ts's responseAuto/responseManual.
+    await expect(p.locator('#talk-response-modal')).toContainText('相同上下文');
+    await expect(p.locator('#talk-response-modal')).toContainText('仅这一次');
     await p.evaluate(() => document.getElementById('talk-response-modal')?.remove());
     await p.evaluate(() => localStorage.removeItem('myTalks'));
     await p.locator('.nav-btn[data-view="me"]').click();
@@ -687,7 +690,10 @@ test.describe('UI navigation and settings shell', () => {
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showPreferencesDialog());
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');
     await expect(p.locator('#preferences-modal')).toContainText('最近回答：');
-    await expect(p.locator('#preferences-modal')).toContainText('手动');
+    // Contextual chatbot choice memory (2026-09-30): legacy non-v2 records normalize to the
+    // "manual" UI mode, now labeled "Ask me every time" (preferencesManualMode) rather than the
+    // old "Manual" badge — see docs/design/contextual-chatbot-memory.md.
+    await expect(p.locator('#preferences-modal')).toContainText('每次都问我');
     // A completed tag is stored under both a context-aware key and a legacy fallback key.
     // They are one logical answer and must never render as two cards.
     await expect(p.locator('#preferences-modal .preference-item')).toHaveCount(1);
