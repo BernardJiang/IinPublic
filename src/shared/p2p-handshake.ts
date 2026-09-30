@@ -9,6 +9,7 @@
  */
 
 import { compareVersions } from './semver-compare';
+import { isWellFormedCredential, type BuildTrustLabel, type OfficialBuildCredential } from './official-build-credential';
 
 export const APP_NAME = 'iinpublic';
 export const APP_VERSION = '1.0.0';
@@ -44,6 +45,12 @@ export type P2PHandshakePayload = {
   /** SEA public key (no private material). */
   publicKey: string;
   timestamp: string;
+  /** Scenario 2 (§16): this device's current OfficialBuildCredential, if it has one (native
+   * attestation bridge available + a successful verify round trip — see
+   * web-attestation-service.ts). Small enough to send inline, no extra round trip at connect
+   * time. Absent on any platform without the bridge, or if attestation hasn't completed yet —
+   * both correctly evaluate to 'unverified-build' on the receiving side, never an error. */
+  buildTrustCredential?: OfficialBuildCredential;
 };
 
 /** Wire frame type for the handshake exchange. */
@@ -71,6 +78,13 @@ export type HandshakeDiagnostics = {
   handshakeState: 'pending' | 'ok' | 'failed';
   failureReason: string | null;
   versionMismatch: VersionMismatchDirection;
+  /** Scenario 2 trust label for the remote peer's build. `buildHandshakeDiagnostics` itself
+   * always sets this to 'unverified-build' (the correct default absent any evaluation, since
+   * this module is deliberately protocol-only and has no verifier-key/official-identifier
+   * context) — the session layer (p2p-webrtc-session.ts), which does have that context, always
+   * overwrites it with the real evaluateBuildTrust() result right after calling this function.
+   * Never left stale: see maybeEvaluateBuildTrust in p2p-webrtc-session.ts. */
+  buildTrust: BuildTrustLabel;
 };
 
 /**
@@ -81,6 +95,7 @@ export function buildHandshakePayload(params: {
   publicKey: string;
   appVersion?: string;
   features?: HandshakeFeature[];
+  buildTrustCredential?: OfficialBuildCredential;
   now?: Date;
 }): P2PHandshakePayload {
   if (!params.peerId) throw new Error('handshake requires peerId');
@@ -101,6 +116,7 @@ export function buildHandshakePayload(params: {
     peerId: params.peerId,
     publicKey: params.publicKey,
     timestamp: (params.now ?? new Date()).toISOString(),
+    ...(params.buildTrustCredential ? { buildTrustCredential: params.buildTrustCredential } : {}),
   };
 }
 
@@ -173,6 +189,13 @@ export function validateHandshakePayload(
   if (Math.abs(now - created) > maxSkewMs) {
     return { ok: false, reason: 'stale handshake timestamp' };
   }
+  // Optional — absent is fine (no attestation bridge, or not completed yet). Present-but-
+  // malformed is dropped rather than silently ignored: a peer sending a broken credential is
+  // either buggy or tampering, and evaluateBuildTrust would reject it anyway, so failing the
+  // whole handshake validation here is no worse and catches it earlier.
+  if (p.buildTrustCredential !== undefined && !isWellFormedCredential(p.buildTrustCredential)) {
+    return { ok: false, reason: 'malformed buildTrustCredential' };
+  }
   return { ok: true, payload: p as unknown as P2PHandshakePayload };
 }
 
@@ -211,5 +234,6 @@ export function buildHandshakeDiagnostics(
     failureReason:
       negotiationResult && !negotiationResult.ok ? negotiationResult.reason : null,
     versionMismatch,
+    buildTrust: 'unverified-build',
   };
 }

@@ -36,6 +36,13 @@ type DirectCapableTransport = ConversationTransport & {
     onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
   }): void;
   requestAttachment?(conversationId: string, localUserId: string, otherUserId: string, cid: string): Promise<void>;
+  /** Scenario 2 (§16) — see direct-p2p-conversation-transport.ts's own doc comment. */
+  setBuildTrustHooks?(hooks: {
+    getBuildTrustCredential?: () => import('../../shared/official-build-credential').OfficialBuildCredential | undefined;
+    officialApplicationId?: string;
+    officialSigningIdentityHash?: string;
+    lookupVerifierKey?: (verifierKeyId: string) => string | undefined;
+  }): void;
 };
 
 export type SendMessageOptions = {
@@ -110,6 +117,17 @@ export class WebConversationService {
   }): void {
     this.ledgerHooks = hooks;
     (this.transport as DirectCapableTransport).setLedgerHandshakeHooks?.(hooks);
+  }
+
+  /** Scenario 2 (§16): wire this device's build-trust credential + evaluation context onto the
+   * direct-p2p transport — see direct-p2p-conversation-transport.ts's own doc comment. */
+  setBuildTrustHooks(hooks: {
+    getBuildTrustCredential?: () => import('../../shared/official-build-credential').OfficialBuildCredential | undefined;
+    officialApplicationId?: string;
+    officialSigningIdentityHash?: string;
+    lookupVerifierKey?: (verifierKeyId: string) => string | undefined;
+  }): void {
+    (this.transport as DirectCapableTransport).setBuildTrustHooks?.(hooks);
   }
 
   /** Wire P2P media providers (serve/receive attachment bytes over the DM DataChannel). */

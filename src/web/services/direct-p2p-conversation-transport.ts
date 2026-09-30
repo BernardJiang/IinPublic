@@ -8,6 +8,7 @@ import type { P2PConnectionState } from './p2p-webrtc-session';
 import { GunMessageStore, type ConversationMessageWire } from './gun-message-store';
 import { buildConversationDigest, computeMissingForPeer } from '../../shared/conversation-reconcile';
 import { getSEA, type GunPair } from '../sea-gun';
+import type { OfficialBuildCredential } from '../../shared/official-build-credential';
 
 export class DirectP2PConversationTransport implements ConversationTransport {
   mode: ConversationTransportMode = 'direct-p2p';
@@ -38,6 +39,15 @@ export class DirectP2PConversationTransport implements ConversationTransport {
   private attachmentHooks: {
     getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
     onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
+  } = {};
+
+  /** Scenario 2 (§16). Unset by default — every call site that hasn't wired this yet correctly
+   * gets 'unverified-build' for every peer, never an error. */
+  private buildTrustHooks: {
+    getBuildTrustCredential?: () => OfficialBuildCredential | undefined;
+    officialApplicationId?: string;
+    officialSigningIdentityHash?: string;
+    lookupVerifierKey?: (verifierKeyId: string) => string | undefined;
   } = {};
 
   constructor(
@@ -93,6 +103,17 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
   }): void {
     this.attachmentHooks = hooks;
+  }
+
+  /** Scenario 2 (§16): wire this device's own build-trust credential + how to evaluate a
+   * remote peer's — see WebAttestationService, wired from app.ts. */
+  setBuildTrustHooks(hooks: {
+    getBuildTrustCredential?: () => OfficialBuildCredential | undefined;
+    officialApplicationId?: string;
+    officialSigningIdentityHash?: string;
+    lookupVerifierKey?: (verifierKeyId: string) => string | undefined;
+  }): void {
+    this.buildTrustHooks = hooks;
   }
 
   /** Pull a shared attachment's bytes from the peer over the DM DataChannel (no server). */
@@ -252,6 +273,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       // S2: default to Gun pub/sub signaling (the Gun WebSocket is already open for presence).
       gun: this.gunService.getGun(),
       ...this.ledgerHooks,
+      ...this.buildTrustHooks,
       // Phase 5: peer↔peer reconciliation — advertise our local digest on connect and
       // backfill whatever the peer is missing, straight over the DataChannel (no hub).
       //
@@ -285,6 +307,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     });
     session.setLedgerHooks(this.ledgerHooks);
     session.setAttachmentHooks(this.attachmentHooks);
+    session.setBuildTrustHooks(this.buildTrustHooks);
     session.setOnRemoteDm((wire) => {
       if (wire.senderId === localUserId) return;
       this.gunStore.putMessageRecord(conversationId, {

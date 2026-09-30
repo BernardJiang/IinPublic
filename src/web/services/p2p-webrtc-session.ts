@@ -19,6 +19,8 @@ import {
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 import { messageIntroducesGap } from '../../shared/conversation-reconcile';
 import { readNativeHostInfo } from '../ui/native-host-info';
+import { evaluateBuildTrust, type BuildTrustLabel, type OfficialBuildCredential } from '../../shared/official-build-credential';
+import { verifyOfficialBuildCredentialSignature } from '../../shared/official-build-credential-signature';
 import { BoundedNonceCache } from '../../shared/p2p-abuse-defense';
 import {
   CompositeSignalingTransport,
@@ -268,6 +270,21 @@ export type P2PSessionConfig = {
   onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
   /** SDP/ICE frames travel over Gun pub/sub (`gun.get('p2p-signal')`). */
   gun: unknown;
+  /**
+   * Scenario 2 (§16): synchronous — reads whatever's currently cached
+   * (WebAttestationService.getCachedCredential), never fetches. Absent/undefined on any platform
+   * without the attestation bridge, or before the first successful verify round trip — both
+   * correctly send no buildTrustCredential in the handshake, evaluating to 'unverified-build' on
+   * the receiving side.
+   */
+  getBuildTrustCredential?: () => OfficialBuildCredential | undefined;
+  /** This device's own pinned official identity (docs/security/official-build-identifiers.md),
+   * so it can independently evaluate a REMOTE peer's presented credential — all three of these
+   * are required together for real evaluation; any missing means every remote peer evaluates to
+   * 'unverified-build' rather than guessing, which is the safe default absent full config. */
+  officialApplicationId?: string;
+  officialSigningIdentityHash?: string;
+  lookupVerifierKey?: (verifierKeyId: string) => string | undefined;
 };
 
 export class P2PConversationSession {
@@ -358,6 +375,19 @@ export class P2PConversationSession {
   setAttachmentHooks(hooks: {
     getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
     onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
+  }): void {
+    this.config = { ...this.config, ...hooks };
+  }
+
+  /** Scenario 2 (§16): late-binds the build-trust evaluation context onto an existing (possibly
+   * already-cached/reused) session, same pattern as setLedgerHooks/setAttachmentHooks above —
+   * sessions are cached by getOrCreateP2PSession, so a hook set on the owning transport AFTER a
+   * session already exists still needs to reach it. */
+  setBuildTrustHooks(hooks: {
+    getBuildTrustCredential?: () => OfficialBuildCredential | undefined;
+    officialApplicationId?: string;
+    officialSigningIdentityHash?: string;
+    lookupVerifierKey?: (verifierKeyId: string) => string | undefined;
   }): void {
     this.config = { ...this.config, ...hooks };
   }
@@ -675,16 +705,21 @@ export class P2PConversationSession {
   private async sendHandshake(): Promise<void> {
     if (!this.config.localPair) return;
     const peerId = await derivePeerIdFromPub(this.config.localPub);
+    const localBuildTrustCredential = this.config.getBuildTrustCredential?.();
     const payload = buildHandshakePayload({
       peerId,
       publicKey: this.config.localPub,
       appVersion: readNativeHostInfo().version,
+      ...(localBuildTrustCredential ? { buildTrustCredential: localBuildTrustCredential } : {}),
     });
     this.localHandshakePayload = payload;
     // If the remote handshake already arrived while we were computing peerId, process it now
     if (this.pendingRemoteHandshake) {
       const result = negotiateProtocol(payload, this.pendingRemoteHandshake);
-      this.handshakeDiagnostics = buildHandshakeDiagnostics(payload, this.pendingRemoteHandshake, result);
+      this.handshakeDiagnostics = {
+        ...buildHandshakeDiagnostics(payload, this.pendingRemoteHandshake, result),
+        buildTrust: this.computeBuildTrust(this.pendingRemoteHandshake),
+      };
       this.pendingRemoteHandshake = null;
       this.maybeNotifyVersionMismatch();
     }
@@ -698,16 +733,35 @@ export class P2PConversationSession {
     if (this.localHandshakePayload) {
       // Local is already set — compute diagnostics immediately
       const result = negotiateProtocol(this.localHandshakePayload, validation.payload);
-      this.handshakeDiagnostics = buildHandshakeDiagnostics(
-        this.localHandshakePayload,
-        validation.payload,
-        result,
-      );
+      this.handshakeDiagnostics = {
+        ...buildHandshakeDiagnostics(this.localHandshakePayload, validation.payload, result),
+        buildTrust: this.computeBuildTrust(validation.payload),
+      };
       this.maybeNotifyVersionMismatch();
     } else {
       // Local not ready yet (derivePeerIdFromPub still pending) — stash for sendHandshake to process
       this.pendingRemoteHandshake = validation.payload;
     }
+  }
+
+  /** Scenario 2 (§16): evaluates the REMOTE peer's presented buildTrustCredential (if any) into
+   * one of the four trust labels — see official-build-credential.ts's evaluateBuildTrust for the
+   * decision logic. Always resolves to 'unverified-build' if this session's config doesn't carry
+   * the official-identity/verifier-key context (officialApplicationId etc. are all optional on
+   * P2PSessionConfig), which is the correct behavior for any call site that hasn't wired scenario
+   * 2 in yet, not a bug. */
+  private computeBuildTrust(remote: P2PHandshakePayload): BuildTrustLabel {
+    if (!this.config.officialApplicationId || !this.config.officialSigningIdentityHash || !this.config.lookupVerifierKey) {
+      return 'unverified-build';
+    }
+    return evaluateBuildTrust({
+      credential: remote.buildTrustCredential,
+      remotePublicKey: remote.publicKey,
+      officialApplicationId: this.config.officialApplicationId,
+      officialSigningIdentityHash: this.config.officialSigningIdentityHash,
+      lookupVerifierKey: this.config.lookupVerifierKey,
+      verifySignature: verifyOfficialBuildCredentialSignature,
+    });
   }
 
   /** REQ (scenario 1, 2026-09-29): tell the local user once per session when a P2P peer's

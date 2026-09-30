@@ -17,6 +17,8 @@ import { WebUserService } from '../services/web-user-service';
 import { WebIdentityLinkService } from '../services/web-identity-link-service';
 import { WebDeviceHandoffService } from '../services/web-device-handoff-service';
 import { WebDeviceSyncService } from '../services/web-device-sync-service';
+import { WebAttestationService } from '../services/web-attestation-service';
+import { OFFICIAL_APPLICATION_ID, OFFICIAL_SIGNING_IDENTITY_HASH } from '../../shared/official-build-credential';
 import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
@@ -225,6 +227,9 @@ export class IinPublicApp {
   private identityLinkService: WebIdentityLinkService;
   private deviceHandoffService: WebDeviceHandoffService;
   private deviceSyncService: WebDeviceSyncService;
+  /** Scenario 2 (§16): this device's official-build attestation. Never on the hot path — see
+   * WebAttestationService's own doc comment. */
+  private attestationService: WebAttestationService;
   private deviceSyncTimer: ReturnType<typeof setInterval> | undefined;
   /** Interaction ledger (Phase E). Initialized lazily after SEA keypair is ready. */
   private ledgerService: WebLedgerService | null = null;
@@ -966,6 +971,21 @@ export class IinPublicApp {
     });
     this.conversationService = new WebConversationService(this.gunService);
     this.contentNodeService = new WebContentNodeService();
+    this.attestationService = new WebAttestationService(this.getBackendApiBase());
+    // Scenario 2 (§16): every direct-p2p handshake evaluates a remote peer's presented
+    // buildTrustCredential against our own pinned official identity, using whatever this
+    // device's own attestationService currently has cached — see WebAttestationService and
+    // computeBuildTrust (p2p-webrtc-session.ts) for what "currently has cached" means and why
+    // this is never a blocking call.
+    this.conversationService.setBuildTrustHooks({
+      getBuildTrustCredential: () => {
+        const localPub = this.currentUser?.pub || this.gunService.getStoredPair()?.pub;
+        return localPub ? this.attestationService.getCachedCredential(localPub) ?? undefined : undefined;
+      },
+      officialApplicationId: OFFICIAL_APPLICATION_ID,
+      officialSigningIdentityHash: OFFICIAL_SIGNING_IDENTITY_HASH,
+      lookupVerifierKey: (verifierKeyId) => this.attestationService.lookupVerifierKey(verifierKeyId),
+    });
     this.identityLinkService = new WebIdentityLinkService(this.gunService, undefined, this.getBackendApiBase());
     this.deviceHandoffService = new WebDeviceHandoffService(this.gunService, this.getBackendApiBase());
     this.deviceSyncService = new WebDeviceSyncService(this.gunService, this.getBackendApiBase());
@@ -1321,6 +1341,15 @@ export class IinPublicApp {
     });
     // Get or create user
     await this.initializeUser();
+    // Scenario 2 (§16): kick off this device's build-attestation credential + the verifier's
+    // published keys, both fire-and-forget — WebAttestationService's own doc comment explains
+    // why this never gates app usability (native bridge call + two network round trips, and the
+    // P2P handshake path only ever reads whatever's already cached by the time it needs it).
+    const localPubForAttestation = this.currentUser?.pub || this.gunService.getStoredPair()?.pub;
+    if (localPubForAttestation) {
+      void this.attestationService.ensureCredential(localPubForAttestation).catch(() => {});
+    }
+    void this.attestationService.ensureVerifierKeys().catch(() => {});
     // Rebuilds previously-received Talk UI from a Gun read that, for a lone peer with nothing
     // local to answer it, pays its own multi-second timeout before giving up (gun-talk-repository
     // .ts's listReceived → WebGunService.get()). None of this gates whether the app is usable —

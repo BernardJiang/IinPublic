@@ -30,6 +30,17 @@ describe('buildHandshakePayload', () => {
     expect(typeof p.timestamp).toBe('string');
   });
 
+  it('omits buildTrustCredential entirely when none is provided', () => {
+    const p = buildHandshakePayload({ peerId: 'peer_1', publicKey: 'pub_1' });
+    expect('buildTrustCredential' in p).toBe(false);
+  });
+
+  it('includes buildTrustCredential when provided', () => {
+    const credential = { schemaVersion: 1, credentialId: 'c' } as unknown as import('../../shared/official-build-credential').OfficialBuildCredential;
+    const p = buildHandshakePayload({ peerId: 'peer_1', publicKey: 'pub_1', buildTrustCredential: credential });
+    expect(p.buildTrustCredential).toBe(credential);
+  });
+
   it('throws when peerId is missing', () => {
     expect(() => buildHandshakePayload({ peerId: '', publicKey: 'pub_1' })).toThrow(/peerId/);
   });
@@ -133,6 +144,16 @@ describe('validateHandshakePayload', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('accepts a payload with no buildTrustCredential', () => {
+    expect(validateHandshakePayload(base()).ok).toBe(true);
+  });
+
+  it('rejects a payload with a present-but-malformed buildTrustCredential', () => {
+    const result = validateHandshakePayload({ ...base(), buildTrustCredential: { not: 'a credential' } });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/buildTrustCredential/);
+  });
+
   it('rejects malformed timestamps', () => {
     const result = validateHandshakePayload({ ...base(), timestamp: 'not-a-date' });
     expect(result.ok).toBe(false);
@@ -146,6 +167,14 @@ describe('buildHandshakeDiagnostics', () => {
     expect(d.handshakeState).toBe('pending');
     expect(d.remoteAppVersion).toBeNull();
     expect(d.selectedProtocol).toBeNull();
+  });
+
+  it('always defaults buildTrust to unverified-build (the session layer overrides it, this module has no evaluation context)', () => {
+    const local = base();
+    const remote = base();
+    const result = negotiateProtocol(local, remote);
+    expect(buildHandshakeDiagnostics(local, remote, result).buildTrust).toBe('unverified-build');
+    expect(buildHandshakeDiagnostics(base(), null, null).buildTrust).toBe('unverified-build');
   });
 
   it('returns ok state after successful negotiation', () => {

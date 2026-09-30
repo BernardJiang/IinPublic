@@ -54,6 +54,19 @@ export type BuildTrustLabel =
   | 'community-build'
   | 'unverified-build';
 
+/** Single-sourced so the server (which checks a submitted attestation against these) and every
+ * client (which checks a REMOTE peer's presented credential against these) can never drift apart
+ * — see docs/security/official-build-identifiers.md for where these values came from and how to
+ * update them if the release-signing key is ever rotated. */
+export const OFFICIAL_APPLICATION_ID = 'com.iinpublic.app';
+/** Lowercase, no colons — the normalized form both `attestation-routes.ts` and
+ * `evaluateBuildTrust` compare against (keytool's own colon-separated uppercase output,
+ * `6B:35:AB:...`, is normalized once here rather than by every caller). Exact match verified
+ * against docs/security/official-build-identifiers.md's colon-hex value by a unit test — a typo
+ * here fails silently at runtime (every real device just evaluates to community-build) rather
+ * than at compile time, so that test matters more than most. */
+export const OFFICIAL_SIGNING_IDENTITY_HASH = '6b35ab4b43e856ff385796c5b0eeeafae4caa8c8964aec95cdbb54f03d33925a';
+
 const CREDENTIAL_FIELD_ORDER: ReadonlyArray<keyof Omit<OfficialBuildCredential, 'verifierSignature'>> = [
   'schemaVersion',
   'credentialId',

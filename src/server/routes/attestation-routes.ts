@@ -6,6 +6,8 @@ import { P2PAbuseDefenseContext, type AbuseDefenseConfig } from '../../shared/p2
 import { verifyChainToRoots, parseKeyAttestationExtension } from '../security/android-key-attestation';
 import {
   canonicalCredentialSigningInput,
+  OFFICIAL_APPLICATION_ID,
+  OFFICIAL_SIGNING_IDENTITY_HASH,
   type OfficialBuildCredential,
 } from '../../shared/official-build-credential';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -14,12 +16,6 @@ const keyCustody = require('../security/attestation-verifier-key-custody');
 const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes to complete the attest-and-verify round trip
 const DEFAULT_CREDENTIAL_TTL_MS = 24 * 60 * 60 * 1000; // §16.8: credentials refresh roughly daily
 const DEFAULT_ROOTS_PATH = path.join(__dirname, '..', 'security', 'google-hardware-attestation-roots.pem');
-/** docs/security/official-build-identifiers.md — extracted from secrets/android-release.keystore
- * 2026-09-29, uppercase colon-separated hex (keytool's format); normalized to lowercase-no-colons
- * before comparing against a device's self-reported attestation digest. */
-const DEFAULT_APPLICATION_ID = 'com.iinpublic.app';
-const DEFAULT_SIGNING_IDENTITY_HASH_COLON_HEX =
-  '6B:35:AB:4B:43:E8:56:FF:38:57:96:C5:B0:EE:EA:FA:E4:CA:A8:C8:96:4A:EC:95:CD:BB:54:F0:3D:33:92:5A';
 
 function normalizeHexDigest(value: string): string {
   return value.replace(/:/g, '').toLowerCase();
@@ -60,9 +56,9 @@ export type RegisterAttestationRoutesDeps = {
 export function registerAttestationRoutes(app: express.Application, deps: RegisterAttestationRoutesDeps = {}): void {
   const challengeTtlMs = deps.challengeTtlMs ?? DEFAULT_CHALLENGE_TTL_MS;
   const credentialTtlMs = deps.credentialTtlMs ?? DEFAULT_CREDENTIAL_TTL_MS;
-  const officialApplicationId = deps.officialApplicationId ?? DEFAULT_APPLICATION_ID;
+  const officialApplicationId = deps.officialApplicationId ?? OFFICIAL_APPLICATION_ID;
   const officialSigningIdentityHash = normalizeHexDigest(
-    deps.officialSigningIdentityHash ?? DEFAULT_SIGNING_IDENTITY_HASH_COLON_HEX,
+    deps.officialSigningIdentityHash ?? OFFICIAL_SIGNING_IDENTITY_HASH,
   );
   const trustedRootsPem =
     deps.trustedRootsPem ?? splitPemCertificates(fs.readFileSync(DEFAULT_ROOTS_PATH, 'utf8'));
