@@ -70,10 +70,10 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await clearGunForStage2Spec();
   });
 
-  test('Copy talk: receive saves automatically; disable filters broadcast; enable includes again; delete removes', async () => {
+  test('Answer first, recover from Answered, add to My Talks, toggle broadcast, and delete', async () => {
     test.setTimeout(300_000);
 
-    console.log('\n📍 Copy-talk test: TechSupport creates one talk, Tom receives (saved), disables, broadcast 0, enables, broadcast 1, deletes');
+    console.log('\n📍 Add-to-My-Talks test: answer first, recover from Answered, add, toggle broadcast, delete');
     // clearGunForStage2Spec() is already called in beforeAll; no need to repeat here.
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
     contextTechSupport = techSupport.context;
@@ -84,6 +84,9 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
+    // Prove that adding is optional before answering: keep this received talk out of OUT until
+    // Tom explicitly retrieves it from the Answered filter afterward.
+    await pageTom.evaluate(() => localStorage.setItem('copyTalkAutoSave', 'false'));
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterLoad();
 
@@ -114,6 +117,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .filter({ hasText: copyTalkTitle })
       .first();
     await expect(incomingRow).toBeVisible({ timeout: 90000 });
+    await expect(incomingRow.locator('.talk-add-to-my-talks-btn')).toBeVisible();
     await incomingRow.locator('button.view-talk-btn').click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
     await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
@@ -123,17 +127,26 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterNav();
     await expect(pageTom.locator('#answers-content').getByText(copyTalkTitle).first()).toBeVisible({ timeout: 15000 });
-    // docs/TODO.md §LL.2 follow-up: "copy" is now a small independent link on the answer line
-    // itself, no expand-in-place popup anymore.
-    await pageTom
-      .locator('.answer-talk-item')
-      .filter({ hasText: copyTalkTitle })
-      .first()
-      .locator('.answer-copy-talk-jump')
-      .click();
-    await afterNav();
+    await expect(pageTom.locator('.answer-copy-talk-jump')).toHaveCount(0);
 
     await pageTom.click('.nav-btn[data-view="talks"]');
+    await afterNav();
+    // Answered is the read-email state: hidden from the default Unanswered inbox, but retained.
+    await expect(
+      pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: copyTalkTitle }),
+    ).toHaveCount(0);
+    await pageTom.locator('[data-testid="talks-filter-toggle"]').click();
+    await pageTom.locator('#talks-filter-completion').selectOption('answered');
+    await afterNav();
+    const answeredRow = pageTom
+      .locator('.talk-list-item[data-role="incoming"].talk-incoming-answered')
+      .filter({ hasText: copyTalkTitle })
+      .first();
+    await expect(answeredRow).toBeVisible({ timeout: 15000 });
+    await expect(answeredRow.locator('.talk-add-to-my-talks-btn')).toBeEnabled();
+    await answeredRow.locator('.talk-add-to-my-talks-btn').click();
+    await expect(answeredRow.locator('.talk-add-to-my-talks-btn')).toBeDisabled();
+    await pageTom.locator('#talks-filter-completion').selectOption('unanswered');
     await afterNav();
     const copyTalkRow = pageTom
       .locator('.talk-list-item[data-role="copied"]')

@@ -1,6 +1,34 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-27
+Last updated: 2026-09-30
+
+## 2026-09-30 — Version-2 contextual chatbot choice memory
+
+- Replaced ordinary question-only/history fallback with one deterministic rule: the chatbot
+  repeats a known user choice only under the identical version-2 context; every miss goes back to
+  the user. Legacy temporary/permanent/suppressed memory remains readable for migration metadata
+  but is no longer a chatbot decision input.
+- Added a SHA-256 rolling context that commits to talk type, language, normalized question, the
+  complete order-insensitive choice set, selection mode, Pair-tag scope, and—only for chained
+  Flow/Route questions—the immediate parent context hash and selected answer. The previous hash
+  transitively commits to the earlier chain, so each next context is O(1).
+- Made Survey questions independent, preserved structural built-in and reciprocal Pair-tag
+  resolution as separately identified behavior, and made Route fan-out use the actual immediate
+  parent rather than an already-answered sibling. Multi-select stays an explicit user decision
+  until its complete selected set can be stored atomically under one context.
+- Simplified the response and Preferences UI to **Same context / Same context and choices** and
+  **Just once / Ask me every time**. Removed permanent and skip modes from the user-facing choice
+  controls; legacy records without a safe v2 context display as manual.
+- Added the authoritative design at `docs/design/contextual-chatbot-memory.md`, reconciled the
+  technical specification and E2E documentation, and changed the three-user browser scenario to
+  prove both fail-closed changed-choice behavior and cross-Talk reuse under an identical context.
+- Fixed the freshly-built E2E server startup discovered during validation: `build:server` now
+  stages the Google hardware-attestation PEM runtime asset into `dist/server`.
+- Verification: TypeScript and ESLint pass; the complete unit command passes (259 suites, 2,577
+  tests, plus all TechSupport and release-tool checks); integration passes 11 suites / 111 tests
+  (2 skipped); focused contextual-memory tests pass 24/24; production web and server builds pass;
+  Playwright's three-question partial-reuse scenario and changed/identical-context scenario both
+  pass in Chromium (the latter 1/1 in 56.7s).
 
 ## 2026-09-27 — Actionable first-run starter Talks (OPEN-32)
 

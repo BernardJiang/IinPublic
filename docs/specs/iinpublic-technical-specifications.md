@@ -114,18 +114,17 @@ The system supports:
 | **Talk** | The umbrella term for any of the four types: Tag, Flow, Survey, or Route. |
 | **Auto Answer** | A public answer marked as re-usable by the user's chatbot. Stored with `visibility: 'auto'`. |
 | **Manual Answer** | A private answer not re-used by the chatbot. Stored with `visibility: 'manual'`, SEA-encrypted. |
-| **Temporary Answer** | A reusable chatbot memory entry selected normally by the user. It may be auto-used only when the same exact question appears and the current option set contains that exact saved answer. |
-| **Permanent Answer** | A fixed/custom chatbot memory entry chosen by the user. It takes priority over temporary history; if the current option set contains it, the chatbot answers automatically, otherwise the chatbot skips the question. |
-| **Suppressed Question** | A question the user ignored or skipped. In chatbot memory this is stored as `SUPPRESSED`, meaning the exact question is skipped forever unless the user later changes the saved state. |
+| **Contextual Answer** | A known user choice that the chatbot may repeat only when the versioned rolling context matches exactly. The context includes the current question and complete choice set plus, for flow/route, the immediately preceding context hash and answer. |
+| **Just-once Answer** | A user choice used for the current response but not reusable by the chatbot. |
 | **Chatroom** | A public, location-based or user-defined "place" where users can find each other; all conversations remain one-on-one. |
 | **Business Chatroom** | A user-defined chatroom bound to a specific brand and address (e.g., a bar). |
 | **Traveller** | A user present in a chatroom outside their blurred true-location region. |
 | **Tag** | The simplest talk unit: a single keyword or short phrase with a checkbox (checked = interested / match, unchecked = not interested / ignore). No question-mark required. No answers beyond the checked/unchecked state. |
-| **Flow** | The Linear Thread. A path-graph talk: sequential chain of Q/A where every question uses all prior Q/A as context. Chatbot auto-replies only when the full preceding context matches a stored answer. |
-| **Survey** | One or more independent Q/A pairs where every question stands alone — no prior Q/A is used as context. Each question's answer is stored and retrieved without context. Suitable for collecting aggregate statistics. |
-| **Route** | The Logical Map. A DAG/general-tree talk combining flow and survey logic. Each question carries a `contextPath` (for construction only); answers are stored with a `contextHash` (FNV-1a hex). The chatbot auto-replies only when the stored hash matches the hash of the current conversation path. |
+| **Flow** | The Linear Thread. A path-graph talk whose question context rolls forward from the immediately preceding context hash and selected answer. |
+| **Survey** | One or more independent Q/A pairs. Every question starts from the root context but still commits to its own question and complete choice set. |
+| **Route** | The Logical Map. A DAG/general-tree talk. Each active branch rolls context forward from its immediate parent context and the answer leading into the branch. |
 | **ContextPath** | An ordered list of `{ questionId, answerId }` steps representing the path through a route that preceded a given question. Used during route construction and validation; not stored in answer records. |
-| **ContextHash** | An 8-character lowercase hex string (FNV-1a 32-bit hash of the canonical context-path string). Stored in every answer record in place of the full ContextPath. The chatbot computes the hash of the current path and compares it with the stored hash — O(1) lookup. Root/no-context questions use `''` (empty string). |
+| **ContextHash** | A 64-character SHA-256 digest of the versioned decision context. It commits to the current question and order-insensitive choice set and, where applicable, the immediately preceding context hash and selected answer. |
 | **Survey** | The Distributed Collection. A star-graph talk: independent Q/A pairs with no shared context. Ideal for collecting aggregate statistics. |
 | **Reputation** | Aggregated feedback metrics (star ratings, blocks, confirmations). Read-only to the user. |
 | **StageName** | A user-chosen display name. Not unique; multiple users may share one. |
@@ -274,19 +273,19 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-QA-4**: The system SHALL support two answer visibility attributes:
   - **Auto**: public, re-usable by the chatbot (`visibility: 'auto'`).
   - **Manual**: private, not re-used (`visibility: 'manual'`, SEA-encrypted).
-- **FR-QA-5**: When a question is re-asked and the user has an auto answer, the chatbot SHALL answer automatically and mark the reply as chatbot-generated.
+- **FR-QA-5**: When a question is presented under a context for which the user saved a reusable choice, the chatbot SHALL repeat that choice and mark the reply as chatbot-generated.
 - **FR-QA-6**: For manual answers, the chatbot MAY remind the user of their prior manual answer but SHALL NOT answer automatically.
-- **FR-QA-7 (Exact Chatbot Memory)**: Chatbot reuse SHALL be pure deterministic logic: no AI, fuzzy matching, semantic matching, synonym matching, or raw-text search. The lookup key SHALL be a deterministic question ID made from normalized exact question text.
-- **FR-QA-8 (Answer Memory Modes)**: For each exact question, chatbot memory SHALL support only `TEMPORARY`, `PERMANENT`, and `SUPPRESSED` modes.
-- **FR-QA-9 (Temporary Answer Reuse)**: A normally selected option SHALL be saved as `TEMPORARY`. On future presentations of the same exact question, the chatbot SHALL scan temporary history newest-to-oldest and auto-answer with the first saved answer whose exact answer ID exists in the current option set. If no temporary history answer exists in the current option set, the system SHALL ask the user again.
-- **FR-QA-10 (Permanent Answer Priority)**: A custom answer, or an option explicitly marked permanent/custom, SHALL be saved as `PERMANENT`. Permanent answers SHALL take priority over all temporary history. If the current option set contains the permanent answer, the chatbot SHALL auto-answer. If it does not, the chatbot SHALL skip the question and SHALL NOT search temporary history.
-- **FR-QA-11 (Suppressed Question Semantics)**: Ignoring or skipping a question SHALL save the exact question as `SUPPRESSED`. A suppressed question SHALL be skipped on all future appearances of that exact question until the user explicitly changes or clears the saved memory.
+- **FR-QA-7 (Known-Context Memory)**: Chatbot reuse SHALL be pure deterministic logic: no AI, fuzzy matching, semantic matching, synonym matching, newest-history scan, or answer-presence fallback. It SHALL repeat only a choice saved under the identical version-2 context hash. All other situations SHALL be presented to the user.
+- **FR-QA-8 (Unified Question Context)**: Every question context SHALL include the normalized current question, the normalized order-insensitive complete choice set, answer-selection mode, language, and talk type. Flow/route contexts SHALL additionally include only the immediately preceding context hash and selected answer. The previous hash transitively commits to the complete earlier chain; implementations SHALL NOT rebuild the full chain to advance one step.
+- **FR-QA-9 (Contextual Reuse)**: A choice marked **Same context** SHALL be stored by its version-2 context hash. It MAY be repeated only on an exact hash match. Reordered choices SHALL match; any added, removed, or changed choice SHALL produce a different context and require user input.
+- **FR-QA-10 (Just Once)**: A choice marked **Just once** SHALL be used for the current response but SHALL NOT be selected automatically later.
+- **FR-QA-11 (Unknown and Legacy Contexts)**: Missing contexts, changed preceding answers, changed choice sets, and legacy records without a complete version-2 context SHALL return control to the user. The resolver SHALL NOT silently answer or skip them.
 - **FR-QA-12 (Auto-Use Metrics)**: Every chatbot auto-use of a saved answer SHALL record how many times that saved answer was used automatically and the latest auto-use timestamp. In distributed GUN storage, append-only use events SHALL be the source of truth; cached counters may be maintained for display.
 
 
 #### Chatbot Differential Answering (REQ-CHATBOT-*)
 
-- **REQ-CHATBOT-01 — Per-question answer cache:** The chatbot's answer cache is keyed by `questionId`, not by `talkId`. The cache path is `talkAnswerTemplateByUser/<userId>/byQuestion/<questionId>`. An answer written when the user answers any talk propagates to all future talks sharing the same `questionId`, regardless of sender or timing.
+- **REQ-CHATBOT-01 — Per-context answer cache:** The chatbot answer cache is keyed by version-2 context hash, not by `talkId` or question text alone. Independently-authored talks reuse a choice only when their normalized rolling contexts are identical.
 
 - **REQ-CHATBOT-02 — Differential answering:** When a new talk arrives, the chatbot classifies each question as auto-filled (cached answer found) or needs-input (no cached answer). Only needs-input questions are presented as active inputs; auto-filled answers appear alongside in a grayed, overridable state. If all questions are auto-filled, a review screen is shown before submission — silent auto-submit is not permitted.
 
@@ -294,11 +293,11 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 - **REQ-CHATBOT-04 — No silent re-submission after TALK_SUPERSEDED:** If the chatbot had previously auto-submitted to T1 without manual review, a review step is always forced for T2 — a change in the talk means the situation has materially changed and silent re-submission is not appropriate.
 
-- **REQ-CHATBOT-05 — Cache write-back:** On every talk submission (whether manual, semi-automatic, or chatbot-assisted), the client writes `answerCache[q.id] = answer` for every question in the submitted response, including auto-filled ones left unchanged. This keeps the most recently used answer available for future talks.
+- **REQ-CHATBOT-05 — Cache write-back:** A **Same context** choice writes `answerCache[contextHash] = answer`. A **Just once** choice does not create reusable chatbot memory. Existing auto-filled choices may refresh metadata only under the same context key.
 
-- **FR-QA-13 (Deterministic IDs)**: Question and answer IDs SHALL be generated from normalized text using a stable hash such as SHA-256 with prefixes `q_` and `a_`. Normalization SHALL at minimum trim surrounding whitespace. If case-sensitive exact matching is desired, normalization SHALL NOT lowercase text; if case-insensitive exact matching is desired, normalization MAY lowercase text consistently for both questions and answers.
+- **FR-QA-13 (Deterministic Context Hash)**: Context hashes SHALL use SHA-256 and the domain/version prefix `iinpublic-answer-context-v2`. Text SHALL be trimmed, internal whitespace collapsed, and case-folded consistently. Choice texts and multi-select answers SHALL be unique and sorted before hashing so display order is irrelevant.
 
-- **FR-QA-14 (Context-aware "Me" answer list)**: The "Me" tab SHALL present the user's saved answers as a question/answer list keyed by `(questionId, contextHash)` — the same key used for storage (FR-TK-11). For **tag** and **survey** answers (`contextHash = ''`) the list is flat: one row per question. For **flow** and **route** answers (`contextHash ≠ ''`) the same question text MAY appear in multiple rows, one per distinct context, and each context-bearing row SHALL display its preceding `Q→A` context so the answer is interpretable; the list SHALL NOT collapse distinct-context answers into a single row. To remain self-describing after the source talk is withdrawn/retracted/pruned, each `AnswerRecord` SHALL persist a display-only `contextLabel` (human-readable `"Q→A · Q→A"`) alongside `contextHash`; `contextHash` remains the authoritative match key. See [§13.7](#137-me-tab--answer-list-rendering-context-aware).
+- **FR-QA-14 (Context-aware "Me" answer list)**: The "Me" tab SHALL present saved answers by their version-2 `contextHash`. Every question, including tag/root and survey questions, has a non-empty context because its question and complete choice set are committed into the hash. Flow/route rows SHOULD display the preceding `Q→A` breadcrumb so the answer remains interpretable; the display-only `contextLabel` is not an authoritative matching input. Distinct contexts SHALL NOT be collapsed. See [§13.7](#137-me-tab--answer-list-rendering-context-aware).
 
 - **FR-QA-15 (Multi-value / "pick any that apply" questions, design 2026-08-11)**: A question SHALL declare an `answerSelectionMode` of `'single'` (default, today's radio-button behavior, unchanged) or `'multiple'`. A `'multiple'` question presents its options as a checklist; the respondent MAY select zero or more, and the stored answer is the **set** of selected answer IDs rather than one ID. Authoring UI SHALL use the widely-recognized "Multiple choice vs. Checkboxes" toggle pattern (as in common survey-builder tools) — the respondent-facing surface is a plain checklist; the terms "AND," "OR," "set," "union," and "intersection" SHALL NOT appear in any user-facing string. See §30.8 for the matching rationale and worked example.
 
@@ -339,18 +338,18 @@ The system defines exactly four talk types, arranged from simplest to most compl
 
 | Type | Graph Structure | Context Logic | Chatbot auto-reply condition |
 |------|----------------|---------------|------------------------------|
-| **tag** | Isolated node | None | Always (no context needed) |
-| **flow** | Path graph (unary tree) | Full sequential (all prior Q/A) | Full preceding context matches stored answer |
-| **survey** | Star graph (height 1) | None (each question is standalone) | Always (no context needed per question) |
-| **route** | DAG / general tree | Path-dependent (`contextHash`) | Stored `contextHash` (FNV-1a 8-char hex) matches hash of current conversation path |
+| **tag** | Isolated node | Root + current question/choices | Exact known-context match |
+| **flow** | Path graph (unary tree) | Rolling previous context/answer + current question/choices | Exact known-context match |
+| **survey** | Star graph (height 1) | Root + each independent current question/choices | Exact known-context match |
+| **route** | DAG / general tree | Rolling active-parent context/answer + current question/choices | Exact known-context match |
 
-**Tag** — *The Atom of Interest.* Isolated node (Boolean toggle). A single keyword or short phrase; no question mark. Checked = match/interested, unchecked = ignore. No context required.
+**Tag** — *The Atom of Interest.* Isolated node (Boolean toggle). A single keyword or short phrase; no question mark. Checked = match/interested, unchecked = ignore. Its root context still commits to the tag/question and complete choices.
 
-**Flow** — *The Linear Thread.* Path graph (degenerate/unary tree — every internal node has exactly one child). Questions are presented in strict sequence; each answer depends on all prior Q/A. Only one stored record per question (context is implied by sequential position). The chatbot auto-replies only when it has answered all preceding questions in the same session.
+**Flow** — *The Linear Thread.* Questions are presented in strict sequence. `C1 = H(ROOT, Frame(Q1))`; each later context is `Cn = H(Cn-1, Answer(n-1), Frame(Qn))`. Only the immediately preceding hash and answer are processed, while the hash transitively commits to the complete earlier path.
 
-**Survey** — *The Distributed Collection.* Star graph (all nodes connect directly to a single root at height 1). Every question is independent — no prior Q/A is used as context. The same question always receives the same stored answer regardless of surrounding questions. Ideal for aggregate statistics and flat profile data.
+**Survey** — *The Distributed Collection.* Every question is independent and uses `H(ROOT, Frame(Q))`. Surrounding survey answers do not affect it, but changing its own question or choices creates a new context.
 
-**Route** — *The Logical Map.* Directed Acyclic Graph (general tree). Combines flow branches (context-dependent) and survey branches (context-independent) in one structure. Each question carries a `contextPath` (used for construction/validation only — not stored in answer records). Every stored answer record carries a single `contextHash`: the 8-char FNV-1a 32-bit hex hash of the canonical path string. The same surface question (e.g., "What is your skill level?") produces **separate records** for each distinct branch because each branch hashes differently. The chatbot auto-replies by hashing the current path and doing an O(1) equality check — no list traversal required.
+**Route** — *The Logical Map.* Every active child receives its immediate parent's context hash and the answer that led to that child. The same surface question reached through different branches produces separate hashes. Route construction may retain `contextPath`, but chatbot memory advances with the rolling parent hash and never traverses that full list.
 
 **Example (route):**
 ```
@@ -362,7 +361,7 @@ Q2:  "What is your skill level?"
 ```
 The flat answer list for Q2 contains two distinct entries, keyed by their different context paths. Without the correct preceding context the chatbot does **not** reply automatically.
 
-**Context-aware answers in summary:** The same question text may warrant different answers depending on the conversational context that preceded it. This is the core motivation for the `route` type and `contextHash` — multiple contexts per question are supported, context is inherited from the preceding Q/A path, and context matching happens before chatbot answer selection. `tag` and `survey` questions have no context (`contextHash = ''`); `flow` questions derive context implicitly from sequential position; `route` questions derive context from the hash of the explicit branch path.
+**Context-aware answers in summary:** Every question has a context containing its question frame and complete choice set. Flow and route additionally inherit one parent context/answer edge; tag and survey start from `ROOT`. The chatbot repeats only a stored choice under the identical resulting hash.
 
 #### 3.6.2 Talk Requirements
 
@@ -381,10 +380,10 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
   - Automatically record the resulting Q&A sequence as a **linear talk** draft for User A to reuse and broadcast later.
 - **FR-TK-8 (Editing Constraints)**: Route and survey talks MAY only be created or edited in the Talk Editor UI. Auto-captured chats produce flow talks only.
 - **FR-TK-9 (Tag)**: A tag talk SHALL contain exactly one question (a word or short phrase) and exactly two answers: one `isMatch=true` (checked) and one `isIgnore=true` (unchecked). No other answers are permitted.
-- **FR-TK-10 (Survey Independence)**: In a survey, every question SHALL be treated as independent — no `contextPath` is assigned, and the chatbot MAY auto-reply to any question regardless of the answers to sibling questions.
-- **FR-TK-11 (Route Context Storage)**: In a route talk, when saving a user's answer to a flat answer list, the system SHALL store a `contextHash` — the FNV-1a 32-bit hash of the canonical context-path string — alongside each answer. The full ContextPath list SHALL NOT be stored in the answer record; only the hash is persisted. Two answers to the same question reached via different branches produce different hashes and are stored as separate records.
-- **FR-TK-12 (Route Context Reply Guard)**: When the chatbot considers auto-replying to a route question, it SHALL compute the hash of the current conversation's active context path and look for a stored answer whose `(questionId, contextHash)` pair matches. If no match exists the chatbot SHALL NOT reply automatically. The question SHALL be presented to the user for a manual answer.
-- **FR-TK-13 (Context Hash Algorithm)**: The contextHash SHALL be computed using FNV-1a 32-bit over the UTF-8 encoding of the canonical context string `"qId1:aId1|qId2:aId2|..."`. Root/no-context questions (tag, survey, and flow types) SHALL use `''` (empty string) as their contextHash. The algorithm SHALL be implemented in pure JavaScript with no external dependencies so it runs identically in Node.js and browser environments.
+- **FR-TK-10 (Survey Independence)**: Every survey question SHALL start from `ROOT`; sibling answers SHALL NOT affect its context. Its own normalized question and complete choices remain part of the context.
+- **FR-TK-11 (Rolling Context Storage)**: Every reusable answer SHALL store a version-2 SHA-256 `contextHash`. The full prior chain and raw choice list need not be duplicated in the answer record because the hash commits to them transitively.
+- **FR-TK-12 (Context Reply Guard)**: The chatbot SHALL look up only the exact current context hash. If no reusable choice is stored under it, the chatbot SHALL present the question to the user.
+- **FR-TK-13 (Context Hash Algorithm)**: `C1 = SHA256(domain/version, ROOT, Frame(Q1))`; `Cn = SHA256(domain/version, Cn-1, normalize(Answer(n-1)), Frame(Qn))`. `Frame(Q)` contains talk type, language, normalized question text, sorted unique normalized choice texts, selection mode, and applicable Pair-tag scope. See `docs/design/contextual-chatbot-memory.md`.
 
 ### 3.7 Bulk Matching and Sending
 
@@ -975,15 +974,14 @@ Private answers are stored in the user's own SEA-encrypted Gun node (`~<pub>/ans
 
 **UI requirement:** Each answer chip/card shows a lock icon toggle. Locked = private/manual. Unlocked = public/auto.
 
-Public/auto answers are further classified by chatbot memory mode:
+Answer reuse is a two-choice policy:
 
 | Mode | Created By | Chatbot behaviour |
 |---|---|---|
-| `TEMPORARY` | User selects an option normally | Reuse only if the same exact question appears and this exact answer is present in the current option set. Search temporary history newest-to-oldest. |
-| `PERMANENT` | User types a custom answer or marks an option as permanent/custom | Highest priority. Reuse if present in the current option set; otherwise skip the question. |
-| `SUPPRESSED` | User ignores/skips the question | Skip the exact question on future appearances. |
+| **Same context** (`temporary` storage compatibility value) | User asks the chatbot to remember the choice | Repeat only under the identical version-2 rolling context. |
+| **Just once** (`manual`) | User keeps the decision for this response | Never auto-select it later. |
 
-Manual/private answers are outside this auto-memory state machine. They may be shown back to the user as reminders, but they are never auto-selected.
+Legacy permanent/suppressed records are outside the version-2 resolver and cannot auto-select or auto-skip a context. Manual/private answers may be shown as history but are never auto-selected.
 
 ### 7.6 Conversation Modes (Auto / Manual)
 
@@ -1561,30 +1559,27 @@ const TalkSchema = {
 
 // Flat answer storage record (used by chatbot and profile Q/A list)
 //
-// Context is represented by a single contextHash, NOT by the full path list:
-//   tag / survey   : contextHash = ''  (no context — answer stands alone)
-//   flow           : contextHash chains all prior Q/A (Q1 = ''; set from Q2 onward)
-//   route          : contextHash = 8-char FNV-1a hex of the
-//                    canonical "qId1:aId1|qId2:aId2|..." string for this branch.
-//
-// Chatbot lookup: compute hash of current path → compare contextHash → O(1).
-// The full ContextPath is retained only on the talk definition (Question.contextPath)
-// for route traversal; it is never written to persistent answer storage.
+// Every question has one version-2 rolling context:
+//   tag / survey : SHA256(ROOT + current question frame)
+//   flow / route : SHA256(previous context + previous answer + current question frame)
+// The current frame includes the question and complete normalized, sorted choice set.
 // For DISPLAY, the "Me" tab uses the denormalized `contextLabel` below (FR-QA-14 / §13.7),
 // so the answer list stays interpretable even after the source talk is gone.
 const AnswerRecordSchema = {
   questionId: 'string',
   answerId: 'string',
   answerText: 'string',
-  // 8-char lowercase hex (FNV-1a 32-bit), or '' for no-context answers. Authoritative match key.
+  // 64-char lowercase SHA-256 digest. Authoritative chatbot match key.
   contextHash: 'string',
+  contextVersion: '2',
   // Display-only human-readable context "Q→A · Q→A" for the Me tab (FR-QA-14). '' for tag/survey.
   contextLabel: 'string',
   visibility: 'auto|manual',   // auto = chatbot may reuse; manual = private
   recordedAt: 'number'
 };
 
-// Exact chatbot memory for one user's exact question.
+// Legacy exact-question memory. Retained only for migration/history metadata; the version-2
+// chatbot resolver MUST NOT use it to answer or skip a question.
 //
 // IDs:
 //   normalizeText(text) = text.trim() by default.
@@ -1630,49 +1625,36 @@ const ChatbotAnswerIndexSchema = {
 };
 ```
 
-### 12.3 Exact Chatbot Memory API
+### 12.3 Contextual Chatbot Memory API
 
-The exact chatbot memory API SHALL expose deterministic helpers and persistence functions shared by browser and server code:
+The authoritative design is `docs/design/contextual-chatbot-memory.md`. Shared code SHALL expose:
 
 ```typescript
-type AnswerMode = 'TEMPORARY' | 'PERMANENT' | 'SUPPRESSED';
-type AutoAnswerAction = 'ANSWER' | 'ASK_USER' | 'SKIP';
-type AutoAnswerReason =
-  | 'NO_HISTORY'
-  | 'QUESTION_SUPPRESSED'
-  | 'PERMANENT_MATCH'
-  | 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS'
-  | 'TEMPORARY_HISTORY_MATCH'
-  | 'NO_VALID_HISTORY_ANSWER';
+type AnswerContextCursor = { contextHash: string; answerText: string };
 
-interface AutoAnswerResult {
-  action: AutoAnswerAction;
-  reason: AutoAnswerReason;
-  answerId?: string;
-  answerText?: string;
-  matchedEventId?: string;
-}
+buildQuestionContextHash(
+  talk,
+  currentQuestion,
+  previous?: AnswerContextCursor,
+  pairTagScope?,
+): string;
+
+answerContextLookupKey(contextHash: string): `flat_v2_${string}`;
 ```
 
-Required helpers:
+The context algorithm is:
 
-- `normalizeText(text)` trims surrounding whitespace and applies any configured case-folding consistently.
-- `makeQuestionId(questionText)` returns `q_` plus a stable hash of normalized question text.
-- `makeAnswerId(answerText)` returns `a_` plus a stable hash of normalized answer text.
-- `saveTemporaryAnswer(gun, userId, questionText, answerText)` writes a `TEMPORARY` history event and updates summary latest-temporary fields.
-- `savePermanentAnswer(gun, userId, questionText, answerText)` writes a `PERMANENT` history event and updates summary permanent fields.
-- `saveSuppressedQuestion(gun, userId, questionText)` writes a `SUPPRESSED` history event and marks summary suppressed.
-- `findAutoAnswer(gun, userId, questionText, currentOptions)` returns `ANSWER`, `ASK_USER`, or `SKIP` with the reason codes above.
-- `appendAutoUse(gun, userId, questionId, eventId)` appends a `uses/{useEventId}` entry and may update cached `autoUseCount` / `lastAutoUsedAt`.
+```text
+Frame(Q) = canonical(talk type, language, question, sorted unique choices,
+                     selection mode, Pair-tag scope)
+C1       = SHA256("iinpublic-answer-context-v2", ROOT, Frame(Q1))
+Cn       = SHA256("iinpublic-answer-context-v2", Cn-1, Answer(n-1), Frame(Qn))
+```
 
-Decision order:
-
-1. If no memory exists for the exact question, return `ASK_USER / NO_HISTORY`.
-2. If the question is `SUPPRESSED`, return `SKIP / QUESTION_SUPPRESSED`.
-3. If the question has a `PERMANENT` answer and the current option set contains that exact answer ID, append an auto-use event and return `ANSWER / PERMANENT_MATCH`.
-4. If the question has a `PERMANENT` answer but the current option set does not contain that exact answer ID, return `SKIP / PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS`.
-5. Otherwise, read temporary history events newest-to-oldest. If a temporary answer ID exists in the current option set, append an auto-use event and return `ANSWER / TEMPORARY_HISTORY_MATCH`.
-6. If no temporary history answer matches the current option set, return `ASK_USER / NO_VALID_HISTORY_ANSWER`.
+The resolver performs one exact lookup. A reusable record under the identical key returns
+`ANSWER / KNOWN_CONTEXT_MATCH`; every miss returns control to the user. It SHALL NOT consult the
+legacy exact-question history as a weaker fallback. Legacy `TEMPORARY`, `PERMANENT`, and
+`SUPPRESSED` APIs may remain readable during migration but are not chatbot decision inputs.
 
 ### 12.4 First-Run Experience
 
@@ -1953,14 +1935,14 @@ The **"Me" tab** presents the user's saved answers as a list of question/answer 
 Q/A attributes, sourced from `AnswerRecord`). The rendering is **not uniform across the four talk
 types**, because an answer's meaning depends on whether the question carries context (FR-QA-14).
 
-**The core distinction — context-free vs context-bearing answers:**
+**The core distinction — independent vs chained answers:**
 
 | Type | `contextHash` | "Me" list entry | Why |
 |---|---|---|---|
-| **tag** | `''` | one flat row: *tag → ✓/✗* | single isolated atom; the answer stands alone |
-| **survey** | `''` | one flat row per question | questions are independent; answer needs no context |
-| **flow** | set from Q2 onward | one row per question **with its preceding Q/A path** | each answer depends on all prior Q/A in the chain |
-| **route** | per `contextPath` | **one row per (question, contextHash)** — the same question can appear several times | the same question reached via different branches is a different answer |
+| **tag** | root + current frame | one flat row: *tag → ✓/✗* | no preceding Q/A breadcrumb |
+| **survey** | root + current frame | one flat row per question/context | sibling answers are independent |
+| **flow** | rolling hash | one row per question **with its preceding Q/A path** | earlier choices are committed transitively |
+| **route** | rolling active-branch hash | **one row per contextHash** | the same question reached through different branches is a different answer |
 
 So for tag and survey the list is a flat `question → answer`. For flow and route the **same question
 text may legitimately appear more than once**, each occurrence carrying a different context and a
@@ -1970,7 +1952,7 @@ context-specific answers into one and misrepresent what the user actually said.
 **Rendering rules:**
 
 1. Entries are keyed by `(questionId, contextHash)`, matching the storage key (FR-TK-11). Two answers to the same question under different contexts are two separate rows.
-2. A context-bearing row (`contextHash !== ''`) MUST display its **context** — the preceding `Q→A` chain that led to the question — as a breadcrumb/sub-label above the answer, e.g.
+2. A row with a non-empty `contextLabel` MUST display its preceding `Q→A` chain as a breadcrumb/sub-label, e.g.
    *"Do you play singles or doubles?"* under context *"Do you like tennis? → Yes · How often? → Weekly"*.
 3. Rows SHOULD be **grouped by question**, with each distinct context shown as a collapsible sub-entry, so a route question reachable by many paths stays scannable instead of flooding the list.
 4. Each row keeps the per-answer visibility lock (auto/manual, UI-5) and edit/history affordances.
@@ -1989,7 +1971,8 @@ for durability:
   is REQUIRED so the answer list stays self-describing even after the source talk is gone.
 
 This makes `AnswerRecord` (see §12.2) carry an optional `contextLabel: string` alongside the existing
-`contextHash`; tag/survey rows leave it `''`.
+`contextHash`; tag/survey rows normally leave the display label empty even though their version-2
+matching hash is non-empty.
 
 #### 13.7.1 Sectioning (design 2026-08-11)
 
@@ -2000,8 +1983,8 @@ mixed together). The "Me" tab SHALL divide the answer list into sections:
 1. **Identity header (pinned, not part of the scrolling list).** StageName + headshot (FR-UM-9) —
    profile content (FR-UM-3), not an `AnswerRecord`. The same component renders in the profile
    editor.
-2. **General section.** Context-free answers (`contextHash = ''`) — today's flat tag/survey rows,
-   unchanged.
+2. **General section.** Independent answers with no preceding Q/A breadcrumb — normally tag and
+   survey rows. Their matching context hashes still include their own question and choices.
 3. **One section per context-cluster**, titled by the source talk's own tag category (reusing the
    existing Craigslist-style catalog labels from FR-TG-2 — "Personals," "For Sale," "Housing," etc.
    — no new taxonomy). Each distinct talk with meaningful context gets its own section (a "For
@@ -2051,7 +2034,7 @@ describe('Security Filters', () => {
 ---
 
 #### Week 3–4: Basic Talk System
-**Tasks:** Talk validation (DAG, no cycles), answer visibility model, exact chatbot memory (§12.3), immutable answer history, versioned answer buckets, bulk send with queuing, auto-capture pattern detection, tag system and mandatory preamble.
+**Tasks:** Talk validation (DAG, no cycles), answer visibility model, contextual chatbot memory (§12.3), immutable answer history, versioned answer buckets, bulk send with queuing, auto-capture pattern detection, tag system and mandatory preamble.
 
 ```javascript
 describe('Talk Constraints', () => {
@@ -2064,22 +2047,22 @@ describe('Talk Constraints', () => {
   test('chatbot does not repeat private answers', () => {
     expect(chatbotCanRepeat({ visibility: 'manual' })).toBe(false);
   });
-  test('chatbot reuses exact temporary history newest to oldest', async () => {
-    await saveTemporaryAnswer(gun, userId, 'Favorite fruit?', 'Apple');
-    await saveTemporaryAnswer(gun, userId, 'Favorite fruit?', 'Banana');
-    await expect(findAutoAnswer(gun, userId, 'Favorite fruit?', ['Apple', 'Orange']))
-      .resolves.toMatchObject({ action: 'ANSWER', answerText: 'Apple' });
+  test('chatbot repeats a choice only under the identical rolling context', async () => {
+    const original = question('Favorite fruit?', ['Apple', 'Banana']);
+    const context = buildQuestionContextHash(flowTalk, original, previousCursor);
+    await saveContextualAnswer(userId, context, 'Apple');
+    await expect(resolveContextualAnswer(flowTalk, original, previousCursor))
+      .resolves.toMatchObject({ action: 'ANSWER', answerText: 'Apple', reason: 'KNOWN_CONTEXT_MATCH' });
   });
-  test('permanent answer missing from options skips instead of falling back', async () => {
-    await saveTemporaryAnswer(gun, userId, 'Favorite fruit?', 'Apple');
-    await savePermanentAnswer(gun, userId, 'Favorite fruit?', 'Orange');
-    await expect(findAutoAnswer(gun, userId, 'Favorite fruit?', ['Apple', 'Banana']))
-      .resolves.toMatchObject({ action: 'SKIP', reason: 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS' });
+  test('changed choices produce a new context and return control to the user', async () => {
+    const original = question('Favorite fruit?', ['Apple', 'Banana']);
+    const changed = question('Favorite fruit?', ['Apple', 'Banana', 'Orange']);
+    await saveContextualAnswer(userId, buildQuestionContextHash(flowTalk, original, previousCursor), 'Apple');
+    await expect(resolveContextualAnswer(flowTalk, changed, previousCursor)).resolves.toBeNull();
   });
-  test('suppressed question is always skipped', async () => {
-    await saveSuppressedQuestion(gun, userId, 'Favorite fruit?');
-    await expect(findAutoAnswer(gun, userId, 'Favorite fruit?', ['Apple']))
-      .resolves.toMatchObject({ action: 'SKIP', reason: 'QUESTION_SUPPRESSED' });
+  test('changed preceding answer produces a new context', async () => {
+    await expect(resolveContextualAnswer(flowTalk, fruitQuestion, differentPreviousCursor))
+      .resolves.toBeNull();
   });
   test('mandatory preamble is attached before bulk send', async () => {
     const draft = await autoCaptureTalk(chatHistory);
@@ -2183,27 +2166,27 @@ These test cases are the primary acceptance criteria. All must pass before each 
 
 ---
 
-#### TC-QA-01: Exact Chatbot Memory Reuse
+#### TC-QA-01: Known-Context Choice Reuse
 
-**Goal:** Verify exact question/answer memory rules (FR-QA-7 through FR-QA-13).
+**Goal:** Verify the rolling context rules (FR-QA-7 through FR-QA-13).
 
-**Preconditions:** User A has chatbot auto-answer mode enabled and receives the exact question `"Favorite fruit?"` with changing option sets.
+**Preconditions:** Adam receives a three-question Flow and marks his choices **Same context**.
 
 **Steps:**
-1. User A receives options `["Apple", "Banana", "Orange"]`, selects `"Apple"` normally, and does not mark it permanent.
-2. User A later receives the same exact question with options `["Mango", "Pear", "Banana"]`.
-3. User A selects `"Banana"` normally.
-4. User A later receives the same exact question with options `["Apple", "Orange", "Grape"]`.
-5. User A marks `"Orange"` as permanent/custom.
-6. User A later receives options `["Apple", "Banana", "Grape"]`.
-7. For a separate exact question, `"Favorite color?"`, User A chooses Ignore.
+1. Adam answers `Buying fruit? [Yes, No]` with `Yes`.
+2. Adam answers `Which season? [Summer, Winter]` with `Summer`.
+3. Adam answers `Favourite fruit? [Apple, Banana, Strawberries]` with `Apple`.
+4. Present the identical Flow with the fruit choices reordered.
+5. Present the same path with `Orange` added to the fruit choices.
+6. Present the original fruit choices after the preceding season answer is `Winter`.
+7. Seed a legacy exact-question record for `Favourite fruit?` without a version-2 context.
 
 **Expected Results:**
-- Step 2 asks the user because temporary `"Apple"` is not in the current option set.
-- Step 4 auto-answers `"Apple"` by scanning temporary history newest-to-oldest and records an append-only auto-use event for the matching history entry.
-- Step 6 skips because permanent `"Orange"` is not in the current option set, and it does not fall back to temporary `"Banana"` or `"Apple"`.
-- After Step 7, future appearances of `"Favorite color?"` are skipped as `SUPPRESSED`.
-- All matching uses deterministic normalized text IDs for the exact question and exact answers.
+- Step 4 repeats `Apple`; choice display order is not context.
+- Step 5 asks Adam; adding one option creates a different current-question frame.
+- Step 6 asks Adam; the different preceding answer creates a different rolling context.
+- Step 7 asks Adam; contextless legacy history is not a fallback.
+- `C2` is computed from only `C1`, answer 1, and frame 2; `C3` is computed from only `C2`, answer 2, and frame 3.
 
 ---
 
@@ -2465,7 +2448,7 @@ The following items are known open questions or planned post-MVP work:
 - **Data ownership boundary**: Three visibility zones — **room (discovery)**, **user-private**, **pair-private** — govern Gun sync and hub persistence ([§19.14](#1914-data-ownership-and-visibility-zones)). Local-first private data can be wiped per device; server-held export/delete requests are metadata-only; relay-only paths have short TTLs. Star-mode global paths such as `talks/<id>/responses` are **not** the production model.
 - **Telemetry-free transport diagnostics**: Users can see whether a message path used direct P2P, relay fallback, or star-server mode without analytics upload.
 - **Public/private answer visibility**: Per-answer `auto` vs `manual` flag; chatbot only repeats `auto` answers.
-- **Exact chatbot memory**: Chatbot answer reuse is deterministic over normalized question/answer IDs with `TEMPORARY`, `PERMANENT`, and `SUPPRESSED` modes. Permanent answers override temporary history; suppressed questions skip forever; append-only use events are the source of truth for auto-use metrics.
+- **Known-context chatbot memory**: The chatbot repeats only a choice saved under an identical version-2 rolling SHA-256 context. The context commits to the current question and complete choice set and rolls forward with one previous context/answer edge. Every miss goes to the user; there is no question-only, answer-presence, permanent, or suppressed fallback.
 - **Immutable SEA-signed answer history**: History is append-only with signatures; current answer is mutable.
 - **Gun HAM CRDT authority**: No custom conflict resolution — Gun's own HAM is the single source of truth.
 - **Versioned talk answers**: Concurrent edits and answers isolated by version number; merged after edit saves.
@@ -2511,7 +2494,7 @@ The following items are known open questions or planned post-MVP work:
 | Traveller mode | FR-CR-10 | `user.settings.travelMode` |
 | Auto / manual answer visibility | FR-QA-4, §7.5 | `src-shared/data/models.ts` |
 | Chatbot auto-answers public only | FR-QA-5, §7.5 | `chatbotCanRepeat()` |
-| Exact chatbot memory modes and metrics | FR-QA-7 – FR-QA-13, §12.3 | `ChatbotQuestionMemorySchema`, `findAutoAnswer()` |
+| Known-context chatbot memory and metrics | FR-QA-7 – FR-QA-13, §12.3 | `flattened-answer-keys.ts`, `answer-preference-resolution.ts` |
 | Question/answer syntax (`**`, `*`) | FR-QA-1, FR-QA-2, §13.6 | `AutoCapturePattern`, `SmartMessageInput` |
 | Tag system + Craigslist catalogs | FR-TG-1 – FR-TG-5 | `TagManager` |
 | Mandatory preamble | FR-TG-6 | `TalkEngine.attachPreamble()` |
@@ -2534,7 +2517,7 @@ The following items are known open questions or planned post-MVP work:
 | Opposite-attribute preference-sets (`selfTag`/`preferenceSet`, seeded + user-persisted tag pairs) + typed built-in comparisons (quantity/priceRange/timeFrame, incl. route DAG branching past a shared builtIn root) + unified tag/preference-set mechanism (§LL) | §30.1 – §30.5 | **shipped** — `src/shared/talk-engine.ts` (`checkIfMatch` preference-set veto, `findTagPairAncestor`), `src/shared/built-in-comparisons.ts`/`built-in-question-resolution.ts`, `src/shared/tag-opposite-pairs.ts`, `ui-manager.ts` (route/flow editors, chatbot auto-resolution). **Not yet implemented:** the `location` built-in kind's auto-resolution (needs a privacy-safe source design, docs/TODO.md §BB) and the dating-specific profile (gender/sex/race self-tags, `ageRange`, mandatory adult-lock, match photo delivery — §30.6, docs/TODO.md §DD) |
 | Profile scope (StageName + headshot only); "Me" tab pinned identity header | FR-UM-3, FR-UM-9, §13.7.1 | **shipped 2026-08-11** — `src/web/ui/answers-view.ts` (identity header), `ui-manager.ts` (`getCurrentIdentity`), docs/TODO.md §EE |
 | "Me" tab sectioning (General + per-context/category sections) | §13.7.1 | **shipped 2026-08-11** — `src/web/ui/answers-view.ts` (`buildAnswerSections`); category-prefixed titles wired but currently a no-op since `Talk.tags` isn't populated by any talk-creation path yet (pre-existing gap, separate from this item) |
-| Multi-value ("pick any that apply") questions + set-intersection matching | FR-QA-15, FR-QA-16, §30.8 | **shipped 2026-08-11, fully complete** — `src/shared/talk-engine.ts`/`types.ts` (match engine), `exact-chatbot-memory.ts` (`findAutoAnswerMultiple`), `talk-editor-form-helpers.ts`/`ui-manager.ts` (editor toggle + chatbot wiring, zero-click auto-match proven), `talk-response-dialog.ts` (checkbox UI), docs/TODO.md §FF |
+| Multi-value ("pick any that apply") questions + set-intersection matching | FR-QA-15, FR-QA-16, §30.8 | **shipped 2026-08-11 for authoring, response, and matching** — `src/shared/talk-engine.ts`/`types.ts` (match engine), `talk-editor-form-helpers.ts` (editor toggle), `talk-response-dialog.ts` (checkbox UI). Version-2 chatbot memory deliberately asks the user until a future atomic complete-set record is implemented. |
 | Auto/Manual conversation modes (Yellow obsolete) | §7.6 | `shouldChatbotFire()`, `ConversationMode` type |
 | Answer mutability + immutable history | §7.7 | `ITalkRepo.submitAnswer`, Gun path design |
 | SEA encryption per user | NFR-S-5, §7.8 | `GunDataAccess.ts` write pipeline |
@@ -5767,7 +5750,7 @@ questions (serialized inside talk):
 ├── nextQuestionId?        # linear flow chaining
 ├── branchingLogic[]?      # route DAG edges: { answerId → nextQuestionId }
 ├── contextPath[]?         # ordered (questionId:answerId) steps for DAG traversal
-└── contextHashId?         # 8-char FNV-1a hash of preceding chain — O(1) chatbot lookup
+└── contextHashId?         # legacy 8-char FNV-1a route-construction key; not chatbot memory
 
 bulkJobs/<jobId>           →  broadcast job metadata { talkId, senderId, targetScope, status... }
 ```
@@ -6783,12 +6766,11 @@ as data, not bespoke question text:
 
 ### 30.8 Multi-Value (OR-Set) Question/Answer Matching
 
-> Status: shipped 2026-08-11, fully complete (talk editor, response dialog, match engine, and
-> chatbot memory generalization all wired end to end — see docs/TODO.md §FF and docs/completed.md).
-> `findAutoAnswerMultiple` is wired into both of `ui-manager.ts`'s auto-resolution paths
-> (`resolveAnswerPreferenceForTalkQuestion`, consumed by both the response dialog's auto-answer
-> check and `tryBuildChatbotAnswersFromFlattened`'s zero-click path); a `'multiple'`-mode question
-> can auto-match with zero manual clicks, proven by e2e. Schema in FR-QA-15/FR-QA-16 (§3.4).
+> Status: the talk editor, response dialog, and match engine shipped 2026-08-11 (see
+> docs/TODO.md §FF and docs/completed.md). As of the version-2 contextual-memory design,
+> multi-select questions remain explicit user decisions: the legacy per-option history cannot
+> prove that a complete selected set was made under the identical context. Schema in
+> FR-QA-15/FR-QA-16 (§3.4).
 > Orthogonal to §30.3's built-in typed comparisons — this section covers discrete/categorical "any
 > of these values" criteria (e.g. item models, colors), not continuous numeric/geographic
 > comparisons.
@@ -6815,10 +6797,10 @@ discrete criteria without ever exposing a logic-expression builder.
   answer is simply a set of size one. The match predicate is **set intersection is non-empty**,
   which is a strict generalization of today's exact-ID equality (two singletons intersect iff
   equal) — no behavior change for any existing question.
-- Chatbot auto-reply generalizes the same way TEMPORARY-mode already works (FR-QA-9: auto-fire if a
-  saved ID is present in the current option set) — applied per-checkbox instead of once per
-  question: pre-check every option whose ID is remembered as previously selected. Still pure
-  ID-based lookup — FR-QA-7's no-fuzzy-matching invariant is unchanged.
+- The chatbot does not reconstruct a multi-select set from individual historical option events.
+  Until one atomic version-2 record stores the complete selected set under the exact rolling
+  context, a multi-select question is shown to the user. This follows the same fail-closed rule as
+  every unknown context and avoids silently combining choices made at different times.
 - Large option sets (dozens of values) SHOULD use a searchable/filterable chip-style multi-select
   rather than a long static checklist, reusing the same input idiom the tag system's popularity-
   ranked suggestions already use (FR-TG-4) — not a new UI pattern.

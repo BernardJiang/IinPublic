@@ -24,7 +24,6 @@ type AnswersViewDeps = {
   getFlatAnswerHistory?: () => Record<string, FlatAnswerHistoryRecord>;
   getExactChatbotMemory?: () => ExactChatbotMemoryState;
   escapeHtml: (text: string) => string;
-  copyAnsweredTalkToTalks: (talkId: string) => void;
   /** questionId scrolls/highlights that specific question when the talk opens as a
    *  multi-question review, instead of only landing on the talk as a whole. */
   showTalkDetail: (talkId: string, questionId?: string) => void;
@@ -478,14 +477,6 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         return;
       }
 
-      const copyJumpEl = target.closest('.answer-copy-talk-jump') as HTMLElement | null;
-      if (copyJumpEl) {
-        e.stopPropagation();
-        const talkId = copyJumpEl.dataset.talkId;
-        if (talkId) currentDeps.copyAnsweredTalkToTalks(talkId);
-        return;
-      }
-
       // Every context/answer line jumps straight to its source talk at that specific question —
       // no expand-in-place detail step anymore (see renderQuestionRow). "No senders" (a talk I
       // authored myself) opens that talk's Talks-tab responses list instead, same as the
@@ -560,20 +551,17 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         ? ` <span style="color:var(--text-tertiary);font-size:0.85em;">(${deps.escapeHtml(variant.contextLabel.replace(/→/g, ' -> '))})</span>`
         : '';
       // docs/TODO.md §LL.2 follow-up: "trace back to who sent this, from which talk" — the
-      // answer text itself jumps to the source talk; two small sibling links, non-nested so
-      // clicking one never fires another: "view sender" (only when this variant has a sender)
-      // jumps to that sender's Contacts detail; "copy" re-saves that specific contributing
-      // talk into My Talks, unconditional (mirrors the pre-redesign popup's always-shown copy
-      // button).
+      // answer text itself jumps to the source talk; the small independent "view sender" link
+      // (only when this variant has a sender) jumps to that sender's Contacts detail. Adding an
+      // incoming talk to My Talks belongs on the Talks tab, not in this answer-history view.
       const contactLink = hasSenders
         ? ` · <span class="answer-view-contact-jump" data-sender-id="${deps.escapeHtml(variant.senderIds[0])}" style="cursor:pointer;color:var(--accent-text);font-size:0.85em;">${deps.escapeHtml(deps.text('meViewContact'))}</span>`
         : '';
-      const copyLink = ` · <span class="answer-copy-talk-jump" data-talk-id="${deps.escapeHtml(variant.talkId)}" title="${deps.escapeHtml(deps.text('copy'))}" style="cursor:pointer;color:var(--accent-text);font-size:0.85em;">📋 ${deps.escapeHtml(deps.text('copy'))}</span>`;
       return `
         <span style="${indent ? 'display:block;padding:2px 0;' : 'display:inline;'}">
           <span class="answer-context-jump" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-talk-title="${deps.escapeHtml(variant.talkTitle)}" data-question-id="${deps.escapeHtml(variant.questionId)}" data-has-senders="${hasSenders ? '1' : '0'}" style="cursor:pointer;">
             → ${deps.escapeHtml(formatChoiceForDisplay(variant, deps))}${contextSuffix}
-          </span>${contactLink}${copyLink}
+          </span>${contactLink}
         </span>
       `;
     };

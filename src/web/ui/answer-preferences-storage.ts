@@ -8,6 +8,9 @@ export type AnswerPreferenceEntry = {
   allAnswers?: any[];
   timestamp?: string;
   flatKey?: string;
+  /** Version-2 rolling context that includes this question and its complete choice set. */
+  contextHash?: string;
+  contextVersion?: number;
 };
 
 import {

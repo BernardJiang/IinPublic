@@ -62,6 +62,7 @@ export type DisplayTalksListDeps = {
   syncStatusBarMatchCount: () => void;
   deleteMyTalk: (talkId: string) => void;
   quickAnswerIncomingTag: (talkId: string, identityKey: string | undefined, checked: boolean) => void;
+  quickCopyIncomingTalk: (talkId: string, identityKey: string | undefined) => void;
   showTalkDetail: (talkId: string, identityKey?: string) => void;
   showSurveyStatsDialog: (talkId: string) => void;
   showCreatorRepliesForTalk: (talkId: string, talkTitle: string) => void;
@@ -280,7 +281,15 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
   // Answered talks are retained locally after they leave the actionable inbox. Put
   // them back in IN as read-only history so All/IN remains a complete talk ledger.
   const answeredIncomingEntries = allEntries
-    .filter(([, talk]: [string, any]) => talk?.role === 'answered')
+    // Completion and ownership are independent dimensions. Auto-save (or a manual Add
+    // before answering) changes a received talk's role to `copied`, but it must still be
+    // recoverable as read/answered IN history. Self-authored completions have no senders and
+    // remain OUT-only.
+    .filter(([, talk]: [string, any]) => {
+      const hasCompletedAnswers = Array.isArray(talk?.completedAnswers) && talk.completedAnswers.length > 0;
+      const hasSenders = Array.isArray(talk?.senders) && talk.senders.length > 0;
+      return talk?.role === 'answered' || (hasCompletedAnswers && hasSenders);
+    })
     .map(([talkId, talk]: [string, any]) => {
       const fullTalk = talk?.fullTalk || {};
       const senderNames = Array.isArray(talk?.senders) ? talk.senders : [];
@@ -549,6 +558,8 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
               const talkId = deps.pickIncomingRowTalkId(cluster);
               const identityKey = String(cluster?.identityKey || '');
               const pinKey = incomingPinKey(cluster, talkId);
+              const isInMyTalks = ['created', 'copied'].includes(String(myTalks[talkId]?.role || ''));
+              const addToMyTalksLabel = deps.t(isInMyTalks ? 'talksInMyTalks' : 'talksAddToMyTalks');
               // TODO §Q build-order item 17: other people I've separately exchanged this same
               // content with (e.g. a different sender who sent me the identical talk), scoped
               // to this device's own talkLedger only. Excludes this cluster's own sender(s).
@@ -609,14 +620,15 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           <input type="checkbox" class="talk-tag-checkbox talk-tag-in-checkbox" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" data-indeterminate="true" title="${escapeHtml(deps.t('talksTagQuickDecision'))}">
         </label>
         <button type="button" class="talk-tag-text talk-tag-text-button view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
+        <button type="button" class="talk-add-to-my-talks-btn talk-item-inline-actions" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" title="${escapeHtml(addToMyTalksLabel)}" aria-label="${escapeHtml(addToMyTalksLabel)}" ${isInMyTalks ? 'disabled' : ''} style="border:0;background:transparent;color:inherit;cursor:${isInMyTalks ? 'default' : 'pointer'};font:inherit;font-size:0.75em;font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px;flex-shrink:0;">${isInMyTalks ? '✓' : '📋'} ${escapeHtml(addToMyTalksLabel)}</button>
         ${pinButtonHtml(pinKey)}
       </div>
     `;
               }
               // Row is a single tap target (opens the talk to answer, with the details below
-              // already visible rather than a separate popup) plus two gestures — drag up to
-              // ignore the whole talk, drag down to copy it into my own outgoing list without
-              // answering — replacing the 🔍/ℹ️ buttons. Long-press still reaches the exact
+              // already visible rather than a separate popup). "Add to My Talks" is explicit
+              // here; drag down remains its shortcut, while drag up ignores the whole talk.
+              // Long-press still reaches the exact
               // same .talk-item-details/showDetailsPopupFor content the ℹ️ button used to
               // (full sender identity + co-exchanged people), nothing dropped, just a different
               // trigger. Row 2 now carries what fit in the freed-up space: time, sender count,
@@ -642,8 +654,9 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           ${pinButtonHtml(pinKey)}
           <span class="talk-item-chevron" aria-hidden="true">›</span>
         </div>
-        <div class="talk-item-status-line" style="margin-top:4px;">
+        <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <span class="talk-item-status-summary" style="${metaStyle}font-size:0.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(row2Parts.join(' · '))}</span>
+          <button type="button" class="talk-add-to-my-talks-btn talk-item-inline-actions" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(addToMyTalksLabel)}" title="${escapeHtml(addToMyTalksLabel)}" ${isInMyTalks ? 'disabled' : ''} style="border:0;background:transparent;color:var(--accent-text);cursor:${isInMyTalks ? 'default' : 'pointer'};font:inherit;font-size:0.82em;font-weight:600;padding:4px;white-space:nowrap;flex-shrink:0;">${isInMyTalks ? '✓' : '📋'} ${escapeHtml(addToMyTalksLabel)}</button>
         </div>
         <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
           ${statusBadge}
@@ -759,6 +772,17 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
             toggleListItemPin('talks', pinId);
             displayTalksList(currentDeps);
           }
+          return;
+        }
+
+        const addToMyTalksButton = target.closest('.talk-add-to-my-talks-btn') as HTMLButtonElement | null;
+        if (addToMyTalksButton) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (addToMyTalksButton.disabled) return;
+          const talkId = addToMyTalksButton.dataset.talkId || '';
+          const identityKey = addToMyTalksButton.dataset.identityKey || '';
+          if (talkId || identityKey) currentDeps.quickCopyIncomingTalk(talkId, identityKey || undefined);
           return;
         }
 

@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import { computeTalkIdFromTalkData } from '../../shared/cid';
-import { buildAnswerPreferenceLookupKey } from '../../shared/flattened-answer-keys';
+import { buildAnswerPreferenceLookupKey, immediateParentQAPairs } from '../../shared/flattened-answer-keys';
 import {
   LOCAL_EXACT_CHATBOT_USER_ID,
   saveTemporaryAnswer,
@@ -10,7 +10,6 @@ import {
   getExactChatbotMemory,
   getFlattenedAnswerPreferences,
   setExactChatbotMemory,
-  setFlattenedAnswerPreferences,
 } from '../../web/ui/answer-preferences-storage';
 import { UIManager } from '../../web/ui/ui-manager';
 
@@ -27,7 +26,7 @@ type PreferenceUi = {
   resolveAnswerPreferenceForTalkQuestion(
     talk: any,
     questionIndex: number,
-    previousQAPairs: Array<{ questionText: string; answerText: string }>,
+    previousQAPairs: Array<{ questionText: string; answerText: string; contextHash?: string }>,
     currentQuestion: any,
     talkInstanceId: string,
   ): PreferenceResolution;
@@ -37,9 +36,9 @@ type PreferenceUi = {
     currentQuestion: any,
     answerId: string,
     answerText: string,
-    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
+    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
     mode?: 'auto' | 'manual' | 'permanent' | 'suppressed',
-  ): void;
+  ): string;
   getMySourceTalkIdForQuestionText(questionText: string, language?: string): string | undefined;
 };
 
@@ -75,7 +74,7 @@ describe('UIManager answer-preference resolution characterization', () => {
     });
   });
 
-  it('prefers a context-aware flattened answer over conflicting exact-text memory', () => {
+  it('repeats the saved contextual choice and ignores conflicting legacy exact-text memory', () => {
     const ui = preferenceUi();
     const question = {
       id: 'q0',
@@ -87,21 +86,9 @@ describe('UIManager answer-preference resolution characterization', () => {
       ],
     };
     const talk = { id: 'incoming-talk', type: 'flow', language: 'en', questions: [question] };
-    const flatKey = buildAnswerPreferenceLookupKey(
-      talk,
-      computeTalkIdFromTalkData(talk),
-      0,
-      [],
-      question.text,
-      { mySelfTag: undefined, counterpartTag: undefined },
-    );
-    setFlattenedAnswerPreferences({
-      [flatKey]: {
-        answerId: 'old-b',
-        answerText: 'Model B',
-        mode: 'temporary',
-      },
-    });
+    ui.saveAnswerPreference(talk, talk.id, question, 'current-b', 'Model B', [
+      { questionId: question.id, answerText: 'Model B' },
+    ], 'auto');
     const exactMemory = getExactChatbotMemory();
     saveTemporaryAnswer(
       exactMemory,
@@ -117,11 +104,11 @@ describe('UIManager answer-preference resolution characterization', () => {
       answerId: 'current-b',
       answerText: 'Model B',
       mode: 'auto',
-      autoAnswerReason: 'FLATTENED_CONTEXT_MATCH',
+      autoAnswerReason: 'KNOWN_CONTEXT_MATCH',
     });
   });
 
-  it('maps remembered multi-select answer text back to the current talk answer ids', () => {
+  it('does not infer a multi-select choice from contextless legacy answer history', () => {
     const ui = preferenceUi();
     const question = {
       id: 'multi',
@@ -153,11 +140,83 @@ describe('UIManager answer-preference resolution characterization', () => {
     );
     setExactChatbotMemory(exactMemory);
 
-    expect(ui.resolveAnswerPreferenceForTalkQuestion(talk, 0, [], question, talk.id)).toMatchObject({
-      answerId: 'talk-b',
-      answerIds: ['talk-b', 'talk-a'],
-      answerText: 'Model B, Model A',
-      mode: 'auto',
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(talk, 0, [], question, talk.id)).toBeNull();
+  });
+
+  it('requires the same rolling path and complete choice set', () => {
+    const ui = preferenceUi();
+    const q1 = {
+      id: 'q1', text: 'Buying fruit?',
+      answers: [{ id: 'yes', text: 'Yes' }, { id: 'no', text: 'No' }],
+    };
+    const q2 = {
+      id: 'q2', text: 'Favourite fruit?',
+      answers: [{ id: 'apple', text: 'Apple' }, { id: 'banana', text: 'Banana' }, { id: 'strawberry', text: 'Strawberries' }],
+    };
+    const source = { id: 'source', type: 'flow', language: 'en', questions: [q1, q2] };
+    const q1Context = ui.saveAnswerPreference(source, source.id, q1, 'yes', 'Yes', [
+      { questionId: q1.id, answerText: 'Yes' },
+    ], 'auto');
+    ui.saveAnswerPreference(source, source.id, q2, 'apple', 'Apple', [
+      { questionId: q1.id, answerText: 'Yes', contextHash: q1Context },
+      { questionId: q2.id, answerText: 'Apple' },
+    ], 'auto');
+    const knownParent = [{ questionText: q1.text, answerText: 'Yes', contextHash: q1Context }];
+
+    const reorderedQ2 = { ...q2, answers: [q2.answers[2], q2.answers[0], q2.answers[1]] };
+    const reorderedTalk = { ...source, id: 'reordered', questions: [q1, reorderedQ2] };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(reorderedTalk, 1, knownParent, reorderedQ2, reorderedTalk.id))
+      .toMatchObject({ answerText: 'Apple', autoAnswerReason: 'KNOWN_CONTEXT_MATCH' });
+
+    const expandedQ2 = { ...q2, answers: [...q2.answers, { id: 'orange', text: 'Orange' }] };
+    const expandedTalk = { ...source, id: 'expanded', questions: [q1, expandedQ2] };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(expandedTalk, 1, knownParent, expandedQ2, expandedTalk.id))
+      .toBeNull();
+
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(
+      source,
+      1,
+      [{ questionText: q1.text, answerText: 'No', contextHash: q1Context }],
+      q2,
+      source.id,
+    )).toBeNull();
+  });
+
+  it('does not let a previously answered route sibling alter another branch context', () => {
+    const ui = preferenceUi();
+    const root = {
+      id: 'root', text: 'Product?', contextPath: [],
+      answers: [{ id: 'phone', text: 'Phone', nextQuestionIds: ['model', 'condition'] }],
+    };
+    const model = {
+      id: 'model', text: 'Model?', contextPath: [{ questionId: 'root', answerId: 'phone' }],
+      answers: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }],
+    };
+    const condition = {
+      id: 'condition', text: 'Condition?', contextPath: [{ questionId: 'root', answerId: 'phone' }],
+      answers: [{ id: 'new', text: 'New' }, { id: 'used', text: 'Used' }],
+    };
+    const talk = { id: 'route', type: 'route', language: 'en', questions: [root, model, condition] };
+    const rootHash = ui.saveAnswerPreference(talk, talk.id, root, 'phone', 'Phone', [
+      { questionId: root.id, answerId: 'phone', answerText: 'Phone' },
+    ], 'auto');
+    const modelHash = ui.saveAnswerPreference(talk, talk.id, model, 'a', 'A', [
+      { questionId: root.id, answerId: 'phone', answerText: 'Phone', contextHash: rootHash },
+      { questionId: model.id, answerId: 'a', answerText: 'A' },
+    ], 'auto');
+    ui.saveAnswerPreference(talk, talk.id, condition, 'used', 'Used', [
+      { questionId: root.id, answerId: 'phone', answerText: 'Phone', contextHash: rootHash },
+      { questionId: model.id, answerId: 'a', answerText: 'A', contextHash: modelHash },
+      { questionId: condition.id, answerId: 'used', answerText: 'Used' },
+    ], 'auto');
+
+    const previous = immediateParentQAPairs(talk, condition, [
+      { questionId: root.id, answerId: 'phone', answerText: 'Phone', contextHash: rootHash },
+      { questionId: model.id, answerId: 'a', answerText: 'A', contextHash: modelHash },
+    ]);
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(talk, 2, previous, condition, talk.id)).toMatchObject({
+      answerText: 'Used',
+      autoAnswerReason: 'KNOWN_CONTEXT_MATCH',
     });
   });
 
@@ -240,7 +299,7 @@ describe('UIManager answer-preference resolution characterization', () => {
       answerId: 'incoming-b',
       answerText: 'Model B',
       mode: 'auto',
-      autoAnswerReason: 'FLATTENED_CONTEXT_MATCH',
+      autoAnswerReason: 'KNOWN_CONTEXT_MATCH',
     });
   });
 
@@ -276,7 +335,7 @@ describe('UIManager answer-preference resolution characterization', () => {
     expect(ui.resolveAnswerPreferenceForTalkQuestion(nextTalk, 1, [], nextQuestion, nextTalk.id)).toMatchObject({
       answerId: 'next-b',
       answerText: 'Model B',
-      autoAnswerReason: 'FLATTENED_CONTEXT_MATCH',
+      autoAnswerReason: 'KNOWN_CONTEXT_MATCH',
     });
 
     const expectedKey = buildAnswerPreferenceLookupKey(

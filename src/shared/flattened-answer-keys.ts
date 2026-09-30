@@ -1,93 +1,252 @@
 /**
- * Context-aware keys for saved talk answers: multi-question talks use a chain of
- * prior (question, answer) pairs; tag / single-question talks scope by content hash.
+ * Context keys for remembered user choices.
+ *
+ * A question context commits to the current question and its complete choice set. Flow/route
+ * contexts additionally chain the immediately preceding question context and the answer chosen
+ * there. The previous hash already commits to the complete earlier chain, so building the next
+ * context is O(1); callers never need to hash the whole path again.
  */
 
-import { hashIdentityPayload, normalizeIdentityText } from './cid';
+import { normalizeIdentityText } from './cid';
+import { portableSha256Hex } from './portable-sha256';
 
-export type QAPair = { questionText: string; answerText: string };
+export const ANSWER_CONTEXT_VERSION = 2 as const;
+const ANSWER_CONTEXT_DOMAIN = 'iinpublic-answer-context-v2';
+const ROOT_CONTEXT = 'root';
+
+export type QAPair = {
+  questionId?: string;
+  questionText: string;
+  answerText: string;
+  /** Context hash of `questionText` itself. Present on new runtime/session records. */
+  contextHash?: string;
+};
+
+export type AnswerContextCursor = {
+  /** Context hash of the immediately preceding question. */
+  contextHash: string;
+  /** User choice made under that context. */
+  answerText: string;
+};
+
+export type ContextQuestion = {
+  id?: string;
+  text?: string;
+  answers?: Array<{
+    id?: string;
+    text?: string;
+    nextQuestionId?: string;
+    nextQuestionIds?: string[];
+  }>;
+  nextQuestionId?: string;
+  contextPath?: Array<{ questionId: string; answerId: string }>;
+  reciprocalTagContext?: boolean;
+  answerSelectionMode?: string;
+};
 
 /**
- * docs/TODO.md §KK: the single derived "my own effective tag" for this exchange (`mySelfTag` in
- * `ui-manager.ts`) and one specific counterpart tag, both derived from the nearest Pair-tag
- * ancestor (`Question.reciprocalTagContext`, `myEffectiveTagContext`) — the sole source of tag
- * context now. Two of a user's own talks can share an identically-worded question chain but mean
- * different things (a "buy iPhone" talk looking for a seller vs. a "buy buddies iPhone" talk
- * looking for fellow buyers both declare "buy" as their own tag) — omitting this from the key
- * collided their stored answers into one bucket.
+ * The user's own and counterpart tags are explicit structural context for reciprocal Pair tags.
+ * They remain separate inputs because independently-authored reciprocal talks intentionally use
+ * opposite surface wording while representing the same user-side situation.
  */
 export type TagContext = { mySelfTag?: string | undefined; counterpartTag?: string | undefined };
 
+function normalizedChoices(question: ContextQuestion): string[] {
+  return [...new Set((question.answers || []).map((answer) => normalizeIdentityText(answer?.text)).filter(Boolean))]
+    .sort();
+}
+
 /**
- * Stable lookup key for localStorage. Tag and single-question talks include content hash so
- * unrelated talks do not share answers — a Pair-tag question's own text is already part of that
- * content hash (it's an ordinary question), so `tagContext` is not needed there. Multi-question
- * talks: first question uses type + empty path + question text (cross-talk reuse); later
- * questions use the path of normalized prior Q/A pairs so a new talk with the same prefix can
- * auto-fill until a question diverges. `tagContext` is folded into both of those multi-question
- * cases so a differently-tagged reuse of the same wording gets its own bucket instead of
- * colliding.
+ * Produces the one authoritative context for a question.
+ *
+ * Root/tag questions and every independent survey question use `root` as their parent. Flow and
+ * route questions use only the immediately preceding context hash and selected answer. Question
+ * text, the whole order-insensitive choice set, selection mode, language, talk type, and Pair-tag
+ * scope are committed into the same SHA-256 digest.
+ */
+export function buildQuestionContextHash(
+  talk: { type?: string; language?: string },
+  question: ContextQuestion,
+  parent: AnswerContextCursor | undefined,
+  tagContext?: TagContext,
+): string {
+  const isIndependent = talk?.type === 'survey';
+  const payload = {
+    version: ANSWER_CONTEXT_VERSION,
+    domain: ANSWER_CONTEXT_DOMAIN,
+    type: normalizeIdentityText(talk?.type || 'flow'),
+    language: normalizeIdentityText(talk?.language || 'en'),
+    parentContext: isIndependent ? ROOT_CONTEXT : (parent?.contextHash || ROOT_CONTEXT),
+    previousAnswer: isIndependent ? '' : normalizeIdentityText(parent?.answerText),
+    question: normalizeIdentityText(question?.text),
+    choices: normalizedChoices(question),
+    selectionMode: normalizeIdentityText(question?.answerSelectionMode || 'single'),
+    selfTag: normalizeIdentityText(tagContext?.mySelfTag),
+    counterpartTag: normalizeIdentityText(tagContext?.counterpartTag),
+  };
+  return portableSha256Hex(JSON.stringify(payload));
+}
+
+export function answerContextLookupKey(contextHash: string): string {
+  return `flat_v${ANSWER_CONTEXT_VERSION}_${contextHash}`;
+}
+
+/**
+ * Compatibility helper for callers/tests that still hold a list of prior Q/A pairs. New runtime
+ * paths attach `contextHash` to every answered pair, so only the final pair is read. The fallback
+ * loop exists solely to interpret an in-memory legacy call and is never persisted as v2 memory.
  */
 export function buildAnswerPreferenceLookupKey(
-  talk: { type?: string; language?: string; questions?: unknown[] },
-  talkContentHash: string,
+  talk: { type?: string; language?: string; questions?: ContextQuestion[] },
+  _talkContentHash: string,
   questionIndex: number,
   previousQAPairs: QAPair[],
   questionText: string,
   tagContext?: TagContext,
+  currentQuestionOverride?: ContextQuestion,
 ): string {
-  const nq = normalizeIdentityText(questionText);
-  const mt = normalizeIdentityText(talk?.type || 'flow');
-  const language = normalizeIdentityText(talk?.language || 'en');
-  const qCount = Array.isArray(talk?.questions) ? talk.questions.length : 0;
-  const isTagOrSingle = talk?.type === 'tag' || qCount <= 1;
-
-  if (isTagOrSingle) {
-    const payload = { h: talkContentHash, t: mt, l: language, q: nq };
-    return `flat_${hashIdentityPayload(JSON.stringify(payload))}`;
+  let parent: AnswerContextCursor | undefined;
+  const last = previousQAPairs[previousQAPairs.length - 1];
+  if (last?.contextHash) {
+    parent = { contextHash: last.contextHash, answerText: last.answerText };
+  } else if (talk?.type !== 'survey') {
+    for (let i = 0; i < previousQAPairs.length; i += 1) {
+      const pair = previousQAPairs[i];
+      const question = (pair.questionId
+        ? talk.questions?.find((candidate) => candidate.id === pair.questionId)
+        : undefined)
+        || talk.questions?.[i]
+        || { text: pair.questionText, answers: [] };
+      const contextHash = buildQuestionContextHash(
+        talk,
+        { ...question, text: pair.questionText || question.text || '' },
+        parent,
+        tagContext,
+      );
+      parent = { contextHash, answerText: pair.answerText };
+    }
   }
 
-  const tagSuffix: { st?: string; ct?: string } = {};
-  if (tagContext?.mySelfTag) tagSuffix.st = normalizeIdentityText(tagContext.mySelfTag);
-  if (tagContext?.counterpartTag) tagSuffix.ct = normalizeIdentityText(tagContext.counterpartTag);
-
-  if (questionIndex === 0) {
-    const payload = { t: mt, l: language, path: [] as const, q: nq, ...tagSuffix };
-    return `flat_${hashIdentityPayload(JSON.stringify(payload))}`;
-  }
-
-  const payload = {
-    t: mt,
-    l: language,
-    path: previousQAPairs.map((p) => ({
-      q: normalizeIdentityText(p.questionText),
-      a: normalizeIdentityText(p.answerText),
-    })),
-    q: nq,
-    ...tagSuffix,
+  const indexedQuestion = talk.questions?.[questionIndex];
+  const currentQuestion = currentQuestionOverride || {
+    ...(indexedQuestion || {}),
+    text: questionText || indexedQuestion?.text || '',
   };
-  return `flat_${hashIdentityPayload(JSON.stringify(payload))}`;
+  return answerContextLookupKey(buildQuestionContextHash(talk, currentQuestion, parent, tagContext));
 }
 
 export function sessionAnswersToQAPairs(
   talk: { questions?: Array<{ id: string; text?: string; reciprocalTagContext?: boolean }> },
-  sessionAnswers: Array<{ questionId: string; answerText?: string }>,
+  sessionAnswers: Array<{ questionId: string; answerText?: string; contextHash?: string }>,
 ): QAPair[] {
   const out: QAPair[] = [];
-  for (const sa of sessionAnswers) {
-    const q = talk.questions?.find((qu) => qu.id === sa.questionId);
-    // docs/TODO.md §LL follow-up: a Pair-tag question's own (question, answer) text differs by
-    // construction between independently-authored talks declaring opposite/different tags (e.g.
-    // "buy"/"sell" vs "sell"/"buy") — including it here would make every question AFTER it use a
-    // different path key on each side, breaking cross-talk reuse for the exact questions this
-    // mechanism exists to auto-fill. That context is already carried separately via `TagContext`
-    // (`mySelfTag`/`counterpartTag`, folded into the key by `buildAnswerPreferenceLookupKey`
-    // itself), so the Pair-tag question is simply omitted from the path, not merely normalized.
-    if (q?.reciprocalTagContext) continue;
+  for (const answer of sessionAnswers) {
+    const question = talk.questions?.find((candidate) => candidate.id === answer.questionId);
+    // Pair tags are represented by the normalized TagContext supplied to the context builder;
+    // their inverse surface wording must not become a different rolling parent on each peer.
+    if (question?.reciprocalTagContext) continue;
     out.push({
-      questionText: (q?.text || '').trim(),
-      answerText: (sa.answerText || '').trim(),
+      ...(question?.id ? { questionId: question.id } : {}),
+      questionText: (question?.text || '').trim(),
+      answerText: (answer.answerText || '').trim(),
+      ...(answer.contextHash ? { contextHash: answer.contextHash } : {}),
     });
   }
   return out;
+}
+
+/**
+ * Returns only the immediate parent needed to build `currentQuestion`'s rolling context.
+ *
+ * This matters for route fan-out: previously answered sibling questions are not ancestors and
+ * must never change one another's context. Route `contextPath` is authoritative when present;
+ * flow links are used otherwise, with array order only as a compatibility fallback for older
+ * linear talks. The returned parent already carries its own rolling hash, so the next context
+ * remains O(1).
+ */
+export function immediateParentQAPairs(
+  talk: { type?: string; questions?: ContextQuestion[] },
+  currentQuestion: ContextQuestion,
+  sessionAnswers: Array<{
+    questionId: string;
+    answerId?: string;
+    answerText?: string;
+    contextHash?: string;
+  }>,
+): QAPair[] {
+  if (talk.type === 'survey') return [];
+  const questions = talk.questions || [];
+  let parentQuestionId: string | undefined;
+
+  if (talk.type === 'route' && Array.isArray(currentQuestion.contextPath)) {
+    parentQuestionId = currentQuestion.contextPath.at(-1)?.questionId;
+  }
+
+  if (!parentQuestionId) {
+    for (let i = sessionAnswers.length - 1; i >= 0 && !parentQuestionId; i -= 1) {
+      const sessionAnswer = sessionAnswers[i];
+      const sourceQuestion = questions.find((candidate) => candidate.id === sessionAnswer.questionId);
+      if (!sourceQuestion) continue;
+      const selected = sourceQuestion.answers?.find((candidate) =>
+        sessionAnswer.answerId
+          ? candidate.id === sessionAnswer.answerId
+          : normalizeIdentityText(candidate.text) === normalizeIdentityText(sessionAnswer.answerText),
+      );
+      if (
+        sourceQuestion.nextQuestionId === currentQuestion.id
+        || selected?.nextQuestionId === currentQuestion.id
+        || selected?.nextQuestionIds?.includes(String(currentQuestion.id))
+      ) {
+        parentQuestionId = sourceQuestion.id;
+      }
+    }
+  }
+
+  if (!parentQuestionId && talk.type !== 'route') {
+    const currentIndex = questions.findIndex((candidate) => candidate.id === currentQuestion.id);
+    for (let i = currentIndex - 1; i >= 0; i -= 1) {
+      if (sessionAnswers.some((answer) => answer.questionId === questions[i]?.id)) {
+        parentQuestionId = questions[i]?.id;
+        break;
+      }
+    }
+  }
+
+  if (!parentQuestionId) return [];
+  const parentQuestion = questions.find((candidate) => candidate.id === parentQuestionId);
+  if (parentQuestion?.reciprocalTagContext) return [];
+  const parentAnswer = [...sessionAnswers].reverse().find((answer) => answer.questionId === parentQuestionId);
+  if (!parentAnswer) return [];
+  if (parentAnswer.contextHash) {
+    return [{
+      questionId: parentQuestionId,
+      questionText: (parentQuestion?.text || '').trim(),
+      answerText: (parentAnswer.answerText || '').trim(),
+      contextHash: parentAnswer.contextHash,
+    }];
+  }
+
+  // A pre-v2 response draft has no cursor hash. Reconstruct its active ancestry once so the next
+  // user choice is saved under a correct v2 context; normal v2 runtime always takes the O(1)
+  // branch above. Route contextPath is already ordered root→parent. Flow talks are linear, so the
+  // answered prefix before the current question is the active ancestry.
+  const ancestorIds = talk.type === 'route' && Array.isArray(currentQuestion.contextPath)
+    ? currentQuestion.contextPath.map((step) => step.questionId)
+    : questions
+        .slice(0, questions.findIndex((candidate) => candidate.id === currentQuestion.id))
+        .map((question) => question.id)
+        .filter((id): id is string => Boolean(id));
+  const pairs: QAPair[] = [];
+  for (const questionId of ancestorIds) {
+    const question = questions.find((candidate) => candidate.id === questionId);
+    if (!question || question.reciprocalTagContext) continue;
+    const answer = [...sessionAnswers].reverse().find((candidate) => candidate.questionId === questionId);
+    if (!answer) continue;
+    pairs.push({
+      questionId,
+      questionText: (question.text || '').trim(),
+      answerText: (answer.answerText || '').trim(),
+    });
+  }
+  return pairs;
 }

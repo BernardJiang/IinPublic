@@ -130,10 +130,7 @@ import { syncAppBarOverflow, setupAppBarChrome } from './app-bar-overflow';
 import { showSystemAnnouncement as renderSystemAnnouncement } from './system-announcement-banner';
 import { showDetailsPopupFor as renderItemDetailsPopup } from './item-details-popup';
 import { setTalkDisabled as setTalkDisabledImpl } from './talk-broadcast-toggle';
-import {
-  saveCreatedTalk as saveCreatedTalkImpl,
-  copyAnsweredTalkToTalks as copyAnsweredTalkToTalksImpl,
-} from './talk-creation-storage';
+import { saveCreatedTalk as saveCreatedTalkImpl } from './talk-creation-storage';
 import { deliveryReasonLabel, formatReasonCounts } from './delivery-reason-labels';
 import {
   updateConversationTransportMode as updateConversationTransportModeImpl,
@@ -250,7 +247,7 @@ export class UIManager extends EventEmitter {
   private talksEnabledTypes = new Set<string>(['tag', 'flow', 'survey', 'route']);
   private talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title' = 'recent';
   private talksQuery = '';
-  private talksCompletionFilter: 'all' | 'unanswered' | 'answered' = 'all';
+  private talksCompletionFilter: 'all' | 'unanswered' | 'answered' = 'unanswered';
   private talksOutcomeFilter: 'all' | 'match' | 'mismatch' = 'all';
   private talksDateFrom = '';
   private talksDateTo = '';
@@ -1150,6 +1147,7 @@ export class UIManager extends EventEmitter {
       syncStatusBarMatchCount: () => this.syncStatusBarMatchCount(),
       deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
       quickAnswerIncomingTag: (talkId, identityKey, checked) => this.quickAnswerIncomingTag(talkId, identityKey, checked),
+      quickCopyIncomingTalk: (talkId, identityKey) => this.quickCopyIncomingTalk(talkId, identityKey),
       showTalkDetail: (talkId, identityKey) => this.showTalkDetail(talkId, identityKey),
       showSurveyStatsDialog: (talkId) => this.showSurveyStatsDialog(talkId),
       showCreatorRepliesForTalk: (talkId, title) => this.showCreatorRepliesForTalk(talkId, title),
@@ -1343,7 +1341,6 @@ export class UIManager extends EventEmitter {
       getExactChatbotMemory,
       escapeHtml: escapeHtml,
       getFlatAnswerHistory,
-      copyAnsweredTalkToTalks: this.copyAnsweredTalkToTalks.bind(this),
       showTalkDetail: this.showTalkDetailAsAnswer.bind(this),
       openTalkResponses: (talkId: string, talkTitle: string) => {
         this.showCreatorRepliesForTalk(talkId, talkTitle);
@@ -1719,16 +1716,6 @@ export class UIManager extends EventEmitter {
 
   private displayContextualStatistics(elementId: string, prefix = ''): void {
     displayContextualStatisticsImpl(elementId, prefix, this.localStatisticsDeps());
-  }
-
-  private copyAnsweredTalkToTalks(talkId: string): void {
-    copyAnsweredTalkToTalksImpl(talkId, {
-      showNotification: (message, type) => this.showNotification(message, type),
-      t: this.t.bind(this),
-      saveMyTalk: (talkData) => this.saveMyTalk(talkData),
-      refreshTalksList: () => this.displayTalksList(),
-      refreshAnswersList: () => this.displayAnswersList(),
-    });
   }
 
   /** Resolve a concrete talk UUID for an incoming cluster (Gun may reshape talkIds). */
@@ -2391,8 +2378,8 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Prefer context-aware flat key (cross-talk + multi-question path, tag-scoped — §KK), then
-   * exact-chatbot-memory, then legacy `${talkId}_${questionId}`.
+   * Repeat only a choice saved under the identical rolling question context. Missing, changed,
+   * and legacy contextless records return null so the user answers for themselves.
    */
   private resolveAnswerPreferenceForTalkQuestion(
     talk: any,
@@ -2416,6 +2403,7 @@ export class UIManager extends EventEmitter {
     allAnswers?: any[];
     autoAnswerAction?: string;
     autoAnswerReason?: string;
+    contextHash?: string;
     /** Spec §3.4 FR-QA-15/16, §30.8: present only when `currentQuestion.answerSelectionMode ===
      *  'multiple'` and the chatbot resolved a non-empty checked set. `answerId` above is always
      *  `answerIds[0]`, kept for callers that only look at the single-value shape. */
@@ -2437,10 +2425,10 @@ export class UIManager extends EventEmitter {
     currentQuestion: { id: string; text?: string; answers?: any[]; contextPath?: Array<{ questionId: string; answerId: string }> },
     answerId: string,
     answerText: string,
-    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
+    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
     mode: 'auto' | 'manual' | 'permanent' | 'suppressed' = 'auto',
-  ): void {
-    persistAnswerPreference(
+  ): string {
+    return persistAnswerPreference(
       this.currentUser?.id,
       talk,
       talkInstanceId,

@@ -182,7 +182,7 @@ Playwright schedules files in **lexicographic path order** by default. For `PW_W
 | 3 | 2.0m (120s) | `00k-capacity-regional-spread.spec.ts` | Capacity regional spread › fills global, all continental rooms, USA, … |
 | 4 | 1.9m (115s) | `15a-blocking-unblock-resumes-talk-delivery.spec.ts` | Blocking system — unblock resumes talk delivery › unblock resumes tal… |
 | 5 | 1.7m (102s) | `talks-matching/02-two-talks-status-answers.spec.ts` | Talks matching — two talks, status bar, answers tab › Tennis+Coffee: … |
-| 6 | 1.7m (100s) | `talks-matching/14-exact-chatbot-memory.spec.ts` | Talks matching — exact chatbot Q/A memory › asks Tom when no exact op… |
+| 6 | 1.0m (57s) | `talks-matching/14-exact-chatbot-memory.spec.ts` | Talks matching — contextual chatbot Q/A memory › asks on changed choices, then repeats under the identical context |
 | 7 | 1.7m (99s) | `talks-matching/05-partial-auto-answers.spec.ts` | Talks matching — partial auto-answers (flattened context) › Jerry fin… |
 | 8 | 1.6m (97s) | `06-contacts-tab.spec.ts` | Contacts tab: list of users with matches, click to see matching talks… |
 | 9 | 1.6m (94s) | `13-me-filters-credit.spec.ts` | Me tab filters and credit visibility › Me filters hide disallowed tal… |
@@ -803,7 +803,7 @@ Playwright schedules files in **lexicographic path order** by default. For `PW_W
 - **Setup:** Two browsers — TechSupport and Tom — both log in via `bootstrapSuperUser` and join "Global" chatroom.
 - **TechSupport creates a flow-type talk** titled "CopyTestTalk" with the question "Want to connect for CopyTestTalk?" and two answers (match/ignore). Submits and broadcasts it.
 - **Tom receives and answers the talk:** Tom opens the incoming talk, selects the matching answer ("Yes, lets play."), and the modal closes.
-- **Tom copies the talk:** In the Answers tab, Tom clicks the "Copy Talk" button on "CopyTestTalk". Then in the Talks tab, the talk appears as a "copied" role item.
+- **Tom answers without copying first:** the talk disappears from the default Unanswered inbox like a read email, remains available under **Filters → Answered**, and can be added to My Talks from that recovered row.
 - **Tom disables broadcast for the copied talk:** Clicks the "Disable Broadcast" checkbox on the copied talk. Clicks Broadcast button — no talks are broadcast (the talk editor modal opens instead, which is cancelled).
 - **Tom re-enables broadcast:** Unclicks the disable checkbox. Clicks Broadcast — this time the talk IS broadcast (confirms the toggle works correctly).
 - **Tom deletes the copied talk:** Opens "Me" → "View My Talks", clicks delete on "CopyTestTalk". Verifies via polling that the talk is gone from the history (count = 0). Re-opens the my-talks modal to double-check.
@@ -1239,23 +1239,24 @@ Playwright schedules files in **lexicographic path order** by default. For `PW_W
 - **Tom checks the status bar** → it should show "2 matches" (one from Jerry for tennis, one from Bob for coffee)
 - **Jerry opens the Answers tab** → both "TwoTalks e2e Tennis" and "TwoTalks e2e Coffee" appear listed
 
-##### E2E-057 — Talks matching — exact chatbot Q/A memory › asks Tom when no exact option matches, then auto-reuses older exact history when Apple returns
+##### E2E-057 — Talks matching — contextual chatbot Q/A memory › asks on changed choices, then repeats Apple under the identical context
 
 | Field | Value |
 |-------|-------|
 | **Spec** | `talks-matching/14-exact-chatbot-memory.spec.ts` |
 | **Companion doc** | `tests/e2e/talks-matching/14-exact-chatbot-memory.md` |
-| **Duration** | 1.7m (100s) (`100071` ms) |
+| **Duration** | 1.0m (57s) (`56700` ms) |
 | **Browsers** | 3 browsers (Tom / Jerry / Bob or Alice) |
 | **Parallel run rank** | #6 of 70 |
 | **Notes** | _Add owner, FR-*, flakiness, last failure here._ |
 
-**Summary:** **Context A (Apple available):**
+**Summary:** **Context A (Apple/Banana choice set):**
 
 **Steps / assertions:**
-- **Context A (Apple available):**
-- **Context B (Apple missing):**
-- **Context C (Apple returns):**
+- **Context A:** Tom saves Apple under the complete Apple/Banana question frame.
+- **Changed context:** Banana/Mango asks Tom instead of reusing Apple.
+- **Context A returns:** an independently-authored two-question Talk repeats Apple for question 1
+  and opens directly on question 2.
 
 ##### E2E-058 — Talks matching — partial auto-answers (flattened context) › Jerry finishes talk with Sunday; new talk Sat skips Q1–Q2 then Jerry answers Q3
 

@@ -19,9 +19,9 @@ export type SaveCreatedTalkDeps = {
     currentQuestion: { id: string; text?: string; answers?: any[] },
     answerId: string,
     answerText: string,
-    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
+    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
     mode: 'auto' | 'manual' | 'permanent' | 'suppressed',
-  ) => void;
+  ) => string;
   saveQuestionAnswersFromCompletion: (
     talkData: { questions?: Array<{ id: string; text?: string }> },
     answers: Array<{ questionId: string; answerId: string; answerText?: string }>,
@@ -75,7 +75,7 @@ export function saveCreatedTalk(
   setMyTalks(myTalks);
 
   // Save self-answers to answer preferences (user's answer list) for chatbot/auto-reply
-  const acc: Array<{ questionId: string; answerText?: string }> = [];
+  const acc: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }> = [];
   const completedAnswers: Array<{
     questionId: string;
     answerId: string;
@@ -89,7 +89,12 @@ export function saveCreatedTalk(
     if (!q) continue;
     const a = q.answers?.find((an: any) => an.id === answerId);
     if (!a) continue;
-    acc.push({ questionId, answerText: a.text });
+    const sessionAnswer: { questionId: string; answerId?: string; answerText?: string; contextHash?: string } = {
+      questionId,
+      answerId: a.id,
+      answerText: a.text,
+    };
+    acc.push(sessionAnswer);
     completedAnswers.push({
       questionId,
       answerId,
@@ -97,7 +102,7 @@ export function saveCreatedTalk(
       mode: 'manual',
     });
     if (a.isMatch === true) hasMatchAnswer = true;
-    deps.saveAnswerPreference(talk, talk.id, q, a.id, a.text || '', acc, 'auto');
+    sessionAnswer.contextHash = deps.saveAnswerPreference(talk, talk.id, q, a.id, a.text || '', acc, 'auto');
   }
 
   // §EE: a typed value authored on my own question is an ordinary Me-tab answer declaration,
@@ -148,44 +153,4 @@ export function saveCreatedTalk(
   if (talksView?.classList.contains('active')) {
     deps.refreshTalksListIfActive();
   }
-}
-
-export type CopyAnsweredTalkToTalksDeps = {
-  showNotification: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
-  t: (key: import('./ui-translations').UiTranslationKey) => string;
-  saveMyTalk: (talkData: import('./my-talks-storage').MyTalkEntry) => void;
-  refreshTalksList: () => void;
-  refreshAnswersList: () => void;
-};
-
-/**
- * Copies an answered (not self-authored) talk into the user's own Talks list as a `role:
- * 'copied'` entry — not authorship (docs/TODO.md §Y1): the original sender stays `authorId`
- * until the user actually edits the content through the revise-mints-new-id path.
- */
-export function copyAnsweredTalkToTalks(talkId: string, deps: CopyAnsweredTalkToTalksDeps): void {
-  const myTalks = getMyTalks();
-  const talk = myTalks[talkId];
-  if (!talk?.fullTalk) {
-    deps.showNotification(deps.t('talksDataNotFound'), 'error');
-    return;
-  }
-  if (talk.role === 'copied') {
-    deps.showNotification(deps.t('talksAlreadyCopied'), 'info');
-    return;
-  }
-  deps.saveMyTalk({
-    talkId,
-    title: talk.title,
-    type: talk.type,
-    timestamp: talk.lastInteraction || new Date().toISOString(),
-    role: 'copied',
-    fullTalk: talk.fullTalk,
-    completedAnswers: talk.completedAnswers,
-    outcome: talk.outcome,
-    senders: talk.senders,
-  });
-  deps.showNotification(deps.t('talksCopiedToList'), 'success');
-  deps.refreshTalksList();
-  deps.refreshAnswersList();
 }

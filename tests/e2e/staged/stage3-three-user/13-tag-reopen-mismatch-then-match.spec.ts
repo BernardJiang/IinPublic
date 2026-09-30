@@ -108,6 +108,7 @@ test.describe('Talks matching — tag answer retained in IN history', () => {
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await pageTom.locator('#talks-filter-outgoing').uncheck();
+    await pageTom.locator('#talks-filter-completion').selectOption('answered');
     await afterSync();
     await expect(pageTom.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: TAG_TITLE })).toHaveCount(1);
   });

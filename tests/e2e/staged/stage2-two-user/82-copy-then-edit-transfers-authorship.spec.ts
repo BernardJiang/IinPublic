@@ -109,6 +109,11 @@ test.describe('Copy then edit transfers authorship', () => {
       .filter({ hasText: talkTitle })
       .first();
     await expect(incomingRow).toBeVisible({ timeout: 90000 });
+    await expect(incomingRow.locator('.talk-add-to-my-talks-btn')).toBeVisible();
+    await incomingRow.locator('.talk-add-to-my-talks-btn').click();
+    await expect(
+      pageTom.locator('.talk-list-item[data-role="copied"]').filter({ hasText: talkTitle }),
+    ).toBeVisible({ timeout: 15000 });
     await incomingRow.locator('button.view-talk-btn').click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
     await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
@@ -117,13 +122,10 @@ test.describe('Copy then edit transfers authorship', () => {
 
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterNav();
-    // docs/TODO.md §LL.2 follow-up: the row's visible content is the question prompt
-    // ("Original question text?"), not the talk title; "copy" is now a small independent
-    // link on the answer line itself, no expand-in-place popup anymore.
+    // Me remains answer history and does not own Talk-list mutations.
     const answerRow = pageTom.locator('.answer-talk-item').filter({ hasText: 'Original question text?' }).first();
     await expect(answerRow).toBeVisible({ timeout: 15000 });
-    await answerRow.locator('.answer-copy-talk-jump').click();
-    await afterNav();
+    await expect(answerRow.locator('.answer-copy-talk-jump')).toHaveCount(0);
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterNav();

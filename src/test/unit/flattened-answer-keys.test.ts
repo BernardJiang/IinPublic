@@ -1,5 +1,7 @@
 import {
+  buildQuestionContextHash,
   buildAnswerPreferenceLookupKey,
+  immediateParentQAPairs,
   sessionAnswersToQAPairs,
 } from '../../shared/flattened-answer-keys';
 import { computeTalkIdFromTalkData } from '../../shared/cid';
@@ -148,6 +150,103 @@ describe('flattened-answer-keys', () => {
     const pairs = sessionAnswersToQAPairs(multiTalkA, [
       { questionId: 'q0', answerText: 'Yes' },
     ]);
-    expect(pairs).toEqual([{ questionText: 'Tennis?', answerText: 'Yes' }]);
+    expect(pairs).toEqual([{ questionId: 'q0', questionText: 'Tennis?', answerText: 'Yes' }]);
+  });
+
+  it('includes the first question choice set and ignores choice display order', () => {
+    const first = { text: 'Favourite fruit?', answers: [{ text: 'Apple' }, { text: 'Banana' }, { text: 'Strawberries' }] };
+    const reordered = { text: 'Favourite fruit?', answers: [{ text: 'Strawberries' }, { text: 'Apple' }, { text: 'Banana' }] };
+    const expanded = { text: 'Favourite fruit?', answers: [...first.answers, { text: 'Orange' }] };
+
+    expect(buildQuestionContextHash(multiTalkA, first, undefined)).toBe(
+      buildQuestionContextHash(multiTalkA, reordered, undefined),
+    );
+    expect(buildQuestionContextHash(multiTalkA, first, undefined)).not.toBe(
+      buildQuestionContextHash(multiTalkA, expanded, undefined),
+    );
+  });
+
+  it('rolls a flow context from only the previous hash, previous answer, and current frame', () => {
+    const q1 = { text: 'Buying fruit?', answers: [{ text: 'Yes' }, { text: 'No' }] };
+    const q2 = { text: 'Which season?', answers: [{ text: 'Summer' }, { text: 'Winter' }] };
+    const q3 = { text: 'Favourite fruit?', answers: [{ text: 'Apple' }, { text: 'Banana' }] };
+    const c1 = buildQuestionContextHash(multiTalkA, q1, undefined);
+    const c2 = buildQuestionContextHash(multiTalkA, q2, { contextHash: c1, answerText: 'Yes' });
+    const c3 = buildQuestionContextHash(multiTalkA, q3, { contextHash: c2, answerText: 'Summer' });
+
+    expect(c3).toHaveLength(64);
+    expect(c3).toBe(buildQuestionContextHash(multiTalkA, q3, { contextHash: c2, answerText: 'Summer' }));
+    expect(c3).not.toBe(buildQuestionContextHash(multiTalkA, q3, { contextHash: c2, answerText: 'Winter' }));
+  });
+
+  it('treats every survey question as independent of the previous cursor', () => {
+    const survey = { type: 'survey', language: 'en' };
+    const question = { text: 'Favourite fruit?', answers: [{ text: 'Apple' }, { text: 'Banana' }] };
+    expect(buildQuestionContextHash(survey, question, undefined)).toBe(
+      buildQuestionContextHash(survey, question, { contextHash: 'prior', answerText: 'Something' }),
+    );
+  });
+
+  it('uses only the immediate route parent and ignores already-answered fan-out siblings', () => {
+    const route = {
+      type: 'route',
+      questions: [
+        {
+          id: 'root', text: 'Product?', contextPath: [],
+          answers: [{ id: 'phone', text: 'Phone', nextQuestionIds: ['model', 'condition'] }],
+        },
+        {
+          id: 'model', text: 'Model?', contextPath: [{ questionId: 'root', answerId: 'phone' }],
+          answers: [{ id: 'a', text: 'A' }],
+        },
+        {
+          id: 'condition', text: 'Condition?', contextPath: [{ questionId: 'root', answerId: 'phone' }],
+          answers: [{ id: 'new', text: 'New' }],
+        },
+      ],
+    };
+    const answers = [
+      { questionId: 'root', answerId: 'phone', answerText: 'Phone', contextHash: 'root-hash' },
+      { questionId: 'model', answerId: 'a', answerText: 'A', contextHash: 'model-hash' },
+    ];
+
+    expect(immediateParentQAPairs(route, route.questions[2], answers)).toEqual([{
+      questionId: 'root',
+      questionText: 'Product?',
+      answerText: 'Phone',
+      contextHash: 'root-hash',
+    }]);
+  });
+
+  it('uses the preceding flow answer as the single rolling parent', () => {
+    const answers = [
+      { questionId: 'q0', answerId: 'y', answerText: 'Yes', contextHash: 'first' },
+      { questionId: 'q1', answerId: 'y', answerText: 'Yes', contextHash: 'second' },
+    ];
+    expect(immediateParentQAPairs(multiTalkA, multiTalkA.questions[1], answers)).toEqual([{
+      questionId: 'q0',
+      questionText: 'Tennis?',
+      answerText: 'Yes',
+      contextHash: 'first',
+    }]);
+  });
+
+  it('reconstructs a pre-v2 route draft from its ordered active ancestry only', () => {
+    const route = {
+      type: 'route',
+      questions: [
+        { id: 'root', text: 'Product?', contextPath: [], answers: [{ id: 'phone', text: 'Phone' }] },
+        { id: 'sibling', text: 'Color?', contextPath: [{ questionId: 'root', answerId: 'phone' }], answers: [{ id: 'blue', text: 'Blue' }] },
+        {
+          id: 'model', text: 'Model?',
+          contextPath: [{ questionId: 'root', answerId: 'phone' }],
+          answers: [{ id: 'a', text: 'A' }],
+        },
+      ],
+    };
+    expect(immediateParentQAPairs(route, route.questions[2], [
+      { questionId: 'root', answerId: 'phone', answerText: 'Phone' },
+      { questionId: 'sibling', answerId: 'blue', answerText: 'Blue' },
+    ])).toEqual([{ questionId: 'root', questionText: 'Product?', answerText: 'Phone' }]);
   });
 });

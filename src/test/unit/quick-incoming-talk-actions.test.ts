@@ -100,6 +100,26 @@ describe('quickCopyIncomingTalk', () => {
     expect(d.emit).toHaveBeenCalledWith('demandFullTalk', expect.objectContaining({ talkId: '550e8400-e29b-41d4-a716-446655440000' }));
   });
 
+  it('adds a locally retained answered talk without requiring the old inbox record', () => {
+    const uuid = '550e8400-e29b-41d4-a716-446655440000';
+    const fullTalk = { id: uuid, title: 'Answered talk', type: 'flow', authorId: 'alice' };
+    const d = deps({
+      getMyTalks: jest.fn(() => ({
+        [uuid]: { talkId: uuid, title: 'Answered talk', type: 'flow', role: 'answered', fullTalk },
+      })) as any,
+    });
+
+    quickCopyIncomingTalk(uuid, `answered:${uuid}`, undefined, d);
+
+    expect(d.emit).not.toHaveBeenCalled();
+    expect(d.saveMyTalk).toHaveBeenCalledWith(expect.objectContaining({
+      talkId: uuid,
+      role: 'copied',
+      fullTalk,
+    }));
+    expect(d.showNotification).toHaveBeenCalledWith('talksCopiedToList', 'success');
+  });
+
   it('once resolved: saves a role:"copied" entry with deduped sender ids from the cluster, notifies, refreshes', () => {
     const d = deps();
     const cluster = { senders: { a: { senderId: 'u1' }, b: { senderId: 'u1' }, c: { senderId: 'u2' } } };

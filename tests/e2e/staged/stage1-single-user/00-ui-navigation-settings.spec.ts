@@ -647,8 +647,21 @@ test.describe('UI navigation and settings shell', () => {
           answerId: 'a1',
           answerText: 'Yes',
           mode: 'manual',
+          contextVersion: 2,
           language: 'en',
           questionText: 'Coffee?',
+          flatKey: 'flat_localized_preference',
+          timestamp: new Date().toISOString(),
+        },
+      }));
+      localStorage.setItem('flattenedAnswerPreferences', JSON.stringify({
+        flat_localized_preference: {
+          answerId: 'a1',
+          answerText: 'Yes',
+          mode: 'manual',
+          language: 'en',
+          questionText: 'Coffee?',
+          flatKey: 'flat_localized_preference',
           timestamp: new Date().toISOString(),
         },
       }));
@@ -675,21 +688,21 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');
     await expect(p.locator('#preferences-modal')).toContainText('最近回答：');
     await expect(p.locator('#preferences-modal')).toContainText('手动');
+    // A completed tag is stored under both a context-aware key and a legacy fallback key.
+    // They are one logical answer and must never render as two cards.
+    await expect(p.locator('#preferences-modal .preference-item')).toHaveCount(1);
     await expect(p.locator('#preferences-modal .mode-select option')).toHaveText([
-      '手动',
-      '临时自动回答',
-      '永久自动回答',
-      '跳过此问题',
+      '每次都问我',
+      '相同上下文和选项',
     ]);
-    await p.locator('#preferences-modal .mode-select').selectOption('suppressed');
-    await expect(p.locator('.notification').filter({ hasText: '之后将自动跳过此问题' })).toBeVisible();
+    await p.locator('#preferences-modal .mode-select').selectOption('temporary');
+    await expect(p.locator('.notification').filter({ hasText: '仅在上下文和选项相同时重复此选择' })).toBeVisible();
     await expect
       .poll(() => p.evaluate(() => {
-        const state = JSON.parse(localStorage.getItem('exactChatbotMemory') || '{}');
-        const memories = Object.values(state.users?.local || {}) as Array<any>;
-        return memories[0]?.summary?.mode || '';
+        const state = JSON.parse(localStorage.getItem('flattenedAnswerPreferences') || '{}');
+        return state.flat_localized_preference?.mode || '';
       }))
-      .toBe('SUPPRESSED');
+      .toBe('temporary');
     await p.locator('#close-preferences-modal').click();
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showMyTalksDialog());
     await expect(p.locator('#my-talks-modal')).toContainText('我的话题');
@@ -701,6 +714,7 @@ test.describe('UI navigation and settings shell', () => {
     await p.evaluate(() => {
       localStorage.removeItem('myAnswerHistory');
       localStorage.removeItem('answerPreferences');
+      localStorage.removeItem('flattenedAnswerPreferences');
       localStorage.removeItem('myTalks');
     });
     await p.locator('.nav-btn[data-view="settings"]').click();
@@ -1026,6 +1040,10 @@ test.describe('UI navigation and settings shell', () => {
       ui.displayTalksList();
     });
     const incoming = p.locator('.talk-list-item[data-role="incoming"]');
+    // Answered talks are read: hidden from the default Unanswered inbox, recoverable via All.
+    await expect(incoming).toHaveCount(1);
+    await expect(incoming.first()).toContainText('Fresh incoming');
+    await p.locator('#talks-filter-completion').selectOption('all');
     await expect(incoming).toHaveCount(2);
     await expect(incoming.first()).toContainText('Fresh incoming');
     await expect(incoming.nth(1)).toContainText('Older mismatch');

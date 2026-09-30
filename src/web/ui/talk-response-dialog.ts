@@ -1,4 +1,4 @@
-import { sessionAnswersToQAPairs } from '../../shared/flattened-answer-keys';
+import { immediateParentQAPairs, type QAPair } from '../../shared/flattened-answer-keys';
 import { checkIfMatch, getRouteRootChildQuestionIds } from '../../shared/talk-engine';
 import type { UiTranslationKey } from './ui-translations';
 
@@ -12,6 +12,7 @@ type SavedPreference = {
   allAnswers?: any[];
   autoAnswerAction?: string;
   autoAnswerReason?: string;
+  contextHash?: string;
   /** Spec §3.4 FR-QA-15/16, §30.8: the full checked set for a resolved multi-select preference. */
   answerIds?: string[];
 } | null;
@@ -24,7 +25,7 @@ type ResponseDraft = {
    *  id, for backward-compat display; resuming a draft mid-multi-select isn't specifically
    *  exercised yet (known limitation, not a correctness issue — the full set still round-trips
    *  through JSON). */
-  answers: Array<{ questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode; answerIds?: string[] }>;
+  answers: Array<{ questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode; answerIds?: string[]; contextHash?: string }>;
 };
 
 function responseDraftKey(talkId: string): string {
@@ -108,7 +109,7 @@ type TalkResponseDialogOptions = {
   resolveAnswerPreferenceForTalkQuestion: (
     talk: any,
     questionIndex: number,
-    previousQAPairs: Array<{ questionText: string; answerText: string }>,
+    previousQAPairs: QAPair[],
     currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string },
     talkInstanceId: string,
   ) => SavedPreference;
@@ -118,9 +119,9 @@ type TalkResponseDialogOptions = {
     currentQuestion: { id: string; text?: string; answers?: any[] },
     answerId: string,
     answerText: string,
-    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
+    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
     mode?: 'auto' | 'manual' | 'permanent' | 'suppressed',
-  ) => void;
+  ) => string;
   text?: (key: UiTranslationKey) => string;
   /** TODO §Q: Talk → Me-tab Q&A reverse edge. Present only when this talk has already been
    *  answered by me — shows a "View in My Answers" link that jumps to the Me-tab entry. */
@@ -142,20 +143,17 @@ type TalkResponseDialogOptions = {
 function tryCollectAllAutoAnswers(
   talk: any,
   resolveAnswerPreference: TalkResponseDialogOptions['resolveAnswerPreferenceForTalkQuestion'],
-): Array<{ questionId: string; answerId: string; answerText: string; mode: string }> | null {
+): Array<{ questionId: string; answerId: string; answerText: string; mode: string; contextHash?: string }> | null {
   if (!Array.isArray(talk.questions) || talk.questions.length === 0) return null;
   // Route talks have branching paths — skip pre-scan; let the iterative renderer handle them
   if (talk.type === 'route') return null;
 
-  const collected: Array<{ questionId: string; answerId: string; answerText: string; mode: string }> = [];
+  const collected: Array<{ questionId: string; answerId: string; answerText: string; mode: string; contextHash?: string }> = [];
   let currentQ = talk.questions[0];
 
   while (currentQ) {
     const idx = talk.questions.findIndex((q: any) => q.id === currentQ.id);
-    const previousPairs = collected.map((a, i) => ({
-      questionText: talk.questions[i]?.text || '',
-      answerText: a.answerText,
-    }));
+    const previousPairs = immediateParentQAPairs(talk, currentQ, collected);
     const pref = resolveAnswerPreference(talk, idx, previousPairs, currentQ, talk.id);
     if (!pref || pref.mode !== 'auto') return null; // unanswered or manual — can't pre-fill all
     if (pref.answerId === 'ignore') return null; // ignore-auto is terminal but not a positive flow
@@ -166,6 +164,7 @@ function tryCollectAllAutoAnswers(
       answerId: pref.answerId,
       answerText: pref.answerText,
       mode: 'auto',
+      ...(pref.contextHash ? { contextHash: pref.contextHash } : {}),
     });
 
     // Stop at terminal / match / ignore answers — except for survey, where every answer
@@ -324,26 +323,28 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
     // (fixed ids would otherwise resolve to the first-opened modal via document.getElementById).
     const checkbox = modal.querySelector('#tag-match-checkbox') as HTMLInputElement | null;
     const submitButton = modal.querySelector('#tag-submit-response') as HTMLButtonElement | null;
-    const answers: { questionId: string; answerId: string; answerText: string }[] = [];
+    const answers: ResponseDraft['answers'] = [];
     const completeFromCheckbox = (checked: boolean) => {
       const answer = checked && matchAnswer ? matchAnswer : ignoreAnswer;
       if (!answer) {
         options.completeTalk(talk, [], 'mismatch');
       } else {
-        answers.push({
+        const selected: ResponseDraft['answers'][number] = {
           questionId: q.id,
           answerId: answer.id,
           answerText: answer.text || (checked ? 'Match.' : 'Ignore.'),
-        });
-        options.saveAnswerPreference(
+        };
+        answers.push(selected);
+        const contextHash = options.saveAnswerPreference(
           talk,
           talk.id,
           q,
           answer.id,
           answer.text || (checked ? 'Match.' : 'Ignore.'),
-          answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
+          answers,
           'auto',
         );
+        selected.contextHash = contextHash;
         if (checked && matchAnswer) {
           options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
           options.completeTalk(talk, answers, 'match');
@@ -379,7 +380,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
     if (needsReview) {
       // Build the review answers — start from auto-filled set (may be partial for superseded)
-      const reviewAnswers: { questionId: string; answerId: string; answerText: string; mode: string }[] =
+      const reviewAnswers: Array<{ questionId: string; answerId: string; answerText: string; mode: string; contextHash?: string }> =
         allAutoAnswers ?? [];
 
       const supersededBanner = isTalkSuperseded
@@ -479,17 +480,18 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           answerId: a.answerId,
           answerText: a.answerText,
           mode: a.mode as AnswerSelectionMode,
+          ...(a.contextHash ? { contextHash: a.contextHash } : {}),
         }));
         finalAnswers.forEach((a, i) => {
           const q = talk.questions.find((tq: any) => tq.id === a.questionId);
           if (!q) return;
-          options.saveAnswerPreference(
+          a.contextHash = options.saveAnswerPreference(
             talk,
             talk.id,
             q,
             a.answerId,
             a.answerText,
-            finalAnswers.slice(0, i + 1).map((x) => ({ questionId: x.questionId, answerText: x.answerText })),
+            finalAnswers.slice(0, i + 1),
             a.mode as 'auto' | 'manual' | 'permanent',
           );
         });
@@ -506,7 +508,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
   const draft = loadResponseDraft(talk);
   let currentQuestion = talk.questions.find((question: any) => question.id === draft?.currentQuestionId) || talk.questions[0];
-  const answers: { questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode; answerIds?: string[] }[] =
+  const answers: ResponseDraft['answers'] =
     draft?.answers || [];
 
   // matchThreshold-mode route (spec §30.2 multi-spec matching): each of the root's direct
@@ -601,7 +603,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
     }
 
     const currentQuestionIndex = talk.questions.findIndex((q: { id: string }) => q.id === currentQuestion.id);
-    const previousPairs = sessionAnswersToQAPairs(talk, answers);
+    const previousPairs = immediateParentQAPairs(talk, currentQuestion, answers);
     const savedPreference = skipAutoAnswer
       ? null
       : options.resolveAnswerPreferenceForTalkQuestion(
@@ -621,6 +623,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           answerId: 'ignore',
           answerText: 'ignore',
           mode: 'auto',
+          ...(savedPreference.contextHash ? { contextHash: savedPreference.contextHash } : {}),
         });
         options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
         clearResponseDraft(talk);
@@ -641,6 +644,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           answerIds: savedPreference.answerIds,
           answerText: savedPreference.answerText,
           mode: 'auto',
+          ...(savedPreference.contextHash ? { contextHash: savedPreference.contextHash } : {}),
         });
         if (routeChildIds) {
           if (tryAdvanceToNextRouteSpec()) return;
@@ -666,6 +670,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           answerId: savedPreference.answerId,
           answerText: savedPreference.answerText,
           mode: (savedPreference.mode as 'auto' | 'manual') || 'auto',
+          ...(savedPreference.contextHash ? { contextHash: savedPreference.contextHash } : {}),
         });
 
         if (routeChildIds) {
@@ -722,7 +727,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
     const choiceRadioName = `choice-${currentQuestion.id}`;
     const showBackButton = talk.type === 'flow' && answers.length > 0;
     const previousChoiceFromSession = answers.find((a) => a.questionId === currentQuestion.id);
-    const previousPairsForDisplay = sessionAnswersToQAPairs(talk, answers);
+    const previousPairsForDisplay = immediateParentQAPairs(talk, currentQuestion, answers);
     const savedPreferenceForDisplay = options.resolveAnswerPreferenceForTalkQuestion(
       talk,
       currentQuestionIndex,
@@ -787,7 +792,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           ` : `
           <div class="answer-radio-grid" role="radiogroup" aria-label="Choose answer and mode">
             <div class="answer-grid-header">
-              <span>${text('responseAuto', 'Auto')}</span><span>${text('responseManual', 'Manual')}</span><span>${text('responsePermanent', 'Permanent')}</span><span></span>
+              <span>${text('responseAuto', 'Same context')}</span><span>${text('responseManual', 'Just once')}</span><span></span>
             </div>
             ${currentQuestion.answers
               .map((answer: any) => {
@@ -812,20 +817,13 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
                   data-is-match="${answer.isMatch || false}"
                   data-next-question-id="${answer.nextQuestionId || ''}"
                   ${prevMode === 'manual' ? 'checked' : ''}></label>
-                <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_permanent" class="choice-radio"
-                  data-answer-id="${answer.id}"
-                  data-answer-text="${options.escapeHtml(answer.text)}"
-                  data-mode="permanent"
-                  data-is-terminal="${answer.isTerminal || false}"
-                  data-is-ignore="${answer.isIgnore || false}"
-                  data-is-match="${answer.isMatch || false}"
-                  data-next-question-id="${answer.nextQuestionId || ''}"></label>
                 <span class="answer-grid-label">${options.escapeHtml(answer.text)}</span>
               </div>
             `;
               })
               .join('')}
             <div class="answer-grid-row answer-grid-row-ignore">
+              <span class="answer-grid-cell"></span>
               <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="ignore" class="choice-radio ignore-radio"
                 data-answer-id="ignore"
                 data-answer-text="ignore"
@@ -835,8 +833,6 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
                 data-is-match="false"
                 data-next-question-id=""
                 ${previousChoice?.answerId === 'ignore' ? 'checked' : ''}></label>
-              <span class="answer-grid-cell"></span>
-              <span class="answer-grid-cell"></span>
               <span class="answer-grid-label">${text('responseIgnore', 'Ignore')}</span>
             </div>
           </div>
@@ -863,7 +859,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       const nextQuestionId = radio.dataset.nextQuestionId || '';
 
       const existingAnswer = answers.findIndex((answer) => answer.questionId === currentQuestion.id);
-      const selectedAnswer = {
+      const selectedAnswer: ResponseDraft['answers'][number] = {
         questionId: currentQuestion.id,
         answerId,
         answerText: isIgnore ? 'ignore' : answerText,
@@ -872,13 +868,13 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       if (existingAnswer >= 0) answers.splice(existingAnswer, 1, selectedAnswer);
       else answers.push(selectedAnswer);
 
-      options.saveAnswerPreference(
+      selectedAnswer.contextHash = options.saveAnswerPreference(
         talk,
         talk.id,
         currentQuestion,
         answerId,
         isIgnore ? 'ignore' : answerText,
-        answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
+        answers,
         isIgnore ? 'suppressed' : answerMode,
       );
 
@@ -948,7 +944,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       const answerTexts = checkedBoxes.map((cb) => cb.dataset.answerText || '');
 
       const existingAnswer = answers.findIndex((answer) => answer.questionId === currentQuestion.id);
-      const selectedAnswer = {
+      const selectedAnswer: ResponseDraft['answers'][number] = {
         questionId: currentQuestion.id,
         answerId: answerIds[0],
         answerIds,
@@ -958,18 +954,20 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       if (existingAnswer >= 0) answers.splice(existingAnswer, 1, selectedAnswer);
       else answers.push(selectedAnswer);
 
-      // One saveAnswerPreference call per checked option — mirrors saveCreatedTalk's
-      // per-entry pattern, building the multi-event history findAutoAnswerMultiple scans.
+      // One history/preference write per checked option mirrors saveCreatedTalk. These manual
+      // records are not recombined into a chatbot decision: version-2 multi-select remains an
+      // explicit user choice until an atomic complete-set record exists.
       answerIds.forEach((answerId, i) => {
-        options.saveAnswerPreference(
+        const contextHash = options.saveAnswerPreference(
           talk,
           talk.id,
           currentQuestion,
           answerId,
           answerTexts[i],
-          answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
+          answers,
           'manual',
         );
+        selectedAnswer.contextHash ??= contextHash;
       });
 
       if (routeChildIds) {

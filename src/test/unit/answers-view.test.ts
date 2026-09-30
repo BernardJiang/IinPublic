@@ -118,7 +118,6 @@ describe('answers view models', () => {
       getMyTalks: () => ({}),
       getFlatAnswerHistory: () => ({ history: baseRecord }),
       escapeHtml: (value) => value,
-      copyAnsweredTalkToTalks: jest.fn(),
       showTalkDetail: jest.fn(),
       showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
@@ -138,6 +137,7 @@ describe('answers view models', () => {
     const content = document.getElementById('answers-content')?.textContent || '';
     expect(content).toContain('Tennis? -> Yes');
     expect(content).toContain('Badminton? -> Yes');
+    expect(document.querySelector('.answer-copy-talk-jump')).toBeNull();
   });
 
   it('renders stored contextLabel even when source talk is unavailable', () => {
@@ -169,7 +169,6 @@ describe('answers view models', () => {
         },
       }),
       escapeHtml: (value) => value,
-      copyAnsweredTalkToTalks: jest.fn(),
       showTalkDetail: jest.fn(),
       showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
@@ -230,7 +229,6 @@ describe('answers view models', () => {
         },
       }),
       escapeHtml: (value) => value,
-      copyAnsweredTalkToTalks: jest.fn(),
       showTalkDetail: jest.fn(),
       showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
@@ -351,7 +349,6 @@ describe('answers view models', () => {
         zh: { ...baseRecord, id: 'zh', talkId: 'talk_zh', language: 'zh' },
       }),
       escapeHtml: (value) => value,
-      copyAnsweredTalkToTalks: jest.fn(),
       showTalkDetail: jest.fn(),
       showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
@@ -397,7 +394,6 @@ describe('answers view models', () => {
         },
       }),
       escapeHtml: (value) => value,
-      copyAnsweredTalkToTalks: jest.fn(),
       showTalkDetail: jest.fn(),
       showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
@@ -450,7 +446,6 @@ describe('answers view models', () => {
         },
       }),
       escapeHtml: (value) => value,
-      copyAnsweredTalkToTalks: jest.fn(),
       showTalkDetail: jest.fn(),
       showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
@@ -511,7 +506,6 @@ describe('answers view models', () => {
         getMyTalks: () => ({}),
         getFlatAnswerHistory: () => buildFlatHistory(count),
         escapeHtml: (value: string) => value,
-        copyAnsweredTalkToTalks: jest.fn(),
         showTalkDetail: jest.fn(),
         showPreferencesDialog: jest.fn(),
         showItemDetailsPopup: jest.fn(),
@@ -610,7 +604,6 @@ describe('answers view models', () => {
         getMyTalks: () => ({}),
         getFlatAnswerHistory: () => ({}),
         escapeHtml: (value: string) => value,
-        copyAnsweredTalkToTalks: jest.fn(),
         showTalkDetail: jest.fn(),
         showPreferencesDialog,
         showItemDetailsPopup: jest.fn(),
@@ -636,7 +629,6 @@ describe('answers view models', () => {
         getMyTalks: () => ({}),
         getFlatAnswerHistory: () => ({}),
         escapeHtml: (value: string) => value,
-        copyAnsweredTalkToTalks: jest.fn(),
         showTalkDetail: jest.fn(),
         showPreferencesDialog: jest.fn(),
         showItemDetailsPopup: jest.fn(),

@@ -2,9 +2,8 @@
  * docs/TODO.md §LL.2 follow-up: Me-tab answer entries render as one line (question -> answer,
  * with the context label shown inline when the question has a context path) with no dedicated
  * actions row and no expand-in-place popup — talk metadata (date/outcome/senders/language/
- * chatbot use) isn't shown on this page at all anymore. Copy-to-talks and "view sender" are
- * small independent links directly on the answer line itself (per-variant, since a merged row
- * can span more than one contributing talk).
+ * chatbot use) isn't shown on this page at all anymore. "View sender" remains a small
+ * independent link; adding an incoming talk to My Talks belongs on the Talks tab.
  */
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
@@ -38,7 +37,7 @@ test.describe('Compact answer rows (§LL.2) — 1-line collapse, no popup', () =
     await clearGunForStage1Spec();
   });
 
-  test('answer entry: one line with inline context label, copy link works with no popup', async () => {
+  test('answer entry: one line with inline context label and no talk-copy action', async () => {
     const runId = Date.now();
     const tom = await bootstrapUser(browsers[0]!, 'Tom', 'Tom');
     sessions.push({ label: 'Tom', context: tom.context, page: tom.page });
@@ -82,13 +81,13 @@ test.describe('Compact answer rows (§LL.2) — 1-line collapse, no popup', () =
     await expect(row).toContainText('Looking for a job? -> Yes.');
     await expect(page.locator('#item-details-popup')).toHaveCount(0);
 
-    // Copy-to-talks: a small link directly on the answer line, single click, no popup.
-    await row.locator('.answer-copy-talk-jump').click();
+    // Me is answer history. Adopting a received talk is an incoming-Talks action.
+    await expect(row.locator('.answer-copy-talk-jump')).toHaveCount(0);
 
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
     await expect(
-      page.locator('.talk-list-item[data-role="copied"]').filter({ hasText: routeTalk.title }),
+      page.locator('.talk-list-item[data-role="created"]').filter({ hasText: routeTalk.title }),
     ).toBeVisible({ timeout: 10_000 });
   });
 });
