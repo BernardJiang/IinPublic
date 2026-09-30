@@ -23,6 +23,7 @@ import { registerMailboxRoutes } from './routes/mailbox-routes';
 import { TechSupportDurableStore } from './services/techsupport-durable-store';
 import { PresenceDurableStore } from './services/presence-durable-store';
 import { registerTurnRoutes } from './routes/turn-routes';
+import { registerAttestationRoutes } from './routes/attestation-routes';
 import { registerGraphRelayRoutes } from './routes/graph-relay-routes';
 import { registerAdminRoutes } from './routes/admin-routes';
 import { TechSupportAnnouncementService } from './services/techsupport-announcement-service';
@@ -291,6 +292,10 @@ class IinPublicServer {
     registerTurnRoutes(this.app, {
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
+
+    // §16.5's verifier — routes 503 gracefully (not a startup crash) when
+    // ATTESTATION_VERIFIER_KEY_FILE isn't configured on this deployment yet.
+    registerAttestationRoutes(this.app);
 
     registerGraphRelayRoutes(this.app, {
       gunService: this.gunService,
