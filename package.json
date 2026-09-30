@@ -171,6 +171,7 @@
   "dependencies": {
     "@noble/curves": "1.8.1",
     "@noble/hashes": "1.8.0",
+    "asn1js": "^3.0.10",
     "bad-words": "^3.0.4",
     "bonjour-service": "^1.4.4",
     "compromise": "^14.14.0",
