@@ -24,13 +24,14 @@ function makeDeps(overrides: Partial<DisplayTalksListDeps> = {}): DisplayTalksLi
     talksEnabledTypes: new Set(['tag', 'flow', 'survey', 'route']),
     talksOutSortMode: 'recent',
     talksQuery: '',
-    talksCompletionFilter: 'all',
+    talksCompletionFilter: 'unanswered',
     talksOutcomeFilter: 'all',
     talksDateFrom: '',
     talksDateTo: '',
     syncStatusBarMatchCount: jest.fn(),
     deleteMyTalk: jest.fn(),
     quickAnswerIncomingTag: jest.fn(),
+    quickCopyIncomingTalk: jest.fn(),
     showTalkDetail: jest.fn(),
     showSurveyStatsDialog: jest.fn(),
     showCreatorRepliesForTalk: jest.fn(),
@@ -71,7 +72,11 @@ function installTalksDom(): void {
       <input id="talks-filter-outgoing" type="checkbox">
       <select id="talks-out-sort-order"><option value="recent">recent</option></select>
       <input id="talks-filter-query">
-      <select id="talks-filter-completion"><option value="all">all</option></select>
+      <select id="talks-filter-completion">
+        <option value="unanswered">unanswered</option>
+        <option value="answered">answered</option>
+        <option value="all">all</option>
+      </select>
       <select id="talks-filter-outcome"><option value="all">all</option></select>
       <input id="talks-filter-date-from">
       <input id="talks-filter-date-to">
@@ -144,6 +149,52 @@ describe('displayTalksList', () => {
     expect(emit).toHaveBeenCalledWith('needTalkStats', { talkIds: ['talk-1'] });
     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(emit).toHaveBeenCalledWith('loadTalkForEdit', { talkId: 'talk-1' });
+  });
+
+  it('hides answered incoming history by default and reveals it with the Answered filter', () => {
+    localStorage.setItem('myTalks', JSON.stringify({
+      answered: {
+        talkId: 'answered', title: 'Read email behavior', type: 'flow', role: 'answered',
+        lastInteraction: '2026-09-12T00:00:00.000Z', senders: ['alice'], outcome: 'match',
+        completedAnswers: [{ questionId: 'q1', answerId: 'yes' }],
+        fullTalk: {
+          id: 'answered', title: 'Read email behavior', type: 'flow', authorId: 'alice',
+          questions: [{ id: 'q1', text: 'Ready?', answers: [{ id: 'yes', text: 'Yes' }] }],
+        },
+      },
+    }));
+
+    installTalksDom();
+    renderFresh(makeDeps());
+    expect(document.querySelector('.talk-list-item[data-role="incoming"]')).toBeNull();
+
+    installTalksDom();
+    renderFresh(makeDeps({ talksCompletionFilter: 'answered' }));
+    const row = document.querySelector<HTMLElement>('.talk-list-item[data-role="incoming"]');
+    expect(row?.textContent).toContain('Read email behavior');
+    expect(row?.classList.contains('talk-incoming-answered')).toBe(true);
+    expect(row?.querySelector<HTMLButtonElement>('.talk-add-to-my-talks-btn')?.disabled).toBe(false);
+  });
+
+  it('retains an auto-saved copied talk in Answered incoming history', () => {
+    localStorage.setItem('myTalks', JSON.stringify({
+      copied: {
+        talkId: 'copied', title: 'Answered and auto-saved', type: 'flow', role: 'copied',
+        lastInteraction: '2026-09-12T00:00:00.000Z', senders: ['alice'], outcome: 'match',
+        completedAnswers: [{ questionId: 'q1', answerId: 'yes' }],
+        fullTalk: {
+          id: 'copied', title: 'Answered and auto-saved', type: 'flow', authorId: 'alice',
+          questions: [{ id: 'q1', text: 'Ready?', answers: [{ id: 'yes', text: 'Yes' }] }],
+        },
+      },
+    }));
+
+    installTalksDom();
+    renderFresh(makeDeps({ talksCompletionFilter: 'answered' }));
+    const row = document.querySelector<HTMLElement>('.talk-list-item[data-role="incoming"]');
+    expect(row?.textContent).toContain('Answered and auto-saved');
+    expect(row?.querySelector<HTMLButtonElement>('.talk-add-to-my-talks-btn')?.disabled).toBe(true);
+    expect(row?.querySelector('.talk-add-to-my-talks-btn')?.textContent).toContain('talksInMyTalks');
   });
 
   it('does not show starters when existing Talk history is merely hidden by a filter', () => {
@@ -236,6 +287,7 @@ describe('displayTalksList', () => {
 
     const checkbox = document.querySelector<HTMLInputElement>('.talk-tag-in-checkbox');
     expect(checkbox?.indeterminate).toBe(true);
+    expect(document.querySelector('.talk-add-to-my-talks-btn')?.textContent).toContain('talksAddToMyTalks');
     checkbox?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
     jest.runOnlyPendingTimers();
     expect(quickAnswerIncomingTag).toHaveBeenCalledWith(
@@ -243,5 +295,28 @@ describe('displayTalksList', () => {
       'qa_tag_one',
       true,
     );
+  });
+
+  it('puts Add to My Talks on an incoming Talks card and routes the action', () => {
+    installTalksDom();
+    const quickCopyIncomingTalk = jest.fn();
+    renderFresh(makeDeps({
+      quickCopyIncomingTalk,
+      incomingTalkClusters: [{
+        identityKey: 'qa_flow_one',
+        latestTalkId: 'incoming-flow',
+        title: 'Coffee meetup',
+        type: 'flow',
+        language: 'en',
+        latestTalk: { id: 'incoming-flow', title: 'Coffee meetup', type: 'flow', questions: [] },
+        senders: { sender: { senderId: 'sender', senderName: 'Alice' } },
+        updatedAt: '2026-09-12T00:00:00.000Z',
+      }],
+    }));
+
+    const button = document.querySelector<HTMLButtonElement>('.talk-add-to-my-talks-btn');
+    expect(button?.textContent).toContain('talksAddToMyTalks');
+    button?.click();
+    expect(quickCopyIncomingTalk).toHaveBeenCalledWith('incoming-flow', 'qa_flow_one');
   });
 });

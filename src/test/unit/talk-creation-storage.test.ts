@@ -1,13 +1,13 @@
 /** @jest-environment jsdom */
 
-import { saveCreatedTalk, copyAnsweredTalkToTalks } from '../../web/ui/talk-creation-storage';
-import { getMyTalks, setMyTalks, type MyTalkMap } from '../../web/ui/my-talks-storage';
+import { saveCreatedTalk } from '../../web/ui/talk-creation-storage';
+import { getMyTalks } from '../../web/ui/my-talks-storage';
 import { getTypedPreferenceState } from '../../web/ui/answer-preferences-storage';
 import { LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
 
 function deps(overrides: Partial<Parameters<typeof saveCreatedTalk>[2]> = {}) {
   return {
-    saveAnswerPreference: jest.fn(),
+    saveAnswerPreference: jest.fn(() => 'context-hash'),
     saveQuestionAnswersFromCompletion: jest.fn(),
     saveFlatAnswerHistoryRecord: jest.fn(),
     refreshTalksListIfActive: jest.fn(),
@@ -77,7 +77,7 @@ describe('saveCreatedTalk', () => {
       expect.objectContaining({ id: 'q1' }),
       'a1',
       'Yes',
-      [{ questionId: 'q1', answerText: 'Yes' }],
+      [{ questionId: 'q1', answerId: 'a1', answerText: 'Yes', contextHash: 'context-hash' }],
       'auto',
     );
   });
@@ -160,86 +160,5 @@ describe('saveCreatedTalk', () => {
       questions: [{ id: 'q1', text: 'How many?', answers: [], builtIn: { kind: 'quantity', quantity: 3 } }],
     }), { selfAnswers: [] }, d);
     expect(d.refreshAnswersListIfActive).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('copyAnsweredTalkToTalks', () => {
-  function copyDeps(overrides: Partial<Parameters<typeof copyAnsweredTalkToTalks>[1]> = {}) {
-    return {
-      showNotification: jest.fn(),
-      t: (key: string): string => key,
-      saveMyTalk: jest.fn(),
-      refreshTalksList: jest.fn(),
-      refreshAnswersList: jest.fn(),
-      ...overrides,
-    };
-  }
-
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it('shows an error notification and does nothing when the talk has no fullTalk data', () => {
-    const myTalks: MyTalkMap = { t1: { talkId: 't1', title: 'T', type: 'flow', timestamp: '', role: 'answered' } };
-    setMyTalks(myTalks);
-    const d = copyDeps();
-    copyAnsweredTalkToTalks('t1', d);
-    expect(d.showNotification).toHaveBeenCalledWith('talksDataNotFound', 'error');
-    expect(d.saveMyTalk).not.toHaveBeenCalled();
-  });
-
-  it('shows an info notification and does nothing when already copied', () => {
-    const myTalks: MyTalkMap = {
-      t1: { talkId: 't1', title: 'T', type: 'flow', timestamp: '', role: 'copied', fullTalk: {} },
-    };
-    setMyTalks(myTalks);
-    const d = copyDeps();
-    copyAnsweredTalkToTalks('t1', d);
-    expect(d.showNotification).toHaveBeenCalledWith('talksAlreadyCopied', 'info');
-    expect(d.saveMyTalk).not.toHaveBeenCalled();
-  });
-
-  it('saves a role:"copied" entry preserving the original talk content/outcome/senders', () => {
-    const myTalks: MyTalkMap = {
-      t1: {
-        talkId: 't1',
-        title: 'My Talk',
-        type: 'flow',
-        timestamp: '',
-        role: 'answered',
-        fullTalk: { id: 't1' },
-        completedAnswers: [{ questionId: 'q1', answerId: 'a1' }],
-        outcome: 'match',
-        senders: ['u1'],
-      },
-    };
-    setMyTalks(myTalks);
-    const d = copyDeps();
-    copyAnsweredTalkToTalks('t1', d);
-
-    expect(d.saveMyTalk).toHaveBeenCalledWith(
-      expect.objectContaining({
-        talkId: 't1',
-        title: 'My Talk',
-        type: 'flow',
-        role: 'copied',
-        fullTalk: { id: 't1' },
-        completedAnswers: [{ questionId: 'q1', answerId: 'a1' }],
-        outcome: 'match',
-        senders: ['u1'],
-      }),
-    );
-  });
-
-  it('shows a success notification and refreshes both lists on success', () => {
-    const myTalks: MyTalkMap = {
-      t1: { talkId: 't1', title: 'T', type: 'flow', timestamp: '', role: 'answered', fullTalk: {} },
-    };
-    setMyTalks(myTalks);
-    const d = copyDeps();
-    copyAnsweredTalkToTalks('t1', d);
-    expect(d.showNotification).toHaveBeenCalledWith('talksCopiedToList', 'success');
-    expect(d.refreshTalksList).toHaveBeenCalledTimes(1);
-    expect(d.refreshAnswersList).toHaveBeenCalledTimes(1);
   });
 });

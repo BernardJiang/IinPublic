@@ -74,7 +74,7 @@ a `covers:` claim on a skipped/excluded/failing test does NOT count.
 | SPEC-12 | Gun.js Data Model Specifications | 0 | 0 | — |  |
 | SPEC-12.1 | Core Data Structure | 0 | 0 | — |  |
 | SPEC-12.2 | Data Schemas | 0 | 0 | — |  |
-| SPEC-12.3 | Exact Chatbot Memory API | 5 | 5 | ✅ | `staged/stage1-single-user/74-conversation-mode-auto-manual.spec.ts`<br>`staged/stage3-three-user/03-chatbot-bot-badge.spec.ts`<br>`staged/stage3-three-user/05-partial-auto-answers.spec.ts`<br>`staged/stage3-three-user/09-four-types-chatbot.spec.ts`<br>`staged/stage3-three-user/14-exact-chatbot-memory.spec.ts` |
+| SPEC-12.3 | Contextual Chatbot Memory API | 5 | 5 | ✅ | `staged/stage1-single-user/74-conversation-mode-auto-manual.spec.ts`<br>`staged/stage3-three-user/03-chatbot-bot-badge.spec.ts`<br>`staged/stage3-three-user/05-partial-auto-answers.spec.ts`<br>`staged/stage3-three-user/09-four-types-chatbot.spec.ts`<br>`staged/stage3-three-user/14-exact-chatbot-memory.spec.ts` |
 | SPEC-12.4 | First-Run Experience | 8 | 4 | ✅ | `native-app/01-desktop-app-boots.spec.ts`<br>`platform-smoke/00-platform-smoke.spec.ts`<br>`staged/stage0-bootstrap/aaa-stage0-techsupport.spec.ts`<br>`staged/stage0-bootstrap/baa-techsupport-single-user-tabs.spec.ts`<br>`staged/stage0-bootstrap/caa-techsupport-four-talk-types.spec.ts`<br>`staged/stage1-single-user/00-techsupport-identity-bootstrap.spec.ts` |
 | SPEC-12.5 | User Management API | 0 | 0 | — |  |
 | SPEC-12.6 | Talk System API | 0 | 0 | — |  |

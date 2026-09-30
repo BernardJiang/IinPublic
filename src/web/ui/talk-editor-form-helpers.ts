@@ -521,10 +521,9 @@ export function collectFlowSurveyEditorQuestions(
         ? 'multiple'
         : 'single';
     // Spec §3.4 FR-QA-15/16, §30.8: a 'multiple'-mode question's self-answer is every
-    // checked box (possibly several) — pushing one selfAnswers entry per checked value
-    // reuses saveCreatedTalk's existing per-entry saveAnswerPreference loop unchanged,
-    // which is exactly the substrate findAutoAnswerMultiple scans (one history event per
-    // selected value under the same question).
+    // checked box (possibly several). Each remains available for answer history and match-set
+    // construction. The version-2 chatbot deliberately does not combine these separate events
+    // into an automatic multi-select answer; that requires a future atomic complete-set record.
     item.querySelectorAll<HTMLInputElement>(`input[name="self-answer-${questionId}"]:checked`).forEach((selfInput) => {
       if (selfInput.value !== 'ignore') {
         selfAnswers.push({ questionId, answerId: selfInput.value });

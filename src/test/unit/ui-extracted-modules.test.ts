@@ -68,6 +68,7 @@ describe('extracted UI helpers', () => {
       answerId: 'a1',
       answerText: 'Yes',
       mode: 'manual',
+      contextVersion: 2,
       questionText: 'Do you like coffee?',
       allAnswers: [
         { id: 'a1', text: 'Yes' },
@@ -100,15 +101,13 @@ describe('extracted UI helpers', () => {
     expect(Array.from(modeSelect.options).map((option) => option.value)).toEqual([
       'manual',
       'temporary',
-      'permanent',
-      'suppressed',
     ]);
-    modeSelect.value = 'permanent';
+    modeSelect.value = 'temporary';
     modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(updateMode).toHaveBeenCalledWith('pref1', 'permanent');
+    expect(updateMode).toHaveBeenCalledWith('pref1', 'temporary');
 
     const badge = document.querySelector('.mode-badge-pref1') as HTMLElement;
-    expect(badge.textContent).toContain('Permanent auto-answer');
+    expect(badge.textContent).toContain('Same context and choices');
   });
 
   it('renders Me dialogs through the Chinese catalog', () => {
@@ -161,10 +160,8 @@ describe('extracted UI helpers', () => {
     const modalText = document.getElementById('preferences-modal')?.textContent || '';
     expect(modalText).toContain('我的回答');
     expect(modalText).toContain('最近回答：本地日期');
-    expect(modalText).toContain('手动');
-    expect(modalText).toContain('临时自动回答');
-    expect(modalText).toContain('永久自动回答');
-    expect(modalText).toContain('跳过此问题');
+    expect(modalText).toContain('每次都问我');
+    expect(modalText).toContain('相同上下文和选项');
   });
 
   it('renders peer detail and its send picker through the Chinese catalog', async () => {

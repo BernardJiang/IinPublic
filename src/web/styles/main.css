@@ -3174,7 +3174,7 @@ button.talk-icon-btn:hover {
 
 .answer-grid-header {
   display: grid;
-  grid-template-columns: 48px 56px 78px 1fr;
+  grid-template-columns: minmax(88px, auto) minmax(68px, auto) 1fr;
   gap: 12px 8px;
   padding: 8px 0;
   font-size: 0.9em;
@@ -3185,7 +3185,7 @@ button.talk-icon-btn:hover {
 
 .answer-grid-row {
   display: grid;
-  grid-template-columns: 48px 56px 78px 1fr;
+  grid-template-columns: minmax(88px, auto) minmax(68px, auto) 1fr;
   gap: 12px 8px;
   align-items: center;
   padding: 10px 0;

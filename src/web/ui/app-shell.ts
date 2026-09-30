@@ -174,9 +174,9 @@ export function renderAppShell(
                 </select>
                 <input class="form-input" id="talks-filter-query" aria-label="Search talks" type="search" placeholder="Search talks" style="flex:1 1 150px; min-width:0;">
                 <select class="form-input" id="talks-filter-completion" aria-label="Filter talks by completion" style="flex:0 0 135px;">
-                  <option value="all">Any status</option>
-                  <option value="unanswered">Unanswered</option>
+                  <option value="unanswered" selected>Unanswered</option>
                   <option value="answered">Answered</option>
+                  <option value="all">All</option>
                 </select>
                 <select class="form-input" id="talks-filter-outcome" aria-label="Filter talks by outcome" style="flex:0 0 130px;">
                   <option value="all">Any outcome</option>

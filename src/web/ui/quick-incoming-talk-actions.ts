@@ -77,8 +77,7 @@ export type QuickCopyIncomingTalkDeps = {
 
 /**
  * Row gesture (drag down): copies an incoming talk into the user's own outgoing list
- * *without* answering it — distinct from `copyAnsweredTalkToTalks`, which only works on
- * an already-answered `myTalks` entry. A live incoming cluster has no `myTalks[talkId]`
+ * *without* answering it. A live incoming cluster has no `myTalks[talkId]`
  * row yet and no `.latestTalk` full-Talk object (only `.latestTalkId`/`.questionsJson`
  * on the wire type), so the full talk has to be resolved the same asynchronous way
  * `quickAnswerIncomingTag` does it, then saved directly with role 'copied' — bypassing
@@ -116,5 +115,13 @@ export function quickCopyIncomingTalk(
     deps.showNotification(deps.t('talksCopiedToList'), 'success');
     deps.refreshTalksList();
   };
+  // Answered incoming talks are deliberately removed from the actionable backend inbox, but
+  // retained locally as read history. When the user reveals one with Talks → Answered and
+  // chooses Add to My Talks, reuse that durable fullTalk instead of trying to load a no-longer-
+  // actionable inbox record from the network.
+  if (existing?.fullTalk) {
+    finish(existing.fullTalk);
+    return;
+  }
   resolveIncomingFullTalk(deps.emit, deps.t, deps.showNotification, talkId, identityKeyFallback, finish);
 }

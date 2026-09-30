@@ -1,10 +1,9 @@
-import { computeTalkIdFromTalkData } from '../../shared/cid';
 import type { LocationForContainment } from '../../shared/built-in-comparisons';
 import {
+  ANSWER_CONTEXT_VERSION,
   buildAnswerPreferenceLookupKey,
-  sessionAnswersToQAPairs,
+  immediateParentQAPairs,
   type QAPair,
-  type TagContext,
 } from '../../shared/flattened-answer-keys';
 import {
   findTagPairAncestor,
@@ -14,8 +13,6 @@ import {
 import { pickBuiltInAnswer, resolveBuiltInQuestion } from '../../shared/built-in-question-resolution';
 import { typedPreferenceQuestionContext } from '../../shared/typed-preference-store';
 import {
-  findAutoAnswer,
-  findAutoAnswerMultiple,
   LOCAL_EXACT_CHATBOT_USER_ID,
   savePermanentAnswer,
   saveSuppressedQuestion,
@@ -110,11 +107,28 @@ export function resolveAnswerPreferenceForTalkQuestion(
   allAnswers?: any[];
   autoAnswerAction?: string;
   autoAnswerReason?: string;
+  /** Version-2 rolling context for this exact question and complete choice set. */
+  contextHash?: string;
   /** Spec §3.4 FR-QA-15/16, §30.8: present only when `currentQuestion.answerSelectionMode ===
    *  'multiple'` and the chatbot resolved a non-empty checked set. `answerId` above is always
    *  `answerIds[0]`, kept for callers that only look at the single-value shape. */
   answerIds?: string[];
 } | null {
+  const { mySelfTag, counterpartCandidates } = effectiveTagContext(currentUserId, talk, currentQuestion);
+  const effectivePreviousQAPairs = getRouteRootChildQuestionIds(talk)?.includes(currentQuestion.id)
+    ? []
+    : previousQAPairs;
+  const contextKeyFor = (counterpartTag: string | undefined): string => buildAnswerPreferenceLookupKey(
+    talk,
+    '',
+    questionIndex,
+    effectivePreviousQAPairs,
+    currentQuestion.text || '',
+    { mySelfTag, counterpartTag },
+    currentQuestion,
+  );
+  const primaryContextHash = contextKeyFor(counterpartCandidates[0]).replace(/^flat_v\d+_/, '');
+
   // §BB / spec §30.2: a builtIn (typed comparison) question is dispatched entirely separately
   // from the exact-text paths below — its 2 answers are app-generated placeholder text
   // ("Compatible"/"Not compatible", see TalkAutofix.fix), never something to memorize or
@@ -124,7 +138,6 @@ export function resolveAnswerPreferenceForTalkQuestion(
     // Same Pair-tag-ancestor derivation every other tag-context consumer uses (§LL follow-up)
     // — mySelfTag is MY OWN declared side, counterpartCandidates[0] is the incoming talk's own
     // declared side (needed for the quantity want/have direction).
-    const { mySelfTag, counterpartCandidates } = effectiveTagContext(currentUserId, talk, currentQuestion);
     // §BB: only ever supply real location data when the user has explicitly opted in — omitting
     // it when consent is withheld keeps resolveBuiltInQuestion's own missing-data ASK_USER
     // fallback as the single source of truth for "not resolvable," rather than duplicating a
@@ -158,6 +171,7 @@ export function resolveAnswerPreferenceForTalkQuestion(
       allAnswers: currentQuestion.answers || [],
       autoAnswerAction: 'ANSWER',
       autoAnswerReason: resolution.compatible ? 'BUILT_IN_COMPATIBLE' : 'BUILT_IN_INCOMPATIBLE',
+      contextHash: primaryContextHash,
     };
   }
 
@@ -182,32 +196,17 @@ export function resolveAnswerPreferenceForTalkQuestion(
       allAnswers: currentQuestion.answers || [],
       autoAnswerAction: 'ANSWER',
       autoAnswerReason: 'RECIPROCAL_TAG_CONTEXT',
+      contextHash: primaryContextHash,
     };
   }
 
-  const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
-  const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
   const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
-  // docs/TODO.md §LL follow-up: findAutoAnswer/findAutoAnswerMultiple run their own
-  // independent PREFERENCE_CONFLICT veto (exact-chatbot-memory.ts), separate from
-  // checkIfMatch's (talk-engine.ts). Only a Pair-tag ancestor on THIS branch ever supplies a
-  // preference set now (the old talk-root `preferenceSet` fallback is gone) — so the chatbot
-  // can't auto-answer past a mid-tree pair-tag conflict that manual answering would veto.
-  const tagPairAncestor = findTagPairAncestor(talk, currentQuestion);
-  const effectivePreferenceSet: string[] | undefined = tagPairAncestor
-    ? [tagPairAncestor.answerText]
-    : undefined;
 
-  // §KK: context-aware flattened lookup, tried BEFORE exact-chatbot-memory (was the reverse —
-  // exact-chatbot-memory is keyed by question text alone, no context, so it used to win on any
-  // hit even when the correct, context-matched flattened entry was sitting right there unused).
-  // Single-select only: the flattened store has no concept of a checked set (see the
-  // multi-select branch below, unchanged). Translates the stored answer back to THIS talk's
-  // OWN answer id by TEXT, not by the stored `answerId` — the flattened entry may have been
-  // saved under a different, independently-authored talk whose answer ids don't line up.
-  if (!isMultiSelect && currentQuestion.text && currentOptions.length > 0) {
-    const { mySelfTag, counterpartCandidates } = effectiveTagContext(currentUserId, talk, currentQuestion);
-    const talkContentHash = computeTalkIdFromTalkData(talk);
+  // Ordinary chatbot memory has one rule: repeat a known choice only when the complete v2
+  // rolling context matches. That context includes this question and its entire choice set;
+  // flow/route contexts additionally commit to the preceding context and chosen answer.
+  // There is deliberately no question-only or "saved answer still appears" fallback.
+  if (!isMultiSelect && currentQuestion.text && (currentQuestion.answers || []).length > 0) {
     const flatMap = getFlattenedAnswerPreferences();
     // Spec §30.2/§KK zero-click follow-up: a matchThreshold route's direct-child specs are
     // independent and order-independent by construction (talk-engine.ts) — the accumulated
@@ -216,21 +215,10 @@ export function resolveAnswerPreferenceForTalkQuestion(
     // happened to be answered before it, so two independently-authored talks walking specs in
     // a different order would never share a bucket). Always resolve these questions with an
     // empty context path, same key shape as a talk's very first question.
-    const effectivePreviousQAPairs = getRouteRootChildQuestionIds(talk)?.includes(currentQuestion.id)
-      ? []
-      : previousQAPairs;
     for (const counterpartTag of counterpartCandidates) {
-      const tagContext: TagContext = { mySelfTag, counterpartTag };
-      const flatKey = buildAnswerPreferenceLookupKey(
-        talk,
-        talkContentHash,
-        questionIndex,
-        effectivePreviousQAPairs,
-        currentQuestion.text,
-        tagContext,
-      );
+      const flatKey = contextKeyFor(counterpartTag);
       const flat = flatMap[flatKey];
-      if (!flat) continue;
+      if (!flat || flat.contextVersion !== ANSWER_CONTEXT_VERSION || !flat.contextHash) continue;
       const matchingAnswer = (currentQuestion.answers || []).find(
         (answer: any) => String(answer?.text || '').trim() === String(flat.answerText || '').trim(),
       );
@@ -242,137 +230,29 @@ export function resolveAnswerPreferenceForTalkQuestion(
           questionText: currentQuestion.text || '',
           allAnswers: currentQuestion.answers || [],
           autoAnswerAction: 'ANSWER',
-          autoAnswerReason: 'FLATTENED_CONTEXT_MATCH',
+          autoAnswerReason: 'KNOWN_CONTEXT_MATCH',
+          contextHash: flat.contextHash,
         };
       }
     }
   }
 
-  const exactMemory = getExactChatbotMemory();
-  if (currentQuestion.text && currentOptions.length > 0 && isMultiSelect) {
-    const exact = findAutoAnswerMultiple(
-      exactMemory,
-      LOCAL_EXACT_CHATBOT_USER_ID,
-      currentQuestion.text,
-      currentOptions,
-      undefined,
-      languageContext,
-      effectivePreferenceSet,
-    );
-    setExactChatbotMemory(exactMemory);
-    if (exact.action === 'ASK_USER' && exact.reason === 'PREFERENCE_CONFLICT') {
-      return null;
-    }
-    if (exact.action === 'SKIP') {
-      return {
-        answerId: 'ignore',
-        answerText: 'ignore',
-        mode: 'auto',
-        questionText: currentQuestion.text || '',
-        allAnswers: currentQuestion.answers || [],
-        autoAnswerAction: exact.action,
-        autoAnswerReason: exact.reason,
-      };
-    }
-    if (exact.action === 'ANSWER' && exact.answerIds && exact.answerIds.length > 0) {
-      // exact.answerIds are content-hash ids (makeAnswerId, exact-chatbot-memory.ts) — this
-      // TALK's own Answer.id fields are positional ("a_0_0", ...), a different scheme
-      // entirely (same translation the single-select ANSWER branch above already does via
-      // text comparison). Map each remembered text back to this talk's own answer id.
-      const exactTexts = exact.answerTexts || [];
-      const matchedAnswerIds: string[] = [];
-      const matchedTexts: string[] = [];
-      for (const answerText of exactTexts) {
-        const matchingAnswer = (currentQuestion.answers || []).find((answer: any) => {
-          return String(answer?.text || '').trim() === answerText;
-        });
-        if (matchingAnswer?.id) {
-          matchedAnswerIds.push(matchingAnswer.id);
-          matchedTexts.push(String(matchingAnswer.text || answerText));
-        }
-      }
-      if (matchedAnswerIds.length > 0) {
-        return {
-          answerId: matchedAnswerIds[0],
-          answerIds: matchedAnswerIds,
-          answerText: matchedTexts.join(', '),
-          mode: 'auto',
-          questionText: currentQuestion.text || '',
-          allAnswers: currentQuestion.answers || [],
-          autoAnswerAction: exact.action,
-          autoAnswerReason: exact.reason,
-        };
-      }
-    }
-    // No resolvable multi-select preference — the flattened/legacy stores below were built
-    // for single-value answers and have no concept of a checked set, so a multi-select
-    // question that doesn't resolve here falls straight to manual human answering (§30.4's
-    // fail-safe: no stored preference → ask, never guess or partially resolve).
-    return null;
-  }
-  if (currentQuestion.text && currentOptions.length > 0) {
-    const exact = findAutoAnswer(
-      exactMemory,
-      LOCAL_EXACT_CHATBOT_USER_ID,
-      currentQuestion.text,
-      currentOptions,
-      undefined,
-      languageContext,
-      effectivePreferenceSet,
-    );
-    setExactChatbotMemory(exactMemory);
-    // A preference-set conflict is an absolute veto — do not fall through to the weaker
-    // flattened/legacy preference lookups below, which aren't preference-aware and could
-    // otherwise resolve an answer via stale per-talk-instance history.
-    if (exact.action === 'ASK_USER' && exact.reason === 'PREFERENCE_CONFLICT') {
-      return null;
-    }
-    if (exact.action === 'SKIP') {
-      return {
-        answerId: 'ignore',
-        answerText: 'ignore',
-        mode: 'auto',
-        questionText: currentQuestion.text || '',
-        allAnswers: currentQuestion.answers || [],
-        autoAnswerAction: exact.action,
-        autoAnswerReason: exact.reason,
-      };
-    }
-    if (exact.action === 'ANSWER' && exact.answerText) {
-      const matchingAnswer = (currentQuestion.answers || []).find((answer: any) => {
-        return String(answer?.text || '').trim() === exact.answerText;
-      });
-      if (matchingAnswer?.id) {
-        return {
-          answerId: matchingAnswer.id,
-          answerText: String(matchingAnswer.text || exact.answerText),
-          mode: 'auto',
-          questionText: currentQuestion.text || '',
-          allAnswers: currentQuestion.answers || [],
-          autoAnswerAction: exact.action,
-          autoAnswerReason: exact.reason,
-        };
-      }
-    }
-  }
-
-  // Last resort: resume MY OWN prior answer to this exact talk instance (same id namespace,
-  // no translation needed) — the §KK flattened lookup above already covers the cross-talk case.
-  const preferences = getAnswerPreferences();
-  const legacyKey = `${talkInstanceId}_${currentQuestion.id}`;
-  return preferences[legacyKey] || null;
+  // Multi-select and all missing/legacy/changed contexts are intentionally user decisions.
+  // Legacy records have no complete context hash and therefore cannot safely auto-answer.
+  void talkInstanceId;
+  return null;
 }
 
 export function saveAnswerPreference(
   currentUserId: string | undefined,
   talk: any,
   talkInstanceId: string,
-  currentQuestion: { id: string; text?: string; answers?: any[]; contextPath?: Array<{ questionId: string; answerId: string }> },
+  currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string; contextPath?: Array<{ questionId: string; answerId: string }> },
   answerId: string,
   answerText: string,
-  fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
+  fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
   mode: 'auto' | 'manual' | 'permanent' | 'suppressed' = 'auto',
-): void {
+): string {
   const exactMemory = getExactChatbotMemory();
   const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
   // The selfTag to persist alongside this answer is always MY OWN effective tag for this
@@ -402,7 +282,6 @@ export function saveAnswerPreference(
 
   const preferences = getAnswerPreferences();
   const legacyKey = `${talkInstanceId}_${currentQuestion.id}`;
-  const talkContentHash = computeTalkIdFromTalkData(talk);
   const qIndex = Math.max(
     0,
     talk.questions?.findIndex((q: { id: string }) => q.id === currentQuestion.id) ?? 0,
@@ -412,7 +291,7 @@ export function saveAnswerPreference(
   // depend on whichever sibling specs happened to be saved earlier in this loop.
   const previous = getRouteRootChildQuestionIds(talk)?.includes(currentQuestion.id)
     ? []
-    : sessionAnswersToQAPairs(talk, fullSessionAnswersIncludingCurrent.slice(0, -1));
+    : immediateParentQAPairs(talk, currentQuestion, fullSessionAnswersIncludingCurrent.slice(0, -1));
 
   // §KK: write the same answer under one flattened-key bucket per counterpart-tag candidate
   // `myEffectiveTagContext` returns — today that's always at most one (the nearest Pair-tag
@@ -420,12 +299,14 @@ export function saveAnswerPreference(
   // ever yields more than one candidate.
   const primaryFlatKey = buildAnswerPreferenceLookupKey(
     talk,
-    talkContentHash,
+    '',
     qIndex,
     previous,
     currentQuestion.text || '',
     { mySelfTag, counterpartTag: counterpartCandidates[0] },
+    currentQuestion,
   );
+  const primaryContextHash = primaryFlatKey.replace(/^flat_v\d+_/, '');
 
   const entry = {
     answerId,
@@ -437,6 +318,8 @@ export function saveAnswerPreference(
     allAnswers: currentQuestion.answers || [],
     timestamp: new Date().toISOString(),
     flatKey: primaryFlatKey,
+    contextHash: primaryContextHash,
+    contextVersion: ANSWER_CONTEXT_VERSION,
   };
 
   preferences[legacyKey] = entry;
@@ -446,16 +329,22 @@ export function saveAnswerPreference(
   for (const counterpartTag of counterpartCandidates) {
     const flatKey = buildAnswerPreferenceLookupKey(
       talk,
-      talkContentHash,
+      '',
       qIndex,
       previous,
       currentQuestion.text || '',
       { mySelfTag, counterpartTag },
+      currentQuestion,
     );
-    flatMap[flatKey] = { ...entry, flatKey };
+    flatMap[flatKey] = {
+      ...entry,
+      flatKey,
+      contextHash: flatKey.replace(/^flat_v\d+_/, ''),
+    };
   }
   setFlattenedAnswerPreferences(flatMap);
-  console.log('💾 Saved answer (exact + flat + legacy):', primaryFlatKey, answerText, mode);
+  console.log('💾 Saved answer (known context + legacy metadata):', primaryFlatKey, answerText, mode);
+  return primaryContextHash;
 }
 
 export function tryBuildChatbotAnswersFromFlattened(
@@ -548,13 +437,20 @@ export function tryBuildChatbotAnswersFromFlattened(
       answerText: pref.answerText,
       mode: 'auto',
     });
-    // docs/TODO.md §LL follow-up: mirrors `sessionAnswersToQAPairs`'s own exclusion — a
+    // docs/TODO.md §LL follow-up: mirrors `immediateParentQAPairs`'s own exclusion — a
     // Pair-tag question's (text, answer) differs by construction between independently-
     // authored talks, so it's kept out of the path every later question's flattened lookup
     // key is built from (see that function's doc comment for the full reasoning).
     const nextPairs = q.reciprocalTagContext
       ? branchPairs
-      : [...branchPairs, { questionText: (q.text || '').trim(), answerText: (pref.answerText || '').trim() }];
+      : [
+          ...branchPairs,
+          {
+            questionText: (q.text || '').trim(),
+            answerText: (pref.answerText || '').trim(),
+            ...(pref.contextHash ? { contextHash: pref.contextHash } : {}),
+          },
+        ];
 
     if (Array.isArray(ans.nextQuestionIds) && ans.nextQuestionIds.length > 0) {
       // Fan-out: visit every parallel child, each starting from the SAME ancestor context —

@@ -1,7 +1,7 @@
 import type { AnswerPreferenceMap } from './answer-preferences-storage';
 import type { UiTranslationKey } from './ui-translations';
 
-export type AnswerPreferenceUiMode = 'manual' | 'temporary' | 'permanent' | 'suppressed';
+export type AnswerPreferenceUiMode = 'manual' | 'temporary';
 
 type PreferencesDialogOptions = {
   getPreferences: () => AnswerPreferenceMap;
@@ -23,30 +23,23 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
       text(key, fallback),
     );
   const formatDate = (date: Date): string => options.formatDate?.(date) || date.toLocaleString();
-  const normalizeMode = (mode: string): AnswerPreferenceUiMode => {
-    if (mode === 'auto' || mode === 'temporary') return 'temporary';
-    if (mode === 'permanent' || mode === 'suppressed') return mode;
+  const normalizeMode = (mode: string, contextVersion?: number): AnswerPreferenceUiMode => {
+    if ((mode === 'auto' || mode === 'temporary') && contextVersion === 2) return 'temporary';
     return 'manual';
   };
   const modeLabel = (mode: AnswerPreferenceUiMode): string => {
     const keys: Record<AnswerPreferenceUiMode, UiTranslationKey> = {
       manual: 'preferencesManualMode',
       temporary: 'preferencesTemporaryMode',
-      permanent: 'preferencesPermanentMode',
-      suppressed: 'preferencesSuppressedMode',
     };
     const fallbacks: Record<AnswerPreferenceUiMode, string> = {
-      manual: 'Manual',
-      temporary: 'Temporary auto-answer',
-      permanent: 'Permanent auto-answer',
-      suppressed: 'Skip this question',
+      manual: 'Ask me every time',
+      temporary: 'Same context and choices',
     };
     return text(keys[mode], fallbacks[mode]);
   };
   const modeTone = (mode: AnswerPreferenceUiMode): string => {
-    if (mode === 'permanent') return 'background: var(--accent-soft); color: var(--accent-hover);';
     if (mode === 'temporary') return 'background: var(--success-soft); color: var(--success-text);';
-    if (mode === 'suppressed') return 'background: var(--warning-soft); color: var(--warning-text);';
     return 'background: var(--danger-border); color: var(--danger-hover);';
   };
   const modal = document.createElement('div');
@@ -78,7 +71,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
             <div style="max-height: 500px; overflow-y: auto;">
               ${preferenceEntries
                 .map(([key, pref]) => {
-                  const mode = normalizeMode(pref.mode);
+                  const mode = normalizeMode(pref.mode, pref.contextVersion);
                   return `
                   <div class="preference-item" style="background: var(--bg-subtle); border: 2px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div style="margin-bottom: 15px;">
@@ -124,11 +117,11 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                           ${text('preferencesMode', 'Mode:')}
                         </label>
                         <div style="font-size: 0.85em; color: #999; margin-top: 4px;">
-                          ${text('preferencesModeHelp', 'Choose whether to ask again, auto-answer once, always auto-answer, or skip the exact question.')}
+                          ${text('preferencesModeHelp', 'Repeat this choice only when the earlier answers, question, and available choices are the same.')}
                         </div>
                       </div>
                       <select class="mode-select" data-pref-key="${key}" style="max-width: 220px; padding: 9px; border: 2px solid var(--border); border-radius: 8px; background: white;">
-                        ${(['manual', 'temporary', 'permanent', 'suppressed'] as AnswerPreferenceUiMode[])
+                        ${(['manual', 'temporary'] as AnswerPreferenceUiMode[])
                           .map((choice) => `<option value="${choice}" ${choice === mode ? 'selected' : ''}>${modeLabel(choice)}</option>`)
                           .join('')}
                       </select>

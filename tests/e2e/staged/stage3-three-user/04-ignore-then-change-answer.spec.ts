@@ -122,6 +122,7 @@ test.describe('Talks matching — answered incoming remains in IN history', () =
     await waitForResponseModalClosed(pageJerry);
     await waitForTabActive(pageJerry, 'talks');
     await pageJerry.locator('#talks-filter-outgoing').uncheck();
+    await pageJerry.locator('#talks-filter-completion').selectOption('answered');
     await afterSync();
     await expect(pageJerry.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: 'E2E Ignore Then Match Tennis' })).toHaveCount(1);
     await pageJerry.click('.nav-btn[data-view="me"]');

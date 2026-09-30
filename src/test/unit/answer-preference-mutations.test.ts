@@ -7,6 +7,7 @@ jest.mock('../../web/ui/preferences-dialog', () => ({
 import {
   applyPreferenceModeToExactMemory,
   deleteAnswerPreference,
+  getAnswerPreferencesForDisplay,
   normalizePreferenceMode,
   openAnswerPreferencesDialog,
   type OpenAnswerPreferencesDialogDeps,
@@ -17,10 +18,15 @@ import {
   getExactChatbotMemory,
   getFlattenedAnswerPreferences,
   setAnswerPreferences,
+  setExactChatbotMemory,
   setFlattenedAnswerPreferences,
   type AnswerPreferenceEntry,
 } from '../../web/ui/answer-preferences-storage';
-import { LOCAL_EXACT_CHATBOT_USER_ID, makeQuestionId } from '../../shared/exact-chatbot-memory';
+import {
+  LOCAL_EXACT_CHATBOT_USER_ID,
+  makeQuestionId,
+  savePermanentAnswer,
+} from '../../shared/exact-chatbot-memory';
 
 function pref(overrides: Partial<AnswerPreferenceEntry> = {}): AnswerPreferenceEntry {
   return {
@@ -40,50 +46,46 @@ beforeEach(() => {
 
 describe('normalizePreferenceMode', () => {
   it.each([
-    ['auto', 'temporary'],
-    ['temporary', 'temporary'],
-    ['permanent', 'permanent'],
-    ['suppressed', 'suppressed'],
-    ['manual', 'manual'],
-    ['garbage', 'manual'],
-  ])('maps %s to %s', (input, expected) => {
-    expect(normalizePreferenceMode(input)).toBe(expected);
+    ['auto', 2, 'temporary'],
+    ['temporary', 2, 'temporary'],
+    ['auto', undefined, 'manual'],
+    ['permanent', 2, 'manual'],
+    ['suppressed', 2, 'manual'],
+    ['manual', 2, 'manual'],
+    ['garbage', 2, 'manual'],
+  ])('maps %s at context version %s to %s', (input, contextVersion, expected) => {
+    expect(normalizePreferenceMode(input, contextVersion)).toBe(expected);
   });
 });
 
 describe('applyPreferenceModeToExactMemory', () => {
   it('does nothing when questionText is blank', () => {
-    applyPreferenceModeToExactMemory(pref({ questionText: '  ' }), 'permanent');
+    applyPreferenceModeToExactMemory(pref({ questionText: '  ' }), 'temporary');
     expect(getExactChatbotMemory().users[LOCAL_EXACT_CHATBOT_USER_ID]).toBeUndefined();
   });
 
-  it('records a permanent answer in exact-chatbot memory', () => {
-    applyPreferenceModeToExactMemory(pref(), 'permanent');
-    const memory = getExactChatbotMemory();
-    const qid = makeQuestionId('Do you like cats?', { language: 'en' });
-    expect(memory.users[LOCAL_EXACT_CHATBOT_USER_ID]?.[qid]).toBeDefined();
+  it('does not create weaker exact-question memory for a contextual mode', () => {
+    applyPreferenceModeToExactMemory(pref(), 'temporary');
+    expect(getExactChatbotMemory().users[LOCAL_EXACT_CHATBOT_USER_ID]).toBeUndefined();
   });
 
-  it('records a suppressed question in exact-chatbot memory', () => {
-    applyPreferenceModeToExactMemory(pref(), 'suppressed');
+  it('clears an existing legacy exact-question entry', () => {
     const memory = getExactChatbotMemory();
+    savePermanentAnswer(memory, LOCAL_EXACT_CHATBOT_USER_ID, 'Do you like cats?', 'Yes', undefined, { language: 'en' });
+    setExactChatbotMemory(memory);
     const qid = makeQuestionId('Do you like cats?', { language: 'en' });
-    expect(memory.users[LOCAL_EXACT_CHATBOT_USER_ID]?.[qid]?.summary).toBeDefined();
-  });
-
-  it('clears the manual mode entry for both the language-scoped and English-fallback keys', () => {
-    applyPreferenceModeToExactMemory(pref(), 'permanent');
+    expect(getExactChatbotMemory().users[LOCAL_EXACT_CHATBOT_USER_ID]?.[qid]).toBeDefined();
     applyPreferenceModeToExactMemory(pref(), 'manual');
-    const memory = getExactChatbotMemory();
-    const qid = makeQuestionId('Do you like cats?', { language: 'en' });
-    expect(memory.users[LOCAL_EXACT_CHATBOT_USER_ID]?.[qid]).toBeUndefined();
+    expect(getExactChatbotMemory().users[LOCAL_EXACT_CHATBOT_USER_ID]?.[qid]).toBeUndefined();
   });
 });
 
 describe('deleteAnswerPreference', () => {
-  it('deletes a regular preference and clears any permanent-mode exact-memory entry', () => {
+  it('deletes a regular preference and clears any legacy exact-memory entry', () => {
     setAnswerPreferences({ k1: pref() });
-    applyPreferenceModeToExactMemory(pref(), 'permanent');
+    const memory = getExactChatbotMemory();
+    savePermanentAnswer(memory, LOCAL_EXACT_CHATBOT_USER_ID, 'Do you like cats?', 'Yes', undefined, { language: 'en' });
+    setExactChatbotMemory(memory);
     const qid = makeQuestionId('Do you like cats?', { language: 'en' });
     expect(getExactChatbotMemory().users[LOCAL_EXACT_CHATBOT_USER_ID]?.[qid]).toBeDefined();
 
@@ -98,6 +100,14 @@ describe('deleteAnswerPreference', () => {
     deleteAnswerPreference('flat_k1');
     expect(getFlattenedAnswerPreferences().flat_k1).toBeUndefined();
     expect(getAnswerPreferences().flat_k1).toBeDefined();
+  });
+
+  it('deletes both compatibility records for one logical preference', () => {
+    setAnswerPreferences({ legacy_k1: pref({ flatKey: 'flat_k1' }) });
+    setFlattenedAnswerPreferences({ flat_k1: pref({ flatKey: 'flat_k1' }) });
+    deleteAnswerPreference('flat_k1');
+    expect(getFlattenedAnswerPreferences().flat_k1).toBeUndefined();
+    expect(getAnswerPreferences().legacy_k1).toBeUndefined();
   });
 
   it('is a no-op when the key does not exist', () => {
@@ -129,6 +139,21 @@ describe('openAnswerPreferencesDialog', () => {
     expect(merged.flat_k1.answerId).toBe('a2');
   });
 
+  it('shows one item when a tag answer exists in both compatibility stores', () => {
+    const tennis = pref({
+      questionText: 'tennis',
+      answerText: 'tennis',
+      flatKey: 'flat_tennis',
+      timestamp: '2026-09-29T21:41:30.000Z',
+    });
+    setAnswerPreferences({ talk1_question1: tennis });
+    setFlattenedAnswerPreferences({ flat_tennis: { ...tennis } });
+
+    expect(getAnswerPreferencesForDisplay()).toEqual({ flat_tennis: tennis });
+    openAnswerPreferencesDialog(deps());
+    expect(Object.keys(capturedOptions().getPreferences())).toEqual(['flat_tennis']);
+  });
+
   it('updateAnswer patches the regular preference and notifies', () => {
     setAnswerPreferences({ k1: pref() });
     const d = deps();
@@ -146,6 +171,15 @@ describe('openAnswerPreferencesDialog', () => {
     expect(getFlattenedAnswerPreferences().flat_k1.answerId).toBe('a2');
   });
 
+  it('updateAnswer keeps linked legacy and flattened records in sync', () => {
+    setAnswerPreferences({ legacy_k1: pref({ flatKey: 'flat_k1' }) });
+    setFlattenedAnswerPreferences({ flat_k1: pref({ flatKey: 'flat_k1' }) });
+    openAnswerPreferencesDialog(deps());
+    capturedOptions().updateAnswer('flat_k1', 'a2', 'No');
+    expect(getFlattenedAnswerPreferences().flat_k1.answerText).toBe('No');
+    expect(getAnswerPreferences().legacy_k1.answerText).toBe('No');
+  });
+
   it('updateAnswer is a no-op when the key does not exist', () => {
     const d = deps();
     openAnswerPreferencesDialog(d);
@@ -154,12 +188,21 @@ describe('openAnswerPreferencesDialog', () => {
   });
 
   it('updateMode writes the new mode and notifies with the mode-specific key', () => {
-    setAnswerPreferences({ k1: pref({ mode: 'manual' }) });
+    setAnswerPreferences({ k1: pref({ mode: 'manual', contextVersion: 2 }) });
     const d = deps();
     openAnswerPreferencesDialog(d);
-    capturedOptions().updateMode('k1', 'permanent');
-    expect(getAnswerPreferences().k1.mode).toBe('permanent');
-    expect(d.showNotification).toHaveBeenCalledWith('preferencesModeChangedPermanent', 'success');
+    capturedOptions().updateMode('k1', 'temporary');
+    expect(getAnswerPreferences().k1.mode).toBe('temporary');
+    expect(d.showNotification).toHaveBeenCalledWith('preferencesModeChangedTemporary', 'success');
+  });
+
+  it('updateMode keeps linked legacy and flattened records in sync', () => {
+    setAnswerPreferences({ legacy_k1: pref({ flatKey: 'flat_k1', contextVersion: 2 }) });
+    setFlattenedAnswerPreferences({ flat_k1: pref({ flatKey: 'flat_k1', contextVersion: 2 }) });
+    openAnswerPreferencesDialog(deps());
+    capturedOptions().updateMode('flat_k1', 'temporary');
+    expect(getFlattenedAnswerPreferences().flat_k1.mode).toBe('temporary');
+    expect(getAnswerPreferences().legacy_k1.mode).toBe('temporary');
   });
 
   it('deletePreference removes the entry and notifies', () => {
