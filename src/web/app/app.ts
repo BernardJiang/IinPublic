@@ -28,6 +28,7 @@ import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
 import { getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
+import { runAnswerContextMigration } from '../ui/answer-context-migration';
 import { getMyTalks } from '../ui/my-talks-storage';
 import { loadConnectivitySettings, type ConnectivitySettings } from '../ui/connectivity-settings';
 import { WebConversationService } from '../services/web-conversation-service';
@@ -1346,6 +1347,20 @@ export class IinPublicApp {
     });
     // Get or create user
     await this.initializeUser();
+    // Contextual chatbot memory (docs/design/contextual-chatbot-memory.md): one-time, no-
+    // user-interaction resync of the chatbot's answer memory whenever ANSWER_CONTEXT_VERSION
+    // bumps — see answer-context-migration.ts's own header for why this is a full rebuild from
+    // myTalks history rather than an in-place hash conversion. Purely local/synchronous (no Gun
+    // dependency), so it runs right after currentUser is known and before anything reads
+    // flattenedAnswerPreferences; no-ops instantly once the version marker is current.
+    try {
+      const { migratedTalks } = runAnswerContextMigration(this.currentUser?.id);
+      if (migratedTalks > 0) {
+        console.log(`🔄 Chatbot answer memory resynced for ${migratedTalks} saved talk(s) after an answer-context version upgrade.`);
+      }
+    } catch (error) {
+      console.warn('Answer-context migration failed (non-fatal — chatbot will re-ask as needed):', error);
+    }
     // Scenario 2 (§16): kick off this device's build-attestation credential + the verifier's
     // published keys, both fire-and-forget — WebAttestationService's own doc comment explains
     // why this never gates app usability (native bridge call + two network round trips, and the

@@ -122,6 +122,41 @@ Only the fixed-size SHA-256 context is required for matching. Existing display-o
 `contextLabel` fields may retain a human-readable preceding Q/A breadcrumb for the Me tab, but
 they are not authoritative matching inputs.
 
-Legacy temporary/permanent/suppressed records do not contain the complete choice-set context and
-must not be guessed into version 2. They remain visible as history where applicable, but the
-resolver asks the user and writes a new version-2 contextual record after the next choice.
+A context hash cannot be converted from one version to another — there is no reversible mapping
+from an old digest back to the structured inputs that produced it, and even if there were, the
+algorithm change may have redefined what "the same situation" means. So versioning here is never
+an in-place record upgrade (contrast `src/shared/p2p-schema-migrations.ts`, which *does* upgrade
+small stable-identity records in place — that works there because those records have a well-
+defined default to backfill; a content hash does not).
+
+Instead, `src/web/ui/answer-context-migration.ts` runs once per `ANSWER_CONTEXT_VERSION` bump, at
+app boot, with no user interaction, and **regenerates** current-version memory from the durable,
+version-independent source of truth every talk's own record already carries:
+`myTalks[id].fullTalk` (the real question DAG) plus every recorded `(talkId, questionId) →
+answer` in the legacy `answerPreferences` map (written for every self-answer and every answered
+response, regardless of algorithm version). It replays that history through the *current*
+`saveAnswerPreference`/`resolveAnswerPreferenceForTalkQuestion` — the walk mirrors
+`tryBuildChatbotAnswersFromFlattened`'s own DAG traversal (root → fan-out, Pair-tag exclusion from
+the rolling chain, `builtIn` nodes resolved live rather than requiring a recorded self-answer) —
+so the result is what a live session would have produced under the new algorithm. The chatbot
+therefore does not "forget everything and ask again" across a version bump; it re-teaches itself
+instantly and silently.
+
+`flattenedAnswerPreferences` is cleared and fully rebuilt as part of this (old-version keys are
+unrecoverable dead weight, not data worth preserving in place — their key shape alone encodes a
+retired algorithm). The legacy `answerPreferences` map is not cleared; it is the migration's
+input, and gets refreshed in place (same key, current `contextHash`/`contextVersion`) as a side
+effect of the replay, which is also what keeps the Me tab's own display in sync.
+
+**Policy for the next version bump:** any change to `Frame(Q)`'s field set, its normalization, or
+how parent-context chaining works must bump both `ANSWER_CONTEXT_VERSION` and
+`ANSWER_CONTEXT_DOMAIN` (`flattened-answer-keys.ts`) — this is what actually isolates the new
+hash namespace from the old one; the `contextVersion` field alone does not catch a payload-shape
+change if the constant isn't bumped. No new migration code should be needed:
+`answer-context-migration.ts` re-runs its same replay automatically once the marker is stale.
+Add a new characterization test for the retired version (mirroring
+`answer-preference-resolution-characterization.test.ts`'s "does not infer... from contextless
+legacy answer history") to document what the old shape can no longer do, and extend
+`answer-context-migration.test.ts` with a fixture for whatever new structural case the change
+introduces (the Dating-template `builtIn` root + Pair-tag branch case is the existing example of
+"why a generic DAG replay beats trying to reuse the live self-answer list directly").
