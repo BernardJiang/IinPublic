@@ -168,4 +168,46 @@ describe('buildHandshakeDiagnostics', () => {
     expect(d.selectedProtocol).toBeNull();
     expect(d.failureReason).toBeTruthy();
   });
+
+  describe('versionMismatch', () => {
+    it('is unknown when remote is null', () => {
+      const d = buildHandshakeDiagnostics(base(), null, null);
+      expect(d.versionMismatch).toBe('unknown');
+    });
+
+    it('is same when both sides report the identical version', () => {
+      const local = { ...base(), appVersion: '1.0.60' };
+      const remote = { ...base(), appVersion: '1.0.60' };
+      const result = negotiateProtocol(local, remote);
+      expect(buildHandshakeDiagnostics(local, remote, result).versionMismatch).toBe('same');
+    });
+
+    it('is local-older when the remote peer reports a newer version', () => {
+      const local = { ...base(), appVersion: '1.0.59' };
+      const remote = { ...base(), appVersion: '1.0.60' };
+      const result = negotiateProtocol(local, remote);
+      expect(buildHandshakeDiagnostics(local, remote, result).versionMismatch).toBe('local-older');
+    });
+
+    it('is local-newer when the remote peer reports an older version', () => {
+      const local = { ...base(), appVersion: '1.0.60' };
+      const remote = { ...base(), appVersion: '1.0.59' };
+      const result = negotiateProtocol(local, remote);
+      expect(buildHandshakeDiagnostics(local, remote, result).versionMismatch).toBe('local-newer');
+    });
+
+    it('is unknown when a version is unparseable (e.g. the web-fallback literal)', () => {
+      const local = { ...base(), appVersion: 'web' };
+      const remote = { ...base(), appVersion: '1.0.60' };
+      const result = negotiateProtocol(local, remote);
+      expect(buildHandshakeDiagnostics(local, remote, result).versionMismatch).toBe('unknown');
+    });
+
+    it('compares beyond the third segment (e.g. build metadata)', () => {
+      const local = { ...base(), appVersion: '1.0.60.2' };
+      const remote = { ...base(), appVersion: '1.0.60.1' };
+      const result = negotiateProtocol(local, remote);
+      expect(buildHandshakeDiagnostics(local, remote, result).versionMismatch).toBe('local-newer');
+    });
+  });
 });

@@ -17,7 +17,10 @@ import path from 'path';
 // Bumped again 2026-09-29 for real feature work (block enforcement extended to IPFS attachment
 // transfer: formatMediaShareBlockedRecipient, the "cannot share media with a blocked user"
 // notification for the shareConversationMedia handler), same rationale — not an extraction.
-const UI_MANAGER_LINE_BUDGET = 3_100;
+// Bumped again 2026-09-29 for real feature work (P2P handshake version-mismatch notifications:
+// formatP2PVersionMismatchOlder/Newer, the "a contact is on a different app version" reminder
+// wired from onP2PVersionMismatch in p2p-webrtc-session.ts), same rationale — not an extraction.
+const UI_MANAGER_LINE_BUDGET = 3_110;
 
 describe('UIManager architecture budget', () => {
   it(`keeps ui-manager.ts at or below ${UI_MANAGER_LINE_BUDGET.toLocaleString()} lines`, () => {

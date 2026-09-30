@@ -8,8 +8,16 @@
  * REQ-P2P-14 / REQ-P2P-15
  */
 
+import { compareVersions } from './semver-compare';
+
 export const APP_NAME = 'iinpublic';
 export const APP_VERSION = '1.0.0';
+
+/** `readNativeHostInfo().version`'s literal 'web' fallback (outside any packaged build) and any
+ * other non-numeric string aren't a real, comparable version — treat as 'unknown', not 'same'. */
+function isComparableVersion(version: string | null | undefined): version is string {
+  return typeof version === 'string' && /^\d+(\.\d+)*$/.test(version.trim());
+}
 
 /** Wire protocols ordered newest-first; the highest mutually-supported version wins. */
 export const SUPPORTED_PROTOCOLS = ['iinpublic-p2p-v1'] as const;
@@ -48,6 +56,13 @@ export type ProtocolNegotiationResult =
   | { ok: true; selectedProtocol: SupportedProtocol; unsupportedFeatures: HandshakeFeature[] }
   | { ok: false; reason: string };
 
+/**
+ * `local-older`/`local-newer` compares this device's appVersion against the remote peer's —
+ * the direction a caller needs to decide which side to remind (upgrade vs. feature caution).
+ * `unknown` when either version is missing/unparseable rather than guessing `same`.
+ */
+export type VersionMismatchDirection = 'local-older' | 'local-newer' | 'same' | 'unknown';
+
 export type HandshakeDiagnostics = {
   localAppVersion: string;
   remoteAppVersion: string | null;
@@ -55,6 +70,7 @@ export type HandshakeDiagnostics = {
   unsupportedFeatures: HandshakeFeature[];
   handshakeState: 'pending' | 'ok' | 'failed';
   failureReason: string | null;
+  versionMismatch: VersionMismatchDirection;
 };
 
 /**
@@ -175,6 +191,15 @@ export function buildHandshakeDiagnostics(
       : negotiationResult.ok
         ? 'ok'
         : 'failed';
+  const versionMismatch: VersionMismatchDirection =
+    !isComparableVersion(local.appVersion) || !isComparableVersion(remote?.appVersion)
+      ? 'unknown'
+      : (() => {
+          const cmp = compareVersions(local.appVersion, remote!.appVersion);
+          if (cmp === 0) return 'same';
+          return cmp > 0 ? 'local-newer' : 'local-older';
+        })();
+
   return {
     localAppVersion: local.appVersion,
     remoteAppVersion: remote?.appVersion ?? null,
@@ -185,5 +210,6 @@ export function buildHandshakeDiagnostics(
     handshakeState: state,
     failureReason:
       negotiationResult && !negotiationResult.ok ? negotiationResult.reason : null,
+    versionMismatch,
   };
 }

@@ -2046,6 +2046,14 @@ export class UIManager extends EventEmitter {
     return this.tf('mediaShareUploading', { name: fileName });
   }
 
+  public formatP2PVersionMismatchOlder(localVersion: string, remoteVersion: string): string {
+    return this.tf('p2pVersionMismatchOlderReminder', { localVersion, remoteVersion });
+  }
+
+  public formatP2PVersionMismatchNewer(localVersion: string, remoteVersion: string): string {
+    return this.tf('p2pVersionMismatchNewerReminder', { localVersion, remoteVersion });
+  }
+
   public formatMediaShareBlockedRecipient(): string {
     return this.t('mediaShareBlockedRecipient');
   }

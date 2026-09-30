@@ -18,6 +18,7 @@ import {
 } from '../../shared/p2p-handshake';
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 import { messageIntroducesGap } from '../../shared/conversation-reconcile';
+import { readNativeHostInfo } from '../ui/native-host-info';
 import { BoundedNonceCache } from '../../shared/p2p-abuse-defense';
 import {
   CompositeSignalingTransport,
@@ -294,6 +295,10 @@ export class P2PConversationSession {
   private ledgerLocalSent = false;
   private ledgerRemoteReceived = false;
   private ledgerReady = false;
+  /** Fires the `onP2PVersionMismatch` notification at most once per live session instance
+   * (the session is cached/reused across reconnects — see sessionRegistry below), not once
+   * per handshake exchange, so a flaky connection doesn't repeat the same reminder. */
+  private versionMismatchNotified = false;
   /** Phase 5: debounce timer for a gap-triggered re-digest (coalesces bursts). */
   private reDigestTimer: ReturnType<typeof setTimeout> | null = null;
   // P2P-V: bounded nonce cache replaces unbounded Set to cap memory use
@@ -670,13 +675,18 @@ export class P2PConversationSession {
   private async sendHandshake(): Promise<void> {
     if (!this.config.localPair) return;
     const peerId = await derivePeerIdFromPub(this.config.localPub);
-    const payload = buildHandshakePayload({ peerId, publicKey: this.config.localPub });
+    const payload = buildHandshakePayload({
+      peerId,
+      publicKey: this.config.localPub,
+      appVersion: readNativeHostInfo().version,
+    });
     this.localHandshakePayload = payload;
     // If the remote handshake already arrived while we were computing peerId, process it now
     if (this.pendingRemoteHandshake) {
       const result = negotiateProtocol(payload, this.pendingRemoteHandshake);
       this.handshakeDiagnostics = buildHandshakeDiagnostics(payload, this.pendingRemoteHandshake, result);
       this.pendingRemoteHandshake = null;
+      this.maybeNotifyVersionMismatch();
     }
     const frame: HandshakeWirePayload = { type: 'handshake', payload };
     await this.sendChannelFrame(frame).catch(() => undefined);
@@ -693,10 +703,32 @@ export class P2PConversationSession {
         validation.payload,
         result,
       );
+      this.maybeNotifyVersionMismatch();
     } else {
       // Local not ready yet (derivePeerIdFromPub still pending) — stash for sendHandshake to process
       this.pendingRemoteHandshake = validation.payload;
     }
+  }
+
+  /** REQ (scenario 1, 2026-09-29): tell the local user once per session when a P2P peer's
+   * handshake reveals a different app version — upgrade reminder if we're older, a feature-
+   * compatibility heads-up if we're newer. Fires at most once per live session (see
+   * versionMismatchNotified); listeners (app.ts) decide how/whether to surface it. */
+  private maybeNotifyVersionMismatch(): void {
+    if (this.versionMismatchNotified) return;
+    const diagnostics = this.handshakeDiagnostics;
+    if (!diagnostics) return;
+    if (diagnostics.versionMismatch !== 'local-older' && diagnostics.versionMismatch !== 'local-newer') return;
+    if (!diagnostics.remoteAppVersion) return;
+    this.versionMismatchNotified = true;
+    const event: P2PVersionMismatchEvent = {
+      conversationId: this.config.conversationId,
+      otherUserId: this.config.otherUserId,
+      localVersion: diagnostics.localAppVersion,
+      remoteVersion: diagnostics.remoteAppVersion,
+      direction: diagnostics.versionMismatch,
+    };
+    versionMismatchListeners.forEach((listener) => listener(event));
   }
 
   private attachDataChannel(channel: RTCDataChannel): void {
@@ -961,6 +993,32 @@ export class P2PConversationSession {
 }
 
 const sessionRegistry = new Map<string, P2PConversationSession>();
+
+export type P2PVersionMismatchEvent = {
+  conversationId: string;
+  otherUserId: string;
+  localVersion: string;
+  remoteVersion: string;
+  /** 'local-older': remind this device to upgrade. 'local-newer': remind this device that the
+   * peer may not understand newer features yet. */
+  direction: 'local-older' | 'local-newer';
+};
+
+/**
+ * A single app-wide subscription point (rather than threading a callback through every
+ * P2PSessionConfig-building call site — there are three) for "a P2P peer's handshake revealed a
+ * different app version than ours." app.ts subscribes once at startup and surfaces a toast; kept
+ * here rather than in p2p-handshake.ts since it's specifically about a *live connection*
+ * noticing this, not the pure handshake-diagnostics computation itself.
+ */
+const versionMismatchListeners = new Set<(event: P2PVersionMismatchEvent) => void>();
+
+export function onP2PVersionMismatch(
+  listener: (event: P2PVersionMismatchEvent) => void,
+): () => void {
+  versionMismatchListeners.add(listener);
+  return () => versionMismatchListeners.delete(listener);
+}
 
 function sessionKey(conversationId: string, localUserId: string): string {
   return `${conversationId}:${localUserId}`;

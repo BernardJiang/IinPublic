@@ -124,7 +124,7 @@ import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import { eraseDevice } from '../services/device-wipe';
 import { parseLinkFragmentPayload, clearLinkFragmentFromUrl } from '../services/identity-link-fragment';
-import { getOrCreateP2PSession } from '../services/p2p-webrtc-session';
+import { getOrCreateP2PSession, onP2PVersionMismatch, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
@@ -1070,6 +1070,17 @@ export class IinPublicApp {
         : {}),
     });
     this.loadAttachmentShareSentIds();
+    // Scenario 1 fix (2026-09-29): a P2P peer's handshake revealed a different app version.
+    // Remind the older side to upgrade, and the newer side that this particular contact may not
+    // understand brand-new features yet. Subscribed once for the app's lifetime; the session
+    // layer already dedupes to one notification per live connection (see
+    // maybeNotifyVersionMismatch in p2p-webrtc-session.ts).
+    onP2PVersionMismatch((event: P2PVersionMismatchEvent) => {
+      const message = event.direction === 'local-older'
+        ? this.uiManager.formatP2PVersionMismatchOlder(event.localVersion, event.remoteVersion)
+        : this.uiManager.formatP2PVersionMismatchNewer(event.localVersion, event.remoteVersion);
+      this.uiManager.showNotification(message, 'warning', { peerId: event.otherUserId });
+    });
   }
 
   /**
