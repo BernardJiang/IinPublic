@@ -712,9 +712,12 @@ and a valid credential from the IinPublic software-attestation verifier.
 
 **Android:**
 
-- [ ] Define the official application package name(s).
-- [ ] Pin the SHA-256 digest/lineage of the official Android app-signing certificate, not the upload
-      certificate or a developer debug certificate.
+- [x] Define the official application package name(s). — `com.iinpublic.app`,
+      `docs/security/official-build-identifiers.md`, 2026-09-29.
+- [x] Pin the SHA-256 digest/lineage of the official Android app-signing certificate, not the upload
+      certificate or a developer debug certificate. — pinned in
+      `docs/security/official-build-identifiers.md`, extracted from `secrets/android-release.keystore`
+      2026-09-29.
 - [ ] Sign every official APK/AAB through the controlled release process.
 - [ ] Keep signing secrets outside the repository and ordinary developer workstations.
 - [ ] Publish the expected package name, signing-certificate digests, release channel, version, and
@@ -888,6 +891,60 @@ Do not:
 - Apple: [Certificates overview](https://developer.apple.com/help/account/certificates/certificates-overview),
   [Establishing your app's integrity](https://developer.apple.com/documentation/DeviceCheck/establishing-your-app-s-integrity),
   and [Validating apps that connect to your server](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server).
+
+### 16.8 Implementation plan — Android Key Attestation path (approved 2026-09-29)
+
+Play Integrity and Apple App Attest (§16.3/16.4) both require external account setup (a Google
+Cloud project linked to Play Console; an Apple Developer Team ID — `platforms/ios` currently has
+an empty `DEVELOPMENT_TEAM`, no iOS distribution exists yet) that wasn't available when this was
+built. Android Key Attestation is §16.3's own documented fallback for "official builds
+distributed outside Google Play" and needs no new accounts — only Android's built-in hardware
+keystore and Google's publicly-documented attestation root certificates
+(`docs/security/official-build-identifiers.md`). Built as the first `evidenceType`; Play
+Integrity/App Attest remain follow-ups that feed the same verifier/credential/label pipeline once
+those accounts exist — nothing here forecloses adding them later.
+
+Deliberate scope decisions, recorded so a future reader doesn't have to re-derive them:
+
+- **Device-key binding reuses the existing SEA public key**, not a separate "device identity" key
+  (§16's fuller three-layer model). Presenting a credential over an already-SEA-signed P2P
+  handshake (`verifySignedP2PEnvelopeProof`, `src/shared/p2p-runtime.ts`) is inherently proof of
+  possession — no new challenge-response layer needed on top. A genuine simplification, not a
+  shortcut: it satisfies §16.5's "presenting it also requires proof of possession during the
+  authenticated session" using infrastructure that already exists.
+- **Verifier signing uses Node's built-in `crypto` (ECDSA P-256), not `gun/sea`** — `SEA.sign`/
+  `SEA.verify` are hard-coupled to WebCrypto and documented to fail on the embedded Android
+  nodejs-mobile server (`src/shared/portable-ecdsa.ts` header); the verifier is server-only with
+  no need to interoperate with SEA identities, so there's no reason to inherit that constraint.
+- **New dependency: `asn1js`** (MIT, pure JS, no native bindings) to parse the Key Attestation
+  X.509 extension (OID `1.3.6.1.4.1.11129.2.1.17`) and the nested `attestationApplicationId` tag
+  `[709]` inside its `AuthorizationList` — see `docs/security/official-build-identifiers.md` for
+  the schema, including a correction to an earlier wrong assumption (a separate OID) caught before
+  implementation. No existing repo code parses arbitrary X.509 extensions or ASN.1; hand-rolling
+  DER parsing for a security-critical verification path is the wrong tradeoff.
+- **Full `OfficialBuildCredential` schema per §16.5** is used as specified (`schemaVersion`,
+  `credentialId`, `platform`, `applicationId`, `releaseChannel`, `appVersion`, `buildNumber`,
+  `signingIdentityHash`, `devicePublicKey`, `evidenceType`, `evidenceTier`, `issuedAt`,
+  `expiresAt`, `verifierKeyId`, `verifierSignature`).
+- **Server storage stays minimal by design** (§16.5's own constraint) — the verifier holds exactly
+  one long-lived signing keypair (not per-user), plus short-lived challenge state for replay
+  defense (`BoundedNonceCache`/`P2PRateLimiter`, `src/shared/p2p-abuse-defense.ts`, the same
+  pattern already used in `system-routes.ts`). It does not persist per-issued-credential records —
+  a presented credential verifies against the verifier's public key + its own embedded
+  `expiresAt`, no server-side lookup needed. This is a stateless-per-request architecture (same
+  class as JWTs); it was scoped this way specifically so it doesn't need to scale a database with
+  user count, and is a plausible candidate for a separate serverless deployment (Cloudflare
+  Workers/Lambda) later, decoupled from the stateful Gun relay, precisely because it holds no
+  per-user data.
+
+Key custody, verifier route, native bridge, wire-protocol, and UI plumbing follow this codebase's
+existing patterns exactly (TechSupport key custody for the vault format, `registerTurnRoutes` for
+the route module shape, `NativeCustodyBridge`/`detectNativeCustodyBridge` for the native bridge and
+its TS-side detection, and the `publicProfileFoundationReader`/`identityLinkChecker` three-hop
+pattern for getting service data into the peer-detail UI) — researched and confirmed against the
+live codebase before writing any of this section, not assumed. Full file-by-file plan captured in
+this session's planning transcript; implementation proceeds part-by-part with `npm run health`
+clean at each step.
 
 ## 17. Session Encryption Should Be Another Layer
 
