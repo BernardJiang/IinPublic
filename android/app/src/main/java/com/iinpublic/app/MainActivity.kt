@@ -178,6 +178,14 @@ class MainActivity : AppCompatActivity() {
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
+            // Android's system "Font size" accessibility setting inflates WebView text via
+            // font-boosting independent of layout — icons/badges/card widths stay put while
+            // text balloons and wraps, breaking fixed-width UI like the chatroom list (seen on
+            // a real device with a larger-than-default system font size, 2026-09-29). Pin
+            // textZoom to 100 so our own CSS font sizes are always what actually render; users
+            // who need larger text should use the in-app UI (none currently exposed) rather
+            // than the OS setting silently reflowing a layout that wasn't designed for it.
+            settings.textZoom = 100
             webViewClient = WebViewClient()
             webChromeClient = appChromeClient
         }

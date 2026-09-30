@@ -87,7 +87,12 @@ export function activateModalAccessibility(
   overlay.addEventListener('keydown', onKeyDown);
   const initial = options.initialFocus || focusableElements(dialog)[0] || dialog;
   if (!dialog.hasAttribute('tabindex') && initial === dialog) dialog.tabIndex = -1;
-  initial.focus();
+  // preventScroll: without it, focusing an element near the bottom of a tall dialog (e.g. a
+  // multi-step guide's "Next" button) makes the browser auto-scroll dialog's own
+  // overflow-y:auto content to reveal it — landing a freshly-opened/re-rendered step mid-scroll
+  // with its header/title scrolled out of view. Dialogs should always open scrolled to the top.
+  initial.focus({ preventScroll: true });
+  dialog.scrollTop = 0;
 
   return () => {
     overlay.removeEventListener('keydown', onKeyDown);

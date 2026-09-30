@@ -223,6 +223,13 @@ html,
 body {
   height: 100%;
   overflow: hidden;
+  /* Chrome/WebView's mobile "font boosting" inflates text independent of layout (icons,
+     badges, card widths stay fixed while text grows and wraps) — breaks fixed-width UI like
+     the chatroom list under a larger-than-default OS/browser font-size setting. Opt out so
+     our own font sizes always render as specified; the Android WebView also pins
+     textZoom=100 for the native app (MainActivity.kt), this covers browser access. */
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -1188,6 +1195,11 @@ button:focus:not(:focus-visible) {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  overflow-wrap: break-word;
 }
 
 .chatroom-description {
