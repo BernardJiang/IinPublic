@@ -1180,6 +1180,11 @@ export class IinPublicApp {
     this.uiManager.setContactPreRenderSync(async () => {
       await this.syncDirectPairTalkExchangesForContacts();
     });
+    // Scenario 2 (§16): lets the peer-detail view read a live buildTrust label — see
+    // conversationService.getHandshakeDiagnostics's own doc comment (P2P-Y).
+    this.uiManager.setHandshakeDiagnosticsReader((conversationId, localUserId) =>
+      this.conversationService.getHandshakeDiagnostics(conversationId, localUserId),
+    );
     // L5: turn decrypted shared-attachment bytes into a viewable object URL so the
     // conversation view can render the shared photo instead of the raw IPFS_SHARE payload.
     this.uiManager.setSharedAttachmentResolver(async (cid: string, mimeType: string) => {

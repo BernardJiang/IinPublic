@@ -1,5 +1,10 @@
 /** @jest-environment jsdom */
 
+const openPeerDetailView = jest.fn();
+jest.mock('../../web/ui/user-detail-view', () => ({
+  openPeerDetailView: (...args: unknown[]) => openPeerDetailView(...args),
+}));
+
 import { createPeerController, type PeerControllerDeps } from '../../web/ui/peer-controller';
 import { uiText } from '../../web/ui/ui-translations';
 
@@ -21,6 +26,7 @@ function deps(overrides: Partial<PeerControllerDeps> = {}): PeerControllerDeps {
     getMyTalks: () => ({}),
     getContactsViewDeps: jest.fn() as any,
     getPublicProfileFoundationReader: () => undefined,
+    getHandshakeDiagnosticsReader: () => undefined,
     getIdentityLinkChecker: () => undefined,
     showConversationDetail: jest.fn(),
     showCreatorRepliesForTalk: jest.fn(),
@@ -99,5 +105,40 @@ describe('peer controller', () => {
       peerName: 'Peer',
     }));
     expect(showConversationDetail).toHaveBeenCalledWith('conversation-1', 'talk-1');
+  });
+
+  describe('openPeerDetailForUser — scenario 2 build-trust wiring (§16)', () => {
+    beforeEach(() => {
+      openPeerDetailView.mockClear();
+    });
+
+    it('computes the same sorted-pair conversationId WebConversationService uses and forwards the reader result', () => {
+      const diagnostics = { buildTrust: 'official-verified' } as any;
+      const reader = jest.fn().mockReturnValue(diagnostics);
+      const controller = createPeerController(deps({ getHandshakeDiagnosticsReader: () => reader }));
+      controller.openPeerDetailForUser('zeta-peer', 'Zeta');
+
+      const passedDeps = openPeerDetailView.mock.calls[0][2];
+      expect(passedDeps.getBuildTrustLabel()).toBe('official-verified');
+      // 'me' < 'zeta-peer' lexicographically, matching WebConversationService.buildPairConversationId's sort.
+      expect(reader).toHaveBeenCalledWith('conv_pair_me_zeta-peer', 'me');
+    });
+
+    it('sorts the conversationId the other way when the peer id sorts first', () => {
+      const reader = jest.fn().mockReturnValue({ buildTrust: 'community-build' });
+      const controller = createPeerController(deps({ getHandshakeDiagnosticsReader: () => reader }));
+      controller.openPeerDetailForUser('aaa-peer', 'Aaa');
+
+      const passedDeps = openPeerDetailView.mock.calls[0][2];
+      expect(passedDeps.getBuildTrustLabel()).toBe('community-build');
+      expect(reader).toHaveBeenCalledWith('conv_pair_aaa-peer_me', 'me');
+    });
+
+    it('returns undefined (never throws) when no reader has been wired', () => {
+      const controller = createPeerController(deps({ getHandshakeDiagnosticsReader: () => undefined }));
+      controller.openPeerDetailForUser('peer', 'Peer');
+      const passedDeps = openPeerDetailView.mock.calls[0][2];
+      expect(passedDeps.getBuildTrustLabel()).toBeUndefined();
+    });
   });
 });

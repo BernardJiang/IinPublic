@@ -20,7 +20,10 @@ import path from 'path';
 // Bumped again 2026-09-29 for real feature work (P2P handshake version-mismatch notifications:
 // formatP2PVersionMismatchOlder/Newer, the "a contact is on a different app version" reminder
 // wired from onP2PVersionMismatch in p2p-webrtc-session.ts), same rationale — not an extraction.
-const UI_MANAGER_LINE_BUDGET = 3_110;
+// Bumped again 2026-09-29 for real feature work (scenario 2 §16: setHandshakeDiagnosticsReader +
+// its field/type, letting the peer-detail view read a live build-trust label), same rationale —
+// not an extraction.
+const UI_MANAGER_LINE_BUDGET = 3_120;
 
 describe('UIManager architecture budget', () => {
   it(`keeps ui-manager.ts at or below ${UI_MANAGER_LINE_BUDGET.toLocaleString()} lines`, () => {

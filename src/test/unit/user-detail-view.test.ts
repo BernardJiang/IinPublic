@@ -126,3 +126,112 @@ describe('openPeerDetailView — linked-identity badge (TODO §I)', () => {
     expect(document.getElementById('peer-linked-identity-section')!.innerHTML).toBe('');
   });
 });
+
+describe('openPeerDetailView — scenario 2 build-trust badge (§16)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div class="peer-detail-overlay" id="peer-detail-overlay" style="display: none;">
+        <div class="peer-detail-header">
+          <button id="back-from-peer-detail"></button>
+          <div id="peer-detail-name"></div>
+          <div id="peer-detail-subtitle"></div>
+          <button id="peer-send-talks-btn"></button>
+          <button id="peer-overflow-btn"></button>
+          <div id="peer-overflow-panel"></div>
+          <button id="peer-block-user-btn"></button>
+        </div>
+        <div class="peer-detail-body">
+          <div id="peer-context-section"></div>
+          <div id="peer-linked-identity-section"></div>
+          <div id="peer-stats-section"></div>
+          <div id="peer-conversations-section"></div>
+          <textarea id="peer-dm-input"></textarea>
+          <button id="peer-dm-send-btn"></button>
+          <div id="peer-history-controls" style="display:none;"></div>
+          <div id="peer-talk-history-list"></div>
+          <input type="checkbox" id="peer-auto-mode-checkbox">
+        </div>
+      </div>
+    `;
+  });
+
+  function baseDeps(overrides: Partial<UserDetailViewDeps> = {}): UserDetailViewDeps {
+    return {
+      currentUserId: 'me',
+      apiBase: 'http://localhost',
+      getMyConversations: () => ({}),
+      getMyTalks: () => ({}),
+      showConversationDetail: () => {},
+      registerTalkForPeer: async () => {},
+      isBlockedByMe: () => false,
+      setBlocked: async () => {},
+      getKnownPeople: () => [],
+      getReceivedBlockSignals: () => undefined,
+      isSupportContact: () => false,
+      isSupportNotificationsMuted: () => false,
+      setSupportNotificationsMuted: async () => {},
+      sendDirectMessage: async () => {},
+      openDirectConversation: () => {},
+      getTransportStatus: () => ({ mode: 'direct-p2p' }),
+      text: (key) => uiText('en', key),
+      formatRelativeTime: () => '',
+      formatType: (type) => type,
+      formatLanguage: (code) => code,
+      ...overrides,
+    };
+  }
+
+  function flush(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it('renders an "Official build" badge for official-verified', async () => {
+    const deps = baseDeps({ getBuildTrustLabel: () => 'official-verified' });
+    openPeerDetailView('peer-1', 'Peer One', deps);
+    await flush();
+    const section = document.getElementById('peer-stats-section')!;
+    expect(section.innerHTML).toContain('peer-build-trust-badge');
+    expect(section.querySelector('[data-testid="peer-build-trust-badge"]')?.getAttribute('data-build-trust')).toBe('official-verified');
+    expect(section.textContent).toContain(uiText('en', 'buildTrustOfficialVerified'));
+  });
+
+  it('renders the officially-signed-unavailable badge text for that label', async () => {
+    const deps = baseDeps({ getBuildTrustLabel: () => 'officially-signed-unavailable' });
+    openPeerDetailView('peer-1', 'Peer One', deps);
+    await flush();
+    const section = document.getElementById('peer-stats-section')!;
+    expect(section.textContent).toContain(uiText('en', 'buildTrustOfficiallySignedUnavailable'));
+  });
+
+  it('renders the community-build badge text for that label', async () => {
+    const deps = baseDeps({ getBuildTrustLabel: () => 'community-build' });
+    openPeerDetailView('peer-1', 'Peer One', deps);
+    await flush();
+    const section = document.getElementById('peer-stats-section')!;
+    expect(section.textContent).toContain(uiText('en', 'buildTrustCommunityBuild'));
+  });
+
+  it('renders no badge at all for unverified-build (the common/default case)', async () => {
+    const deps = baseDeps({ getBuildTrustLabel: () => 'unverified-build' });
+    openPeerDetailView('peer-1', 'Peer One', deps);
+    await flush();
+    const section = document.getElementById('peer-stats-section')!;
+    expect(section.innerHTML).not.toContain('peer-build-trust-badge');
+  });
+
+  it('renders no badge when getBuildTrustLabel is not provided at all', async () => {
+    const deps = baseDeps();
+    openPeerDetailView('peer-1', 'Peer One', deps);
+    await flush();
+    const section = document.getElementById('peer-stats-section')!;
+    expect(section.innerHTML).not.toContain('peer-build-trust-badge');
+  });
+
+  it('includes the "not a trust signal" tooltip text, distinct from the social-trust badge', async () => {
+    const deps = baseDeps({ getBuildTrustLabel: () => 'official-verified' });
+    openPeerDetailView('peer-1', 'Peer One', deps);
+    await flush();
+    const badge = document.querySelector('[data-testid="peer-build-trust-badge"]');
+    expect(badge?.getAttribute('title')).toBe(uiText('en', 'buildTrustTooltip'));
+  });
+});

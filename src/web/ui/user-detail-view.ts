@@ -39,6 +39,10 @@ export type UserDetailViewDeps = {
    *  purely local, never a network call. Used to show the contact-scoped threshold warning,
    *  distinct from the public reputation.blockCount flag. */
   getReceivedBlockSignals: () => ReceivedBlockSignals | undefined;
+  /** Scenario 2 (§16) — identifies build authenticity only, unrelated to this person's
+   * trustworthiness/reputation or the age-verification vouching system; see the badge's own
+   * tooltip text. Optional: absent for any call site that hasn't wired attestation in yet. */
+  getBuildTrustLabel?: () => import('../../shared/official-build-credential').BuildTrustLabel | undefined;
   isSupportContact: (userId: string) => boolean;
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
@@ -589,6 +593,26 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps, peerId: st
         ⚠ ${escapeHtml(deps.text('contactCircleBlockWarning'))}
       </div>`
     : '';
+  // Scenario 2 (§16): a bare software-authenticity label, never a social-trust signal — the
+  // tooltip says so explicitly so it's never confused with reputation/age-verification. Silent
+  // for 'unverified-build' (the default/common case for now) rather than flagging most peers as
+  // suspicious just because this feature is new.
+  const buildTrustLabel = deps.getBuildTrustLabel?.();
+  const buildTrustBadgeHtml = buildTrustLabel && buildTrustLabel !== 'unverified-build'
+    ? `<div class="peer-build-trust-badge" data-testid="peer-build-trust-badge" data-build-trust="${escapeHtml(buildTrustLabel)}" title="${escapeHtml(deps.text('buildTrustTooltip'))}" style="margin-top:8px;padding:4px 10px;border-radius:10px;display:inline-block;font-size:0.8em;${
+        buildTrustLabel === 'official-verified'
+          ? 'border:1px solid var(--success-border,var(--border));background:var(--success-soft,var(--bg-subtle));color:var(--text-primary);'
+          : 'border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);'
+      }">
+        ${buildTrustLabel === 'official-verified' ? '✓ ' : ''}${escapeHtml(deps.text(
+          buildTrustLabel === 'official-verified'
+            ? 'buildTrustOfficialVerified'
+            : buildTrustLabel === 'officially-signed-unavailable'
+              ? 'buildTrustOfficiallySignedUnavailable'
+              : 'buildTrustCommunityBuild',
+        ))}
+      </div>`
+    : '';
   return `
     <div class="peer-stat-card contact-public-profile-summary" style="margin-bottom:12px;">
       <div style="display:flex; gap:12px; align-items:flex-start;">
@@ -604,6 +628,7 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps, peerId: st
           ${sharedInterests.length > 0 ? `<div class="peer-shared-tags"><strong>Shared tags</strong><span>${escapeHtml(sharedInterests.join(', '))}</span></div>` : ''}
           ${reputationHtml}
           ${contactBlockWarningHtml}
+          ${buildTrustBadgeHtml}
           <div style="display:grid; gap:8px; margin-top:10px;">
             ${
               profile.length > 0

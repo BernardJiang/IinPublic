@@ -23,6 +23,9 @@ export interface PeerControllerDeps {
   getMyTalks: () => Record<string, any>;
   getContactsViewDeps: () => ContactsViewDeps;
   getPublicProfileFoundationReader: () => ((userId: string) => Promise<any>) | undefined;
+  getHandshakeDiagnosticsReader: () =>
+    | ((conversationId: string, localUserId: string) => import('../../shared/p2p-handshake').HandshakeDiagnostics | null)
+    | undefined;
   getIdentityLinkChecker: () => ((pub: string) => Promise<boolean>) | undefined;
   showConversationDetail: (conversationId: string, talkId?: string) => void;
   showCreatorRepliesForTalk: (talkId: string, title: string) => void;
@@ -160,6 +163,16 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
           fallbackReason: conversation?.transportFallbackReason ?? null,
           lastHealthyAt: conversation?.lastMessageTime ?? null,
         };
+      },
+      // Scenario 2 (§16): conversationId here must match WebConversationService.
+      // buildPairConversationId's own sorted-pair scheme exactly — inlined rather than importing
+      // the whole service class into this UI module just for one pure static function.
+      getBuildTrustLabel: () => {
+        const reader = deps.getHandshakeDiagnosticsReader();
+        if (!reader) return undefined;
+        const sortedIds = [deps.getCurrentUserId(), userId].sort();
+        const conversationId = `conv_pair_${sortedIds[0]}_${sortedIds[1]}`;
+        return reader(conversationId, deps.getCurrentUserId())?.buildTrust;
       },
       text: deps.t,
       formatRelativeTime: deps.formatTalkRelativeTime,

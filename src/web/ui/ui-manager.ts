@@ -222,6 +222,13 @@ type PublicProfileFoundationReader = (userId: string) => Promise<{
 
 type ContactPreRenderSync = () => Promise<void>;
 type PeerLocationReader = (userId: string) => Promise<GPSCoordinate | undefined>;
+/** Scenario 2 (§16): UIManager has no direct conversationService reference (see
+ * publicProfileFoundationReader above for the established pattern this mirrors) — app.ts wires
+ * this once so the peer-detail view can read a live buildTrust label. */
+type HandshakeDiagnosticsReader = (
+  conversationId: string,
+  localUserId: string,
+) => import('../../shared/p2p-handshake').HandshakeDiagnostics | null;
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -252,6 +259,7 @@ export class UIManager extends EventEmitter {
   private currentUserIdValue: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
   private publicProfileFoundationReader: PublicProfileFoundationReader | undefined;
+  private handshakeDiagnosticsReader: HandshakeDiagnosticsReader | undefined;
   private contactPreRenderSync: ContactPreRenderSync | undefined;
   private peerLocationReader: PeerLocationReader | undefined;
   private peerLocationCache = new Map<string, GPSCoordinate | null>();
@@ -447,6 +455,10 @@ export class UIManager extends EventEmitter {
 
   setPublicProfileFoundationReader(reader: PublicProfileFoundationReader | undefined): void {
     this.publicProfileFoundationReader = reader;
+  }
+
+  setHandshakeDiagnosticsReader(reader: HandshakeDiagnosticsReader | undefined): void {
+    this.handshakeDiagnosticsReader = reader;
   }
 
   setContactPreRenderSync(sync: ContactPreRenderSync | undefined): void {
@@ -820,6 +832,7 @@ export class UIManager extends EventEmitter {
         getMyTalks: () => this.getMyTalks(),
         getContactsViewDeps: () => this.contactsViewDeps(() => this.displayContactsList()),
         getPublicProfileFoundationReader: () => this.publicProfileFoundationReader,
+        getHandshakeDiagnosticsReader: () => this.handshakeDiagnosticsReader,
         getIdentityLinkChecker: () => this.identityLinkChecker,
         showConversationDetail: (conversationId, talkId) => this.showConversationDetail(conversationId, talkId),
         showCreatorRepliesForTalk: (talkId, title) => this.showCreatorRepliesForTalk(talkId, title),
