@@ -32,6 +32,7 @@
     "dev:techsupport": "set -a; [ -f .env.local ] && . ./.env.local; set +a; node scripts/dev-techsupport-login.js",
     "techsupport:agent": "set -a; [ -f .env.local ] && . ./.env.local; set +a; node scripts/techsupport-agent.js",
     "techsupport:key": "set -a; [ -f .env.local ] && . ./.env.local; set +a; node scripts/techsupport-key-tool.js",
+    "attestation:key": "set -a; [ -f .env.local ] && . ./.env.local; set +a; node scripts/attestation-verifier-key-tool.js",
     "techsupport:delegate": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && node scripts/techsupport-delegate-tool.js",
     "techsupport:recovery": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && node scripts/techsupport-recovery-tool.js",
     "test:techsupport-key": "node --test scripts/test/techsupport-key-tool.test.js",
