@@ -238,8 +238,21 @@ export function verifyChainToRoots(certChainDer: Buffer[], trustedRootsPem: stri
   for (let i = 0; i < certs.length - 1; i += 1) {
     const subject = certs[i];
     const issuer = certs[i + 1];
-    if (!subject.checkIssued(issuer) || !subject.verify(issuer.publicKey)) {
-      return { ok: false, reason: `chain link ${i}->${i + 1} does not verify (not correctly signed by the next cert)` };
+    const dnLinked = subject.checkIssued(issuer);
+    const sigValid = dnLinked && subject.verify(issuer.publicKey);
+    if (!dnLinked || !sigValid) {
+      // Split the two failure modes: a DN mismatch (subject[i].issuer !== issuer[i+1].subject,
+      // e.g. a real vendor-specific attestation CA chain not shaped the way we assumed) is a very
+      // different finding from a DN match with a bad signature (an actual crypto/parsing bug on
+      // our side, or a genuinely forged chain) — collapsing them into one message cost real time
+      // diagnosing the first real-hardware failure (2026-09-29, a Huawei/HWFRD device with no
+      // Google Mobile Services) blind.
+      return {
+        ok: false,
+        reason:
+          `chain link ${i}->${i + 1} does not verify (dnLinked=${dnLinked}, sigValid=${sigValid}) — ` +
+          `subject[${i}].issuer="${subject.issuer}" vs issuer[${i + 1}].subject="${issuer.subject}"`,
+      };
     }
   }
 

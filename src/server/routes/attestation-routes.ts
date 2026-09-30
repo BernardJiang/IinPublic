@@ -1,9 +1,10 @@
 import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
 import type express from 'express';
+import { logger } from '../logger';
 import { P2PAbuseDefenseContext, type AbuseDefenseConfig } from '../../shared/p2p-abuse-defense';
 import { verifyChainToRoots, parseKeyAttestationExtension } from '../security/android-key-attestation';
+import { GOOGLE_HARDWARE_ATTESTATION_ROOTS_PEM } from '../security/google-hardware-attestation-roots';
+import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 import {
   canonicalCredentialSigningInput,
   OFFICIAL_APPLICATION_ID,
@@ -15,7 +16,6 @@ const keyCustody = require('../security/attestation-verifier-key-custody');
 
 const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes to complete the attest-and-verify round trip
 const DEFAULT_CREDENTIAL_TTL_MS = 24 * 60 * 60 * 1000; // §16.8: credentials refresh roughly daily
-const DEFAULT_ROOTS_PATH = path.join(__dirname, '..', 'security', 'google-hardware-attestation-roots.pem');
 
 function normalizeHexDigest(value: string): string {
   return value.replace(/:/g, '').toLowerCase();
@@ -44,6 +44,14 @@ export type RegisterAttestationRoutesDeps = {
   challengeTtlMs?: number;
   credentialTtlMs?: number;
   abuseDefenseConfig?: AbuseDefenseConfig;
+  /**
+   * Present only on an embedded/on-device server (see src/server/index.ts's construction), which
+   * never has a verifier key of its own — see EmbeddedHubRelayClientLike's doc comment on its
+   * three attestation-forwarding methods for why. When set and no local verifierKeyFile is
+   * configured, all three routes below forward to the real hub instead of 503ing, exactly like
+   * registerTurnRoutes does for TURN_SHARED_SECRET.
+   */
+  hubRelayClient?: EmbeddedHubRelayClientLike;
 };
 
 /**
@@ -61,7 +69,7 @@ export function registerAttestationRoutes(app: express.Application, deps: Regist
     deps.officialSigningIdentityHash ?? OFFICIAL_SIGNING_IDENTITY_HASH,
   );
   const trustedRootsPem =
-    deps.trustedRootsPem ?? splitPemCertificates(fs.readFileSync(DEFAULT_ROOTS_PATH, 'utf8'));
+    deps.trustedRootsPem ?? splitPemCertificates(GOOGLE_HARDWARE_ATTESTATION_ROOTS_PEM);
 
   let verifierPair: { publicKeyPem: string; privateKeyPem: string } | null = null;
   let verifierKeyId: string | null = null;
@@ -78,6 +86,7 @@ export function registerAttestationRoutes(app: express.Application, deps: Regist
     verifierLoadError = (error as Error).message;
   }
 
+  const { hubRelayClient } = deps;
   const abuseCtx = new P2PAbuseDefenseContext(deps.abuseDefenseConfig ?? {});
   const challenges = new Map<string, ChallengeRecord>();
 
@@ -87,8 +96,18 @@ export function registerAttestationRoutes(app: express.Application, deps: Regist
     }
   }
 
-  app.post('/api/attestation/challenge', (req, res) => {
+  app.post('/api/attestation/challenge', async (req, res) => {
     if (!verifierPair || !verifierKeyId) {
+      if (hubRelayClient?.postAttestationChallenge) {
+        try {
+          const relayed = await hubRelayClient.postAttestationChallenge(req.body || {});
+          res.status(relayed.status).json(relayed.body);
+          return;
+        } catch {
+          // Hub unreachable (offline embedded node) — fall through to the same 503 a
+          // never-configured deployment already returns, not a silent default.
+        }
+      }
       res.status(503).json({ error: `attestation verifier unavailable: ${verifierLoadError}` });
       return;
     }
@@ -118,8 +137,17 @@ export function registerAttestationRoutes(app: express.Application, deps: Regist
     res.json({ challengeId, challenge: challenge.toString('base64'), expiresAt: new Date(now + challengeTtlMs).toISOString() });
   });
 
-  app.post('/api/attestation/verify', (req, res) => {
+  app.post('/api/attestation/verify', async (req, res) => {
     if (!verifierPair || !verifierKeyId) {
+      if (hubRelayClient?.postAttestationVerify) {
+        try {
+          const relayed = await hubRelayClient.postAttestationVerify(req.body || {});
+          res.status(relayed.status).json(relayed.body);
+          return;
+        } catch {
+          // Hub unreachable — same reasoning as the challenge route above.
+        }
+      }
       res.status(503).json({ error: `attestation verifier unavailable: ${verifierLoadError}` });
       return;
     }
@@ -131,8 +159,18 @@ export function registerAttestationRoutes(app: express.Application, deps: Regist
     const buildNumber = String(body.buildNumber || '');
     const releaseChannel = body.releaseChannel === 'beta' ? 'beta' : 'production';
 
+    // A rejection here has a specific, actionable reason (expired challenge, wrong package,
+    // unofficial signing key, malformed chain, …) — worth a real log line, not just the request
+    // logger's bare statusCode, so a real-device test failure is diagnosable from server logs
+    // alone (found the hard way 2026-09-29: a 400 with no logged reason on the first real-hardware
+    // round trip left no way to tell which check failed without instrumenting the client).
+    function reject(reason: string): void {
+      logger.warn({ reason, challengeId, certChainLength: certChainB64?.length ?? 0 }, 'attestation verify rejected');
+      res.status(400).json({ error: reason });
+    }
+
     if (!challengeId || !certChainB64 || certChainB64.length === 0 || !devicePublicKey || !appVersion || !buildNumber) {
-      res.status(400).json({ error: 'missing challengeId, certChainDer, devicePublicKey, appVersion, or buildNumber' });
+      reject('missing challengeId, certChainDer, devicePublicKey, appVersion, or buildNumber');
       return;
     }
 
@@ -140,14 +178,14 @@ export function registerAttestationRoutes(app: express.Application, deps: Regist
     sweepExpiredChallenges(now);
     const record = challenges.get(challengeId);
     if (!record) {
-      res.status(400).json({ error: 'unknown or expired challengeId' });
+      reject('unknown or expired challengeId');
       return;
     }
     // Single-use regardless of outcome — a failed attempt must not be retryable against the same
     // challenge (replay/brute-force defense).
     challenges.delete(challengeId);
     if (record.consumed || record.expiresAt <= now) {
-      res.status(400).json({ error: 'challenge already used or expired' });
+      reject('challenge already used or expired');
       return;
     }
 
@@ -155,36 +193,40 @@ export function registerAttestationRoutes(app: express.Application, deps: Regist
     try {
       certChainDer = certChainB64.map((entry) => Buffer.from(String(entry), 'base64'));
     } catch {
-      res.status(400).json({ error: 'certChainDer contains invalid base64' });
+      reject('certChainDer contains invalid base64');
       return;
     }
 
     const chainResult = verifyChainToRoots(certChainDer, trustedRootsPem);
     if (!chainResult.ok) {
-      res.status(400).json({ error: chainResult.reason });
+      reject(chainResult.reason);
       return;
     }
 
     const extensionResult = parseKeyAttestationExtension(certChainDer[0]);
     if (!extensionResult.ok) {
-      res.status(400).json({ error: extensionResult.reason });
+      reject(extensionResult.reason);
       return;
     }
     const { attestation } = extensionResult;
 
     if (!attestation.attestationChallenge.equals(record.challenge)) {
-      res.status(400).json({ error: 'attestation challenge does not match the one issued for this challengeId' });
+      reject('attestation challenge does not match the one issued for this challengeId');
       return;
     }
     if (!attestation.packageNames.includes(officialApplicationId)) {
-      res.status(400).json({ error: 'attested package name does not match the official application id' });
+      reject(
+        `attested package name does not match the official application id (got: ${attestation.packageNames.join(', ')})`,
+      );
       return;
     }
     const matchesOfficialSigningKey = attestation.signatureDigestsHex.some(
       (digest) => normalizeHexDigest(digest) === officialSigningIdentityHash,
     );
     if (!matchesOfficialSigningKey) {
-      res.status(400).json({ error: 'attested signing certificate does not match the official release key' });
+      reject(
+        `attested signing certificate does not match the official release key (got: ${attestation.signatureDigestsHex.join(', ')}; expected: ${officialSigningIdentityHash})`,
+      );
       return;
     }
 
@@ -214,8 +256,17 @@ export function registerAttestationRoutes(app: express.Application, deps: Regist
     res.json({ credential });
   });
 
-  app.get('/api/attestation/verifier-keys', (_req, res) => {
+  app.get('/api/attestation/verifier-keys', async (_req, res) => {
     if (!verifierPair || !verifierKeyId) {
+      if (hubRelayClient?.getAttestationVerifierKeys) {
+        try {
+          const relayed = await hubRelayClient.getAttestationVerifierKeys();
+          res.status(relayed.status).json(relayed.body);
+          return;
+        } catch {
+          // Hub unreachable — same reasoning as the other two routes above.
+        }
+      }
       res.status(503).json({ error: `attestation verifier unavailable: ${verifierLoadError}` });
       return;
     }

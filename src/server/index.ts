@@ -294,8 +294,13 @@ class IinPublicServer {
     });
 
     // §16.5's verifier — routes 503 gracefully (not a startup crash) when
-    // ATTESTATION_VERIFIER_KEY_FILE isn't configured on this deployment yet.
-    registerAttestationRoutes(this.app);
+    // ATTESTATION_VERIFIER_KEY_FILE isn't configured on this deployment yet. On an embedded/
+    // on-device server that's every deployment, by design (see EmbeddedHubRelayClientLike's doc
+    // comment on the three attestation methods) — hubRelayClient lets it forward to the real hub
+    // instead, the same pattern registerTurnRoutes above already uses for TURN_SHARED_SECRET.
+    registerAttestationRoutes(this.app, {
+      ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
+    });
 
     registerGraphRelayRoutes(this.app, {
       gunService: this.gunService,

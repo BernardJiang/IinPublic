@@ -102,6 +102,28 @@ export interface EmbeddedHubRelayClientLike {
    */
   getGraphBlob(segments: readonly string[]): Promise<unknown | null>;
   putGraphBlob(segments: readonly string[], data: unknown): Promise<void>;
+  /**
+   * §16.5/§16.8 attestation verifier — same "the embedded node must never hold the secret" shape
+   * as getTurnCredentials above (see that method's doc comment: an on-device server's own apiBase
+   * IS its local loopback origin, so the client always calls its own embedded server first). The
+   * verifier's ECDSA signing key is exactly that kind of secret: baking it into every distributed
+   * APK would let anyone extract it and forge a passing `OfficialBuildCredential` for a modified
+   * build, defeating the entire point of the check. So the embedded node holds no verifier key at
+   * all (attestation-routes.ts's own `ATTESTATION_VERIFIER_KEY_FILE`-gated startup already 503s
+   * locally when unset) and instead forwards the three attestation routes to the real hub over
+   * this same relay client, exactly like TURN credentials.
+   *
+   * Unlike every other relay method on this interface, these three surface the hub's exact HTTP
+   * status and body rather than throwing generically on a non-2xx response (`request()`'s usual
+   * behavior) or silently falling back to a soft default (TURN's STUN-only fallback) — a failed
+   * attestation attempt has a specific, meaningful reason (expired challenge, wrong package,
+   * unofficial signing key, …) that the phone's own UI should be able to surface, not swallow.
+   * Optional, matching the rest of this interface's newer additions, so existing
+   * EmbeddedHubRelayClientLike test doubles keep compiling without updating them.
+   */
+  postAttestationChallenge?(body: unknown): Promise<{ status: number; body: unknown }>;
+  postAttestationVerify?(body: unknown): Promise<{ status: number; body: unknown }>;
+  getAttestationVerifierKeys?(): Promise<{ status: number; body: unknown }>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -344,6 +366,41 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       ttl: Number(body.ttl) || 0,
       urls: Array.isArray(body.urls) ? body.urls.filter((url): url is string => typeof url === 'string') : [],
     };
+  }
+
+  async postAttestationChallenge(body: unknown): Promise<{ status: number; body: unknown }> {
+    return this.forwardJson('/api/attestation/challenge', 'POST', body);
+  }
+
+  async postAttestationVerify(body: unknown): Promise<{ status: number; body: unknown }> {
+    return this.forwardJson('/api/attestation/verify', 'POST', body);
+  }
+
+  async getAttestationVerifierKeys(): Promise<{ status: number; body: unknown }> {
+    return this.forwardJson('/api/attestation/verifier-keys', 'GET');
+  }
+
+  /**
+   * Like `request()` below, but returns the hub's status/body instead of throwing on a non-2xx
+   * response — see the doc comment on the three attestation methods above for why this route
+   * family needs the real status preserved rather than either a thrown error or a soft fallback.
+   */
+  private async forwardJson(path: string, method: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        ...(body !== undefined
+          ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+          : {}),
+        signal: controller.signal,
+      });
+      const parsed = await response.json().catch(() => ({}));
+      return { status: response.status, body: parsed };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
