@@ -2536,6 +2536,7 @@ export class UIManager extends EventEmitter {
     options: { selfAnswers: { questionId: string; answerId: string }[] },
   ): void {
     saveCreatedTalkImpl(talk, options, {
+      currentUserId: this.currentUser?.id,
       saveAnswerPreference: (talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode) =>
         this.saveAnswerPreference(talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode),
       saveQuestionAnswersFromCompletion: (talkData, answers) => this.saveQuestionAnswersFromCompletion(talkData, answers),
