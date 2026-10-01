@@ -26,7 +26,7 @@ export type SaveCreatedTalkDeps = {
     answerId: string,
     answerText: string,
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
-    mode: 'auto' | 'manual' | 'permanent' | 'suppressed',
+    mode: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed',
   ) => string;
   saveQuestionAnswersFromCompletion: (
     talkData: { questions?: Array<{ id: string; text?: string }> },

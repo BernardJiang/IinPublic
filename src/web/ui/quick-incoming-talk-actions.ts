@@ -38,7 +38,7 @@ export type QuickIgnoreIncomingTalkDeps = {
     answerId: string,
     answerText: string,
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
-    mode: 'auto' | 'manual' | 'permanent' | 'suppressed',
+    mode: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed',
   ) => void;
   completeTalk: (talk: any, answers: any[], outcome: 'match' | 'mismatch', meta?: { withholdFromSender?: boolean }) => void;
   emit: (event: string, payload: unknown) => void;

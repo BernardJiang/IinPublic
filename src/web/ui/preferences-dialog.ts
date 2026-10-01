@@ -1,7 +1,7 @@
 import type { AnswerPreferenceMap } from './answer-preferences-storage';
 import type { UiTranslationKey } from './ui-translations';
 
-export type AnswerPreferenceUiMode = 'manual' | 'temporary';
+export type AnswerPreferenceUiMode = 'manual' | 'temporary' | 'whenever';
 
 type PreferencesDialogOptions = {
   getPreferences: () => AnswerPreferenceMap;
@@ -24,6 +24,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
     );
   const formatDate = (date: Date): string => options.formatDate?.(date) || date.toLocaleString();
   const normalizeMode = (mode: string, contextVersion?: number): AnswerPreferenceUiMode => {
+    if (mode === 'whenever') return 'whenever';
     if ((mode === 'auto' || mode === 'temporary') && contextVersion === 2) return 'temporary';
     return 'manual';
   };
@@ -31,15 +32,18 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
     const keys: Record<AnswerPreferenceUiMode, UiTranslationKey> = {
       manual: 'preferencesManualMode',
       temporary: 'preferencesTemporaryMode',
+      whenever: 'preferencesWheneverMode',
     };
     const fallbacks: Record<AnswerPreferenceUiMode, string> = {
       manual: 'Ask me every time',
       temporary: 'Same context and choices',
+      whenever: 'Whenever offered',
     };
     return text(keys[mode], fallbacks[mode]);
   };
   const modeTone = (mode: AnswerPreferenceUiMode): string => {
     if (mode === 'temporary') return 'background: var(--success-soft); color: var(--success-text);';
+    if (mode === 'whenever') return 'background: var(--accent-soft); color: var(--accent-text);';
     return 'background: var(--danger-border); color: var(--danger-hover);';
   };
   const modal = document.createElement('div');
@@ -72,6 +76,10 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
               ${preferenceEntries
                 .map(([key, pref]) => {
                   const mode = normalizeMode(pref.mode, pref.contextVersion);
+                  const availableModes: AnswerPreferenceUiMode[] = pref.questionDefaultKey
+                    && pref.answerSelectionMode !== 'multiple'
+                    ? ['manual', 'temporary', 'whenever']
+                    : ['manual', 'temporary'];
                   return `
                   <div class="preference-item" style="background: var(--bg-subtle); border: 2px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div style="margin-bottom: 15px;">
@@ -121,7 +129,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                         </div>
                       </div>
                       <select class="mode-select" data-pref-key="${key}" style="max-width: 220px; padding: 9px; border: 2px solid var(--border); border-radius: 8px; background: white;">
-                        ${(['manual', 'temporary'] as AnswerPreferenceUiMode[])
+                        ${availableModes
                           .map((choice) => `<option value="${choice}" ${choice === mode ? 'selected' : ''}>${modeLabel(choice)}</option>`)
                           .join('')}
                       </select>

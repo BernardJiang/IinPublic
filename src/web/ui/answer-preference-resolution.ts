@@ -1,4 +1,5 @@
 import type { LocationForContainment } from '../../shared/built-in-comparisons';
+import { normalizeIdentityText } from '../../shared/cid';
 import {
   ANSWER_CONTEXT_VERSION,
   buildAnswerPreferenceLookupKey,
@@ -19,13 +20,21 @@ import {
   saveTemporaryAnswer,
 } from '../../shared/exact-chatbot-memory';
 import {
+  buildAnswerIdentityHash,
+  buildQuestionDefaultKey,
+  putQuestionDefault,
+  resolveQuestionDefault,
+} from '../../shared/question-default-contracts';
+import {
   getAnswerPreferences,
   getExactChatbotMemory,
   getFlattenedAnswerPreferences,
+  getQuestionDefaultContracts,
   getTypedPreferenceState,
   setAnswerPreferences,
   setExactChatbotMemory,
   setFlattenedAnswerPreferences,
+  setQuestionDefaultContracts,
 } from './answer-preferences-storage';
 import { getLocationAutoMatchConsent } from './ui-settings-storage';
 import { getMyTalks, type MyTalkMap } from './my-talks-storage';
@@ -127,6 +136,15 @@ export function resolveAnswerPreferenceForTalkQuestion(
     { mySelfTag, counterpartTag },
     currentQuestion,
   );
+  const rootContextKeyFor = (counterpartTag: string | undefined): string => buildAnswerPreferenceLookupKey(
+    talk,
+    '',
+    questionIndex,
+    [],
+    currentQuestion.text || '',
+    { mySelfTag, counterpartTag },
+    currentQuestion,
+  );
   const primaryContextHash = contextKeyFor(counterpartCandidates[0]).replace(/^flat_v\d+_/, '');
 
   // §BB / spec §30.2: a builtIn (typed comparison) question is dispatched entirely separately
@@ -202,10 +220,11 @@ export function resolveAnswerPreferenceForTalkQuestion(
 
   const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
 
-  // Ordinary chatbot memory has one rule: repeat a known choice only when the complete v2
-  // rolling context matches. That context includes this question and its entire choice set;
-  // flow/route contexts additionally commit to the preceding context and chosen answer.
-  // There is deliberately no question-only or "saved answer still appears" fallback.
+  // Ordinary chatbot memory has two deliberately narrow levels. A saved answer for this exact
+  // rolling context wins first. If there is no such reusable answer, a ROOT answer for the same
+  // complete question frame acts as the user's unconditional default at any later sequential
+  // position. This is still exact matching: question text, complete order-independent choice
+  // set, language, talk type, selection mode, and Pair-tag scope must all be identical.
   if (!isMultiSelect && currentQuestion.text && (currentQuestion.answers || []).length > 0) {
     const flatMap = getFlattenedAnswerPreferences();
     // Spec §30.2/§KK zero-click follow-up: a matchThreshold route's direct-child specs are
@@ -215,12 +234,15 @@ export function resolveAnswerPreferenceForTalkQuestion(
     // happened to be answered before it, so two independently-authored talks walking specs in
     // a different order would never share a bucket). Always resolve these questions with an
     // empty context path, same key shape as a talk's very first question.
-    for (const counterpartTag of counterpartCandidates) {
-      const flatKey = contextKeyFor(counterpartTag);
+    const resolveFlatKey = (
+      flatKey: string,
+      autoAnswerReason: 'KNOWN_CONTEXT_MATCH' | 'KNOWN_ROOT_CONTEXT_MATCH',
+      responseContextHash = flatKey.replace(/^flat_v\d+_/, ''),
+    ) => {
       const flat = flatMap[flatKey];
-      if (!flat || flat.contextVersion !== ANSWER_CONTEXT_VERSION || !flat.contextHash) continue;
+      if (!flat || flat.contextVersion !== ANSWER_CONTEXT_VERSION || !flat.contextHash) return null;
       const matchingAnswer = (currentQuestion.answers || []).find(
-        (answer: any) => String(answer?.text || '').trim() === String(flat.answerText || '').trim(),
+        (answer: any) => normalizeIdentityText(answer?.text) === normalizeIdentityText(flat.answerText),
       );
       if (matchingAnswer?.id) {
         return {
@@ -230,11 +252,58 @@ export function resolveAnswerPreferenceForTalkQuestion(
           questionText: currentQuestion.text || '',
           allAnswers: currentQuestion.answers || [],
           autoAnswerAction: 'ANSWER',
-          autoAnswerReason: 'KNOWN_CONTEXT_MATCH',
-          contextHash: flat.contextHash,
+          autoAnswerReason,
+          // A root-frame contract reused later in a flow still needs the CURRENT rolling hash
+          // as the cursor for the next question; the stored root hash only identifies the rule.
+          contextHash: responseContextHash,
         };
       }
+      return null;
+    };
+
+    let displayOnlyExact: ReturnType<typeof resolveFlatKey> = null;
+    for (const counterpartTag of counterpartCandidates) {
+      const flatKey = contextKeyFor(counterpartTag);
+      const exact = resolveFlatKey(flatKey, 'KNOWN_CONTEXT_MATCH');
+      // A Just-once record is retained for history/display but is not a chatbot rule. It must
+      // not shadow an auto-reusable root default for this frame.
+      if (exact?.mode === 'auto') return exact;
+
+      const rootFlatKey = rootContextKeyFor(counterpartTag);
+      if (rootFlatKey !== flatKey) {
+        const rootDefault = resolveFlatKey(
+          rootFlatKey,
+          'KNOWN_ROOT_CONTEXT_MATCH',
+          flatKey.replace(/^flat_v\d+_/, ''),
+        );
+        if (rootDefault?.mode === 'auto') return rootDefault;
+      }
+
+      displayOnlyExact ??= exact;
     }
+
+    // Explicit broad contract: exact question identity + first preferred answer currently
+    // offered. It deliberately ignores choice membership and rolling position, but never uses
+    // fuzzy text or inferred subsets. Exact rolling/root-frame contracts above always win.
+    const contracts = getQuestionDefaultContracts();
+    for (const counterpartTag of counterpartCandidates) {
+      const questionKey = buildQuestionDefaultKey(talk, currentQuestion, { mySelfTag, counterpartTag });
+      const preferred = resolveQuestionDefault(contracts, questionKey, currentQuestion.answers || []);
+      if (!preferred) continue;
+      return {
+        answerId: preferred.answerId,
+        answerText: preferred.answerText,
+        mode: 'auto',
+        questionText: currentQuestion.text || '',
+        allAnswers: currentQuestion.answers || [],
+        autoAnswerAction: 'ANSWER',
+        autoAnswerReason: 'KNOWN_QUESTION_DEFAULT',
+        contextHash: contextKeyFor(counterpartTag).replace(/^flat_v\d+_/, ''),
+      };
+    }
+
+    // Preserve the existing Just-once display behavior when no reusable contract matched.
+    if (displayOnlyExact) return displayOnlyExact;
   }
 
   // Multi-select and all missing/legacy/changed contexts are intentionally user decisions.
@@ -251,7 +320,7 @@ export function saveAnswerPreference(
   answerId: string,
   answerText: string,
   fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
-  mode: 'auto' | 'manual' | 'permanent' | 'suppressed' = 'auto',
+  mode: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed' = 'auto',
 ): string {
   const exactMemory = getExactChatbotMemory();
   const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
@@ -307,6 +376,11 @@ export function saveAnswerPreference(
     currentQuestion,
   );
   const primaryContextHash = primaryFlatKey.replace(/^flat_v\d+_/, '');
+  const primaryQuestionDefaultKey = buildQuestionDefaultKey(
+    talk,
+    currentQuestion,
+    { mySelfTag, counterpartTag: counterpartCandidates[0] },
+  );
 
   const entry = {
     answerId,
@@ -320,12 +394,16 @@ export function saveAnswerPreference(
     flatKey: primaryFlatKey,
     contextHash: primaryContextHash,
     contextVersion: ANSWER_CONTEXT_VERSION,
+    questionDefaultKey: primaryQuestionDefaultKey,
+    answerIdentityHash: buildAnswerIdentityHash(answerText),
+    answerSelectionMode: currentQuestion.answerSelectionMode || 'single',
   };
 
   preferences[legacyKey] = entry;
   setAnswerPreferences(preferences);
 
   const flatMap = getFlattenedAnswerPreferences();
+  const questionDefaults = getQuestionDefaultContracts();
   for (const counterpartTag of counterpartCandidates) {
     const flatKey = buildAnswerPreferenceLookupKey(
       talk,
@@ -336,13 +414,31 @@ export function saveAnswerPreference(
       { mySelfTag, counterpartTag },
       currentQuestion,
     );
-    flatMap[flatKey] = {
-      ...entry,
-      flatKey,
-      contextHash: flatKey.replace(/^flat_v\d+_/, ''),
-    };
+    if (mode === 'whenever') {
+      // The broad contract is a distinct scope, not another exact-context alias. If Bob changes
+      // an existing exact answer to Whenever offered in this same frame, remove that conflicting
+      // exact rule so the newly selected broad preference can take effect here immediately.
+      delete flatMap[flatKey];
+      const questionKey = buildQuestionDefaultKey(talk, currentQuestion, { mySelfTag, counterpartTag });
+      putQuestionDefault(questionDefaults, {
+        questionKey,
+        questionText: currentQuestion.text || '',
+        language: String(talk?.language || 'en'),
+        selectionMode: currentQuestion.answerSelectionMode || 'single',
+        tagScope: { mySelfTag, counterpartTag },
+        answerText,
+        updatedAt: entry.timestamp,
+      });
+    } else {
+      flatMap[flatKey] = {
+        ...entry,
+        flatKey,
+        contextHash: flatKey.replace(/^flat_v\d+_/, ''),
+      };
+    }
   }
   setFlattenedAnswerPreferences(flatMap);
+  setQuestionDefaultContracts(questionDefaults);
   console.log('💾 Saved answer (known context + legacy metadata):', primaryFlatKey, answerText, mode);
   return primaryContextHash;
 }

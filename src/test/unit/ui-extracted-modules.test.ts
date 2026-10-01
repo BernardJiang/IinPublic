@@ -69,6 +69,7 @@ describe('extracted UI helpers', () => {
       answerText: 'Yes',
       mode: 'manual',
       contextVersion: 2,
+      questionDefaultKey: 'question-default-key',
       questionText: 'Do you like coffee?',
       allAnswers: [
         { id: 'a1', text: 'Yes' },
@@ -101,6 +102,7 @@ describe('extracted UI helpers', () => {
     expect(Array.from(modeSelect.options).map((option) => option.value)).toEqual([
       'manual',
       'temporary',
+      'whenever',
     ]);
     modeSelect.value = 'temporary';
     modeSelect.dispatchEvent(new Event('change', { bubbles: true }));

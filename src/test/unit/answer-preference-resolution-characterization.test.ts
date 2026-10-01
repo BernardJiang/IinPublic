@@ -9,6 +9,7 @@ import {
 import {
   getExactChatbotMemory,
   getFlattenedAnswerPreferences,
+  getQuestionDefaultContracts,
   setExactChatbotMemory,
 } from '../../web/ui/answer-preferences-storage';
 import { UIManager } from '../../web/ui/ui-manager';
@@ -19,6 +20,7 @@ type PreferenceResolution = {
   answerText: string;
   mode: string;
   autoAnswerReason?: string;
+  contextHash?: string;
 } | null;
 
 type PreferenceUi = {
@@ -37,7 +39,7 @@ type PreferenceUi = {
     answerId: string,
     answerText: string,
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
-    mode?: 'auto' | 'manual' | 'permanent' | 'suppressed',
+    mode?: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed',
   ): string;
   getMySourceTalkIdForQuestionText(questionText: string, language?: string): string | undefined;
 };
@@ -180,6 +182,178 @@ describe('UIManager answer-preference resolution characterization', () => {
       q2,
       source.id,
     )).toBeNull();
+  });
+
+  it('uses an identical root-frame answer at a later flow position, with exact context taking precedence', () => {
+    const ui = preferenceUi();
+    const rootFruit = {
+      id: 'root-fruit',
+      text: 'Which fruit do you like?',
+      answers: [
+        { id: 'root-apple', text: 'Apple' },
+        { id: 'root-banana', text: 'Banana' },
+        { id: 'root-pears', text: 'Pears' },
+      ],
+    };
+    const rootTalk = { id: 'root-talk', type: 'flow', language: 'en', questions: [rootFruit] };
+    const rootFruitHash = ui.saveAnswerPreference(rootTalk, rootTalk.id, rootFruit, 'root-apple', 'Apple', [
+      { questionId: rootFruit.id, answerText: 'Apple' },
+    ], 'auto');
+
+    const likesFruit = {
+      id: 'likes-fruit',
+      text: 'Do you like fruits?',
+      answers: [{ id: 'yes', text: 'Yes' }, { id: 'no', text: 'No' }],
+    };
+    const nestedFruit = {
+      id: 'nested-fruit',
+      text: rootFruit.text,
+      answers: [
+        { id: 'nested-banana', text: 'Banana' },
+        { id: 'nested-pears', text: 'Pears' },
+        { id: 'nested-apple', text: 'Apple' },
+      ],
+    };
+    const flowTalk = { id: 'flow-talk', type: 'flow', language: 'en', questions: [likesFruit, nestedFruit] };
+    const parentHash = ui.saveAnswerPreference(flowTalk, flowTalk.id, likesFruit, 'yes', 'Yes', [
+      { questionId: likesFruit.id, answerText: 'Yes' },
+    ], 'auto');
+    const knownParent = [{ questionText: likesFruit.text, answerText: 'Yes', contextHash: parentHash }];
+
+    const inheritedRoot = ui.resolveAnswerPreferenceForTalkQuestion(
+      flowTalk,
+      1,
+      knownParent,
+      nestedFruit,
+      flowTalk.id,
+    );
+    expect(inheritedRoot).toMatchObject({
+        answerId: 'nested-apple',
+        answerText: 'Apple',
+        autoAnswerReason: 'KNOWN_ROOT_CONTEXT_MATCH',
+      });
+    expect(inheritedRoot?.contextHash).not.toBe(rootFruitHash);
+
+    const changedFruit = {
+      ...nestedFruit,
+      id: 'changed-fruit',
+      answers: [
+        { id: 'changed-banana', text: 'Banana' },
+        { id: 'changed-kiwi', text: 'Kiwi' },
+        { id: 'changed-apple', text: 'Apple' },
+      ],
+    };
+    const changedTalk = { ...flowTalk, id: 'changed-talk', questions: [likesFruit, changedFruit] };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(changedTalk, 1, knownParent, changedFruit, changedTalk.id))
+      .toBeNull();
+
+    ui.saveAnswerPreference(flowTalk, flowTalk.id, nestedFruit, 'nested-banana', 'Banana', [
+      { questionId: likesFruit.id, answerText: 'Yes', contextHash: parentHash },
+      { questionId: nestedFruit.id, answerText: 'Banana' },
+    ], 'manual');
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(flowTalk, 1, knownParent, nestedFruit, flowTalk.id))
+      .toMatchObject({
+        answerId: 'nested-apple',
+        answerText: 'Apple',
+        autoAnswerReason: 'KNOWN_ROOT_CONTEXT_MATCH',
+      });
+
+    ui.saveAnswerPreference(flowTalk, flowTalk.id, nestedFruit, 'nested-banana', 'Banana', [
+      { questionId: likesFruit.id, answerText: 'Yes', contextHash: parentHash },
+      { questionId: nestedFruit.id, answerText: 'Banana' },
+    ], 'auto');
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(flowTalk, 1, knownParent, nestedFruit, flowTalk.id))
+      .toMatchObject({
+        answerId: 'nested-banana',
+        answerText: 'Banana',
+        autoAnswerReason: 'KNOWN_CONTEXT_MATCH',
+      });
+  });
+
+  it('orders Whenever offered contracts without generating choice-set combinations', () => {
+    const ui = preferenceUi();
+    const fruitQuestion = {
+      id: 'fruit-original',
+      text: 'Which fruit do you like?',
+      answers: [
+        { id: 'apple-original', text: 'Apple' },
+        { id: 'banana-original', text: 'Banana' },
+        { id: 'pears-original', text: 'Pears' },
+      ],
+    };
+    const originalTalk = { id: 'fruit-original-talk', type: 'flow', language: 'en', questions: [fruitQuestion] };
+    ui.saveAnswerPreference(originalTalk, originalTalk.id, fruitQuestion, 'apple-original', 'Apple', [
+      { questionId: fruitQuestion.id, answerText: 'Apple' },
+    ], 'whenever');
+
+    // A broad contract is stored separately and does not materialize this exact frame or any
+    // possible subset into the flattened context map.
+    expect(getFlattenedAnswerPreferences()).toEqual({});
+    expect(Object.values(getQuestionDefaultContracts())[0]?.answers.map((answer) => answer.answerText))
+      .toEqual(['Apple']);
+
+    const carolQuestion = {
+      id: 'fruit-carol',
+      text: fruitQuestion.text,
+      answers: [
+        { id: 'banana-carol', text: 'Banana' },
+        { id: 'apple-carol', text: 'Apple' },
+      ],
+    };
+    const carolTalk = { id: 'fruit-carol-talk', type: 'flow', language: 'en', questions: [carolQuestion] };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(carolTalk, 0, [], carolQuestion, carolTalk.id))
+      .toMatchObject({
+        answerId: 'apple-carol',
+        answerText: 'Apple',
+        autoAnswerReason: 'KNOWN_QUESTION_DEFAULT',
+      });
+
+    const fourChoiceQuestion = {
+      id: 'fruit-four',
+      text: fruitQuestion.text,
+      answers: [
+        { id: 'banana-four', text: 'Banana' },
+        { id: 'pears-four', text: 'Pears' },
+        { id: 'apple-four', text: 'Apple' },
+        { id: 'kiwi-four', text: 'Kiwi' },
+      ],
+    };
+    const fourChoiceTalk = { id: 'fruit-four-talk', type: 'flow', language: 'en', questions: [fourChoiceQuestion] };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(fourChoiceTalk, 0, [], fourChoiceQuestion, fourChoiceTalk.id))
+      .toMatchObject({ answerText: 'Apple', autoAnswerReason: 'KNOWN_QUESTION_DEFAULT' });
+
+    // Choosing Kiwi under the same broad contract moves it ahead of Apple; Apple remains the
+    // exact fallback whenever Kiwi is absent.
+    ui.saveAnswerPreference(fourChoiceTalk, fourChoiceTalk.id, fourChoiceQuestion, 'kiwi-four', 'Kiwi', [
+      { questionId: fourChoiceQuestion.id, answerText: 'Kiwi' },
+    ], 'whenever');
+    expect(Object.values(getQuestionDefaultContracts())[0]?.answers.map((answer) => answer.answerText))
+      .toEqual(['Kiwi', 'Apple']);
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(fourChoiceTalk, 0, [], fourChoiceQuestion, fourChoiceTalk.id))
+      .toMatchObject({ answerText: 'Kiwi', autoAnswerReason: 'KNOWN_QUESTION_DEFAULT' });
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(carolTalk, 0, [], carolQuestion, carolTalk.id))
+      .toMatchObject({ answerText: 'Apple', autoAnswerReason: 'KNOWN_QUESTION_DEFAULT' });
+
+    const unavailableQuestion = {
+      ...fruitQuestion,
+      id: 'fruit-unavailable',
+      answers: [{ id: 'banana-only', text: 'Banana' }, { id: 'pears-only', text: 'Pears' }],
+    };
+    const unavailableTalk = { ...originalTalk, id: 'fruit-unavailable-talk', questions: [unavailableQuestion] };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(
+      unavailableTalk,
+      0,
+      [],
+      unavailableQuestion,
+      unavailableTalk.id,
+    )).toBeNull();
+
+    // The more-specific exact contract always wins over the ordered question defaults.
+    ui.saveAnswerPreference(carolTalk, carolTalk.id, carolQuestion, 'banana-carol', 'Banana', [
+      { questionId: carolQuestion.id, answerText: 'Banana' },
+    ], 'auto');
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(carolTalk, 0, [], carolQuestion, carolTalk.id))
+      .toMatchObject({ answerText: 'Banana', autoAnswerReason: 'KNOWN_CONTEXT_MATCH' });
   });
 
   it('does not let a previously answered route sibling alter another branch context', () => {

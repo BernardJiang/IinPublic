@@ -17,11 +17,17 @@ import {
   getAnswerPreferences,
   getExactChatbotMemory,
   getFlattenedAnswerPreferences,
+  getQuestionDefaultContracts,
   setAnswerPreferences,
   setExactChatbotMemory,
   setFlattenedAnswerPreferences,
+  setQuestionDefaultContracts,
   type AnswerPreferenceEntry,
 } from '../../web/ui/answer-preferences-storage';
+import {
+  buildAnswerIdentityHash,
+  putQuestionDefault,
+} from '../../shared/question-default-contracts';
 import {
   LOCAL_EXACT_CHATBOT_USER_ID,
   makeQuestionId,
@@ -48,6 +54,7 @@ describe('normalizePreferenceMode', () => {
   it.each([
     ['auto', 2, 'temporary'],
     ['temporary', 2, 'temporary'],
+    ['whenever', 2, 'whenever'],
     ['auto', undefined, 'manual'],
     ['permanent', 2, 'manual'],
     ['suppressed', 2, 'manual'],
@@ -108,6 +115,24 @@ describe('deleteAnswerPreference', () => {
     deleteAnswerPreference('flat_k1');
     expect(getFlattenedAnswerPreferences().flat_k1).toBeUndefined();
     expect(getAnswerPreferences().legacy_k1).toBeUndefined();
+  });
+
+  it('deletes the linked Whenever offered answer contract', () => {
+    const questionDefaultKey = 'question-default-key';
+    const answerIdentityHash = buildAnswerIdentityHash('Yes');
+    const defaults = {};
+    putQuestionDefault(defaults, {
+      questionKey: questionDefaultKey,
+      questionText: 'Do you like cats?',
+      answerText: 'Yes',
+    });
+    setQuestionDefaultContracts(defaults);
+    setAnswerPreferences({
+      k1: pref({ mode: 'whenever', questionDefaultKey, answerIdentityHash }),
+    });
+
+    deleteAnswerPreference('k1');
+    expect(getQuestionDefaultContracts()).toEqual({});
   });
 
   it('is a no-op when the key does not exist', () => {
@@ -205,6 +230,29 @@ describe('openAnswerPreferencesDialog', () => {
     expect(getAnswerPreferences().legacy_k1.mode).toBe('temporary');
   });
 
+  it('promotes an answer to Whenever offered and removes it again when mode changes', () => {
+    setAnswerPreferences({
+      k1: pref({
+        mode: 'manual',
+        contextVersion: 2,
+        flatKey: 'flat_context',
+        questionDefaultKey: 'question-default-key',
+        answerIdentityHash: buildAnswerIdentityHash('Yes'),
+      }),
+    });
+    const d = deps();
+    openAnswerPreferencesDialog(d);
+
+    capturedOptions().updateMode('k1', 'whenever');
+    expect(getAnswerPreferences().k1.mode).toBe('whenever');
+    expect(Object.values(getQuestionDefaultContracts())[0]?.answers.map((answer) => answer.answerText))
+      .toEqual(['Yes']);
+    expect(d.showNotification).toHaveBeenCalledWith('preferencesModeChangedWhenever', 'success');
+
+    capturedOptions().updateMode('k1', 'manual');
+    expect(getQuestionDefaultContracts()).toEqual({});
+  });
+
   it('deletePreference removes the entry and notifies', () => {
     setAnswerPreferences({ k1: pref() });
     const d = deps();
@@ -217,11 +265,19 @@ describe('openAnswerPreferencesDialog', () => {
   it('clearAll wipes all preference storage and notifies', () => {
     setAnswerPreferences({ k1: pref() });
     setFlattenedAnswerPreferences({ flat_k1: pref() });
+    const defaults = {};
+    putQuestionDefault(defaults, {
+      questionKey: 'question-default-key',
+      questionText: 'Do you like cats?',
+      answerText: 'Yes',
+    });
+    setQuestionDefaultContracts(defaults);
     const d = deps();
     openAnswerPreferencesDialog(d);
     capturedOptions().clearAll();
     expect(getAnswerPreferences()).toEqual({});
     expect(getFlattenedAnswerPreferences()).toEqual({});
+    expect(getQuestionDefaultContracts()).toEqual({});
     expect(d.showNotification).toHaveBeenCalledWith('preferencesAnswersCleared', 'success');
   });
 

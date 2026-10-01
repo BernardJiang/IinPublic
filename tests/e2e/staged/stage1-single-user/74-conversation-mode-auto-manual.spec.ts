@@ -46,6 +46,32 @@ function syntheticFlowTalk(id: string, title: string, questionText: string) {
   };
 }
 
+function syntheticFruitTalk(id: string, choices: string[]) {
+  return {
+    id,
+    talkId: id,
+    title: `Fruit contract ${id}`,
+    authorId: 'e2e-fruit-author',
+    type: 'flow',
+    language: 'en',
+    isAdult: false,
+    tags: [],
+    questions: [{
+      id: `q_${id}`,
+      text: 'Which fruit would you pack for this trip?',
+      answers: choices.map((text, index) => ({
+        id: `a_${index}_${text.toLowerCase()}`,
+        text,
+        isMatch: true,
+        isTerminal: true,
+      })),
+    }],
+    createdAt: new Date().toISOString(),
+    isTemplate: false,
+    usageCount: 0,
+  };
+}
+
 async function openResponseDialog(page: Page, talk: unknown): Promise<void> {
   await page.evaluate((t) => {
     (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog?.(t);
@@ -130,5 +156,66 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await expect(modal.locator('#review-submit-btn')).toBeVisible();
     await modal.locator('#review-submit-btn').click({ noWaitAfter: true });
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test('Whenever offered keeps ordered Apple/Kiwi defaults across different choice sets', async () => {
+    const p = page!;
+    const modal = p.locator('#talk-response-modal');
+    await p.setViewportSize({ width: 320, height: 760 });
+
+    // Bob explicitly contracts Apple without creating hashes for possible future subsets.
+    await openResponseDialog(p, syntheticFruitTalk('default-apple', ['Apple', 'Banana', 'Pears']));
+    await expect(modal).toContainText('Whenever offered');
+    const gridMetrics = await modal.locator('.answer-radio-grid').evaluate((grid) => ({
+      clientWidth: grid.clientWidth,
+      scrollWidth: grid.scrollWidth,
+      modalWidth: grid.closest('.modal-content')?.clientWidth,
+    }));
+    expect(gridMetrics.scrollWidth, JSON.stringify(gridMetrics)).toBeLessThanOrEqual(gridMetrics.clientWidth);
+    await modal.locator('input.choice-radio[data-answer-text="Apple"][data-mode="whenever"]').click();
+    await expect(modal).toHaveCount(0, { timeout: 10_000 });
+
+    const firstDefaults = await p.evaluate(() => JSON.parse(localStorage.getItem('questionDefaultContracts') || '{}'));
+    expect(Object.values(firstDefaults)[0]).toMatchObject({
+      version: 1,
+      answers: [{ answerText: 'Apple' }],
+    });
+
+    // Carol offers only Banana/Apple. The broad contract pre-fills Apple even though this exact
+    // choice frame has never been saved. Exit through Edit so this check creates no exact rule.
+    await openResponseDialog(p, syntheticFruitTalk('carol-two', ['Banana', 'Apple']));
+    await expect(modal.locator('#review-submit-btn')).toBeVisible();
+    await expect(modal.locator('input[data-answer-text="Apple"]')).toBeChecked();
+    await modal.locator('#review-edit-btn').click();
+    await modal.locator('[data-testid="close-response-btn"]').click();
+
+    // A four-choice set also starts with Apple. Bob edits it and explicitly promotes Kiwi;
+    // choosing Whenever offered moves Kiwi ahead of Apple while retaining Apple as fallback.
+    await openResponseDialog(p, syntheticFruitTalk('four-with-kiwi', ['Apple', 'Banana', 'Pears', 'Kiwi']));
+    await expect(modal.locator('input[data-answer-text="Apple"]')).toBeChecked();
+    await modal.locator('input[data-answer-text="Kiwi"]').click();
+    await modal.locator('.review-mode-select').selectOption('whenever');
+    await modal.locator('#review-submit-btn').click();
+    await expect(modal).toHaveCount(0, { timeout: 10_000 });
+
+    const reorderedDefaults = await p.evaluate(() => JSON.parse(localStorage.getItem('questionDefaultContracts') || '{}'));
+    expect((Object.values(reorderedDefaults)[0] as any).answers.map((answer: any) => answer.answerText))
+      .toEqual(['Kiwi', 'Apple']);
+
+    await openResponseDialog(p, syntheticFruitTalk('kiwi-priority', ['Mango', 'Apple', 'Kiwi']));
+    await expect(modal.locator('input[data-answer-text="Kiwi"]')).toBeChecked();
+    await modal.locator('#review-edit-btn').click();
+    await modal.locator('[data-testid="close-response-btn"]').click();
+
+    await openResponseDialog(p, syntheticFruitTalk('apple-fallback', ['Orange', 'Apple']));
+    await expect(modal.locator('input[data-answer-text="Apple"]')).toBeChecked();
+    await modal.locator('#review-edit-btn').click();
+    await modal.locator('[data-testid="close-response-btn"]').click();
+
+    // No contracted answer is present, so the chatbot leaves the decision to Bob.
+    await openResponseDialog(p, syntheticFruitTalk('no-default', ['Banana', 'Pears']));
+    await expect(modal).toContainText('Which fruit would you pack for this trip?');
+    await expect(modal.locator('#review-submit-btn')).toHaveCount(0);
+    await modal.locator('[data-testid="close-response-btn"]').click();
   });
 });

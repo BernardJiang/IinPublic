@@ -2378,8 +2378,9 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Repeat only a choice saved under the identical rolling question context. Missing, changed,
-   * and legacy contextless records return null so the user answers for themselves.
+   * Prefer a choice saved under the identical rolling context, then an unconditional ROOT
+   * default for the identical complete question frame. Changed frames and legacy contextless
+   * records return null so the user answers for themselves.
    */
   private resolveAnswerPreferenceForTalkQuestion(
     talk: any,
@@ -2426,7 +2427,7 @@ export class UIManager extends EventEmitter {
     answerId: string,
     answerText: string,
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
-    mode: 'auto' | 'manual' | 'permanent' | 'suppressed' = 'auto',
+    mode: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed' = 'auto',
   ): string {
     return persistAnswerPreference(
       this.currentUser?.id,

@@ -94,7 +94,7 @@ function replayTalkForMigration(
 
     let answerId: string;
     let answerText: string;
-    let mode: 'auto' | 'manual' = 'auto';
+    let mode: 'auto' | 'manual' | 'whenever' = 'auto';
 
     if (question.builtIn) {
       const previousQAPairs = immediateParentQAPairs(talk, question, acc);
@@ -113,7 +113,11 @@ function replayTalkForMigration(
       if (!recorded) return; // never actually answered — nothing to replay past here
       answerId = recorded.answerId;
       answerText = recorded.answerText || '';
-      mode = recorded.mode === 'manual' ? 'manual' : 'auto';
+      mode = recorded.mode === 'manual'
+        ? 'manual'
+        : recorded.mode === 'whenever'
+          ? 'whenever'
+          : 'auto';
     }
 
     const sessionAnswer: SessionAnswer = { questionId: question.id, answerId, answerText };

@@ -11,6 +11,11 @@ export type AnswerPreferenceEntry = {
   /** Version-2 rolling context that includes this question and its complete choice set. */
   contextHash?: string;
   contextVersion?: number;
+  /** Explicit broad contract metadata; separate from the exact rolling-context hash. */
+  questionDefaultKey?: string;
+  answerIdentityHash?: string;
+  /** Used to keep single-answer contracts out of multi-select question management. */
+  answerSelectionMode?: string;
 };
 
 import {
@@ -26,6 +31,10 @@ import {
   type TagOppositePairRegistryState,
 } from '../../shared/tag-opposite-pairs';
 import { normalizeQuestionKey } from '../../shared/user-utils';
+import {
+  type QuestionDefaultContract,
+  type QuestionDefaultContractMap,
+} from '../../shared/question-default-contracts';
 
 export type AnswerPreferenceMap = Record<string, AnswerPreferenceEntry>;
 
@@ -75,12 +84,21 @@ export function setFlattenedAnswerPreferences(map: AnswerPreferenceMap): void {
   writeJsonMap('flattenedAnswerPreferences', map);
 }
 
+export function getQuestionDefaultContracts(): QuestionDefaultContractMap {
+  return readJsonMap<QuestionDefaultContract>('questionDefaultContracts');
+}
+
+export function setQuestionDefaultContracts(map: QuestionDefaultContractMap): void {
+  localStorage.setItem('questionDefaultContracts', JSON.stringify(map));
+}
+
 export function clearAnswerPreferences(): void {
   localStorage.removeItem('answerPreferences');
   localStorage.removeItem('flattenedAnswerPreferences');
   localStorage.removeItem('exactChatbotMemory');
   localStorage.removeItem('typedPreferenceState');
   localStorage.removeItem('tagOppositePairRegistry');
+  localStorage.removeItem('questionDefaultContracts');
 }
 
 export function getExactChatbotMemory(): ExactChatbotMemoryState {

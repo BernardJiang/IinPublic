@@ -2,7 +2,7 @@ import { immediateParentQAPairs, type QAPair } from '../../shared/flattened-answ
 import { checkIfMatch, getRouteRootChildQuestionIds } from '../../shared/talk-engine';
 import type { UiTranslationKey } from './ui-translations';
 
-type AnswerSelectionMode = 'auto' | 'manual' | 'permanent';
+type AnswerSelectionMode = 'auto' | 'manual' | 'whenever' | 'permanent';
 
 type SavedPreference = {
   answerId: string;
@@ -120,7 +120,7 @@ type TalkResponseDialogOptions = {
     answerId: string,
     answerText: string,
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
-    mode?: 'auto' | 'manual' | 'permanent' | 'suppressed',
+    mode?: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed',
   ) => string;
   text?: (key: UiTranslationKey) => string;
   /** TODO §Q: Talk → Me-tab Q&A reverse edge. Present only when this talk has already been
@@ -396,6 +396,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       const summaryRows = talk.questions
         .map((q: any) => {
           const filled = reviewAnswers.find((a) => a.questionId === q.id);
+          const reviewMode = filled?.mode === 'auto' || filled?.mode === 'whenever' ? filled.mode : 'manual';
+          const wheneverOption = q.answerSelectionMode === 'multiple'
+            ? ''
+            : `<option value="whenever" ${reviewMode === 'whenever' ? 'selected' : ''}>${text('responseWhenever', 'Whenever offered')}</option>`;
           const answersHtml = (q.answers || [])
             .map((a: any) => {
               const isSelected = filled?.answerId === a.id;
@@ -414,6 +418,14 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             <div style="font-weight:600;margin-bottom:8px;">${options.escapeHtml(q.text)}</div>
             <div class="review-answers-list">${answersHtml}</div>
             ${!filled ? `<p style="color:#999;font-size:0.9em;font-style:italic;">— ${text('responseNeedsInput' as UiTranslationKey, 'Please choose an answer')}</p>` : ''}
+            <label class="review-contract-scope" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:0.9em;">
+              <span>${text('responseRememberAs' as UiTranslationKey, 'Remember as')}</span>
+              <select class="review-mode-select" data-question-id="${options.escapeHtml(q.id)}" style="max-width:190px;min-width:0;">
+                <option value="auto" ${reviewMode === 'auto' ? 'selected' : ''}>${text('responseAuto', 'Same context')}</option>
+                ${wheneverOption}
+                <option value="manual" ${reviewMode === 'manual' ? 'selected' : ''}>${text('responseManual', 'Just once')}</option>
+              </select>
+            </label>
           </div>`;
         })
         .join('');
@@ -454,6 +466,19 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           } else {
             reviewAnswers.push({ questionId: qId, answerId: aId, answerText: aText, mode: 'manual' });
           }
+          const scope = Array.from(modal.querySelectorAll<HTMLSelectElement>('.review-mode-select'))
+            .find((select) => select.dataset.questionId === qId);
+          if (scope) scope.value = 'manual';
+        });
+      });
+
+      modal.querySelectorAll<HTMLSelectElement>('.review-mode-select').forEach((select) => {
+        select.addEventListener('change', () => {
+          const qId = select.dataset.questionId;
+          if (!qId) return;
+          const answer = reviewAnswers.find((candidate) => candidate.questionId === qId);
+          if (!answer) return;
+          answer.mode = select.value as AnswerSelectionMode;
         });
       });
 
@@ -492,7 +517,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             a.answerId,
             a.answerText,
             finalAnswers.slice(0, i + 1),
-            a.mode as 'auto' | 'manual' | 'permanent',
+            a.mode as 'auto' | 'manual' | 'whenever' | 'permanent',
           );
         });
         // Determine outcome from last answer's flags
@@ -792,7 +817,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           ` : `
           <div class="answer-radio-grid" role="radiogroup" aria-label="Choose answer and mode">
             <div class="answer-grid-header">
-              <span>${text('responseAuto', 'Same context')}</span><span>${text('responseManual', 'Just once')}</span><span></span>
+              <span>${text('responseAuto', 'Same context')}</span><span>${text('responseWhenever', 'Whenever offered')}</span><span>${text('responseManual', 'Just once')}</span><span></span>
             </div>
             ${currentQuestion.answers
               .map((answer: any) => {
@@ -808,6 +833,15 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
                   data-is-match="${answer.isMatch || false}"
                   data-next-question-id="${answer.nextQuestionId || ''}"
                   ${prevMode === 'auto' ? 'checked' : ''}></label>
+                <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_whenever" class="choice-radio"
+                  data-answer-id="${answer.id}"
+                  data-answer-text="${options.escapeHtml(answer.text)}"
+                  data-mode="whenever"
+                  data-is-terminal="${answer.isTerminal || false}"
+                  data-is-ignore="${answer.isIgnore || false}"
+                  data-is-match="${answer.isMatch || false}"
+                  data-next-question-id="${answer.nextQuestionId || ''}"
+                  ${prevMode === 'whenever' ? 'checked' : ''}></label>
                 <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_manual" class="choice-radio"
                   data-answer-id="${answer.id}"
                   data-answer-text="${options.escapeHtml(answer.text)}"
@@ -823,6 +857,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
               })
               .join('')}
             <div class="answer-grid-row answer-grid-row-ignore">
+              <span class="answer-grid-cell"></span>
               <span class="answer-grid-cell"></span>
               <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="ignore" class="choice-radio ignore-radio"
                 data-answer-id="ignore"

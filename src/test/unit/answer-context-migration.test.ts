@@ -14,6 +14,7 @@ import { resolveAnswerPreferenceForTalkQuestion } from '../../web/ui/answer-pref
 import {
   getAnswerPreferences,
   getFlattenedAnswerPreferences,
+  getQuestionDefaultContracts,
   setAnswerPreferences,
   setTypedPreferenceState,
   type AnswerPreferenceEntry,
@@ -130,6 +131,49 @@ describe('answer-context-migration', () => {
       talk.id,
     );
     expect(q2Result).toMatchObject({ answerId: 'apple', answerText: 'Apple', mode: 'auto', autoAnswerReason: 'KNOWN_CONTEXT_MATCH' });
+  });
+
+  it('replays Whenever offered history into the separate broad-contract store', () => {
+    const talk = {
+      id: 'flow-default', type: 'flow', language: 'en', authorId: 'other',
+      questions: [{
+        id: 'q1', text: 'Which fruit?',
+        answers: [{ id: 'apple', text: 'Apple', isMatch: true, isTerminal: true }, { id: 'banana', text: 'Banana', isMatch: true, isTerminal: true }],
+      }],
+    };
+    setMyTalks({
+      'flow-default': {
+        talkId: 'flow-default', title: 'Fruit', type: 'flow', timestamp: new Date(0).toISOString(),
+        role: 'answered', fullTalk: talk,
+        completedAnswers: [{ questionId: 'q1', answerId: 'apple', answerText: 'Apple' }], outcome: 'match',
+      } as MyTalkEntry,
+    });
+    setAnswerPreferences({
+      'flow-default_q1': legacyEntry({
+        talkId: 'flow-default', answerId: 'apple', answerText: 'Apple', questionText: 'Which fruit?', mode: 'whenever',
+      }),
+    });
+
+    runAnswerContextMigration(USER_ID);
+
+    expect(getFlattenedAnswerPreferences()).toEqual({});
+    expect(Object.values(getQuestionDefaultContracts())[0]?.answers.map((answer) => answer.answerText))
+      .toEqual(['Apple']);
+    const changedQuestion = {
+      id: 'changed', text: 'Which fruit?',
+      answers: [{ id: 'pear', text: 'Pear', isMatch: true }, { id: 'apple-new', text: 'Apple', isMatch: true }],
+    };
+    const result = resolveAnswerPreferenceForTalkQuestion(
+      USER_ID,
+      { ...talk, id: 'changed-talk', questions: [changedQuestion] },
+      0,
+      [],
+      changedQuestion,
+      'changed-talk',
+    );
+    expect(result).toMatchObject({
+      answerId: 'apple-new', answerText: 'Apple', autoAnswerReason: 'KNOWN_QUESTION_DEFAULT',
+    });
   });
 
   it('reconstructs a self-authored tag talk', () => {

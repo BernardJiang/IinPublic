@@ -549,9 +549,10 @@ test.describe('UI navigation and settings shell', () => {
     }, { skipAutoAnswer: true }));
     await expect(p.locator('#talk-response-modal')).toContainText('问题 1 共 1');
     // Contextual chatbot choice memory (2026-09-30): the old global auto/manual toggle was
-    // replaced by a per-answer "same context" vs "just once" remember choice — see
-    // docs/design/contextual-chatbot-memory.md and ui-translations.ts's responseAuto/responseManual.
+    // replaced by explicit per-answer contract scopes — see
+    // docs/design/contextual-chatbot-memory.md and ui-translations.ts.
     await expect(p.locator('#talk-response-modal')).toContainText('相同上下文');
+    await expect(p.locator('#talk-response-modal')).toContainText('每当出现此选项');
     await expect(p.locator('#talk-response-modal')).toContainText('仅这一次');
     await p.evaluate(() => document.getElementById('talk-response-modal')?.remove());
     await p.evaluate(() => localStorage.removeItem('myTalks'));

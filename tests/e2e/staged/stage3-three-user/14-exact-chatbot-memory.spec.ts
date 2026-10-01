@@ -1,7 +1,7 @@
 /**
  * Version-2 contextual chatbot memory:
- * Tom sees the same question with different complete choice sets. The chatbot must ask whenever
- * that context changes, then repeat Tom's choice when the identical question + choice set returns.
+ * Bob teaches a root answer once. The chatbot can carry that exact question frame into any later
+ * flow position, while reordered choices remain equivalent and changed membership remains new.
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -15,8 +15,6 @@ import {
 import {
   bootstrapUser,
   finalCleanupPages,
-  openIncomingTalkModal,
-  openIncomingTalkModalWithAutoAnswers,
   resetTalksMatchingSession,
   syncIncomingFromServer,
   waitForIncomingTalkClusterOnLocalGun,
@@ -27,53 +25,68 @@ import { createFlowOrSurveyTalkViaEditor } from '../../helpers/talk-demo-ui';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from '../../helpers/ports';
 import { dismissNotificationOverlays } from '../../helpers/durable-ui';
 
-const QUESTION = 'Favorite fruit?';
-const TITLE_APPLE = 'E2E Exact Memory Context A';
-const TITLE_BANANA = 'E2E Exact Memory Context B';
-const TITLE_REUSE_APPLE = 'E2E Exact Memory Reuse Apple';
-
-/** Every fruit talk is a single question, match answer first (real UI id `a_0_0`), ignore
- *  answer second (`a_0_1`) — deterministic from array position, `processTalkForm` (talk-form-processor.ts). */
-const FRUIT_MATCH_ID = 'a_0_0';
+const QUESTION = 'Which fruit do you like?';
+const INTRO_QUESTION = 'Do you like fruits?';
+const TITLE_ADAM = 'E2E Root Fruit Adam';
+const TITLE_ALICE = 'E2E Reordered Fruit Alice';
+const TITLE_TOM = 'E2E Changed Fruit Tom';
+const TITLE_JERRY = 'E2E Nested Fruit Jerry';
 
 async function createFruitTalk(
   page: Page,
   title: string,
-  matchText: string,
-  otherText: string,
-  withFollowup = false,
+  choices: string[],
+  afterIntro = false,
 ): Promise<{ talkId: string; talkData: any }> {
   await dismissNotificationOverlays(page);
   const created = await createFlowOrSurveyTalkViaEditor(page, {
     title,
     type: 'flow',
     questions: [
-      {
-        text: QUESTION,
-        answers: [
-          { text: matchText, outcome: withFollowup ? 'next' : 'match' },
-          { text: otherText, outcome: 'ignore' },
-        ],
-      },
-      ...(withFollowup
+      ...(afterIntro
         ? [{
-            text: 'How do you like it?',
-            answers: [{ text: 'Fresh', outcome: 'match' as const }, { text: 'Cooked', outcome: 'ignore' as const }],
+            text: INTRO_QUESTION,
+            answers: [
+              { text: 'Yes', outcome: 'next' as const },
+              { text: 'No', outcome: 'ignore' as const },
+            ],
           }]
         : []),
+      {
+        text: QUESTION,
+        answers: choices.map((choice) => ({
+          text: choice,
+          outcome: choice.toLowerCase() === 'apple' ? 'match' as const : 'ignore' as const,
+        })),
+      },
     ],
   });
   return { talkId: created.talkId, talkData: created.talkData };
 }
 
-async function chooseAutoAnswer(page: Page, answerId: string): Promise<void> {
+async function chooseRememberedAnswer(page: Page, questionText: string, answerText: string): Promise<void> {
   const modal = page.locator('#talk-response-modal');
-  await expect(modal.locator('.modal-content')).toContainText(QUESTION, { timeout: 60_000 });
-  const radio = modal.locator(`input.choice-radio[data-answer-id="${answerId}"][data-mode="auto"]`).first();
+  await expect(modal.locator('.modal-content')).toContainText(questionText, { timeout: 60_000 });
+  const radio = modal.locator(`input.choice-radio[data-answer-text="${answerText}"][data-mode="auto"]`).first();
   await expect(radio).toBeVisible({ timeout: 30_000 });
   await radio.click();
   await waitForResponseModalClosed(page);
   await afterSync();
+}
+
+async function joinGlobal(page: Page): Promise<void> {
+  await page.click('.chatroom-item:has-text("Global")');
+  await waitForTabActive(page, 'chatrooms');
+  await afterSync();
+}
+
+async function openTalkDataWithAutoAnswers(page: Page, talkData: any): Promise<void> {
+  await page.evaluate((talk) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    if (!app?.uiManager?.showTalkResponseDialog) throw new Error('showTalkResponseDialog unavailable');
+    app.uiManager.showTalkResponseDialog(talk, { skipAutoAnswer: false });
+  }, talkData);
+  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 30_000 });
 }
 
 async function currentUser(page: Page): Promise<{ id: string; name: string }> {
@@ -217,6 +230,19 @@ async function waitForContextualMemoryAnswer(page: Page, answerText: string): Pr
     .toBe(true);
 }
 
+async function completedAnswerTexts(page: Page, talkId: string): Promise<string[]> {
+  return page.evaluate((id) => {
+    const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    const direct = talks[id];
+    const entry = direct || Object.values(talks).find((candidate: any) =>
+      candidate?.talkId === id || candidate?.fullTalk?.id === id,
+    );
+    return Array.isArray((entry as any)?.completedAnswers)
+      ? (entry as any).completedAnswers.map((answer: any) => String(answer?.answerText || ''))
+      : [];
+  }, talkId);
+}
+
 test.describe('Talks matching — contextual chatbot Q/A memory', () => {
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
@@ -225,9 +251,13 @@ test.describe('Talks matching — contextual chatbot Q/A memory', () => {
   let contextTom: BrowserContext | undefined;
   let contextJerry: BrowserContext | undefined;
   let contextBob: BrowserContext | undefined;
+  let contextAdam: BrowserContext | undefined;
+  let contextAlice: BrowserContext | undefined;
   let pageTom: Page | undefined;
   let pageJerry: Page | undefined;
   let pageBob: Page | undefined;
+  let pageAdam: Page | undefined;
+  let pageAlice: Page | undefined;
 
   test.beforeAll(async () => {
     await clearGunForStage3Spec();
@@ -238,16 +268,28 @@ test.describe('Talks matching — contextual chatbot Q/A memory', () => {
   });
 
   test.beforeEach(async () => {
+    for (const page of [pageAdam, pageAlice]) {
+      await page?.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+      await page?.close().catch(() => {});
+    }
+    await contextAdam?.close().catch(() => {});
+    await contextAlice?.close().catch(() => {});
     await resetTalksMatchingSession(
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
       clearGunForStage3Spec,
     );
-    pageTom = pageJerry = pageBob = undefined;
-    contextTom = contextJerry = contextBob = undefined;
+    pageAdam = pageAlice = pageTom = pageJerry = pageBob = undefined;
+    contextAdam = contextAlice = contextTom = contextJerry = contextBob = undefined;
   });
 
   test.afterAll(async () => {
+    for (const page of [pageAdam, pageAlice]) {
+      await page?.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+      await page?.close().catch(() => {});
+    }
+    await contextAdam?.close().catch(() => {});
+    await contextAlice?.close().catch(() => {});
     await finalCleanupPages(
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
@@ -256,85 +298,118 @@ test.describe('Talks matching — contextual chatbot Q/A memory', () => {
     await clearGunForStage3Spec();
   });
 
-  test('asks on a changed choice set, then repeats Apple when the identical context returns', async () => {
+  test('reuses Bob\'s root fruit choice across order and position, but not changed membership', async () => {
+    const adam = await bootstrapUser(browserTom, 'Adam', 'Adam');
+    contextAdam = adam.context;
+    pageAdam = adam.page;
+    await joinGlobal(pageAdam);
+
+    const alice = await bootstrapUser(browserJerry, 'Alice', 'Alice');
+    contextAlice = alice.context;
+    pageAlice = alice.page;
+    await joinGlobal(pageAlice);
+
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
-    await waitForTabActive(pageTom, 'chatrooms');
-    await afterSync();
+    await joinGlobal(pageTom);
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
-    await waitForTabActive(pageJerry, 'chatrooms');
-    await afterSync();
+    await joinGlobal(pageJerry);
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item:has-text("Global")');
-    await waitForTabActive(pageBob, 'chatrooms');
-    await afterSync();
+    await joinGlobal(pageBob);
 
+    const adamIdentity = await currentUser(pageAdam);
+    const aliceIdentity = await currentUser(pageAlice);
     const tomIdentity = await currentUser(pageTom);
     const jerryIdentity = await currentUser(pageJerry);
     const bobIdentity = await currentUser(pageBob);
 
-    // Context A: Jerry asks Favorite fruit? with the Apple/Banana choice set. Tom asks the
-    // chatbot to remember Apple for this exact context.
-    const { talkId: appleTalkId, talkData: appleTalkData } = await createFruitTalk(pageJerry, TITLE_APPLE, 'Apple', 'Banana');
-    expect(await deliverTalkToReceiver(pageJerry, pageTom, jerryIdentity, tomIdentity, appleTalkId, appleTalkData)).toMatchObject({
+    // Adam teaches Bob a root default for the complete Apple/Banana/Pears frame.
+    const { talkId: adamTalkId, talkData: adamTalkData } = await createFruitTalk(
+      pageAdam,
+      TITLE_ADAM,
+      ['Apple', 'Banana', 'Pears'],
+    );
+    expect(await deliverTalkToReceiver(pageAdam, pageBob, adamIdentity, bobIdentity, adamTalkId, adamTalkData)).toMatchObject({
       registered: true,
       autoResponded: false,
     });
-    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_APPLE, { timeout: 60_000, polling: 500 });
-    await syncIncomingFromServer(pageTom);
-    await openIncomingTalkModal(pageTom, TITLE_APPLE);
-    await chooseAutoAnswer(pageTom, FRUIT_MATCH_ID);
-    await waitForRecordedResponse(pageTom, appleTalkId);
-    await waitForContextualMemoryAnswer(pageTom, 'Apple');
+    await waitForIncomingTalkClusterOnLocalGun(pageBob, TITLE_ADAM, { timeout: 60_000, polling: 500 });
+    await syncIncomingFromServer(pageBob);
+    await openTalkDataWithAutoAnswers(pageBob, adamTalkData);
+    await chooseRememberedAnswer(pageBob, QUESTION, 'Apple');
+    await waitForRecordedResponse(pageBob, adamTalkId);
+    await waitForContextualMemoryAnswer(pageBob, 'Apple');
 
-    // Context B: same exact question, but Apple is absent. Auto mode must not answer;
-    // the modal is dispatched to Tom so he can choose Banana.
-    const { talkId: bananaTalkId, talkData: bananaTalkData } = await createFruitTalk(pageJerry, TITLE_BANANA, 'Banana', 'Mango');
-    expect(await deliverTalkToReceiver(pageJerry, pageTom, jerryIdentity, tomIdentity, bananaTalkId, bananaTalkData)).toMatchObject({
+    // Alice changes display order only. The root hash is identical, so Apple is pre-filled.
+    const { talkId: aliceTalkId, talkData: aliceTalkData } = await createFruitTalk(
+      pageAlice,
+      TITLE_ALICE,
+      ['Banana', 'Pears', 'Apple'],
+    );
+    expect(await deliverTalkToReceiver(pageAlice, pageBob, aliceIdentity, bobIdentity, aliceTalkId, aliceTalkData)).toMatchObject({
       registered: true,
       autoResponded: false,
     });
-    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_BANANA, { timeout: 60_000, polling: 500 });
-    await syncIncomingFromServer(pageTom);
-    await openIncomingTalkModalWithAutoAnswers(pageTom, TITLE_BANANA);
-    const modal = pageTom.locator('#talk-response-modal');
-    await expect(modal.locator('.modal-content')).toContainText(QUESTION, { timeout: 60_000 });
-    await expect(modal.locator(`input.choice-radio[data-answer-id="${FRUIT_MATCH_ID}"][data-mode="auto"]`)).toBeVisible();
-    await chooseAutoAnswer(pageTom, FRUIT_MATCH_ID);
-    await waitForRecordedResponse(pageTom, bananaTalkId);
-    await waitForContextualMemoryAnswer(pageTom, 'Banana');
+    await waitForIncomingTalkClusterOnLocalGun(pageBob, TITLE_ALICE, { timeout: 60_000, polling: 500 });
+    await syncIncomingFromServer(pageBob);
+    // Adam and Alice's talks deliberately have the same normalized content identity, so the
+    // incoming list groups them. Open Alice's delivered payload directly instead of depending
+    // on a second visible row; this is the response path the grouped row invokes internally.
+    await openTalkDataWithAutoAnswers(pageBob, aliceTalkData);
+    const review = pageBob.locator('#talk-response-modal');
+    await expect(review.locator(`input[type="radio"][data-answer-text="Apple"]`)).toBeChecked();
+    await expect(review.locator('.modal-content')).toContainText('(pre-filled)');
+    await review.locator('#review-submit-btn').click();
+    await waitForResponseModalClosed(pageBob);
+    await waitForRecordedResponse(pageBob, aliceTalkId);
 
-    // Bob sends the identical Apple/Banana first-question context inside a different two-question
-    // talk. Its different content identity bypasses exchange suppression, while Q1's normalized
-    // frame stays identical. The modal opening directly on Q2 proves Apple was repeated for Q1.
-    const { talkId: reuseTalkId, talkData: reuseTalkData } = await createFruitTalk(
-      pageBob,
-      TITLE_REUSE_APPLE,
-      'Apple',
-      'Banana',
+    // Tom changes Pears to Kiwi. Apple is still present, but the frame is different; Bob must
+    // answer personally and can teach a separate root context.
+    const { talkId: tomTalkId, talkData: tomTalkData } = await createFruitTalk(
+      pageTom,
+      TITLE_TOM,
+      ['Banana', 'Kiwi', 'Apple'],
+    );
+    expect(await deliverTalkToReceiver(pageTom, pageBob, tomIdentity, bobIdentity, tomTalkId, tomTalkData)).toMatchObject({
+      registered: true,
+      autoResponded: false,
+    });
+    await waitForIncomingTalkClusterOnLocalGun(pageBob, TITLE_TOM, { timeout: 60_000, polling: 500 });
+    await syncIncomingFromServer(pageBob);
+    await openTalkDataWithAutoAnswers(pageBob, tomTalkData);
+    const changedModal = pageBob.locator('#talk-response-modal');
+    await expect(changedModal.locator('.modal-content')).toContainText(QUESTION);
+    await expect(changedModal.locator('#review-submit-btn')).toHaveCount(0);
+    await chooseRememberedAnswer(pageBob, QUESTION, 'Apple');
+    await waitForRecordedResponse(pageBob, tomTalkId);
+
+    // Jerry asks an unknown root question first. Once Bob manually chooses Yes, the identical
+    // fruit frame appears at Q2. Bob's original root Apple default follows it to this position.
+    const { talkId: jerryTalkId, talkData: jerryTalkData } = await createFruitTalk(
+      pageJerry,
+      TITLE_JERRY,
+      ['Banana', 'Pears', 'Apple'],
       true,
     );
-    expect(await deliverTalkToReceiver(pageBob, pageTom, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData, true)).toMatchObject({
+    expect(await deliverTalkToReceiver(pageJerry, pageBob, jerryIdentity, bobIdentity, jerryTalkId, jerryTalkData)).toMatchObject({
       registered: true,
       autoResponded: false,
     });
-    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_REUSE_APPLE, { timeout: 60_000, polling: 500 });
-    await syncIncomingFromServer(pageTom);
-    await openIncomingTalkModalWithAutoAnswers(pageTom, TITLE_REUSE_APPLE);
-    const reviewModal = pageTom.locator('#talk-response-modal');
-    await expect(reviewModal.locator('.modal-content')).toContainText('How do you like it?', { timeout: 30_000 });
-    await expect(reviewModal.locator('.modal-content')).not.toContainText(QUESTION);
-    await reviewModal.locator('input.choice-radio[data-answer-text="Fresh"][data-mode="manual"]').click();
-    await waitForResponseModalClosed(pageTom);
-    await waitForRecordedResponse(pageTom, reuseTalkId);
+    await waitForIncomingTalkClusterOnLocalGun(pageBob, TITLE_JERRY, { timeout: 60_000, polling: 500 });
+    await syncIncomingFromServer(pageBob);
+    await openTalkDataWithAutoAnswers(pageBob, jerryTalkData);
+    await chooseRememberedAnswer(pageBob, INTRO_QUESTION, 'Yes');
+    await waitForRecordedResponse(pageBob, jerryTalkId);
+    await expect.poll(() => completedAnswerTexts(pageBob!, jerryTalkId), {
+      timeout: 30_000,
+      intervals: [300, 600, 1000],
+    }).toEqual(['Yes', 'Apple']);
   });
 });

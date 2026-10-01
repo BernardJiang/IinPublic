@@ -1,17 +1,22 @@
 # Contextual Chatbot Memory
 
-Status: authoritative design, implemented 2026-09-30
+Status: authoritative design, implemented 2026-10-01
 
 ## Product rule
 
 The chatbot repeats a choice only when the user previously made that choice under the same known
-context. If no exact context record exists, the chatbot returns the question to the user. It does
-not guess, search older answers, apply semantic similarity, reuse an answer merely because it is
-still offered, or silently skip an unknown situation.
+context. A choice made at `ROOT` is the user's unconditional default for that exact question
+frame, so it may also be reused when the identical frame appears later in a flow. A more-specific
+rolling-context choice overrides that root default. If neither record exists, the chatbot returns
+the question to the user unless the user explicitly created a **Whenever offered** contract. It
+does not guess, apply semantic similarity, derive subset/superset rules, or silently skip an
+unknown situation.
 
 The user-facing choices are:
 
 - **Same context** — remember this choice and repeat it only on an exact context match.
+- **Whenever offered** — make this answer the first preference for this exact question whenever
+  the answer is among the current choices. Previously contracted answers remain ordered fallbacks.
 - **Just once** — use the choice for this response but do not let the chatbot repeat it.
 
 Old “Temporary,” “Permanent,” and global “Suppressed” matching are not part of the contextual
@@ -65,6 +70,32 @@ flat_v2_<contextHash> -> {
 `temporary` is retained only as an internal storage compatibility value. Its user-facing name is
 “Same context and choices.”
 
+## Whenever offered contract
+
+This explicit contract is stored separately from rolling context memory. Its question identity
+commits to normalized language, question text, selection mode, and Pair-tag scope, but deliberately
+excludes the choice set, parent context, sequential position, talk type, talk id, and author:
+
+```text
+questionDefaultKey = SHA256("iinpublic-question-default-v1", {
+  language, questionText, answerSelectionMode, pairTagScope
+})
+
+questionDefaultContracts[questionDefaultKey] = {
+  version: 1,
+  answers: [kiwiAnswerHash, appleAnswerHash] // highest priority first
+}
+```
+
+Selecting **Whenever offered** moves that exact normalized answer to the front. It never generates
+or stores hashes for possible subsets. At resolution time, the chatbot walks this usually tiny
+explicit list and selects the first answer present in the current authored choices. If none is
+present, it asks the user. This rule is supported only for ordinary single-choice questions;
+multi-select remains an explicit user decision.
+
+For example, `[Kiwi, Apple]` means: choose Kiwi when offered, otherwise Apple when offered,
+otherwise ask. It is a literal ordered contract, not a ranking inferred from answer history.
+
 ## Talk-type application
 
 - **Tag/root:** parent is `ROOT`; the context still contains the question/tag and complete choice
@@ -84,16 +115,25 @@ hash; it is not a question-only fallback.
 For an ordinary authored question:
 
 1. Compute the current version-2 context hash.
-2. Look up that exact hash.
+2. Look up that exact rolling-context hash.
 3. If an auto-reusable record exists and its saved choice exists in this identical choice set,
    return that choice as `KNOWN_CONTEXT_MATCH`.
-4. Otherwise return no answer and show the question to the user.
+4. Otherwise compute the `ROOT` hash for the same complete current frame. If a reusable root
+   record exists, return it as `KNOWN_ROOT_CONTEXT_MATCH`.
+5. Otherwise look up the explicit question-default contract. Return its first currently offered
+   answer as `KNOWN_QUESTION_DEFAULT`.
+6. Otherwise return no answer and show the question to the user.
 
-There is no weaker fallback. In particular:
+A **Just once** response is kept in answer history but is not a reusable rolling-context rule and
+therefore does not shadow an existing root default.
 
-- same question + changed choice set -> ask;
-- same question + changed preceding answer -> ask;
-- same saved answer appearing in a different context -> ask;
+The root lookup is not a question-only or answer-text fallback: it recomputes the full frame and
+therefore keeps the same complete choice-set guard. In particular:
+
+- same question + changed choice set -> ask unless a contracted Whenever offered answer is present;
+- same question + changed preceding answer -> use an exact record for that new rolling context,
+  otherwise use the identical root-frame default if one exists, otherwise ask;
+- a non-root saved answer appearing in a different context -> ask;
 - contextless legacy memory -> ask;
 - reordered but otherwise identical choices -> repeat the known choice.
 
@@ -102,7 +142,26 @@ not learned answer-memory fallbacks. They remain separately identified by their 
 
 ## Worked Flow example
 
-Adam answers:
+Bob first answers this root question:
+
+1. `Which fruit do you like? [Apple, Banana, Pears]` -> `Apple`
+
+That creates a root default for this exact frame.
+
+- Reordering the choices to `[Banana, Pears, Apple]` repeats `Apple`.
+- Changing membership to `[Banana, Kiwi, Apple]` changes the frame, so Bob is asked.
+- Putting the original frame after `Do you like fruits? -> Yes` still repeats `Apple`, because a
+  root answer follows its exact frame to any sequential position.
+- If Bob later chooses a different answer under that exact flow path, the rolling-context record
+  wins there; the root default remains unchanged elsewhere.
+
+If Bob instead chooses **Whenever offered** for Apple, the exact choice set is irrelevant: both
+`[Banana, Apple]` and `[Apple, Banana, Pears, Kiwi]` use Apple. If Bob later chooses Whenever
+offered for Kiwi, the ordered contract becomes `[Kiwi, Apple]`; a set containing Kiwi uses Kiwi,
+while a set containing Apple but not Kiwi falls back to Apple. An exact rolling/root-frame record
+still has higher precedence.
+
+For a choice learned only inside a flow, the rolling path remains exact. For example, Adam answers:
 
 1. `Buying fruit? [Yes, No]` -> `Yes`
 2. `Which season? [Summer, Winter]` -> `Summer`
@@ -113,12 +172,15 @@ Question 3 is remembered under `C3 = H(C2, Summer, Frame(Q3))`.
 - The identical path and choices repeat `Apple`.
 - Reordering the three fruit choices repeats `Apple`.
 - Adding `Orange` changes `Frame(Q3)`, so Adam is asked.
-- Reaching Q3 after choosing `Winter` changes `C3`, so Adam is asked.
+- Reaching Q3 after choosing `Winter` changes `C3`, so Adam is asked unless Adam separately has a
+  root default for the identical Q3 frame.
 - After Adam answers either new situation, that new context gets its own record.
 
 ## Privacy and migration
 
-Only the fixed-size SHA-256 context is required for matching. Existing display-oriented
+Exact matching uses the fixed-size SHA-256 context. Whenever offered additionally stores one
+fixed-size question-identity hash and the explicitly selected answer hashes; it never enumerates
+choice combinations. Existing display-oriented
 `contextLabel` fields may retain a human-readable preceding Q/A breadcrumb for the Me tab, but
 they are not authoritative matching inputs.
 
@@ -147,6 +209,11 @@ unrecoverable dead weight, not data worth preserving in place — their key shap
 retired algorithm). The legacy `answerPreferences` map is not cleared; it is the migration's
 input, and gets refreshed in place (same key, current `contextHash`/`contextVersion`) as a side
 effect of the replay, which is also what keeps the Me tab's own display in sync.
+
+Question-default contracts use their own `iinpublic-question-default-v1` domain and version. They
+are not synthesized from existing Same context history because broadening an old exact rule would
+change what the user authorized. A future change to their identity fields or precedence must use a
+new contract domain/version and must not reinterpret version-1 records silently.
 
 **Policy for the next version bump:** any change to `Frame(Q)`'s field set, its normalization, or
 how parent-context chaining works must bump both `ANSWER_CONTEXT_VERSION` and
