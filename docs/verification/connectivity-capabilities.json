@@ -71,6 +71,7 @@
     "connect-failure",
     "mid-send-drop",
     "latency",
+    "packet-loss",
     "duplication",
     "corruption",
     "metered-route",
