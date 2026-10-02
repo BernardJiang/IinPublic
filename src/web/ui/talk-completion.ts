@@ -41,7 +41,7 @@ export function completeTalk(
   talk: any,
   answers: any[],
   outcome: 'match' | 'mismatch' | undefined,
-  meta: { withholdFromSender?: boolean } | undefined,
+  meta: { withholdFromSender?: boolean; forceCopyToMyTalks?: boolean } | undefined,
   deps: TalkCompletionDeps,
 ): void {
   console.log('✅ Talk completed:', talk.id, answers, outcome);
@@ -73,13 +73,13 @@ export function completeTalk(
   }
 
   const existingEntry = myTalks[talkIdToUse];
-  const wasIgnored = answers.some((answer) => {
-    const answerId = String(answer?.answerId || '').toLowerCase();
-    const answerText = String(answer?.answerText || '').toLowerCase();
-    return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
-  });
-  const role = existingEntry?.role === 'copied' ? 'copied'
+  // The app's dedicated talk-level Ignore action uses this exact sentinel. Do not confuse it
+  // with an author-written answer whose id/text happens to contain the word "ignore".
+  const wasIgnored = answers.some((answer) => String(answer?.answerId || '').toLowerCase() === 'ignore');
+  const role = wasIgnored ? 'ignored'
+             : existingEntry?.role === 'copied' ? 'copied'
              : existingEntry?.role === 'created' ? 'created'
+             : meta?.forceCopyToMyTalks && !wasIgnored ? 'copied'
              : getCopyTalkAutoSave() && !wasIgnored ? 'copied'
              : 'answered';
   const completedAnswers = answers.map((answer) => ({
@@ -95,6 +95,11 @@ export function completeTalk(
     type: talk.type,
     timestamp: talk.createdAt || new Date().toISOString(),
     role,
+    roleBeforeIgnore: wasIgnored
+      ? existingEntry?.role === 'ignored'
+        ? existingEntry.roleBeforeIgnore
+        : existingEntry?.role
+      : undefined,
     // docs/TODO.md §Y1: auto-copy on completion is still just a copy — original authorship
     // is preserved either way until a real edit happens.
     fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
@@ -102,7 +107,11 @@ export function completeTalk(
     outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
     senders,
   }, deps);
-  saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
+  // Ignore is a talk-list state, not an answer. Keep it out of the normal Me-tab Q&A history;
+  // the dedicated Ignored list is the one place where it should remain visible.
+  if (!wasIgnored) {
+    saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
+  }
 
   deps.emit('talkCompleted', {
     talkId: talk.id,
@@ -112,11 +121,13 @@ export function completeTalk(
   });
 
   deps.showNotification(
-    talk.type === 'flow'
+    wasIgnored
+      ? deps.t('talksIgnored')
+      : talk.type === 'flow'
       ? deps.t('responseSubmittedFlow')
       : talk.type === 'tag'
         ? deps.t('responseSubmittedTag')
         : deps.t('responseSubmittedSurvey'),
-    'success',
+    wasIgnored ? 'info' : 'success',
   );
 }

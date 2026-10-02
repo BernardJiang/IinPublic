@@ -10,6 +10,7 @@ import {
   TOM_NAME,
   bootstrapSuperUser,
 } from '../../helpers/super-user-techsupport-shared';
+import { dragTalkRow } from '../../helpers/talks-matching-flow';
 import { getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -109,8 +110,8 @@ test.describe('Copy then edit transfers authorship', () => {
       .filter({ hasText: talkTitle })
       .first();
     await expect(incomingRow).toBeVisible({ timeout: 90000 });
-    await expect(incomingRow.locator('.talk-add-to-my-talks-btn')).toBeVisible();
-    await incomingRow.locator('.talk-add-to-my-talks-btn').click();
+    await expect(incomingRow.locator('.talk-add-to-my-talks-btn')).toHaveCount(0);
+    await dragTalkRow(pageTom, incomingRow, 'down');
     await expect(
       pageTom.locator('.talk-list-item[data-role="copied"]').filter({ hasText: talkTitle }),
     ).toBeVisible({ timeout: 15000 });

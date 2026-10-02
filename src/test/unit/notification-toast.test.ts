@@ -36,6 +36,19 @@ describe('showNotification', () => {
     expect(el.textContent).toBe('Saved!');
   });
 
+  it('deduplicates an identical visible toast', () => {
+    showNotification('Same event', 'info', undefined, baseDeps());
+    showNotification('Same event', 'info', undefined, baseDeps());
+    expect(document.querySelectorAll('.notification')).toHaveLength(1);
+  });
+
+  it('keeps at most two visible toasts and removes the oldest', () => {
+    showNotification('first', 'info', undefined, baseDeps());
+    showNotification('second', 'info', undefined, baseDeps());
+    showNotification('third', 'info', undefined, baseDeps());
+    expect(Array.from(document.querySelectorAll('.notification')).map((item) => item.textContent)).toEqual(['second', 'third']);
+  });
+
   it('marks a content-filter toast with its marker attribute', () => {
     showNotification('blocked', 'error', { contentFilter: 'dirty-word' }, baseDeps());
     expect((document.querySelector('.notification') as HTMLElement).dataset.contentFilterNotification).toBe('dirty-word');

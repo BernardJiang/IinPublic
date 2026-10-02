@@ -33,6 +33,15 @@ export function showNotification(
 ): void {
   if (deps.isSuppressedForE2e()) return;
 
+  const visible = Array.from(document.querySelectorAll<HTMLElement>('.notification'));
+  const duplicate = visible.find((item) => item.textContent === message && item.classList.contains(type));
+  if (duplicate) return;
+  // Keep the app usable during event bursts. Two notices give useful context without covering
+  // an entire phone screen; the oldest rolls away when a third arrives.
+  while (visible.length >= 2) {
+    visible.shift()?.remove();
+  }
+
   const notification = document.createElement('div');
   notification.className = `notification ${type}`;
   notification.textContent = message;
@@ -81,6 +90,9 @@ export function showNotification(
   });
 
   document.body.appendChild(notification);
+  Array.from(document.querySelectorAll<HTMLElement>('.notification')).forEach((item, index) => {
+    item.style.setProperty('--toast-index', String(index));
+  });
 
   const hideAfter = isMatchNotification
     ? 8000

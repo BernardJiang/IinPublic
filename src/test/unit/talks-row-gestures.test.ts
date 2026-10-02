@@ -28,10 +28,10 @@ function makeDeps(overrides: Partial<TalksRowGesturesDeps> = {}): TalksRowGestur
   };
 }
 
-function makeRow(attrs: { talkId?: string; identityKey?: string; role?: string } = {}): HTMLElement {
+function makeRow(attrs: { talkId?: string; identityKey?: string; role?: string; classes?: string } = {}): HTMLElement {
   document.body.innerHTML = `
     <div id="talks-list">
-      <div class="talk-list-item" data-talk-id="${attrs.talkId ?? 'talk-1'}" data-identity-key="${attrs.identityKey ?? ''}" data-role="${attrs.role ?? 'incoming'}">
+      <div class="talk-list-item ${attrs.classes ?? ''}" data-talk-id="${attrs.talkId ?? 'talk-1'}" data-identity-key="${attrs.identityKey ?? ''}" data-role="${attrs.role ?? 'incoming'}">
         <div class="talk-item-details">details</div>
       </div>
     </div>
@@ -52,28 +52,27 @@ describe('bindTalksRowGestures (UIManager decomposition cluster #12)', () => {
     jest.useRealTimers();
   });
 
-  it('swiping an incoming row down (dy > 0) past the commit threshold calls quickCopyIncomingTalk', () => {
-    const row = makeRow({ talkId: 'talk-a', role: 'incoming' });
+  it('right-swiping any incoming row ignores its content', () => {
+    const row = makeRow({ talkId: 'talk-a', identityKey: 'identity-a', role: 'incoming' });
     const deps = makeDeps();
     bindFresh(deps);
 
     pointer('pointerdown', row, 100, 100);
-    pointer('pointermove', document.body, 100, 170); // dy = 70 > COMMIT_THRESHOLD (64)
-    pointer('pointerup', document.body, 100, 170);
+    pointer('pointermove', document.body, 180, 100);
+    pointer('pointerup', document.body, 180, 100);
 
-    expect(deps.quickCopyIncomingTalk).toHaveBeenCalledWith('talk-a', undefined);
-    expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
+    expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledWith('talk-a', 'identity-a');
     expect(deps.setSuppressClickUntil).toHaveBeenCalled();
   });
 
-  it('swiping an incoming row up (dy < 0) past the commit threshold calls quickIgnoreIncomingTalk', () => {
+  it('left-swiping any incoming row ignores its content', () => {
     const row = makeRow({ talkId: 'talk-b', identityKey: 'idk-1', role: 'incoming' });
     const deps = makeDeps();
     bindFresh(deps);
 
-    pointer('pointerdown', row, 100, 100);
-    pointer('pointermove', document.body, 100, 20); // dy = -80
-    pointer('pointerup', document.body, 100, 20);
+    pointer('pointerdown', row, 180, 100);
+    pointer('pointermove', document.body, 100, 100);
+    pointer('pointerup', document.body, 100, 100);
 
     expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledWith('talk-b', 'idk-1');
     expect(deps.quickCopyIncomingTalk).not.toHaveBeenCalled();
@@ -91,18 +90,54 @@ describe('bindTalksRowGestures (UIManager decomposition cluster #12)', () => {
     expect(deps.deleteMyTalk).toHaveBeenCalledWith('talk-c');
   });
 
-  it('does not commit an incoming row swipe left (only up/down are meaningful for incoming rows)', () => {
+  it('swiping an incoming row down retains it in My Talks', () => {
     const row = makeRow({ talkId: 'talk-d', role: 'incoming' });
     const deps = makeDeps();
     bindFresh(deps);
 
-    pointer('pointerdown', row, 200, 100);
-    pointer('pointermove', document.body, 120, 100); // dx = -80, but role is incoming
-    pointer('pointerup', document.body, 120, 100);
+    pointer('pointerdown', row, 100, 100);
+    pointer('pointermove', document.body, 100, 180);
+    pointer('pointerup', document.body, 100, 180);
 
-    expect(deps.deleteMyTalk).not.toHaveBeenCalled();
+    expect(deps.quickCopyIncomingTalk).toHaveBeenCalledWith('talk-d', undefined);
     expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
+  });
+
+  it('right-swiping an incoming tag ignores its content', () => {
+    const row = makeRow({ talkId: 'tag-a', role: 'incoming', classes: 'talk-tag-chip talk-tag-in' });
+    const deps = makeDeps();
+    bindFresh(deps);
+
+    pointer('pointerdown', row, 100, 100);
+    pointer('pointermove', document.body, 180, 100);
+    pointer('pointerup', document.body, 180, 100);
+
+    expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledWith('tag-a', undefined);
+  });
+
+  it('left-swiping an incoming tag ignores its content', () => {
+    const row = makeRow({ talkId: 'tag-b', identityKey: 'tag-identity', role: 'incoming', classes: 'talk-tag-chip talk-tag-in' });
+    const deps = makeDeps();
+    bindFresh(deps);
+
+    pointer('pointerdown', row, 180, 100);
+    pointer('pointermove', document.body, 100, 100);
+    pointer('pointerup', document.body, 100, 100);
+
+    expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledWith('tag-b', 'tag-identity');
+  });
+
+  it('does not map an upward incoming gesture to a decision', () => {
+    const row = makeRow({ talkId: 'tag-c', role: 'incoming', classes: 'talk-tag-chip talk-tag-in' });
+    const deps = makeDeps();
+    bindFresh(deps);
+
+    pointer('pointerdown', row, 100, 100);
+    pointer('pointermove', document.body, 100, 20);
+    pointer('pointerup', document.body, 100, 20);
+
     expect(deps.quickCopyIncomingTalk).not.toHaveBeenCalled();
+    expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
   });
 
   it('a movement below the move threshold never starts dragging or commits anything', () => {
@@ -120,9 +155,24 @@ describe('bindTalksRowGestures (UIManager decomposition cluster #12)', () => {
     expect(row.classList.contains('talk-gesture-live')).toBe(false);
   });
 
-  it('a long press with no movement opens the details popup and suppresses the trailing click', () => {
+  it('a long press on an incoming card preserves the details popup action', () => {
     jest.useFakeTimers();
-    const row = makeRow({ talkId: 'talk-f' });
+    const row = makeRow({ talkId: 'talk-f', identityKey: 'identity-f', role: 'incoming' });
+    const deps = makeDeps();
+    bindFresh(deps);
+
+    pointer('pointerdown', row, 100, 100);
+    jest.advanceTimersByTime(500);
+
+    const details = row.querySelector('.talk-item-details') as HTMLElement;
+    expect(deps.quickCopyIncomingTalk).not.toHaveBeenCalled();
+    expect(deps.showDetailsPopupFor).toHaveBeenCalledWith(details, row);
+    expect(deps.setSuppressClickUntil).toHaveBeenCalled();
+  });
+
+  it('a long press on an outgoing card opens the details popup', () => {
+    jest.useFakeTimers();
+    const row = makeRow({ talkId: 'talk-out', role: 'created' });
     const details = row.querySelector('.talk-item-details') as HTMLElement;
     const deps = makeDeps();
     bindFresh(deps);

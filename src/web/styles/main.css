@@ -1656,17 +1656,14 @@ button:focus:not(:focus-visible) {
   transform: translateX(4px) scale(0.98);
 }
 
-/* Row gestures (drag up/down on incoming = ignore/copy, drag left on outgoing = delete):
+/* Row gestures (incoming: down = retain, either horizontal direction = Ignore;
+ * outgoing: left = delete):
  * `.talk-gesture-live` suspends the row's own hover/active transition while a drag is in
  * progress so the row tracks the pointer 1:1, then removing it lets the base transition
- * animate the snap-back on release. The hint classes preview the color of the ignore/
- * copy/delete outcome before the commit threshold is reached. */
+ * animate the snap-back on release. The hint classes preview the color of the
+ * retain/Ignore/delete outcome before the commit threshold is reached. */
 .talk-list-item.talk-gesture-live {
   transition: none;
-}
-
-.talk-list-item.talk-gesture-hint-ignore {
-  background: #fee2e2 !important;
 }
 
 .talk-list-item.talk-gesture-hint-copy {
@@ -1675,6 +1672,17 @@ button:focus:not(:focus-visible) {
 
 .talk-list-item.talk-gesture-hint-delete {
   background: #fee2e2 !important;
+}
+
+.talk-list-item.talk-gesture-hint-ignore {
+  background: #fee2e2 !important;
+}
+
+.talk-list-item[data-role="incoming"].talk-gesture-hint-ignore::after {
+  content: attr(data-gesture-label);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .talk-item-chevron {
@@ -2393,7 +2401,7 @@ button.talk-icon-btn:hover {
 /* Notifications - above modals so "no talks to broadcast" etc. are visible when modal opens */
 .notification {
   position: fixed;
-  top: 72px;
+  top: calc(62px + (var(--toast-index, 0) * 58px));
   right: 20px;
   padding: 15px 20px;
   border-radius: var(--radius-sm);
@@ -2406,7 +2414,7 @@ button.talk-icon-btn:hover {
    at the top, one at a time, instead of stacking top-right. */
 @media (max-width: 767px) {
   .notification {
-    top: 8px;
+    top: calc(58px + (var(--toast-index, 0) * 58px) + env(safe-area-inset-top, 0px));
     left: 12px;
     right: 12px;
     text-align: center;

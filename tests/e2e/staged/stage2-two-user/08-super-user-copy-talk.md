@@ -1,9 +1,9 @@
-# Test: Answer First, Recover, Add to My Talks, Broadcast, Delete
+# Test: Answer First, Recover, Retain in My Talks, Broadcast, Delete
 
 covers: SPEC-3.6, SPEC-3.4, SPEC-3.1  <!-- auto-seeded; refine by hand -->
 
 **File:** 08-super-user-copy-talk.spec.ts  
-**Features tested:** Answer-first read history, Add to My Talks, broadcast toggle/filtering, deletion, multi-browser
+**Features tested:** Answer-first read history, swipe-down retain, broadcast toggle/filtering, deletion, multi-browser
 
 ---
 
@@ -16,7 +16,7 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-3.1  <!-- auto-seeded; refine by hand -->
 3. **Tom receives and answers the talk:** Tom opens the incoming talk, selects the matching answer ("Yes, lets play."), and the modal closes.
 
 4. **Tom answers without copying first:** the talk disappears from the default Unanswered inbox like a read email, but remains available under **Filters → Answered**.
-5. **Tom adds it afterward:** from that Answered row, Tom clicks **Add to My Talks**. The talk then appears as a "copied" role item.
+5. **Tom retains it afterward:** from that Answered row, Tom swipes down. The talk then appears as a "copied" role item.
 
 6. **Tom disables broadcast for the copied talk:** Clicks the "Disable Broadcast" checkbox on the copied talk. Clicks Broadcast button — no talks are broadcast (the talk editor modal opens instead, which is cancelled).
 

@@ -68,6 +68,18 @@ export function upsertFlatAnswerHistory(record: FlatAnswerHistoryRecord): FlatAn
   return history;
 }
 
+/** Remove every Me-tab history record derived from one Talk. */
+export function deleteFlatAnswerHistoryForTalk(talkId: string): void {
+  const history = getFlatAnswerHistory();
+  let changed = false;
+  for (const [key, record] of Object.entries(history)) {
+    if (record.talkId !== talkId) continue;
+    delete history[key];
+    changed = true;
+  }
+  if (changed) setFlatAnswerHistory(history);
+}
+
 /**
  * Content-derived identity for a talk, independent of its (possibly per-sender-varying)
  * `talkId`. Used to recognize "the same talk content, answered before" across distinct

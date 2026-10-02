@@ -202,18 +202,19 @@ export function hashIdentityPayload(payload: string): string {
 
 export type TalkIdentityPayload = {
   type: string;
-  language: string;
+  language?: string;
   questions: Array<{ text: string; answers: string[] }>;
-  /** Included for tag-type talks (which have no questions) to differentiate by title. */
-  title?: string;
+  /** Tag talks use their normalized atom(s), never their display title or generated controls. */
+  tags?: string[];
   authorId?: string;
   createdAt?: string;
   location?: { latitude: number; longitude: number };
 };
 
 /**
- * Canonical payload from talk data: type + language + questions with sorted answer texts.
- * Optional fields only affect the hash when flags are true.
+ * Canonical payload from talk data. Tag talks hash only their semantic tag atom (or ordered
+ * pair); Flow/Survey/Route hash language plus question/answer content and deliberately exclude
+ * the human-readable title. Optional provenance fields only affect the hash when flags are true.
  */
 export function buildIdentityPayloadFromTalk(
   talkData: any,
@@ -222,7 +223,8 @@ export function buildIdentityPayloadFromTalk(
   const o = { ...DEFAULT_TALK_CONTENT_ID_OPTIONS, ...options };
   const type = normalizeIdentityText(talkData?.type || 'flow');
   const language = normalizeIdentityText(talkData?.language || 'en');
-  const questions = (Array.isArray(talkData?.questions) ? talkData.questions : [])
+  const rawQuestions = Array.isArray(talkData?.questions) ? talkData.questions : [];
+  const questions = rawQuestions
     .map((q: any) => ({
       text: normalizeIdentityText(q?.text),
       answers: (Array.isArray(q?.answers) ? q.answers : [])
@@ -231,10 +233,25 @@ export function buildIdentityPayloadFromTalk(
     }))
     .sort((a: { text: string }, b: { text: string }) => String(a.text).localeCompare(String(b.text)));
 
-  const payload: TalkIdentityPayload = { type, language, questions };
-
-  if (type === 'tag' && talkData?.title) {
-    payload.title = normalizeIdentityText(talkData.title);
+  let payload: TalkIdentityPayload;
+  if (type === 'tag') {
+    const question = rawQuestions[0];
+    const questionTag = normalizeIdentityText(question?.text || talkData?.title);
+    const answers = Array.isArray(question?.answers) ? question.answers : [];
+    const realAnswerTags = answers
+      .filter((answer: any) => !answer?.isIgnore)
+      .map((answer: any) => normalizeIdentityText(answer?.text))
+      .filter(Boolean);
+    const isPairTag = question?.reciprocalTagContext === true;
+    const isSimpleTag = question?.tagKind === 'simple' || answers.some((answer: any) => answer?.isIgnore);
+    const tags = isPairTag
+      ? [questionTag, ...realAnswerTags]
+      : isSimpleTag || realAnswerTags.length === 0
+        ? [questionTag]
+        : [...realAnswerTags].sort();
+    payload = { type, questions: [], tags: tags.filter(Boolean) };
+  } else {
+    payload = { type, language, questions };
   }
   if (o.includeAuthorId && talkData?.authorId) {
     payload.authorId = normalizeIdentityText(talkData.authorId);
@@ -354,7 +371,7 @@ export function computeResponseIdSync(opts: {
  * Phase G — CIDv1 talk identity (REQ-LEDGER-ENTITY-IDs).
  *
  * Async replacement for `computeTalkIdFromTalkData`. Uses the same canonical
- * payload (type + language + questions/answers) but hashes with real SHA-256
+ * payload (tag atoms, or type + language + questions/answers) but hashes with real SHA-256
  * via `computeCIDv1`, producing a proper CIDv1 base32 string instead of `qa_`.
  *
  * Use this for ALL new talk creations. Legacy `qa_` IDs continue to work for

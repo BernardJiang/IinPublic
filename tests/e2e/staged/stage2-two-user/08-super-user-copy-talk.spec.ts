@@ -117,7 +117,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .filter({ hasText: copyTalkTitle })
       .first();
     await expect(incomingRow).toBeVisible({ timeout: 90000 });
-    await expect(incomingRow.locator('.talk-add-to-my-talks-btn')).toBeVisible();
+    await expect(incomingRow.locator('.talk-add-to-my-talks-btn')).toHaveCount(0);
     await incomingRow.locator('button.view-talk-btn').click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
     await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
@@ -143,9 +143,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .filter({ hasText: copyTalkTitle })
       .first();
     await expect(answeredRow).toBeVisible({ timeout: 15000 });
-    await expect(answeredRow.locator('.talk-add-to-my-talks-btn')).toBeEnabled();
-    await answeredRow.locator('.talk-add-to-my-talks-btn').click();
-    await expect(answeredRow.locator('.talk-add-to-my-talks-btn')).toBeDisabled();
+    await dragTalkRow(pageTom, answeredRow, 'down');
     await pageTom.locator('#talks-filter-completion').selectOption('unanswered');
     await afterNav();
     const copyTalkRow = pageTom

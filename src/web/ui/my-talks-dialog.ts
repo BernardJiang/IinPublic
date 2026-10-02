@@ -2,7 +2,7 @@ import type { UiTranslationKey } from './ui-translations';
 
 type TalkEntry = {
   title?: string | undefined;
-  role?: 'created' | 'answered' | 'copied' | undefined;
+  role?: 'created' | 'answered' | 'copied' | 'ignored' | undefined;
   type?: string | undefined;
   disabled?: boolean | undefined;
   lastInteraction?: string | undefined;

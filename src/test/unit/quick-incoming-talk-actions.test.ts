@@ -33,7 +33,7 @@ describe('quickIgnoreIncomingTalk', () => {
     expect(d.emit).toHaveBeenCalledWith('demandFullTalk', expect.objectContaining({ talkId: expect.any(String) }));
   });
 
-  it('once the full talk resolves: saves an ignore preference, notifies, and completes the talk as mismatch (withheld)', () => {
+  it('once the full talk resolves: saves an ignore preference and completes the talk as mismatch (withheld)', () => {
     const d = deps();
     quickIgnoreIncomingTalk('', 'identity-1', d);
     const callback = ((d.emit as jest.Mock).mock.calls[0][1] as any).callback;
@@ -45,7 +45,6 @@ describe('quickIgnoreIncomingTalk', () => {
       [{ questionId: 'q1', answerText: 'ignore' }],
       'suppressed',
     );
-    expect(d.showNotification).toHaveBeenCalledWith('responseTalkIgnored', 'info');
     expect(d.completeTalk).toHaveBeenCalledWith(
       fullTalk,
       [{ questionId: 'q1', answerId: 'ignore', answerText: 'ignore', mode: 'manual' }],
@@ -61,6 +60,14 @@ describe('quickIgnoreIncomingTalk', () => {
     callback(null);
     expect(d.showNotification).toHaveBeenCalledWith('talksCouldNotLoad', 'error');
     expect(d.completeTalk).not.toHaveBeenCalled();
+  });
+
+  it('does not add a second toast before completion reports the Ignore action', () => {
+    const d = deps();
+    quickIgnoreIncomingTalk('', 'identity-1', d);
+    const callback = ((d.emit as jest.Mock).mock.calls[0][1] as any).callback;
+    callback({ id: 't1', type: 'tag', questions: [] });
+    expect(d.showNotification).not.toHaveBeenCalled();
   });
 
   it('skips saveAnswerPreference (but still completes) when the talk has no questions', () => {

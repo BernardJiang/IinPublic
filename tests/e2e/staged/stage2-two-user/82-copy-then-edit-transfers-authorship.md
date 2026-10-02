@@ -7,7 +7,7 @@ covers: docs/TODO.md §Y1 — a copy is not authorship; only a real content edit
 ## What this test does (in plain English):
 
 1. **Setup:** TechSupport creates and broadcasts a talk. Tom receives it, answers it (a match),
-   and copies it to his own outgoing list via **Add to My Talks** on the incoming Talks row — the same flow
+   and copies it to his own outgoing list by swiping down on the incoming Talks row — the same flow
    `08-super-user-copy-talk.spec.ts` already covers for the disable/enable/delete lifecycle.
 2. **Assertion 1 — copy preserves original authorship:** reads Tom's local `myTalks` entry for
    the copied row directly and checks `fullTalk.authorId` is still TechSupport's id, not Tom's.

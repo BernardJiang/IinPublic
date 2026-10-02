@@ -30,6 +30,7 @@ function makeDeps(overrides: Partial<DisplayTalksListDeps> = {}): DisplayTalksLi
     talksDateTo: '',
     syncStatusBarMatchCount: jest.fn(),
     deleteMyTalk: jest.fn(),
+    restoreIgnoredTalk: jest.fn(),
     quickAnswerIncomingTag: jest.fn(),
     quickCopyIncomingTalk: jest.fn(),
     showTalkDetail: jest.fn(),
@@ -75,6 +76,7 @@ function installTalksDom(): void {
       <select id="talks-filter-completion">
         <option value="unanswered">unanswered</option>
         <option value="answered">answered</option>
+        <option value="ignored">ignored</option>
         <option value="all">all</option>
       </select>
       <select id="talks-filter-outcome"><option value="all">all</option></select>
@@ -173,7 +175,7 @@ describe('displayTalksList', () => {
     const row = document.querySelector<HTMLElement>('.talk-list-item[data-role="incoming"]');
     expect(row?.textContent).toContain('Read email behavior');
     expect(row?.classList.contains('talk-incoming-answered')).toBe(true);
-    expect(row?.querySelector<HTMLButtonElement>('.talk-add-to-my-talks-btn')?.disabled).toBe(false);
+    expect(row?.querySelector('.talk-add-to-my-talks-btn')).toBeNull();
   });
 
   it('retains an auto-saved copied talk in Answered incoming history', () => {
@@ -193,8 +195,7 @@ describe('displayTalksList', () => {
     renderFresh(makeDeps({ talksCompletionFilter: 'answered' }));
     const row = document.querySelector<HTMLElement>('.talk-list-item[data-role="incoming"]');
     expect(row?.textContent).toContain('Answered and auto-saved');
-    expect(row?.querySelector<HTMLButtonElement>('.talk-add-to-my-talks-btn')?.disabled).toBe(true);
-    expect(row?.querySelector('.talk-add-to-my-talks-btn')?.textContent).toContain('talksInMyTalks');
+    expect(row?.querySelector('.talk-add-to-my-talks-btn')).toBeNull();
   });
 
   it('does not show starters when existing Talk history is merely hidden by a filter', () => {
@@ -286,8 +287,9 @@ describe('displayTalksList', () => {
     }));
 
     const checkbox = document.querySelector<HTMLInputElement>('.talk-tag-in-checkbox');
-    expect(checkbox?.indeterminate).toBe(true);
-    expect(document.querySelector('.talk-add-to-my-talks-btn')?.textContent).toContain('talksAddToMyTalks');
+    expect(checkbox?.checked).toBe(false);
+    expect(checkbox?.indeterminate).toBe(false);
+    expect(document.querySelector('.talk-tag-in .talk-add-to-my-talks-btn')).toBeNull();
     checkbox?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
     jest.runOnlyPendingTimers();
     expect(quickAnswerIncomingTag).toHaveBeenCalledWith(
@@ -297,26 +299,58 @@ describe('displayTalksList', () => {
     );
   });
 
-  it('puts Add to My Talks on an incoming Talks card and routes the action', () => {
+  it('keeps ignored content out of normal views and restores it from the Ignored list', () => {
+    localStorage.setItem('myTalks', JSON.stringify({
+      ignored: {
+        talkId: 'ignored', title: 'Ignored content', type: 'flow', role: 'ignored',
+        lastInteraction: '2026-09-12T00:00:00.000Z', senders: ['alice'],
+        fullTalk: { id: 'ignored', title: 'Ignored content', type: 'flow', questions: [] },
+      },
+    }));
+    localStorage.setItem('answeredTalkByContent', JSON.stringify({ 'same-flow': 'ignored' }));
     installTalksDom();
-    const quickCopyIncomingTalk = jest.fn();
     renderFresh(makeDeps({
-      quickCopyIncomingTalk,
       incomingTalkClusters: [{
-        identityKey: 'qa_flow_one',
-        latestTalkId: 'incoming-flow',
-        title: 'Coffee meetup',
-        type: 'flow',
-        language: 'en',
-        latestTalk: { id: 'incoming-flow', title: 'Coffee meetup', type: 'flow', questions: [] },
-        senders: { sender: { senderId: 'sender', senderName: 'Alice' } },
-        updatedAt: '2026-09-12T00:00:00.000Z',
+        identityKey: 'same-flow', latestTalkId: 'flow-new', title: 'Ignored content from Bob', type: 'flow',
+        latestTalk: { id: 'flow-new', title: 'Ignored content from Bob', type: 'flow', questions: [] }, senders: {},
       }],
     }));
+    expect(document.body.textContent).not.toContain('Ignored content');
 
-    const button = document.querySelector<HTMLButtonElement>('.talk-add-to-my-talks-btn');
-    expect(button?.textContent).toContain('talksAddToMyTalks');
-    button?.click();
-    expect(quickCopyIncomingTalk).toHaveBeenCalledWith('incoming-flow', 'qa_flow_one');
+    installTalksDom();
+    const restoreIgnoredTalk = jest.fn();
+    renderFresh(makeDeps({ talksCompletionFilter: 'ignored', restoreIgnoredTalk }));
+    expect(document.body.textContent).toContain('Ignored content');
+    document.querySelector<HTMLButtonElement>('.talk-restore-ignored-btn')?.click();
+    expect(restoreIgnoredTalk).toHaveBeenCalledWith('ignored');
+  });
+
+  it('shows an accepted copied tag only in My Talks, not again in incoming history', () => {
+    localStorage.setItem('myTalks', JSON.stringify({
+      accepted: {
+        talkId: 'accepted', title: 'Accepted tag', type: 'tag', role: 'copied',
+        senders: ['alice'], completedAnswers: [{ questionId: 'q1', answerId: 'yes' }],
+        fullTalk: { id: 'accepted', title: 'Accepted tag', type: 'tag', questions: [] },
+      },
+    }));
+    installTalksDom();
+    renderFresh(makeDeps({ talksCompletionFilter: 'all' }));
+
+    expect(document.querySelectorAll('.talk-list-item[data-talk-id="accepted"]')).toHaveLength(1);
+    expect(document.querySelector('.talk-list-item[data-talk-id="accepted"]')?.getAttribute('data-role')).toBe('copied');
+  });
+
+  it('does not render Add to My Talks on incoming Flow, Survey, or Route cards', () => {
+    installTalksDom();
+    renderFresh(makeDeps({
+      incomingTalkClusters: ['flow', 'survey', 'route'].map((type) => ({
+        identityKey: `qa_${type}_one`, latestTalkId: `incoming-${type}`, title: `${type} incoming`, type,
+        language: 'en', latestTalk: { id: `incoming-${type}`, title: `${type} incoming`, type, questions: [] },
+        senders: { sender: { senderId: 'sender', senderName: 'Alice' } }, updatedAt: '2026-09-12T00:00:00.000Z',
+      })),
+    }));
+
+    expect(document.querySelectorAll('.talk-list-item[data-role="incoming"]')).toHaveLength(3);
+    expect(document.querySelector('.talk-add-to-my-talks-btn')).toBeNull();
   });
 });

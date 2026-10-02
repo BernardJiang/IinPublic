@@ -52,6 +52,57 @@ describe('talk-content-id', () => {
     expect(computeTalkIdFromTalkData(t1)).not.toBe(computeTalkIdFromTalkData(t2));
   });
 
+  it('ignores the human-readable title for Flow, Survey, and Route content identity', () => {
+    for (const type of ['flow', 'survey', 'route']) {
+      const content = {
+        type,
+        language: 'en',
+        questions: [{ id: 'q1', text: 'Same question', answers: [{ id: 'a1', text: 'Same answer' }] }],
+      };
+      expect(computeTalkIdFromTalkData({ ...content, title: 'Title for Alice' }))
+        .toBe(computeTalkIdFromTalkData({ ...content, title: 'A different title for Bob' }));
+    }
+  });
+
+  it('hashes a simple tag from the normalized tag atom, not generated checkbox wording', () => {
+    const tennisA = {
+      type: 'tag', title: 'Display title is not identity', language: 'en',
+      questions: [{
+        id: 'q1', text: '  Tennis  ', tagKind: 'simple',
+        answers: [
+          { id: 'yes', text: 'Tennis', isMatch: true },
+          { id: 'no', text: 'Ignore.', isIgnore: true },
+        ],
+      }],
+    };
+    const tennisB = {
+      type: 'tag', title: 'TENNIS', language: 'zh',
+      questions: [{
+        id: 'different', text: 'tennis', tagKind: 'simple',
+        answers: [
+          { id: 'accept', text: 'Interested.', isMatch: true },
+          { id: 'reject', text: 'Not interested.', isIgnore: true },
+        ],
+      }],
+    };
+    expect(computeTalkIdFromTalkData(tennisA)).toBe(computeTalkIdFromTalkData(tennisB));
+  });
+
+  it('hashes an ordered Pair-tag from both tag atoms', () => {
+    const pair = (accepted: string) => ({
+      type: 'tag', title: 'buy',
+      questions: [{
+        id: 'q1', text: 'buy', reciprocalTagContext: true,
+        answers: [
+          { id: 'match', text: accepted, isMatch: true },
+          { id: 'ignore', text: 'Ignore.', isIgnore: true },
+        ],
+      }],
+    });
+    expect(computeTalkIdFromTalkData(pair('sell'))).toBe(computeTalkIdFromTalkData(pair(' SELL ')));
+    expect(computeTalkIdFromTalkData(pair('sell'))).not.toBe(computeTalkIdFromTalkData(pair('rent')));
+  });
+
   it('differs when the language changes for otherwise identical content', () => {
     const base = {
       type: 'flow',

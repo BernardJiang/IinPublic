@@ -176,6 +176,7 @@ export function renderAppShell(
                 <select class="form-input" id="talks-filter-completion" aria-label="Filter talks by completion" style="flex:0 0 135px;">
                   <option value="unanswered" selected>Unanswered</option>
                   <option value="answered">Answered</option>
+                  <option value="ignored">Ignored</option>
                   <option value="all">All</option>
                 </select>
                 <select class="form-input" id="talks-filter-outcome" aria-label="Filter talks by outcome" style="flex:0 0 130px;">

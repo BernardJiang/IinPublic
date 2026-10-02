@@ -29,6 +29,23 @@ import { getChallengePlugin } from '../../shared/challenge-plugins';
 export const MEMBERSHIP_HEARTBEAT_MAX_MS = 60_000;
 /** Public keys ride on the first heartbeat and then every Nth one (see startMembershipHeartbeat). */
 export const MEMBERSHIP_KEY_REFRESH_BEATS = 10;
+/**
+ * Native clients publish room membership through their embedded node's explicit hub relay. The
+ * browser's Gun subscription is still the fastest/richest source (it carries pub/epub), but it
+ * cannot be the only source: relay-only native membership is authoritative in the hub's REST
+ * index and may never appear in a website tab's local Gun graph. Poll on the same cadence as the
+ * embedded relay's room observation loop.
+ */
+export const SERVER_MEMBERS_POLL_MS = 5_000;
+
+type ChatroomMember = {
+  userId: string;
+  stageName: string;
+  joinedAt?: string | Date;
+  lastSeen?: string;
+  epub?: string;
+  pub?: string;
+};
 
 export class WebChatroomService {
   private currentChatroomId?: string;
@@ -37,13 +54,15 @@ export class WebChatroomService {
   private visitCountSubscriptions: Map<string, () => void> = new Map();
   private userLocations: Map<string, GPSCoordinate> = new Map(); // Track user locations for FIFO eviction
   /** Live map for the active subscribeToMembers listener — reused when reopening the same room so we never flash empty. */
-  private activeMembersForList = new Map<
-    string,
-    { userId: string; stageName: string; lastSeen?: string; joinedAt?: string }
-  >();
+  private activeMembersForList = new Map<string, ChatroomMember>();
+  /** Members currently backed by a fresh Gun record, independently of the REST snapshot. */
+  private activeGunMemberIdsForList = new Set<string>();
+  /** Members in the most recent successful authoritative server roster snapshot. */
+  private serverMemberIdsForList = new Set<string>();
   private membersListDebounce: ReturnType<typeof setTimeout> | null = null;
-  private membersListCallback?: (members: Array<{ userId: string; stageName: string }>) => void;
+  private membersListCallback?: (members: ChatroomMember[]) => void;
   private membersListenerRoomId: string | undefined = undefined;
+  private serverMembersPollTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Gun's `.map().on()` only re-fires a member's callback when THAT member's own node is
    * next written to (a new heartbeat, an explicit isActive:false on leave). A member who
@@ -118,8 +137,12 @@ export class WebChatroomService {
     return Date.now() - seenAt > (ROOM_MEMBERSHIP_TTL_SECONDS + 5) * 1000;
   }
 
-  /** Fast member snapshot from server Gun (reads chatrooms/<id>/users). */
-  async fetchMemberIdsFromServer(chatroomId: string): Promise<string[]> {
+  /**
+   * Fast authoritative member snapshot from the server's merged roster. `null` means the request
+   * failed; an empty array is a successful empty-room snapshot and must remain distinguishable so
+   * a transient network failure never wipes the last-known-good browser roster.
+   */
+  private async fetchMembersFromServer(chatroomId: string): Promise<ChatroomMember[] | null> {
     const controller = new AbortController();
     const timeoutMs = typeof process !== 'undefined' && process.env.DISABLE_HMR === 'true' ? 2_500 : 5_000;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -128,14 +151,27 @@ export class WebChatroomService {
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
         { cache: 'no-store', signal: controller.signal },
       );
-      if (!res.ok) return [];
-      const rows = (await res.json()) as Array<{ userId?: string }>;
-      return Array.isArray(rows) ? rows.map((r) => String(r.userId || '').trim()).filter(Boolean) : [];
+      if (!res.ok) return null;
+      const rows = (await res.json()) as unknown;
+      if (!Array.isArray(rows)) return [];
+      return rows.flatMap((row): ChatroomMember[] => {
+        if (!row || typeof row !== 'object') return [];
+        const record = row as { userId?: unknown; stageName?: unknown };
+        const userId = String(record.userId || '').trim();
+        if (!userId) return [];
+        return [{ userId, stageName: String(record.stageName || userId) }];
+      });
     } catch {
-      return [];
+      return null;
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Fast member-id snapshot used by broadcast receiver resolution. */
+  async fetchMemberIdsFromServer(chatroomId: string): Promise<string[]> {
+    const members = await this.fetchMembersFromServer(chatroomId);
+    return members?.map((member) => member.userId) ?? [];
   }
 
   async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
@@ -789,8 +825,8 @@ export class WebChatroomService {
    */
   private rosterWithTechSupportFloor(
     chatroomId: string,
-    members: Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string; pub?: string }>,
-  ): Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string; pub?: string }> {
+    members: ChatroomMember[],
+  ): ChatroomMember[] {
     if (chatroomId !== TECHSUPPORT_GLOBAL_ROOM_ID) return members;
     if (members.some((m) => m.userId === TECHSUPPORT_ROOT_USER_ID)) return members;
     return [...members, techSupportRosterMember()];
@@ -798,7 +834,7 @@ export class WebChatroomService {
 
   subscribeToMembers(
     chatroomId: string,
-    callback: (members: Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string; pub?: string }>) => void,
+    callback: (members: ChatroomMember[]) => void,
   ): void {
     this.membersListCallback = callback;
 
@@ -819,10 +855,44 @@ export class WebChatroomService {
     }
     this.membersListenerRoomId = chatroomId;
     this.activeMembersForList.clear();
+    this.activeGunMemberIdsForList.clear();
+    this.serverMemberIdsForList.clear();
     if (this.membersListDebounce) {
       clearTimeout(this.membersListDebounce);
       this.membersListDebounce = null;
     }
+    if (this.serverMembersPollTimer) {
+      clearInterval(this.serverMembersPollTimer);
+      this.serverMembersPollTimer = null;
+    }
+
+    const emitMembers = () => {
+      if (chatroomId !== this.membersListenerRoomId || !this.membersListCallback) return;
+      this.membersListCallback(
+        this.rosterWithTechSupportFloor(chatroomId, Array.from(this.activeMembersForList.values())),
+      );
+    };
+
+    // The hub REST roster is the cross-runtime convergence point. In particular, embedded phones
+    // mirror their membership there even when their local Gun graph never replicates into this
+    // website tab. Merge it with (rather than replace) Gun so keys and other richer fields remain.
+    const refreshMembersFromServer = async () => {
+      const members = await this.fetchMembersFromServer(chatroomId);
+      if (members === null || chatroomId !== this.membersListenerRoomId) return;
+
+      const nextServerIds = new Set(members.map((member) => member.userId));
+      for (const previousId of this.serverMemberIdsForList) {
+        if (!nextServerIds.has(previousId) && !this.activeGunMemberIdsForList.has(previousId)) {
+          this.activeMembersForList.delete(previousId);
+        }
+      }
+      this.serverMemberIdsForList = nextServerIds;
+      for (const member of members) {
+        const existing = this.activeMembersForList.get(member.userId);
+        this.activeMembersForList.set(member.userId, { ...existing, ...member });
+      }
+      emitMembers();
+    };
 
     const gun = this.gunService.getGun();
 
@@ -847,9 +917,16 @@ export class WebChatroomService {
         if (chatroomId !== this.membersListenerRoomId) return;
 
         if (this.isFreshActiveMember(memberData)) {
+          this.activeGunMemberIdsForList.add(userId);
+          const existing = this.activeMembersForList.get(userId);
           this.activeMembersForList.set(userId, {
+            ...existing,
             userId,
-            stageName: memberData.stageName || userId,
+            // A successful server snapshot is authoritative for the current display name. Gun's
+            // cached record may be older, but still contributes keys and timestamps.
+            stageName: this.serverMemberIdsForList.has(userId)
+              ? existing?.stageName || memberData.stageName || userId
+              : memberData.stageName || userId,
             ...(memberData.lastSeen ? { lastSeen: memberData.lastSeen } : {}),
             ...(memberData.joinedAt ? { joinedAt: memberData.joinedAt } : {}),
             ...(typeof memberData.epub === 'string' && memberData.epub ? { epub: memberData.epub } : {}),
@@ -859,18 +936,20 @@ export class WebChatroomService {
           // Only remove on a definite signal (explicitly inactive, or a genuinely old lastSeen).
           // Gun's .map().on() transiently emits null/partial records mid-sync; deleting on those
           // made the roster flicker ("comes and goes"). Keep the last-known-good entry instead.
-          this.activeMembersForList.delete(userId);
+          this.activeGunMemberIdsForList.delete(userId);
+          if (!this.serverMemberIdsForList.has(userId)) this.activeMembersForList.delete(userId);
         }
 
         if (this.membersListDebounce) clearTimeout(this.membersListDebounce);
         this.membersListDebounce = setTimeout(() => {
           if (chatroomId === this.membersListenerRoomId && this.membersListCallback) {
-            this.membersListCallback(
-              this.rosterWithTechSupportFloor(chatroomId, Array.from(this.activeMembersForList.values())),
-            );
+            emitMembers();
           }
         }, 150);
       });
+
+    void refreshMembersFromServer();
+    this.serverMembersPollTimer = setInterval(() => void refreshMembersFromServer(), SERVER_MEMBERS_POLL_MS);
 
     // See staleMembersSweepTimer's own doc comment: without this, a member who stops
     // heartbeating without an explicit leave signal never re-triggers Gun's .map().on()
@@ -885,14 +964,15 @@ export class WebChatroomService {
         // own independent immunity check in getFastActiveMembers.
         if (id === TECHSUPPORT_ROOT_USER_ID) continue;
         if (this.isDefinitelyStale({ lastSeen: member.lastSeen, joinedAt: member.joinedAt })) {
-          this.activeMembersForList.delete(id);
-          changed = true;
+          this.activeGunMemberIdsForList.delete(id);
+          if (!this.serverMemberIdsForList.has(id)) {
+            this.activeMembersForList.delete(id);
+            changed = true;
+          }
         }
       }
       if (changed && this.membersListCallback) {
-        this.membersListCallback(
-          this.rosterWithTechSupportFloor(chatroomId, Array.from(this.activeMembersForList.values())),
-        );
+        emitMembers();
       }
     }, sweepMs);
 
@@ -900,9 +980,15 @@ export class WebChatroomService {
       off.off();
       this.membersListenerRoomId = undefined;
       this.activeMembersForList.clear();
+      this.activeGunMemberIdsForList.clear();
+      this.serverMemberIdsForList.clear();
       if (this.membersListDebounce) {
         clearTimeout(this.membersListDebounce);
         this.membersListDebounce = null;
+      }
+      if (this.serverMembersPollTimer) {
+        clearInterval(this.serverMembersPollTimer);
+        this.serverMembersPollTimer = null;
       }
       if (this.staleMembersSweepTimer) {
         clearInterval(this.staleMembersSweepTimer);

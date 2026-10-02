@@ -1,4 +1,4 @@
-export type MyTalkRole = 'created' | 'answered' | 'copied';
+export type MyTalkRole = 'created' | 'answered' | 'copied' | 'ignored';
 
 export type MyTalkEntry = {
   talkId: string;
@@ -7,6 +7,8 @@ export type MyTalkEntry = {
   language?: string;
   timestamp: string;
   role: MyTalkRole;
+  /** Restored when an already-retained talk is moved out of the Ignored list. */
+  roleBeforeIgnore?: Exclude<MyTalkRole, 'ignored'> | undefined;
   fullTalk?: any;
   completedAnswers?: Array<{
     questionId: string;

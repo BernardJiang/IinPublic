@@ -818,6 +818,7 @@ export async function finalCleanupPages(
  * `pointerdown`/`pointerup` listeners fire exactly as they would for a user.
  */
 export async function longPressTalkRow(page: Page, row: import('@playwright/test').Locator): Promise<void> {
+  await row.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }));
   const box = await row.boundingBox();
   if (!box) throw new Error('longPressTalkRow: row has no bounding box (not visible?)');
   const x = box.x + box.width / 2;
@@ -829,19 +830,27 @@ export async function longPressTalkRow(page: Page, row: import('@playwright/test
 }
 
 /**
- * Talks-tab row gestures: drag up/down (incoming: ignore/copy) or left (outgoing: delete).
+ * Talks-tab row gestures: incoming down = retain, either horizontal direction = Ignore;
+ * outgoing left = delete.
  * 100px comfortably clears the product's 64px commit threshold.
  */
 export async function dragTalkRow(
   page: Page,
   row: import('@playwright/test').Locator,
-  direction: 'up' | 'down' | 'left',
+  direction: 'up' | 'down' | 'left' | 'right',
 ): Promise<void> {
+  await row.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }));
   const box = await row.boundingBox();
   if (!box) throw new Error('dragTalkRow: row has no bounding box (not visible?)');
   const startX = box.x + box.width / 2;
   const startY = box.y + box.height / 2;
-  const [dx, dy] = direction === 'up' ? [0, -100] : direction === 'down' ? [0, 100] : [-100, 0];
+  const [dx, dy] = direction === 'up'
+    ? [0, -100]
+    : direction === 'down'
+      ? [0, 100]
+      : direction === 'right'
+        ? [100, 0]
+        : [-100, 0];
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + dx * 0.3, startY + dy * 0.3, { steps: 3 });

@@ -44,7 +44,7 @@ export type QuickIgnoreIncomingTalkDeps = {
   emit: (event: string, payload: unknown) => void;
 };
 
-/** Row gesture (drag up): ignores an incoming talk without ever opening its response dialog. */
+/** Horizontal row gesture: moves this content to the user's restorable Ignored list. */
 export function quickIgnoreIncomingTalk(talkId: string, identityKeyFallback: string | undefined, deps: QuickIgnoreIncomingTalkDeps): void {
   const finish = (fullTalk: any): void => {
     if (!fullTalk) {
@@ -60,7 +60,6 @@ export function quickIgnoreIncomingTalk(talkId: string, identityKeyFallback: str
         'suppressed',
       );
     }
-    deps.showNotification(deps.t('responseTalkIgnored'), 'info');
     deps.completeTalk(fullTalk, answers, 'mismatch', { withholdFromSender: true });
   };
   resolveIncomingFullTalk(deps.emit, deps.t, deps.showNotification, talkId, identityKeyFallback, finish);
@@ -117,7 +116,7 @@ export function quickCopyIncomingTalk(
   };
   // Answered incoming talks are deliberately removed from the actionable backend inbox, but
   // retained locally as read history. When the user reveals one with Talks → Answered and
-  // chooses Add to My Talks, reuse that durable fullTalk instead of trying to load a no-longer-
+  // chooses to retain it, reuse that durable fullTalk instead of trying to load a no-longer-
   // actionable inbox record from the network.
   if (existing?.fullTalk) {
     finish(existing.fullTalk);

@@ -146,7 +146,7 @@ import { setCurrentChatroomId as setCurrentChatroomIdImpl } from './current-chat
 import { navigateToMyAnswerForTalk as navigateToMyAnswerForTalkImpl } from './navigate-to-answer';
 import { quickAnswerIncomingTag as quickAnswerIncomingTagImpl } from './quick-answer-incoming-tag';
 import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
-import { deleteMyTalk as deleteMyTalkImpl } from './talk-deletion';
+import { deleteMyTalk as deleteMyTalkImpl, restoreIgnoredTalk as restoreIgnoredTalkImpl } from './talk-deletion';
 import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
@@ -247,7 +247,7 @@ export class UIManager extends EventEmitter {
   private talksEnabledTypes = new Set<string>(['tag', 'flow', 'survey', 'route']);
   private talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title' = 'recent';
   private talksQuery = '';
-  private talksCompletionFilter: 'all' | 'unanswered' | 'answered' = 'unanswered';
+  private talksCompletionFilter: 'all' | 'unanswered' | 'answered' | 'ignored' = 'unanswered';
   private talksOutcomeFilter: 'all' | 'match' | 'mismatch' = 'all';
   private talksDateFrom = '';
   private talksDateTo = '';
@@ -1146,6 +1146,7 @@ export class UIManager extends EventEmitter {
       talksDateTo: this.talksDateTo,
       syncStatusBarMatchCount: () => this.syncStatusBarMatchCount(),
       deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
+      restoreIgnoredTalk: (talkId) => this.restoreIgnoredTalk(talkId),
       quickAnswerIncomingTag: (talkId, identityKey, checked) => this.quickAnswerIncomingTag(talkId, identityKey, checked),
       quickCopyIncomingTalk: (talkId, identityKey) => this.quickCopyIncomingTalk(talkId, identityKey),
       showTalkDetail: (talkId, identityKey) => this.showTalkDetail(talkId, identityKey),
@@ -1254,7 +1255,7 @@ export class UIManager extends EventEmitter {
         enabledTypes?: string[];
         sort?: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title';
         query?: string;
-        completion?: 'all' | 'unanswered' | 'answered';
+        completion?: 'all' | 'unanswered' | 'answered' | 'ignored';
         outcome?: 'all' | 'match' | 'mismatch';
         dateFrom?: string;
         dateTo?: string;
@@ -1762,11 +1763,16 @@ export class UIManager extends EventEmitter {
     );
     if (checked) this.showNotification(this.t('responseMatch'), 'success');
     else this.showNotification(this.t('responseTagIgnored'), 'info');
-    this.completeTalk(talk, completed, checked ? 'match' : 'mismatch');
+    this.completeTalk(
+      talk,
+      completed,
+      checked ? 'match' : 'mismatch',
+      checked ? { forceCopyToMyTalks: true } : undefined,
+    );
   }
 
   /**
-   * Row gesture (drag up): reaches the exact same end state as picking the response
+   * Horizontal row gesture: reaches the exact same end state as picking the response
    * dialog's dedicated "Ignore" radio (talk-response-dialog.ts's `isDedicatedIgnore`
    * branch) — withheld from the sender, local bookkeeping still runs — without opening
    * the dialog first. Any question works as the nominal `questionId`; the talk ends
@@ -1784,6 +1790,7 @@ export class UIManager extends EventEmitter {
   }
 
   private quickCopyIncomingTalk(talkId: string, identityKeyFallback: string | undefined, cluster?: any): void {
+    cluster ||= this.incomingTalkClusters.find((candidate) => String(candidate?.identityKey || '') === String(identityKeyFallback || ''));
     quickCopyIncomingTalkImpl(talkId, identityKeyFallback, cluster, {
       getMyTalks: () => this.getMyTalks(),
       showNotification: (message, type) => this.showNotification(message, type),
@@ -1796,10 +1803,9 @@ export class UIManager extends EventEmitter {
 
   /**
    * Talks-tab row gestures, bound once on `document.body` (survives row re-renders, same
-   * idiom as the other talks-list delegations). Card rows only (`.talk-list-item` that
-   * isn't `.talk-tag-chip` — tag pills keep their existing single-tap checkbox):
-   *   - drag up (incoming): quick-ignore the whole talk, no dialog.
-   *   - drag down (incoming): copy into my own outgoing list, unanswered.
+   * idiom as the other talks-list delegations):
+   *   - drag down (incoming): copy into My Talks, unanswered.
+   *   - drag horizontally in either direction (any incoming type): Ignore this content.
    *   - drag left (outgoing): delete — the swipe replacement for the old 🗑️ button.
    *   - press-and-hold without dragging: open the same details popup the old ℹ️ button
    *     opened (full sender identity, co-exchanged people, expiry/location) — nothing
@@ -2367,7 +2373,7 @@ export class UIManager extends EventEmitter {
     talk: any,
     answers: any[],
     outcome?: 'match' | 'mismatch',
-    meta?: { withholdFromSender?: boolean },
+    meta?: { withholdFromSender?: boolean; forceCopyToMyTalks?: boolean },
   ): void {
     completeTalkImpl(talk, answers, outcome, meta, {
       t: (key) => this.t(key),
@@ -2631,7 +2637,9 @@ export class UIManager extends EventEmitter {
 
   showMyTalksDialog(): void {
     openMyTalksDialog({
-      getMyTalks,
+      getMyTalks: () => Object.fromEntries(
+        Object.entries(getMyTalks()).filter(([, talk]) => talk.role !== 'ignored'),
+      ),
       escapeHtml: escapeHtml,
       text: this.t.bind(this),
       formatDate: this.formatUiDate.bind(this),
@@ -2660,6 +2668,14 @@ export class UIManager extends EventEmitter {
       showNotification: (message, type) => this.showNotification(message, type),
       t: (key) => this.t(key),
       emit: (event, payload) => this.emit(event, payload),
+    });
+  }
+  private restoreIgnoredTalk(talkId: string): void {
+    restoreIgnoredTalkImpl(talkId, {
+      displayTalksList: () => this.displayTalksList(),
+      displayAnswersList: () => this.displayAnswersList(),
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: (key) => this.t(key),
     });
   }
 

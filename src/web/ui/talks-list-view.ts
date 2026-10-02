@@ -55,12 +55,13 @@ export type DisplayTalksListDeps = {
   talksEnabledTypes: Set<string>;
   talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title';
   talksQuery: string;
-  talksCompletionFilter: 'all' | 'unanswered' | 'answered';
+  talksCompletionFilter: 'all' | 'unanswered' | 'answered' | 'ignored';
   talksOutcomeFilter: 'all' | 'match' | 'mismatch';
   talksDateFrom: string;
   talksDateTo: string;
   syncStatusBarMatchCount: () => void;
   deleteMyTalk: (talkId: string) => void;
+  restoreIgnoredTalk: (talkId: string) => void;
   quickAnswerIncomingTag: (talkId: string, identityKey: string | undefined, checked: boolean) => void;
   quickCopyIncomingTalk: (talkId: string, identityKey: string | undefined) => void;
   showTalkDetail: (talkId: string, identityKey?: string) => void;
@@ -141,22 +142,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           e.stopPropagation();
           const talkId = incomingTagCheckbox.dataset.talkId || '';
           const identityKey = incomingTagCheckbox.dataset.identityKey || '';
-          const checked = !e.shiftKey;
-          setTimeout(() => deps.quickAnswerIncomingTag(talkId, identityKey || undefined, checked), 0);
-          return;
-        }
-        // view-talk-btn only remains on tag pills (the title is itself the button);
-        // card rows dropped it — the whole row opens the talk now (click delegation below).
-        const viewBtn = target.closest('.view-talk-btn');
-        if (viewBtn) {
-          e.preventDefault();
-          e.stopPropagation();
-          const el = viewBtn as HTMLElement;
-          const talkId = el.dataset.talkId || '';
-          const identityKey = el.dataset.identityKey || '';
-          if (talkId || identityKey) {
-            setTimeout(() => deps.showTalkDetail(talkId, identityKey || undefined), 0);
-          }
+          setTimeout(() => deps.quickAnswerIncomingTag(talkId, identityKey || undefined, true), 0);
           return;
         }
         // Only reachable now from inside the long-press details popup (survey OUT rows).
@@ -288,7 +274,9 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     .filter(([, talk]: [string, any]) => {
       const hasCompletedAnswers = Array.isArray(talk?.completedAnswers) && talk.completedAnswers.length > 0;
       const hasSenders = Array.isArray(talk?.senders) && talk.senders.length > 0;
-      return talk?.role === 'answered' || (hasCompletedAnswers && hasSenders);
+      const isAcceptedCopiedTag = String(talk?.type || talk?.fullTalk?.type || '').toLowerCase() === 'tag'
+        && talk?.role === 'copied';
+      return !isAcceptedCopiedTag && (talk?.role === 'answered' || (hasCompletedAnswers && hasSenders));
     })
     .map(([talkId, talk]: [string, any]) => {
       const fullTalk = talk?.fullTalk || {};
@@ -310,13 +298,40 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         latestTalkId: talkId,
       };
     });
-  const allIncomingEntries = [...answeredIncomingEntries, ...backendInEntries];
+  const ignoredIncomingEntries = allEntries
+    .filter(([, talk]: [string, any]) => talk?.role === 'ignored')
+    .map(([talkId, talk]: [string, any]) => {
+      const fullTalk = talk?.fullTalk || {};
+      const senderIds = Array.isArray(talk?.senders) ? talk.senders : [];
+      const senders = Object.fromEntries(senderIds.map((senderId: string, index: number) => [
+        `${talkId}:${index}`,
+        { senderId, senderName: senderId },
+      ]));
+      return {
+        identityKey: `ignored:${talkId}`,
+        title: String(talk?.title || fullTalk?.title || deps.t('talksIncomingFallback')),
+        type: String(talk?.type || fullTalk?.type || 'flow'),
+        language: String(fullTalk?.language || talk?.language || 'en'),
+        latestTalk: fullTalk,
+        senders,
+        isIgnored: true,
+        isAnswered: false,
+        outcome: talk?.outcome,
+        questionCount: Array.isArray(fullTalk?.questions) ? fullTalk.questions.length : 0,
+        updatedAt: talk?.lastInteraction || talk?.timestamp || Date.now(),
+        expiresAt: fullTalk?.expiresAt ?? talk?.expiresAt,
+        locationRadiusMiles: fullTalk?.locationRadiusMiles ?? talk?.locationRadiusMiles,
+        latestTalkId: talkId,
+      };
+    });
+  const allIncomingEntries = [...ignoredIncomingEntries, ...answeredIncomingEntries, ...backendInEntries];
   const matchesTalkFilter = (entry: any, isIncoming: boolean): boolean => {
     const talk = isIncoming ? entry : entry[1];
     const type = String(talk?.type || talk?.fullTalk?.type || talk?.latestTalk?.type || 'flow').toLowerCase();
     const title = String(talk?.title || talk?.fullTalk?.title || talk?.latestTalk?.title || '').toLowerCase();
     const query = deps.talksQuery.trim().toLowerCase();
     const answered = isIncoming ? !!talk?.isAnswered : false;
+    const ignored = isIncoming ? !!talk?.isIgnored : false;
     const outcome = String(talk?.outcome || talk?.latestTalk?.outcome || '').toLowerCase();
     const timestamp = new Date(talk?.updatedAt || talk?.lastInteraction || talk?.timestamp || 0).getTime();
     const from = deps.talksDateFrom ? new Date(`${deps.talksDateFrom}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
@@ -325,9 +340,11 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       && deps.talksEnabledTypes.has(type)
       && (deps.talksOutcomeFilter === 'all' || outcome === deps.talksOutcomeFilter)
       && timestamp >= from && timestamp <= to
-      && (deps.talksCompletionFilter === 'all'
-        || (deps.talksCompletionFilter === 'answered' && answered)
-        || (deps.talksCompletionFilter === 'unanswered' && !answered));
+      && (deps.talksCompletionFilter === 'ignored'
+        ? ignored
+        : !ignored && (deps.talksCompletionFilter === 'all'
+          || (deps.talksCompletionFilter === 'answered' && answered)
+          || (deps.talksCompletionFilter === 'unanswered' && !answered)));
   };
   const filteredOutEntries = deps.talksShowOutgoing
     ? outEntries.filter((entry) => matchesTalkFilter(entry, false))
@@ -558,8 +575,6 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
               const talkId = deps.pickIncomingRowTalkId(cluster);
               const identityKey = String(cluster?.identityKey || '');
               const pinKey = incomingPinKey(cluster, talkId);
-              const isInMyTalks = ['created', 'copied'].includes(String(myTalks[talkId]?.role || ''));
-              const addToMyTalksLabel = deps.t(isInMyTalks ? 'talksInMyTalks' : 'talksAddToMyTalks');
               // TODO §Q build-order item 17: other people I've separately exchanged this same
               // content with (e.g. a different sender who sent me the identical talk), scoped
               // to this device's own talkLedger only. Excludes this cluster's own sender(s).
@@ -571,6 +586,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                   ? `<div class="talk-item-co-exchanged talk-matched-people" data-matched-people="${escapeHtml(JSON.stringify(coExchangedPeople))}" style="font-size: 0.85em; color: var(--accent-text); margin-top: 4px; cursor: pointer;">${deps.tf('talksAlsoExchangedWith', { names: escapeHtml(coExchangedPeople.map((p) => p.name).join(', ')) })}</div>`
                   : '';
               const isAnswered = !!cluster?.isAnswered;
+              const isIgnored = !!cluster?.isIgnored;
               const titleStyle = isAnswered
                 ? 'font-weight: 500; color: var(--text-muted);'
                 : 'font-weight: 700; color: var(--accent-hover);';
@@ -613,21 +629,31 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 : incomingType === 'survey' ? '📊'
                 : incomingType === 'route' ? '🔀'
                 : '➡️';
+              if (isIgnored) {
+                return `
+      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} talk-ignored-row" data-talk-id="${escapeHtml(talkId)}" data-role="ignored" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};background:var(--surface);">
+        <div class="talk-item-header">
+          <span class="talk-icon-badge" aria-hidden="true">${typeIcon}</span>
+          <span class="talk-item-title">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</span>
+          <button type="button" class="btn talk-restore-ignored-btn" data-talk-id="${escapeHtml(talkId)}">${escapeHtml(deps.t('talksRestore'))}</button>
+        </div>
+      </div>
+    `;
+              }
               if (incomingType === 'tag') {
                 return `
-      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag">
+      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag" data-ignore-label="${escapeHtml(deps.t('talksIgnore'))}">
         <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(deps.t('talksTagUndetermined'))}">
-          <input type="checkbox" class="talk-tag-checkbox talk-tag-in-checkbox" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" data-indeterminate="true" title="${escapeHtml(deps.t('talksTagQuickDecision'))}">
+          <input type="checkbox" class="talk-tag-checkbox talk-tag-in-checkbox" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" title="${escapeHtml(deps.t('talksTagQuickDecision'))}">
         </label>
         <button type="button" class="talk-tag-text talk-tag-text-button view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
-        <button type="button" class="talk-add-to-my-talks-btn talk-item-inline-actions" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" title="${escapeHtml(addToMyTalksLabel)}" aria-label="${escapeHtml(addToMyTalksLabel)}" ${isInMyTalks ? 'disabled' : ''} style="border:0;background:transparent;color:inherit;cursor:${isInMyTalks ? 'default' : 'pointer'};font:inherit;font-size:0.75em;font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px;flex-shrink:0;">${isInMyTalks ? '✓' : '📋'} ${escapeHtml(addToMyTalksLabel)}</button>
         ${pinButtonHtml(pinKey)}
       </div>
     `;
               }
               // Row is a single tap target (opens the talk to answer, with the details below
-              // already visible rather than a separate popup). "Add to My Talks" is explicit
-              // here; drag down remains its shortcut, while drag up ignores the whole talk.
+              // already visible rather than a separate popup). Drag down retains it in My Talks,
+              // either horizontal direction ignores this content.
               // Long-press still reaches the exact
               // same .talk-item-details/showDetailsPopupFor content the ℹ️ button used to
               // (full sender identity + co-exchanged people), nothing dropped, just a different
@@ -647,7 +673,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 questionProgressText,
               ].filter(Boolean);
               return `
-      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};background:var(--accent-soft);">
+      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" data-ignore-label="${escapeHtml(deps.t('talksIgnore'))}" style="border-left:5px solid ${typeAccent};background:var(--accent-soft);">
         <div class="talk-item-header">
           <span class="talk-icon-badge" title="${escapeHtml(deps.formatTalkType(String(cluster?.type || 'flow')))}" aria-hidden="true">📥 ${typeIcon}</span>
           <button type="button" class="talk-item-title view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="${titleStyle}background:none;border:none;padding:0;text-align:left;cursor:pointer;font:inherit;">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
@@ -656,7 +682,6 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         </div>
         <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <span class="talk-item-status-summary" style="${metaStyle}font-size:0.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(row2Parts.join(' · '))}</span>
-          <button type="button" class="talk-add-to-my-talks-btn talk-item-inline-actions" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(addToMyTalksLabel)}" title="${escapeHtml(addToMyTalksLabel)}" ${isInMyTalks ? 'disabled' : ''} style="border:0;background:transparent;color:var(--accent-text);cursor:${isInMyTalks ? 'default' : 'pointer'};font:inherit;font-size:0.82em;font-weight:600;padding:4px;white-space:nowrap;flex-shrink:0;">${isInMyTalks ? '✓' : '📋'} ${escapeHtml(addToMyTalksLabel)}</button>
         </div>
         <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
           ${statusBadge}
@@ -685,16 +710,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
 
     const isStale = () => renderSeq !== documentState.renderSeq;
 
-    // TODO §R2: re-applies the indeterminate-checkbox JS property (not representable as
-    // a plain HTML attribute) after any render pass — first chunk or deferred remainder.
-    const markIndeterminateTagCheckboxes = () => {
-      talksList.querySelectorAll<HTMLInputElement>('.talk-tag-in-checkbox[data-indeterminate="true"]').forEach((checkbox) => {
-        checkbox.indeterminate = true;
-      });
-    };
-
     // One merged, chronologically-sorted list — like an email inbox, not two
-    // direction-labeled sections. Direction/type are already conveyed per-row via
     // color (type accent) and icon (direction), so a section header would be
     // redundant wording on top of that. When only one direction is checked, the
     // richer OUT-specific sort modes (matches/responses/weighted/...) still apply;
@@ -733,8 +749,6 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
       renderRow: renderMergedRow,
       isStale,
-      onFirstChunkRendered: markIndeterminateTagCheckboxes,
-      onRemainderRendered: markIndeterminateTagCheckboxes,
     });
 
     // Request stats for out talks (created/copied) only
@@ -763,6 +777,15 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         if (Date.now() < currentDeps.getTalksGestureSuppressClickUntil()) return;
         const target = e.target as HTMLElement;
 
+        const restoreButton = target.closest('.talk-restore-ignored-btn') as HTMLElement | null;
+        if (restoreButton) {
+          e.preventDefault();
+          e.stopPropagation();
+          const talkId = restoreButton.dataset.talkId || '';
+          if (talkId) currentDeps.restoreIgnoredTalk(talkId);
+          return;
+        }
+
         const pinButton = target.closest('.talk-pin-button') as HTMLElement | null;
         if (pinButton) {
           e.preventDefault();
@@ -775,14 +798,13 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           return;
         }
 
-        const addToMyTalksButton = target.closest('.talk-add-to-my-talks-btn') as HTMLButtonElement | null;
-        if (addToMyTalksButton) {
+        const viewButton = target.closest('.view-talk-btn') as HTMLElement | null;
+        if (viewButton) {
           e.preventDefault();
           e.stopPropagation();
-          if (addToMyTalksButton.disabled) return;
-          const talkId = addToMyTalksButton.dataset.talkId || '';
-          const identityKey = addToMyTalksButton.dataset.identityKey || '';
-          if (talkId || identityKey) currentDeps.quickCopyIncomingTalk(talkId, identityKey || undefined);
+          const talkId = viewButton.dataset.talkId || '';
+          const identityKey = viewButton.dataset.identityKey || '';
+          if (talkId || identityKey) currentDeps.showTalkDetail(talkId, identityKey || undefined);
           return;
         }
 

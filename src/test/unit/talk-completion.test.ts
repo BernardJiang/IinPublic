@@ -90,16 +90,30 @@ describe('completeTalk', () => {
     expect(myTalks.t1.senders).toEqual(expect.arrayContaining(['author-1', 'author-2']));
   });
 
-  it('marks role "answered" when an ignore answer is present, even with copy-autosave on', () => {
+  it('marks role "ignored" when an ignore answer is present, even with copy-autosave on', () => {
     const d = deps();
     completeTalk(talk(), [{ questionId: 'q1', answerId: 'ignore' }], 'mismatch', undefined, d);
-    expect(getMyTalks().t1.role).toBe('answered');
+    expect(getMyTalks().t1.role).toBe('ignored');
+    expect(getFlatAnswerHistory()).toEqual({});
+    expect(d.showNotification).toHaveBeenCalledWith('talksIgnored', 'info');
   });
 
   it('marks role "copied" when copy-autosave is on and no answer was an ignore', () => {
     localStorage.setItem('copyTalkAutoSave', 'true');
     const d = deps();
     completeTalk(talk(), [{ questionId: 'q1', answerId: 'yes' }], 'match', undefined, d);
+    expect(getMyTalks().t1.role).toBe('copied');
+  });
+
+  it('forces an accepted incoming tag into My Talks even when global auto-save is off', () => {
+    const d = deps();
+    completeTalk(
+      talk({ type: 'tag' }),
+      [{ questionId: 'q1', answerId: 'yes' }],
+      'match',
+      { forceCopyToMyTalks: true },
+      d,
+    );
     expect(getMyTalks().t1.role).toBe('copied');
   });
 

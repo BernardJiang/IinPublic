@@ -113,22 +113,20 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     await pageTom.locator('input.choice-radio.ignore-radio').first().click();
     await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
 
-    // Tom's own local bookkeeping still happened (completeTalk always runs, regardless of
-    // whether the response goes to the sender) — the incoming row flips to "answered" so he
-    // isn't re-prompted (rows stay in the list either way, styled differently — same signal
-    // 00-ui-navigation-settings.spec.ts already asserts on for ordinary answered talks).
-    // (This is the `myTalks`/answered-history bookkeeping, a different store from
+    // Tom's local content ledger still records the choice, but Ignore is not a normal answer:
+    // it appears only in the dedicated Ignored list and never in ordinary Talks/Me history.
+    // (This is `myTalks` bookkeeping, a different store from
     // `localTalkExchanges` — the latter is written inside submitTalkResponsePairDirect, which
     // withholding deliberately never reaches, so a withheld exchange correctly leaves no
     // `localTalkExchanges` trace on either side either.)
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await openCollapsedFilters(pageTom, 'talks-filter-toggle');
-    await pageTom.locator('#talks-filter-completion').selectOption('answered');
+    await pageTom.locator('#talks-filter-completion').selectOption('ignored');
     await afterSync();
     await expect(
-      pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: flowTitle }),
-    ).toHaveClass(/talk-incoming-answered/);
+      pageTom.locator('.talk-list-item[data-role="ignored"]').filter({ hasText: flowTitle }),
+    ).toBeVisible();
     // Reset back to the default completion filter — Part 2's survey talk arrives unanswered
     // and would otherwise stay hidden behind the "Answered" filter left set above.
     await pageTom.locator('#talks-filter-completion').selectOption('all');
@@ -197,15 +195,19 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     await pageTom.locator('input.choice-radio.ignore-radio').first().click();
     await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
 
-    // Tom's own local bookkeeping (myTalks/completedAnswers, written by completeTalk
-    // regardless of withholding) has exactly one answer — the ignore pick on S1 itself —
+    // Tom's Ignored entry has exactly one sentinel choice — the Ignore pick on S1 itself —
     // proof it did not advance through S2/S3 the way a real answer would.
     const tomSurveyRecorded = await pageTom.evaluate((title) => {
       const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
       const entry = (Object.values(myTalks) as any[]).find((t) => t.title === title);
-      return { found: !!entry, answerCount: Array.isArray(entry?.completedAnswers) ? entry.completedAnswers.length : -1 };
+      return {
+        found: !!entry,
+        role: entry?.role || '',
+        answerCount: Array.isArray(entry?.completedAnswers) ? entry.completedAnswers.length : -1,
+      };
     }, surveyTitle);
     expect(tomSurveyRecorded.found).toBe(true);
+    expect(tomSurveyRecorded.role).toBe('ignored');
     expect(tomSurveyRecorded.answerCount).toBe(1);
 
     await pageTechSupport.waitForTimeout(4000);

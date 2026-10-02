@@ -119,6 +119,18 @@ export function deleteAnswerPreference(key: string): void {
   applyPreferenceModeToExactMemory(aliases.preference, 'manual');
 }
 
+/** Remove every compatibility alias for preferences learned from one Talk instance. */
+export function deleteAnswerPreferencesForTalk(talkId: string): void {
+  const keys = new Set<string>();
+  for (const [key, preference] of Object.entries(getAnswerPreferences())) {
+    if (preference.talkId === talkId) keys.add(key);
+  }
+  for (const [key, preference] of Object.entries(getFlattenedAnswerPreferences())) {
+    if (preference.talkId === talkId) keys.add(key);
+  }
+  keys.forEach((key) => deleteAnswerPreference(key));
+}
+
 export type OpenAnswerPreferencesDialogDeps = {
   showNotification: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   t: (key: UiTranslationKey) => string;

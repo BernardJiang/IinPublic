@@ -3730,6 +3730,11 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return;
     // authorId check is already done in PeerMeshService.handleLocalFrame before firing this callback.
 
+    const existingRetraction = getTalkLedgerDoc().retracted[
+      ledgerRetractedKey(payload.talkId, payload.authorId)
+    ];
+    const isNewRetraction = !existingRetraction || payload.retractedAt > existingRetraction.retractedAt;
+
     // 1. Write tombstone to local ledger.
     applyTalkLedgerEvent({
       kind: 'TALK_RETRACTED',
@@ -3738,12 +3743,15 @@ export class IinPublicApp {
       retractedAt: payload.retractedAt,
     });
 
-    // 2. Surface notice.
-    this.uiManager.showNotification(
-      `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
-      'info',
-    );
-    this.contentNodeService.unpinTalkAttachments(payload.talkId);
+    // 2. Surface each semantic retraction once. Mesh and mailbox delivery can replay the same
+    // frame; the durable ledger timestamp is the idempotency boundary across reloads too.
+    if (isNewRetraction) {
+      this.uiManager.showNotification(
+        `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
+        'info',
+      );
+      this.contentNodeService.unpinTalkAttachments(payload.talkId);
+    }
 
     // 3. Mark any conversation involving this talkId as withdrawn — unless our own deal on it
     // is already mutually confirmed (see handleRetractTalk's matching guard/comment: a
@@ -5421,7 +5429,7 @@ export class IinPublicApp {
 
     // Step 1 — sync QA preferences (best-effort: a transient Gun SEA write failure
     // must not abort step 3 which creates the match/conversation/contact).
-    if (data.talkData) {
+    if (data.talkData && !data.withholdFromSender) {
       const pair = this.gunService.getStoredPair();
       if (pair) {
         try {
