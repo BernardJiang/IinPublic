@@ -42,12 +42,13 @@ async function pickDatingTemplate(page: Page): Promise<void> {
   await page.waitForSelector('.route-question-text[data-qid="q_0"]');
 }
 
-/** Edit all 3 branches' own "myGender" text (q_1/q_2/q_3) — e.g. "women" for a woman author.
- *  `checkIfMatch`'s veto is exact-text, so this must be the literal word another author's
- *  talk accepts, not a synonym (see `buildDatingTemplate`'s own doc comment). */
-async function setMyGender(page: Page, myGender: string): Promise<void> {
-  for (const qid of ['q_1', 'q_2', 'q_3']) {
+/** Declare both sides of Eve's reciprocal tag context. Context-v2 commits to the complete
+ *  Pair-tag scope, so changing only the question side would create `women -> women`, which is
+ *  not the reciprocal of Adam's `men -> women` branch. */
+async function setGenderContract(page: Page, myGender: string, interestedInGender: string): Promise<void> {
+  for (const [qid, aid] of [['q_1', 'a_1_match'], ['q_2', 'a_2_match'], ['q_3', 'a_3_match']]) {
     await page.locator(`.route-question-text[data-qid="${qid}"]`).fill(myGender);
+    await page.locator(`.route-answer-text[data-qid="${qid}"][data-aid="${aid}"]`).fill(interestedInGender);
   }
 }
 
@@ -112,12 +113,11 @@ test.describe('Dating template: multi-gender preference matching (§DD)', () => 
     await expect(pageAdam.locator('#talk-validation-errors')).not.toBeVisible();
     await submitTalkEditorAndWaitForOut(pageAdam, 'Dating');
 
-    // Eve: her own counterpart talk, edited to declare herself "women" — the exact word Adam's
-    // template accepts on its q_2 branch. Never broadcasts; exists purely to seed her own
-    // chatbot memory, same "counterpart talk exists but never broadcasts" pattern
-    // 87-price-overlap-buy-sell-match.spec.ts uses.
+    // Eve: her own reciprocal counterpart talk declares `women -> men`, the inverse of Adam's
+    // matching q_2 branch (`men -> women`). Never broadcasts; it exists purely to seed Eve's
+    // exact contextual chatbot memory, same counterpart-talk pattern used by buy/sell tests.
     await pickDatingTemplate(pageOther);
-    await setMyGender(pageOther, 'women');
+    await setGenderContract(pageOther, 'women', 'men');
     await pageOther.locator('#talk-send-to-chatroom').setChecked(false);
     await expect(pageOther.locator('#talk-validation-errors')).not.toBeVisible();
     await submitTalkEditorAndWaitForOut(pageOther, 'Dating');

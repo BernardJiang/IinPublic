@@ -28,7 +28,9 @@ session and each independently unit-tested:
 This spec proves the full, integrated result — a real chatbot auto-reply (zero manual clicks)
 correctly matches only the accepted gender branch and correctly refuses the others (the "men"
 and "non-binary people" branches genuinely fail to auto-answer for a "women"-declared responder,
-via the chatbot's existing PREFERENCE_CONFLICT gate — not a permissive fallback), and correctly
-produces no match at all when the responder's gender isn't in the author's accepted set.
+not through a permissive fallback), and correctly produces no match at all when the responder's
+gender isn't in the author's accepted set. Eve's counterpart talk explicitly authors the inverse
+Pair-tag contract `women -> men`, matching Adam's `men -> women` branch under context-v2's complete
+tag scope; changing only one side would correctly be treated as a different context.
 `83-talk-template-picker.spec.ts` covers the template's structural prefill;
 `talk-engine.test.ts` unit-tests the fan-out veto directly.

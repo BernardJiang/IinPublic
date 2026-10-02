@@ -114,6 +114,8 @@ test.describe('Three-user complete talk matrix', () => {
       const page = user.page!;
       await page.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(page, 'talks');
+      await openCollapsedFilters(page, 'talks-filter-toggle');
+      await page.locator('#talks-filter-completion').selectOption('all');
       await expect.poll(() => page.locator('#talks-list .talk-list-item').count(), { timeout: 90_000 }).toBe(36);
       await page.locator('#talks-filter-outgoing').uncheck();
       await expect.poll(() => page.locator('#talks-list .talk-list-item').count(), { timeout: 30_000 }).toBe(24);

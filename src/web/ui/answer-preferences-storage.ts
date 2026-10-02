@@ -1,6 +1,9 @@
 export type AnswerPreferenceEntry = {
   answerId: string;
   answerText: string;
+  /** Atomic checked set for a context-matched multi-select question. */
+  answerIds?: string[];
+  answerTexts?: string[];
   mode: string;
   language?: string;
   talkId?: string;

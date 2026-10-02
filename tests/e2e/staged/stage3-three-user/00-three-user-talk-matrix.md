@@ -26,6 +26,8 @@ The "kitchen sink" scenario: Tom, Jerry, and Bob each create 12 distinct talks c
 3. **Broadcast:** Each user broadcasts until ack'd with `minGunPeers: 2, minSent: 12` — confirms all 12 talks delivered to both other users.
 4. **Answer all incoming:** Each recipient answers the other two users' 24 talks as MATCH via `completeTalksInAppByAnswerIds`.
 5. **Talk ledger verification per user:**
+   - Selects completion filter **All** first, because answered incoming talks are intentionally
+     hidden by the default **Unanswered** view.
    - ALL: 36 talks (12 own + 24 from others)
    - IN: 24 talks (received from other two users)
    - OUT: 12 talks (own created talks — auto-copy is OFF so matched-incoming stays in IN not moved to OUT)

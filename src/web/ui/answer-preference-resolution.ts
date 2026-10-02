@@ -220,6 +220,66 @@ export function resolveAnswerPreferenceForTalkQuestion(
 
   const isMultiSelect = currentQuestion.answerSelectionMode === 'multiple';
 
+  // Multi-select has the same context contract as single-select, but its checked answers are
+  // stored and resolved atomically. Never fall back to the old question-text-only history:
+  // a partial remembered set or a changed choice frame must be returned to the user.
+  if (isMultiSelect && currentQuestion.text && (currentQuestion.answers || []).length > 0) {
+    const flatMap = getFlattenedAnswerPreferences();
+    const resolveMultiFlatKey = (
+      flatKey: string,
+      autoAnswerReason: 'KNOWN_CONTEXT_MATCH' | 'KNOWN_ROOT_CONTEXT_MATCH',
+      responseContextHash = flatKey.replace(/^flat_v\d+_/, ''),
+    ) => {
+      const flat = flatMap[flatKey];
+      if (
+        !flat
+        || flat.contextVersion !== ANSWER_CONTEXT_VERSION
+        || !flat.contextHash
+        || (flat.mode !== 'auto' && flat.mode !== 'temporary')
+        || !Array.isArray(flat.answerTexts)
+        || flat.answerTexts.length === 0
+      ) return null;
+
+      const currentByText = new Map<string, any>();
+      for (const answer of currentQuestion.answers || []) {
+        currentByText.set(normalizeIdentityText(answer?.text), answer);
+      }
+      const matched = flat.answerTexts.map((text) => currentByText.get(normalizeIdentityText(text)));
+      if (matched.some((answer) => !answer?.id)) return null;
+      const answerIds = [...new Set(matched.map((answer) => String(answer.id)))];
+      if (answerIds.length !== flat.answerTexts.length) return null;
+      const answerTexts = matched.map((answer) => String(answer.text || ''));
+      return {
+        answerId: answerIds[0],
+        answerIds,
+        answerText: answerTexts.join(', '),
+        mode: 'auto',
+        questionText: currentQuestion.text || '',
+        allAnswers: currentQuestion.answers || [],
+        autoAnswerAction: 'ANSWER',
+        autoAnswerReason,
+        contextHash: responseContextHash,
+      };
+    };
+
+    for (const counterpartTag of counterpartCandidates) {
+      const flatKey = contextKeyFor(counterpartTag);
+      const exact = resolveMultiFlatKey(flatKey, 'KNOWN_CONTEXT_MATCH');
+      if (exact) return exact;
+
+      const rootFlatKey = rootContextKeyFor(counterpartTag);
+      if (rootFlatKey !== flatKey) {
+        const rootDefault = resolveMultiFlatKey(
+          rootFlatKey,
+          'KNOWN_ROOT_CONTEXT_MATCH',
+          flatKey.replace(/^flat_v\d+_/, ''),
+        );
+        if (rootDefault) return rootDefault;
+      }
+    }
+    return null;
+  }
+
   // Ordinary chatbot memory has two deliberately narrow levels. A saved answer for this exact
   // rolling context wins first. If there is no such reusable answer, a ROOT answer for the same
   // complete question frame acts as the user's unconditional default at any later sequential
@@ -319,7 +379,7 @@ export function saveAnswerPreference(
   currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string; contextPath?: Array<{ questionId: string; answerId: string }> },
   answerId: string,
   answerText: string,
-  fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
+  fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerIds?: string[]; answerText?: string; contextHash?: string }>,
   mode: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed' = 'auto',
 ): string {
   const exactMemory = getExactChatbotMemory();
@@ -382,9 +442,27 @@ export function saveAnswerPreference(
     { mySelfTag, counterpartTag: counterpartCandidates[0] },
   );
 
+  const multiAnswerIds = currentQuestion.answerSelectionMode === 'multiple'
+    ? [...new Set(fullSessionAnswersIncludingCurrent
+        .filter((candidate) => candidate.questionId === currentQuestion.id)
+        .flatMap((candidate) => candidate.answerIds?.length
+          ? candidate.answerIds
+          : candidate.answerId
+            ? [candidate.answerId]
+            : []))]
+    : [];
+  const multiAnswers = multiAnswerIds
+    .map((id) => (currentQuestion.answers || []).find((candidate: any) => candidate?.id === id))
+    .filter((candidate): candidate is { id: string; text?: string } => Boolean(candidate?.id));
+  const multiAnswerTexts = multiAnswers.map((candidate) => String(candidate.text || ''));
+
   const entry = {
-    answerId,
-    answerText,
+    answerId: multiAnswers[0]?.id || answerId,
+    answerText: multiAnswerTexts.length > 0 ? multiAnswerTexts.join(', ') : answerText,
+    ...(multiAnswers.length > 0 ? {
+      answerIds: multiAnswers.map((candidate) => candidate.id),
+      answerTexts: multiAnswerTexts,
+    } : {}),
     mode: mode === 'auto' ? 'temporary' : mode,
     language: languageContext.language,
     talkId: talkInstanceId,

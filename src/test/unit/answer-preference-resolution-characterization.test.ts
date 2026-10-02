@@ -38,7 +38,7 @@ type PreferenceUi = {
     currentQuestion: any,
     answerId: string,
     answerText: string,
-    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
+    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerIds?: string[]; answerText?: string; contextHash?: string }>,
     mode?: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed',
   ): string;
   getMySourceTalkIdForQuestionText(questionText: string, language?: string): string | undefined;
@@ -143,6 +143,62 @@ describe('UIManager answer-preference resolution characterization', () => {
     setExactChatbotMemory(exactMemory);
 
     expect(ui.resolveAnswerPreferenceForTalkQuestion(talk, 0, [], question, talk.id)).toBeNull();
+  });
+
+  it('reuses one atomic multi-select set only under the identical complete context', () => {
+    const ui = preferenceUi();
+    const sourceQuestion = {
+      id: 'source-multi',
+      text: 'Which models?',
+      answerSelectionMode: 'multiple',
+      answers: [
+        { id: 'source-a', text: 'Model A' },
+        { id: 'source-b', text: 'Model B' },
+        { id: 'source-c', text: 'Model C' },
+      ],
+    };
+    const sourceTalk = { id: 'source-multi-talk', type: 'flow', language: 'en', questions: [sourceQuestion] };
+    const selected = [{
+      questionId: sourceQuestion.id,
+      answerId: 'source-a',
+      answerIds: ['source-a', 'source-b'],
+      answerText: 'Model A, Model B',
+    }];
+    ui.saveAnswerPreference(sourceTalk, sourceTalk.id, sourceQuestion, 'source-a', 'Model A', selected, 'auto');
+    ui.saveAnswerPreference(sourceTalk, sourceTalk.id, sourceQuestion, 'source-b', 'Model B', selected, 'auto');
+
+    expect(Object.values(getFlattenedAnswerPreferences())[0]).toMatchObject({
+      answerTexts: ['Model A', 'Model B'],
+      mode: 'temporary',
+    });
+
+    const reorderedQuestion = {
+      ...sourceQuestion,
+      id: 'incoming-multi',
+      answers: [
+        { id: 'incoming-c', text: 'Model C' },
+        { id: 'incoming-b', text: 'Model B' },
+        { id: 'incoming-a', text: 'Model A' },
+      ],
+    };
+    const reorderedTalk = { ...sourceTalk, id: 'incoming-multi-talk', questions: [reorderedQuestion] };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(reorderedTalk, 0, [], reorderedQuestion, reorderedTalk.id))
+      .toMatchObject({
+        answerId: 'incoming-a',
+        answerIds: ['incoming-a', 'incoming-b'],
+        answerText: 'Model A, Model B',
+        mode: 'auto',
+        autoAnswerReason: 'KNOWN_CONTEXT_MATCH',
+      });
+
+    const changedQuestion = {
+      ...reorderedQuestion,
+      id: 'changed-multi',
+      answers: reorderedQuestion.answers.slice(0, 2),
+    };
+    const changedTalk = { ...sourceTalk, id: 'changed-multi-talk', questions: [changedQuestion] };
+    expect(ui.resolveAnswerPreferenceForTalkQuestion(changedTalk, 0, [], changedQuestion, changedTalk.id))
+      .toBeNull();
   });
 
   it('requires the same rolling path and complete choice set', () => {

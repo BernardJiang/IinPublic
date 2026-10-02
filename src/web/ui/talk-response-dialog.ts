@@ -989,9 +989,9 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       if (existingAnswer >= 0) answers.splice(existingAnswer, 1, selectedAnswer);
       else answers.push(selectedAnswer);
 
-      // One history/preference write per checked option mirrors saveCreatedTalk. These manual
-      // records are not recombined into a chatbot decision: version-2 multi-select remains an
-      // explicit user choice until an atomic complete-set record exists.
+      // One history/preference write per checked option mirrors saveCreatedTalk. The save layer
+      // reads `selectedAnswer.answerIds` on every call and persists the complete checked set as
+      // one atomic version-2 context record; manual mode keeps this particular response one-off.
       answerIds.forEach((answerId, i) => {
         const contextHash = options.saveAnswerPreference(
           talk,

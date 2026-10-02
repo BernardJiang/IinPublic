@@ -90,8 +90,9 @@ questionDefaultContracts[questionDefaultKey] = {
 Selecting **Whenever offered** moves that exact normalized answer to the front. It never generates
 or stores hashes for possible subsets. At resolution time, the chatbot walks this usually tiny
 explicit list and selects the first answer present in the current authored choices. If none is
-present, it asks the user. This rule is supported only for ordinary single-choice questions;
-multi-select remains an explicit user decision.
+present, it asks the user. This broad rule is supported only for ordinary single-choice questions.
+Multi-select checked sets can be reused only as one atomic **Same context** record under an exact
+version-2 frame; they never use Whenever offered or question-only history.
 
 For example, `[Kiwi, Apple]` means: choose Kiwi when offered, otherwise Apple when offered,
 otherwise ask. It is a literal ordered contract, not a ranking inferred from answer history.

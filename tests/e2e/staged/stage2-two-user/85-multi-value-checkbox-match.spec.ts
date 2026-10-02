@@ -14,9 +14,9 @@
  * "pick one / pick any that apply" toggle (talk-editor-form-helpers.ts), the response dialog's
  * checkbox list + Submit button (talk-response-dialog.ts), and the set-intersection match rule
  * (checkIfMatch, talk-engine.ts). A third test proves the chatbot's own multi-select auto-fill
- * (findAutoAnswerMultiple, exact-chatbot-memory.ts, wired into ui-manager.ts's two
- * auto-resolution paths) resolves a matching multi-select question with zero manual clicks,
- * mirroring stage4's dealmaker test but for a checkbox question instead of a plain yes/no chain.
+ * atomic context-v2 checked-set memory resolves a matching multi-select question with zero
+ * manual clicks, mirroring stage4's dealmaker test but for a checkbox question instead of a
+ * plain yes/no chain. Question-only legacy history is deliberately not used.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -220,7 +220,7 @@ test.describe('Multi-value checkbox questions (§FF)', () => {
     expect(await hasConversationWith(pageSeller, buyerId)).toBe(false);
   });
 
-  test('chatbot auto-matches a multi-select question with zero manual clicks (findAutoAnswerMultiple wiring)', async () => {
+  test('chatbot auto-matches an exact-context multi-select set with zero manual clicks', async () => {
     const buyer = await bootstrapUser(browserBuyer, 'Buyer', 'BuyerAutoCB');
     const seller = await bootstrapUser(browserSeller, 'Seller', 'SellerAutoCB');
     contextBuyer = buyer.context;

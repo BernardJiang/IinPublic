@@ -28,14 +28,14 @@ see the implementation note below).
    (intersects Adam's Plumbing+Electrical).
 3. **Eve** and **Bob** each get their own distinctly-reworded title + questions — different from
    Adam/Alice's AND from each other's — so neither the typed-preference scope key (title- and
-   question-text-based) nor the multi-select exact-text memory ever resolves them against anyone.
+   question-text-based) nor the atomic multi-select context record ever resolves them against anyone.
 
 All four then join the **San Diego** chatroom (the "local chatroom" from the scenario) and
 broadcast. From this point on, nobody manually answers anything — real interval-overlap math
 (`intervalsOverlap`) and set-intersection matching (`anySelectedIsMatch`) decide the outcome, not
 exact-text luck.
 
-## Two real bugs found and fixed while building this test:
+## Three real bugs found and fixed while building and maintaining this test:
 
 1. **Typed-preference scope-key collision.** `typed-preference-store.ts`'s scope key was
    `(role, title)` only — a talk with TWO `builtIn` questions (priceRange AND timeFrame, both
@@ -55,6 +55,11 @@ exact-text luck.
    looks the answer up by its fixed, deterministic id (`${questionId}_compatible` /
    `${questionId}_incompatible`, set once at generation time and never changed) instead of by a
    flag that TalkAutofix may or may not have preserved.
+3. **Context-safe multi-select reuse.** The context-v2 migration removed the old question-only
+   checkbox lookup, correctly eliminating unsafe cross-context reuse, but initially had no atomic
+   replacement. Checked sets are now stored together under the complete choice frame and rolling
+   context. The chatbot reuses the whole set only on that exact context; partial sets and changed
+   frames return to the user.
 
 Diagnosed by adding temporary instrumentation to the actual resolution call chain (not guessed):
 confirmed the typed-preference save was correct, confirmed the incoming talk was delivered with
