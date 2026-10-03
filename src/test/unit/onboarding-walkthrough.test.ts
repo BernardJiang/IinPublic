@@ -18,7 +18,11 @@ describe('onboarding walkthrough', () => {
     expect(document.querySelector('[data-testid="walkthrough-tagline"]')?.textContent)
       .toBe('Say it once. Let your digital you repeat it.');
     expect(document.querySelector('[data-testid="walkthrough-step-0"]')?.textContent)
-      .toContain('Ask once or answer once');
+      .toContain('Ask or answer once');
+    expect(document.querySelector('[data-testid="walkthrough-step-0"]')?.textContent)
+      .toContain('automatically reuse');
+    expect(document.querySelector('[data-testid="walkthrough-step-0"]')?.textContent)
+      .toContain("handle what's new");
     expect(document.querySelector('[data-testid="walkthrough-skip-btn"]')).toBeNull();
     expect(document.querySelector('[data-testid="walkthrough-back-btn"]')).toBeNull();
 
@@ -42,9 +46,10 @@ describe('onboarding walkthrough', () => {
     document.querySelector<HTMLButtonElement>('[data-testid="walkthrough-next-btn"]')?.click();
     const talksSlide = document.querySelector('[data-testid="walkthrough-step-3"]');
     expect(talksSlide?.textContent).toContain('Talks');
-    expect(talksSlide?.textContent).toContain('Create questions your digital you can ask for you.');
-    expect(talksSlide?.textContent).toContain('You can answer your own questions to share with others too.');
-    expect(talksSlide?.textContent).toContain('answer questions from others too.');
+    expect(talksSlide?.textContent).toContain('Create questions for your digital you to ask on your behalf.');
+    expect(talksSlide?.textContent).toContain('Create and answer questions in one place');
+    expect(talksSlide?.textContent).toContain('Answer your own questions to share what you think.');
+    expect(talksSlide?.textContent).toContain('Respond to questions you receive from others.');
   });
 
   it('uses the close icon as the only early exit and restores focus', () => {

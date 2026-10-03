@@ -35,7 +35,9 @@ test.describe('First-run introduction', () => {
     await expect(introduction).toBeVisible();
     await expect(p.locator('[data-testid="walkthrough-step-0"]')).toContainText('Build your digital you');
     await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText('Say it once. Let your digital you repeat it.');
-    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toContainText('Ask once or answer once');
+    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toContainText('Ask or answer once');
+    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toContainText('automatically reuse');
+    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toContainText("handle what's new");
     await expect(p.locator('[data-testid="walkthrough-skip-btn"]')).toHaveCount(0);
     await expect(p.locator('[data-testid="walkthrough-back-btn"]')).toHaveCount(0);
 
@@ -47,9 +49,10 @@ test.describe('First-run introduction', () => {
     await p.locator('[data-testid="walkthrough-next-btn"]').click();
     await expect(p.locator('[data-testid="walkthrough-step-2"]')).toContainText('Contacts');
     await p.locator('[data-testid="walkthrough-next-btn"]').click();
-    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('Create questions your digital you can ask for you.');
-    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('You can answer your own questions');
-    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('answer questions from others too');
+    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('Create questions for your digital you to ask on your behalf.');
+    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('Create and answer questions in one place');
+    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('Answer your own questions to share what you think.');
+    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('Respond to questions you receive from others.');
     await p.locator('[data-testid="walkthrough-back-btn"]').click();
     await expect(p.locator('[data-testid="walkthrough-step-2"]')).toBeVisible();
     await p.locator('[data-testid="walkthrough-close-btn"]').click();

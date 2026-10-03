@@ -39,10 +39,10 @@ const STEPS: WalkthroughStep[] = [
     taglineKey: 'walkthroughWelcomeTagline',
     taglineFallback: 'Say it once. Let your digital you repeat it.',
     bodyKey: 'walkthroughWelcomeBody',
-    bodyFallback: 'Ask once or answer once. Your digital you can reuse your questions and approved answers when they fit.',
+    bodyFallback: 'Ask or answer once. Your digital you will automatically reuse your questions and approved answers when they fit.',
     points: [
-      { icon: '✋', key: 'walkthroughWelcomeNoLogin', fallback: 'You stay in control of every answer.' },
-      { icon: '🆕', key: 'walkthroughWelcomeResponsibility', fallback: "You only need to answer what's new." },
+      { icon: '✋', key: 'walkthroughWelcomeNoLogin', fallback: 'You decide which of your questions and answers can be reused.' },
+      { icon: '🆕', key: 'walkthroughWelcomeResponsibility', fallback: "You only need to handle what's new." },
     ],
   },
   {
@@ -81,12 +81,12 @@ const STEPS: WalkthroughStep[] = [
     titleKey: 'walkthroughTalksTitle',
     titleFallback: 'Talks',
     taglineKey: 'walkthroughTalksTagline',
-    taglineFallback: 'Create questions your digital you can ask for you.',
+    taglineFallback: 'Create questions for your digital you to ask on your behalf.',
     bodyKey: 'walkthroughTalksBody',
-    bodyFallback: 'Write ordinary questions and possible answers—no programming language is needed.',
+    bodyFallback: 'Create and answer questions in one place—no programming needed.',
     points: [
-      { icon: '🪞', key: 'walkthroughTalksAnswerOwn', fallback: 'You can answer your own questions to share with others too.' },
-      { icon: '📥', key: 'walkthroughTalksAnswerOthers', fallback: "This is where you answer questions from others too." },
+      { icon: '🪞', key: 'walkthroughTalksAnswerOwn', fallback: 'Answer your own questions to share what you think.' },
+      { icon: '📥', key: 'walkthroughTalksAnswerOthers', fallback: 'Respond to questions you receive from others.' },
     ],
   },
   {
