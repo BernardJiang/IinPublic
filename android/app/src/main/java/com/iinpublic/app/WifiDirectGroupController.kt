@@ -42,7 +42,7 @@ class WifiDirectGroupController(
     companion object {
         /** Neither join path reports "gave up" (wpa_supplicant stops after ~30 s with no
          *  broadcast), so the controller fails the join itself. */
-        private const val JOIN_TIMEOUT_MS = 45_000L
+        private const val JOIN_TIMEOUT_MS = 35_000L
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -57,11 +57,21 @@ class WifiDirectGroupController(
     /** Legacy (< Android 10) join waits for the owner to appear in a peer scan. */
     private var pendingLegacyOwner: String? = null
     private var pendingJoinName: String? = null
+    /** Android 10+ join retried once without the frequency hint (see joinTimeout). */
+    private var pendingHintedJoin: Triple<String, String, String>? = null
     private val joinTimeout = Runnable {
         if (state == "joining") {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) channel?.let { manager?.cancelConnect(it, null) }
+            val retry = pendingHintedJoin
+            pendingHintedJoin = null
+            if (retry != null) {
+                // A wrong hint (owner reported a stale channel right after re-forming) makes the
+                // supplicant scan only that channel and give up; a full scan still finds the group.
+                joinGroup(retry.first, retry.second, retry.third, 0)
+                return@Runnable
+            }
             pendingLegacyOwner = null
             pendingJoinName = null
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) channel?.let { manager?.cancelConnect(it, null) }
             setState("failed", "join-timeout")
         }
     }
@@ -94,7 +104,8 @@ class WifiDirectGroupController(
             // The passphrase is exposed only to the owner, which hands it to SEA-verified peers
             // over the DTLS DataChannel; the framework returns it only to the owner anyway.
             if (state == "owner") current.passphrase?.let { put("passphrase", it) }
-            current.owner?.deviceAddress?.let { put("ownerDeviceAddress", it.lowercase()) }
+            // Android 10+ hides the real address from apps (02:00:00:00:00:00); never advertise that.
+            current.owner?.deviceAddress?.lowercase()?.takeIf { it != "02:00:00:00:00:00" }?.let { put("ownerDeviceAddress", it) }
             groupFrequencyMhz(current).takeIf { it > 0 }?.let { put("frequencyMhz", it) }
             put("clientCount", current.clientList?.size ?: 0)
             ownerIp?.let { put("ownerIp", it) }
@@ -137,6 +148,7 @@ class WifiDirectGroupController(
         if (!hasPermission()) return setState("failed", "permission-denied")
         val ch = ensureChannel()
         pendingJoinName = networkName
+        pendingHintedJoin = null
         setState("joining")
         handler.removeCallbacks(joinTimeout)
         handler.postDelayed(joinTimeout, JOIN_TIMEOUT_MS)
@@ -148,10 +160,21 @@ class WifiDirectGroupController(
             // No setDeviceAddress: wpa_supplicant then matches the group by *BSSID*, and the owner's
             // P2P device address differs from its group-interface BSSID (Honor 8: …:53:53 vs
             // …:d3:53), so the join never finds the group. Name + frequency is enough.
-            // For a client this restricts the group-owner scan to the owner's channel; the default
-            // scan missed a 5 GHz owner while this device's own Wi-Fi was on 2.4 GHz.
-            if (frequencyMhz > 0) runCatching { builder.setGroupOperatingFrequency(frequencyMhz) }
-            m.connect(ch, builder.build(), actionListener("join"))
+            // For a client the frequency restricts the owner scan to one channel: <1 s when right,
+            // never found when stale — joinTimeout then retries once with a full scan (~6 s).
+            if (frequencyMhz > 0 && runCatching { builder.setGroupOperatingFrequency(frequencyMhz) }.isSuccess) {
+                pendingHintedJoin = Triple(networkName, passphrase, ownerDeviceAddress)
+            }
+            val config = builder.build()
+            // connect() fails BUSY while any group exists — including a stale client group Android
+            // keeps after the owner removed it (seen on hardware). Drop it first, as createGroup does.
+            m.requestGroupInfo(ch) { existing ->
+                if (existing == null) m.connect(ch, config, actionListener("join"))
+                else m.removeGroup(ch, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() { handler.postDelayed({ m.connect(ch, config, actionListener("join")) }, 500) }
+                    override fun onFailure(code: Int) = m.connect(ch, config, actionListener("join"))
+                })
+            }
             return
         }
         if (ownerDeviceAddress.isBlank()) return setState("failed", "legacy-join-needs-owner-address")
@@ -161,9 +184,13 @@ class WifiDirectGroupController(
 
     fun leaveGroup() {
         val m = manager ?: return
-        val ch = channel ?: return
+        // ensureChannel, not `channel ?: return`: a freshly started process has no channel yet but
+        // the system may still hold the group this app formed before it was killed (seen on Honor 8).
+        if (!hasPermission()) return
+        val ch = ensureChannel()
         pendingLegacyOwner = null
         pendingJoinName = null
+        pendingHintedJoin = null
         handler.removeCallbacks(joinTimeout)
         m.removeGroup(ch, object : WifiP2pManager.ActionListener {
             override fun onSuccess() { clearGroup(); setState("idle") }
@@ -259,6 +286,7 @@ class WifiDirectGroupController(
                     setState("owner")
                 } else {
                     handler.removeCallbacks(joinTimeout)
+                    pendingHintedJoin = null
                     val expected = pendingJoinName
                     pendingJoinName = null
                     setState("client", if (expected != null && expected != formed.networkName) "joined-unexpected-group" else null)

@@ -652,8 +652,8 @@ review capacity is available and the issue is promoted after the website/Android
   empty.
 
 - [ ] **OPEN-36 — Hub-matchmade local link: same Wi-Fi, then Android Wi-Fi Direct (in progress
-  2026-10-03; behind a flag; group + relay path proven on hardware, automatic run of v1.0.72
-  pending).** Intended flow: two
+  2026-10-03; behind a flag; automatic upgrade, 3-phone group and recovery verified on hardware,
+  v1.0.78).** Intended flow: two
   phones find each other through the website over cellular; if they share a Wi-Fi network they
   exchange talks over it; if not, they form a Wi-Fi Direct group and exchange talks over it.
   Implementation: `src/shared/wifi-direct-link.ts` (election, path classification, `wd-*` frame
@@ -697,19 +697,24 @@ review capacity is available and the issue is promoted after the website/Android
       `…:53:53`, so the supplicant never found the group).
     - [x] ~~Website assigns roles with a token~~ — replaced: both peers run the same deterministic
       election over the authenticated DataChannel, so the hub never sees roles or credentials.
-    - [x] Selection rules, in order: (1) join an existing group (owner or client re-shares its
-      credentials); (2) only a host-capable device hosts; (3) an Android 7–9 device hosts so the
-      Android 10+ peer joins without a prompt; (4) higher `hostScore` (charging +2, battery ≥ 50 %
-      +1) hosts; (5) tie-break: lowest SHA-256 of SEA pub.
+    - [x] Selection rules, in order: (1) join an existing group (owner, or a client that still has
+      a live link over it, re-shares its credentials); (2) only a host-capable device hosts; (3) an
+      Android 7–9 device hosts so the Android 10+ peer joins without a prompt, and never joins an
+      existing group (classic join needs the owner's real device address — Android 10+ owners only
+      see `02:00:00:00:00:00` — and prompts on the owner), so such a pair stays on its normal path;
+      (4) higher `hostScore` (charging +2, battery ≥ 50 % +1) hosts; (5) tie-break: lowest SHA-256
+      of SEA pub.
   - **Identity binding**
     - [x] Credentials are sent only inside SEA-signed frames of a session whose peer passed the SEA
       handshake; traffic after the upgrade stays in that same DTLS session, so the radio MAC is
       never treated as identity.
   - **Multiple people**
-    - [x] Star topology: a third phone joins the existing group (rule 1). - [ ] Measure the real
-      per-device client limit (commonly ~4–8, chipset-dependent).
-    - [x] Host leaves → group dies → sessions fail and reconnect, then re-run the election.
-      - [ ] Measure the gap.
+    - [x] Star topology: a third phone joins the existing group (rule 1) — verified with Honor
+      (owner) + PH-1 + P30: all three pairs on `192.168.49.x`, talk from P30 reached both.
+      - [ ] Measure the real per-device client limit (commonly ~4–8, chipset-dependent).
+    - [x] Owner removes the group → both reconnect on normal ICE within ~7 s (the service does it;
+      the mesh would only retry on its next send), re-elect and re-link: 8 s total on v1.0.78
+      (P30 + PH-1). Force-stopping the owner's *app* does not end the group (Android keeps it).
     - [x] Different groups are not bridged (`both-in-different-groups` abort); those pairs stay on
       website/WebRTC.
     - [x] Phones keep normal Wi-Fi while in a P2P group (PH-1's wlan0 stayed connected; ping
@@ -720,9 +725,8 @@ review capacity is available and the issue is promoted after the website/Android
     - [ ] Additionally encrypt content to the receiver's key so a misrouted relay copy is
       ciphertext.
     - [x] Remaining metadata exposure documented in `docs/security/connectivity-threat-model.md`.
-    - [x] Owner↔client relay path verified by hand on hardware: relay `192.168.49.185` ↔ relay
-      `192.168.49.1`, DataChannel messages both ways, RTT 18 ms. - [ ] Client↔client through the
-      owner (3 phones). If a chipset isolates clients, the relay-only connection fails, the
+    - [x] Owner↔client and client↔client (through the Honor 8 owner) relay paths verified on
+      hardware, RTT ~18–30 ms. If a chipset isolates clients, the relay-only connection fails, the
       service drops the override and reconnects on normal ICE (unit-tested).
     - [x] WebView host candidates are plain IPs (no mDNS obfuscation) — but WebView does not gather
       on the `p2p-*` interface at all, hence the relay design above.
@@ -759,13 +763,20 @@ review capacity is available and the issue is promoted after the website/Android
       OPEN-22 (Apple Wi-Fi Aware, iOS 26+) is verified.
   - **Verification**
     - [x] Same Wi-Fi → `lan`, no upgrade (PH-1 + Honor, 2026-10-02).
-    - [ ] Different networks → Wi-Fi Direct, automatic end to end on v1.0.72 (switch-handoff fixes
-      landed after the last hardware run; phones were disconnected). Desk setup: dev hub with
+    - [x] Different networks → Wi-Fi Direct, automatic end to end (v1.0.72+): group + relay
+      switch in ~8 s after connect, ~1.5 s reconnect gap; a real talk crossed the group (bytes on
+      the `192.168.49.x` pair 3 KB → 10 KB). Desk setup: dev hub with
       `TLS_DISABLE=1` (an `http://` hub URL against the HTTPS dev hub silently leaves phones on
       production), a TURN server for the pre-upgrade path, and the debug-only
       `--es p2p_drop_remote_candidates 192.168.10.` to hide each other's LAN host candidates.
-    - [ ] 3+ phones in one group, host leaving mid-exchange, fully offline discovery → group → talk
-      exchange. Record results in `docs/device-verification/runs.json` and the OPEN-24 matrix.
+    - [x] 3 phones in one group; owner removing the group mid-session (see Multiple people).
+    - [ ] Fully offline discovery → group → talk exchange. Record results in
+      `docs/device-verification/runs.json` and the OPEN-24 matrix.
+    - Hardware fixes from these runs (v1.0.73–78): reconnect when the link drops (mesh would not);
+      clear the relay override when the radio reports the group gone before the session notices;
+      `leaveGroup` in a fresh process; transient failures (busy / cooldown / send-failed /
+      session-lost) cool down 30 s, not 10 min; joiner retries once without the frequency hint;
+      native join drops a stale group first; no `02:00:00:00:00:00` owner address.
     - [ ] Decide default-on once verified (today: off unless `wifi_direct_link=1`).
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
