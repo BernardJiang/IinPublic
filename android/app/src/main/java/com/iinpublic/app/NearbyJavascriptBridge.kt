@@ -18,6 +18,11 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun startNsd(port: Int) = activity.runOnUiThread { manager.startNsd(port.coerceIn(1, 65535)) }
     @JavascriptInterface fun startWifiDirect() = activity.runOnUiThread { manager.startWifiDirect() }
     @JavascriptInterface fun connectWifiDirect(deviceAddress: String) = activity.runOnUiThread { manager.connectWifiDirect(deviceAddress) }
+    @JavascriptInterface fun requestWifiDirectPermission() = activity.requestWifiDirectPermission()
+    @JavascriptInterface fun createWifiDirectGroup(networkName: String, passphrase: String) = activity.runOnUiThread { manager.createWifiDirectGroup(networkName, passphrase) }
+    @JavascriptInterface fun joinWifiDirectGroup(networkName: String, passphrase: String, ownerDeviceAddress: String, frequencyMhz: Int) = activity.runOnUiThread { manager.joinWifiDirectGroup(networkName, passphrase, ownerDeviceAddress, frequencyMhz.coerceIn(0, 7125)) }
+    @JavascriptInterface fun leaveWifiDirectGroup() = activity.runOnUiThread { manager.leaveWifiDirectGroup() }
+    @JavascriptInterface fun wifiDirectState(): String = manager.wifiDirectState().toString()
     @JavascriptInterface fun startWifiAware() = activity.runOnUiThread {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) manager.startWifiAware() else onStatus("android-wifi-aware", "unsupported", "api-level")
     }
@@ -34,6 +39,8 @@ class NearbyJavascriptBridge(
     override fun onStatus(provider: String, state: String, reason: String?) = emit("iinpublic-nearby-status", JSONObject().apply {
         put("version", 1); put("provider", provider); put("state", state); put("reason", reason ?: JSONObject.NULL)
     })
+
+    override fun onWifiDirectState(state: JSONObject) = emit("iinpublic-nearby-wifi-direct", state)
 
     fun permissionResult(grants: Map<String, Boolean>) = emit("iinpublic-nearby-permission", JSONObject().apply {
         put("version", 1); put("granted", grants.values.all { it }); put("results", JSONObject(grants))

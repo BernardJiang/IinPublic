@@ -207,6 +207,13 @@ class MainActivity : AppCompatActivity() {
         if (missing.isEmpty()) nearbyBridge.permissionResult(permissions.associateWith { true }) else nearbyPermissionLauncher.launch(missing.toTypedArray())
     }
 
+    /** Only what Wi-Fi Direct needs (no Bluetooth prompts): asked in context, on the first upgrade. */
+    fun requestWifiDirectPermission() = runOnUiThread {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) nearbyBridge.permissionResult(mapOf(permission to true))
+        else nearbyPermissionLauncher.launch(arrayOf(permission))
+    }
+
     private fun ensureNotificationPermissionThenStart() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             // Pre-Android 13: POST_NOTIFICATIONS is a normal (install-time)
@@ -267,7 +274,8 @@ class MainActivity : AppCompatActivity() {
                             "http://127.0.0.1:$port/?native_platform=android" +
                                 "&app_version=${BuildConfig.VERSION_NAME}" +
                                 "&perf_process_launch_ms=$activityLaunchEpochMs" +
-                                "&perf_node_health_ready_ms=$nodeHealthReadyEpochMs"
+                                "&perf_node_health_ready_ms=$nodeHealthReadyEpochMs" +
+                                wifiDirectLinkQuery()
                         )
                     }
                     return@Thread
@@ -281,6 +289,27 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }.start()
+    }
+
+    /** Device testing: `adb shell am start ... --ez wifi_direct_link true|false` toggles the
+     *  OPEN-36 Wi-Fi Direct link flag (the web side persists it in localStorage). */
+    private companion object {
+        const val WIFI_DIRECT_LINK_EXTRA = "wifi_direct_link"
+        const val DROP_REMOTE_CANDIDATES_EXTRA = "p2p_drop_remote_candidates"
+    }
+
+    private fun wifiDirectLinkQuery(): String {
+        val launch = intent ?: return ""
+        var query = ""
+        if (launch.hasExtra(WIFI_DIRECT_LINK_EXTRA)) {
+            query += "&wifi_direct_link=" + (if (launch.getBooleanExtra(WIFI_DIRECT_LINK_EXTRA, false)) "1" else "0")
+        }
+        // Debug only (`--es p2p_drop_remote_candidates 192.168.10.`): simulate different networks
+        // on a shared LAN so the Wi-Fi Direct upgrade can be exercised on a desk.
+        launch.getStringExtra(DROP_REMOTE_CANDIDATES_EXTRA)?.takeIf { it.matches(Regex("^[0-9a-fA-F.:]{2,40}$")) }?.let {
+            query += "&p2p_drop_remote_candidates=" + Uri.encode(it)
+        }
+        return query
     }
 
     private fun portOpen(port: Int): Boolean = try {

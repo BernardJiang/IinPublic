@@ -651,6 +651,123 @@ review capacity is available and the issue is promoted after the website/Android
   `npm run verify:devices` validates the inventory schema; the physical run inventory is currently
   empty.
 
+- [ ] **OPEN-36 — Hub-matchmade local link: same Wi-Fi, then Android Wi-Fi Direct (in progress
+  2026-10-03; behind a flag; group + relay path proven on hardware, automatic run of v1.0.72
+  pending).** Intended flow: two
+  phones find each other through the website over cellular; if they share a Wi-Fi network they
+  exchange talks over it; if not, they form a Wi-Fi Direct group and exchange talks over it.
+  Implementation: `src/shared/wifi-direct-link.ts` (election, path classification, `wd-*` frame
+  schema), `src/web/services/wifi-direct-link-service.ts` (per-peer state machine),
+  `src/web/services/android-wifi-direct-native.ts` (bridge + flag), `WifiDirectGroupController.kt`
+  (broadcast-driven group lifecycle), `src/server/services/local-link-turn-relay.ts` +
+  `routes/local-link-routes.ts` (loopback TURN relay, embedded node only), signed `link-upgrade`
+  DataChannel frames + `setIceConfigOverride()`/`reconnect()` in `p2p-webrtc-session.ts`; unit tests
+  in `src/test/unit/wifi-direct-link.test.ts` and `local-link-turn-relay.test.ts`. Design:
+  negotiation runs over the already SEA-authenticated DTLS DataChannel; Wi-Fi Direct only supplies
+  an IP link. Android WebView never gathers ICE candidates on the group interface (it only uses
+  networks ConnectivityManager knows; verified 2026-10-02), so each phone's embedded node runs a
+  tiny loopback TURN relay whose relay socket is bound to its group address, and both sides replace
+  the session's connection with a relay-only one (`wd-ready` → `wd-switch`). DTLS stays end to end;
+  the group owner forwards ciphertext only. An ICE restart on the live connection does not work —
+  Chrome keeps the old pair and never checks the new relay pairs (verified on PH-1). Enable on a
+  device with
+  `adb shell am start -n com.iinpublic.app/.MainActivity --ez wifi_direct_link true` (persists;
+  `false` turns it off); progress logs as `[wifi-direct-link]` in the WebView console.
+  - **Same-Wi-Fi first**
+    - [x] Keep WebRTC host-candidate (LAN) connection as the first choice — a host↔host selected
+      pair is classified `lan` and left alone (`classifySelectedPath`).
+    - [x] Timed decision (3 s after connect, `WIFI_DIRECT_PATH_DECISION_DELAY_MS`): a non-LAN
+      selected pair (srflx/relay — including same SSID with client isolation) starts the upgrade.
+  - **Fix the existing Wi-Fi Direct code** (`NearbyConnectivityManager.kt`)
+    - [x] Discovery: peers reported from `WIFI_P2P_PEERS_CHANGED_ACTION`.
+    - [x] Connect: group state read only after `WIFI_P2P_CONNECTION_CHANGED_ACTION`.
+    - [x] Group owner no longer emits its own address as a peer endpoint.
+    - [ ] Wi-Fi Aware: both sides need the same passphrase (each currently generates its own in
+      `android-nearby-adapter.ts`), and the returned network handle must become a usable address.
+    - [x] Wire into `app.ts` behind a feature flag (`initWifiDirectLink`; the generic
+      `AndroidNearbyAdapter`/`PlatformAdapterCoordinator` discovery path is still not wired).
+  - **Host (group owner) selection**
+    - [x] Host calls `createGroup()` (Android 10+ with app-chosen name + passphrase); Android 10+
+      clients join by name + passphrase; Android 7–9 fall back to `connect(ownerDeviceAddress)`
+      (prompts on the owner). Verified 2026-10-02: PH-1 (Android 10) joined the Honor's (Android 7)
+      group in ~1.4 s with no prompt on either phone. Two hardware findings baked in: the joiner
+      must get the owner's frequency (`setGroupOperatingFrequency`; PH-1's own Wi-Fi was on
+      2.4 GHz, the Honor's group on its 5765 MHz station channel), and must NOT get
+      `setDeviceAddress` (the owner's group BSSID `…:d3:53` differs from its device address
+      `…:53:53`, so the supplicant never found the group).
+    - [x] ~~Website assigns roles with a token~~ — replaced: both peers run the same deterministic
+      election over the authenticated DataChannel, so the hub never sees roles or credentials.
+    - [x] Selection rules, in order: (1) join an existing group (owner or client re-shares its
+      credentials); (2) only a host-capable device hosts; (3) an Android 7–9 device hosts so the
+      Android 10+ peer joins without a prompt; (4) higher `hostScore` (charging +2, battery ≥ 50 %
+      +1) hosts; (5) tie-break: lowest SHA-256 of SEA pub.
+  - **Identity binding**
+    - [x] Credentials are sent only inside SEA-signed frames of a session whose peer passed the SEA
+      handshake; traffic after the upgrade stays in that same DTLS session, so the radio MAC is
+      never treated as identity.
+  - **Multiple people**
+    - [x] Star topology: a third phone joins the existing group (rule 1). - [ ] Measure the real
+      per-device client limit (commonly ~4–8, chipset-dependent).
+    - [x] Host leaves → group dies → sessions fail and reconnect, then re-run the election.
+      - [ ] Measure the gap.
+    - [x] Different groups are not bridged (`both-in-different-groups` abort); those pairs stay on
+      website/WebRTC.
+    - [x] Phones keep normal Wi-Fi while in a P2P group (PH-1's wlan0 stayed connected; ping
+      over the group 0 % loss, ~15 ms). - [ ] Same check with cellular.
+  - **Privacy: host must not read client↔client talks**
+    - [x] Host's Gun node is not used; talk bodies and answers stay on the client↔client WebRTC
+      DataChannel (DTLS), now relayed by each phone's own loopback TURN relay across the group.
+    - [ ] Additionally encrypt content to the receiver's key so a misrouted relay copy is
+      ciphertext.
+    - [x] Remaining metadata exposure documented in `docs/security/connectivity-threat-model.md`.
+    - [x] Owner↔client relay path verified by hand on hardware: relay `192.168.49.185` ↔ relay
+      `192.168.49.1`, DataChannel messages both ways, RTT 18 ms. - [ ] Client↔client through the
+      owner (3 phones). If a chipset isolates clients, the relay-only connection fails, the
+      service drops the override and reconnects on normal ICE (unit-tested).
+    - [x] WebView host candidates are plain IPs (no mDNS obfuscation) — but WebView does not gather
+      on the `p2p-*` interface at all, hence the relay design above.
+  - **Offline mode (no cellular/internet; website matchmaking unavailable)** — Wi-Fi Direct is
+    radio-only, so the link itself works offline (also in airplane mode with Wi-Fi on). The hub
+    path above stays the fast, prompt-free path; offline discovery is the fallback, and the host
+    rule and SEA identity check are shared by both. Not started — today's upgrade needs an
+    existing WebRTC session, which needs signaling.
+    - [ ] Discovery: advertise over Wi-Fi Direct service discovery
+      (`WifiP2pManager.addLocalService` + `discoverServices`, DNS-SD) — not `startNsd`, which only
+      works on a shared infrastructure Wi-Fi. TXT record, roughly:
+      `_iinpublic._tcp id=<15-min rotating digest> hosting=yes|no group=DIRECT-xx v=1`. Reuse
+      `rotatingDiscoveryId` so passive scanners cannot track a person.
+    - [ ] Host rule without the hub: (1) join any peer advertising `hosting=yes`; (2) otherwise
+      the lowest rotating digest calls `createGroup()`. Every phone computes the same answer from
+      the advertised records.
+    - [ ] Passphrase delivery — decide between: (a) publish group name + passphrase in the TXT
+      record (no prompts, but the Wi-Fi link is effectively open; acceptable only because all
+      protection is app-layer SEA + end-to-end encryption); (b) classic `connect()` negotiation
+      with the system pairing prompt (fine for two people, poor in a crowd); (c) QR code showing
+      group name, passphrase and SEA pub (deliberate in-person meetings; also verifies identity).
+    - [ ] Signaling inside the group (host's local node at `192.168.49.1` for SDP/ICE only), then
+      the same WebRTC DataChannel as online.
+    - [ ] Identity after link-up: exchange SEA-signed connectivity bindings + challenge
+      (`docs/protocol/connectivity-v1.md`); recognize known contacts by stored SEA pubs; treat
+      strangers as new SEA keys, as online. Talk exchange needs only local Gun + SEA.
+    - [ ] Android constraints to measure on real phones: foreground app or foreground service
+      required on both sides; service discovery is flaky/slow on some devices (re-issue every
+      10–30 s, expect seconds to tens of seconds); `NEARBY_WIFI_DEVICES` (already in manifest) and
+      Location on for older Android; battery cost — run only while the user is in an explicit
+      "nearby" mode.
+  - **Platform scope**
+    - [ ] Android ↔ Android only. iOS has no Wi-Fi Direct; iPhone pairs stay on WebRTC/STUN until
+      OPEN-22 (Apple Wi-Fi Aware, iOS 26+) is verified.
+  - **Verification**
+    - [x] Same Wi-Fi → `lan`, no upgrade (PH-1 + Honor, 2026-10-02).
+    - [ ] Different networks → Wi-Fi Direct, automatic end to end on v1.0.72 (switch-handoff fixes
+      landed after the last hardware run; phones were disconnected). Desk setup: dev hub with
+      `TLS_DISABLE=1` (an `http://` hub URL against the HTTPS dev hub silently leaves phones on
+      production), a TURN server for the pre-upgrade path, and the debug-only
+      `--es p2p_drop_remote_candidates 192.168.10.` to hide each other's LAN host candidates.
+    - [ ] 3+ phones in one group, host leaving mid-exchange, fully offline discovery → group → talk
+      exchange. Record results in `docs/device-verification/runs.json` and the OPEN-24 matrix.
+    - [ ] Decide default-on once verified (today: off unless `wifi_direct_link=1`).
+
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
   peer forwarding and BLE discovery/data transport before either is enabled by default. Track any
   remediation as new ordered issues.

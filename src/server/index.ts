@@ -35,7 +35,8 @@ import {
 import { CHATROOM_HIERARCHY } from '../shared/chatroom-hierarchy';
 import { resolveEmbeddedNodeConfig } from '../shared/embedded-node-config';
 import { EmbeddedHubRelayClient } from '../node-app/embedded-hub-relay-client';
-import { resolveTlsMode } from './tls-mode';
+import { isLoopbackEmbeddedNode, resolveTlsMode } from './tls-mode';
+import { registerLocalLinkRoutes } from './routes/local-link-routes';
 
 /**
  * Create the HTTP(S) server the app listens on.
@@ -292,6 +293,9 @@ class IinPublicServer {
     registerTurnRoutes(this.app, {
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
+
+    // OPEN-36: on-device loopback TURN relay for Wi-Fi Direct links — never on a hub.
+    if (isLoopbackEmbeddedNode(process.env)) registerLocalLinkRoutes(this.app);
 
     // §16.5's verifier — routes 503 gracefully (not a startup crash) when
     // ATTESTATION_VERIFIER_KEY_FILE isn't configured on this deployment yet. On an embedded/

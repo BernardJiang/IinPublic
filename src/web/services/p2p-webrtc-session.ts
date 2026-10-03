@@ -30,6 +30,7 @@ import {
 } from './signaling-transport';
 import { GunPubSubSignaler } from './gun-pubsub-signaler';
 import { HttpRelaySignaler } from './http-relay-signaler';
+import { selectedCandidatePairFromStats, type SelectedCandidatePair } from '../../shared/wifi-direct-link';
 
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
 
@@ -109,8 +110,16 @@ type AttachChunkWirePayload = {
   dataB64: string;
 };
 
+/** Link-upgrade control (Wi-Fi Direct negotiation, `src/shared/wifi-direct-link.ts`). The body is
+ *  validated by the consumer; the signed envelope already binds it to the peer's SEA pub. */
+type LinkUpgradeWirePayload = {
+  type: 'link-upgrade';
+  message: unknown;
+};
+
 type ChannelFramePayload =
   | HandshakeWirePayload
+  | LinkUpgradeWirePayload
   | DmWirePayload
   | LedgerStateWirePayload
   | MeshWirePayload
@@ -237,6 +246,26 @@ export async function resolveIceServers(apiBase: string): Promise<RTCIceServer[]
   return [...base, fetched.server];
 }
 
+/**
+ * Device-testing aid only: `?p2p_drop_remote_candidates=192.168.10.` makes this device ignore
+ * remote *host* ICE candidates whose address starts with that prefix, simulating two phones on
+ * different networks while they actually share one LAN (OPEN-36 Wi-Fi Direct verification); relay
+ * and server-reflexive candidates still work. Absent in normal launches — MainActivity forwards it
+ * only from an explicit adb `--es` extra.
+ */
+function debugDroppedRemoteCandidatePrefix(): string | null {
+  if (typeof window === 'undefined' || !window.location) return null;
+  const prefix = new URLSearchParams(window.location.search).get('p2p_drop_remote_candidates');
+  return prefix && /^[0-9a-f.:]{2,40}$/i.test(prefix) ? prefix : null;
+}
+
+function isDroppedHostCandidate(candidate: RTCIceCandidateInit, prefix: string): boolean {
+  // candidate:<foundation> <component> <transport> <priority> <address> <port> typ <type> ...
+  const parts = (candidate.candidate ?? '').split(' ');
+  // mDNS-obfuscated host candidates (`<uuid>.local`) hide the address; treat them as on-LAN too.
+  return parts[7] === 'host' && (!!parts[4]?.startsWith(prefix) || !!parts[4]?.endsWith('.local'));
+}
+
 export type P2PSessionConfig = {
   apiBase: string;
   /** Enable the post-failure fail-fast window (see P2P_WEBRTC_RETRY_COOLDOWN_MS). DM send path only. */
@@ -331,6 +360,10 @@ export class P2PConversationSession {
   private pendingRemoteHandshake: P2PHandshakePayload | null = null;
   /** Epoch ms of the most recent transition into 'failed'; null when never failed. */
   private lastFailedAt: number | null = null;
+  private readonly stateListeners = new Set<(state: P2PConnectionState) => void>();
+  private onLinkUpgradeMessage: ((message: unknown) => void | Promise<void>) | null = null;
+  /** OPEN-36 Wi-Fi Direct link: config for the next RTCPeerConnection (setIceConfigOverride). */
+  private iceConfigOverride: RTCConfiguration | null = null;
 
   constructor(private config: P2PSessionConfig) {
     this.signaling = new CompositeSignalingTransport([
@@ -341,6 +374,57 @@ export class P2PConversationSession {
 
   getState(): P2PConnectionState {
     return this._state;
+  }
+
+  get otherUserId(): string { return this.config.otherUserId; }
+  get otherPub(): string { return this.config.otherPub; }
+  get isInitiator(): boolean { return this.config.isInitiator; }
+
+  /** Fires on state transitions only (repeated 'connected' from ICE + DTLS + DataChannel collapse). */
+  onStateChange(listener: (state: P2PConnectionState) => void): () => void {
+    this.stateListeners.add(listener);
+    return () => this.stateListeners.delete(listener);
+  }
+
+  setOnLinkUpgradeMessage(hook: ((message: unknown) => void | Promise<void>) | null): void {
+    this.onLinkUpgradeMessage = hook;
+  }
+
+  async sendLinkUpgradeMessage(message: unknown): Promise<void> {
+    await this.sendChannelFrame({ type: 'link-upgrade', message });
+  }
+
+  /** The ICE pair WebRTC is currently using, or null before selection / without a connection. */
+  async getSelectedCandidatePair(): Promise<SelectedCandidatePair | null> {
+    if (!this.pc) return null;
+    try {
+      const report = await this.pc.getStats();
+      return selectedCandidatePairFromStats(report as unknown as Map<string, Record<string, unknown>>);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * OPEN-36: RTCConfiguration for every RTCPeerConnection this session creates from now on (null =
+   * the default STUN/TURN list). The Wi-Fi Direct upgrade sets a relay-only config that points at
+   * this device's loopback TURN relay, whose relay socket sits on the group interface — Android
+   * WebView never gathers candidates on that interface itself. Takes effect on `reconnect()`.
+   */
+  setIceConfigOverride(config: RTCConfiguration | null): void {
+    this.iceConfigOverride = config;
+  }
+
+  /**
+   * Replace the RTCPeerConnection with a fresh one (current ICE config) and wait for it to connect.
+   * An ICE restart on the live connection is not enough: Chrome keeps the working old pair selected
+   * and never even checks the new lower-priority relay pairs (verified on Android WebView).
+   */
+  reconnect(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS): Promise<void> {
+    this.closeTransport();
+    this.connectPromise = null;
+    this.setState('idle');
+    return this.ensureConnected(timeoutMs);
   }
 
   /** P2P-Q: Returns a snapshot of the handshake negotiation diagnostics. */
@@ -473,9 +557,14 @@ export class P2PConversationSession {
   }
 
   private setState(state: P2PConnectionState): void {
+    const changed = this._state !== state;
     this._state = state;
     if (state === 'failed') this.lastFailedAt = Date.now();
     else if (state === 'connected') this.lastFailedAt = null;
+    if (!changed) return;
+    for (const listener of [...this.stateListeners]) {
+      try { listener(state); } catch { /* listeners never disturb the transport */ }
+    }
   }
 
   private markLedgerReady(): void {
@@ -621,6 +710,10 @@ export class P2PConversationSession {
   private closeTransport(): void {
     this.stopPolling?.();
     this.stopPolling = null;
+    // Detach first: a discarded channel's onclose fires asynchronously and would otherwise mark
+    // the *next* connection attempt failed (seen on the Wi-Fi Direct relay switch, reconnect()).
+    if (this.dc) { this.dc.onopen = null; this.dc.onmessage = null; this.dc.onclose = null; this.dc.onerror = null; }
+    if (this.pc) { this.pc.onicecandidate = null; this.pc.onconnectionstatechange = null; this.pc.oniceconnectionstatechange = null; this.pc.ondatachannel = null; }
     try { this.dc?.close(); } catch { /* already closed */ }
     try { this.pc?.close(); } catch { /* already closed */ }
     this.dc = null;
@@ -648,7 +741,7 @@ export class P2PConversationSession {
     // reconnect attempt, the initiator's offer (posted fast on retry, since resolveIceServers'
     // result is cached) reached the answerer before the answerer's own `await
     // resolveIceServers()` had assigned `this.pc`, permanently stalling both sides' DM channel.
-    this.pc = new RTCPeerConnection({ iceServers: await resolveIceServers(this.config.apiBase) });
+    this.pc = new RTCPeerConnection(this.iceConfigOverride ?? { iceServers: await resolveIceServers(this.config.apiBase) });
     this.pc.onicecandidate = (event) => {
       if (!event.candidate) return;
       void this.postSignal('ice-candidate', {
@@ -906,6 +999,10 @@ export class P2PConversationSession {
       await this.handleLedgerState(parsed.frame.feeds || {});
       return;
     }
+    if (parsed.frame.type === 'link-upgrade') {
+      await this.onLinkUpgradeMessage?.(parsed.frame.message);
+      return;
+    }
     if (parsed.frame.type === 'mesh') {
       await this.config.onRemoteMeshFrame?.(this.config.otherUserId, parsed.frame.frame);
       return;
@@ -991,6 +1088,8 @@ export class P2PConversationSession {
       // Same correlation for ICE: candidates from a retired connect cycle target a
       // closed RTCPeerConnection on the other side and only pollute this one.
       if (payload.offerId && this.currentOfferId && payload.offerId !== this.currentOfferId) return;
+      const droppedPrefix = debugDroppedRemoteCandidatePrefix();
+      if (droppedPrefix && isDroppedHostCandidate(payload.candidate, droppedPrefix)) return;
       try {
         await this.pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
       } catch {
@@ -1078,13 +1177,30 @@ function sessionKey(conversationId: string, localUserId: string): string {
   return `${conversationId}:${localUserId}`;
 }
 
+const sessionCreatedListeners = new Set<(session: P2PConversationSession) => void>();
+
+/** App-wide hook for every newly created session (mesh neighbors and DMs alike) — used by the
+ *  Wi-Fi Direct link service, mirroring `onP2PVersionMismatch`'s single subscription point. */
+export function onP2PSessionCreated(listener: (session: P2PConversationSession) => void): () => void {
+  sessionCreatedListeners.add(listener);
+  return () => sessionCreatedListeners.delete(listener);
+}
+
 export function getOrCreateP2PSession(config: P2PSessionConfig): P2PConversationSession {
   const key = sessionKey(config.conversationId, config.localUserId);
   const existing = sessionRegistry.get(key);
   if (existing) return existing;
   const session = new P2PConversationSession(config);
   sessionRegistry.set(key, session);
+  for (const listener of [...sessionCreatedListeners]) {
+    try { listener(session); } catch { /* never block session creation */ }
+  }
   return session;
+}
+
+/** Every live session, for services that start after some sessions already exist. */
+export function listP2PSessions(): P2PConversationSession[] {
+  return [...sessionRegistry.values()];
 }
 
 export function getP2PSession(

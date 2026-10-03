@@ -127,7 +127,9 @@ import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import { eraseDevice } from '../services/device-wipe';
 import { parseLinkFragmentPayload, clearLinkFragmentFromUrl } from '../services/identity-link-fragment';
-import { getOrCreateP2PSession, onP2PVersionMismatch, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
+import { getOrCreateP2PSession, listP2PSessions, onP2PSessionCreated, onP2PVersionMismatch, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
+import { WifiDirectLinkService } from '../services/wifi-direct-link-service';
+import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag } from '../services/android-wifi-direct-native';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
@@ -261,6 +263,7 @@ export class IinPublicApp {
   private mailboxFallbackDisabledForE2e = false;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
+  private wifiDirectLinkService: WifiDirectLinkService | null = null;
   private mailboxClient: WebMailboxClient | null = null;
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
@@ -2251,6 +2254,33 @@ export class IinPublicApp {
       this.localNodeBridge = new P2PLocalNodeBridgeClient(true);
       void this.localNodeBridge.probe(base);
     }
+    this.initWifiDirectLink(String(pair.pub));
+  }
+
+  /**
+   * OPEN-36: upgrade non-LAN WebRTC sessions between two Android app users to a Wi-Fi Direct
+   * link. Flag-gated (`?wifi_direct_link=1`, persisted) and only on the Android shell.
+   */
+  private initWifiDirectLink(localPub: string): void {
+    if (this.wifiDirectLinkService) return;
+    let storage: Storage | null = null;
+    try { storage = window.localStorage; } catch { /* storage blocked */ }
+    if (!resolveWifiDirectLinkFlag(window.location.search, storage)) return;
+    const bridge = readAndroidWifiDirectBridge();
+    if (!bridge) return;
+    const native = new AndroidWifiDirectNative(bridge);
+    if (!native.capabilities().wifiDirect) { native.dispose(); return; }
+    const service = new WifiDirectLinkService({
+      localPub,
+      native,
+      localRelay: new EmbeddedNodeLocalRelay(this.getBackendApiBase()),
+      onEvent: (event) => console.info('[wifi-direct-link]', JSON.stringify(event)),
+    });
+    this.wifiDirectLinkService = service;
+    // Flag-on builds only: lets adb/devtools inspect link state on a physical device.
+    (window as unknown as { __iinpublicWifiDirectLink?: WifiDirectLinkService }).__iinpublicWifiDirectLink = service;
+    for (const session of listP2PSessions()) service.attach(session);
+    onP2PSessionCreated((session) => service.attach(session));
   }
 
   private ensurePeerMeshService(): PeerMeshService | null {
