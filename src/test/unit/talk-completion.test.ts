@@ -152,6 +152,23 @@ describe('completeTalk', () => {
     expect(call).not.toHaveProperty('withholdFromSender');
   });
 
+  it('keeps practice completion local and out of real-talk indexes and answer history', () => {
+    const d = deps();
+    completeTalk(
+      talk({ practiceOnly: true }),
+      [{ questionId: 'q1', answerId: 'yes' }],
+      'match',
+      undefined,
+      d,
+    );
+
+    expect(getMyTalks().t1.fullTalk.practiceOnly).toBe(true);
+    expect(getAnsweredTalkByContent()).toEqual({});
+    expect(getFlatAnswerHistory()).toEqual({});
+    expect(d.emit).toHaveBeenCalledWith('talkCompleted', expect.objectContaining({ practiceOnly: true }));
+    expect(d.showNotification).toHaveBeenCalledWith('practiceBotLearned', 'success');
+  });
+
   it.each([
     ['flow', 'responseSubmittedFlow'],
     ['tag', 'responseSubmittedTag'],

@@ -1,6 +1,7 @@
 import { showActionableOnboardingGuide, type ActionableGuideResult } from './actionable-onboarding-guide';
 import { showWalkthroughDialog } from './onboarding-walkthrough';
-import { buildCustomPromptTalkDraft, findTalkTemplate } from './talk-templates';
+import { buildCustomPromptTalkDraft } from './talk-templates';
+import type { StarterPracticeBotId } from './starter-practice-bots';
 import { getHasSeenActionableGuide, setHasSeenActionableGuide } from './ui-settings-storage';
 import type { UiLanguage, UiTranslationKey } from './ui-translations';
 
@@ -8,6 +9,7 @@ export interface FirstRunControllerDeps {
   t: (key: UiTranslationKey) => string;
   getLanguage: () => UiLanguage;
   openTalkDraft: (draft: any) => void;
+  openPracticeBot: (botId: StarterPracticeBotId) => void;
 }
 
 const translated = (deps: FirstRunControllerDeps) => (key: string, fallback?: string): string => {
@@ -25,12 +27,13 @@ export function showProductReferenceTour(
 export function showActionableFirstRun(deps: FirstRunControllerDeps): void {
   const finish = (result: ActionableGuideResult): void => {
     setHasSeenActionableGuide(true);
+    if (result.kind === 'start-practice') {
+      deps.openPracticeBot(result.botId);
+      return;
+    }
     if (result.kind !== 'start-talk') return;
     const language = deps.getLanguage();
-    const draft = result.customPrompt
-      ? buildCustomPromptTalkDraft(result.customPrompt, language)
-      : findTalkTemplate(result.templateId || '')?.build(language);
-    if (draft) deps.openTalkDraft(draft);
+    deps.openTalkDraft(buildCustomPromptTalkDraft(result.customPrompt, language));
   };
   showActionableOnboardingGuide({
     text: translated(deps),

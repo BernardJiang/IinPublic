@@ -1,11 +1,12 @@
 import { activateModalAccessibility } from './modal-accessibility';
-import { FEATURED_TALK_TEMPLATES, type TalkTemplateId } from './talk-templates';
+import { STARTER_PRACTICE_BOTS, type StarterPracticeBotId } from './starter-practice-bots';
 import { escapeHtml } from './ui-formatters';
 import type { UiLanguage } from './ui-translations';
 
 export type ActionableGuideResult =
   | { kind: 'dismissed' }
-  | { kind: 'start-talk'; templateId?: TalkTemplateId; customPrompt?: string };
+  | { kind: 'start-practice'; botId: StarterPracticeBotId }
+  | { kind: 'start-talk'; customPrompt: string };
 
 export interface ActionableOnboardingGuideDeps {
   text: (key: string, fallback?: string) => string;
@@ -16,8 +17,8 @@ export interface ActionableOnboardingGuideDeps {
 }
 
 /**
- * Three-step first-run path that ends in a real, editable Talk draft. It deliberately never
- * saves or broadcasts anything: the final action only opens the normal Talk editor.
+ * Three-step first-run path that opens either a local-only practice Talk or a real, editable
+ * Talk draft. It never broadcasts anything by itself.
  */
 export function showActionableOnboardingGuide(deps: ActionableOnboardingGuideDeps): void {
   document.getElementById('actionable-guide-modal')?.remove();
@@ -29,7 +30,7 @@ export function showActionableOnboardingGuide(deps: ActionableOnboardingGuideDep
   document.body.appendChild(modal);
 
   let step = 0;
-  let selectedTemplateId: TalkTemplateId | undefined;
+  let selectedBotId: StarterPracticeBotId | undefined;
   let customPrompt = '';
   let validationVisible = false;
   let deactivate = (): void => {};
@@ -59,34 +60,34 @@ export function showActionableOnboardingGuide(deps: ActionableOnboardingGuideDep
       content = `
         <div class="actionable-guide-hero">
           <div class="actionable-guide-icon" aria-hidden="true">💬</div>
-          <h2 id="actionable-guide-title">${escapeHtml(deps.text('actionGuideWelcomeTitle', 'Say it once. Let IinPublic repeat it.'))}</h2>
-          <p id="actionable-guide-description">${escapeHtml(deps.text('actionGuideWelcomeBody', 'Create a Talk from something you often need to ask or explain. You approve every word before it goes anywhere.'))}</p>
+          <h2 id="actionable-guide-title">${escapeHtml(deps.text('actionGuideWelcomeTitle', 'Build your own bot—one answer at a time.'))}</h2>
+          <p id="actionable-guide-description">${escapeHtml(deps.text('actionGuideWelcomeBody', 'Teach it with real Talk examples. It repeats only the choices you approve.'))}</p>
         </div>`;
     } else if (step === 1) {
-      const cards = FEATURED_TALK_TEMPLATES.map((template) => `
-        <button type="button" class="actionable-starter-card${selectedTemplateId === template.id ? ' selected' : ''}" data-template-id="${template.id}" data-testid="actionable-starter-${template.id}" aria-pressed="${selectedTemplateId === template.id}">
-          <span class="actionable-starter-icon" aria-hidden="true">${template.icon}</span>
-          <span><strong>${escapeHtml(deps.text(template.labelKey, template.id))}</strong><small>${escapeHtml(deps.text(template.descKey, ''))}</small></span>
+      const cards = STARTER_PRACTICE_BOTS.map((bot) => `
+        <button type="button" class="actionable-starter-card${selectedBotId === bot.id ? ' selected' : ''}" data-practice-bot-id="${bot.id}" data-testid="actionable-starter-${bot.id}" aria-pressed="${selectedBotId === bot.id}">
+          <span class="actionable-starter-icon" aria-hidden="true">${bot.icon}</span>
+          <span><strong>${escapeHtml(deps.text(bot.nameKey, bot.id))}</strong><small>${escapeHtml(deps.text(bot.descKey, ''))}</small></span>
         </button>`).join('');
       content = `
         <div class="actionable-guide-copy">
-          <h2 id="actionable-guide-title">${escapeHtml(deps.text('actionGuideChooseTitle', "What do you wish you didn't have to repeat?"))}</h2>
-          <p id="actionable-guide-description">${escapeHtml(deps.text('actionGuideChooseBody', 'Choose a useful starting point or write your own. Everything stays editable.'))}</p>
+          <h2 id="actionable-guide-title">${escapeHtml(deps.text('actionGuideChooseTitle', 'Which practice bot should teach you first?'))}</h2>
+          <p id="actionable-guide-description">${escapeHtml(deps.text('actionGuideChooseBody', 'Each coach demonstrates a real feature without contacting another person.'))}</p>
         </div>
         <div class="actionable-starter-grid" role="group" aria-label="${escapeHtml(deps.text('actionGuideStarterAria', 'Starter Talks'))}">${cards}</div>
         <label class="actionable-custom-label" for="actionable-custom-prompt">${escapeHtml(deps.text('actionGuideCustomLabel', 'Or write your own'))}</label>
         <textarea id="actionable-custom-prompt" data-testid="actionable-custom-prompt" rows="3" maxlength="240" placeholder="${escapeHtml(deps.text('actionGuideCustomPlaceholder', 'For example: Would anyone like to practice a language together?'))}">${escapeHtml(customPrompt)}</textarea>
-        <div class="actionable-guide-error" id="actionable-guide-error" role="alert" ${validationVisible ? '' : 'hidden'}>${escapeHtml(deps.text('actionGuideChooseRequired', 'Choose a starter or write what you want to say.'))}</div>`;
+        <div class="actionable-guide-error" id="actionable-guide-error" role="alert" ${validationVisible ? '' : 'hidden'}>${escapeHtml(deps.text('actionGuideChooseRequired', 'Choose a practice bot or write what you want to say.'))}</div>`;
     } else {
-      const selected = selectedTemplateId
-        ? FEATURED_TALK_TEMPLATES.find((template) => template.id === selectedTemplateId)
+      const selected = selectedBotId
+        ? STARTER_PRACTICE_BOTS.find((bot) => bot.id === selectedBotId)
         : undefined;
-      const choice = customPrompt || (selected ? deps.text(selected.labelKey, selected.id) : '');
+      const choice = customPrompt || (selected ? deps.text(selected.nameKey, selected.id) : '');
       content = `
         <div class="actionable-guide-hero">
           <div class="actionable-guide-icon" aria-hidden="true">🛠️</div>
-          <h2 id="actionable-guide-title">${escapeHtml(deps.text('actionGuideControlTitle', 'You stay in control.'))}</h2>
-          <p id="actionable-guide-description">${escapeHtml(deps.text('actionGuideControlBody', 'We will open a draft for you to review. Nothing is saved or shared until you choose Create.'))}</p>
+          <h2 id="actionable-guide-title">${escapeHtml(deps.text('actionGuideControlTitle', 'Your bot follows your answers.'))}</h2>
+          <p id="actionable-guide-description">${escapeHtml(deps.text('actionGuideControlBody', 'Practice stays on this device. Nothing is sent to another person.'))}</p>
           <div class="actionable-choice-preview" data-testid="actionable-choice-preview">${escapeHtml(choice)}</div>
         </div>`;
     }
@@ -99,7 +100,7 @@ export function showActionableOnboardingGuide(deps: ActionableOnboardingGuideDep
           ${step > 0 ? `<button type="button" class="btn" id="actionable-guide-back" data-testid="actionable-guide-back">${escapeHtml(deps.text('actionGuideBack', 'Back'))}</button>` : `<button type="button" class="btn" id="actionable-guide-skip" data-testid="actionable-guide-skip">${escapeHtml(deps.text('actionGuideSkip', 'Skip for now'))}</button>`}
           <div class="actionable-guide-forward-actions">
             ${step === 2 ? `<button type="button" class="btn" id="actionable-guide-product-tour" data-testid="actionable-guide-product-tour">${escapeHtml(deps.text('actionGuideHowItWorks', 'See how IinPublic works'))}</button>` : ''}
-            <button type="button" class="btn primary-btn" id="actionable-guide-next" data-testid="actionable-guide-next">${escapeHtml(step === 2 ? deps.text('actionGuideReview', 'Review my first Talk') : deps.text('actionGuideNext', 'Next'))}</button>
+            <button type="button" class="btn primary-btn" id="actionable-guide-next" data-testid="actionable-guide-next">${escapeHtml(step === 2 ? deps.text('actionGuideReview', 'Start') : deps.text('actionGuideNext', 'Next'))}</button>
           </div>
         </div>
       </div>`;
@@ -111,9 +112,9 @@ export function showActionableOnboardingGuide(deps: ActionableOnboardingGuideDep
       validationVisible = false;
       render();
     });
-    modal.querySelectorAll<HTMLElement>('[data-template-id]').forEach((card) => {
+    modal.querySelectorAll<HTMLElement>('[data-practice-bot-id]').forEach((card) => {
       card.addEventListener('click', () => {
-        selectedTemplateId = card.dataset.templateId as TalkTemplateId;
+        selectedBotId = card.dataset.practiceBotId as StarterPracticeBotId;
         customPrompt = '';
         validationVisible = false;
         render();
@@ -122,7 +123,7 @@ export function showActionableOnboardingGuide(deps: ActionableOnboardingGuideDep
     modal.querySelector<HTMLTextAreaElement>('#actionable-custom-prompt')?.addEventListener('input', (event) => {
       customPrompt = (event.currentTarget as HTMLTextAreaElement).value;
       if (customPrompt.trim()) {
-        selectedTemplateId = undefined;
+        selectedBotId = undefined;
         validationVisible = false;
         modal.querySelectorAll('.actionable-starter-card.selected').forEach((card) => card.classList.remove('selected'));
         modal.querySelectorAll('.actionable-starter-card[aria-pressed="true"]').forEach((card) => card.setAttribute('aria-pressed', 'false'));
@@ -140,17 +141,14 @@ export function showActionableOnboardingGuide(deps: ActionableOnboardingGuideDep
       });
     });
     modal.querySelector('#actionable-guide-next')?.addEventListener('click', () => {
-      if (step === 1 && !selectedTemplateId && !customPrompt.trim()) {
+      if (step === 1 && !selectedBotId && !customPrompt.trim()) {
         validationVisible = true;
         render();
         return;
       }
       if (step === 2) {
-        finish({
-          kind: 'start-talk',
-          ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
-          ...(customPrompt.trim() ? { customPrompt: customPrompt.trim() } : {}),
-        });
+        if (selectedBotId) finish({ kind: 'start-practice', botId: selectedBotId });
+        else finish({ kind: 'start-talk', customPrompt: customPrompt.trim() });
         return;
       }
       step += 1;

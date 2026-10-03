@@ -111,7 +111,11 @@ import {
   setChatbotEnabled,
   setCopyTalkAutoSave,
 } from './ui-settings-storage';
-import { findTalkTemplate } from './talk-templates';
+import {
+  findStarterPracticeBot,
+  getStarterPracticeProgress,
+  type StarterPracticeBotId,
+} from './starter-practice-bots';
 import { showActionableFirstRun, showFirstRunIfNeeded, showProductReferenceTour } from './first-run-controller';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
@@ -1172,10 +1176,7 @@ export class UIManager extends EventEmitter {
       pickIncomingRowTalkId: (cluster) => this.pickIncomingRowTalkId(cluster),
       showTalkEditorDialog: (talk) => this.showTalkEditorDialog(talk),
       showTalkTemplatePicker: () => this.talkEditor().showTalkTemplatePicker(),
-      openStarterTalk: (templateId) => {
-        const template = findTalkTemplate(templateId);
-        if (template) this.showTalkEditorDialog(template.build(this.getUiLanguage()));
-      },
+      openStarterPracticeBot: (botId) => this.openStarterPracticeBot(botId),
       navigateToGraphNode: (target) => this.navigateToGraphNode(target),
       showChooseWhoToDmPicker: (people) => this.showChooseWhoToDmPicker(people),
       emit: (event, payload) => this.emit(event, payload),
@@ -2381,6 +2382,18 @@ export class UIManager extends EventEmitter {
       showNotification: (message, type) => this.showNotification(message, type),
       displayTalksList: () => this.displayTalksList(),
     });
+    const practiceBotId = talk?.starterPractice?.botId as StarterPracticeBotId | undefined;
+    if (talk?.practiceOnly === true && practiceBotId) {
+      const bot = findStarterPracticeBot(practiceBotId);
+      const nextTalk = bot
+        ? getStarterPracticeProgress(bot, this.getUiLanguage(), getMyTalks()).nextTalk
+        : null;
+      if (nextTalk && nextTalk.id !== talk.id) {
+        // Let the completed response dialog finish closing before the instructor opens the
+        // next exercise. Echo Bot's second exercise will then auto-fill its repeated root.
+        window.setTimeout(() => this.showTalkResponseDialog(nextTalk), 0);
+      }
+    }
   }
 
   /**
@@ -2490,11 +2503,24 @@ export class UIManager extends EventEmitter {
   /** The optional six-slide product reference, available from Settings and the action guide. */
   showWalkthrough(onClose: () => void = () => {}): void { showProductReferenceTour(this.firstRunDeps(), onClose); }
 
-  /** Settings and first-run entry point: guides the user into an editable, unsaved draft. */
+  /** Settings and first-run entry point: opens local practice or an editable custom draft. */
   showActionableGuide(): void { showActionableFirstRun(this.firstRunDeps()); }
 
+  private openStarterPracticeBot(botId: StarterPracticeBotId): void {
+    const bot = findStarterPracticeBot(botId);
+    if (!bot) return;
+    const talks = bot.build(this.getUiLanguage());
+    const progress = getStarterPracticeProgress(bot, this.getUiLanguage(), getMyTalks());
+    this.showTalkResponseDialog(progress.nextTalk || talks[0], { skipAutoAnswer: false });
+  }
+
   private firstRunDeps() {
-    return { t: (key: UiTranslationKey) => this.t(key), getLanguage: () => this.getUiLanguage(), openTalkDraft: (draft: any) => this.showTalkEditorDialog(draft) };
+    return {
+      t: (key: UiTranslationKey) => this.t(key),
+      getLanguage: () => this.getUiLanguage(),
+      openTalkDraft: (draft: any) => this.showTalkEditorDialog(draft),
+      openPracticeBot: (botId: StarterPracticeBotId) => this.openStarterPracticeBot(botId),
+    };
   }
 
   showPreferencesDialog(): void {

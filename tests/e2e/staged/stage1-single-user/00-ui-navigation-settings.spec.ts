@@ -463,7 +463,7 @@ test.describe('UI navigation and settings shell', () => {
     // "no talks yet" message (talksNoTalks) — that older text only shows once the account has SOME
     // talk history but the current filter happens to hide all of it. This account is still fresh
     // at this point in the test, so the starter shelf is the correct thing to assert on.
-    await expect(p.locator('#talks-list')).toContainText('你希望 IinPublic 替你重复什么？');
+    await expect(p.locator('#talks-list')).toContainText('认识你的练习机器人');
     await p.evaluate(() => {
       localStorage.setItem('myTalks', JSON.stringify({
         localized_created: {

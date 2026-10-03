@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import { showActionableOnboardingGuide } from '../../web/ui/actionable-onboarding-guide';
-import { FEATURED_TALK_TEMPLATES } from '../../web/ui/talk-templates';
+import { STARTER_PRACTICE_BOTS } from '../../web/ui/starter-practice-bots';
 
 const text = (key: string, fallback?: string): string => fallback ?? key;
 
@@ -11,7 +11,7 @@ describe('actionable onboarding guide', () => {
     document.getElementById('opener')?.focus();
   });
 
-  it('requires a choice and returns a starter without saving it', () => {
+  it('requires a choice and returns a practice bot without contacting anyone', () => {
     const onFinish = jest.fn();
     showActionableOnboardingGuide({
       text,
@@ -22,16 +22,16 @@ describe('actionable onboarding guide', () => {
 
     expect(document.querySelectorAll('.actionable-starter-card')).toHaveLength(0);
     document.querySelector<HTMLButtonElement>('[data-testid="actionable-guide-next"]')?.click();
-    expect(document.querySelectorAll('.actionable-starter-card')).toHaveLength(FEATURED_TALK_TEMPLATES.length);
+    expect(document.querySelectorAll('.actionable-starter-card')).toHaveLength(STARTER_PRACTICE_BOTS.length);
 
     document.querySelector<HTMLButtonElement>('[data-testid="actionable-guide-next"]')?.click();
     expect(document.getElementById('actionable-guide-error')?.hasAttribute('hidden')).toBe(false);
-    document.querySelector<HTMLButtonElement>('[data-testid="actionable-starter-quickPoll"]')?.click();
+    document.querySelector<HTMLButtonElement>('[data-testid="actionable-starter-echo"]')?.click();
     document.querySelector<HTMLButtonElement>('[data-testid="actionable-guide-next"]')?.click();
-    expect(document.querySelector('[data-testid="actionable-choice-preview"]')?.textContent).toBe('quickPoll');
+    expect(document.querySelector('[data-testid="actionable-choice-preview"]')?.textContent).toBe('echo');
     document.querySelector<HTMLButtonElement>('[data-testid="actionable-guide-next"]')?.click();
 
-    expect(onFinish).toHaveBeenCalledWith({ kind: 'start-talk', templateId: 'quickPoll' });
+    expect(onFinish).toHaveBeenCalledWith({ kind: 'start-practice', botId: 'echo' });
     expect(document.getElementById('actionable-guide-modal')).toBeNull();
   });
 

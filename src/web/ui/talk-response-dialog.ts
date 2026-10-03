@@ -263,6 +263,14 @@ function scrollToTargetQuestion(modal: HTMLElement, options: TalkResponseDialogO
 export function showTalkResponseDialog(options: TalkResponseDialogOptions): void {
   const { talk } = options;
   const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
+  const showOutcomeNotification = (
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning',
+  ): void => {
+    // Practice completion emits its own truthful local-only message. Do not flash the normal
+    // peer-facing "you both matched" wording for a synthetic instructor.
+    if (talk?.practiceOnly !== true) options.showNotification(message, type);
+  };
   const skipAutoAnswer = options.skipAutoAnswer ?? false;
   const isTalkSuperseded = options.isTalkSuperseded ?? false;
   const senderName = options.senderName ?? '';
@@ -346,10 +354,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         );
         selected.contextHash = contextHash;
         if (checked && matchAnswer) {
-          options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
+          showOutcomeNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
           options.completeTalk(talk, answers, 'match');
         } else {
-          options.showNotification(text('responseTagIgnored', 'Tag ignored - no match'), 'info');
+          showOutcomeNotification(text('responseTagIgnored', 'Tag ignored - no match'), 'info');
           options.completeTalk(talk, answers, 'mismatch');
         }
       }
@@ -535,6 +543,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   let currentQuestion = talk.questions.find((question: any) => question.id === draft?.currentQuestionId) || talk.questions[0];
   const answers: ResponseDraft['answers'] =
     draft?.answers || [];
+  let practiceReuseAnnounced = false;
 
   // matchThreshold-mode route (spec §30.2 multi-spec matching): each of the root's direct
   // children is an independent spec to walk in sequence, order the author declared them in —
@@ -650,11 +659,18 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           mode: 'auto',
           ...(savedPreference.contextHash ? { contextHash: savedPreference.contextHash } : {}),
         });
-        options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
+        showOutcomeNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
         clearResponseDraft(talk);
         options.completeTalk(talk, answers, 'mismatch', { withholdFromSender: true });
         closeModal();
         return;
+      }
+      if (talk?.practiceOnly === true && !practiceReuseAnnounced) {
+        practiceReuseAnnounced = true;
+        options.showNotification(
+          text('practiceBotAutoAnswered', 'Your bot reused an approved answer and moved to what is new.'),
+          'info',
+        );
       }
       if (savedPreference.answerIds && savedPreference.answerIds.length > 0) {
         // Spec §3.4 FR-QA-15/16, §30.8: a resolved multi-select ("pick any that apply")
@@ -680,10 +696,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         if (checkIfMatch(talk, answers)) {
           clearResponseDraft(talk);
           options.completeTalk(talk, answers, 'match');
-          options.showNotification(text('responseMatchAuto', 'Match! You both noticed each other. (auto)'), 'success');
+          showOutcomeNotification(text('responseMatchAuto', 'Match! You both noticed each other. (auto)'), 'success');
           closeModal();
         } else {
-          options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
+          showOutcomeNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
           completeAndClose();
         }
         return;
@@ -720,14 +736,14 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         if (answer.isIgnore) {
           // Flow/route: an asker-designed terminal/mismatch branch — a real, complete
           // answer; the sender still receives it (unlike the dedicated-ignore case above).
-          options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
+          showOutcomeNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
           completeAndClose();
           return;
         }
         if (answer.isMatch) {
           clearResponseDraft(talk);
           options.completeTalk(talk, answers, 'match');
-          options.showNotification(text('responseMatchAuto', 'Match! You both noticed each other. (auto)'), 'success');
+          showOutcomeNotification(text('responseMatchAuto', 'Match! You both noticed each other. (auto)'), 'success');
           closeModal();
           return;
         }
@@ -919,7 +935,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         // bookkeeping (this device's own history) still happens via completeTalk. Stays a
         // hard stop even in matchThreshold-route mode — an explicit opt-out on one spec is a
         // decision to withhold the whole response, not "this one spec didn't match."
-        options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
+        showOutcomeNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
         clearResponseDraft(talk);
         options.completeTalk(talk, answers, 'mismatch', { withholdFromSender: true });
         closeModal();
@@ -948,12 +964,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       } else if (isMatch) {
         clearResponseDraft(talk);
         options.completeTalk(talk, answers, 'match');
-        options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
+        showOutcomeNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
         closeModal();
       } else if (isIgnore || isTerminal) {
         // Flow/route: the asker designed this branch to terminate here (e.g. a "No"
         // answer) — a real, complete answer; the sender still receives it.
-        if (isIgnore) options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
+        if (isIgnore) showOutcomeNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
         completeAndClose();
       } else if (nextQuestionId) {
         const nextQ = talk.questions.find((q: any) => q.id === nextQuestionId);
@@ -1020,7 +1036,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       if (checkIfMatch(talk, answers)) {
         clearResponseDraft(talk);
         options.completeTalk(talk, answers, 'match');
-        options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
+        showOutcomeNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
         closeModal();
       } else {
         completeAndClose();

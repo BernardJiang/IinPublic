@@ -56,7 +56,7 @@ function makeDeps(overrides: Partial<DisplayTalksListDeps> = {}): DisplayTalksLi
     pickIncomingRowTalkId: (cluster) => String(cluster?.latestTalkId || ''),
     showTalkEditorDialog: jest.fn(),
     showTalkTemplatePicker: jest.fn(),
-    openStarterTalk: jest.fn(),
+    openStarterPracticeBot: jest.fn(),
     navigateToGraphNode: jest.fn(),
     showChooseWhoToDmPicker: jest.fn(),
     emit: jest.fn(),
@@ -109,8 +109,8 @@ describe('displayTalksList', () => {
     renderFresh(deps);
 
     expect(document.querySelector('[data-testid="talks-starter-shelf"]')).not.toBeNull();
-    document.querySelector<HTMLButtonElement>('[data-testid="talks-starter-sharedInterest"]')?.click();
-    expect(deps.openStarterTalk).toHaveBeenCalledWith('sharedInterest');
+    document.querySelector<HTMLButtonElement>('[data-testid="starter-practice-builder"]')?.click();
+    expect(deps.openStarterPracticeBot).toHaveBeenCalledWith('builder');
     document.querySelector<HTMLButtonElement>('[data-testid="talks-starter-more"]')?.click();
     expect(deps.showTalkTemplatePicker).toHaveBeenCalledTimes(1);
     document.querySelector<HTMLButtonElement>('[data-testid="talks-starter-scratch"]')?.click();

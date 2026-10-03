@@ -5,7 +5,11 @@ import { getTalkContentKey } from './answer-history-storage';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 import type { CreatorReplyRow } from './creator-replies-view';
 import { getMyTalks } from './my-talks-storage';
-import { FEATURED_TALK_TEMPLATES, type TalkTemplateId } from './talk-templates';
+import {
+  getStarterPracticeProgress,
+  STARTER_PRACTICE_BOTS,
+  type StarterPracticeBotId,
+} from './starter-practice-bots';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderListProgressively } from './render-list-progressively';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
@@ -87,7 +91,7 @@ export type DisplayTalksListDeps = {
   pickIncomingRowTalkId: (cluster: any) => string;
   showTalkEditorDialog: (existingTalk?: any) => void;
   showTalkTemplatePicker: () => void;
-  openStarterTalk: (templateId: TalkTemplateId) => void;
+  openStarterPracticeBot: (botId: StarterPracticeBotId) => void;
   navigateToGraphNode: (target: PersonTarget) => void;
   showChooseWhoToDmPicker: (people: Array<{ id: string; name: string }>) => void;
   emit: (event: string, payload: unknown) => unknown;
@@ -199,6 +203,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
 
   // Sort all talks by last interaction
   const allEntries = Object.entries(myTalks)
+    .filter(([, talk]: [string, any]) => talk?.fullTalk?.practiceOnly !== true)
     .sort(
       ([, a]: [string, any], [, b]: [string, any]) =>
         new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime(),
@@ -387,11 +392,20 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
 
   if (filteredOutEntries.length === 0 && inEntries.length === 0) {
     const hasTalkHistory = allEntries.length > 0 || rawIncomingEntries.length > 0;
-    const starterCards = FEATURED_TALK_TEMPLATES.map((template) => `
-      <button type="button" class="talks-starter-card" data-starter-template-id="${template.id}" data-testid="talks-starter-${template.id}">
-        <span class="talks-starter-icon" aria-hidden="true">${template.icon}</span>
-        <span><strong>${escapeHtml(deps.t(template.labelKey))}</strong><small>${escapeHtml(deps.t(template.descKey))}</small></span>
-      </button>`).join('');
+    const practiceLocale = deps.getPreferredTalkLanguage() === 'zh' ? 'zh' : 'en';
+    const starterCards = STARTER_PRACTICE_BOTS.map((bot) => {
+      const progress = getStarterPracticeProgress(bot, practiceLocale, myTalks);
+      const action = progress.completed >= progress.total
+        ? deps.t('practiceBotDone')
+        : progress.completed > 0
+          ? deps.tf('practiceBotContinue', { completed: progress.completed, total: progress.total })
+          : deps.t('practiceBotStart');
+      return `
+      <button type="button" class="talks-starter-card starter-practice-card" data-practice-bot-id="${bot.id}" data-testid="starter-practice-${bot.id}">
+        <span class="talks-starter-icon" aria-hidden="true">${bot.icon}</span>
+        <span><strong>${escapeHtml(deps.t(bot.nameKey))}</strong><small>${escapeHtml(deps.t(bot.descKey))}</small><small class="starter-practice-action">${escapeHtml(action)}</small></span>
+      </button>`;
+    }).join('');
     talksList.innerHTML = hasTalkHistory ? `
       <div class="empty-state" style="padding: 60px 20px; text-align: center;">
         <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
@@ -412,10 +426,10 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         </div>
       </section>
     `;
-    talksList.querySelectorAll<HTMLElement>('[data-starter-template-id]').forEach((card) => {
+    talksList.querySelectorAll<HTMLElement>('[data-practice-bot-id]').forEach((card) => {
       card.addEventListener('click', () => {
-        const id = card.dataset.starterTemplateId as TalkTemplateId | undefined;
-        if (id) deps.openStarterTalk(id);
+        const id = card.dataset.practiceBotId as StarterPracticeBotId | undefined;
+        if (id) deps.openStarterPracticeBot(id);
       });
     });
     talksList.querySelector('#talks-starter-more')?.addEventListener('click', deps.showTalkTemplatePicker);
