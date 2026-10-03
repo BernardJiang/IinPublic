@@ -97,6 +97,8 @@ type PeerLink = {
   localReady: boolean;
   remoteReady: boolean;
   cooldownUntil: number;
+  /** Why the last upgrade attempt ended (diagnostics). */
+  lastReason: string | null;
   timers: Set<ReturnType<typeof setTimeout>>;
   upgradeTimer: ReturnType<typeof setTimeout> | null;
   unsubscribe: () => void;
@@ -127,6 +129,13 @@ export type WifiDirectLinkServiceOptions = {
 };
 
 const BUSY_COOLDOWN_MS = 30_000;
+/** Collisions and channel blips, not radio failures: retry soon instead of after the long
+ *  cooldown (seen on hardware — a boot-time DataChannel blip parked a pair for 10 minutes). */
+const TRANSIENT_REASONS = new Set(['busy', 'cooldown', 'send-failed', 'session-lost']);
+
+function isTransientReason(reason: string): boolean {
+  return TRANSIENT_REASONS.has(reason.startsWith('remote:') ? reason.slice('remote:'.length) : reason);
+}
 
 /**
  * Upgrades non-LAN WebRTC sessions between two Android peers to a Wi-Fi Direct link
@@ -165,6 +174,7 @@ export class WifiDirectLinkService {
       localReady: false,
       remoteReady: false,
       cooldownUntil: 0,
+      lastReason: null,
       timers: new Set(),
       upgradeTimer: null,
       unsubscribe: () => undefined,
@@ -185,10 +195,19 @@ export class WifiDirectLinkService {
   }
 
   /** Per-session snapshot for device debugging (`window.__iinpublicWifiDirectLink`). */
-  async getDiagnostics(): Promise<Array<{ userId: string; initiator: boolean; session: P2PConnectionState; phase: Phase; path: SelectedPathKind; pair: SelectedCandidatePair | null }>> {
+  async getDiagnostics(): Promise<Array<{ userId: string; initiator: boolean; session: P2PConnectionState; phase: Phase; path: SelectedPathKind; pair: SelectedCandidatePair | null; lastReason: string | null; cooldownSeconds: number }>> {
     return Promise.all([...this.peers.values()].map(async (peer) => {
       const pair = await peer.session.getSelectedCandidatePair();
-      return { userId: peer.session.otherUserId, initiator: peer.session.isInitiator, session: peer.session.getState(), phase: peer.phase, path: classifySelectedPath(pair), pair };
+      return {
+        userId: peer.session.otherUserId,
+        initiator: peer.session.isInitiator,
+        session: peer.session.getState(),
+        phase: peer.phase,
+        path: classifySelectedPath(pair),
+        pair,
+        lastReason: peer.lastReason,
+        cooldownSeconds: Math.max(0, Math.round((peer.cooldownUntil - this.now()) / 1000)),
+      };
     }));
   }
 
@@ -218,10 +237,13 @@ export class WifiDirectLinkService {
     }
     if (state === 'failed' || state === 'idle') {
       if (peer.phase === 'active') {
-        // Link lost: the next connection must use the normal ICE servers again.
+        // Link lost: reconnect on the normal ICE servers ourselves — the mesh only retries a dead
+        // session when it next sends, so without this the pair stayed down (seen on hardware when
+        // the group owner removed the group). Once connected, evaluate() may re-elect a host.
         this.clearOverride(peer);
         this.setPhase(peer, 'idle');
         this.maybeScheduleTeardown();
+        if (state === 'failed') void peer.session.reconnect().catch(() => undefined);
       } else if (this.isUpgrading(peer)) {
         this.fail(peer, 'session-lost', { notify: false });
       }
@@ -298,8 +320,12 @@ export class WifiDirectLinkService {
       return { role: 'owner', ...ownerCredentials(state) };
     }
     if (state.state === 'client' && state.networkName) {
+      // Re-share only while a link over the group is live: Android keeps reporting "client" for a
+      // while after the owner removes the group, and re-sharing those dead credentials sent a third
+      // phone scanning for a group that no longer existed (seen on hardware).
+      const groupAlive = [...this.peers.values()].some((peer) => peer.phase === 'active');
       const joined = [...this.peers.values()].find((peer) => peer.joining?.networkName === state.networkName)?.joining;
-      if (joined) return { role: 'client', ...joined };
+      if (joined && groupAlive) return { role: 'client', ...joined };
     }
     return null;
   }
@@ -489,8 +515,12 @@ export class WifiDirectLinkService {
           this.fail(peer, `join-group:${state.reason ?? 'failed'}`);
         }
       } else if (peer.phase === 'active' && (state.state === 'idle' || state.state === 'failed')) {
-        // Group gone; WebRTC will fall back to another ICE pair or reconnect on its own.
+        // Group gone: the relay-only connection is dead too. This event usually arrives before the
+        // session notices, so drop the override and reconnect on normal ICE now — otherwise the
+        // pair stayed failed (seen on hardware). evaluate() then re-elects a host.
+        this.clearOverride(peer);
         this.setPhase(peer, 'idle');
+        void peer.session.reconnect().catch(() => undefined);
       }
     }
     if (state.state === 'idle' || state.state === 'failed') {
@@ -515,7 +545,8 @@ export class WifiDirectLinkService {
   private fail(peer: PeerLink, reason: string, options: { notify?: boolean } = {}): void {
     if (!this.isUpgrading(peer)) return;
     const linkId = peer.linkId;
-    peer.cooldownUntil = this.now() + (reason === 'remote:busy' ? BUSY_COOLDOWN_MS : this.opts.retryCooldownMs ?? WIFI_DIRECT_RETRY_COOLDOWN_MS);
+    peer.lastReason = reason;
+    peer.cooldownUntil = this.now() + (isTransientReason(reason) ? BUSY_COOLDOWN_MS : this.opts.retryCooldownMs ?? WIFI_DIRECT_RETRY_COOLDOWN_MS);
     this.clearTimers(peer);
     this.finishUpgrade(peer, 'cooldown', reason);
     if (this.clearOverride(peer) && peer.session.getState() !== 'connected') {

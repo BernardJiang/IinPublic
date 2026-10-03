@@ -61,6 +61,16 @@ describe('Wi-Fi Direct host election', () => {
     }
   });
 
+  test('an Android 7–9 device never joins an existing group (would need the owner prompt)', async () => {
+    const legacy = { ...idle, joinByCredential: false };
+    const [a, b] = await plans(legacy, { ...idle, group: { ...group, role: 'owner' } });
+    expect(a).toEqual({ action: 'abort', reason: 'legacy-cannot-join-group' });
+    expect(b).toEqual({ action: 'abort', reason: 'legacy-cannot-join-group' });
+    // …but it still hosts a new group for an Android 10+ peer.
+    const [c] = await plans(legacy, idle);
+    expect(c).toEqual({ action: 'host', reuseExisting: false });
+  });
+
   test('same group → already linked; different groups are not bridged', async () => {
     const [a] = await plans({ ...idle, group: { ...group, role: 'owner' } }, { ...idle, group: { ...group, role: 'client' } });
     expect(a).toEqual({ action: 'already-linked' });
@@ -249,7 +259,7 @@ class FakeNative implements WifiDirectNative {
   leaveGroup(): void { this.calls.push('leave'); this.emit({ state: 'idle' }); }
   getState() { return this.state; }
   onState(listener: (state: WifiDirectNativeState) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
-  private emit(state: WifiDirectNativeState) { this.state = state; for (const l of this.listeners) l(state); }
+  emit(state: WifiDirectNativeState) { this.state = state; for (const l of this.listeners) l(state); }
 }
 
 function setup(options: { path?: PathRef['kind']; capsB?: { wifiDirect: boolean; joinByCredential: boolean; hostScore: number } } = {}) {
@@ -355,6 +365,25 @@ describe('WifiDirectLinkService', () => {
     }
   });
 
+  test('a transient failure (send-failed) retries after the short cooldown, then links', async () => {
+    const t = setup();
+    // First hello from A fails to send (boot-time DataChannel blip), later ones go through.
+    const realSend = t.sessionA.sendLinkUpgradeMessage.bind(t.sessionA);
+    let failures = 1;
+    t.sessionA.sendLinkUpgradeMessage = async (message: unknown) => {
+      if (failures > 0) { failures -= 1; throw new Error('DataChannel not open'); }
+      return realSend(message);
+    };
+    try {
+      await waitFor(() => t.serviceA.getPhase('bob') === 'cooldown');
+      const diag = await t.serviceA.getDiagnostics();
+      expect(diag[0]!.lastReason).toBe('send-failed');
+      expect(diag[0]!.cooldownSeconds).toBeLessThanOrEqual(30);
+    } finally {
+      t.serviceA.dispose(); t.serviceB.dispose();
+    }
+  });
+
   test('group creation failure aborts both sides without touching the path', async () => {
     const t = setup();
     t.radioA.failCreate = true;
@@ -386,14 +415,37 @@ describe('WifiDirectLinkService', () => {
     }
   });
 
-  test('session loss after linking releases the group after the idle window', async () => {
+  test('session drop with the group still up: reconnect on normal ICE, then re-link over the same group', async () => {
     const t = setup();
     try {
       await waitFor(() => t.serviceA.getPhase('bob') === 'active' && t.serviceB.getPhase('alice') === 'active');
-      t.sessionA.state = 'failed';
-      (t.sessionA as unknown as { listeners: Set<(s: P2PConnectionState) => void> }).listeners.forEach((l) => l('failed'));
-      await waitFor(() => t.radioA.calls.includes('leave'));
-      expect(t.serviceA.getPhase('bob')).toBe('idle');
+      t.sessionA.emit('failed');
+      // The lost link is reconnected on normal ICE (the mesh would not retry until it sends)…
+      await waitFor(() => t.sessionA.overrideCalls.includes(null) && t.sessionA.reconnects >= 2);
+      // …and the next evaluation finds both still in the group: relay switch only, no new group.
+      await waitFor(() => t.sessionA.reconnects >= 3 && t.serviceA.getPhase('bob') === 'active' && t.serviceB.getPhase('alice') === 'active');
+      expect(t.radioA.calls.filter((call) => call === 'create')).toHaveLength(1);
+      expect(t.radioB.calls.filter((call) => call.startsWith('join'))).toHaveLength(1);
+      expect(t.path.kind).toBe('wifi-direct');
+    } finally {
+      t.serviceA.dispose(); t.serviceB.dispose();
+    }
+  });
+
+  test('owner removes the group: both reconnect on normal ICE, re-elect and form a new group', async () => {
+    const t = setup();
+    try {
+      await waitFor(() => t.serviceA.getPhase('bob') === 'active' && t.serviceB.getPhase('alice') === 'active');
+      // Hardware sequence: radios report the group gone, then the relay-only connection dies.
+      FakeNative.owned = null;
+      t.radioA.emit({ state: 'idle' });
+      t.radioB.emit({ state: 'idle' });
+      t.sessionA.emit('failed');
+      t.sessionB.emit('failed');
+      await waitFor(() => t.radioA.calls.filter((call) => call === 'create').length === 2, 3_000);
+      await waitFor(() => t.serviceA.getPhase('bob') === 'active' && t.serviceB.getPhase('alice') === 'active', 3_000);
+      expect(t.radioB.calls.filter((call) => call.startsWith('join'))).toHaveLength(2);
+      expect(t.path.kind).toBe('wifi-direct');
     } finally {
       t.serviceA.dispose(); t.serviceB.dispose();
     }

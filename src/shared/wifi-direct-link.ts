@@ -14,7 +14,7 @@ export const WIFI_DIRECT_LINK_PROTOCOL_VERSION = 1;
 /** Wait this long after a session connects before judging its path (ICE may still be settling). */
 export const WIFI_DIRECT_PATH_DECISION_DELAY_MS = 3_000;
 /** Whole upgrade (hello → group → join → ICE restart → verified path) must finish within this. */
-export const WIFI_DIRECT_UPGRADE_TIMEOUT_MS = 60_000;
+export const WIFI_DIRECT_UPGRADE_TIMEOUT_MS = 100_000; // native join: hinted 35 s + unhinted retry 35 s
 /** After a failed upgrade with a peer, do not retry it for this long. */
 export const WIFI_DIRECT_RETRY_COOLDOWN_MS = 10 * 60_000;
 /** Remove an owned/joined group once no linked peer has used it for this long. */
@@ -95,9 +95,15 @@ export async function planWifiDirectLink(params: {
     if (localGroup.networkName === remoteGroup.networkName) return { action: 'already-linked' };
     return { action: 'abort', reason: 'both-in-different-groups' };
   }
-  if (remoteGroup) return { action: 'join', credentials: stripRole(remoteGroup) };
+  if (remoteGroup) {
+    // Android 7–9 can only join an existing group via classic negotiation, which needs the owner's
+    // real device address (Android 10+ owners only see the 02:00:00:00:00:00 placeholder) and pops
+    // an accept prompt on the owner. Keep that pair on its current path instead (found on hardware).
+    if (!local.joinByCredential) return { action: 'abort', reason: 'legacy-cannot-join-group' };
+    return { action: 'join', credentials: stripRole(remoteGroup) };
+  }
   // Remote joins the local group; a local *client* re-shares the credentials it joined with.
-  if (localGroup) return { action: 'host', reuseExisting: true };
+  if (localGroup) return remote.joinByCredential ? { action: 'host', reuseExisting: true } : { action: 'abort', reason: 'legacy-cannot-join-group' };
 
   if (!local.canHost && !remote.canHost) return { action: 'abort', reason: 'no-host-capable-peer' };
   if (local.canHost && !remote.canHost) return { action: 'host', reuseExisting: false };
