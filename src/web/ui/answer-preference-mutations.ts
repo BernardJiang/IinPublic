@@ -23,14 +23,17 @@ import {
 } from '../../shared/exact-chatbot-memory';
 import { escapeHtml } from './ui-formatters';
 import type { UiTranslationKey } from './ui-translations';
+import { getAutoAnswerScope, type AutoAnswerScope } from './ui-settings-storage';
 
-export function normalizePreferenceMode(mode: string, contextVersion?: number): AnswerPreferenceUiMode {
+export type StoredAnswerPreferenceMode = 'manual' | 'temporary' | 'whenever';
+
+export function normalizePreferenceMode(mode: string, contextVersion?: number): StoredAnswerPreferenceMode {
   if (mode === 'whenever') return 'whenever';
   if ((mode === 'auto' || mode === 'temporary') && contextVersion === 2) return 'temporary';
   return 'manual';
 }
 
-export function applyPreferenceModeToExactMemory(pref: AnswerPreferenceEntry, _mode: AnswerPreferenceUiMode): void {
+export function applyPreferenceModeToExactMemory(pref: AnswerPreferenceEntry, _mode: StoredAnswerPreferenceMode): void {
   const questionText = String(pref.questionText || '').trim();
   if (!questionText) return;
   const exactMemory = getExactChatbotMemory();
@@ -92,6 +95,57 @@ export function getAnswerPreferencesForDisplay(): AnswerPreferenceMap {
     }),
   );
   return { ...unlinkedRegular, ...flattened };
+}
+
+function updateAnswerPreferenceMode(key: string, mode: StoredAnswerPreferenceMode): boolean {
+  const aliases = findPreferenceAliases(key);
+  if (!aliases.preference) return false;
+  const timestamp = new Date().toISOString();
+  const previousMode = normalizePreferenceMode(aliases.preference.mode, aliases.preference.contextVersion);
+  const regular = getAnswerPreferences();
+  const flattened = getFlattenedAnswerPreferences();
+  for (const regularKey of aliases.regularKeys) {
+    regular[regularKey] = { ...regular[regularKey], mode, timestamp };
+  }
+  for (const flattenedKey of aliases.flattenedKeys) {
+    if (mode === 'whenever') delete flattened[flattenedKey];
+    else flattened[flattenedKey] = { ...flattened[flattenedKey], mode, timestamp };
+  }
+  if (mode === 'temporary' && aliases.preference.flatKey && !flattened[aliases.preference.flatKey]) {
+    flattened[aliases.preference.flatKey] = { ...aliases.preference, mode, timestamp };
+  }
+  setAnswerPreferences(regular);
+  setFlattenedAnswerPreferences(flattened);
+  if (aliases.preference.questionDefaultKey) {
+    const defaults = getQuestionDefaultContracts();
+    const answerHash = aliases.preference.answerIdentityHash || buildAnswerIdentityHash(aliases.preference.answerText);
+    if (previousMode === 'whenever') {
+      removeQuestionDefault(defaults, aliases.preference.questionDefaultKey, answerHash);
+    }
+    if (mode === 'whenever') {
+      putQuestionDefault(defaults, {
+        questionKey: aliases.preference.questionDefaultKey,
+        questionText: aliases.preference.questionText || '',
+        language: aliases.preference.language,
+        selectionMode: aliases.preference.answerSelectionMode || 'single',
+        answerText: aliases.preference.answerText,
+        updatedAt: timestamp,
+      });
+    }
+    setQuestionDefaultContracts(defaults);
+  }
+  applyPreferenceModeToExactMemory({ ...aliases.preference, mode, timestamp }, mode);
+  return true;
+}
+
+/** Apply the device-wide Auto rule to every existing reusable single-answer preference. */
+export function applyAutoAnswerScopeToStoredPreferences(scope: AutoAnswerScope): void {
+  const mode: StoredAnswerPreferenceMode = scope === 'whenever' ? 'whenever' : 'temporary';
+  for (const [key, preference] of Object.entries(getAnswerPreferencesForDisplay())) {
+    if (preference.answerSelectionMode === 'multiple') continue;
+    if (normalizePreferenceMode(preference.mode, preference.contextVersion) === 'manual') continue;
+    updateAnswerPreferenceMode(key, mode);
+  }
 }
 
 export function deleteAnswerPreference(key: string): void {
@@ -185,45 +239,16 @@ export function openAnswerPreferencesDialog(deps: OpenAnswerPreferencesDialogDep
       applyPreferenceModeToExactMemory(updated, normalizePreferenceMode(updated.mode, updated.contextVersion));
       deps.showNotification(deps.t('preferencesAnswerUpdated'), 'success');
     },
-    updateMode: (key, mode) => {
+    updateMode: (key, uiMode: AnswerPreferenceUiMode) => {
       const aliases = findPreferenceAliases(key);
       if (!aliases.preference) return;
-      const timestamp = new Date().toISOString();
-      const previousMode = normalizePreferenceMode(aliases.preference.mode, aliases.preference.contextVersion);
-      const regular = getAnswerPreferences();
-      const flattened = getFlattenedAnswerPreferences();
-      for (const regularKey of aliases.regularKeys) {
-        regular[regularKey] = { ...regular[regularKey], mode, timestamp };
-      }
-      for (const flattenedKey of aliases.flattenedKeys) {
-        if (mode === 'whenever') delete flattened[flattenedKey];
-        else flattened[flattenedKey] = { ...flattened[flattenedKey], mode, timestamp };
-      }
-      if (mode === 'temporary' && aliases.preference.flatKey && !flattened[aliases.preference.flatKey]) {
-        flattened[aliases.preference.flatKey] = { ...aliases.preference, mode, timestamp };
-      }
-      setAnswerPreferences(regular);
-      setFlattenedAnswerPreferences(flattened);
-      if (aliases.preference.questionDefaultKey) {
-        const defaults = getQuestionDefaultContracts();
-        const answerHash = aliases.preference.answerIdentityHash || buildAnswerIdentityHash(aliases.preference.answerText);
-        if (previousMode === 'whenever') {
-          removeQuestionDefault(defaults, aliases.preference.questionDefaultKey, answerHash);
-        }
-        if (mode === 'whenever') {
-          putQuestionDefault(defaults, {
-            questionKey: aliases.preference.questionDefaultKey,
-            questionText: aliases.preference.questionText || '',
-            language: aliases.preference.language,
-            selectionMode: aliases.preference.answerSelectionMode || 'single',
-            answerText: aliases.preference.answerText,
-            updatedAt: timestamp,
-          });
-        }
-        setQuestionDefaultContracts(defaults);
-      }
-      applyPreferenceModeToExactMemory({ ...aliases.preference, mode, timestamp }, mode);
-      const noticeKey: Record<AnswerPreferenceUiMode, UiTranslationKey> = {
+      const mode: StoredAnswerPreferenceMode = uiMode === 'manual'
+        ? 'manual'
+        : aliases.preference.answerSelectionMode !== 'multiple' && getAutoAnswerScope() === 'whenever'
+          ? 'whenever'
+          : 'temporary';
+      updateAnswerPreferenceMode(key, mode);
+      const noticeKey: Record<StoredAnswerPreferenceMode, UiTranslationKey> = {
         manual: 'preferencesModeChangedManual',
         temporary: 'preferencesModeChangedTemporary',
         whenever: 'preferencesModeChangedWhenever',

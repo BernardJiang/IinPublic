@@ -158,14 +158,18 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
   });
 
-  test('Whenever offered keeps ordered Apple/Kiwi defaults across different choice sets', async () => {
+  test('the global Whenever offered setting keeps ordered Apple/Kiwi defaults across choice sets', async () => {
     const p = page!;
     const modal = p.locator('#talk-response-modal');
     await p.setViewportSize({ width: 320, height: 760 });
+    await p.evaluate(() => localStorage.setItem('iinpublic_auto_answer_scope', 'whenever'));
 
     // Bob explicitly contracts Apple without creating hashes for possible future subsets.
     await openResponseDialog(p, syntheticFruitTalk('default-apple', ['Apple', 'Banana', 'Pears']));
-    await expect(modal).toContainText('Whenever offered');
+    await expect(modal).toContainText('Auto');
+    await expect(modal).toContainText('Manual');
+    await expect(modal).not.toContainText('Same context');
+    await expect(modal).not.toContainText('Whenever offered');
     const gridMetrics = await modal.locator('.answer-radio-grid').evaluate((grid) => ({
       clientWidth: grid.clientWidth,
       scrollWidth: grid.scrollWidth,
@@ -189,12 +193,12 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await modal.locator('#review-edit-btn').click();
     await modal.locator('[data-testid="close-response-btn"]').click();
 
-    // A four-choice set also starts with Apple. Bob edits it and explicitly promotes Kiwi;
-    // choosing Whenever offered moves Kiwi ahead of Apple while retaining Apple as fallback.
+    // A four-choice set also starts with Apple. Bob edits it and promotes Kiwi with Auto;
+    // the global Whenever offered scope moves Kiwi ahead of Apple while retaining Apple.
     await openResponseDialog(p, syntheticFruitTalk('four-with-kiwi', ['Apple', 'Banana', 'Pears', 'Kiwi']));
     await expect(modal.locator('input[data-answer-text="Apple"]')).toBeChecked();
     await modal.locator('input[data-answer-text="Kiwi"]').click();
-    await modal.locator('.review-mode-select').selectOption('whenever');
+    await modal.locator('.review-mode-select').selectOption('auto');
     await modal.locator('#review-submit-btn').click();
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
 

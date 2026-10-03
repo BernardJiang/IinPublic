@@ -6,12 +6,14 @@ jest.mock('../../web/ui/preferences-dialog', () => ({
 
 import {
   applyPreferenceModeToExactMemory,
+  applyAutoAnswerScopeToStoredPreferences,
   deleteAnswerPreference,
   getAnswerPreferencesForDisplay,
   normalizePreferenceMode,
   openAnswerPreferencesDialog,
   type OpenAnswerPreferencesDialogDeps,
 } from '../../web/ui/answer-preference-mutations';
+import { setAutoAnswerScope } from '../../web/ui/ui-settings-storage';
 import { showPreferencesDialog as showPreferencesDialogMock } from '../../web/ui/preferences-dialog';
 import {
   getAnswerPreferences,
@@ -216,7 +218,7 @@ describe('openAnswerPreferencesDialog', () => {
     setAnswerPreferences({ k1: pref({ mode: 'manual', contextVersion: 2 }) });
     const d = deps();
     openAnswerPreferencesDialog(d);
-    capturedOptions().updateMode('k1', 'temporary');
+    capturedOptions().updateMode('k1', 'auto');
     expect(getAnswerPreferences().k1.mode).toBe('temporary');
     expect(d.showNotification).toHaveBeenCalledWith('preferencesModeChangedTemporary', 'success');
   });
@@ -225,7 +227,7 @@ describe('openAnswerPreferencesDialog', () => {
     setAnswerPreferences({ legacy_k1: pref({ flatKey: 'flat_k1', contextVersion: 2 }) });
     setFlattenedAnswerPreferences({ flat_k1: pref({ flatKey: 'flat_k1', contextVersion: 2 }) });
     openAnswerPreferencesDialog(deps());
-    capturedOptions().updateMode('flat_k1', 'temporary');
+    capturedOptions().updateMode('flat_k1', 'auto');
     expect(getFlattenedAnswerPreferences().flat_k1.mode).toBe('temporary');
     expect(getAnswerPreferences().legacy_k1.mode).toBe('temporary');
   });
@@ -243,13 +245,58 @@ describe('openAnswerPreferencesDialog', () => {
     const d = deps();
     openAnswerPreferencesDialog(d);
 
-    capturedOptions().updateMode('k1', 'whenever');
+    setAutoAnswerScope('whenever');
+    capturedOptions().updateMode('k1', 'auto');
     expect(getAnswerPreferences().k1.mode).toBe('whenever');
     expect(Object.values(getQuestionDefaultContracts())[0]?.answers.map((answer) => answer.answerText))
       .toEqual(['Yes']);
     expect(d.showNotification).toHaveBeenCalledWith('preferencesModeChangedWhenever', 'success');
 
     capturedOptions().updateMode('k1', 'manual');
+    expect(getQuestionDefaultContracts()).toEqual({});
+  });
+
+  it('keeps multi-select Auto preferences context-bound under a global Whenever offered scope', () => {
+    setAnswerPreferences({
+      k1: pref({ mode: 'manual', contextVersion: 2, answerSelectionMode: 'multiple' }),
+    });
+    setAutoAnswerScope('whenever');
+    openAnswerPreferencesDialog(deps());
+
+    capturedOptions().updateMode('k1', 'auto');
+
+    expect(getAnswerPreferences().k1.mode).toBe('temporary');
+    expect(getQuestionDefaultContracts()).toEqual({});
+  });
+
+  it('migrates every existing Auto preference when the global scope changes', () => {
+    setAnswerPreferences({
+      k1: pref({
+        mode: 'temporary',
+        contextVersion: 2,
+        flatKey: 'flat_context',
+        questionDefaultKey: 'question-default-key',
+        answerIdentityHash: buildAnswerIdentityHash('Yes'),
+      }),
+    });
+    setFlattenedAnswerPreferences({
+      flat_context: pref({
+        mode: 'temporary',
+        contextVersion: 2,
+        flatKey: 'flat_context',
+        questionDefaultKey: 'question-default-key',
+        answerIdentityHash: buildAnswerIdentityHash('Yes'),
+      }),
+    });
+
+    applyAutoAnswerScopeToStoredPreferences('whenever');
+    expect(getAnswerPreferences().k1.mode).toBe('whenever');
+    expect(getFlattenedAnswerPreferences()).toEqual({});
+    expect(Object.values(getQuestionDefaultContracts())[0]?.answers[0]?.answerText).toBe('Yes');
+
+    applyAutoAnswerScopeToStoredPreferences('same-context');
+    expect(getAnswerPreferences().k1.mode).toBe('temporary');
+    expect(getFlattenedAnswerPreferences().flat_context.mode).toBe('temporary');
     expect(getQuestionDefaultContracts()).toEqual({});
   });
 

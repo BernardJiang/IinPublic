@@ -24,6 +24,23 @@ export function setChatbotEnabled(enabled: boolean): void {
   localStorage.setItem('chatbotEnabled', String(enabled));
 }
 
+export type AutoAnswerScope = 'same-context' | 'whenever';
+
+/** One device-wide rule for every answer marked Auto. */
+export function getAutoAnswerScope(): AutoAnswerScope {
+  return localStorage.getItem('iinpublic_auto_answer_scope') === 'whenever'
+    ? 'whenever'
+    : 'same-context';
+}
+
+export function setAutoAnswerScope(scope: AutoAnswerScope): void {
+  localStorage.setItem('iinpublic_auto_answer_scope', scope);
+}
+
+export function getAutoAnswerPreferenceMode(): 'auto' | 'whenever' {
+  return getAutoAnswerScope() === 'whenever' ? 'whenever' : 'auto';
+}
+
 /**
  * docs/TODO.md §BB: one-time opt-in consent to let the chatbot auto-resolve a `location`
  * builtIn question using this device's own blurred location — opt-IN (default false), unlike

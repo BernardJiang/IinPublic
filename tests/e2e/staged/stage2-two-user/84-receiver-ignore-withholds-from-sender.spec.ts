@@ -109,8 +109,8 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     await expect(flowIncoming).toBeVisible({ timeout: 90000 });
     await flowIncoming.locator('button.view-talk-btn').click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
-    // The dedicated Ignore row — distinct from "Yes"/"No thanks", the talk's own answers.
-    await pageTom.locator('input.choice-radio.ignore-radio').first().click();
+    // The dedicated receiver-only Ignore action — distinct from the talk's own answers.
+    await pageTom.locator('[data-testid="receiver-ignore-btn"]').first().click();
     await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
 
     // Tom's local content ledger still records the choice, but Ignore is not a normal answer:
@@ -192,7 +192,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     // (not advance to S2), unlike a real answer (covered by 83-survey-ignore-mid-question-
     // not-complete.spec.ts, which proves a real per-question "ignore-flagged" author answer
     // DOES advance).
-    await pageTom.locator('input.choice-radio.ignore-radio').first().click();
+    await pageTom.locator('[data-testid="receiver-ignore-btn"]').first().click();
     await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
 
     // Tom's Ignored entry has exactly one sentinel choice — the Ignore pick on S1 itself —

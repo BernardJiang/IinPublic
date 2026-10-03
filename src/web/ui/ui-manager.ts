@@ -102,6 +102,7 @@ import {
 } from './answer-history-storage';
 import {
   getChatbotEnabled,
+  getAutoAnswerPreferenceMode,
   getChatbotTemplate as loadChatbotTemplate,
   getCopyTalkAutoSave,
   getDefaultTalkLanguagePreference,
@@ -2326,6 +2327,8 @@ export class UIManager extends EventEmitter {
     const talkId = String(talk?.id || '');
     openTalkResponseDialog({
       talk,
+      canIgnore: String(talk?.authorId || '') !== String(this.currentUser?.id || ''),
+      autoAnswerMode: getAutoAnswerPreferenceMode(),
       ...(options?.skipAutoAnswer !== undefined ? { skipAutoAnswer: options.skipAutoAnswer } : {}),
       ...(options?.isTalkSuperseded ? { isTalkSuperseded: true } : {}),
       ...(options?.senderName ? { senderName: options.senderName } : {}),

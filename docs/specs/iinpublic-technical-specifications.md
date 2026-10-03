@@ -269,7 +269,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 - **FR-QA-1**: All questions SHALL be simple text. A question is defined as a sentence or phrase that ends with `?`.
 - **FR-QA-2**: All answers SHALL be drawn from predefined options (binary, multiple choice, ranges, tags). An answer is defined as a sentence or phrase ending with `.` that follows a question.
-- **FR-QA-3**: Every question SHALL support **Ignore** as a mandatory answer option.
+- **FR-QA-3**: Every received question SHALL provide a separate **Ignore** action near the question. Ignore SHALL be receiver-only, SHALL NOT be authored as one of the sender's answer modes, and SHALL withhold the response from the sender.
 - **FR-QA-4**: The system SHALL support two answer visibility attributes:
   - **Auto**: public, re-usable by the chatbot (`visibility: 'auto'`).
   - **Manual**: private, not re-used (`visibility: 'manual'`, SEA-encrypted).
@@ -277,8 +277,8 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-QA-6**: For manual answers, the chatbot MAY remind the user of their prior manual answer but SHALL NOT answer automatically.
 - **FR-QA-7 (Known-Context Memory)**: Chatbot reuse SHALL be pure deterministic logic: no AI, fuzzy matching, semantic matching, synonym matching, newest-history scan, or answer-presence fallback. It SHALL repeat only a choice saved under the identical version-2 context hash. All other situations SHALL be presented to the user.
 - **FR-QA-8 (Unified Question Context)**: Every question context SHALL include the normalized current question, the normalized order-insensitive complete choice set, answer-selection mode, language, and talk type. Flow/route contexts SHALL additionally include only the immediately preceding context hash and selected answer. The previous hash transitively commits to the complete earlier chain; implementations SHALL NOT rebuild the full chain to advance one step.
-- **FR-QA-9 (Contextual Reuse)**: A choice marked **Same context** SHALL be stored by its version-2 context hash. It MAY be repeated only on an exact hash match. Reordered choices SHALL match; any added, removed, or changed choice SHALL produce a different context and require user input.
-- **FR-QA-10 (Just Once)**: A choice marked **Just once** SHALL be used for the current response but SHALL NOT be selected automatically later.
+- **FR-QA-9 (Auto Reuse Scope)**: A choice marked **Auto** SHALL use the one global reuse scope selected in Settings. Under **Same context**, it SHALL be stored by its version-2 context hash and MAY be repeated only on an exact hash match. Under **Whenever offered**, it SHALL create or update the explicit question-default contract. Changing the global scope SHALL migrate existing Auto preferences; the scope SHALL NOT be selected separately for each question.
+- **FR-QA-10 (Manual)**: A choice marked **Manual** SHALL be used for the current response but SHALL NOT be selected automatically later.
 - **FR-QA-11 (Unknown and Legacy Contexts)**: Missing contexts, changed preceding answers, changed choice sets, and legacy records without a complete version-2 context SHALL return control to the user. The resolver SHALL NOT silently answer or skip them.
 - **FR-QA-12 (Auto-Use Metrics)**: Every chatbot auto-use of a saved answer SHALL record how many times that saved answer was used automatically and the latest auto-use timestamp. In distributed GUN storage, append-only use events SHALL be the source of truth; cached counters may be maintained for display.
 
@@ -293,7 +293,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 - **REQ-CHATBOT-04 — No silent re-submission after TALK_SUPERSEDED:** If the chatbot had previously auto-submitted to T1 without manual review, a review step is always forced for T2 — a change in the talk means the situation has materially changed and silent re-submission is not appropriate.
 
-- **REQ-CHATBOT-05 — Cache write-back:** A **Same context** choice writes `answerCache[contextHash] = answer`. A **Just once** choice does not create reusable chatbot memory. Existing auto-filled choices may refresh metadata only under the same context key.
+- **REQ-CHATBOT-05 — Cache write-back:** An **Auto** choice writes either `answerCache[contextHash] = answer` or the explicit question-default contract, according to the global Auto scope. A **Manual** choice does not create reusable chatbot memory. Existing auto-filled choices may refresh metadata only under the active scope.
 
 - **FR-QA-13 (Deterministic Context Hash)**: Context hashes SHALL use SHA-256 and the domain/version prefix `iinpublic-answer-context-v2`. Text SHALL be trimmed, internal whitespace collapsed, and case-folded consistently. Choice texts and multi-select answers SHALL be unique and sorted before hashing so display order is irrelevant.
 
@@ -974,12 +974,13 @@ Private answers are stored in the user's own SEA-encrypted Gun node (`~<pub>/ans
 
 **UI requirement:** Each answer chip/card shows a lock icon toggle. Locked = private/manual. Unlocked = public/auto.
 
-Answer reuse is a two-choice policy:
+The per-answer UI is a two-choice policy. The Auto scope is selected once in Settings, not beside
+each question:
 
-| Mode | Created By | Chatbot behaviour |
-|---|---|---|
-| **Same context** (`temporary` storage compatibility value) | User asks the chatbot to remember the choice | Repeat only under the identical version-2 rolling context. |
-| **Just once** (`manual`) | User keeps the decision for this response | Never auto-select it later. |
+| Mode | Chatbot behaviour |
+|---|---|
+| **Auto** (`temporary` or `whenever` internal value) | Repeat according to the global **Same context** or **Whenever offered** setting. |
+| **Manual** (`manual`) | Never auto-select it later. |
 
 Legacy permanent/suppressed records are outside the version-2 resolver and cannot auto-select or auto-skip a context. Manual/private answers may be shown as history but are never auto-selected.
 

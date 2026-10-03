@@ -12,6 +12,7 @@ import {
   type ConnectivityPreset,
 } from './connectivity-settings';
 import {
+  setAutoAnswerScope,
   setChatbotEnabled,
   setColorSchemePreference,
   setCopyTalkAutoSave,
@@ -20,7 +21,9 @@ import {
   setLocationAutoMatchConsent,
   setUiLanguagePreference,
   type ColorScheme,
+  type AutoAnswerScope,
 } from './ui-settings-storage';
+import { applyAutoAnswerScopeToStoredPreferences } from './answer-preference-mutations';
 import {
   setTalkIntakeFilters,
   setTalkIntakeFiltersOwner,
@@ -302,6 +305,11 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
   });
   document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
     setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
+  });
+  document.getElementById('settings-auto-answer-scope')?.addEventListener('change', (event) => {
+    const scope = (event.currentTarget as HTMLSelectElement).value as AutoAnswerScope;
+    setAutoAnswerScope(scope);
+    applyAutoAnswerScopeToStoredPreferences(scope);
   });
   document
     .getElementById('settings-location-auto-match-consent')

@@ -9,6 +9,7 @@ import {
   type SettingsViewDeps,
 } from '../../web/ui/settings-view';
 import { uiText } from '../../web/ui/ui-translations';
+import { getAutoAnswerScope } from '../../web/ui/ui-settings-storage';
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -133,6 +134,7 @@ describe('settings view extraction', () => {
     expect(document.querySelector('#settings-section-languages')).not.toBeNull();
     expect(document.querySelector('#settings-start-guide-btn')).not.toBeNull();
     expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
+    expect(document.querySelector<HTMLSelectElement>('#settings-auto-answer-scope')?.value).toBe('same-context');
     expect(document.querySelector<HTMLInputElement>('#settings-stage-name-input')?.value).toBe(
       '<Settings>',
     );
@@ -207,6 +209,21 @@ describe('settings view extraction', () => {
 
     expect(deps.setSettingsActiveSectionId).toHaveBeenCalledWith('settings-section-profile');
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
+  });
+
+  it('stores one Auto scope for all answers', () => {
+    document.body.innerHTML = `
+      <select id="settings-auto-answer-scope">
+        <option value="same-context">Same context</option>
+        <option value="whenever">Whenever offered</option>
+      </select>`;
+    bindSettingsControls(controlsDeps());
+
+    const select = document.getElementById('settings-auto-answer-scope') as HTMLSelectElement;
+    select.value = 'whenever';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(getAutoAnswerScope()).toBe('whenever');
   });
 
   it('keeps the actionable guide and reference tour as separate Help actions', () => {

@@ -12,6 +12,7 @@ import { renderSettingsSection } from './settings-section-template';
 import { loadConnectivitySettings, type ConnectivityPreset } from './connectivity-settings';
 import {
   COLOR_SCHEMES,
+  getAutoAnswerScope,
   getChatbotEnabled,
   getColorSchemePreference,
   getCopyTalkAutoSave,
@@ -469,6 +470,14 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <span>${deps.t('settingsChatbot')}</span>
           </label>
           <div data-testid="settings-chatbot-promise" style="font-size:0.82em;color:var(--text-tertiary);margin:2px 0 0 26px;">${deps.t('settingsChatbotHelp')}</div>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:14px;">
+            <span>${deps.t('settingsAutoAnswerScope')}</span>
+            <select class="form-input" id="settings-auto-answer-scope" data-testid="settings-auto-answer-scope">
+              <option value="same-context" ${getAutoAnswerScope() === 'same-context' ? 'selected' : ''}>${deps.t('settingsAutoAnswerSameContext')}</option>
+              <option value="whenever" ${getAutoAnswerScope() === 'whenever' ? 'selected' : ''}>${deps.t('settingsAutoAnswerWhenever')}</option>
+            </select>
+          </label>
+          <div style="font-size:0.82em;color:var(--text-tertiary);margin-top:3px;">${deps.t('settingsAutoAnswerScopeHelp')}</div>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
             <input type="checkbox" id="settings-location-auto-match-consent" ${getLocationAutoMatchConsent() ? 'checked' : ''}>
             <span>${deps.t('settingsLocationAutoMatch')}</span>

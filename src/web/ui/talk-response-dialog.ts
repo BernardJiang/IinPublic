@@ -87,6 +87,10 @@ export function nextSurveyQuestion(talk: any, currentQuestion: any): any | null 
 
 type TalkResponseDialogOptions = {
   talk: any;
+  /** False when the current user authored the Talk; only receivers may withhold with Ignore. */
+  canIgnore?: boolean;
+  /** Internal persistence mode selected by the one device-wide Auto scope setting. */
+  autoAnswerMode?: 'auto' | 'whenever';
   skipAutoAnswer?: boolean;
   /**
    * REQ-CHATBOT-03/04: Set to true when this talk was previously answered and has since
@@ -100,7 +104,7 @@ type TalkResponseDialogOptions = {
   showNotification: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   /**
    * `meta.withholdFromSender` — set when the receiver picked the dedicated "Ignore" choice
-   * (the always-present opt-out row, distinct from any of the asker's own provided answers —
+   * (the receiver-only opt-out action, distinct from any of the asker's own provided answers —
    * see the `answerId === 'ignore'` sentinel below): the sender must receive nothing at all,
    * not even a mismatch record. Local bookkeeping (this device's own answer history) still
    * happens as normal; only the peer submission is skipped.
@@ -266,6 +270,8 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   const skipAutoAnswer = options.skipAutoAnswer ?? false;
   const isTalkSuperseded = options.isTalkSuperseded ?? false;
   const senderName = options.senderName ?? '';
+  const canIgnore = options.canIgnore ?? true;
+  const autoAnswerMode = options.autoAnswerMode ?? 'auto';
   // Only one response modal at a time. Opening a second incoming talk while a previous
   // response dialog is still in the DOM used to stack modals that share the fixed id
   // `talk-response-modal` (and, in the tag branch, `tag-match-checkbox` / `tag-submit-response`).
@@ -301,11 +307,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       <div class="modal-content" style="max-width: 600px;">
         <div class="modal-header">
           <h2 class="modal-title">${options.escapeHtml(talk.title)}</h2>
-          <p>${text('responseTagHelp', 'Tag - check to match, leave unchecked to ignore')}</p>
+          <p>${text('responseTagHelp', 'Check the tag if it describes you')}</p>
         </div>
         <div style="padding: 20px;">
-          <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 20px;">
-            ${options.escapeHtml(q.text)}
+          <div class="response-question-row" style="margin-bottom: 20px;">
+            <div class="response-question-text">${options.escapeHtml(q.text)}</div>
+            ${canIgnore ? `<button type="button" class="response-ignore-action" data-testid="receiver-ignore-btn">${text('responseIgnore', 'Ignore')}</button>` : ''}
           </div>
           <label class="tag-checkbox-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 1.1em;">
             <input type="checkbox" id="tag-match-checkbox" class="tag-match-checkbox" ${isSavedMatch ? 'checked' : ''}>
@@ -324,6 +331,21 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
     const checkbox = modal.querySelector('#tag-match-checkbox') as HTMLInputElement | null;
     const submitButton = modal.querySelector('#tag-submit-response') as HTMLButtonElement | null;
     const answers: ResponseDraft['answers'] = [];
+    modal.querySelector('[data-testid="receiver-ignore-btn"]')?.addEventListener('click', () => {
+      const selected: ResponseDraft['answers'][number] = {
+        questionId: q.id,
+        answerId: 'ignore',
+        answerText: 'ignore',
+        mode: 'manual',
+      };
+      answers.push(selected);
+      selected.contextHash = options.saveAnswerPreference(
+        talk, talk.id, q, 'ignore', 'ignore', answers, 'suppressed',
+      );
+      options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
+      options.completeTalk(talk, answers, 'mismatch', { withholdFromSender: true });
+      closeModal();
+    });
     const completeFromCheckbox = (checked: boolean) => {
       const answer = checked && matchAnswer ? matchAnswer : ignoreAnswer;
       if (!answer) {
@@ -396,10 +418,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       const summaryRows = talk.questions
         .map((q: any) => {
           const filled = reviewAnswers.find((a) => a.questionId === q.id);
-          const reviewMode = filled?.mode === 'auto' || filled?.mode === 'whenever' ? filled.mode : 'manual';
-          const wheneverOption = q.answerSelectionMode === 'multiple'
-            ? ''
-            : `<option value="whenever" ${reviewMode === 'whenever' ? 'selected' : ''}>${text('responseWhenever', 'Whenever offered')}</option>`;
+          const reviewMode = filled && filled.mode !== 'manual' ? 'auto' : 'manual';
           const answersHtml = (q.answers || [])
             .map((a: any) => {
               const isSelected = filled?.answerId === a.id;
@@ -410,7 +429,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
                   data-answer-text="${options.escapeHtml(a.text)}"
                   ${isSelected ? 'checked' : ''} style="accent-color:var(--accent);">
                 ${options.escapeHtml(a.text)}
-                ${isSelected && filled?.mode === 'auto' ? '<span style="font-size:0.8em;color:#888;margin-left:4px;">(pre-filled)</span>' : ''}
+                ${isSelected && filled?.mode !== 'manual' ? '<span style="font-size:0.8em;color:#888;margin-left:4px;">(pre-filled)</span>' : ''}
               </label>`;
             })
             .join('');
@@ -421,9 +440,8 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             <label class="review-contract-scope" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:0.9em;">
               <span>${text('responseRememberAs' as UiTranslationKey, 'Remember as')}</span>
               <select class="review-mode-select" data-question-id="${options.escapeHtml(q.id)}" style="max-width:190px;min-width:0;">
-                <option value="auto" ${reviewMode === 'auto' ? 'selected' : ''}>${text('responseAuto', 'Same context')}</option>
-                ${wheneverOption}
-                <option value="manual" ${reviewMode === 'manual' ? 'selected' : ''}>${text('responseManual', 'Just once')}</option>
+                <option value="auto" ${reviewMode === 'auto' ? 'selected' : ''}>${text('responseAuto', 'Auto')}</option>
+                <option value="manual" ${reviewMode === 'manual' ? 'selected' : ''}>${text('responseManual', 'Manual')}</option>
               </select>
             </label>
           </div>`;
@@ -432,9 +450,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
       modal.innerHTML = `
         <div class="modal-content" style="max-width:620px;">
-          <div class="modal-header">
-            <h2 class="modal-title">${options.escapeHtml(talk.title)}</h2>
-            <p style="color:#666;font-size:0.9em;">${text('responseReviewPrompt' as UiTranslationKey, 'Review your answers before submitting')}</p>
+          <div class="modal-header response-review-header">
+            <div>
+              <h2 class="modal-title">${options.escapeHtml(talk.title)}</h2>
+              <p style="color:#666;font-size:0.9em;">${text('responseReviewPrompt' as UiTranslationKey, 'Review your answers before submitting')}</p>
+            </div>
+            ${canIgnore ? `<button type="button" class="response-ignore-action" data-testid="receiver-ignore-btn">${text('responseIgnore', 'Ignore')}</button>` : ''}
           </div>
           <div style="padding:20px;">
             ${supersededBanner}
@@ -453,6 +474,15 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       injectViewInMyAnswersLink(modal, options);
       document.body.appendChild(modal);
       scrollToTargetQuestion(modal, options);
+
+      modal.querySelector('[data-testid="receiver-ignore-btn"]')?.addEventListener('click', () => {
+        const q = talk.questions[0];
+        const ignored = [{ questionId: q.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' as const }];
+        options.saveAnswerPreference(talk, talk.id, q, 'ignore', 'ignore', ignored, 'suppressed');
+        options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
+        options.completeTalk(talk, ignored, 'mismatch', { withholdFromSender: true });
+        closeModal();
+      });
 
       // Live update reviewAnswers when user selects a radio
       modal.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((radio) => {
@@ -517,7 +547,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             a.answerId,
             a.answerText,
             finalAnswers.slice(0, i + 1),
-            a.mode as 'auto' | 'manual' | 'whenever' | 'permanent',
+            a.mode === 'auto' ? autoAnswerMode : 'manual',
           );
         });
         // Determine outcome from last answer's flags
@@ -792,8 +822,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         </div>
         <div style="padding: 20px;">
           ${stepIndicator}
-          <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 16px;">
-            ${options.escapeHtml(currentQuestion.text)}
+          <div class="response-question-row" style="margin-bottom: 16px;">
+            <div class="response-question-text">${options.escapeHtml(currentQuestion.text)}</div>
+            ${canIgnore ? `<button type="button" class="response-ignore-action" data-testid="receiver-ignore-btn"
+              data-answer-id="ignore" data-answer-text="ignore" data-mode="manual"
+              data-is-terminal="false" data-is-ignore="true" data-is-match="false"
+              data-next-question-id="">${text('responseIgnore', 'Ignore')}</button>` : ''}
           </div>
           ${isMultiSelect ? `
           <div class="answer-checkbox-list" data-testid="answer-checkbox-list">
@@ -817,31 +851,23 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           ` : `
           <div class="answer-radio-grid" role="radiogroup" aria-label="Choose answer and mode">
             <div class="answer-grid-header">
-              <span>${text('responseAuto', 'Same context')}</span><span>${text('responseWhenever', 'Whenever offered')}</span><span>${text('responseManual', 'Just once')}</span><span></span>
+              <span>${text('responseAnswer', 'Answer')}</span><span>${text('responseAuto', 'Auto')}</span><span>${text('responseManual', 'Manual')}</span>
             </div>
             ${currentQuestion.answers
               .map((answer: any) => {
                 const prevMode = previousChoice?.answerId === answer.id ? (previousChoice?.mode ?? 'manual') : '';
                 return `
               <div class="answer-grid-row">
+                <span class="answer-grid-label">${options.escapeHtml(answer.text)}</span>
                 <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_auto" class="choice-radio"
                   data-answer-id="${answer.id}"
                   data-answer-text="${options.escapeHtml(answer.text)}"
-                  data-mode="auto"
+                  data-mode="${autoAnswerMode}"
                   data-is-terminal="${answer.isTerminal || false}"
                   data-is-ignore="${answer.isIgnore || false}"
                   data-is-match="${answer.isMatch || false}"
                   data-next-question-id="${answer.nextQuestionId || ''}"
-                  ${prevMode === 'auto' ? 'checked' : ''}></label>
-                <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_whenever" class="choice-radio"
-                  data-answer-id="${answer.id}"
-                  data-answer-text="${options.escapeHtml(answer.text)}"
-                  data-mode="whenever"
-                  data-is-terminal="${answer.isTerminal || false}"
-                  data-is-ignore="${answer.isIgnore || false}"
-                  data-is-match="${answer.isMatch || false}"
-                  data-next-question-id="${answer.nextQuestionId || ''}"
-                  ${prevMode === 'whenever' ? 'checked' : ''}></label>
+                  ${prevMode !== '' && prevMode !== 'manual' ? 'checked' : ''}></label>
                 <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_manual" class="choice-radio"
                   data-answer-id="${answer.id}"
                   data-answer-text="${options.escapeHtml(answer.text)}"
@@ -851,25 +877,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
                   data-is-match="${answer.isMatch || false}"
                   data-next-question-id="${answer.nextQuestionId || ''}"
                   ${prevMode === 'manual' ? 'checked' : ''}></label>
-                <span class="answer-grid-label">${options.escapeHtml(answer.text)}</span>
               </div>
             `;
               })
               .join('')}
-            <div class="answer-grid-row answer-grid-row-ignore">
-              <span class="answer-grid-cell"></span>
-              <span class="answer-grid-cell"></span>
-              <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="ignore" class="choice-radio ignore-radio"
-                data-answer-id="ignore"
-                data-answer-text="ignore"
-                data-mode="manual"
-                data-is-terminal="false"
-                data-is-ignore="true"
-                data-is-match="false"
-                data-next-question-id=""
-                ${previousChoice?.answerId === 'ignore' ? 'checked' : ''}></label>
-              <span class="answer-grid-label">${text('responseIgnore', 'Ignore')}</span>
-            </div>
           </div>
           `}
           ${talk.type === 'route' ? '<div class="route-branch-preview" data-testid="route-branch-preview"></div>' : ''}
@@ -878,9 +889,9 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
     `;
     injectViewInMyAnswersLink(modal, options);
 
-    const applyChoice = (radio: HTMLInputElement): void => {
+    const applyChoice = (radio: HTMLElement): void => {
       const answerId = radio.dataset.answerId!;
-      // The receiver's own opt-out — a dedicated radio row rendered separately from
+      // The receiver's own opt-out — a dedicated action rendered separately from
       // `currentQuestion.answers` (literal sentinel id "ignore"), distinct from any answer
       // the asker themselves provided. An asker-provided answer can ALSO carry
       // `data-is-ignore="true"` (e.g. a flow's designed "No" branch) — that's a real,
@@ -1027,6 +1038,9 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       }
     };
     modal.querySelector('#submit-checkbox-answers-btn')?.addEventListener('click', applyCheckboxSubmit);
+    modal.querySelector<HTMLElement>('[data-testid="receiver-ignore-btn"]')?.addEventListener('click', (event) => {
+      applyChoice(event.currentTarget as HTMLElement);
+    });
 
     modal.querySelectorAll('.choice-radio').forEach((radioEl) => {
       radioEl.addEventListener('change', (event) => {

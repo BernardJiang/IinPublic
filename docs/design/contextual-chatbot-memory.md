@@ -5,19 +5,27 @@ Status: authoritative design, implemented 2026-10-01
 ## Product rule
 
 The chatbot repeats a choice only when the user previously made that choice under the same known
-context. A choice made at `ROOT` is the user's unconditional default for that exact question
+context. A choice made at `ROOT` is the user's default for that exact question
 frame, so it may also be reused when the identical frame appears later in a flow. A more-specific
 rolling-context choice overrides that root default. If neither record exists, the chatbot returns
-the question to the user unless the user explicitly created a **Whenever offered** contract. It
+the question to the user unless the user's global Auto scope created a **Whenever offered** contract. It
 does not guess, apply semantic similarity, derive subset/superset rules, or silently skip an
 unknown situation.
 
-The user-facing choices are:
+Each single-choice answer has only two user-facing modes:
 
-- **Same context** — remember this choice and repeat it only on an exact context match.
-- **Whenever offered** — make this answer the first preference for this exact question whenever
-  the answer is among the current choices. Previously contracted answers remain ordered fallbacks.
-- **Just once** — use the choice for this response but do not let the chatbot repeat it.
+- **Auto** — remember the choice and repeat it according to the one device-wide Auto scope in
+  Settings.
+- **Manual** — use the choice for this response but do not let the chatbot repeat it.
+
+The Settings scope applies to all Auto choices and has two values:
+
+- **Same context** (default) — repeat only on an exact context match.
+- **Whenever offered** — prefer the answer for this exact question whenever it is among the
+  current choices. Previously contracted answers remain ordered fallbacks.
+
+Changing the scope migrates existing Auto preferences to the new policy. It is not selected again
+for each question.
 
 Old “Temporary,” “Permanent,” and global “Suppressed” matching are not part of the contextual
 resolver. Legacy records without a complete version-2 context never auto-answer; the user answers
@@ -67,8 +75,8 @@ flat_v2_<contextHash> -> {
 }
 ```
 
-`temporary` is retained only as an internal storage compatibility value. Its user-facing name is
-“Same context and choices.”
+`temporary` is retained only as an internal storage compatibility value. It represents **Auto**
+when the global scope is **Same context**.
 
 ## Whenever offered contract
 
@@ -87,7 +95,7 @@ questionDefaultContracts[questionDefaultKey] = {
 }
 ```
 
-Selecting **Whenever offered** moves that exact normalized answer to the front. It never generates
+Choosing **Auto** while the global scope is **Whenever offered** moves that exact normalized answer to the front. It never generates
 or stores hashes for possible subsets. At resolution time, the chatbot walks this usually tiny
 explicit list and selects the first answer present in the current authored choices. If none is
 present, it asks the user. This broad rule is supported only for ordinary single-choice questions.
@@ -125,7 +133,7 @@ For an ordinary authored question:
    answer as `KNOWN_QUESTION_DEFAULT`.
 6. Otherwise return no answer and show the question to the user.
 
-A **Just once** response is kept in answer history but is not a reusable rolling-context rule and
+A **Manual** response is kept in answer history but is not a reusable rolling-context rule and
 therefore does not shadow an existing root default.
 
 The root lookup is not a question-only or answer-text fallback: it recomputes the full frame and
@@ -156,7 +164,7 @@ That creates a root default for this exact frame.
 - If Bob later chooses a different answer under that exact flow path, the rolling-context record
   wins there; the root default remains unchanged elsewhere.
 
-If Bob instead chooses **Whenever offered** for Apple, the exact choice set is irrelevant: both
+If Bob instead uses **Auto** with the global scope set to **Whenever offered** for Apple, the exact choice set is irrelevant: both
 `[Banana, Apple]` and `[Apple, Banana, Pears, Kiwi]` use Apple. If Bob later chooses Whenever
 offered for Kiwi, the ordered contract becomes `[Kiwi, Apple]`; a set containing Kiwi uses Kiwi,
 while a set containing Apple but not Kiwi falls back to Apple. An exact rolling/root-frame record

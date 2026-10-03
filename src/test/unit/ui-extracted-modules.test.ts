@@ -100,16 +100,15 @@ describe('extracted UI helpers', () => {
 
     const modeSelect = document.querySelector('.mode-select') as HTMLSelectElement;
     expect(Array.from(modeSelect.options).map((option) => option.value)).toEqual([
+      'auto',
       'manual',
-      'temporary',
-      'whenever',
     ]);
-    modeSelect.value = 'temporary';
+    modeSelect.value = 'auto';
     modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(updateMode).toHaveBeenCalledWith('pref1', 'temporary');
+    expect(updateMode).toHaveBeenCalledWith('pref1', 'auto');
 
     const badge = document.querySelector('.mode-badge-pref1') as HTMLElement;
-    expect(badge.textContent).toContain('Same context and choices');
+    expect(badge.textContent).toContain('Auto');
   });
 
   it('renders Me dialogs through the Chinese catalog', () => {
@@ -162,8 +161,7 @@ describe('extracted UI helpers', () => {
     const modalText = document.getElementById('preferences-modal')?.textContent || '';
     expect(modalText).toContain('我的回答');
     expect(modalText).toContain('最近回答：本地日期');
-    expect(modalText).toContain('每次都问我');
-    expect(modalText).toContain('相同上下文和选项');
+    expect(modalText).toContain('手动');
   });
 
   it('renders peer detail and its send picker through the Chinese catalog', async () => {
