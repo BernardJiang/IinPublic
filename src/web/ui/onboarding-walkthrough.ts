@@ -1,14 +1,12 @@
 /**
- * Optional product-reference tour: a short slide deck introducing the four tabs
- * (Chatrooms / Talks / Contacts / Me) plus Settings. First run now uses the actionable
- * guide in actionable-onboarding-guide.ts; this deeper introduction remains available
- * from its final step and Settings → Help & Tour.
+ * First-run introduction and reusable product tour. It explains the product before asking
+ * a new user to make choices; the close button is the only early-exit control.
  */
 import { activateModalAccessibility } from './modal-accessibility';
 
 export interface WalkthroughDeps {
   text: (key: string, fallback?: string) => string;
-  /** Called exactly once, however the dialog closes (Skip, Done, backdrop, Escape). */
+  /** Called exactly once, however the dialog closes (Done, close, backdrop, Escape). */
   onClose: () => void;
 }
 
@@ -33,18 +31,18 @@ interface WalkthroughPoint {
 
 const STEPS: WalkthroughStep[] = [
   {
-    icon: '👋',
+    icon: '🪞',
     accent: '#6d5dfc',
     accentSoft: 'rgba(109, 93, 252, 0.16)',
     titleKey: 'walkthroughWelcomeTitle',
-    titleFallback: 'Welcome to IinPublic',
+    titleFallback: 'Build your digital you',
     taglineKey: 'walkthroughWelcomeTagline',
-    taglineFallback: 'Talk to hundreds of people about hundreds of topics—simultaneously.',
+    taglineFallback: 'Say it once. Let your digital you repeat it.',
     bodyKey: 'walkthroughWelcomeBody',
-    bodyFallback: 'One question can open hundreds of conversations while IinPublic helps the most promising matches rise.',
+    bodyFallback: 'Answer an ordinary question once. When that exact question returns, your digital you can reuse only the answer you approved.',
     points: [
-      { icon: '✨', key: 'walkthroughWelcomeNoLogin', fallback: 'No login required.' },
-      { icon: '🗣️', key: 'walkthroughWelcomeResponsibility', fallback: 'Freedom to speak. Responsibility for what you say.' },
+      { icon: '✋', key: 'walkthroughWelcomeNoLogin', fallback: 'You stay in control of every answer.' },
+      { icon: '🆕', key: 'walkthroughWelcomeResponsibility', fallback: "You only need to answer what's new." },
     ],
   },
   {
@@ -69,11 +67,11 @@ const STEPS: WalkthroughStep[] = [
     titleKey: 'walkthroughTalksTitle',
     titleFallback: 'Talks',
     taglineKey: 'walkthroughTalksTagline',
-    taglineFallback: 'Talks are mini-programs you write in natural language.',
+    taglineFallback: 'Create questions your digital you can answer.',
     bodyKey: 'walkthroughTalksBody',
     bodyFallback: 'No programming language is needed. Write ordinary questions and possible answers; each answer can guide what happens next.',
     points: [
-      { icon: '🤖', key: 'walkthroughTalksChatbotRepeat', fallback: 'A chatbot that repeats you—not invents you. It reuses your approved answer when the same exact question returns.' },
+      { icon: '🤖', key: 'walkthroughTalksChatbotRepeat', fallback: 'Your digital you repeats approved answers—it does not invent them.' },
       { icon: '♻️', key: 'walkthroughTalksReuse', fallback: 'Create once. Save, share, and reuse.' },
       { icon: '🆕', key: 'walkthroughTalksOnlyNew', fallback: "You only need to answer what's new." },
     ],
@@ -159,7 +157,7 @@ export function showWalkthroughDialog(deps: WalkthroughDeps): void {
         <div class="modal-header walkthrough-header">
           <span class="walkthrough-progress-label">${escapeHtml(progress)}</span>
           <h3 class="modal-title" id="walkthrough-title">${escapeHtml(deps.text(step.titleKey, step.titleFallback))}</h3>
-          <button type="button" class="close-button" id="walkthrough-close-btn" data-testid="walkthrough-close-btn" aria-label="${escapeHtml(deps.text('walkthroughSkip', 'Skip'))}">&times;</button>
+          <button type="button" class="close-button" id="walkthrough-close-btn" data-testid="walkthrough-close-btn" aria-label="${escapeHtml(deps.text('close', 'Close'))}">&times;</button>
         </div>
         <div class="walkthrough-hero">
           <span class="walkthrough-orbit orbit-one" aria-hidden="true"></span>
@@ -175,16 +173,14 @@ export function showWalkthroughDialog(deps: WalkthroughDeps): void {
           ${STEPS.map((dotStep, i) => `<button type="button" class="walkthrough-dot${i === index ? ' active' : ''}" data-walkthrough-index="${i}" data-testid="walkthrough-dot-${i}" aria-label="${escapeHtml(deps.text(dotStep.titleKey, dotStep.titleFallback))}" ${i === index ? 'aria-current="step"' : ''}></button>`).join('')}
         </div>
         <div class="modal-actions walkthrough-actions">
-          <button type="button" class="btn" id="walkthrough-skip-btn" data-testid="walkthrough-skip-btn">${escapeHtml(deps.text('walkthroughSkip', 'Skip'))}</button>
           <div class="walkthrough-navigation">
-            <button type="button" class="btn" id="walkthrough-back-btn" data-testid="walkthrough-back-btn" ${isFirst ? 'disabled' : ''}>${escapeHtml(deps.text('walkthroughBack', 'Back'))}</button>
+            ${isFirst ? '' : `<button type="button" class="btn" id="walkthrough-back-btn" data-testid="walkthrough-back-btn">${escapeHtml(deps.text('walkthroughBack', 'Back'))}</button>`}
             <button type="button" class="btn primary-btn" id="walkthrough-next-btn" data-testid="walkthrough-next-btn">${isLast ? escapeHtml(deps.text('walkthroughDone', 'Get started')) : escapeHtml(deps.text('walkthroughNext', 'Next'))}</button>
           </div>
         </div>
       </div>`;
 
     modal.querySelector('#walkthrough-close-btn')?.addEventListener('click', close);
-    modal.querySelector('#walkthrough-skip-btn')?.addEventListener('click', close);
     modal.querySelector('#walkthrough-back-btn')?.addEventListener('click', () => {
       if (index === 0) return;
       index -= 1;

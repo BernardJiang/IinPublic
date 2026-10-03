@@ -67,7 +67,7 @@ async function pressBack(serial: string): Promise<void> {
 
 async function dismissWalkthrough(user: AndroidUser): Promise<void> {
   if (await user.window.locator('[data-testid="walkthrough-modal"]').isVisible().catch(() => false)) {
-    await user.window.locator('[data-testid="walkthrough-skip-btn"]').click();
+    await user.window.locator('[data-testid="walkthrough-close-btn"]').click();
     await expect(user.window.locator('[data-testid="walkthrough-modal"]')).toHaveCount(0);
   }
 }

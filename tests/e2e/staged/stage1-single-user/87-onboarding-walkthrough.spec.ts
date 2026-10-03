@@ -1,4 +1,4 @@
-/** First-run handoff to removable demo contacts and their ordinary incoming Talks. */
+/** First-run product introduction plus removable demo contacts and their incoming Talks. */
 import type { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
@@ -7,7 +7,7 @@ import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-na
 import { afterNav, reloadAppReady } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 
-test.describe('Actionable first-run guide', () => {
+test.describe('First-run introduction', () => {
   let context: BrowserContext | undefined;
   let page: Page | undefined;
 
@@ -24,26 +24,29 @@ test.describe('Actionable first-run guide', () => {
     await clearGunForStage1Spec();
   });
 
-  test('opens demo-contact Talks, returns from the reference tour, and lets a bot be removed', async () => {
+  test('introduces digital you first, then lets a demo contact be removed', async () => {
     const p = page!;
     const url = new URL(webAppURLStableChatroom());
     url.searchParams.set('e2e_walkthrough', '1');
     await gotoWebApp(p, url.toString());
     await expect(p).toHaveTitle(/IinPublic — Build Your Digital You$/);
 
-    const guide = p.locator('[data-testid="actionable-guide-modal"]');
-    await expect(guide).toBeVisible();
-    await expect(guide).toContainText('Your demo contacts sent a few Talks.');
+    const introduction = p.locator('[data-testid="walkthrough-modal"]');
+    await expect(introduction).toBeVisible();
+    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toContainText('Build your digital you');
+    await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText('Say it once. Let your digital you repeat it.');
+    await expect(p.locator('[data-testid="walkthrough-skip-btn"]')).toHaveCount(0);
+    await expect(p.locator('[data-testid="walkthrough-back-btn"]')).toHaveCount(0);
 
-    await p.locator('[data-testid="actionable-guide-product-tour"]').click();
-    await expect(p.locator('[data-testid="walkthrough-modal"]')).toBeVisible();
-    await expect(guide).toBeHidden();
-    await p.keyboard.press('Escape');
-    await expect(guide).toBeVisible();
-
-    await p.locator('[data-testid="actionable-guide-next"]').click();
-    await expect(guide).toHaveCount(0);
-    await expect(p.locator('#talks-view')).toHaveClass(/active/);
+    await p.locator('[data-testid="walkthrough-next-btn"]').click();
+    await expect(p.locator('[data-testid="walkthrough-step-1"]')).toBeVisible();
+    await expect(p.locator('[data-testid="walkthrough-back-btn"]')).toBeVisible();
+    await p.locator('[data-testid="walkthrough-back-btn"]').click();
+    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toBeVisible();
+    await p.locator('[data-testid="walkthrough-close-btn"]').click();
+    await expect(introduction).toHaveCount(0);
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
     await expect(p.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(7);
     await expect.poll(() => p.evaluate(() => localStorage.getItem('iinpublic_actionable_guide_seen_v1'))).toBe('true');
 
@@ -58,27 +61,30 @@ test.describe('Actionable first-run guide', () => {
     await expect(p.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(3);
 
     await reloadAppReady(p);
-    await expect(guide).toHaveCount(0);
+    await expect(introduction).toHaveCount(0);
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
     await openSettingsSection(p, SETTINGS_SECTION.help);
     await expect(p.locator('[data-testid="settings-start-guide-btn"]')).toHaveText('Build my digital you');
   });
 
-  test('keeps the one-step guide usable at a 320px phone width', async () => {
+  test('keeps the introduction usable at a 320px phone width', async () => {
     const p = page!;
     await p.setViewportSize({ width: 320, height: 700 });
     const url = new URL(webAppURLStableChatroom());
     url.searchParams.set('e2e_walkthrough', '1');
     await gotoWebApp(p, url.toString());
 
-    await expect(p.locator('[data-testid="actionable-guide-next"]')).toBeInViewport();
-    const widths = await p.locator('[data-testid="actionable-guide-modal"]').evaluate((element) => ({
+    await expect(p.locator('[data-testid="walkthrough-next-btn"]')).toBeInViewport();
+    await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText('Say it once. Let your digital you repeat it.');
+    const widths = await p.locator('[data-testid="walkthrough-modal"]').evaluate((element) => ({
       client: element.clientWidth,
       scroll: element.scrollWidth,
     }));
     expect(widths.scroll).toBeLessThanOrEqual(widths.client);
-    await p.locator('[data-testid="actionable-guide-next"]').click();
+    await p.locator('[data-testid="walkthrough-close-btn"]').click();
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
     await expect(p.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(7);
   });
 });

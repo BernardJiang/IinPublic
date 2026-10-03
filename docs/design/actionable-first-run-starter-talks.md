@@ -21,13 +21,12 @@ choices explicit, while one-question-at-a-time flows reduce cognitive load.
 
 ## First run
 
-The one-screen introduction says that demo contacts have sent Talks and offers:
+First run opens the product introduction directly. The first slide leads with **Build your digital
+you** and **Say it once. Let your digital you repeat it.** Later slides introduce Chatrooms, Talks,
+Contacts, Me, and Settings. Back and Next move through the deck; the window close icon is the only
+early-exit control. A new user is never asked to choose between unfamiliar product paths.
 
-- **Review starter Talks** — opens the normal Talks tab.
-- **See how IinPublic works** — opens the optional six-slide reference tour, then returns.
-- **Skip for now** — dismisses without deleting the demo contacts or their Talks.
-
-Completion or dismissal sets `iinpublic_actionable_guide_seen_v1`. Existing users are not enrolled
+Completion or closing sets `iinpublic_actionable_guide_seen_v1`. Existing users are not enrolled
 retroactively: enrollment occurs only when the identity has no real Talks, contacts, or non-support
 conversations. Enrollment state is stored per user ID, so answering the first Talk does not make
 the remaining demo contacts disappear.
@@ -83,6 +82,6 @@ that distinguishes removable demo contacts from real people.
 
 - Unit coverage validates all seven seeded Talks, per-user enrollment, localization, removal,
   ordinary Q&A persistence, outgoing-filter isolation, and contact rendering.
-- Browser coverage checks first-run handoff, reference-tour return, seven incoming Talks, four
-  removable demo contacts, persistence across reload, and 320px layout.
+- Browser coverage checks the direct first-run introduction, the opening repeat promise, simple
+  navigation, seven incoming Talks, four removable demo contacts, persistence, and 320px layout.
 - Android and iOS use the same web runtime; one phone is enough for final shell smoke testing.

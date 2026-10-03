@@ -61,7 +61,7 @@ async function stageInstalledApkForReinstall(serial: string): Promise<string> {
 
 async function openEraseDevice(page: AndroidUser['window']): Promise<void> {
   if (await page.locator('[data-testid="walkthrough-modal"]').isVisible().catch(() => false)) {
-    await page.locator('[data-testid="walkthrough-skip-btn"]').click();
+    await page.locator('[data-testid="walkthrough-close-btn"]').click();
     await expect(page.locator('[data-testid="walkthrough-modal"]')).toHaveCount(0);
   }
   await page.locator('.nav-btn[data-view="settings"]').click();

@@ -2701,7 +2701,7 @@ button.talk-icon-btn:hover {
 
 .walkthrough-actions {
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -2713,11 +2713,6 @@ button.talk-icon-btn:hover {
 .walkthrough-card .primary-btn {
   background: var(--walkthrough-accent);
   border-color: var(--walkthrough-accent);
-}
-
-.walkthrough-card #walkthrough-back-btn:disabled {
-  cursor: default;
-  opacity: 0.4;
 }
 
 @keyframes walkthrough-reveal {
@@ -2741,31 +2736,7 @@ button.talk-icon-btn:hover {
   }
 }
 
-/* Action-first onboarding and the same starter shelf in an empty Talks tab. */
-.actionable-guide-card {
-  max-height: min(90dvh, 760px);
-  overflow-y: auto;
-  border-top: 4px solid var(--accent);
-}
-
-.actionable-guide-header {
-  display: flex !important;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
-
-.actionable-guide-content {
-  animation: walkthrough-reveal 220ms ease-out;
-}
-
-.actionable-guide-hero,
-.actionable-guide-copy {
-  text-align: center;
-}
-
-.actionable-guide-hero h2,
-.actionable-guide-copy h2,
+/* Starter actions shown when the ordinary Talks list is empty. */
 .talks-starter-heading h2 {
   margin: 8px 0;
   color: var(--text-primary);
@@ -2774,15 +2745,12 @@ button.talk-icon-btn:hover {
   text-wrap: balance;
 }
 
-.actionable-guide-hero p,
-.actionable-guide-copy p,
 .talks-starter-heading p {
   margin: 0 auto 16px;
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
-.actionable-guide-icon,
 .talks-starter-mark {
   display: grid;
   place-items: center;
@@ -2794,14 +2762,12 @@ button.talk-icon-btn:hover {
   font-size: 2rem;
 }
 
-.actionable-starter-grid,
 .talks-starter-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
 }
 
-.actionable-starter-card,
 .talks-starter-card {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
@@ -2817,14 +2783,11 @@ button.talk-icon-btn:hover {
   text-align: left;
 }
 
-.actionable-starter-card:hover,
-.talks-starter-card:hover,
-.actionable-starter-card.selected {
+.talks-starter-card:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
-.actionable-starter-card small,
 .talks-starter-card small {
   display: block;
   margin-top: 3px;
@@ -2833,47 +2796,11 @@ button.talk-icon-btn:hover {
   line-height: 1.3;
 }
 
-.actionable-starter-icon,
 .talks-starter-icon {
   font-size: 1.35rem;
   line-height: 1.2;
 }
 
-.actionable-custom-label {
-  display: block;
-  margin: 16px 0 6px;
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-#actionable-custom-prompt {
-  width: 100%;
-  box-sizing: border-box;
-  resize: vertical;
-}
-
-.actionable-guide-error {
-  margin-top: 7px;
-  color: var(--danger);
-  font-size: 0.85rem;
-}
-
-.actionable-choice-preview {
-  margin: 18px auto 6px;
-  padding: 15px;
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  background: var(--accent-soft);
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.actionable-guide-actions {
-  align-items: center;
-  justify-content: space-between;
-}
-
-.actionable-guide-forward-actions,
 .settings-inline-actions,
 .talks-starter-actions {
   display: flex;
@@ -2988,18 +2915,9 @@ button.talk-icon-btn:hover {
   .walkthrough-card {
     padding: 18px 18px max(18px, env(safe-area-inset-bottom));
   }
-  .actionable-guide-card {
-    padding: 16px 14px max(16px, env(safe-area-inset-bottom));
-  }
-  .actionable-starter-grid,
   .talks-starter-grid {
     grid-template-columns: 1fr;
   }
-  .actionable-guide-actions {
-    flex-direction: column-reverse;
-  }
-  .actionable-guide-forward-actions,
-  .actionable-guide-forward-actions .btn,
   .settings-inline-actions,
   .settings-inline-actions .btn,
   .talks-starter-actions,

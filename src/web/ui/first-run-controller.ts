@@ -1,4 +1,3 @@
-import { showActionableOnboardingGuide, type ActionableGuideResult } from './actionable-onboarding-guide';
 import { showWalkthroughDialog } from './onboarding-walkthrough';
 import { getHasSeenActionableGuide, setHasSeenActionableGuide } from './ui-settings-storage';
 import type { UiTranslationKey } from './ui-translations';
@@ -21,20 +20,15 @@ export function showProductReferenceTour(
 }
 
 export function showActionableFirstRun(deps: FirstRunControllerDeps): void {
-  const finish = (result: ActionableGuideResult): void => {
-    setHasSeenActionableGuide(true);
-    if (result.kind === 'open-starter-talks') deps.openStarterTalks();
-  };
-  showActionableOnboardingGuide({
-    text: translated(deps),
-    onFinish: finish,
-    onShowProductTour: (resume) => showProductReferenceTour(deps, resume),
-  });
+  deps.openStarterTalks();
 }
 
 export function showFirstRunIfNeeded(deps: FirstRunControllerDeps): void {
   if (getHasSeenActionableGuide()) return;
   const enabledForE2E = new URLSearchParams(window.location.search).get('e2e_walkthrough') === '1';
   if (process.env.DISABLE_HMR === 'true' && !enabledForE2E) return;
-  showActionableFirstRun(deps);
+  showWalkthroughDialog({
+    text: translated(deps),
+    onClose: () => setHasSeenActionableGuide(true),
+  });
 }
