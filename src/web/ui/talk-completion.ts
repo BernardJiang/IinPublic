@@ -46,10 +46,9 @@ export function completeTalk(
 ): void {
   console.log('✅ Talk completed:', talk.id, answers, outcome);
 
-  const isPractice = talk?.practiceOnly === true;
   const contentKey = getTalkContentKey(talk);
   const answeredByContent = getAnsweredTalkByContent();
-  const existingTalkId = isPractice ? undefined : answeredByContent[contentKey];
+  const existingTalkId = answeredByContent[contentKey];
   const myTalks = getMyTalks();
   const authorId = talk.authorId || (talk as any).authorId;
 
@@ -64,15 +63,13 @@ export function completeTalk(
   } else {
     talkIdToUse = talk.id;
     senders = authorId ? [authorId] : [];
-    if (!isPractice) {
-      answeredByContent[contentKey] = talk.id;
-      try {
-        answeredByContent[computeTalkIdFromTalkData(talk)] = talk.id;
-      } catch {
-        /* keep legacy content key only */
-      }
-      setAnsweredTalkByContent(answeredByContent);
+    answeredByContent[contentKey] = talk.id;
+    try {
+      answeredByContent[computeTalkIdFromTalkData(talk)] = talk.id;
+    } catch {
+      /* keep legacy content key only */
     }
+    setAnsweredTalkByContent(answeredByContent);
   }
 
   const existingEntry = myTalks[talkIdToUse];
@@ -112,7 +109,7 @@ export function completeTalk(
   }, deps);
   // Ignore is a talk-list state, not an answer. Keep it out of the normal Me-tab Q&A history;
   // the dedicated Ignored list is the one place where it should remain visible.
-  if (!wasIgnored && !isPractice) {
+  if (!wasIgnored) {
     saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
   }
 
@@ -120,14 +117,11 @@ export function completeTalk(
     talkId: talk.id,
     answers,
     talkData: talk,
-    ...(isPractice ? { practiceOnly: true } : {}),
     ...(meta?.withholdFromSender ? { withholdFromSender: true } : {}),
   });
 
   deps.showNotification(
-    isPractice
-      ? deps.t(wasIgnored ? 'practiceBotSkipped' : 'practiceBotLearned')
-      : wasIgnored
+    wasIgnored
       ? deps.t('talksIgnored')
       : talk.type === 'flow'
       ? deps.t('responseSubmittedFlow')

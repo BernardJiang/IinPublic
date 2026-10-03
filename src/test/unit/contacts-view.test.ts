@@ -10,6 +10,7 @@ import { displayContactsList, saveKnownPerson, setBlocked, showContactDetail } f
 import type { KnownPerson } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { languageOptionLabel, uiText } from '../../web/ui/ui-translations';
+import type { StarterPracticeContact } from '../../web/ui/starter-talk-seeds';
 
 describe('Contacts ranking and relationship filters', () => {
   const originalFetch = global.fetch;
@@ -131,6 +132,8 @@ describe('Contacts ranking and relationship filters', () => {
       updateStatsStrip: jest.fn(),
       getMyConversations: () => ({}),
       getMyTalks: () => ({}),
+      getStarterPracticeContacts: () => [] as StarterPracticeContact[],
+      removeStarterPracticeContact: jest.fn(),
       saveKnownPerson: jest.fn().mockResolvedValue(undefined),
       submitPeerReview: jest.fn().mockResolvedValue(undefined),
       vouchAgeVerified: jest.fn().mockResolvedValue(undefined),
@@ -145,6 +148,27 @@ describe('Contacts ranking and relationship filters', () => {
       getProfileLanguages: () => ['en'],
     };
   }
+
+  it('renders removable starter bots as contacts', async () => {
+    localStorage.removeItem('localTalkExchanges');
+    const removeStarterPracticeContact = jest.fn();
+    const contactDeps = deps([]);
+    contactDeps.getStarterPracticeContacts = () => [{
+      id: 'tag-guide' as const,
+      userId: 'iinpublic-demo-tag-guide',
+      icon: '🏷️',
+      talkType: 'tag' as const,
+      name: 'Tag Guide',
+      description: 'Sends Tag Talks',
+      talks: [],
+    }];
+    contactDeps.removeStarterPracticeContact = removeStarterPracticeContact;
+
+    await displayContactsList(contactDeps);
+    expect(document.querySelector('.starter-practice-contact')?.textContent).toContain('Tag Guide');
+    document.querySelector<HTMLButtonElement>('.starter-contact-remove')?.click();
+    expect(removeStarterPracticeContact).toHaveBeenCalledWith('tag-guide');
+  });
 
   async function waitForElementById(id: string): Promise<HTMLElement> {
     for (let attempt = 0; attempt < 20; attempt += 1) {

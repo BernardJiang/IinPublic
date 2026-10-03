@@ -5426,15 +5426,11 @@ export class IinPublicApp {
      *  opt-out, distinct from any of the asker's own provided answers): the sender must
      *  receive nothing at all. Local bookkeeping above still runs as normal. */
     withholdFromSender?: boolean;
-    /** Built-in onboarding rehearsal. Its answers teach local exact-answer memory only;
-     * it must never sync, enter a room, submit to a peer, or create a contact. */
-    practiceOnly?: boolean;
   }): Promise<void> {
     console.log('📝 User completed talk:', data);
-    if (data.practiceOnly || data.talkData?.practiceOnly === true) {
-      console.log('🧪 Practice talk completed locally; peer delivery intentionally skipped.');
-      return;
-    }
+    // Starter contacts are local demo senders. Their Talks exercise the normal Answer/Copy
+    // UI and local Q&A memory, but there is no remote identity to deliver a response to.
+    if (data.talkData?.starterContactId) return;
     const isChatbot = !!data.isChatbotResponse;
     const locallyLooksLikeMatch =
       !!data.talkData &&

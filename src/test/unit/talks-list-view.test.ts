@@ -56,7 +56,6 @@ function makeDeps(overrides: Partial<DisplayTalksListDeps> = {}): DisplayTalksLi
     pickIncomingRowTalkId: (cluster) => String(cluster?.latestTalkId || ''),
     showTalkEditorDialog: jest.fn(),
     showTalkTemplatePicker: jest.fn(),
-    openStarterPracticeBot: jest.fn(),
     navigateToGraphNode: jest.fn(),
     showChooseWhoToDmPicker: jest.fn(),
     emit: jest.fn(),
@@ -103,14 +102,12 @@ describe('displayTalksList', () => {
     expect(deps.syncStatusBarMatchCount).not.toHaveBeenCalled();
   });
 
-  it('renders the starter shelf for a truly empty history and routes its actions', () => {
+  it('renders the ordinary empty state and routes its creation actions', () => {
     installTalksDom();
     const deps = makeDeps({ talksShowIncoming: false, talksQuery: 'needle' });
     renderFresh(deps);
 
-    expect(document.querySelector('[data-testid="talks-starter-shelf"]')).not.toBeNull();
-    document.querySelector<HTMLButtonElement>('[data-testid="starter-practice-builder"]')?.click();
-    expect(deps.openStarterPracticeBot).toHaveBeenCalledWith('builder');
+    expect(document.querySelector('.empty-state')).not.toBeNull();
     document.querySelector<HTMLButtonElement>('[data-testid="talks-starter-more"]')?.click();
     expect(deps.showTalkTemplatePicker).toHaveBeenCalledTimes(1);
     document.querySelector<HTMLButtonElement>('[data-testid="talks-starter-scratch"]')?.click();
@@ -151,6 +148,21 @@ describe('displayTalksList', () => {
     expect(emit).toHaveBeenCalledWith('needTalkStats', { talkIds: ['talk-1'] });
     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(emit).toHaveBeenCalledWith('loadTalkForEdit', { talkId: 'talk-1' });
+  });
+
+  it('keeps outgoing Talks visible when incoming completion and outcome filters are active', () => {
+    installTalksDom();
+    localStorage.setItem('myTalks', JSON.stringify({
+      created: {
+        talkId: 'created', title: 'My new flow', type: 'flow', role: 'created',
+        timestamp: '2026-09-12T00:00:00.000Z', lastInteraction: '2026-09-12T00:00:00.000Z',
+        fullTalk: { id: 'created', title: 'My new flow', type: 'flow', questions: [] },
+      },
+    }));
+
+    renderFresh(makeDeps({ talksCompletionFilter: 'answered', talksOutcomeFilter: 'match' }));
+
+    expect(document.querySelector('.talk-list-item[data-talk-id="created"]')).not.toBeNull();
   });
 
   it('hides answered incoming history by default and reveals it with the Answered filter', () => {

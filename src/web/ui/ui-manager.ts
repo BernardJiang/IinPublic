@@ -112,10 +112,12 @@ import {
   setCopyTalkAutoSave,
 } from './ui-settings-storage';
 import {
-  findStarterPracticeBot,
-  getStarterPracticeProgress,
-  type StarterPracticeBotId,
-} from './starter-practice-bots';
+  getStarterPracticeContacts,
+  isStarterContactEligible,
+  removeStarterPracticeContact,
+  starterIncomingTalkClusters,
+  type StarterPracticeContactId,
+} from './starter-talk-seeds';
 import { showActionableFirstRun, showFirstRunIfNeeded, showProductReferenceTour } from './first-run-controller';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
@@ -967,6 +969,8 @@ export class UIManager extends EventEmitter {
       updateStatsStrip: (prefix: string) => this.displayContextualStatistics('contacts-stats-strip', prefix),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
+      getStarterPracticeContacts: () => this.starterPracticeContacts(),
+      removeStarterPracticeContact: (id) => this.removeStarterPracticeContact(id),
       saveKnownPerson: peer.saveKnownPerson,
       submitPeerReview: peer.submitPeerReview,
       vouchAgeVerified: peer.vouchAgeVerified,
@@ -1118,10 +1122,6 @@ export class UIManager extends EventEmitter {
     this.chatroomShell().showChatroomDetail(chatroomId);
   }
 
-  /**
-   * Programmatic room switches (outside the Chatrooms detail click path) still need
-   * the chatroom list highlight to stay in sync.
-   */
   setCurrentChatroomId(chatroomId: string): void {
     setCurrentChatroomIdImpl(chatroomId, {
       setCurrentChatroom: (id) => { this.currentChatroom = id; },
@@ -1137,7 +1137,7 @@ export class UIManager extends EventEmitter {
       currentUser: this.currentUser,
       currentLocation: this.currentLocation,
       creatorReplyRows: this.creatorReplyRows,
-      incomingTalkClusters: this.incomingTalkClusters,
+      incomingTalkClusters: this.allIncomingTalkClusters(),
       talkStatsMap: this.talkStatsMap,
       talksShowIncoming: this.talksShowIncoming,
       talksShowOutgoing: this.talksShowOutgoing,
@@ -1176,7 +1176,6 @@ export class UIManager extends EventEmitter {
       pickIncomingRowTalkId: (cluster) => this.pickIncomingRowTalkId(cluster),
       showTalkEditorDialog: (talk) => this.showTalkEditorDialog(talk),
       showTalkTemplatePicker: () => this.talkEditor().showTalkTemplatePicker(),
-      openStarterPracticeBot: (botId) => this.openStarterPracticeBot(botId),
       navigateToGraphNode: (target) => this.navigateToGraphNode(target),
       showChooseWhoToDmPicker: (people) => this.showChooseWhoToDmPicker(people),
       emit: (event, payload) => this.emit(event, payload),
@@ -1720,12 +1719,16 @@ export class UIManager extends EventEmitter {
     displayContextualStatisticsImpl(elementId, prefix, this.localStatisticsDeps());
   }
 
-  /** Resolve a concrete talk UUID for an incoming cluster (Gun may reshape talkIds). */
   private pickIncomingRowTalkId(cluster: any): string {
     return pickLatestTalkIdFromIncomingCluster(cluster || {});
   }
 
   private quickAnswerIncomingTag(talkId: string, identityKeyFallback: string | undefined, checked: boolean): void {
+    const starterTalk = this.findStarterIncomingTalk(talkId, identityKeyFallback);
+    if (starterTalk) {
+      this.quickCompleteTagTalk(starterTalk, checked);
+      return;
+    }
     quickAnswerIncomingTagImpl(talkId, identityKeyFallback, checked, {
       emit: (event, payload) => this.emit(event, payload),
       showNotification: (message, type) => this.showNotification(message, type),
@@ -1772,14 +1775,14 @@ export class UIManager extends EventEmitter {
     );
   }
 
-  /**
-   * Horizontal row gesture: reaches the exact same end state as picking the response
-   * dialog's dedicated "Ignore" radio (talk-response-dialog.ts's `isDedicatedIgnore`
-   * branch) — withheld from the sender, local bookkeeping still runs — without opening
-   * the dialog first. Any question works as the nominal `questionId`; the talk ends
-   * immediately either way, so which one is recorded is not semantically meaningful.
-   */
   private quickIgnoreIncomingTalk(talkId: string, identityKeyFallback?: string): void {
+    const starterTalk = this.findStarterIncomingTalk(talkId, identityKeyFallback);
+    if (starterTalk) {
+      const question = starterTalk.questions?.[0];
+      const answers = question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
+      this.completeTalk(starterTalk, answers, 'mismatch', { withholdFromSender: true });
+      return;
+    }
     quickIgnoreIncomingTalkImpl(talkId, identityKeyFallback, {
       showNotification: (message, type) => this.showNotification(message, type),
       t: this.t.bind(this),
@@ -1791,7 +1794,7 @@ export class UIManager extends EventEmitter {
   }
 
   private quickCopyIncomingTalk(talkId: string, identityKeyFallback: string | undefined, cluster?: any): void {
-    cluster ||= this.incomingTalkClusters.find((candidate) => String(candidate?.identityKey || '') === String(identityKeyFallback || ''));
+    cluster ||= this.allIncomingTalkClusters().find((candidate) => String(candidate?.identityKey || '') === String(identityKeyFallback || ''));
     quickCopyIncomingTalkImpl(talkId, identityKeyFallback, cluster, {
       getMyTalks: () => this.getMyTalks(),
       showNotification: (message, type) => this.showNotification(message, type),
@@ -1802,19 +1805,6 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  /**
-   * Talks-tab row gestures, bound once on `document.body` (survives row re-renders, same
-   * idiom as the other talks-list delegations):
-   *   - drag down (incoming): copy into My Talks, unanswered.
-   *   - drag horizontally in either direction (any incoming type): Ignore this content.
-   *   - drag left (outgoing): delete — the swipe replacement for the old 🗑️ button.
-   *   - press-and-hold without dragging: open the same details popup the old ℹ️ button
-   *     opened (full sender identity, co-exchanged people, expiry/location) — nothing
-   *     dropped, just a different trigger, since a plain tap now opens the talk itself.
-   * A drag past the move threshold suppresses the click that would otherwise follow
-   * (`talksGestureSuppressClickUntil`), so letting go after a cancelled/undershot drag
-   * never accidentally opens the talk either.
-   */
   private bindTalksRowGestures(): void {
     bindTalksRowGesturesImpl({
       setSuppressClickUntil: (timestamp) => { this.talksGestureSuppressClickUntil = timestamp; },
@@ -1825,17 +1815,16 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  /**
-   * Me-tab Q&A traceback (TODO §P) always means "show my answer," never "edit the talk" — even
-   * for a self-answered own-created talk, which otherwise keeps role:'created' and would route
-   * to the editor. Route through showTalkDetail's preferAnswerView option instead of duplicating
-   * its role/fullTalk lookup here.
-   */
   private showTalkDetailAsAnswer(talkId: string, questionId?: string): void {
     this.showTalkDetail(talkId, undefined, { preferAnswerView: true, ...(questionId ? { questionId } : {}) });
   }
 
   private showTalkDetail(talkId: string, identityKeyFallback?: string, options?: { preferAnswerView?: boolean; questionId?: string }): void {
+    const starterTalk = this.findStarterIncomingTalk(talkId, identityKeyFallback);
+    if (starterTalk && !this.getMyTalks()[talkId]) {
+      this.showTalkResponseDialog(starterTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
+      return;
+    }
     showTalkDetailImpl(talkId, identityKeyFallback, options, {
       emit: (event, payload) => this.emit(event, payload),
       showTalkResponseDialog: (talk, opts) => this.showTalkResponseDialog(talk, opts),
@@ -1846,6 +1835,13 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  private findStarterIncomingTalk(talkId: string, identityKeyFallback?: string): any | null {
+    const cluster = starterIncomingTalkClusters(this.starterPracticeContacts()).find((candidate) =>
+      String(candidate?.latestTalkId || '') === String(talkId || '')
+      || String(candidate?.identityKey || '') === String(identityKeyFallback || ''));
+    return cluster?.latestTalk || null;
+  }
+
   displayConversationsList(): void {
     renderConversationsList({
       getMyConversations: this.getMyConversations.bind(this),
@@ -1853,14 +1849,10 @@ export class UIManager extends EventEmitter {
       formatTimeAgo: this.formatTalkRelativeTime.bind(this),
       showConversationDetail: this.showConversationDetail.bind(this),
       text: this.t.bind(this),
-      // K2: the greeting's authenticity check lives in the full-thread render
-      // (filterVerifiedSupportMessages); the list preview just shows the already-verified,
-      // already-rendered `lastMessage` text as-is — no re-localization needed.
       formatMessage: (message: string) => message,
     });
   }
 
-  /** Step 10: exposed publicly so app.ts can enumerate conversations for retraction teardown. */
   public getMyConversations(): Record<string, any> {
     const conversationsJson = localStorage.getItem('myConversations');
     return conversationsJson ? JSON.parse(conversationsJson) : {};
@@ -2382,18 +2374,6 @@ export class UIManager extends EventEmitter {
       showNotification: (message, type) => this.showNotification(message, type),
       displayTalksList: () => this.displayTalksList(),
     });
-    const practiceBotId = talk?.starterPractice?.botId as StarterPracticeBotId | undefined;
-    if (talk?.practiceOnly === true && practiceBotId) {
-      const bot = findStarterPracticeBot(practiceBotId);
-      const nextTalk = bot
-        ? getStarterPracticeProgress(bot, this.getUiLanguage(), getMyTalks()).nextTalk
-        : null;
-      if (nextTalk && nextTalk.id !== talk.id) {
-        // Let the completed response dialog finish closing before the instructor opens the
-        // next exercise. Echo Bot's second exercise will then auto-fill its repeated root.
-        window.setTimeout(() => this.showTalkResponseDialog(nextTalk), 0);
-      }
-    }
   }
 
   /**
@@ -2460,7 +2440,6 @@ export class UIManager extends EventEmitter {
     );
   }
 
-  /** Snapshot for syncing encrypted/auto answers to Gun (Phase 2). */
   getAnswerPreferencesSnapshot(): Record<
     string,
     {
@@ -2476,19 +2455,12 @@ export class UIManager extends EventEmitter {
     return getAnswerPreferences();
   }
 
-  /**
-   * Build a full answer list for Gun chatbot reply when the same talk id or content hash
-   * has no template but each step has a matching auto preference (any talk with same path).
-   */
   tryBuildChatbotAnswersFromFlattened(
     talkData: any,
   ): Array<{ questionId: string; answerId: string; answerText: string; mode?: string; answerIds?: string[] }> | null {
     return buildChatbotAnswersFromPreferences(this.currentUser?.id, talkData);
   }
 
-  /**
-   * Called by app when user completes a talk: save each question-answer to myQuestionAnswers (keyed by question text; last wins).
-   */
   saveQuestionAnswersFromCompletion(
     talkData: { questions?: Array<{ id: string; text?: string }> },
     answers: Array<{ questionId: string; answerId: string; answerText?: string }>,
@@ -2497,29 +2469,33 @@ export class UIManager extends EventEmitter {
     saveQuestionAnswersFromCompletionStorage(talkData, answers, location, () => this.displayAnswersList());
   }
 
-  /** Shows the actionable first-run guide once per device, after boot finishes. */
   showFirstRunWalkthroughIfNeeded(): void { showFirstRunIfNeeded(this.firstRunDeps()); }
-
-  /** The optional six-slide product reference, available from Settings and the action guide. */
   showWalkthrough(onClose: () => void = () => {}): void { showProductReferenceTour(this.firstRunDeps(), onClose); }
-
-  /** Settings and first-run entry point: opens local practice or an editable custom draft. */
   showActionableGuide(): void { showActionableFirstRun(this.firstRunDeps()); }
 
-  private openStarterPracticeBot(botId: StarterPracticeBotId): void {
-    const bot = findStarterPracticeBot(botId);
-    if (!bot) return;
-    const talks = bot.build(this.getUiLanguage());
-    const progress = getStarterPracticeProgress(bot, this.getUiLanguage(), getMyTalks());
-    this.showTalkResponseDialog(progress.nextTalk || talks[0], { skipAutoAnswer: false });
+  private starterPracticeContacts() {
+    const knownPeople = this.currentUser?.knownPeople || [];
+    const eligible = isStarterContactEligible(this.getMyTalks(), this.getMyConversations(), knownPeople);
+    return getStarterPracticeContacts(this.currentUserId, this.getUiLanguage(), eligible);
+  }
+
+  private allIncomingTalkClusters(): any[] {
+    return [
+      ...starterIncomingTalkClusters(this.starterPracticeContacts()),
+      ...this.incomingTalkClusters,
+    ];
+  }
+
+  private removeStarterPracticeContact(id: StarterPracticeContactId): void {
+    removeStarterPracticeContact(this.currentUserId, id);
+    this.displayContactsList();
+    this.displayTalksList();
   }
 
   private firstRunDeps() {
     return {
       t: (key: UiTranslationKey) => this.t(key),
-      getLanguage: () => this.getUiLanguage(),
-      openTalkDraft: (draft: any) => this.showTalkEditorDialog(draft),
-      openPracticeBot: (botId: StarterPracticeBotId) => this.openStarterPracticeBot(botId),
+      openStarterTalks: () => document.querySelector<HTMLElement>('.nav-btn[data-view="talks"]')?.click(),
     };
   }
 
@@ -2531,43 +2507,31 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  // ============================================
-  // MY TALKS MANAGEMENT
-  // ============================================
-
   private saveMyTalk(talkData: MyTalkEntry): void {
     saveMyTalkImpl(talkData, { displayTalksList: () => this.displayTalksList() });
   }
 
-  /** OUT talks eligible for the next broadcast in the current room (respects send history). */
   getPendingBroadcastTalkIds(): string[] {
     return this.broadcast().getPendingBroadcastTalkIds();
   }
 
-  /** Talks that can be included in broadcast: created or copied, not disabled, and not expired */
   getBroadcastableTalkIds(): string[] {
     return getBroadcastableTalkIdsImpl();
   }
 
-  /** OUT talks omitted from broadcast/peer send because they are disabled or expired. */
   getSenderOmittedBroadcastPreviews(): BroadcastAudiencePreview[] {
     return getSenderOmittedBroadcastPreviewsImpl();
   }
 
-  /**
-   * Full talk from OUT/myTalks when Gun `getTalk` is slow — bulk broadcast still needs a local payload.
-   */
   getBroadcastTalkPayload(talkId: string): any | null {
     return getBroadcastTalkPayloadImpl(talkId);
   }
 
-  /**
-   * Called by app after a talk is created or updated: saves to myTalks and the user's answer stores.
-   */
   saveCreatedTalk(
     talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null },
     options: { selfAnswers: { questionId: string; answerId: string }[] },
   ): void {
+    this.revealCreatedTalk(talk.type);
     saveCreatedTalkImpl(talk, options, {
       currentUserId: this.currentUser?.id,
       saveAnswerPreference: (talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode) =>
@@ -2578,6 +2542,15 @@ export class UIManager extends EventEmitter {
       refreshTalksListIfActive: () => this.displayTalksList(),
       refreshAnswersListIfActive: () => this.displayAnswersList(),
     });
+  }
+
+  private revealCreatedTalk(type: string): void {
+    this.talksShowOutgoing = true;
+    this.talksEnabledTypes.add(String(type || 'flow').toLowerCase());
+    this.talksQuery = '';
+    this.talksDateFrom = '';
+    this.talksDateTo = '';
+    this.persistTalksTabState();
   }
 
   getChatbotTemplate(talkId: string): { answers: any[]; talkData: any } | null {

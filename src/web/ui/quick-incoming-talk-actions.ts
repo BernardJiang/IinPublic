@@ -122,5 +122,9 @@ export function quickCopyIncomingTalk(
     finish(existing.fullTalk);
     return;
   }
+  if (cluster?.latestTalk) {
+    finish(cluster.latestTalk);
+    return;
+  }
   resolveIncomingFullTalk(deps.emit, deps.t, deps.showNotification, talkId, identityKeyFallback, finish);
 }

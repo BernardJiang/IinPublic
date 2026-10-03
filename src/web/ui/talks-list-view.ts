@@ -5,11 +5,6 @@ import { getTalkContentKey } from './answer-history-storage';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 import type { CreatorReplyRow } from './creator-replies-view';
 import { getMyTalks } from './my-talks-storage';
-import {
-  getStarterPracticeProgress,
-  STARTER_PRACTICE_BOTS,
-  type StarterPracticeBotId,
-} from './starter-practice-bots';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderListProgressively } from './render-list-progressively';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
@@ -91,7 +86,6 @@ export type DisplayTalksListDeps = {
   pickIncomingRowTalkId: (cluster: any) => string;
   showTalkEditorDialog: (existingTalk?: any) => void;
   showTalkTemplatePicker: () => void;
-  openStarterPracticeBot: (botId: StarterPracticeBotId) => void;
   navigateToGraphNode: (target: PersonTarget) => void;
   showChooseWhoToDmPicker: (people: Array<{ id: string; name: string }>) => void;
   emit: (event: string, payload: unknown) => unknown;
@@ -343,13 +337,13 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     const to = deps.talksDateTo ? new Date(`${deps.talksDateTo}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
     return (!query || title.includes(query))
       && deps.talksEnabledTypes.has(type)
-      && (deps.talksOutcomeFilter === 'all' || outcome === deps.talksOutcomeFilter)
+      && (!isIncoming || deps.talksOutcomeFilter === 'all' || outcome === deps.talksOutcomeFilter)
       && timestamp >= from && timestamp <= to
-      && (deps.talksCompletionFilter === 'ignored'
+      && (!isIncoming || (deps.talksCompletionFilter === 'ignored'
         ? ignored
         : !ignored && (deps.talksCompletionFilter === 'all'
           || (deps.talksCompletionFilter === 'answered' && answered)
-          || (deps.talksCompletionFilter === 'unanswered' && !answered)));
+          || (deps.talksCompletionFilter === 'unanswered' && !answered))));
   };
   const filteredOutEntries = deps.talksShowOutgoing
     ? outEntries.filter((entry) => matchesTalkFilter(entry, false))
@@ -392,46 +386,18 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
 
   if (filteredOutEntries.length === 0 && inEntries.length === 0) {
     const hasTalkHistory = allEntries.length > 0 || rawIncomingEntries.length > 0;
-    const practiceLocale = deps.getPreferredTalkLanguage() === 'zh' ? 'zh' : 'en';
-    const starterCards = STARTER_PRACTICE_BOTS.map((bot) => {
-      const progress = getStarterPracticeProgress(bot, practiceLocale, myTalks);
-      const action = progress.completed >= progress.total
-        ? deps.t('practiceBotDone')
-        : progress.completed > 0
-          ? deps.tf('practiceBotContinue', { completed: progress.completed, total: progress.total })
-          : deps.t('practiceBotStart');
-      return `
-      <button type="button" class="talks-starter-card starter-practice-card" data-practice-bot-id="${bot.id}" data-testid="starter-practice-${bot.id}">
-        <span class="talks-starter-icon" aria-hidden="true">${bot.icon}</span>
-        <span><strong>${escapeHtml(deps.t(bot.nameKey))}</strong><small>${escapeHtml(deps.t(bot.descKey))}</small><small class="starter-practice-action">${escapeHtml(action)}</small></span>
-      </button>`;
-    }).join('');
-    talksList.innerHTML = hasTalkHistory ? `
+    talksList.innerHTML = `
       <div class="empty-state" style="padding: 60px 20px; text-align: center;">
         <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
         <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">${deps.t('talksNoTalks')}</p>
         <p style="font-size: 0.9em; color: #999;">${deps.t('talksNoTalksHelp')}</p>
         ${hiddenReasonsText ? `<p style="font-size: 0.85em; color: #999; margin-top: 8px;">${escapeHtml(hiddenReasonsText)}</p>` : ''}
-      </div>
-    ` : `
-      <section class="talks-starter-shelf" data-testid="talks-starter-shelf" aria-labelledby="talks-starter-title">
-        <div class="talks-starter-heading">
-          <div class="talks-starter-mark" aria-hidden="true">💬</div>
-          <div><h2 id="talks-starter-title">${escapeHtml(deps.t('talksStarterTitle'))}</h2><p>${escapeHtml(deps.t('talksStarterBody'))}</p></div>
-        </div>
-        <div class="talks-starter-grid">${starterCards}</div>
-        <div class="talks-starter-actions">
+        ${!hasTalkHistory ? `<div class="talks-starter-actions">
           <button type="button" class="btn" id="talks-starter-more" data-testid="talks-starter-more">${escapeHtml(deps.t('talksStarterMore'))}</button>
           <button type="button" class="btn" id="talks-starter-scratch" data-testid="talks-starter-scratch">${escapeHtml(deps.t('talksStarterScratch'))}</button>
-        </div>
-      </section>
+        </div>` : ''}
+      </div>
     `;
-    talksList.querySelectorAll<HTMLElement>('[data-practice-bot-id]').forEach((card) => {
-      card.addEventListener('click', () => {
-        const id = card.dataset.practiceBotId as StarterPracticeBotId | undefined;
-        if (id) deps.openStarterPracticeBot(id);
-      });
-    });
     talksList.querySelector('#talks-starter-more')?.addEventListener('click', deps.showTalkTemplatePicker);
     talksList.querySelector('#talks-starter-scratch')?.addEventListener('click', () => deps.showTalkEditorDialog());
   } else {

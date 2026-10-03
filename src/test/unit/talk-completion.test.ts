@@ -152,21 +152,21 @@ describe('completeTalk', () => {
     expect(call).not.toHaveProperty('withholdFromSender');
   });
 
-  it('keeps practice completion local and out of real-talk indexes and answer history', () => {
+  it('stores answers from a starter contact in the normal Me-tab Q&A history', () => {
     const d = deps();
     completeTalk(
-      talk({ practiceOnly: true }),
+      talk({ starterContactId: 'flow-guide' }),
       [{ questionId: 'q1', answerId: 'yes' }],
       'match',
       undefined,
       d,
     );
 
-    expect(getMyTalks().t1.fullTalk.practiceOnly).toBe(true);
-    expect(getAnsweredTalkByContent()).toEqual({});
-    expect(getFlatAnswerHistory()).toEqual({});
-    expect(d.emit).toHaveBeenCalledWith('talkCompleted', expect.objectContaining({ practiceOnly: true }));
-    expect(d.showNotification).toHaveBeenCalledWith('practiceBotLearned', 'success');
+    expect(getMyTalks().t1.fullTalk.starterContactId).toBe('flow-guide');
+    expect(Object.keys(getAnsweredTalkByContent()).length).toBeGreaterThan(0);
+    expect(Object.keys(getFlatAnswerHistory()).length).toBeGreaterThan(0);
+    expect(d.emit).toHaveBeenCalledWith('talkCompleted', expect.objectContaining({ talkId: 't1' }));
+    expect(d.showNotification).toHaveBeenCalledWith('responseSubmittedFlow', 'success');
   });
 
   it.each([

@@ -10,6 +10,8 @@ import {
 import { renderListProgressively } from './render-list-progressively';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
+import type { StarterPracticeContact, StarterPracticeContactId } from './starter-talk-seeds';
+import { bindStarterContactRemoval, renderStarterContactRows } from './starter-contacts-view';
 
 /**
  * TODO §R1: how many contact rows render synchronously, immediately — matches
@@ -55,6 +57,8 @@ export type ContactsViewDeps = {
   updateStatsStrip: (prefix: string) => void;
   getMyConversations: () => Record<string, any>;
   getMyTalks: () => Record<string, any>;
+  getStarterPracticeContacts: () => StarterPracticeContact[];
+  removeStarterPracticeContact: (id: StarterPracticeContactId) => void;
   saveKnownPerson: (
     userId: string,
     details: { labels: KnownPerson['labels']; nickname?: string; customLabel?: string; rating?: number; notes?: string },
@@ -117,9 +121,6 @@ async function runBeforeRender(deps: ContactsViewDeps): Promise<void> {
     new Promise<void>((resolve) => window.setTimeout(resolve, 1200)),
   ]);
 }
-
-// fetchPeerSummariesWithTimeout removed — contacts are derived locally (P0 step 5).
-// Use deriveLocalPeers() from local-peer-derivation.ts instead.
 
 const RELATIONSHIP_LABEL_TRANSLATION_KEYS: Record<string, UiTranslationKey> = {
   friend: 'friends',
@@ -651,17 +652,7 @@ export function showContactsList(deps: ContactsViewDeps): void {
   void displayContactsList(deps);
 }
 
-/** Monotonic render token: a re-render started later always wins over an older in-flight one. */
 let contactsRenderSeq = 0;
-
-/**
- * TODO §R1: separate, finer-grained token than `contactsRenderSeq` — `renderContactsListCore`
- * now runs twice per `displayContactsList` call (immediate + post-enrichment), so each call's
- * own deferred `renderListProgressively` remainder must only apply if THAT call is still the
- * latest one, not just the latest `displayContactsList` invocation. Without this, the first
- * call's remainder would still fire after the second call's synchronous re-render already
- * replaced the list, duplicating every row past the first chunk.
- */
 let contactsCoreRenderSeq = 0;
 
 /**
@@ -742,6 +733,11 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     const sortOrder = controls.sort?.value || 'recent';
     const supportNameMatches = !nameFilter || TECHSUPPORT_STAGE_NAME.toLowerCase().includes(nameFilter);
     const showSupportContact = deps.hasSupportContact() && relationFilter === 'all' && supportNameMatches;
+    const visibleStarterContacts = deps.getStarterPracticeContacts().filter((contact) => {
+      if (relationFilter !== 'all') return false;
+      if (outcomeFilter === 'matched') return false;
+      return !nameFilter || `${contact.name} ${contact.description}`.toLowerCase().includes(nameFilter);
+    });
     const tieBreak = (a: PeerSummary, b: PeerSummary): number =>
       deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
     const visiblePeersByCurrentSort = peers
@@ -792,13 +788,13 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     const visiblePeers = pinnedFirst(visiblePeersByCurrentSort, 'contacts', (peer) => peer.peerId);
     const pinnedContactIds = getPinnedIds('contacts');
 
-    if (peers.length === 0 && !showSupportContact) {
+    if (peers.length === 0 && !showSupportContact && visibleStarterContacts.length === 0) {
       listEl.innerHTML = `
         <p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsEmpty')}</p>
       `;
       return;
     }
-    if (visiblePeers.length === 0 && !showSupportContact) {
+    if (visiblePeers.length === 0 && !showSupportContact && visibleStarterContacts.length === 0) {
       listEl.innerHTML = `
         <p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsNoMatch')}</p>
       `;
@@ -807,7 +803,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
 
     // One combined summary line instead of two (header count + a separate "Stats: ..."
     // row below) — same "merge the redundant top lines" move the Talks tab redesign made.
-    deps.updateStatsStrip(formatCountText(deps, visiblePeers.length, 'contactsCountOne', 'contactsCount') + ' · ');
+    deps.updateStatsStrip(formatCountText(deps, visiblePeers.length + visibleStarterContacts.length, 'contactsCountOne', 'contactsCount') + ' · ');
 
     const supportOnline = deps.isTechSupportOnline();
     // TODO §M5: compact to a single line — the "Built-in" badge already conveys what the old
@@ -825,6 +821,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
           </div>
         `
       : '';
+    const starterRows = renderStarterContactRows(visibleStarterContacts, deps);
     const renderContactRow = (peer: PeerSummary): string => {
       const known = knownMap.get(peer.peerId);
       const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
@@ -866,10 +863,11 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     // nodes when it does.
     renderListProgressively(listEl, visiblePeers, {
       firstChunkSize: CONTACTS_FIRST_CHUNK_SIZE,
-      prefixHtml: supportRow,
+      prefixHtml: starterRows + supportRow,
       renderRow: renderContactRow,
       isStale: () => coreSeq !== contactsCoreRenderSeq,
     });
+    bindStarterContactRemoval(listEl, deps);
 
     // Delegated click handling (bound once, survives every re-render/re-chunk): a row
     // rendered into the deferred remainder is clickable the instant it lands in the DOM,
