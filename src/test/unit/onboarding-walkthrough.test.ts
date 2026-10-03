@@ -17,13 +17,34 @@ describe('onboarding walkthrough', () => {
       .toContain('Build your digital you');
     expect(document.querySelector('[data-testid="walkthrough-tagline"]')?.textContent)
       .toBe('Say it once. Let your digital you repeat it.');
+    expect(document.querySelector('[data-testid="walkthrough-step-0"]')?.textContent)
+      .toContain('Ask once or answer once');
     expect(document.querySelector('[data-testid="walkthrough-skip-btn"]')).toBeNull();
     expect(document.querySelector('[data-testid="walkthrough-back-btn"]')).toBeNull();
 
     document.querySelector<HTMLButtonElement>('[data-testid="walkthrough-next-btn"]')?.click();
 
     expect(document.querySelector('[data-testid="walkthrough-step-1"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="walkthrough-step-1"]')?.textContent)
+      .toContain('Broadcast your Talks');
+    expect(document.querySelector('[data-testid="walkthrough-step-1"]')?.textContent)
+      .toContain("Receive others' Talks");
     expect(document.querySelector('[data-testid="walkthrough-back-btn"]')).not.toBeNull();
+  });
+
+  it('follows navigation order and explains asking and answering in Talks', () => {
+    showWalkthroughDialog({ text, onClose: jest.fn() });
+
+    document.querySelector<HTMLButtonElement>('[data-testid="walkthrough-dot-2"]')?.click();
+    expect(document.querySelector('[data-testid="walkthrough-step-2"]')?.textContent)
+      .toContain('Contacts');
+
+    document.querySelector<HTMLButtonElement>('[data-testid="walkthrough-next-btn"]')?.click();
+    const talksSlide = document.querySelector('[data-testid="walkthrough-step-3"]');
+    expect(talksSlide?.textContent).toContain('Talks');
+    expect(talksSlide?.textContent).toContain('Create questions your digital you can ask for you.');
+    expect(talksSlide?.textContent).toContain('You can answer your own questions to share with others too.');
+    expect(talksSlide?.textContent).toContain('answer questions from others too.');
   });
 
   it('uses the close icon as the only early exit and restores focus', () => {

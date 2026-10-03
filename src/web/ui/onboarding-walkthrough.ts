@@ -39,7 +39,7 @@ const STEPS: WalkthroughStep[] = [
     taglineKey: 'walkthroughWelcomeTagline',
     taglineFallback: 'Say it once. Let your digital you repeat it.',
     bodyKey: 'walkthroughWelcomeBody',
-    bodyFallback: 'Answer an ordinary question once. When that exact question returns, your digital you can reuse only the answer you approved.',
+    bodyFallback: 'Ask once or answer once. Your digital you can reuse your questions and approved answers when they fit.',
     points: [
       { icon: '✋', key: 'walkthroughWelcomeNoLogin', fallback: 'You stay in control of every answer.' },
       { icon: '🆕', key: 'walkthroughWelcomeResponsibility', fallback: "You only need to answer what's new." },
@@ -54,26 +54,10 @@ const STEPS: WalkthroughStep[] = [
     taglineKey: 'walkthroughChatroomsTagline',
     taglineFallback: "What's being talked about around me?",
     bodyKey: 'walkthroughChatroomsBody',
-    bodyFallback: 'Join a room by location or topic, meet people nearby, and broadcast your Talks to the room.',
+    bodyFallback: 'Join a room by location or topic and meet people nearby.',
     points: [
-      { icon: '📍', key: 'walkthroughChatroomsNearby', fallback: 'Find people nearby—with Internet or supported direct connections.' },
-      { icon: '💬', key: 'walkthroughChatroomsOneToOne', fallback: 'Chatrooms help you discover people. Conversations stay one-to-one.' },
-    ],
-  },
-  {
-    icon: '🃏',
-    accent: '#e76f51',
-    accentSoft: 'rgba(231, 111, 81, 0.16)',
-    titleKey: 'walkthroughTalksTitle',
-    titleFallback: 'Talks',
-    taglineKey: 'walkthroughTalksTagline',
-    taglineFallback: 'Create questions your digital you can answer.',
-    bodyKey: 'walkthroughTalksBody',
-    bodyFallback: 'No programming language is needed. Write ordinary questions and possible answers; each answer can guide what happens next.',
-    points: [
-      { icon: '🤖', key: 'walkthroughTalksChatbotRepeat', fallback: 'Your digital you repeats approved answers—it does not invent them.' },
-      { icon: '♻️', key: 'walkthroughTalksReuse', fallback: 'Create once. Save, share, and reuse.' },
-      { icon: '🆕', key: 'walkthroughTalksOnlyNew', fallback: "You only need to answer what's new." },
+      { icon: '📣', key: 'walkthroughChatroomsBroadcast', fallback: 'Broadcast your Talks to people in the room.' },
+      { icon: '📥', key: 'walkthroughChatroomsReceive', fallback: "Receive others' Talks from the room." },
     ],
   },
   {
@@ -88,6 +72,21 @@ const STEPS: WalkthroughStep[] = [
     bodyFallback: "When you and someone else answer a talk compatibly, that's a match — find them here and start chatting.",
     points: [
       { icon: '🎯', key: 'walkthroughContactsScale', fallback: 'Find compatible people without hundreds of one-to-one searches.' },
+    ],
+  },
+  {
+    icon: '🃏',
+    accent: '#e76f51',
+    accentSoft: 'rgba(231, 111, 81, 0.16)',
+    titleKey: 'walkthroughTalksTitle',
+    titleFallback: 'Talks',
+    taglineKey: 'walkthroughTalksTagline',
+    taglineFallback: 'Create questions your digital you can ask for you.',
+    bodyKey: 'walkthroughTalksBody',
+    bodyFallback: 'Write ordinary questions and possible answers—no programming language is needed.',
+    points: [
+      { icon: '🪞', key: 'walkthroughTalksAnswerOwn', fallback: 'You can answer your own questions to share with others too.' },
+      { icon: '📥', key: 'walkthroughTalksAnswerOthers', fallback: "This is where you answer questions from others too." },
     ],
   },
   {

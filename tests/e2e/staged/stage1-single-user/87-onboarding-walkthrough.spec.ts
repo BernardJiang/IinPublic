@@ -35,14 +35,23 @@ test.describe('First-run introduction', () => {
     await expect(introduction).toBeVisible();
     await expect(p.locator('[data-testid="walkthrough-step-0"]')).toContainText('Build your digital you');
     await expect(p.locator('[data-testid="walkthrough-tagline"]')).toHaveText('Say it once. Let your digital you repeat it.');
+    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toContainText('Ask once or answer once');
     await expect(p.locator('[data-testid="walkthrough-skip-btn"]')).toHaveCount(0);
     await expect(p.locator('[data-testid="walkthrough-back-btn"]')).toHaveCount(0);
 
     await p.locator('[data-testid="walkthrough-next-btn"]').click();
     await expect(p.locator('[data-testid="walkthrough-step-1"]')).toBeVisible();
+    await expect(p.locator('[data-testid="walkthrough-step-1"]')).toContainText('Broadcast your Talks');
+    await expect(p.locator('[data-testid="walkthrough-step-1"]')).toContainText("Receive others' Talks");
     await expect(p.locator('[data-testid="walkthrough-back-btn"]')).toBeVisible();
+    await p.locator('[data-testid="walkthrough-next-btn"]').click();
+    await expect(p.locator('[data-testid="walkthrough-step-2"]')).toContainText('Contacts');
+    await p.locator('[data-testid="walkthrough-next-btn"]').click();
+    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('Create questions your digital you can ask for you.');
+    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('You can answer your own questions');
+    await expect(p.locator('[data-testid="walkthrough-step-3"]')).toContainText('answer questions from others too');
     await p.locator('[data-testid="walkthrough-back-btn"]').click();
-    await expect(p.locator('[data-testid="walkthrough-step-0"]')).toBeVisible();
+    await expect(p.locator('[data-testid="walkthrough-step-2"]')).toBeVisible();
     await p.locator('[data-testid="walkthrough-close-btn"]').click();
     await expect(introduction).toHaveCount(0);
     await p.locator('.nav-btn[data-view="talks"]').click();
