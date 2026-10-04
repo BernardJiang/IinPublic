@@ -223,6 +223,9 @@ export async function injectIdbClear(page: Page): Promise<void> {
       const walkthroughOptedIn = new URLSearchParams(window.location.search).get('e2e_walkthrough') === '1';
       if (!walkthroughOptedIn) {
         localStorage.setItem('iinpublic_walkthrough_seen', 'true');
+        // Same idea for the seeded starter contacts/talks (starter-talk-seeds.ts): their
+        // "Coffee"/"Cat" talks collide with spec titles and inflate incoming/contact counts.
+        localStorage.setItem('iinpublic_starter_contacts_disabled', 'true');
       }
     } catch {
       // Non-fatal — localStorage access can throw in a locked-down context; the app still works.

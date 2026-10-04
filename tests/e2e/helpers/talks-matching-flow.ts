@@ -581,8 +581,9 @@ export async function openIncomingTalkModalByTalkId(
       const current = rows.find((candidate) => candidate.textContent?.includes(title));
       const button = current?.querySelector<HTMLButtonElement>('button.view-talk-btn');
       if (!button) return false;
-      // The talks-list delegation listens on MOUSEDOWN (not click) — see ui-manager.
-      button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      // view-talk-btn is handled by the talks-list body CLICK delegation (talks-list-view.ts),
+      // not the mousedown one — a synthetic mousedown alone is a no-op since v1.0.64.
+      button.click();
       return true;
     }, titleSubstring);
     if (clicked) {
@@ -632,10 +633,9 @@ export async function openIncomingTalkModal(
   // The incoming list re-renders on every Gun sync tick, so a Playwright click can spend
   // its whole actionTimeout in "element is not stable / detached" retries under load
   // (observed in 00l-chatroom-talks-ui-regressions on the 8-worker light shard). Trigger
-  // the CURRENT button via the DOM instead. IMPORTANT: the talks-list delegation listens
-  // on MOUSEDOWN (see ui-manager displayTalksList: "use mousedown so we run before any
-  // re-render can replace the DOM") — `button.click()` fires only a `click` event and is
-  // a no-op there, so dispatch a real mousedown. Then wait the FULL modal budget: opening
+  // the CURRENT button via the DOM instead. view-talk-btn is handled by the talks-list body
+  // CLICK delegation (talks-list-view.ts; moved off mousedown in v1.0.64), so a synchronous
+  // `button.click()` on the current node is enough. Then wait the FULL modal budget: opening
   // the dialog fetches the talk from the server and can take many seconds under load, so
   // re-triggering on a short poll would keep restarting that load.
   const viewModal = page.locator('#talk-response-modal .modal-content');
@@ -645,7 +645,7 @@ export async function openIncomingTalkModal(
       const current = rows.find((candidate) => candidate.textContent?.includes(title));
       const button = current?.querySelector<HTMLButtonElement>('button.view-talk-btn');
       if (!button) return false;
-      button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      button.click();
       return true;
     }, titleSubstring);
     if (!clicked) {

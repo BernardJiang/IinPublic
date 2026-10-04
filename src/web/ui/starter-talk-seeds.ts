@@ -30,6 +30,9 @@ const definitions: Array<{
 ];
 
 const stateKey = (userId: string): string => `iinpublic_starter_contacts_v${STARTER_CONTACTS_VERSION}:${userId}`;
+// Device-wide opt-out set by the E2E harness (tests/e2e/helpers/clear-database.ts) so starter
+// talks/contacts don't collide with the titles and counts that ordinary specs assert on.
+export const STARTER_CONTACTS_DISABLED_KEY = 'iinpublic_starter_contacts_disabled';
 const lang = (locale?: UiLanguage): UiLanguage => locale === 'zh' ? 'zh' : 'en';
 
 function makeTalk(contactId: StarterPracticeContactId, locale: UiLanguage, draft: any): any {
@@ -137,6 +140,7 @@ function buildTalks(id: StarterPracticeContactId, locale: UiLanguage): any[] {
 function readActiveIds(userId: string, eligible: boolean, storage: Storage): StarterPracticeContactId[] {
   if (!userId) return [];
   try {
+    if (storage.getItem(STARTER_CONTACTS_DISABLED_KEY) === 'true') return [];
     const raw = storage.getItem(stateKey(userId));
     if (raw) {
       const parsed = JSON.parse(raw);

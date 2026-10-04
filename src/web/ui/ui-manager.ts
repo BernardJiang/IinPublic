@@ -2477,16 +2477,12 @@ export class UIManager extends EventEmitter {
   showActionableGuide(): void { showActionableFirstRun(this.firstRunDeps()); }
 
   private starterPracticeContacts() {
-    const knownPeople = this.currentUser?.knownPeople || [];
-    const eligible = isStarterContactEligible(this.getMyTalks(), this.getMyConversations(), knownPeople);
+    const eligible = isStarterContactEligible(this.getMyTalks(), this.getMyConversations(), this.currentUser?.knownPeople || []);
     return getStarterPracticeContacts(this.currentUserId, this.getUiLanguage(), eligible);
   }
 
   private allIncomingTalkClusters(): any[] {
-    return [
-      ...starterIncomingTalkClusters(this.starterPracticeContacts()),
-      ...this.incomingTalkClusters,
-    ];
+    return [...starterIncomingTalkClusters(this.starterPracticeContacts()), ...this.incomingTalkClusters];
   }
 
   private removeStarterPracticeContact(id: StarterPracticeContactId): void {
