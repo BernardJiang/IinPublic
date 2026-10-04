@@ -59,6 +59,40 @@ function mockGunService(
 }
 
 describe('PeerMeshService', () => {
+  it('reconnects a neighbor whose session died after it had connected (stale connected flag)', async () => {
+    jest.useFakeTimers();
+    try {
+      const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+      const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+      let state = 'connected';
+      const ensureConnected = jest.fn(async () => { state = 'connected'; });
+      const alice = new PeerMeshService(mockGunService(alicePair, users), {
+        apiBase: 'http://127.0.0.1:8080',
+        localUserId: 'alice',
+        localStageName: 'Alice',
+        createSession: () => ({
+          ensureConnected,
+          getState: () => state,
+          setOnRemoteMeshFrame: jest.fn(),
+          sendMeshFrame: jest.fn(async () => undefined),
+        }),
+      });
+      await alice.joinRoom('global', [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }]);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(alice.getDiagnostics().connectedNeighborCount).toBe(1);
+      const callsBefore = ensureConnected.mock.calls.length;
+
+      state = 'failed'; // e.g. Bob's phone restarted
+      expect(alice.getDiagnostics().connectedNeighborCount).toBe(0);
+      await jest.advanceTimersByTimeAsync(2_500);
+      expect(ensureConnected.mock.calls.length).toBeGreaterThan(callsBefore);
+      expect(alice.getDiagnostics().connectedNeighborCount).toBe(1);
+      alice.leaveRoom();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('uses discovery fallback user ids to form neighbors when roster is sparse', async () => {
     const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
     const users = {

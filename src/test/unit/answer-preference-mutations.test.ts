@@ -214,7 +214,15 @@ describe('openAnswerPreferencesDialog', () => {
     expect(d.showNotification).not.toHaveBeenCalled();
   });
 
+  it('updateMode with the default scope (Whenever offered) promotes Auto to whenever', () => {
+    setAnswerPreferences({ k1: pref({ mode: 'manual', contextVersion: 2 }) });
+    openAnswerPreferencesDialog(deps());
+    capturedOptions().updateMode('k1', 'auto');
+    expect(getAnswerPreferences().k1.mode).toBe('whenever');
+  });
+
   it('updateMode writes the new mode and notifies with the mode-specific key', () => {
+    localStorage.setItem('iinpublic_auto_answer_scope', 'same-context');
     setAnswerPreferences({ k1: pref({ mode: 'manual', contextVersion: 2 }) });
     const d = deps();
     openAnswerPreferencesDialog(d);
@@ -224,6 +232,7 @@ describe('openAnswerPreferencesDialog', () => {
   });
 
   it('updateMode keeps linked legacy and flattened records in sync', () => {
+    localStorage.setItem('iinpublic_auto_answer_scope', 'same-context');
     setAnswerPreferences({ legacy_k1: pref({ flatKey: 'flat_k1', contextVersion: 2 }) });
     setFlattenedAnswerPreferences({ flat_k1: pref({ flatKey: 'flat_k1', contextVersion: 2 }) });
     openAnswerPreferencesDialog(deps());

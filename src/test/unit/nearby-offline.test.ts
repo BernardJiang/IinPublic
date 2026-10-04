@@ -68,6 +68,8 @@ describe('nearby offline records', () => {
     expect(lanGunPeerUrl('https://192.168.10.71:8088/gun')).toBeNull();
     expect(lanGunPeerUrl('http://192.168.10.71:8088/evil')).toBeNull();
     expect(lanGunPeerUrl('http://192.168.10.71:99999/gun')).toBeNull();
+    // Wi-Fi Direct group addresses are not "same Wi-Fi".
+    expect(lanGunPeerUrl('http://192.168.49.185:8088/gun')).toBeNull();
   });
 });
 
@@ -101,14 +103,20 @@ describe('planOfflineGroup', () => {
     expect(plan(b, [record({ id: a.id })])).toEqual({ action: 'wait', reason: 'peer-hosts' });
   });
 
-  it('prefers a higher host score, then the phone that cannot join by credential', () => {
+  it('prefers a higher host score', () => {
     expect(plan(self({ id: 'bbbbbbbbbbbb', hostScore: 3 }), [record({ id: 'aaaaaaaaaaaa', hostScore: 1 })]).action).toBe('host');
-    expect(plan(self({ id: 'aaaaaaaaaaaa', hostScore: 3 }), [record({ id: 'bbbbbbbbbbbb', joinByCredential: false, hostScore: 0 })]).action).toBe('wait');
-    expect(plan(self({ id: 'bbbbbbbbbbbb', joinByCredential: false }), [record({ id: 'aaaaaaaaaaaa' })]).action).toBe('host');
+    expect(plan(self({ id: 'aaaaaaaaaaaa', hostScore: 1 }), [record({ id: 'bbbbbbbbbbbb', hostScore: 3 })]).action).toBe('wait');
   });
 
-  it('two Android 7–9 phones cannot link and leave each other alone', () => {
-    expect(plan(self({ joinByCredential: false }), [record({ joinByCredential: false })])).toEqual({ action: 'none', reason: 'no-joinable-peers' });
+  it('Android 7–9 phones sit out offline Wi-Fi Direct and are never waited on', () => {
+    // They cannot set the app-wide credentials as host nor join by them.
+    expect(plan(self({ joinByCredential: false }), [record()])).toEqual({ action: 'none', reason: 'cannot-join-by-credential' });
+    expect(plan(self({ joinByCredential: false }), [record({ joinByCredential: false })]).action).toBe('none');
+    // An Android 10+ phone that only sees an Android 7–9 phone has nobody to link with.
+    expect(plan(self(), [record({ joinByCredential: false })])).toEqual({ action: 'none', reason: 'no-offline-peers' });
+    // ...and never defers to one in the election.
+    expect(plan(self({ id: 'ffffffffffff' }), [record({ id: '000000000000', joinByCredential: false, hostScore: 3 }), record({ id: 'eeeeeeeeeeee' })]).action).toBe('wait');
+    expect(plan(self({ id: 'aaaaaaaaaaaa' }), [record({ id: '000000000000', joinByCredential: false, hostScore: 3 }), record({ id: 'eeeeeeeeeeee' })]).action).toBe('host');
   });
 
   it('waits when this phone cannot host', () => {

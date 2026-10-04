@@ -75,6 +75,8 @@ async function chooseRememberedAnswer(page: Page, questionText: string, answerTe
 }
 
 async function joinGlobal(page: Page): Promise<void> {
+  // This spec covers same-context memory; the app default is now "Whenever offered".
+  await page.evaluate(() => localStorage.setItem('iinpublic_auto_answer_scope', 'same-context'));
   await page.click('.chatroom-item:has-text("Global")');
   await waitForTabActive(page, 'chatrooms');
   await afterSync();

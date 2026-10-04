@@ -42,6 +42,13 @@ export type NearbyReadiness = {
   bluetoothEnabled: boolean;
 };
 
+export type NearbyStatus =
+  /** Online: the hub is reachable, Wi-Fi Direct is not needed. */
+  | { kind: 'standby'; lanPhones: number }
+  | { kind: 'off'; lanPhones: number }
+  | { kind: 'searching'; lanPhones: number }
+  | { kind: 'wifi-direct'; hosting: boolean; phones: number | null; lanPhones: number };
+
 export type NearbyReadinessGap = 'permission' | 'wifi' | 'location' | 'bluetooth';
 
 export type NearbyOfflineEvent =
@@ -120,6 +127,10 @@ export class NearbyOfflineService {
   private fallbackJoinAddress: string | null = null;
   private hostDelayMs = 30_000;
   private onlineSince: number | null = null;
+  private wifiDirectAllowed: boolean;
+  /** Native re-sends its state with every discovery error; act on transitions only. */
+  private lastGroupState: WifiDirectNativeState['state'] = 'idle';
+  private blePresence: boolean;
   private leaveDelayMs = 20_000;
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
@@ -179,6 +190,8 @@ export class NearbyOfflineService {
   };
 
   constructor(private readonly opts: NearbyOfflineServiceOptions) {
+    this.wifiDirectAllowed = opts.wifiDirectAllowed;
+    this.blePresence = opts.blePresence !== false;
     this.now = opts.now ?? Date.now;
     this.events = opts.events ?? window;
   }
@@ -198,6 +211,49 @@ export class NearbyOfflineService {
     this.opts.bridge.refreshWifiDirectState?.();
     await this.handleGroupState(this.opts.native.getState());
     await this.tick();
+  }
+
+  /**
+   * The user's Settings switches (both on by default). Wi-Fi Direct off: stop scanning and leave the
+   * offline group right away. Bluetooth off: stop the presence beacon; Wi-Fi discovery remains.
+   */
+  updateSettings(settings: { wifiDirect: boolean; bluetooth: boolean }): void {
+    const bleChanged = settings.bluetooth !== this.blePresence;
+    this.blePresence = settings.bluetooth;
+    this.wifiDirectAllowed = settings.wifiDirect;
+    if (!settings.wifiDirect) {
+      const state = this.opts.native.getState();
+      if ((state.state === 'owner' || state.state === 'client') && state.networkName === OFFLINE_GROUP_CREDENTIALS.networkName) {
+        this.ownsGroup = false;
+        this.opts.native.leaveGroup();
+      }
+      if (this.wifiDirectActive) this.stopWifiDirect('disabled-in-settings');
+      return;
+    }
+    if (bleChanged && this.wifiDirectActive) {
+      if (!settings.bluetooth) this.opts.bridge.stopBlePresence();
+      this.lastAdvertised = '';
+      this.advertise();
+    }
+    void this.tick();
+  }
+
+  /** Plain-language state for the Settings screen. */
+  getStatus(): NearbyStatus {
+    const state = this.opts.native.getState();
+    const lanPhones = this.peeredUrls.size === 0 ? 0 : [...this.peeredUrls].filter((url) => !url.includes('192.168.49.')).length;
+    if ((state.state === 'owner' || state.state === 'client') && state.networkName === OFFLINE_GROUP_CREDENTIALS.networkName) {
+      return {
+        kind: 'wifi-direct',
+        hosting: state.state === 'owner',
+        // Only the host knows how many phones joined.
+        phones: state.state === 'owner' ? state.clientCount ?? 0 : null,
+        lanPhones,
+      };
+    }
+    if (this.wifiDirectActive) return { kind: 'searching', lanPhones };
+    if (!this.wifiDirectAllowed) return { kind: 'off', lanPhones };
+    return { kind: 'standby', lanPhones };
   }
 
   getDiagnostics(): Record<string, unknown> {
@@ -246,7 +302,10 @@ export class NearbyOfflineService {
     try {
       await this.refreshId();
       this.prune();
-      if (!this.opts.wifiDirectAllowed || this.permissionDenied || !this.opts.native.capabilities().wifiDirect) return;
+      this.reassertGunPeers();
+      // Offline groups need Android 10+ (app-chosen credentials); older phones use the LAN path only.
+      const caps = this.opts.native.capabilities();
+      if (!this.wifiDirectAllowed || this.permissionDenied || !caps.wifiDirect || !caps.joinByCredential) return;
       const state = this.opts.native.getState();
       const inGroup = state.state === 'owner' || state.state === 'client';
       const offline = !(await this.opts.hubReachable().catch(() => false));
@@ -405,13 +464,18 @@ export class NearbyOfflineService {
     if (txt === this.lastAdvertised) return;
     this.lastAdvertised = txt;
     this.opts.bridge.advertiseWifiDirectService(txt);
-    if (this.opts.blePresence !== false) this.opts.bridge.startBlePresence(encodeBlePresence({ ...self, hosting: !!group }));
+    if (this.blePresence) this.opts.bridge.startBlePresence(encodeBlePresence({ ...self, hosting: !!group }));
   }
 
   // ── Group state ───────────────────────────────────────────────────────────────────────────
 
   private async handleGroupState(state: WifiDirectNativeState): Promise<void> {
     if (this.disposed) return;
+    const previous = this.lastGroupState;
+    this.lastGroupState = state.state;
+    // A repeated 'failed' (native re-sends state with every discovery error) must not keep pushing
+    // the retry back — on hardware it parked a phone whose first join failed indefinitely.
+    if (state.state === 'failed' && previous === 'failed') return;
     this.opts.onEvent?.({ type: 'group', state: state.state, ...(state.localIp ? { localIp: state.localIp } : {}), ...(state.ownerIp ? { ownerIp: state.ownerIp } : {}) });
     if ((state.state === 'owner' || state.state === 'client') && state.localIp) {
       this.busyUntil = 0;
@@ -457,6 +521,27 @@ export class NearbyOfflineService {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Gun drops a peer from its list when the socket closes (mesh.bye), and never reconnects it —
+   * seen on hardware when the group owner's app restarted: the client's roster stayed empty for
+   * minutes. Re-add every peer we still want each tick; `addGunPeer` is a no-op while the peer is
+   * present and otherwise probes until the node answers. Group-owner URLs only while we are a client.
+   */
+  private reassertGunPeers(): void {
+    const state = this.opts.native.getState();
+    const ownerUrl = state.state === 'client' && state.ownerIp
+      ? `http://${state.ownerIp}:${this.joinedRecord?.port ?? this.opts.port}/gun`
+      : null;
+    for (const url of this.peeredUrls) {
+      if (url.includes('://192.168.49.') && url !== ownerUrl) continue;
+      this.opts.addGunPeer(url);
+    }
+    if (ownerUrl && !this.peeredUrls.has(ownerUrl)) {
+      this.peeredUrls.add(ownerUrl);
+      this.opts.addGunPeer(ownerUrl);
+    }
+  }
 
   private async refreshId(): Promise<void> {
     const next = await rotatingNearbyId(this.opts.localPub, this.now());

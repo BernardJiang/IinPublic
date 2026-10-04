@@ -435,7 +435,7 @@ export class WebChatroomService {
     this.membershipHeartbeatKey = key;
     this.membershipHeartbeatStageName = stageName;
     let beatCount = 0;
-    const beat = () => {
+    const beat = (forceKeys = false) => {
       // Read the LIVE stage name on every beat. A snapshot captured at heartbeat start goes
       // stale when a rename races the room join (join completes after the rename and starts
       // the heartbeat with the pre-rename name) — the beats then clobber the renamed member
@@ -455,7 +455,7 @@ export class WebChatroomService {
       // Gun merges partial puts into the existing node, so the keys stay on the record (and are
       // served to anyone who subscribes later by this member's own copy); the periodic refresh
       // re-asserts them in case a peer joined while no one still held the field.
-      const includeKeys = beatCount % MEMBERSHIP_KEY_REFRESH_BEATS === 0;
+      const includeKeys = forceKeys || beatCount % MEMBERSHIP_KEY_REFRESH_BEATS === 0;
       beatCount += 1;
       if (!epub || !pub) {
         // Diagnostic (2026-08-09 real-device investigation): a member whose heartbeat never
@@ -484,6 +484,7 @@ export class WebChatroomService {
       void this.syncMembershipHeartbeatWithServer(chatroomId, userId, liveName, now);
     };
     beat();
+    this.membershipBeatNow = () => beat(true);
     const heartbeatMs = Math.max(
       1000,
       Math.min(MEMBERSHIP_HEARTBEAT_MAX_MS, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)),
@@ -517,6 +518,7 @@ export class WebChatroomService {
   }
 
   private stopMembershipHeartbeat(chatroomId?: string, userId?: string): void {
+    this.membershipBeatNow = null;
     if (chatroomId && userId && this.membershipHeartbeatKey !== `${chatroomId}:${userId}`) return;
     if (this.membershipHeartbeatTimer) {
       clearInterval(this.membershipHeartbeatTimer);
@@ -830,6 +832,32 @@ export class WebChatroomService {
     if (chatroomId !== TECHSUPPORT_GLOBAL_ROOM_ID) return members;
     if (members.some((m) => m.userId === TECHSUPPORT_ROOT_USER_ID)) return members;
     return [...members, techSupportRosterMember()];
+  }
+
+  /**
+   * Ask peers for the room roster now. Gun does not replay existing data to a peer that connects
+   * after a subscription was made, so a phone joining a nearby link (OPEN-36) saw only itself until
+   * the others' next membership heartbeat (60 s). A fresh read goes out to every connected peer; the
+   * answers land in the graph and the live members subscription picks them up.
+   */
+  /**
+   * Re-announce this member now, keys included. A phone that just linked to a nearby peer (OPEN-36)
+   * may have sent its key-carrying first beat before the link existed; without this the peer saw
+   * the member but no pub until the 10th beat (10 min), so no mesh session could form.
+   */
+  announceMembershipNow(): void {
+    this.membershipBeatNow?.();
+  }
+
+  private membershipBeatNow: (() => void) | null = null;
+
+  pullMembersFromPeers(chatroomId: string): void {
+    if (!chatroomId) return;
+    try {
+      this.gunService.getGun().get('chatrooms').get(chatroomId).get('users').map().once(() => undefined);
+    } catch {
+      // Best effort — the heartbeat still converges.
+    }
   }
 
   subscribeToMembers(

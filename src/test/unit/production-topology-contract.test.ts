@@ -10,7 +10,7 @@ import {
   resolveEmbeddedNodeConfig,
 } from '../../shared/embedded-node-config';
 import { resolveUpstreamHubPeers, buildAllowedOrigin } from '../../server/bootstrap/http-bootstrap';
-import { quarantineTransientSignalRadata } from '../../node-app/embedded-node';
+import { quarantineTransientSignalRadata, scrubTransientSignalRadata, stripTransientSignalKeys } from '../../node-app/embedded-node';
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
@@ -112,6 +112,52 @@ describe('production/development topology contract', () => {
       expect(result.quarantineDir).toContain('radata-transient-quarantine');
       expect(fs.readdirSync(radataDir).sort()).toEqual(durable.sort());
       expect(fs.readdirSync(result.quarantineDir!).sort()).toEqual(transient.sort());
+    } finally {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('strips signaling keys from a mixed Radisk chunk and leaves other souls intact', () => {
+    const esc = String.fromCharCode(27);
+    const leaf = (v: unknown) => ({ '': { ':': v, '>': 1 } });
+    const chunk = {
+      p: {
+        '2p-signal': { [`${esc}pairkey`]: leaf({ '#': 'p2p-signal/pairkey' }), '/pairkey/n1': { [`${esc}frame`]: leaf('SDP') } },
+        airConversations: { [`/c1${esc}x`]: leaf('keep-me') },
+      },
+      u: { ndefinedp2p: { '-signal/legacy/n9': { [`${esc}frame`]: leaf('LEGACY-SDP') } }, sers2: leaf('keep-u') },
+      users: { [`/alice${esc}stageName`]: leaf('Alice') },
+    };
+    const stripped = JSON.parse(stripTransientSignalKeys(JSON.stringify(chunk))!);
+    expect(JSON.stringify(stripped)).not.toContain('SDP');
+    expect(stripped.u).toEqual({ sers2: leaf('keep-u') });
+    expect(JSON.stringify(stripped)).not.toContain('2p-signal');
+    expect(stripped.p.airConversations).toEqual(chunk.p.airConversations);
+    expect(stripped.users).toEqual(chunk.users);
+    expect(stripTransientSignalKeys(JSON.stringify({ users: chunk.users }))).toBeNull();
+    expect(stripTransientSignalKeys('not json')).toBeNull();
+  });
+
+  it('scrubs stale Radisk temp files and signaling keys at boot, keeping originals', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-scrub-'));
+    const radataDir = path.join(dataDir, 'radata');
+    fs.mkdirSync(radataDir);
+    const esc = String.fromCharCode(27);
+    fs.writeFileSync(path.join(dataDir, 'radata-p2p-signal%2Fx-abc.tmp'), 'partial');
+    fs.writeFileSync(path.join(dataDir, 'radata-!-g1o.tmp'), 'partial');
+    fs.writeFileSync(path.join(dataDir, 'main.js'), 'keep');
+    fs.writeFileSync(path.join(radataDir, 'mixed'), JSON.stringify({ p: { '2p-signal': { [`${esc}k`]: { '': { ':': 1, '>': 1 } } } }, users: { a: { '': { ':': 'Alice', '>': 1 } } } }));
+    fs.writeFileSync(path.join(radataDir, 'clean'), JSON.stringify({ users: { b: { '': { ':': 'Bob', '>': 1 } } } }));
+    try {
+      const result = scrubTransientSignalRadata(dataDir, 99);
+      expect(result.movedFiles).toBe(3);
+      expect(fs.readdirSync(dataDir).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+      expect(fs.existsSync(path.join(dataDir, 'main.js'))).toBe(true);
+      const mixed = fs.readFileSync(path.join(radataDir, 'mixed'), 'utf8');
+      expect(mixed).not.toContain('2p-signal');
+      expect(mixed).toContain('Alice');
+      expect(fs.readdirSync(result.quarantineDir!).sort()).toEqual(['mixed', 'radata-!-g1o.tmp', 'radata-p2p-signal%2Fx-abc.tmp']);
+      expect(fs.readFileSync(path.join(radataDir, 'clean'), 'utf8')).toContain('Bob');
     } finally {
       fs.rmSync(dataDir, { recursive: true, force: true });
     }

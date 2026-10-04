@@ -110,6 +110,84 @@ export function quarantineTransientSignalRadata(
 }
 
 /**
+ * Remove signaling keys from a Radisk radix-tree chunk (JSON). Radisk names a chunk file after its
+ * first key, so signaling data that shared a chunk with other souls was never caught by the
+ * filename check above and kept re-hydrating (1,772 stale frames on the C10 tablet). Returns the
+ * stripped tree, or null when the chunk holds no signaling keys or is not JSON.
+ */
+export function stripTransientSignalKeys(chunkText: string): string | null {
+  let tree: unknown;
+  try {
+    tree = JSON.parse(chunkText);
+  } catch {
+    return null;
+  }
+  if (!tree || typeof tree !== 'object') return null;
+  // `undefinedp2p-signal` souls come from an old bug that prefixed the path with "undefined".
+  const targets = ['p2p-signal', 'undefinedp2p-signal'];
+  let changed = false;
+  const walk = (node: Record<string, unknown>, prefix: string): void => {
+    for (const key of Object.keys(node)) {
+      if (key === '') continue;
+      const full = prefix + key;
+      if (targets.some((target) => full.startsWith(target))) {
+        delete node[key];
+        changed = true;
+      } else if (targets.some((target) => target.startsWith(full)) && node[key] && typeof node[key] === 'object') {
+        walk(node[key] as Record<string, unknown>, full);
+        if (Object.keys(node[key] as object).length === 0) delete node[key];
+      }
+    }
+  };
+  walk(tree as Record<string, unknown>, '');
+  return changed ? JSON.stringify(tree) : null;
+}
+
+/**
+ * Boot-time cleanup beyond whole signaling chunks: Radisk temp files a killed process left in the
+ * data dir (`radata-*.tmp`, up to ~1 MB each — nothing is writing before Gun starts), and signaling
+ * keys inside mixed chunks. Originals go to the same quarantine so the migration stays recoverable.
+ */
+export function scrubTransientSignalRadata(dataDir: string, now = Date.now()): TransientRadataQuarantineResult {
+  const quarantineDir = path.join(dataDir, 'radata-transient-quarantine', `scrub-${now}-${process.pid}`);
+  let movedFiles = 0;
+  let movedBytes = 0;
+  const ensureQuarantine = () => fs.mkdirSync(quarantineDir, { recursive: true });
+  try {
+    for (const name of fs.readdirSync(dataDir)) {
+      if (!/^radata-.*\.tmp$/.test(name)) continue;
+      const source = path.join(dataDir, name);
+      try {
+        const bytes = fs.statSync(source).size;
+        ensureQuarantine();
+        fs.renameSync(source, path.join(quarantineDir, name));
+        movedFiles += 1;
+        movedBytes += bytes;
+      } catch { /* retry next boot */ }
+    }
+  } catch { /* no data dir yet */ }
+  const radataDir = path.join(dataDir, 'radata');
+  try {
+    for (const name of fs.readdirSync(radataDir)) {
+      const source = path.join(radataDir, name);
+      try {
+        if (!fs.statSync(source).isFile()) continue;
+        const text = fs.readFileSync(source, 'utf8');
+        if (!text.includes('2p-signal')) continue; // radix nodes split keys ("p" → "2p-signal")
+        const stripped = stripTransientSignalKeys(text);
+        if (stripped === null) continue;
+        ensureQuarantine();
+        fs.copyFileSync(source, path.join(quarantineDir, name));
+        fs.writeFileSync(source, stripped);
+        movedFiles += 1;
+        movedBytes += text.length - stripped.length;
+      } catch { /* leave this chunk as is */ }
+    }
+  } catch { /* no radata yet */ }
+  return movedFiles > 0 ? { movedFiles, movedBytes, quarantineDir } : { movedFiles: 0, movedBytes: 0 };
+}
+
+/**
  * Apply embedded defaults to process.env *before* the server module loads,
  * because `attachGun` / `configureHttpMiddleware` read env at construction.
  */
@@ -137,6 +215,14 @@ function prepareDataDir(config: EmbeddedNodeConfig): void {
       console.warn(
         `[embedded-node] quarantined ${quarantine.movedFiles} transient Gun signaling files ` +
           `(${quarantine.movedBytes} bytes) at ${quarantine.quarantineDir}`,
+      );
+    }
+    const scrub = scrubTransientSignalRadata(config.dataDir);
+    if (scrub.movedFiles > 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[embedded-node] scrubbed ${scrub.movedFiles} Gun files of transient signaling data ` +
+          `(${scrub.movedBytes} bytes) — originals at ${scrub.quarantineDir}`,
       );
     }
     // Gun's radisk defaults to <cwd>/radata; chdir so on-device persistence

@@ -629,7 +629,11 @@ export class WebUserService {
   }
 
   async getUser(userId: string): Promise<User> {
-    const user = (await this.gunService.get(`users/${userId}`)) as User;
+    // The local graph can hold a partial users/<id> node (e.g. offline, before the full record ever
+    // synced); never let its Gun metadata or a missing id leak out — callers merge, not replace.
+    const raw = ((await this.gunService.get(`users/${userId}`)) ?? {}) as User & { _?: unknown };
+    const { _: _gunMeta, ...rest } = raw;
+    const user = { ...rest, id: userId } as User;
     const reputation = await this.readReputationSubNode(userId);
     const publicProfile = await this.mergePublicProfileFoundation({ ...user, reputation });
     const merged = await this.mergePrivateUserData(publicProfile.user);

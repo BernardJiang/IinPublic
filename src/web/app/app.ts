@@ -116,7 +116,7 @@ import {
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
-import { getUiLanguagePreference } from '../ui/ui-settings-storage';
+import { getNearbyBluetoothEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
@@ -129,8 +129,8 @@ import { eraseDevice } from '../services/device-wipe';
 import { parseLinkFragmentPayload, clearLinkFragmentFromUrl } from '../services/identity-link-fragment';
 import { getOrCreateP2PSession, listP2PSessions, onP2PSessionCreated, onP2PVersionMismatch, setLocalLinkIceServer, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
 import { WifiDirectLinkService } from '../services/wifi-direct-link-service';
-import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag, WIFI_DIRECT_LINK_FLAG_KEY } from '../services/android-wifi-direct-native';
-import { NearbyOfflineService, readNearbyOfflineBridge, type NearbyReadinessGap } from '../services/nearby-offline-service';
+import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag } from '../services/android-wifi-direct-native';
+import { NearbyOfflineService, readNearbyOfflineBridge, type NearbyReadinessGap, type NearbyStatus } from '../services/nearby-offline-service';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
@@ -1639,8 +1639,10 @@ export class IinPublicApp {
         // arrives like email — asynchronously, whenever it lands — never blocking this boot.
         this.currentUser = cached;
         console.log('👤 Existing user loaded from local cache (instant):', this.currentUser.stageName);
-        void this.userService.getUser(existingUserId).then(async (fresh) => {
+        void this.userService.getUser(existingUserId).then(async (freshRecord) => {
           const pair = this.gunService.getStoredPair();
+          // Merge onto the cached copy: a partial refresh (fields missing) must not erase them.
+          const fresh = mergeUserRecord(cached, freshRecord);
           let merged = fresh;
           if (pair && !fresh.pub) {
             merged = { ...fresh, pub: pair.pub, epub: pair.epub };
@@ -1654,7 +1656,7 @@ export class IinPublicApp {
         });
       } else {
         try {
-          this.currentUser = await this.userService.getUser(existingUserId);
+          this.currentUser = withUsableStageName(await this.userService.getUser(existingUserId));
           const pair = this.gunService.getStoredPair();
           if (pair && !this.currentUser.pub) {
             const merged: User = { ...this.currentUser, pub: pair.pub, epub: pair.epub };
@@ -1720,7 +1722,7 @@ export class IinPublicApp {
       const raw = localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (!parsed || parsed.id !== expectedUserId) return null;
+      if (!parsed || parsed.id !== expectedUserId || typeof parsed.stageName !== 'string' || !parsed.stageName) return null;
       if (typeof parsed.createdAt === 'string') parsed.createdAt = new Date(parsed.createdAt);
       if (typeof parsed.lastActive === 'string') parsed.lastActive = new Date(parsed.lastActive);
       return parsed as User;
@@ -1730,6 +1732,8 @@ export class IinPublicApp {
   }
 
   private writeCachedUser(user: User): void {
+    // A partial record cached here crashed the next boot (no stageName — seen on the C10 tablet).
+    if (!user?.id || typeof user.stageName !== 'string' || !user.stageName) return;
     try {
       localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, JSON.stringify(user));
     } catch {
@@ -2283,8 +2287,6 @@ export class IinPublicApp {
     const wifiDirectBridge = readAndroidWifiDirectBridge();
     const port = Number(window.location.port);
     if (!bridge || !wifiDirectBridge || !Number.isInteger(port) || port <= 0) return;
-    let wifiDirectAllowed = true;
-    try { wifiDirectAllowed = window.localStorage.getItem(WIFI_DIRECT_LINK_FLAG_KEY) !== '0'; } catch { /* storage blocked */ }
     const apiBase = this.getBackendApiBase();
     const gapMessages: Record<NearbyReadinessGap, UiTranslationKey> = {
       permission: 'nearbyOfflinePermissionDenied',
@@ -2310,9 +2312,9 @@ export class IinPublicApp {
         }, { once: true });
         bridge.requestOfflineNearbyPermission();
       }),
-      wifiDirectAllowed,
+      wifiDirectAllowed: getNearbyWifiDirectEnabled(),
       lanDiscovery: new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
-      blePresence: new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+      blePresence: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
       onReadinessGap: (gap) => this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
         retry: () => bridge.openNearbySettings(gap === 'permission' ? 'app' : gap),
       }),
@@ -2320,6 +2322,29 @@ export class IinPublicApp {
     });
     this.nearbyOfflineService = service;
     (window as unknown as { __iinpublicNearbyOffline?: NearbyOfflineService }).__iinpublicNearbyOffline = service;
+    // A new nearby Gun peer: pull the room roster right away instead of waiting for the next 60 s
+    // membership heartbeat (and once more after Gun's handshake settles).
+    this.gunService.on('peer-added', () => {
+      const room = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId;
+      if (!room) return;
+      this.chatroomService.pullMembersFromPeers(room);
+      this.chatroomService.announceMembershipNow();
+      setTimeout(() => {
+        this.chatroomService.pullMembersFromPeers(room);
+        this.chatroomService.announceMembershipNow();
+      }, 2_000);
+    });
+    // Settings switches (both on by default) apply immediately.
+    window.addEventListener(NEARBY_SETTINGS_EVENT, () => service.updateSettings({
+      wifiDirect: getNearbyWifiDirectEnabled(),
+      bluetooth: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+    }));
+    // Awareness: the Settings screen shows what nearby mode is doing right now.
+    const statusTimer = setInterval(() => {
+      const el = document.getElementById('settings-nearby-status');
+      if (el) el.textContent = this.nearbyStatusText(service.getStatus());
+    }, 2_000);
+    (statusTimer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
     void service.start().catch((error) => console.warn('[nearby-offline] start failed', error));
   }
 
@@ -2347,6 +2372,15 @@ export class IinPublicApp {
     (window as unknown as { __iinpublicWifiDirectLink?: WifiDirectLinkService }).__iinpublicWifiDirectLink = service;
     for (const session of listP2PSessions()) service.attach(session);
     onP2PSessionCreated((session) => service.attach(session));
+  }
+
+  private nearbyStatusText(status: NearbyStatus): string {
+    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
+    const text = (key: UiTranslationKey, count?: number) => uiText(language, key).replace('{count}', String(count ?? ''));
+    const main = status.kind === 'wifi-direct'
+      ? (status.hosting ? text('settingsNearbyStatusHosting', status.phones ?? 0) : text('settingsNearbyStatusJoined'))
+      : text(status.kind === 'searching' ? 'settingsNearbyStatusSearching' : status.kind === 'off' ? 'settingsNearbyStatusOff' : 'settingsNearbyStatusStandby');
+    return status.lanPhones > 0 ? `${main} ${text('settingsNearbyStatusLan', status.lanPhones)}` : main;
   }
 
   private ensurePeerMeshService(): PeerMeshService | null {
@@ -8281,4 +8315,20 @@ export class IinPublicApp {
       console.log('⚠️ Manual cleanup skipped - no user or chatroom');
     }
   }
+}
+
+/** Fields of `fresh` that are actually set win; anything it lacks keeps the known value. */
+function mergeUserRecord(known: User, fresh: User): User {
+  const defined = Object.fromEntries(Object.entries(fresh ?? {}).filter(([key, value]) => key !== '_' && value !== undefined && value !== null));
+  return { ...known, ...defined, id: known.id } as User;
+}
+
+/**
+ * A user whose record never synced its stage name (offline, partial local copy) still needs one to
+ * render and to write a room membership. Use a temporary in-memory name; the next full refresh
+ * (mergeUserRecord) replaces it, and writeCachedUser never caches a record without a real one.
+ */
+function withUsableStageName(user: User): User {
+  if (typeof user.stageName === 'string' && user.stageName) return user;
+  return { ...user, stageName: `User${String(user.id || '').replace(/-/g, '').slice(0, 6)}` };
 }

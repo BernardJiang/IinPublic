@@ -819,7 +819,7 @@ review capacity is available and the issue is promoted after the website/Android
       service drops the override and reconnects on normal ICE (unit-tested).
     - [x] WebView host candidates are plain IPs (no mDNS obfuscation) — but WebView does not gather
       on the `p2p-*` interface at all, hence the relay design above.
-  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.88), verified on P30 + PH-1 +
+  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.103), verified on P30 + PH-1 +
     C10 tablet.** `src/shared/nearby-offline.ts` (records, election, Wi-Fi-only fallback),
     `src/web/services/nearby-offline-service.ts`, native NSD/BLE/DNS-SD in
     `NearbyConnectivityManager.kt` + `WifiDirectGroupController.kt`. Key finding: once two phones'
@@ -849,8 +849,48 @@ review capacity is available and the issue is promoted after the website/Android
     - [ ] DNS-SD is unreliable when phones are associated to access points on different channels
       (queries un-ACKed / answered after the asker stopped waiting). Jittered rounds, no rounds while
       in a group, `startListening()` on Android 13+ applied; BLE + the Wi-Fi-only fallback cover it.
-    - [ ] Android 7–9 (cannot join by credential) is not covered by offline mode on hardware (no
-      such device attached any more).
+    - [x] Android 7–9 sit out offline Wi-Fi Direct (they can neither set nor join by the app-wide
+      credentials) and are never waited on in the election; they still use the same-Wi-Fi path.
+      Verified on the Honor FRD-L04: no group/prompt, linked to 3 phones over the LAN (v1.0.93).
+      BLE scan on Android 7 runs unfiltered (the hardware 128-bit service-data filter dropped all
+      results there).
+    - [x] Settings → "Nearby without internet" (Android app only): Wi-Fi Direct and Bluetooth
+      switches, both on by default, applied immediately (off = leave the offline group / stop the
+      beacon); live status line; plain-language "what nearby people can and cannot see" notes.
+    - [x] Hardware fixes (v1.0.89–93): a repeated native `failed` state no longer postpones the join
+      retry forever; mDNS answers over the group (192.168.49.x) are not treated as same-Wi-Fi peers
+      (that blocked re-forming a group for 20 min); 4-device run P30 owner + PH-1 + tablet clients.
+    - [x] Wedged Wi-Fi stack (PH-1 failed every join with P2P-GROUP-FORMATION-FAILURE until a Wi-Fi
+      restart): joins now fail fast on CONNECTING→DISCONNECTED instead of the 35 s timeout, and after
+      3 consecutive failures the app rebuilds its P2P channel (the deepest reset an app may do;
+      Wi-Fi restart is not allowed on Android 10+). Not reproduced since the reboot — unverified on
+      a wedged stack.
+    - [x] Slow / stuck linking after a restart (v1.0.94–96), three causes found on hardware:
+      (1) Gun peer added the instant the group formed, before its route carried traffic → Gun's
+      reconnect backoff delayed the link 51 s; peers are now probed with a WebSocket and handed to Gun
+      once they answer (1 s). (2) Gun deletes a peer whose socket closes (mesh.bye) and never
+      reconnects it — after the owner's app restarted, clients' rosters stayed empty; the nearby
+      service now re-asserts its LAN/owner peers every tick. (3) PeerMeshService trusted a
+      `connected` flag that nothing cleared when a session died later, so reconcile never retried
+      (a general mesh bug, online too); it now checks the session's live state. Result on PH-1 +
+      tablet: cold start linked ~45–60 s after launch (incl. ~25 s app boot); a restarted owner or
+      client relinks on its own (previously never).
+    - [x] 4-phone round (v1.0.97–103, P30 + PH-1 + C10 + Honor), found and fixed:
+      (1) a joining phone saw only itself for ~60 s — Gun does not replay data to a peer that
+      connects after a subscription, so it waited for the next membership heartbeat, whose public
+      keys ride only every 10th beat: on a new nearby peer the app now pulls the room roster and
+      re-announces its membership with keys; (2) boot crash "reading 'charAt'" — a partial local
+      users/<id> record (no id/stageName) was accepted and cached; getUser now always sets id,
+      refreshes merge onto the known record, and the cache refuses records without id/stageName;
+      (3) intermittent native crashes on all four phones were V8 out-of-memory
+      (node::OOMErrorHandler): WebRTC signaling frames written by connected Gun peers bypassed the
+      server persistence filter, piled up in the embedded node's Radisk (~1 MB per pair) and
+      re-hydrated on every re-subscribe. Signaling puts are now kept out of Radisk at the Gun store
+      hook and idle ones evicted from RAM (transient-signal-store-filter.ts); boot also scrubs
+      stale Radisk temp files and signaling keys inside mixed chunks (incl. the legacy
+      `undefinedp2p-signal` souls). Result: 0/16 crashes in a relaunch soak (was ~1 in 12), stores
+      0.65–0.83 MB (were up to 5.4 MB + growing quarantine), 3-phone offline mesh complete 26–31 s
+      after launch, restarted owner relinks in 20 s and a client in 32 s.
     - [ ] Discovery: advertise over Wi-Fi Direct service discovery
       (`WifiP2pManager.addLocalService` + `discoverServices`, DNS-SD) — not `startNsd`, which only
       works on a shared infrastructure Wi-Fi. TXT record, roughly:

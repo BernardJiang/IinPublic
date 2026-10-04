@@ -13,6 +13,7 @@ import {
 } from './connectivity-settings';
 import {
   setAutoAnswerScope,
+  setNearbySetting,
   setChatbotEnabled,
   setColorSchemePreference,
   setCopyTalkAutoSave,
@@ -302,6 +303,12 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
   });
   document.getElementById('settings-copy-talk-autosave')?.addEventListener('change', (event) => {
     setCopyTalkAutoSave((event.currentTarget as HTMLInputElement).checked);
+  });
+  document.getElementById('settings-nearby-wifi-direct')?.addEventListener('change', (event) => {
+    setNearbySetting('wifi-direct', (event.currentTarget as HTMLInputElement).checked);
+  });
+  document.getElementById('settings-nearby-bluetooth')?.addEventListener('change', (event) => {
+    setNearbySetting('bluetooth', (event.currentTarget as HTMLInputElement).checked);
   });
   document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
     setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
