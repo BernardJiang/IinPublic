@@ -11,9 +11,12 @@ import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pGroup
 import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
+import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceInfo
+import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.net.Inet4Address
@@ -38,8 +41,18 @@ class WifiDirectGroupController(
     private val emitState: (JSONObject) -> Unit,
     private val onPeers: (List<WifiP2pDevice>) -> Unit = {},
     private val hasPermission: () -> Boolean,
+    /** OPEN-36 offline mode: another phone's DNS-SD TXT record (device address, TXT map). */
+    private val onServiceRecord: (String, Map<String, String>) -> Unit = { _, _ -> },
 ) {
     companion object {
+        private const val SERVICE_INSTANCE = "iinpublic"
+        private const val SERVICE_TYPE = "_iinpublic._tcp"
+        /** Service discovery is one-shot and flaky on many chipsets; re-issue it on this cadence,
+         *  jittered so two phones scanning at once don't stay phase-locked out of each other's
+         *  listen windows. */
+        private const val SERVICE_DISCOVERY_INTERVAL_MS = 9_000L
+        private const val SERVICE_DISCOVERY_JITTER_MS = 6_000L
+        private const val TAG = "IinPublicNearby"
         /** Neither join path reports "gave up" (wpa_supplicant stops after ~30 s with no
          *  broadcast), so the controller fails the join itself. */
         private const val JOIN_TIMEOUT_MS = 35_000L
@@ -59,6 +72,10 @@ class WifiDirectGroupController(
     private var pendingJoinName: String? = null
     /** Android 10+ join retried once without the frequency hint (see joinTimeout). */
     private var pendingHintedJoin: Triple<String, String, String>? = null
+    private var advertised: WifiP2pDnsSdServiceInfo? = null
+    private var serviceDiscoveryActive = false
+    private var serviceRequest: WifiP2pDnsSdServiceRequest? = null
+    private val serviceDiscoveryRound = Runnable { runServiceDiscoveryRound() }
     private val joinTimeout = Runnable {
         if (state == "joining") {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) channel?.let { manager?.cancelConnect(it, null) }
@@ -210,6 +227,104 @@ class WifiDirectGroupController(
         })
     }
 
+    // ── OPEN-36 offline mode: Wi-Fi Direct DNS-SD ───────────────────────────────────────────────
+
+    /** Replace this phone's advertised record (TXT values are already validated by JS). */
+    @SuppressLint("MissingPermission")
+    fun advertiseService(txt: Map<String, String>) {
+        val m = manager ?: return
+        if (!hasPermission()) return emitStatus("permission-denied")
+        val ch = ensureChannel()
+        val info = WifiP2pDnsSdServiceInfo.newInstance(SERVICE_INSTANCE, SERVICE_TYPE, txt)
+        val add = { m.addLocalService(ch, info, serviceListener("advertise")) }
+        val previous = advertised
+        advertised = info
+        if (previous == null) add() else m.removeLocalService(ch, previous, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() = add()
+            override fun onFailure(code: Int) = add()
+        })
+    }
+
+    @SuppressLint("MissingPermission")
+    fun startServiceDiscovery() {
+        val m = manager ?: return
+        if (!hasPermission()) return emitStatus("permission-denied")
+        val ch = ensureChannel()
+        m.setDnsSdResponseListeners(ch, { _, _, _ -> }, { domain, record, device ->
+            Log.i(TAG, "service record from ${device?.deviceName}: $domain keys=${record?.keys}")
+            if (domain.contains(SERVICE_TYPE) && device != null) onServiceRecord(device.deviceAddress.orEmpty(), record.orEmpty())
+        })
+        serviceDiscoveryActive = true
+        handler.removeCallbacks(serviceDiscoveryRound)
+        runServiceDiscoveryRound()
+    }
+
+    fun stopServiceDiscovery() {
+        serviceDiscoveryActive = false
+        handler.removeCallbacks(serviceDiscoveryRound)
+        val m = manager ?: return
+        val ch = channel ?: return
+        serviceRequest?.let { m.removeServiceRequest(ch, it, null) }
+        serviceRequest = null
+        advertised?.let { m.removeLocalService(ch, it, null) }
+        advertised = null
+    }
+
+    /**
+     * One discovery round. A phone answers service queries only while it is in P2P listen state,
+     * which it enters while a peer scan runs — service discovery alone left both phones silent on
+     * hardware (PH-1 + P30, no SD frames at all). So each round scans for peers and then queries.
+     * The service request stays registered; removing it mid-round cancelled exchanges in flight.
+     */
+    @SuppressLint("MissingPermission")
+    private fun runServiceDiscoveryRound() {
+        if (!serviceDiscoveryActive) return
+        val m = manager ?: return
+        if (!hasPermission()) { serviceDiscoveryActive = false; return emitStatus("permission-denied") }
+        val next = SERVICE_DISCOVERY_INTERVAL_MS + (Math.random() * SERVICE_DISCOVERY_JITTER_MS).toLong()
+        // In a group the radio serves the group channel; scanning only steals air time from it, and
+        // the phone no longer needs to find anyone (BLE presence keeps running).
+        if (state == "owner" || state == "client" || state == "joining" || state == "forming") {
+            // An owner nobody joined keeps scanning peers so it can spot another owner and merge.
+            if (state == "owner" && group?.clientList.isNullOrEmpty()) m.discoverPeers(ensureChannel(), serviceListener("owner-scan"))
+            handler.postDelayed(serviceDiscoveryRound, next)
+            return
+        }
+        val ch = ensureChannel()
+        val discover = {
+            m.discoverPeers(ch, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() { m.discoverServices(ch, serviceListener("discover-services")) }
+                override fun onFailure(code: Int) {
+                    Log.i(TAG, "discoverPeers failed: ${failureName(code)}")
+                    m.discoverServices(ch, serviceListener("discover-services"))
+                }
+            })
+        }
+        if (serviceRequest == null) {
+            val request = WifiP2pDnsSdServiceRequest.newInstance(SERVICE_TYPE)
+            serviceRequest = request
+            m.addServiceRequest(ch, request, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() = discover()
+                override fun onFailure(code: Int) { serviceRequest = null; emitStatus("add-request:${failureName(code)}") }
+            })
+        } else {
+            discover()
+        }
+        // Android 13+: stay in listen state between rounds so other phones' queries find us.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            handler.postDelayed({ if (serviceDiscoveryActive && state == "idle") runCatching { m.startListening(ch, serviceListener("listen")) } }, 4_000)
+        }
+        handler.postDelayed(serviceDiscoveryRound, next)
+    }
+
+    private fun serviceListener(step: String) = object : WifiP2pManager.ActionListener {
+        override fun onSuccess() { Log.i(TAG, "$step ok") }
+        override fun onFailure(code: Int) { Log.i(TAG, "$step failed: ${failureName(code)}"); emitStatus("$step:${failureName(code)}") }
+    }
+
+    /** Service-discovery problems are reported without touching the group state machine. */
+    private fun emitStatus(reason: String) = emitState(stateJson().apply { put("discovery", reason) })
+
     /** Classic negotiation with a discovered device (used by the legacy candidate path). */
     @SuppressLint("MissingPermission")
     fun connectLegacy(deviceAddress: String) {
@@ -226,6 +341,8 @@ class WifiDirectGroupController(
 
     fun stop() {
         handler.removeCallbacks(joinTimeout)
+        handler.removeCallbacks(serviceDiscoveryRound)
+        serviceDiscoveryActive = false
         if (receiverRegistered) runCatching { context.unregisterReceiver(receiver) }
         receiverRegistered = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) channel?.close()
@@ -248,8 +365,15 @@ class WifiDirectGroupController(
             ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
             receiverRegistered = true
         }
+        // A group can outlive the process that formed it (Android keeps it). Read it now rather
+        // than wait for a broadcast: an app that thought it was idle re-created the group on
+        // hardware and dropped both of its clients.
+        handler.post { refreshConnection() }
         return ch
     }
+
+    /** Opens the channel (if needed) and re-reads the current group from the framework. */
+    fun refresh() { ensureChannel(); refreshConnection() }
 
     @SuppressLint("MissingPermission")
     private fun refreshPeers() {

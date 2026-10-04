@@ -491,6 +491,16 @@ export class WebGunService extends EventEmitter {
   }
 
   /**
+   * Add another phone's embedded node as a Gun peer (OPEN-36 offline mode: LAN or Wi-Fi Direct).
+   * Gun keeps retrying a dropped peer on its own; the caller validates the URL.
+   */
+  addPeer(url: string): void {
+    if (!this.gun || !url) return;
+    if (this.gun._?.opt?.peers?.[url]) return;
+    this.gun.opt({ peers: [url] });
+  }
+
+  /**
    * Worker-backed GunBridge — use for new features:
    * SEA identity, IndexedDB persistence, private encrypted space, graph nodes.
    */

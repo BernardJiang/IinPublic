@@ -197,6 +197,8 @@ export function defaultIceServers(): RTCIceServer[] {
 
 type CachedTurnServer = { server: RTCIceServer; expiresAtMs: number };
 let cachedTurnServer: CachedTurnServer | null = null;
+const TURN_RETRY_AFTER_FAILURE_MS = 60_000;
+let turnUnavailableUntilMs = 0;
 
 async function fetchTurnServer(apiBase: string): Promise<{ server: RTCIceServer; ttlSeconds: number } | null> {
   try {
@@ -214,6 +216,23 @@ async function fetchTurnServer(apiBase: string): Promise<{ server: RTCIceServer;
 }
 
 /**
+ * OPEN-36 offline mode: while this phone is in a Wi-Fi Direct group, its loopback TURN relay (relay
+ * socket on the group address) is offered to every new connection. LAN and internet peers still
+ * connect on their usual pairs; a peer reachable only across the group connects relay↔relay
+ * through the two phones' relays. Android WebView never gathers candidates on the group interface.
+ */
+let localLinkIceServer: RTCIceServer | null = null;
+
+export function setLocalLinkIceServer(server: RTCIceServer | null): void {
+  localLinkIceServer = server;
+}
+
+export async function resolveIceServers(apiBase: string): Promise<RTCIceServer[]> {
+  const servers = await resolveDefaultIceServers(apiBase);
+  return localLinkIceServer ? [...servers, localLinkIceServer] : servers;
+}
+
+/**
  * Same priority-ordered ICE server list as defaultIceServers(), plus a TURN relay (priority 4)
  * fetched from the relay's own `/api/turn-credentials` endpoint when one is configured
  * server-side (`TURN_SHARED_SECRET`/`TURN_SERVER_HOST` — see
@@ -226,7 +245,7 @@ async function fetchTurnServer(apiBase: string): Promise<{ server: RTCIceServer;
  * re-fetched once they're close to expiry, so a burst of P2P session starts doesn't each pay a
  * network round trip.
  */
-export async function resolveIceServers(apiBase: string): Promise<RTCIceServer[]> {
+async function resolveDefaultIceServers(apiBase: string): Promise<RTCIceServer[]> {
   const base = defaultIceServers();
   // E2E override / same-machine E2E (empty list) already fully determine the answer — a TURN
   // fetch would only add latency and a network dependency E2E specs don't need.
@@ -238,8 +257,14 @@ export async function resolveIceServers(apiBase: string): Promise<RTCIceServer[]
   if (cachedTurnServer && cachedTurnServer.expiresAtMs > now) {
     return [...base, cachedTurnServer.server];
   }
+  if (turnUnavailableUntilMs > now) return base;
   const fetched = await fetchTurnServer(apiBase);
-  if (!fetched) return base;
+  if (!fetched) {
+    // Offline (no hub) the embedded node's forward takes its full timeout; don't pay that on
+    // every session start.
+    turnUnavailableUntilMs = now + TURN_RETRY_AFTER_FAILURE_MS;
+    return base;
+  }
   // Refresh 5 minutes before actual expiry so a session starting near the boundary never races
   // an about-to-expire credential.
   cachedTurnServer = { server: fetched.server, expiresAtMs: now + Math.max(0, fetched.ttlSeconds - 300) * 1000 };

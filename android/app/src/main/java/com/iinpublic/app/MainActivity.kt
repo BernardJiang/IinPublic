@@ -214,6 +214,29 @@ class MainActivity : AppCompatActivity() {
         else nearbyPermissionLauncher.launch(arrayOf(permission))
     }
 
+    fun openNearbySettings(kind: String) = runOnUiThread {
+        val intent = when (kind) {
+            "wifi" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Intent(android.provider.Settings.Panel.ACTION_WIFI)
+                else Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
+            "location" -> Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+            "bluetooth" -> Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+            "app" -> Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+            else -> return@runOnUiThread
+        }
+        try { startActivity(intent) } catch (_: ActivityNotFoundException) { /* no settings screen */ }
+    }
+
+    /** OPEN-36 offline nearby: Wi-Fi Direct + BLE presence. Android 12+ shows these as one
+     *  "Nearby devices" prompt; Android 10–11 need only Location (BLE there is install-time). */
+    fun requestOfflineNearbyPermission() = runOnUiThread {
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions += Manifest.permission.NEARBY_WIFI_DEVICES
+        else permissions += Manifest.permission.ACCESS_FINE_LOCATION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE)
+        val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) nearbyBridge.permissionResult(permissions.associateWith { true }) else nearbyPermissionLauncher.launch(missing.toTypedArray())
+    }
+
     private fun ensureNotificationPermissionThenStart() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             // Pre-Android 13: POST_NOTIFICATIONS is a normal (install-time)
@@ -309,6 +332,11 @@ class MainActivity : AppCompatActivity() {
         launch.getStringExtra(DROP_REMOTE_CANDIDATES_EXTRA)?.takeIf { it.matches(Regex("^[0-9a-fA-F.:]{2,40}$")) }?.let {
             query += "&p2p_drop_remote_candidates=" + Uri.encode(it)
         }
+        // Debug only (`--ez disable_lan_discovery true`): also skip the page's NSD LAN discovery,
+        // so phones on one LAN exercise the offline Wi-Fi Direct path.
+        if (launch.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false)) query += "&nearby_lan=0"
+        // Debug only (`--ez disable_ble_presence true`): exercise the Wi-Fi-only discovery paths.
+        if (launch.getBooleanExtra("disable_ble_presence", false)) query += "&nearby_ble=0"
         return query
     }
 

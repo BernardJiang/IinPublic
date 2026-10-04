@@ -20,6 +20,7 @@ import android.os.Looper
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
+import java.net.Inet4Address
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -45,6 +46,10 @@ class NearbyConnectivityManager(
         fun onCandidate(source: String, transportId: String, endpoint: String?, capabilities: List<String>)
         fun onStatus(provider: String, state: String, reason: String? = null)
         fun onWifiDirectState(state: JSONObject) = Unit
+        fun onWifiDirectService(deviceAddress: String, txt: Map<String, String>) = Unit
+        fun onBlePresence(payload: ByteArray, rssi: Int) = Unit
+        /** Wi-Fi P2P peer scan results (address, group-owner flag, primary device type) — no names. */
+        fun onWifiDirectPeers(peers: org.json.JSONArray) = Unit
     }
 
     companion object {
@@ -56,6 +61,10 @@ class NearbyConnectivityManager(
     private val handler = Handler(Looper.getMainLooper())
     private var wifiAwareProvider: WifiAwareProvider? = null
     private var nsdListener: NsdManager.DiscoveryListener? = null
+    private var nsdRegistration: NsdManager.RegistrationListener? = null
+    private var nsdRegisteredName: String? = null
+    private val resolveQueue = ArrayDeque<NsdServiceInfo>()
+    private var resolving = false
     private val wifiDirect = WifiDirectGroupController(
         context,
         emitState = { listener.onWifiDirectState(it) },
@@ -63,8 +72,18 @@ class NearbyConnectivityManager(
             devices.forEach { device: WifiP2pDevice ->
                 listener.onCandidate("platform-nearby", "wifi-direct:${device.deviceAddress}", null, listOf("wifi-direct", "ip-upgrade"))
             }
+            listener.onWifiDirectPeers(org.json.JSONArray().apply {
+                devices.forEach { device ->
+                    put(JSONObject().apply {
+                        put("address", device.deviceAddress.orEmpty())
+                        put("groupOwner", device.isGroupOwner)
+                        put("type", device.primaryDeviceType.orEmpty())
+                    })
+                }
+            })
         },
         hasPermission = { hasNearbyWifiPermission() },
+        onServiceRecord = { address, txt -> listener.onWifiDirectService(address, txt) },
     )
     private var bleScanCallback: ScanCallback? = null
     private var bleAdvertiseCallback: AdvertiseCallback? = null
@@ -83,31 +102,90 @@ class NearbyConnectivityManager(
         put("ipfsOverBle", false)
     }
 
-    fun startNsd(port: Int) {
+    /**
+     * LAN discovery of other phones' embedded nodes (OPEN-36 offline mode). Each phone registers a
+     * unique service name and carries its rotating nearby id in the TXT record; resolves run one at
+     * a time (Android < 14 rejects a second concurrent resolve with FAILURE_ALREADY_ACTIVE).
+     */
+    fun startNsd(port: Int, nearbyId: String = "") {
+        stopNsd()
         val manager = context.getSystemService(NsdManager::class.java)
-        val registration = NsdServiceInfo().apply { serviceName = SERVICE_NAME; serviceType = NSD_TYPE; setPort(port) }
-        manager.registerService(registration, NsdManager.PROTOCOL_DNS_SD, object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(serviceInfo: NsdServiceInfo) = listener.onStatus("android-nsd", "running")
+        val suffix = nearbyId.takeIf { it.matches(Regex("^[0-9a-f]{12}$")) } ?: UUID.randomUUID().toString().replace("-", "").take(12)
+        val registration = NsdServiceInfo().apply {
+            serviceName = "$SERVICE_NAME-$suffix"; serviceType = NSD_TYPE; setPort(port)
+            if (nearbyId.isNotEmpty()) setAttribute("id", nearbyId)
+            setAttribute("v", "1")
+        }
+        nsdRegisteredName = registration.serviceName
+        nsdRegistration = object : NsdManager.RegistrationListener {
+            // The framework may rename on conflict; remember the final name so we skip ourselves.
+            override fun onServiceRegistered(serviceInfo: NsdServiceInfo) { nsdRegisteredName = serviceInfo.serviceName; listener.onStatus("android-nsd", "running") }
             override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = listener.onStatus("android-nsd", "failed", "registration:$errorCode")
             override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) = listener.onStatus("android-nsd", "stopped")
             override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = listener.onStatus("android-nsd", "failed", "unregistration:$errorCode")
-        })
+        }.also { manager.registerService(registration, NsdManager.PROTOCOL_DNS_SD, it) }
         nsdListener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) = listener.onStatus("android-nsd", "running")
             override fun onServiceFound(service: NsdServiceInfo) {
-                if (service.serviceType == NSD_TYPE && service.serviceName != SERVICE_NAME) {
-                    manager.resolveService(service, object : NsdManager.ResolveListener {
-                        override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) = listener.onStatus("android-nsd", "degraded", "resolve:$errorCode")
-                        @Suppress("DEPRECATION")
-                        override fun onServiceResolved(info: NsdServiceInfo) = listener.onCandidate("mdns", info.serviceName, "http://${info.host.hostAddress}:${info.port}/gun", listOf("ip", "gun-websocket"))
-                    })
-                }
+                if (!service.serviceType.startsWith("_iinpublic._tcp")) return
+                if (!service.serviceName.startsWith(SERVICE_NAME) || service.serviceName == nsdRegisteredName) return
+                handler.post { enqueueResolve(manager, service) }
             }
             override fun onServiceLost(service: NsdServiceInfo) = Unit
             override fun onDiscoveryStopped(serviceType: String) = listener.onStatus("android-nsd", "stopped")
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = listener.onStatus("android-nsd", "failed", "start:$errorCode")
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = listener.onStatus("android-nsd", "failed", "stop:$errorCode")
         }.also { manager.discoverServices(NSD_TYPE, NsdManager.PROTOCOL_DNS_SD, it) }
+    }
+
+    private fun isOwnAddress(address: Inet4Address): Boolean = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            .any { iface -> iface.inetAddresses.toList().any { it == address } }
+    }.getOrDefault(false)
+
+    fun stopNsd() {
+        val manager = context.getSystemService(NsdManager::class.java)
+        nsdListener?.let { runCatching { manager.stopServiceDiscovery(it) } }; nsdListener = null
+        nsdRegistration?.let { runCatching { manager.unregisterService(it) } }; nsdRegistration = null
+        resolveQueue.clear(); resolving = false
+    }
+
+    private fun enqueueResolve(manager: NsdManager, service: NsdServiceInfo) {
+        if (resolveQueue.none { it.serviceName == service.serviceName }) resolveQueue.addLast(service)
+        resolveNext(manager)
+    }
+
+    private fun resolveNext(manager: NsdManager) {
+        if (resolving) return
+        val next = resolveQueue.removeFirstOrNull() ?: return
+        resolving = true
+        @Suppress("DEPRECATION")
+        manager.resolveService(next, object : NsdManager.ResolveListener {
+            override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
+                handler.post {
+                    resolving = false
+                    listener.onStatus("android-nsd", "degraded", "resolve:$errorCode")
+                    resolveNext(manager)
+                }
+            }
+            override fun onServiceResolved(info: NsdServiceInfo) { handler.post {
+                resolving = false
+                val address = (info.host as? Inet4Address)
+                    ?: if (Build.VERSION.SDK_INT >= 34) info.hostAddresses.firstOrNull { it is Inet4Address } as? Inet4Address else null
+                // Never ourselves: a registration from an earlier process of this app (older rotating
+                // id, same address) lingers in the mDNS cache after a restart or reinstall.
+                if (address != null && !isOwnAddress(address)) {
+                    // Android 14 resolves have come back without TXT attributes; the id is also the
+                    // service-name suffix (`iinpublic-v1-<id>`).
+                    val idPattern = Regex("^[0-9a-f]{12}$")
+                    val id = info.attributes["id"]?.decodeToString()?.takeIf { it.matches(idPattern) }
+                        ?: info.serviceName.substringAfterLast('-').takeIf { it.matches(idPattern) }
+                        ?: info.serviceName
+                    listener.onCandidate("mdns", id, "http://${address.hostAddress}:${info.port}/gun", listOf("ip", "gun-websocket"))
+                }
+                resolveNext(manager)
+            } }
+        })
     }
 
     fun startWifiAware() {
@@ -141,6 +219,34 @@ class NearbyConnectivityManager(
     fun joinWifiDirectGroup(networkName: String, passphrase: String, ownerDeviceAddress: String, frequencyMhz: Int) =
         wifiDirect.joinGroup(networkName, passphrase, ownerDeviceAddress, frequencyMhz)
     fun leaveWifiDirectGroup() = wifiDirect.leaveGroup()
+    fun advertiseWifiDirectService(txt: Map<String, String>) = wifiDirect.advertiseService(txt)
+    fun startWifiDirectServiceDiscovery() = wifiDirect.startServiceDiscovery()
+    fun refreshWifiDirectState() = wifiDirect.refresh()
+    fun stopWifiDirectServiceDiscovery() = wifiDirect.stopServiceDiscovery()
+
+    /**
+     * What offline Wi-Fi Direct still needs from the user: the runtime permission, Wi-Fi switched on
+     * (the P2P radio rides on it), and on Android 8–12 Location switched on — without it peer and
+     * service discovery silently return nothing.
+     */
+    fun nearbyReadiness(): JSONObject = JSONObject().apply {
+        put("version", 1)
+        put("permission", hasNearbyWifiPermission())
+        val wifi = context.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+        put("wifiEnabled", wifi?.isWifiEnabled == true)
+        val needsLocation = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+        val location = context.getSystemService(android.location.LocationManager::class.java)
+        val locationOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) location?.isLocationEnabled == true
+            else location?.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) == true || location?.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) == true
+        put("locationRequired", needsLocation)
+        put("locationEnabled", !needsLocation || locationOn)
+        put("wifiDirect", wifiDirect.isSupported())
+        put("joinByCredential", wifiDirect.joinByCredentialSupported())
+        put("bluetoothPermission", hasBluetoothPermission())
+        put("bluetoothEnabled", context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter?.isEnabled == true)
+        put("ble", context.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE))
+        put("sdk", Build.VERSION.SDK_INT)
+    }
     fun wifiDirectState(): JSONObject = wifiDirect.stateJson()
 
     fun startBle(seaPub: String) {
@@ -162,10 +268,59 @@ class NearbyConnectivityManager(
         }.also { callback -> adapter.bluetoothLeScanner?.startScan(listOf(ScanFilter.Builder().setServiceUuid(parcelUuid).build()), ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).build(), callback) }
     }
 
+    // ── OPEN-36 offline presence over BLE ──────────────────────────────────────────────────────
+    // Wi-Fi Direct DNS-SD proved unreliable on hardware (queries time out while the peer is off
+    // channel serving its access point), so phones announce themselves over BLE instead and use
+    // Wi-Fi Direct only as the IP link. Legacy advertising leaves 10 bytes of service data next to
+    // a 128-bit UUID; the payload is 8: version, 6-byte rotating id, flags.
+
+    private var presenceAdvertiseCallback: AdvertiseCallback? = null
+    private var presenceScanCallback: ScanCallback? = null
+
+    fun startBlePresence(payload: ByteArray) {
+        if (!hasBluetoothPermission()) { listener.onStatus("android-ble-presence", "permission-denied"); return }
+        val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
+        if (adapter?.isEnabled != true) { listener.onStatus("android-ble-presence", "unavailable", "disabled"); return }
+        val parcelUuid = ParcelUuid(BLE_SERVICE_UUID)
+        presenceAdvertiseCallback?.let { runCatching { adapter.bluetoothLeAdvertiser?.stopAdvertising(it) } }
+        presenceAdvertiseCallback = object : AdvertiseCallback() {
+            override fun onStartSuccess(settingsInEffect: AdvertiseSettings) = listener.onStatus("android-ble-presence", "running")
+            override fun onStartFailure(errorCode: Int) = listener.onStatus("android-ble-presence", "degraded", "advertise:$errorCode")
+        }.also { callback ->
+            adapter.bluetoothLeAdvertiser?.startAdvertising(
+                AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY).setConnectable(false).build(),
+                AdvertiseData.Builder().setIncludeDeviceName(false).addServiceData(parcelUuid, payload).build(),
+                callback,
+            )
+        }
+        if (presenceScanCallback != null) return
+        presenceScanCallback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val bytes = result.scanRecord?.getServiceData(parcelUuid) ?: return
+                listener.onBlePresence(bytes, result.rssi)
+            }
+            override fun onBatchScanResults(results: MutableList<ScanResult>) = results.forEach { onScanResult(0, it) }
+            override fun onScanFailed(errorCode: Int) = listener.onStatus("android-ble-presence", "degraded", "scan:$errorCode")
+        }.also { callback ->
+            adapter.bluetoothLeScanner?.startScan(
+                listOf(ScanFilter.Builder().setServiceData(parcelUuid, null).build()),
+                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
+                callback,
+            )
+        }
+    }
+
+    fun stopBlePresence() {
+        val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
+        presenceAdvertiseCallback?.let { runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(it) } }; presenceAdvertiseCallback = null
+        presenceScanCallback?.let { runCatching { adapter?.bluetoothLeScanner?.stopScan(it) } }; presenceScanCallback = null
+    }
+
     fun stop() {
-        wifiDirect.leaveGroup(); wifiDirect.stop()
+        stopBlePresence()
+        wifiDirect.stopServiceDiscovery(); wifiDirect.leaveGroup(); wifiDirect.stop()
         wifiAwareProvider?.stop(); wifiAwareProvider = null
-        nsdListener?.let { runCatching { context.getSystemService(NsdManager::class.java).stopServiceDiscovery(it) } }; nsdListener = null
+        stopNsd()
         val adapter: BluetoothAdapter? = context.getSystemService(android.bluetooth.BluetoothManager::class.java).adapter
         bleScanCallback?.let { runCatching { adapter?.bluetoothLeScanner?.stopScan(it) } }; bleScanCallback = null
         bleAdvertiseCallback?.let { runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(it) } }; bleAdvertiseCallback = null

@@ -730,11 +730,38 @@ review capacity is available and the issue is promoted after the website/Android
       service drops the override and reconnects on normal ICE (unit-tested).
     - [x] WebView host candidates are plain IPs (no mDNS obfuscation) — but WebView does not gather
       on the `p2p-*` interface at all, hence the relay design above.
-  - **Offline mode (no cellular/internet; website matchmaking unavailable)** — Wi-Fi Direct is
-    radio-only, so the link itself works offline (also in airplane mode with Wi-Fi on). The hub
-    path above stays the fast, prompt-free path; offline discovery is the fallback, and the host
-    rule and SEA identity check are shared by both. Not started — today's upgrade needs an
-    existing WebRTC session, which needs signaling.
+  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.88), verified on P30 + PH-1 +
+    C10 tablet.** `src/shared/nearby-offline.ts` (records, election, Wi-Fi-only fallback),
+    `src/web/services/nearby-offline-service.ts`, native NSD/BLE/DNS-SD in
+    `NearbyConnectivityManager.kt` + `WifiDirectGroupController.kt`. Key finding: once two phones'
+    Gun graphs are linked (page Gun → other phone's node, `ws://<ip>:8088/gun`), rosters, Gun
+    pub/sub signaling and the WebRTC mesh all work unchanged — so offline mode is discovery + an IP
+    link, nothing else.
+    - [x] Same LAN: Android NSD (unique service name, rotating id in TXT, serialized resolves) →
+      page Gun peers with the other node. Always on, no permission. Verified: 3 devices, no hub,
+      rosters merged, mesh 2/2 connected each, in ~1 min.
+    - [x] Different networks: Wi-Fi Direct with app-wide group credentials
+      (`OFFLINE_GROUP_CREDENTIALS`, option (a) taken further: anyone with the app nearby may join
+      the link; protection stays SEA + DTLS). Group peers connect relay↔relay through each phone's
+      loopback TURN relay, added as an extra default ICE server while in a group
+      (`setLocalLinkIceServer`). Runs only while the hub is unreachable
+      (`/api/local-link/hub-status`), so phones online never form groups with strangers.
+    - [x] Presence, redundant: BLE (8-byte service data: version, rotating id, flags) — fast and
+      deterministic; Wi-Fi DNS-SD (TXT record); and a Wi-Fi-only fallback from plain P2P peer
+      scans: join any phone-type (WSC category 10) group owner with the fixed credentials, host after
+      a random 15–45 s if phones but no owner are visible, and an empty owner seeing another owner
+      merges into it. Non-phone P2P devices (e.g. a Push2TV display) are ignored.
+    - [x] Verified Wi-Fi Direct with BLE (P30 owner, PH-1 + tablet clients; all sessions on
+      192.168.49.x relay pairs; mesh ping + pongs across the group incl. client↔client) and
+      Wi-Fi-only (BLE off: converged in ~50 s).
+    - [x] Permissions in context: the first time the phone is offline it asks once for Nearby
+      devices (Android 12+: Wi-Fi + Bluetooth in one prompt; 10–11: Location); Wi-Fi/Location/
+      Bluetooth switched off → a toast that opens the right settings screen.
+    - [ ] DNS-SD is unreliable when phones are associated to access points on different channels
+      (queries un-ACKed / answered after the asker stopped waiting). Jittered rounds, no rounds while
+      in a group, `startListening()` on Android 13+ applied; BLE + the Wi-Fi-only fallback cover it.
+    - [ ] Android 7–9 (cannot join by credential) is not covered by offline mode on hardware (no
+      such device attached any more).
     - [ ] Discovery: advertise over Wi-Fi Direct service discovery
       (`WifiP2pManager.addLocalService` + `discoverServices`, DNS-SD) — not `startNsd`, which only
       works on a shared infrastructure Wi-Fi. TXT record, roughly:

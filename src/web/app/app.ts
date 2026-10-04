@@ -115,7 +115,7 @@ import {
   type DelegateInvitePayload,
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
-import { uiLanguageFromProfile } from '../ui/ui-translations';
+import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
 import { getUiLanguagePreference } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
@@ -127,9 +127,10 @@ import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import { eraseDevice } from '../services/device-wipe';
 import { parseLinkFragmentPayload, clearLinkFragmentFromUrl } from '../services/identity-link-fragment';
-import { getOrCreateP2PSession, listP2PSessions, onP2PSessionCreated, onP2PVersionMismatch, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
+import { getOrCreateP2PSession, listP2PSessions, onP2PSessionCreated, onP2PVersionMismatch, setLocalLinkIceServer, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
 import { WifiDirectLinkService } from '../services/wifi-direct-link-service';
-import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag } from '../services/android-wifi-direct-native';
+import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag, WIFI_DIRECT_LINK_FLAG_KEY } from '../services/android-wifi-direct-native';
+import { NearbyOfflineService, readNearbyOfflineBridge, type NearbyReadinessGap } from '../services/nearby-offline-service';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
@@ -264,6 +265,7 @@ export class IinPublicApp {
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
   private wifiDirectLinkService: WifiDirectLinkService | null = null;
+  private nearbyOfflineService: NearbyOfflineService | null = null;
   private mailboxClient: WebMailboxClient | null = null;
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
@@ -1483,6 +1485,18 @@ export class IinPublicApp {
     this.showLocationRoomSuggestion();
   }
 
+  /**
+   * Blurred author location for a new talk — only once a real fix has resolved. A device that never
+   * got one (location permission denied, no GPS) boots on a placeholder (index.ts, New York City);
+   * stamping that on talks made receivers' distance filter reject them as thousands of miles away —
+   * seen on hardware with two phones side by side in OPEN-36 offline mode.
+   */
+  private confirmedLocationForTalks(): ReturnType<typeof LocationPrivacy.blurCoordinatePair> | undefined {
+    return this.currentLocation && this.locationConfirmed
+      ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
+      : undefined;
+  }
+
   /** Show once per user/device after location has selected a more specific hierarchy room. */
   private showLocationRoomSuggestion(): void {
     if (!this.currentUser || !this.currentLocation) return;
@@ -2125,7 +2139,8 @@ export class IinPublicApp {
         isAdult: isAdultTalk,
       },
       filters,
-      this.currentLocation,
+      // A placeholder location (no real fix yet) must not drive the distance filter.
+      this.locationConfirmed ? this.currentLocation : undefined,
       receiverContext,
     );
     return reasons.length === 0;
@@ -2255,6 +2270,57 @@ export class IinPublicApp {
       void this.localNodeBridge.probe(base);
     }
     this.initWifiDirectLink(String(pair.pub));
+    this.initNearbyOffline(String(pair.pub));
+  }
+
+  /**
+   * OPEN-36 offline mode: find other phones without the hub — NSD on a shared LAN (always), and
+   * Wi-Fi Direct service discovery while the hub is unreachable. Android shell only.
+   */
+  private initNearbyOffline(localPub: string): void {
+    if (this.nearbyOfflineService) return;
+    const bridge = readNearbyOfflineBridge();
+    const wifiDirectBridge = readAndroidWifiDirectBridge();
+    const port = Number(window.location.port);
+    if (!bridge || !wifiDirectBridge || !Number.isInteger(port) || port <= 0) return;
+    let wifiDirectAllowed = true;
+    try { wifiDirectAllowed = window.localStorage.getItem(WIFI_DIRECT_LINK_FLAG_KEY) !== '0'; } catch { /* storage blocked */ }
+    const apiBase = this.getBackendApiBase();
+    const gapMessages: Record<NearbyReadinessGap, UiTranslationKey> = {
+      permission: 'nearbyOfflinePermissionDenied',
+      wifi: 'nearbyOfflineWifiOff',
+      location: 'nearbyOfflineLocationOff',
+      bluetooth: 'nearbyOfflineBluetoothOff',
+    };
+    const service = new NearbyOfflineService({
+      localPub,
+      port,
+      bridge,
+      native: new AndroidWifiDirectNative(wifiDirectBridge),
+      localRelay: new EmbeddedNodeLocalRelay(apiBase),
+      addGunPeer: (url) => this.gunService.addPeer(url),
+      setLocalLinkIceServer,
+      hubReachable: async () => {
+        const res = await fetch(`${apiBase}/api/local-link/hub-status`, { cache: 'no-store' });
+        return res.ok && ((await res.json()) as { reachable?: unknown }).reachable === true;
+      },
+      requestPermission: () => new Promise<boolean>((resolve) => {
+        window.addEventListener('iinpublic-nearby-permission', (event) => {
+          resolve(!!(event as CustomEvent<{ granted?: boolean }>).detail?.granted);
+        }, { once: true });
+        bridge.requestOfflineNearbyPermission();
+      }),
+      wifiDirectAllowed,
+      lanDiscovery: new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
+      blePresence: new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+      onReadinessGap: (gap) => this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
+        retry: () => bridge.openNearbySettings(gap === 'permission' ? 'app' : gap),
+      }),
+      onEvent: (event) => console.info('[nearby-offline]', JSON.stringify(event)),
+    });
+    this.nearbyOfflineService = service;
+    (window as unknown as { __iinpublicNearbyOffline?: NearbyOfflineService }).__iinpublicNearbyOffline = service;
+    void service.start().catch((error) => console.warn('[nearby-offline] start failed', error));
   }
 
   /**
@@ -6852,9 +6918,7 @@ export class IinPublicApp {
         }
 
         // TODO §X: blurred by default (docs/TODO.md) — never the precise coordinate.
-        const authorLocation = this.currentLocation
-          ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
-          : undefined;
+        const authorLocation = this.confirmedLocationForTalks();
 
         // Create the talk
         const talk = reviseSourceTalk
@@ -6950,9 +7014,7 @@ export class IinPublicApp {
       'finalizeCaptureSession',
       async (data: { conversationId: string; scopeTalkId: string | undefined; lines: string[] }) => {
         try {
-          const authorLocation = this.currentLocation
-            ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
-            : undefined;
+          const authorLocation = this.confirmedLocationForTalks();
 
           if (data.scopeTalkId) {
             // Append case: extend the existing talk's question chain, then mint a new talk

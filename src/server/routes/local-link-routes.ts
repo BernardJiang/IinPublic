@@ -1,5 +1,9 @@
 import type express from 'express';
 import { LocalLinkTurnRelay } from '../services/local-link-turn-relay';
+import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
+
+const HUB_STATUS_TIMEOUT_MS = 3_000;
+const HUB_STATUS_CACHE_MS = 10_000;
 
 /** Wi-Fi Direct group subnet (Android group owner is always 192.168.49.1). */
 const GROUP_ADDRESS = /^192\.168\.49\.(\d{1,3})$/;
@@ -38,10 +42,36 @@ export function registerLocalLinkRoutes(app: express.Application): void {
     }
   });
 
+  // Offline mode (OPEN-36) forms Wi-Fi Direct groups only while the hub is unreachable; the page's
+  // CSP keeps it from probing the hub itself.
+  let hubStatus: { reachable: boolean; checkedAt: number } | null = null;
+  app.get('/api/local-link/hub-status', async (req, res) => {
+    if (!isLoopbackRequest(req)) return void res.status(403).json({ error: 'loopback only' });
+    const now = Date.now();
+    if (!hubStatus || now - hubStatus.checkedAt > HUB_STATUS_CACHE_MS) {
+      hubStatus = { reachable: await probeHub(resolveEmbeddedNodeConfig(process.env).upstreamHubBaseUrl), checkedAt: now };
+    }
+    res.json({ reachable: hubStatus.reachable, checkedAt: new Date(hubStatus.checkedAt).toISOString() });
+  });
+
   app.delete('/api/local-link/relay', (req, res) => {
     if (!isLoopbackRequest(req)) return void res.status(403).json({ error: 'loopback only' });
     relay?.stop();
     relay = null;
     res.json({ stopped: true });
   });
+}
+
+async function probeHub(baseUrl: string | undefined): Promise<boolean> {
+  if (!baseUrl) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HUB_STATUS_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/health`, { signal: controller.signal, cache: 'no-store' });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
