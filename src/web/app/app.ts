@@ -1639,8 +1639,10 @@ export class IinPublicApp {
         // arrives like email — asynchronously, whenever it lands — never blocking this boot.
         this.currentUser = cached;
         console.log('👤 Existing user loaded from local cache (instant):', this.currentUser.stageName);
-        void this.userService.getUser(existingUserId).then(async (fresh) => {
+        void this.userService.getUser(existingUserId).then(async (freshRecord) => {
           const pair = this.gunService.getStoredPair();
+          // Merge onto the cached copy: a partial refresh (fields missing) must not erase them.
+          const fresh = mergeUserRecord(cached, freshRecord);
           let merged = fresh;
           if (pair && !fresh.pub) {
             merged = { ...fresh, pub: pair.pub, epub: pair.epub };
@@ -1654,7 +1656,7 @@ export class IinPublicApp {
         });
       } else {
         try {
-          this.currentUser = await this.userService.getUser(existingUserId);
+          this.currentUser = withUsableStageName(await this.userService.getUser(existingUserId));
           const pair = this.gunService.getStoredPair();
           if (pair && !this.currentUser.pub) {
             const merged: User = { ...this.currentUser, pub: pair.pub, epub: pair.epub };
@@ -1720,7 +1722,7 @@ export class IinPublicApp {
       const raw = localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (!parsed || parsed.id !== expectedUserId) return null;
+      if (!parsed || parsed.id !== expectedUserId || typeof parsed.stageName !== 'string' || !parsed.stageName) return null;
       if (typeof parsed.createdAt === 'string') parsed.createdAt = new Date(parsed.createdAt);
       if (typeof parsed.lastActive === 'string') parsed.lastActive = new Date(parsed.lastActive);
       return parsed as User;
@@ -1730,6 +1732,8 @@ export class IinPublicApp {
   }
 
   private writeCachedUser(user: User): void {
+    // A partial record cached here crashed the next boot (no stageName — seen on the C10 tablet).
+    if (!user?.id || typeof user.stageName !== 'string' || !user.stageName) return;
     try {
       localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, JSON.stringify(user));
     } catch {
@@ -2318,6 +2322,18 @@ export class IinPublicApp {
     });
     this.nearbyOfflineService = service;
     (window as unknown as { __iinpublicNearbyOffline?: NearbyOfflineService }).__iinpublicNearbyOffline = service;
+    // A new nearby Gun peer: pull the room roster right away instead of waiting for the next 60 s
+    // membership heartbeat (and once more after Gun's handshake settles).
+    this.gunService.on('peer-added', () => {
+      const room = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId;
+      if (!room) return;
+      this.chatroomService.pullMembersFromPeers(room);
+      this.chatroomService.announceMembershipNow();
+      setTimeout(() => {
+        this.chatroomService.pullMembersFromPeers(room);
+        this.chatroomService.announceMembershipNow();
+      }, 2_000);
+    });
     // Settings switches (both on by default) apply immediately.
     window.addEventListener(NEARBY_SETTINGS_EVENT, () => service.updateSettings({
       wifiDirect: getNearbyWifiDirectEnabled(),
@@ -8299,4 +8315,20 @@ export class IinPublicApp {
       console.log('⚠️ Manual cleanup skipped - no user or chatroom');
     }
   }
+}
+
+/** Fields of `fresh` that are actually set win; anything it lacks keeps the known value. */
+function mergeUserRecord(known: User, fresh: User): User {
+  const defined = Object.fromEntries(Object.entries(fresh ?? {}).filter(([key, value]) => key !== '_' && value !== undefined && value !== null));
+  return { ...known, ...defined, id: known.id } as User;
+}
+
+/**
+ * A user whose record never synced its stage name (offline, partial local copy) still needs one to
+ * render and to write a room membership. Use a temporary in-memory name; the next full refresh
+ * (mergeUserRecord) replaces it, and writeCachedUser never caches a record without a real one.
+ */
+function withUsableStageName(user: User): User {
+  if (typeof user.stageName === 'string' && user.stageName) return user;
+  return { ...user, stageName: `User${String(user.id || '').replace(/-/g, '').slice(0, 6)}` };
 }

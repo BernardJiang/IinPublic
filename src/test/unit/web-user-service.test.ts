@@ -203,6 +203,23 @@ describe('WebUserService', () => {
     expect(user.talkFilters?.allowedLanguages).toEqual(['en', 'zh']);
   });
 
+  it('returns a partial local record with its id set and without Gun metadata', async () => {
+    // Offline the local graph can hold a users/<id> node that never synced id/stageName; the
+    // app crashed at boot after caching one (C10 tablet). getUser must at least carry the id.
+    const partial = { _: { '#': 'users/user-1', '>': { languages: 1 } }, languages: ['en'], profile: [] };
+    const gunService = {
+      get: jest.fn(async (path: string) => (path === 'users/user-1' ? partial : undefined)),
+      getPrivate: jest.fn().mockResolvedValue(undefined),
+      getStoredPair: jest.fn(() => pair),
+    };
+
+    const user = await new WebUserService(gunService as any).getUser('user-1');
+
+    expect(user.id).toBe('user-1');
+    expect((user as unknown as { _?: unknown })._).toBeUndefined();
+    expect(user.stageName).toBeUndefined();
+  });
+
   it('loads the public profile headshot marker over stale graph and private values', async () => {
     const publicUser = {
       id: 'user-1',

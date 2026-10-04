@@ -431,8 +431,10 @@ export class PeerMeshService {
   }
 
   private connectNeighbor(neighbor: Neighbor): void {
+    const startedAt = Date.now();
     void neighbor.session.ensureConnected()
       .then(() => {
+        if (!neighbor.connected) console.info(`[mesh] neighbor ${neighbor.userId.slice(0, 8)} connected (${Date.now() - startedAt} ms this attempt)`);
         neighbor.connected = true;
       })
       .catch(() => {

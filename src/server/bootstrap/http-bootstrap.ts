@@ -13,6 +13,7 @@ import { isLoopbackEmbeddedNode, isPlaintextHttpAllowed } from '../tls-mode';
 import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
 import { CONFIG } from '../../shared/config';
+import { installTransientSignalStoreFilter } from '../services/transient-signal-store-filter';
 
 /** Origin the browser's MapLibre client fetches style/tile data from (chatroom map view).
  * Must be CSP connect-src allowed or the map fails with "could not be loaded" despite a
@@ -291,6 +292,10 @@ export function attachGun(server: HttpServer): any {
   // for discovery/signaling only, while persisting app data on-device.
   const embedded = resolveEmbeddedNodeConfig(process.env);
   const upstreamHubPeers = resolveUpstreamHubPeers(embedded, { e2eMemoryOnly, devGunFresh });
+
+  // Embedded nodes persist on-device: keep WebRTC signaling frames out of Radisk and bounded in RAM
+  // (they re-hydrated into V8 until phones crashed out of memory — transient-signal-store-filter.ts).
+  if (embedded.enabled) installTransientSignalStoreFilter(Gun as unknown as Parameters<typeof installTransientSignalStoreFilter>[0]);
 
   const gun = Gun({
     web: server,

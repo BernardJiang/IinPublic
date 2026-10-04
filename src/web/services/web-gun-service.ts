@@ -508,6 +508,7 @@ export class WebGunService extends EventEmitter {
     }
     this.pendingPeerProbes.add(url);
     const wsUrl = url.replace(/^http/, 'ws');
+    const startedAt = Date.now();
     let tries = 0;
     const attempt = (): void => {
       tries += 1;
@@ -518,7 +519,9 @@ export class WebGunService extends EventEmitter {
         try { socket.close(); } catch { /* already closed */ }
         if (ok || tries >= attempts) {
           this.pendingPeerProbes.delete(url);
+          console.info(`[gun-peer] ${url} ${ok ? 'answered' : 'unanswered'} after ${tries} probe(s), ${Date.now() - startedAt} ms`);
           this.gun.opt({ peers: [url] });
+          if (ok) this.emit('peer-added', url);
         } else {
           setTimeout(attempt, intervalMs);
         }

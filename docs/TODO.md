@@ -730,7 +730,7 @@ review capacity is available and the issue is promoted after the website/Android
       service drops the override and reconnects on normal ICE (unit-tested).
     - [x] WebView host candidates are plain IPs (no mDNS obfuscation) — but WebView does not gather
       on the `p2p-*` interface at all, hence the relay design above.
-  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.96), verified on P30 + PH-1 +
+  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.103), verified on P30 + PH-1 +
     C10 tablet.** `src/shared/nearby-offline.ts` (records, election, Wi-Fi-only fallback),
     `src/web/services/nearby-offline-service.ts`, native NSD/BLE/DNS-SD in
     `NearbyConnectivityManager.kt` + `WifiDirectGroupController.kt`. Key finding: once two phones'
@@ -786,6 +786,22 @@ review capacity is available and the issue is promoted after the website/Android
       (a general mesh bug, online too); it now checks the session's live state. Result on PH-1 +
       tablet: cold start linked ~45–60 s after launch (incl. ~25 s app boot); a restarted owner or
       client relinks on its own (previously never).
+    - [x] 4-phone round (v1.0.97–103, P30 + PH-1 + C10 + Honor), found and fixed:
+      (1) a joining phone saw only itself for ~60 s — Gun does not replay data to a peer that
+      connects after a subscription, so it waited for the next membership heartbeat, whose public
+      keys ride only every 10th beat: on a new nearby peer the app now pulls the room roster and
+      re-announces its membership with keys; (2) boot crash "reading 'charAt'" — a partial local
+      users/<id> record (no id/stageName) was accepted and cached; getUser now always sets id,
+      refreshes merge onto the known record, and the cache refuses records without id/stageName;
+      (3) intermittent native crashes on all four phones were V8 out-of-memory
+      (node::OOMErrorHandler): WebRTC signaling frames written by connected Gun peers bypassed the
+      server persistence filter, piled up in the embedded node's Radisk (~1 MB per pair) and
+      re-hydrated on every re-subscribe. Signaling puts are now kept out of Radisk at the Gun store
+      hook and idle ones evicted from RAM (transient-signal-store-filter.ts); boot also scrubs
+      stale Radisk temp files and signaling keys inside mixed chunks (incl. the legacy
+      `undefinedp2p-signal` souls). Result: 0/16 crashes in a relaunch soak (was ~1 in 12), stores
+      0.65–0.83 MB (were up to 5.4 MB + growing quarantine), 3-phone offline mesh complete 26–31 s
+      after launch, restarted owner relinks in 20 s and a client in 32 s.
     - [ ] Discovery: advertise over Wi-Fi Direct service discovery
       (`WifiP2pManager.addLocalService` + `discoverServices`, DNS-SD) — not `startNsd`, which only
       works on a shared infrastructure Wi-Fi. TXT record, roughly:
