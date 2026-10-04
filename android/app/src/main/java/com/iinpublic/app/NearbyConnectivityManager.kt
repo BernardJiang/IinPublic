@@ -302,8 +302,13 @@ class NearbyConnectivityManager(
             override fun onBatchScanResults(results: MutableList<ScanResult>) = results.forEach { onScanResult(0, it) }
             override fun onScanFailed(errorCode: Int) = listener.onStatus("android-ble-presence", "degraded", "scan:$errorCode")
         }.also { callback ->
+            // Android 7 (Honor FRD-L04): the hardware offload filter for 128-bit service data
+            // dropped every result while the radio saw dozens per second. Scan unfiltered there —
+            // onScanResult already checks the service data — and keep the cheap hardware filter
+            // on 8.0+, where it works and is required for scans to continue with the screen off.
+            val filters = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) listOf(ScanFilter.Builder().setServiceData(parcelUuid, null).build()) else emptyList()
             adapter.bluetoothLeScanner?.startScan(
-                listOf(ScanFilter.Builder().setServiceData(parcelUuid, null).build()),
+                filters,
                 ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
                 callback,
             )

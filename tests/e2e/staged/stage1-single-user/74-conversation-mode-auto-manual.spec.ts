@@ -136,6 +136,8 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     const p = page!;
     const q = 'Would you join a midnight astronomy walk?';
     const modal = p.locator('#talk-response-modal');
+    // Same-context auto answers are what this test covers; the app default is "Whenever offered".
+    await p.evaluate(() => localStorage.setItem('iinpublic_auto_answer_scope', 'same-context'));
 
     await openResponseDialog(p, syntheticFlowTalk('e2e-mode-a1', 'Mode Auto Talk 1', q));
     await expect(modal).toBeVisible({ timeout: 10_000 });

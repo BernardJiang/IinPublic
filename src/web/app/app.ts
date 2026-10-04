@@ -116,7 +116,7 @@ import {
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
-import { getUiLanguagePreference } from '../ui/ui-settings-storage';
+import { getNearbyBluetoothEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
@@ -129,8 +129,8 @@ import { eraseDevice } from '../services/device-wipe';
 import { parseLinkFragmentPayload, clearLinkFragmentFromUrl } from '../services/identity-link-fragment';
 import { getOrCreateP2PSession, listP2PSessions, onP2PSessionCreated, onP2PVersionMismatch, setLocalLinkIceServer, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
 import { WifiDirectLinkService } from '../services/wifi-direct-link-service';
-import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag, WIFI_DIRECT_LINK_FLAG_KEY } from '../services/android-wifi-direct-native';
-import { NearbyOfflineService, readNearbyOfflineBridge, type NearbyReadinessGap } from '../services/nearby-offline-service';
+import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag } from '../services/android-wifi-direct-native';
+import { NearbyOfflineService, readNearbyOfflineBridge, type NearbyReadinessGap, type NearbyStatus } from '../services/nearby-offline-service';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
@@ -2283,8 +2283,6 @@ export class IinPublicApp {
     const wifiDirectBridge = readAndroidWifiDirectBridge();
     const port = Number(window.location.port);
     if (!bridge || !wifiDirectBridge || !Number.isInteger(port) || port <= 0) return;
-    let wifiDirectAllowed = true;
-    try { wifiDirectAllowed = window.localStorage.getItem(WIFI_DIRECT_LINK_FLAG_KEY) !== '0'; } catch { /* storage blocked */ }
     const apiBase = this.getBackendApiBase();
     const gapMessages: Record<NearbyReadinessGap, UiTranslationKey> = {
       permission: 'nearbyOfflinePermissionDenied',
@@ -2310,9 +2308,9 @@ export class IinPublicApp {
         }, { once: true });
         bridge.requestOfflineNearbyPermission();
       }),
-      wifiDirectAllowed,
+      wifiDirectAllowed: getNearbyWifiDirectEnabled(),
       lanDiscovery: new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
-      blePresence: new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+      blePresence: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
       onReadinessGap: (gap) => this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
         retry: () => bridge.openNearbySettings(gap === 'permission' ? 'app' : gap),
       }),
@@ -2320,6 +2318,17 @@ export class IinPublicApp {
     });
     this.nearbyOfflineService = service;
     (window as unknown as { __iinpublicNearbyOffline?: NearbyOfflineService }).__iinpublicNearbyOffline = service;
+    // Settings switches (both on by default) apply immediately.
+    window.addEventListener(NEARBY_SETTINGS_EVENT, () => service.updateSettings({
+      wifiDirect: getNearbyWifiDirectEnabled(),
+      bluetooth: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+    }));
+    // Awareness: the Settings screen shows what nearby mode is doing right now.
+    const statusTimer = setInterval(() => {
+      const el = document.getElementById('settings-nearby-status');
+      if (el) el.textContent = this.nearbyStatusText(service.getStatus());
+    }, 2_000);
+    (statusTimer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
     void service.start().catch((error) => console.warn('[nearby-offline] start failed', error));
   }
 
@@ -2347,6 +2356,15 @@ export class IinPublicApp {
     (window as unknown as { __iinpublicWifiDirectLink?: WifiDirectLinkService }).__iinpublicWifiDirectLink = service;
     for (const session of listP2PSessions()) service.attach(session);
     onP2PSessionCreated((session) => service.attach(session));
+  }
+
+  private nearbyStatusText(status: NearbyStatus): string {
+    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
+    const text = (key: UiTranslationKey, count?: number) => uiText(language, key).replace('{count}', String(count ?? ''));
+    const main = status.kind === 'wifi-direct'
+      ? (status.hosting ? text('settingsNearbyStatusHosting', status.phones ?? 0) : text('settingsNearbyStatusJoined'))
+      : text(status.kind === 'searching' ? 'settingsNearbyStatusSearching' : status.kind === 'off' ? 'settingsNearbyStatusOff' : 'settingsNearbyStatusStandby');
+    return status.lanPhones > 0 ? `${main} ${text('settingsNearbyStatusLan', status.lanPhones)}` : main;
   }
 
   private ensurePeerMeshService(): PeerMeshService | null {

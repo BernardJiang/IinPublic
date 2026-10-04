@@ -9,7 +9,7 @@ import {
   type SettingsViewDeps,
 } from '../../web/ui/settings-view';
 import { uiText } from '../../web/ui/ui-translations';
-import { getAutoAnswerScope } from '../../web/ui/ui-settings-storage';
+import { getAutoAnswerScope, getNearbyBluetoothEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -134,7 +134,7 @@ describe('settings view extraction', () => {
     expect(document.querySelector('#settings-section-languages')).not.toBeNull();
     expect(document.querySelector('#settings-start-guide-btn')).not.toBeNull();
     expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
-    expect(document.querySelector<HTMLSelectElement>('#settings-auto-answer-scope')?.value).toBe('same-context');
+    expect(document.querySelector<HTMLSelectElement>('#settings-auto-answer-scope')?.value).toBe('whenever');
     expect(document.querySelector<HTMLInputElement>('#settings-stage-name-input')?.value).toBe(
       '<Settings>',
     );
@@ -209,6 +209,40 @@ describe('settings view extraction', () => {
 
     expect(deps.setSettingsActiveSectionId).toHaveBeenCalledWith('settings-section-profile');
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
+  });
+
+  it('shows the nearby switches only in the Android app, both on by default', () => {
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    renderSettingsView(makeUser(), viewDeps());
+    expect(document.querySelector('#settings-section-nearby')).toBeNull();
+
+    (window as unknown as { IinPublicNearby?: unknown }).IinPublicNearby = { startLanDiscovery: () => undefined };
+    try {
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      expect(document.querySelector('#settings-section-nearby')).not.toBeNull();
+      expect(document.querySelector<HTMLInputElement>('#settings-nearby-wifi-direct')?.checked).toBe(true);
+      expect(document.querySelector<HTMLInputElement>('#settings-nearby-bluetooth')?.checked).toBe(true);
+      expect(document.querySelector('#settings-nearby-status')).not.toBeNull();
+    } finally {
+      delete (window as unknown as { IinPublicNearby?: unknown }).IinPublicNearby;
+    }
+  });
+
+  it('turning a nearby switch off persists it and notifies the app', () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="settings-nearby-wifi-direct" checked>
+      <input type="checkbox" id="settings-nearby-bluetooth" checked>`;
+    bindSettingsControls(controlsDeps());
+    const changed = jest.fn();
+    window.addEventListener(NEARBY_SETTINGS_EVENT, changed);
+    const bluetooth = document.getElementById('settings-nearby-bluetooth') as HTMLInputElement;
+    bluetooth.checked = false;
+    bluetooth.dispatchEvent(new Event('change', { bubbles: true }));
+    window.removeEventListener(NEARBY_SETTINGS_EVENT, changed);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(getNearbyBluetoothEnabled()).toBe(false);
+    expect(getNearbyWifiDirectEnabled()).toBe(true);
   });
 
   it('stores one Auto scope for all answers', () => {

@@ -131,18 +131,22 @@ export function isPrivateIpv4(address: string): boolean {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
 }
 
-/** `http://<private-ipv4>:<port>/gun` from an NSD endpoint, or null for anything else. */
+/**
+ * `http://<private-ipv4>:<port>/gun` from an NSD endpoint, or null for anything else. Wi-Fi Direct
+ * group addresses (192.168.49.0/24) are refused: mDNS also answers across the group, and treating a
+ * group peer as "same Wi-Fi" kept phones from re-forming a group for the LAN sighting's lifetime.
+ */
 export function lanGunPeerUrl(endpoint: unknown): string | null {
   if (typeof endpoint !== 'string') return null;
   const match = /^http:\/\/([0-9.]+):(\d{1,5})\/gun$/.exec(endpoint.trim());
   if (!match) return null;
   const port = Number(match[2]);
-  if (!isPrivateIpv4(match[1]!) || port < 1 || port > 65535) return null;
+  if (!isPrivateIpv4(match[1]!) || match[1]!.startsWith('192.168.49.') || port < 1 || port > 65535) return null;
   return `http://${match[1]}:${port}/gun`;
 }
 
-/** Host preference: a phone that cannot join by credential (Android 7–9) must host; then the
- *  higher host score; then the lowest id. Every phone computes the same order. */
+/** Host preference: the higher host score, then the lowest id. Every phone computes the same
+ *  order. (The join-by-credential branch is moot offline — only Android 10+ phones take part.) */
 function hostRank(a: Pick<NearbySelf, 'id' | 'joinByCredential' | 'hostScore'>, b: Pick<NearbySelf, 'id' | 'joinByCredential' | 'hostScore'>): number {
   if (a.joinByCredential !== b.joinByCredential) return a.joinByCredential ? 1 : -1;
   if (a.hostScore !== b.hostScore) return b.hostScore - a.hostScore;
@@ -161,26 +165,21 @@ export function planOfflineGroup(input: {
   now: number;
 }): OfflineGroupPlan {
   const { self, now } = input;
+  // Offline groups use the app-wide credentials, which only Android 10+ can set (host) or join by
+  // (client). Android 7–9 phones sit out offline Wi-Fi Direct — they still link over a shared LAN —
+  // and are never waited on: their legacy groups get framework-generated credentials nobody knows.
+  if (!self.joinByCredential) return { action: 'none', reason: 'cannot-join-by-credential' };
   const nearby = input.records.filter((record) =>
-    record.id !== self.id && now - record.seenAt <= NEARBY_RECORD_TTL_MS && !input.lanIds.has(record.id));
+    record.id !== self.id && now - record.seenAt <= NEARBY_RECORD_TTL_MS && !input.lanIds.has(record.id) && record.joinByCredential);
   if (nearby.length === 0) return { action: 'none', reason: 'no-offline-peers' };
 
   const hosts = nearby
     .filter((record): record is NearbyRecord & { group: WifiDirectGroupCredentials } => !!record.group)
     .sort(hostRank);
-  if (hosts.length > 0) {
-    // Android 7–9 can only join with the owner's real device address and a prompt on the owner;
-    // it stays on its normal path rather than joining.
-    if (!self.joinByCredential) return { action: 'none', reason: 'cannot-join-by-credential' };
-    return { action: 'join', record: hosts[0]! };
-  }
+  if (hosts.length > 0) return { action: 'join', record: hosts[0]! };
 
   if (!self.canHost) return { action: 'wait', reason: 'cannot-host' };
-  // Only phones that could actually join this one compete for host: two Android 7–9 phones cannot
-  // link without a prompt, so they are ignored here and each may host for Android 10+ phones.
-  const contenders = nearby.filter((record) => record.joinByCredential || self.joinByCredential);
-  if (contenders.length === 0) return { action: 'none', reason: 'no-joinable-peers' };
-  const winner = [self, ...contenders].sort(hostRank)[0]!;
+  const winner = [self, ...nearby].sort(hostRank)[0]!;
   return winner.id === self.id ? { action: 'host' } : { action: 'wait', reason: 'peer-hosts' };
 }
 

@@ -730,7 +730,7 @@ review capacity is available and the issue is promoted after the website/Android
       service drops the override and reconnects on normal ICE (unit-tested).
     - [x] WebView host candidates are plain IPs (no mDNS obfuscation) — but WebView does not gather
       on the `p2p-*` interface at all, hence the relay design above.
-  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.88), verified on P30 + PH-1 +
+  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.93), verified on P30 + PH-1 +
     C10 tablet.** `src/shared/nearby-offline.ts` (records, election, Wi-Fi-only fallback),
     `src/web/services/nearby-offline-service.ts`, native NSD/BLE/DNS-SD in
     `NearbyConnectivityManager.kt` + `WifiDirectGroupController.kt`. Key finding: once two phones'
@@ -760,8 +760,20 @@ review capacity is available and the issue is promoted after the website/Android
     - [ ] DNS-SD is unreliable when phones are associated to access points on different channels
       (queries un-ACKed / answered after the asker stopped waiting). Jittered rounds, no rounds while
       in a group, `startListening()` on Android 13+ applied; BLE + the Wi-Fi-only fallback cover it.
-    - [ ] Android 7–9 (cannot join by credential) is not covered by offline mode on hardware (no
-      such device attached any more).
+    - [x] Android 7–9 sit out offline Wi-Fi Direct (they can neither set nor join by the app-wide
+      credentials) and are never waited on in the election; they still use the same-Wi-Fi path.
+      Verified on the Honor FRD-L04: no group/prompt, linked to 3 phones over the LAN (v1.0.93).
+      BLE scan on Android 7 runs unfiltered (the hardware 128-bit service-data filter dropped all
+      results there).
+    - [x] Settings → "Nearby without internet" (Android app only): Wi-Fi Direct and Bluetooth
+      switches, both on by default, applied immediately (off = leave the offline group / stop the
+      beacon); live status line; plain-language "what nearby people can and cannot see" notes.
+    - [x] Hardware fixes (v1.0.89–93): a repeated native `failed` state no longer postpones the join
+      retry forever; mDNS answers over the group (192.168.49.x) are not treated as same-Wi-Fi peers
+      (that blocked re-forming a group for 20 min); 4-device run P30 owner + PH-1 + tablet clients.
+    - [ ] A phone whose Wi-Fi stack is stuck after many group cycles fails every join with
+      P2P-GROUP-FORMATION-FAILURE (PH-1, after a day of tests); a Wi-Fi restart fixed it. Apps cannot
+      restart Wi-Fi on Android 10+; consider re-initializing the P2P channel after N failures.
     - [ ] Discovery: advertise over Wi-Fi Direct service discovery
       (`WifiP2pManager.addLocalService` + `discoverServices`, DNS-SD) — not `startNsd`, which only
       works on a shared infrastructure Wi-Fi. TXT record, roughly:

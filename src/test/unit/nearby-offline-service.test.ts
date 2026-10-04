@@ -332,3 +332,81 @@ describe('NearbyOfflineService back online', () => {
     t.service.dispose();
   });
 });
+
+describe('NearbyOfflineService settings switches and status', () => {
+  it('turning Wi-Fi Direct off leaves the offline group and stops discovery right away', async () => {
+    const t = setup();
+    await t.service.start();
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 2, ...OFFLINE_GROUP_CREDENTIALS });
+    await flush();
+    expect(t.service.getStatus()).toEqual({ kind: 'wifi-direct', hosting: true, phones: 2, lanPhones: 0 });
+    t.service.updateSettings({ wifiDirect: false, bluetooth: true });
+    expect(t.native.left).toBe(1);
+    expect(t.calls).toContain('wd-stop');
+    expect(t.service.getStatus().kind).toBe('off');
+    // Stays off on later ticks even while offline.
+    const before = t.calls.length;
+    await t.tick();
+    expect(t.calls.slice(before)).not.toContain('wd-start');
+    t.service.dispose();
+  });
+
+  it('turning Bluetooth off stops the beacon but keeps Wi-Fi discovery', async () => {
+    const t = setup();
+    await t.service.start();
+    t.service.updateSettings({ wifiDirect: true, bluetooth: false });
+    expect(t.calls.at(-1)).not.toMatch(/^ble:/);
+    expect(t.calls).toContain('ble-stop');
+    expect(t.calls).not.toContain('wd-stop');
+    t.service.dispose();
+  });
+
+  it('reports searching while offline, standby while online, and LAN phones', async () => {
+    const offline = setup();
+    await offline.service.start();
+    expect(offline.service.getStatus()).toEqual({ kind: 'searching', lanPhones: 0 });
+    offline.service.dispose();
+    const online = setup({ hubReachable: true });
+    await online.service.start();
+    online.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
+    expect(online.service.getStatus()).toEqual({ kind: 'standby', lanPhones: 1 });
+    online.service.dispose();
+  });
+});
+
+describe('NearbyOfflineService on Android 7–9', () => {
+  it('never starts offline Wi-Fi Direct (no prompt, no scanning, no group)', async () => {
+    const t = setup();
+    t.native.joinByCredential = false;
+    await t.service.start();
+    t.emitBle(encodeBlePresence({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, hosting: true }));
+    await t.tick();
+    expect(t.native.permissionRequests).toBe(0);
+    expect(t.calls).not.toContain('wd-start');
+    expect(t.native.joined).toHaveLength(0);
+    expect(t.native.created).toHaveLength(0);
+    t.service.dispose();
+  });
+});
+
+describe('NearbyOfflineService join retry', () => {
+  it('retries a failed join even while native keeps re-sending the failed state', async () => {
+    const t = setup();
+    await t.service.start();
+    const host = () => t.emitBle(encodeBlePresence({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, hosting: true }));
+    host();
+    await t.tick();
+    expect(t.native.joined).toHaveLength(1);
+    t.native.set({ state: 'failed', reason: 'join-timeout' });
+    await flush();
+    for (let i = 0; i < 3; i += 1) {
+      t.advance(10_000);
+      t.native.set({ state: 'failed', reason: 'join-timeout' });
+      await flush();
+      host();
+      await t.tick();
+    }
+    expect(t.native.joined.length).toBeGreaterThanOrEqual(2);
+    t.service.dispose();
+  });
+});

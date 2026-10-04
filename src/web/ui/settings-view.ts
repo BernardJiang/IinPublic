@@ -20,6 +20,8 @@ import {
   getKeepOldTalkOnEdit,
   getLocationAutoMatchConsent,
   type ColorScheme,
+  getNearbyWifiDirectEnabled,
+  getNearbyBluetoothEnabled,
 } from './ui-settings-storage';
 import { renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { renderTechSupportFaqHelpList } from './techsupport-faq-help-view';
@@ -264,6 +266,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
       label: deps.t('settingsContentFilters'),
       target: 'settings-section-content-filters',
     },
+    ...(hasNearbyBridge() ? [{ icon: '📶', label: deps.t('settingsNearby'), target: 'settings-section-nearby' }] : []),
     { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
     { icon: '📱', label: deps.t('settingsDownloadApp'), target: 'settings-section-download-app' },
     {
@@ -588,6 +591,33 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
           </div>
         `,
         )}
+        ${hasNearbyBridge() ? renderSettingsSection(
+          {
+            id: 'settings-section-nearby',
+            title: deps.t('settingsNearby'),
+            subtitle: deps.t('settingsNearbySubtitle'),
+          },
+          `<div style="display:grid;gap:10px;" data-testid="settings-nearby">
+            <div id="settings-nearby-status" role="status" data-testid="settings-nearby-status" style="font-weight:600;"></div>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+              <input type="checkbox" id="settings-nearby-wifi-direct" ${getNearbyWifiDirectEnabled() ? 'checked' : ''}>
+              <span><strong>${deps.t('settingsNearbyWifiDirect')}</strong><br><small>${deps.t('settingsNearbyWifiDirectHelp')}</small></span>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+              <input type="checkbox" id="settings-nearby-bluetooth" ${getNearbyBluetoothEnabled() ? 'checked' : ''}>
+              <span><strong>${deps.t('settingsNearbyBluetooth')}</strong><br><small>${deps.t('settingsNearbyBluetoothHelp')}</small></span>
+            </label>
+            <details><summary>${deps.t('settingsNearbyPrivacyTitle')}</summary>
+              <ul style="margin:6px 0 0 18px;padding:0;font-size:0.88em;">
+                <li>${deps.t('settingsNearbyPrivacySameWifi')}</li>
+                <li>${deps.t('settingsNearbyPrivacyOnlyOffline')}</li>
+                <li>${deps.t('settingsNearbyPrivacyEncrypted')}</li>
+                <li>${deps.t('settingsNearbyPrivacyVisible')}</li>
+                <li>${deps.t('settingsNearbyPrivacyBluetooth')}</li>
+              </ul>
+            </details>
+          </div>`,
+        ) : ''}
         ${renderSettingsSection(
           {
             id: 'settings-section-connectivity',
@@ -699,4 +729,11 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   deps.renderTechSupportRecoveryBannerIfPresent();
   deps.renderSupportDelegateOptInSectionIfPresent();
   deps.applySettingsSectionView(deps.settingsActiveSectionId);
+}
+
+/** The nearby switches only mean something inside the Android app (offline discovery bridge). */
+function hasNearbyBridge(): boolean {
+  if (typeof window === 'undefined') return false;
+  const bridge = (window as unknown as { IinPublicNearby?: { startLanDiscovery?: unknown } }).IinPublicNearby;
+  return typeof bridge?.startLanDiscovery === 'function';
 }

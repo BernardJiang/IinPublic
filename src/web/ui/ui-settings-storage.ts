@@ -26,11 +26,11 @@ export function setChatbotEnabled(enabled: boolean): void {
 
 export type AutoAnswerScope = 'same-context' | 'whenever';
 
-/** One device-wide rule for every answer marked Auto. */
+/** One device-wide rule for every answer marked Auto. Defaults to "Whenever offered". */
 export function getAutoAnswerScope(): AutoAnswerScope {
-  return localStorage.getItem('iinpublic_auto_answer_scope') === 'whenever'
-    ? 'whenever'
-    : 'same-context';
+  return localStorage.getItem('iinpublic_auto_answer_scope') === 'same-context'
+    ? 'same-context'
+    : 'whenever';
 }
 
 export function setAutoAnswerScope(scope: AutoAnswerScope): void {
@@ -156,4 +156,25 @@ export function saveChatbotTemplate(talkId: string, data: ChatbotTemplate): void
   } catch (error) {
     console.warn('Failed to save chatbot template:', error);
   }
+}
+
+/**
+ * OPEN-36 offline nearby switches (Android app). Both default ON; turning one off takes effect
+ * immediately (`iinpublic-nearby-settings-changed`, handled in app.ts).
+ */
+export const NEARBY_SETTINGS_EVENT = 'iinpublic-nearby-settings-changed';
+
+export function getNearbyWifiDirectEnabled(): boolean {
+  try { return localStorage.getItem('iinpublic_nearby_wifi_direct') !== '0'; } catch { return true; }
+}
+
+export function getNearbyBluetoothEnabled(): boolean {
+  try { return localStorage.getItem('iinpublic_nearby_bluetooth') !== '0'; } catch { return true; }
+}
+
+export function setNearbySetting(kind: 'wifi-direct' | 'bluetooth', enabled: boolean): void {
+  try {
+    localStorage.setItem(kind === 'wifi-direct' ? 'iinpublic_nearby_wifi_direct' : 'iinpublic_nearby_bluetooth', enabled ? '1' : '0');
+  } catch { /* storage blocked: the switch applies to this session only */ }
+  window.dispatchEvent(new CustomEvent(NEARBY_SETTINGS_EVENT));
 }
