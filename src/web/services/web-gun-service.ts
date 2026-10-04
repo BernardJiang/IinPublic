@@ -492,13 +492,46 @@ export class WebGunService extends EventEmitter {
 
   /**
    * Add another phone's embedded node as a Gun peer (OPEN-36 offline mode: LAN or Wi-Fi Direct).
-   * Gun keeps retrying a dropped peer on its own; the caller validates the URL.
+   * The caller validates the URL. A Wi-Fi Direct group is announced before its route carries
+   * traffic, and a first failed connect put Gun into a long reconnect backoff (51 s on hardware
+   * before the group link came up), so probe with a plain WebSocket every second and hand the
+   * peer to Gun only once it answers. Gun then keeps retrying a dropped peer on its own.
    */
-  addPeer(url: string): void {
+  addPeer(url: string, probe: { attempts?: number; intervalMs?: number } = {}): void {
     if (!this.gun || !url) return;
-    if (this.gun._?.opt?.peers?.[url]) return;
-    this.gun.opt({ peers: [url] });
+    if (this.gun._?.opt?.peers?.[url] || this.pendingPeerProbes.has(url)) return;
+    const attempts = probe.attempts ?? 60;
+    const intervalMs = probe.intervalMs ?? 1_000;
+    if (typeof WebSocket === 'undefined' || attempts <= 0) {
+      this.gun.opt({ peers: [url] });
+      return;
+    }
+    this.pendingPeerProbes.add(url);
+    const wsUrl = url.replace(/^http/, 'ws');
+    let tries = 0;
+    const attempt = (): void => {
+      tries += 1;
+      let settled = false;
+      const done = (ok: boolean): void => {
+        if (settled) return;
+        settled = true;
+        try { socket.close(); } catch { /* already closed */ }
+        if (ok || tries >= attempts) {
+          this.pendingPeerProbes.delete(url);
+          this.gun.opt({ peers: [url] });
+        } else {
+          setTimeout(attempt, intervalMs);
+        }
+      };
+      const socket = new WebSocket(wsUrl);
+      socket.onopen = () => done(true);
+      socket.onerror = () => done(false);
+      setTimeout(() => done(false), Math.max(500, intervalMs * 2));
+    };
+    attempt();
   }
+
+  private readonly pendingPeerProbes = new Set<string>();
 
   /**
    * Worker-backed GunBridge — use for new features:

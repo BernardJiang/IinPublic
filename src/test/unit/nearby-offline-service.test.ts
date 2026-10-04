@@ -410,3 +410,22 @@ describe('NearbyOfflineService join retry', () => {
     t.service.dispose();
   });
 });
+
+describe('NearbyOfflineService keeps Gun peers alive', () => {
+  it('re-asserts LAN peers and the group owner every tick, but not a stale group URL', async () => {
+    const t = setup({ hubReachable: true });
+    await t.service.start();
+    t.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
+    t.native.set({ state: 'client', localIp: '192.168.49.185', ownerIp: '192.168.49.1', ...OFFLINE_GROUP_CREDENTIALS });
+    await flush();
+    t.gunPeers.length = 0;
+    await t.tick();
+    expect(t.gunPeers.sort()).toEqual(['http://192.168.10.71:8088/gun', 'http://192.168.49.1:8088/gun']);
+    t.native.set({ state: 'idle', reason: 'group-removed' });
+    await flush();
+    t.gunPeers.length = 0;
+    await t.tick();
+    expect(t.gunPeers).toEqual(['http://192.168.10.71:8088/gun']);
+    t.service.dispose();
+  });
+});

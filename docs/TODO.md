@@ -730,7 +730,7 @@ review capacity is available and the issue is promoted after the website/Android
       service drops the override and reconnects on normal ICE (unit-tested).
     - [x] WebView host candidates are plain IPs (no mDNS obfuscation) — but WebView does not gather
       on the `p2p-*` interface at all, hence the relay design above.
-  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.93), verified on P30 + PH-1 +
+  - **Offline mode (no hub) — implemented 2026-10-03 (v1.0.80–1.0.96), verified on P30 + PH-1 +
     C10 tablet.** `src/shared/nearby-offline.ts` (records, election, Wi-Fi-only fallback),
     `src/web/services/nearby-offline-service.ts`, native NSD/BLE/DNS-SD in
     `NearbyConnectivityManager.kt` + `WifiDirectGroupController.kt`. Key finding: once two phones'
@@ -771,9 +771,21 @@ review capacity is available and the issue is promoted after the website/Android
     - [x] Hardware fixes (v1.0.89–93): a repeated native `failed` state no longer postpones the join
       retry forever; mDNS answers over the group (192.168.49.x) are not treated as same-Wi-Fi peers
       (that blocked re-forming a group for 20 min); 4-device run P30 owner + PH-1 + tablet clients.
-    - [ ] A phone whose Wi-Fi stack is stuck after many group cycles fails every join with
-      P2P-GROUP-FORMATION-FAILURE (PH-1, after a day of tests); a Wi-Fi restart fixed it. Apps cannot
-      restart Wi-Fi on Android 10+; consider re-initializing the P2P channel after N failures.
+    - [x] Wedged Wi-Fi stack (PH-1 failed every join with P2P-GROUP-FORMATION-FAILURE until a Wi-Fi
+      restart): joins now fail fast on CONNECTING→DISCONNECTED instead of the 35 s timeout, and after
+      3 consecutive failures the app rebuilds its P2P channel (the deepest reset an app may do;
+      Wi-Fi restart is not allowed on Android 10+). Not reproduced since the reboot — unverified on
+      a wedged stack.
+    - [x] Slow / stuck linking after a restart (v1.0.94–96), three causes found on hardware:
+      (1) Gun peer added the instant the group formed, before its route carried traffic → Gun's
+      reconnect backoff delayed the link 51 s; peers are now probed with a WebSocket and handed to Gun
+      once they answer (1 s). (2) Gun deletes a peer whose socket closes (mesh.bye) and never
+      reconnects it — after the owner's app restarted, clients' rosters stayed empty; the nearby
+      service now re-asserts its LAN/owner peers every tick. (3) PeerMeshService trusted a
+      `connected` flag that nothing cleared when a session died later, so reconcile never retried
+      (a general mesh bug, online too); it now checks the session's live state. Result on PH-1 +
+      tablet: cold start linked ~45–60 s after launch (incl. ~25 s app boot); a restarted owner or
+      client relinks on its own (previously never).
     - [ ] Discovery: advertise over Wi-Fi Direct service discovery
       (`WifiP2pManager.addLocalService` + `discoverServices`, DNS-SD) — not `startNsd`, which only
       works on a shared infrastructure Wi-Fi. TXT record, roughly:

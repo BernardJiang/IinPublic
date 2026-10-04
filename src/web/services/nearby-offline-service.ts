@@ -302,6 +302,7 @@ export class NearbyOfflineService {
     try {
       await this.refreshId();
       this.prune();
+      this.reassertGunPeers();
       // Offline groups need Android 10+ (app-chosen credentials); older phones use the LAN path only.
       const caps = this.opts.native.capabilities();
       if (!this.wifiDirectAllowed || this.permissionDenied || !caps.wifiDirect || !caps.joinByCredential) return;
@@ -520,6 +521,27 @@ export class NearbyOfflineService {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Gun drops a peer from its list when the socket closes (mesh.bye), and never reconnects it —
+   * seen on hardware when the group owner's app restarted: the client's roster stayed empty for
+   * minutes. Re-add every peer we still want each tick; `addGunPeer` is a no-op while the peer is
+   * present and otherwise probes until the node answers. Group-owner URLs only while we are a client.
+   */
+  private reassertGunPeers(): void {
+    const state = this.opts.native.getState();
+    const ownerUrl = state.state === 'client' && state.ownerIp
+      ? `http://${state.ownerIp}:${this.joinedRecord?.port ?? this.opts.port}/gun`
+      : null;
+    for (const url of this.peeredUrls) {
+      if (url.includes('://192.168.49.') && url !== ownerUrl) continue;
+      this.opts.addGunPeer(url);
+    }
+    if (ownerUrl && !this.peeredUrls.has(ownerUrl)) {
+      this.peeredUrls.add(ownerUrl);
+      this.opts.addGunPeer(ownerUrl);
+    }
+  }
 
   private async refreshId(): Promise<void> {
     const next = await rotatingNearbyId(this.opts.localPub, this.now());

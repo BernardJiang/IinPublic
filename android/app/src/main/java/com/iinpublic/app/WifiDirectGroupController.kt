@@ -53,6 +53,7 @@ class WifiDirectGroupController(
         private const val SERVICE_DISCOVERY_INTERVAL_MS = 9_000L
         private const val SERVICE_DISCOVERY_JITTER_MS = 6_000L
         private const val TAG = "IinPublicNearby"
+        private const val JOIN_FAILURES_BEFORE_RESET = 3
         /** Neither join path reports "gave up" (wpa_supplicant stops after ~30 s with no
          *  broadcast), so the controller fails the join itself. */
         private const val JOIN_TIMEOUT_MS = 35_000L
@@ -73,6 +74,9 @@ class WifiDirectGroupController(
     /** Android 10+ join retried once without the frequency hint (see joinTimeout). */
     private var pendingHintedJoin: Triple<String, String, String>? = null
     private var advertised: WifiP2pDnsSdServiceInfo? = null
+    private var joinSawConnecting = false
+    private var lastAdvertisedTxt: Map<String, String>? = null
+    private var consecutiveJoinFailures = 0
     private var serviceDiscoveryActive = false
     private var serviceRequest: WifiP2pDnsSdServiceRequest? = null
     private val serviceDiscoveryRound = Runnable { runServiceDiscoveryRound() }
@@ -89,7 +93,7 @@ class WifiDirectGroupController(
             }
             pendingLegacyOwner = null
             pendingJoinName = null
-            setState("failed", "join-timeout")
+            failJoin("join-timeout")
         }
     }
 
@@ -101,7 +105,24 @@ class WifiDirectGroupController(
                     if (!enabled && state != "idle") { clearGroup(); setState("failed", "p2p-disabled") }
                 }
                 WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> refreshPeers()
-                WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> refreshConnection()
+                WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
+                    // Fail a join fast when formation collapses (P2P-GROUP-FORMATION-FAILURE arrives
+                    // as CONNECTING -> DISCONNECTED) instead of waiting out the 35 s join timeout.
+                    @Suppress("DEPRECATION")
+                    val detailed = intent.getParcelableExtra<android.net.NetworkInfo>(WifiP2pManager.EXTRA_NETWORK_INFO)?.detailedState
+                    if (state == "joining") {
+                        if (detailed == android.net.NetworkInfo.DetailedState.CONNECTING) joinSawConnecting = true
+                        else if (joinSawConnecting && (detailed == android.net.NetworkInfo.DetailedState.DISCONNECTED || detailed == android.net.NetworkInfo.DetailedState.FAILED)) {
+                            joinSawConnecting = false
+                            handler.removeCallbacks(joinTimeout)
+                            pendingHintedJoin = null
+                            pendingJoinName = null
+                            failJoin("formation-failed")
+                            return
+                        }
+                    }
+                    refreshConnection()
+                }
             }
         }
     }
@@ -166,6 +187,7 @@ class WifiDirectGroupController(
         val ch = ensureChannel()
         pendingJoinName = networkName
         pendingHintedJoin = null
+        joinSawConnecting = false
         setState("joining")
         handler.removeCallbacks(joinTimeout)
         handler.postDelayed(joinTimeout, JOIN_TIMEOUT_MS)
@@ -235,6 +257,7 @@ class WifiDirectGroupController(
         val m = manager ?: return
         if (!hasPermission()) return emitStatus("permission-denied")
         val ch = ensureChannel()
+        lastAdvertisedTxt = txt
         val info = WifiP2pDnsSdServiceInfo.newInstance(SERVICE_INSTANCE, SERVICE_TYPE, txt)
         val add = { m.addLocalService(ch, info, serviceListener("advertise")) }
         val previous = advertised
@@ -268,6 +291,7 @@ class WifiDirectGroupController(
         serviceRequest = null
         advertised?.let { m.removeLocalService(ch, it, null) }
         advertised = null
+        lastAdvertisedTxt = null
     }
 
     /**
@@ -411,6 +435,8 @@ class WifiDirectGroupController(
                 } else {
                     handler.removeCallbacks(joinTimeout)
                     pendingHintedJoin = null
+                    joinSawConnecting = false
+                    consecutiveJoinFailures = 0
                     val expected = pendingJoinName
                     pendingJoinName = null
                     setState("client", if (expected != null && expected != formed.networkName) "joined-unexpected-group" else null)
@@ -438,6 +464,42 @@ class WifiDirectGroupController(
     private fun clearGroup() {
         group = null
         ownerIp = null
+    }
+
+    /**
+     * A phone whose Wi-Fi stack got wedged after many group cycles failed every join with
+     * P2P-GROUP-FORMATION-FAILURE until Wi-Fi was restarted (PH-1). Apps cannot restart Wi-Fi on
+     * Android 10+, so after repeated failures rebuild this app's P2P channel — the deepest reset
+     * available — dropping any half-formed group and pending requests with it.
+     */
+    private fun failJoin(reason: String) {
+        consecutiveJoinFailures += 1
+        if (consecutiveJoinFailures >= JOIN_FAILURES_BEFORE_RESET) {
+            consecutiveJoinFailures = 0
+            Log.i(TAG, "resetting P2P channel after repeated join failures ($reason)")
+            resetChannel()
+            setState("failed", "$reason:channel-reset")
+            return
+        }
+        setState("failed", reason)
+    }
+
+    private fun resetChannel() {
+        val m = manager ?: return
+        channel?.let { ch ->
+            runCatching { m.cancelConnect(ch, null) }
+            runCatching { m.removeGroup(ch, null) }
+            runCatching { m.stopPeerDiscovery(ch, null) }
+            runCatching { m.clearServiceRequests(ch, null) }
+            runCatching { m.clearLocalServices(ch, null) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) runCatching { ch.close() }
+        }
+        channel = null
+        serviceRequest = null
+        advertised = null
+        // A fresh channel; re-register our record (JS only re-sends it when it changes). The next
+        // discovery round re-adds the service request.
+        handler.postDelayed({ ensureChannel(); lastAdvertisedTxt?.let { advertiseService(it) } }, 1_000)
     }
 
     private fun setState(next: String, why: String? = null) {

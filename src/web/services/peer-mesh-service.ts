@@ -37,6 +37,8 @@ type RoomMember = {
 
 type MeshSession = {
   ensureConnected: () => Promise<void>;
+  /** Live transport state when the session exposes it (WebRTC sessions do). */
+  getState?: () => string;
   sendMeshFrame: (frame: P2PMeshFrame) => Promise<void>;
   setOnRemoteMeshFrame: (hook: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>) => void;
   dispose?: () => void;
@@ -103,6 +105,19 @@ type Neighbor = {
   session: MeshSession;
   connected: boolean;
 };
+
+/**
+ * `connected` is set when a connect succeeds but nothing clears it when the session dies later
+ * (the other phone restarted, a Wi-Fi Direct link dropped). Seen on hardware: a stale `true` kept
+ * reconcile from ever retrying, stranding a pair until the next send. Trust the live state too.
+ */
+function isNeighborLive(neighbor: Neighbor): boolean {
+  if (!neighbor.connected) return false;
+  const state = neighbor.session.getState?.();
+  if (state === undefined || state === 'connected') return true;
+  neighbor.connected = false;
+  return false;
+}
 
 const DEFAULT_MESH_SEND_TIMEOUT_MS = 2_500;
 const DEFAULT_MESH_RETRY_TIMEOUT_MS = 10_000;
@@ -225,7 +240,7 @@ export class PeerMeshService {
     return {
       roomId: this.currentRoomId,
       neighborCount: this.neighbors.size,
-      connectedNeighborCount: [...this.neighbors.values()].filter((n) => n.connected).length,
+      connectedNeighborCount: [...this.neighbors.values()].filter(isNeighborLive).length,
       seenCount: this.seen.size,
       cachedTalkBodies: this.talkBodies.size,
     };
@@ -235,7 +250,7 @@ export class PeerMeshService {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const neighbor = this.neighbors.get(userId);
-      if (neighbor?.connected) return true;
+      if (neighbor && isNeighborLive(neighbor)) return true;
       if (neighbor) {
         try {
           await Promise.race([
@@ -250,7 +265,8 @@ export class PeerMeshService {
       }
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    return this.neighbors.get(userId)?.connected === true;
+    const last = this.neighbors.get(userId);
+    return !!last && isNeighborLive(last);
   }
 
   /**
@@ -390,7 +406,7 @@ export class PeerMeshService {
     await Promise.all(candidates.map(async ({ member, pub }) => {
       const existing = this.neighbors.get(member.userId);
       if (existing) {
-        if (!existing.connected) this.connectNeighbor(existing);
+        if (!isNeighborLive(existing)) this.connectNeighbor(existing);
         return;
       }
       if (this.currentRoomId !== roomId || !wanted.has(member.userId)) return;
