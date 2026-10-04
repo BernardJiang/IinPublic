@@ -1,5 +1,10 @@
 # Stadium Mode Scaling Analysis: 100K Users × 1,000 Talks in a Single Event Venue
 
+> **Status:** Historical bandwidth stress model. Its former single-event/global-mesh topology is
+> superseded by the authoritative one-active-room design in
+> `docs/design/chatroom-scoped-p2p-traffic.md` (2026-10-04). Payload estimates remain useful, but
+> no implementation may discover, connect, or gossip across the whole venue population at once.
+
 ## Abstract
 
 This document models IinPublic's P2P talk exchange at stadium scale — 100,000 users simultaneously active in one venue over a 2-hour window. Each user sends ~1,000 talks that get routed through the Gun.js relay mesh to relevant recipients (filtered by `TalkIntakeFilters`), then auto-responded via chatbot context-hash matching, and finally scored for similarity ranking.
@@ -56,7 +61,10 @@ With 100,000 users all trying simultaneously:
 | Range | ~20m line-of-sight |
 | Setup time per peer connect | ~200ms handshake |
 
-A phone in stadium seating can maintain simultaneous WiFi Direct links to nearby attendees (~50 people within connection range in dense seating). This creates a local mesh that BYPASSES the cellular relay entirely.
+A phone in stadium seating may observe dozens of nearby devices, but it connects only to `K =
+8–16` authenticated peers in its active, capacity-bounded chatroom. Wi-Fi Direct groups are
+smaller physical clusters beneath that sparse logical overlay; sighting a nearby device does not
+make it eligible or create a connection.
 
 ### 3.2 Bluetooth LE Classic
 
@@ -206,10 +214,11 @@ This cuts the Phase 2 bottleneck from ~1,849 min to potentially ~555 min at cell
 
 ### 7.1 Mesh Topology
 
-In dense stadium seating (~3K people per section):
-- Each phone scans and connects to nearest ~50 peers within Bluetooth/WiFi Direct range
-- Epidemic broadcast through ~13 hops reaches all phones in section (<2 seconds at WiFi speeds)
-- Full 100K coverage: ~2 minutes after first connection established
+The venue is divided into active chatrooms using the global production capacity `C = 498`. Each phone participates
+in one active exchange room and maintains at most `K = 8–16` authenticated room neighbors.
+Inactive room memberships create no mesh traffic. Gossip targets the active room only; there is
+deliberately no automatic full-venue coverage. A user reaches another section or event room by
+manually switching rooms, which stops the old room overlay before starting the new one.
 
 ### 7.2 Relay Offload Pattern
 
@@ -231,9 +240,14 @@ In dense stadium seating (~3K people per section):
 
 ### 7.3 Hybrid Strategy
 
-1. **T+0 to T+30s:** Phones scan nearby, establish WiFi Direct links, run initial delta sync (~5KB each way)  
-2. **T+30s onward:** Mesh-aware relay only accepts sends for identityKeys NOT in target's known set
-3. **Ongoing:** Delta increments every 30 seconds keep mesh state synchronized between phones who change talk sets during the event
+1. **Enter room:** The phone obtains an active-room lease and advertises only its rotating opaque
+   room token.
+2. **Discover:** It samples same-room candidates and establishes no more than `K` links over LAN,
+   Wi-Fi Direct/Aware, or Internet.
+3. **Reconcile:** Neighbors exchange compact inventory deltas and request only missing accepted
+   objects.
+4. **Continue:** Bounded deltas, gossip, and route failover remain room-scoped until the user
+   switches rooms.
 
 ---
 
@@ -324,7 +338,10 @@ How do results change with different assumptions?
 
 ## Appendix C: What This Means for Product Design
 
-For event-venue deployments where WiFi Direct or venue WiFi can be made available, IinPublic can handle massive simultaneous exchanges without architectural changes beyond adding the mesh-state-sync layer described in Section 8.2.
+For event-venue deployments where WiFi Direct or venue WiFi is available, transport bandwidth
+alone is not sufficient. IinPublic also requires the active-chatroom partition, hard room capacity,
+sparse neighbor bound, bounded roster sampling, and room-scoped inventory/gossip described in
+`docs/design/chatroom-scoped-p2p-traffic.md`.
 
 For venues limited to cellular-only networks, no combination of optimization makes this feasible at scale under current carrier constraints. The product would need to either:
 1. Reduce per-user talk count significantly (from 1K down to ~100)  

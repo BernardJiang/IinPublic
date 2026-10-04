@@ -1,6 +1,6 @@
 # IinPublic Docs
 
-Last updated: 2026-09-21
+Last updated: 2026-10-04
 
 This folder is organized around four canonical documents (everything else is operational guides or
 archive). As of 2026-06-08 the scattered spec/roadmap/status/backlog files were consolidated into
@@ -23,6 +23,7 @@ TODO.md` was reviewed but kept separate — it is a design spec, not a task list
 - [Completed Work](completed.md) — **all completed tasks**: durable ledger for finished features.
 - [How To Run](guides/HOW_TO_RUN.md) — local setup, validation commands, and dev workflows.
 - [Port Usage Scenarios](design/port-usage-scenarios.md) — shared-dev, E2E, native app, LAN, mobile, and production port model.
+- [Chatroom-Scoped P2P Traffic](design/chatroom-scoped-p2p-traffic.md) — decision record for one active exchange room, capacity and sparse-neighbor bounds, manual room switching, nearby transports, background operation, and million-user scaling.
 - [Native App E2E Strategy](testing/native-app-e2e-strategy.md) — plan for testing Electron/native app instances alongside browser E2E.
 - [Balanced TechSupport and User Production Security](security/techsupport-and-user-production-security.md) — proportional trust model, keyless website posture, root/delegate custody, ordinary-user defaults, and incident response.
 

@@ -1,8 +1,8 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.7 — Part VII adds the authoritative open-source discovery, connection-management, Gun-authoritative synchronization, chatbot, and platform-adapter architecture (§29)
-> **Date:** 2026-08-10
+> **Version:** 4.8 — Chatrooms are the authoritative P2P traffic partitions; one active exchange room and a sparse neighbor bound prevent global pairwise discovery (§3.3, §23)
+> **Date:** 2026-10-04
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -161,7 +161,7 @@ IinPublic is:
 - Web-first (browser + embedded Node.js peer), followed by Android, with iOS TBD.
 - A real-time system using hierarchical, location-based chatrooms to manage scale.
 
-The product is not a traditional group chat: chatrooms are for **discovery and routing only**; all conversations remain one-on-one with optional chatbot participation.
+The product is not a traditional group chat: chatrooms are for **discovery and routing only**; all conversations remain one-on-one with optional chatbot participation. A device participates in exactly one active Talk-exchange room at a time. Other memberships remain navigable but create no live discovery, radio advertisement, room gossip, or automatic peer links until the user manually switches to that room.
 
 **Long-term architecture goal:** The website (`www.iinpublic.com`) is only a discovery and bootstrap entry point. User-to-user communication occurs directly whenever possible; no central server is required for message storage. User identity is cryptographically verifiable from the public key alone. Communities and talks are designed to survive even if the original website disappears — the network should be resilient through overlapping peer neighborhoods, content-addressed identifiers, and optional distributed peer discovery (Phase D, §19.12).
 
@@ -187,7 +187,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 |---|---|
 | **Regular User** | Wants to find matches (friends, dates, partners, buyers/sellers). Often non-technical; needs simple Yes/No flows. |
 | **Power User / Talk Designer** | Designs complex talks and surveys. Reuses templates; uses tags for precise targeting. |
-| **Business Owner** | Creates business chatrooms tied to physical locations. Runs surveys and targeted talks to customers. |
+| **Business Representative** | Publishes business chatrooms tied to physical locations as an ordinary first participant. Runs surveys and targeted talks without receiving room authority. |
 | **Underage User** | Restricted from adult content talks. Never sees adult-tagged content. |
 | **Abusive / Blocked User** | Experiences reduced send capacity and stricter limits driven by reputation signals. |
 
@@ -252,18 +252,33 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 - **FR-CR-1**: The system SHALL maintain a **global chatroom** accessible to all users at app start.
 - **FR-CR-2**: The system SHALL automatically place new users into the global chatroom first.
-- **FR-CR-3**: When a chatroom exceeds a capacity threshold (default 1000 users), the system SHALL:
+- **FR-CR-3**: Every chatroom SHALL use the same global capacity threshold (current production
+  value 498 active users; no per-room override). When a chatroom exceeds that threshold, the
+  system SHALL:
   - Split the room into finer location-based subrooms (continent → country → state → city → district → GPS grid).
   - Move users into appropriate subrooms based on GPS coordinates.
 - **FR-CR-4**: The system SHALL automatically create pure location-based chatrooms; users SHALL NOT be able to delete these automatic rooms.
-- **FR-CR-5**: Users SHALL be able to create **user-defined chatrooms** (including business chatrooms) and name, rename, or delete them.
-- **FR-CR-6**: Each **business chatroom** SHALL include: brand name, address, owner ID, GPS coordinates, and a description.
-- **FR-CR-7**: When a chatroom is full and a new user enters, the system SHALL identify the longest-staying user, notify that user, and remove that user to maintain capacity (FIFO eviction).
+- **FR-CR-5**: Any user SHALL be able to publish a **user-defined chatroom** descriptor (including a business chatroom). Creation makes that user the first ordinary participant; it grants no ownership, moderation, reserved seat, rename, deletion, or admission power.
+- **FR-CR-6**: Each **business chatroom** descriptor MAY include a display name, address, GPS coordinates, and description. The creator MAY sign the descriptor as its originator, but that signature SHALL NOT confer room authority or prove a trademark/business claim. The protocol SHALL permit duplicate display names and distinguish rooms by cryptographic ID.
+- **FR-CR-7**: When a chatroom is full and a new user enters, the system SHALL identify the longest-staying user, notify that user, and remove that user to maintain capacity (FIFO eviction). The room creator SHALL be evicted on exactly the same basis as every other participant.
 - **FR-CR-8**: The system SHALL store **true location** from GPS and use a blurred region for all public operations.
 - **FR-CR-9**: A user MAY belong to multiple chatrooms that include their true location.
 - **FR-CR-10**: A user MAY actively "travel" to exactly one remote chatroom at a time and SHALL be marked as **traveller** there.
-- **FR-CR-11 (Content-Addressed Community Identity)**: Each chatroom/community SHALL have a stable, globally unique identifier derived from its root object: `CommunityID = CIDv1(CommunityRootObject)` for user-defined rooms, or `CommunityID = CIDv1(Hash(OwnerPublicKey + label))` for owner-keyed rooms. A community address alone SHALL be sufficient to join, discover peers, and synchronize content — no centralized registry lookup is required. This aligns with the CIDv1 content-addressing scheme used for talks and ledger events (§3.12, §20).
-- **FR-CR-12 (Community Ownership and Roles)**: Each user-defined chatroom SHALL support a four-level ownership model: **Owner** (full control, can transfer ownership), **Moderator** (content and membership control), **Member** (standard participant), **Guest** (limited interaction, no posting by default). Permissions at each level SHALL be configurable by the Owner.
+- **FR-CR-11 (Content-Addressed Community Identity)**: Each chatroom/community SHALL have a stable, globally unique identifier derived from its immutable root descriptor: `CommunityID = CIDv1(CommunityRootObject)`. The descriptor MAY contain the creator's public key to distinguish otherwise identical roots, but the key is provenance rather than authority. A community address alone SHALL be sufficient to join, discover peers, and synchronize content; no centralized name or trademark registry is required.
+- **FR-CR-12 (No Community Roles)**: User-defined chatrooms SHALL NOT have an owner, moderator, privileged member, guest role, creator-reserved seat, or creator-controlled admission. Every active participant follows the same room rules. A participant may locally leave, hide, block, or distrust a room or peer, but no participant can rename or delete the shared room for everyone.
+- **FR-CR-13 (One Active Exchange Room)**: A device SHALL have at most one active exchange room. A user MAY retain several memberships, but inactive rooms SHALL NOT create roster subscriptions, peer discovery, radio advertisements, Talk gossip, or automatic peer connections. Reaching another room's population requires an explicit user switch.
+- **FR-CR-14 (Room as Traffic Partition)**: Every room presence record, discovery candidate, signaling attempt, automatic peer link, Talk announcement, inventory exchange, and gossip frame SHALL be authorized for the same active room. Missing, expired, mismatched, or unauthorized room scope SHALL fail closed before connection establishment.
+- **FR-CR-15 (Capacity and Sparse Overlay)**: One global capacity `C` SHALL bound the active candidate population in every room (current production `C = 498`), and a separately configurable global neighbor limit `K` SHALL bound each device's automatic room-peer links (initial target `K = 8–16`). Implementations SHALL NOT create a full pairwise mesh inside a room.
+- **FR-CR-16 (Bounded Parent Rooms)**: Global and over-capacity parent location rooms SHALL become navigation/discovery directories rather than unbounded live meshes. The system SHALL provide bounded eligible child-room choices without publishing the complete parent roster.
+- **FR-CR-17 (Safe Room Switching)**: The client SHALL stop old-room discovery, subscriptions, advertisements, and room-only links before starting the new room. Switching SHALL preserve durable Talk queues, receipts, deduplication state, contacts, and pair-private conversations, and SHALL NOT rebroadcast old-room Talks into the new room.
+- **FR-CR-18 (No Per-Room Capacity Policy)**: Capacity SHALL NOT be a creator-, business-, custom-room-, or transport-configurable room attribute. A future capacity change SHALL be a versioned global protocol transition applied uniformly to every room. Clients unable to implement the active protocol epoch SHALL fail closed for new room exchange rather than enforce a conflicting capacity in the same overlay.
+- **FR-CR-19 (Decentralized Capacity Limit)**: Without a coordinator or consensus protocol, `C` SHALL be a hard per-client candidate/active-set bound and an eventual deterministic convergence rule, not a claim of one instantaneous global FIFO roster during a network partition. `K` SHALL remain a hard local neighbor bound regardless of convergence state.
+- **FR-CR-20 (Capacity Upgrade)**: A `498 → 1000` protocol-epoch transition SHALL retain currently eligible participants, open 502 additional positions, grant no creator priority, and not silently restore previously evicted users. A compatible older release SHALL obtain and verify the new manifest before room exchange, apply the new capacity through its generic manifest engine, and join the same epoch without requiring an application reinstall. An incompatible client SHALL fail closed and request an update.
+- **FR-CR-21 (Forward Release-Key Chain)**: Every production release SHALL pin the public verification key authorized for the next release. The next release SHALL carry a content-addressed protocol manifest signed offline by that key and SHALL commit the following release key. The signing private key SHALL NOT ship in the application. Any peer MAY relay the public manifest chain; clients SHALL validate it locally and persist a monotonic accepted checkpoint.
+- **FR-CR-22 (Manifest Safety and Recovery)**: Clients SHALL reject invalid chains, rollback, premature activation, unsupported manifest-engine versions, out-of-bounds parameters, and same-sequence forks. Each release SHALL pin a threshold recovery-key policy separate from the ordinary one-time next-release key. Room presence and announcements SHALL carry the accepted manifest sequence/hash so a receiver can synchronize before processing them. Manifest authentication SHALL NOT be represented as remote-binary attestation; all peer messages remain subject to local protocol validation.
+- **FR-CR-23 (Historical Manifest Relay)**: A release SHALL bundle the signed public manifest chain needed to reach it from the oldest supported trust checkpoint; it SHALL NOT bundle historical private keys. A receiver MAY skip installing intermediate applications but SHALL validate every intermediate manifest. A sender SHALL provide the complete requested suffix and SHALL NOT omit an incompatible intermediate manifest or construct a receiver-specific downgrade.
+- **FR-CR-24 (Future Compatibility Contract)**: Release 1 SHALL distinguish parameter-only changes, optional capabilities, mandatory capabilities, minimum room-protocol versions, critical unknown fields, and explicit retirement. An unsupported mandatory change SHALL retire only network participation: the manifest control plane, local data, Settings, export, identity recovery, and application update SHALL remain available.
+- **FR-CR-25 (Offline Retirement Limit)**: A client cannot respond to a future release it has never learned about. Unless release 1 deliberately adopts an expiring, P2P-renewable protocol lease, an isolated old cohort MAY continue its legacy overlay until it encounters a valid retirement manifest. The product SHALL choose and document perpetual legacy availability or renewable expiry before the first production release.
 
 ### 3.4 Question-Answer System
 
@@ -483,9 +498,9 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 - **FR-CPF-02 (Plugin Interface)**: Each challenge plugin SHALL implement a common interface: `evaluate(action, context) → { allowed: boolean, reason?: string }`. Plugins SHALL be composable — multiple plugins may gate the same action, with all-pass required by default (AND semantics). OR semantics (any plugin passing is sufficient) SHALL be configurable per gate.
 
-- **FR-CPF-03 (Built-in Plugin Examples)**: The framework SHALL ship with at minimum the following example plugins: `RequireVerifiedIdentity` (peer must have verified identity), `RequireTrustScore` (local reputation above threshold), `RequireInvitation` (must hold a signed invite token from a room member), `RequirePreviousInteraction` (must have an existing completed talk exchange with the community owner or a moderator).
+- **FR-CPF-03 (Built-in Plugin Examples)**: The framework SHALL ship with at minimum the following example plugins: `RequireVerifiedIdentity` (peer must have verified identity), `RequireTrustScore` (local reputation above threshold), `RequireInvitation` (must hold a signed invite token from a current room participant), `RequirePreviousInteraction` (must have an existing completed talk exchange with at least one current room participant). These peer-local checks SHALL NOT create a privileged room role.
 
-- **FR-CPF-04 (Extensibility)**: Third-party and community-defined plugins SHALL be loadable without modifying core application code. Plugin configuration SHALL be stored per-chatroom in zone-B (owner-private) storage.
+- **FR-CPF-04 (Extensibility)**: Third-party plugins SHALL be loadable without modifying core application code. Configuration is a peer-local intake/admission preference stored in that user's zone-B private storage; it SHALL NOT become shared room policy or grant configuration authority to the room creator.
 
 - **FR-CPF-05 (Graceful Failure)**: If a challenge gate denies an action, the system SHALL surface a human-readable reason to the user and SHALL NOT silently drop the action.
 
@@ -637,7 +652,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 ```
 /chatrooms
-├── global (capacity: 1000)
+├── global (global capacity: 498)
 ├── /continent/{continent}
 │   ├── /country/{country}
 │   │   ├── /state/{state}
@@ -2296,7 +2311,7 @@ These test cases are the primary acceptance criteria. All must pass before each 
 
 **Goal:** Validate survey mode, aggregation, and optional follow-up (FR-SV).
 
-**Preconditions:** Business chatroom "Joe's Bar" exists. User E (business owner) wants feedback.
+**Preconditions:** Business chatroom "Joe's Bar" exists. User E represents the business and wants feedback but has no room privileges.
 
 **Steps:**
 1. User E creates a **survey** talk (marked as survey):
@@ -4172,6 +4187,7 @@ Pipeline: `rankPeople(viewer, candidates, sortId, filters)` filters, then ranks 
 > **Source:** `docs/p2p-mesh-talk-delivery-plan.md` (design sketch).
 > **Status:** Foundation shipped behind `P2P_MESH_TALKS` (see `docs/completed.md` 2026-06-07). Incremental rollout checklist: `docs/TODO.md` §"P0 — Mesh talk delivery". Test impact: `docs/testing/testplan.md`.
 > **Goal:** delete star-topology talk delivery. The Node server keeps only **rendezvous** (who/where peers are) and **signaling** (WebRTC handshake + STUN/TURN). No talk body, offer, response, incoming index, match, conversation, or talk-derived stat is created, relayed, or stored on the server.
+> **Room-partition decision:** `docs/design/chatroom-scoped-p2p-traffic.md` is the detailed decision record for capacity, one-active-room behavior, manual switching, nearby transports, and background operation.
 
 ### 23.1 Principles
 
@@ -4180,6 +4196,8 @@ Pipeline: `rankPeople(viewer, candidates, sortId, filters)` filters, then ranks 
 3. **Receiver-side policy.** Intake filtering (language, distance, content, adult, cutoff) is evaluated by the *receiver* on arrival, not by a server preview. This also removes the `broadcast-receiver-preview` HTTP round-trip.
 4. **Local-first derivation.** Contacts, matches, talk history, and stats are computed locally from what a peer has sent/received — no server peer endpoints.
 5. **Sparse overlay, not full mesh.** At N peers a full mesh is N² connections (1000 peers ≈ 500k channels). Peers connect to K neighbors and **gossip**; messages propagate epidemically.
+6. **One active room, not parallel room overlays.** Capacity bounds the candidate set only when inactive memberships are silent. A user manually switches rooms to reach another population; the old room stops discovery and gossip before the new room starts.
+7. **Transport does not define audience.** Internet, LAN, BLE discovery, Wi-Fi Aware, and Wi-Fi Direct are replaceable paths beneath the room authorization boundary. Discovering a radio peer never expands room eligibility.
 
 ### 23.2 Current hub touchpoints to remove
 
@@ -4254,11 +4272,31 @@ Announce carries only metadata + content hash; the body is pulled on demand (`ta
 
 ### 23.7 Topology & scale (1000 × 1000)
 
-Do not full-mesh. Each peer keeps K (≈8–16) neighbor channels chosen by `scoreP2PNeighbor` (recency, room overlap, latency, contact). Announce floods via gossip with TTL + seen-set; expected room coverage in O(log N) hops. Talk bodies are **pulled**, so a 1000-peer room broadcasting 1000 talks doesn't pre-push 1M bodies. Responses are unicast author-ward; the author's single inbox is O(responders) messages, not O(responders) subscriptions. Low-capability peers (mobile/iOS per `P2P_PLATFORM_DESCRIPTORS`) lean on neighbor relays or the mailbox.
+Do not full-mesh. One million online users have 499,999,500,000 possible pairs. With the global
+room capacity `C = 498`, they occupy at least 2,009 bounded room overlays; with neighbor limit
+`K = 12`, each
+device attempts at most 12 automatic room links instead of 999,999. A symmetric population-wide
+overlay is approximately six million distributed links rather than approximately 500 billion
+possible pair links. Per-device connection cost is `O(K)` and per-room gossip is `O(CK)`, not
+`O(C²)`.
+
+Each peer keeps K (≈8–16) neighbor channels chosen by `scoreP2PNeighbor` (recency, room overlap,
+latency, transport cost, device capability, and overlay diversity). Candidate enumeration is
+bounded and room-scoped; a new peer never negotiates simultaneously with the whole roster.
+Announcements propagate through gossip with hop TTL, seen-set, rate limits, backpressure, jitter,
+and reconnect backoff. Talk bodies are **pulled**, so a 1000-peer room broadcasting 1000 talks
+doesn't pre-push 1M bodies. Responses are unicast author-ward; the author's single inbox is
+O(responders) messages, not O(responders) subscriptions. Low-capability peers (mobile/iOS per
+`P2P_PLATFORM_DESCRIPTORS`) lean on neighbor relays or the mailbox.
+
+Capacity is a network-wide protocol parameter, never room metadata. Membership in several rooms
+does not multiply this cost because exactly one room is active per
+device. Manual switching expands a user's reach over time. Existing contacts reconnect only on
+demand and are not kept as an always-on parallel contact mesh.
 
 ### 23.8 Risks & open questions
 
-NAT traversal needs reliable STUN + TURN fallback (else some pairs must use the mailbox). Gossip storm/dedupe correctness depends on seen-set sizing, TTL hops, and fanout K tuning. Every mesh message is signed (`verifySignedP2PEnvelopeProof`); blocked peers must be dropped at the channel layer. Define TTL and "missed while offline" semantics for eventual consistency. Confirm product is OK relaxing global talk stats. iOS can't hold long-lived channels in background — relies on mailbox + notification-assisted wake.
+NAT traversal needs reliable STUN + TURN fallback (else some pairs must use the mailbox). Gossip storm/dedupe correctness depends on seen-set sizing, TTL hops, and fanout K tuning. Every mesh message is signed (`verifySignedP2PEnvelopeProof`); blocked peers must be dropped at the channel layer. Room leases and rotating rendezvous tokens must prevent cross-room discovery without exposing raw room IDs over nearby radio. Define TTL and "missed while offline" semantics for eventual consistency. Confirm product is OK relaxing global talk stats. iOS can't hold long-lived channels in background — relies on mailbox + notification-assisted wake.
 
 ---
 
@@ -4603,8 +4641,6 @@ Legend: **From → To** with trigger (selector) and back target. `⟨User⟩` = 
 | C4 | ⟨User⟩ | click a matched-talk row in the thread list | ⟨Thread⟩ for that talk (reply composer included) | ⟨User⟩ |
 | C4b | ⟨User⟩ | open DM in merged messaging area | ⟨Conv⟩ | ⟨User⟩ |
 | C5 | Chatroom list | `create-custom-chatroom-btn` (icon/⋯) | **Create Room dialog** | on cancel: list · on create: Room detail of new room (`showChatroomDetail(createdId)`) |
-| C6 | Room detail (owner) | `chatroom-rename-btn` | **Rename Room dialog** | Room detail |
-| C7 | Room detail (owner) | `chatroom-delete-btn` | confirm → Chatroom list | — |
 | C8 | Room detail / list | `broadcast-talk-btn` (icon) — guard: OUT list non-empty (else guard toast), visibility per `syncStatusBroadcastButtonVisibility` | **Broadcast preamble dialog** | same page; on send: same page + `#broadcast-bulk-ack` status |
 | C9 | Chatroom list | `return-home-btn` (icon) — guard: travel mode active (disabled at home) | Home room's Room detail | Chatroom list |
 | C10 | any Chatrooms page | `create-talk-btn` ➕ | **⟨Editor⟩ dialog** | same page |
@@ -4685,7 +4721,6 @@ graph LR
   SE --> CAM{{Camera capture}} --> PP{{Photo preview}}
   SE --> EP{{Edit Profile}}
   CH --> CR{{Create Room}} --> RD
-  RD --> RR{{Rename Room}}
   U --> SP{{Send-My-Talks picker}}
   CO --> RE{{Relationship editor}}
 ```
@@ -4702,7 +4737,7 @@ Reference widths (= the e2e width matrix): **320 · 390 · 768 · 1024** px.
 
 | Class | Intrinsic max-width | Dialogs |
 |---|---|---|
-| **S** | 400–480px | Create Room (420) · Rename Room (400) · Send-My-Talks picker (420) · Photo preview (420) · Camera capture (480) · Broadcast preamble · Relationship editor |
+| **S** | 400–480px | Create Room (420) · Send-My-Talks picker (420) · Photo preview (420) · Camera capture (480) · Broadcast preamble · Relationship editor |
 | **M** | 500–620px | default `.modal-content` (500) · Edit Stage Name (500) · Talk Response (600) · Response review screen (620) |
 | **L** | 760–860px | Edit Profile (760) · Preferences / My Answers (800) · My Talks (800) · Survey stats (860) |
 | **XL** | 1000px, `max-height:90vh` | Talk Editor |
@@ -4728,8 +4763,7 @@ Banners and toasts: at ≥ 768 toasts stack top-right (max 3 visible, newest on 
 
 | Popup | id / key testids | Class | Contents (controls) | Close paths | Narrow-width notes |
 |---|---|---|---|---|---|
-| Create Room | `custom-room-name-input`, `custom-room-submit-btn` | S | type select (community/business — business reveals headline input, maxlength 120), name (2–80, required), description (≤500, optional), capacity (1–50000, optional) | Cancel · scrim · submit (name < 2 ⇒ warning toast, stays open) | bottom sheet |
-| Rename Room | `rename-custom-room-input` | S | name input prefilled (2–80) | Cancel · scrim · submit | bottom sheet |
+| Create Room | `custom-room-name-input`, `custom-room-submit-btn` | S | type select (community/business — business reveals headline input, maxlength 120), display name (2–80, required), description (≤500, optional); no capacity or administrative controls | Cancel · scrim · submit (name < 2 ⇒ warning toast, stays open) | bottom sheet |
 | Edit Stage Name | `stage-name-input`, `save-stage-name-button` | M | name input (3–50, required); too-short ⇒ inline error, stays open | Cancel · submit | bottom sheet |
 | Edit Profile | `settings-edit-profile-button` opens; `profile-languages-select` | L | language checkboxes; headshot choices; profile Q&A rows (question, answer, visibility select public/contacts/private, remove) + add row | Cancel · Save | full-screen takeover; Q&A rows stack |
 | Camera capture | `settings-camera-capture-modal`, `settings-camera-capture`, `settings-camera-cancel` | S | live `<video>` preview, Capture, Cancel; permission-denied ⇒ status text + error toast, modal never opens | Capture (→ Photo preview) · Cancel | bottom sheet; video letterboxed |
@@ -4990,8 +5024,7 @@ Main App  ── persistent bottom nav: 5 tabs ───────────
 ├─ 1. CHATROOMS
 │   └─ Chatroom list  (hierarchy: Global ▸ Region ▸ City; expand/collapse)
 │       ├─ Create Room            (page)
-│       ├─ Rename Room            (page)
-│       └─ Room detail            (members + headcount + metadata)  e.g. "Global"
+│       └─ Room detail            (members + headcount + immutable descriptor)  e.g. "Global"
 │           └─ (tap a member → Conversation ⟨SHARED⟩ opens DIRECTLY; back lands on User layout)
 │               User layout ⟨SHARED⟩  (matched-talk thread list, email-style)
 │               ├─ Conversation ⟨SHARED⟩      (default DM thread)
@@ -5054,7 +5087,7 @@ Counting **distinct page/layout types** (shared nodes counted once):
 | Group | Pages | Count |
 |---|---|---|
 | Tab roots | Chatrooms list, Contacts list, Talks list, Me (Q&A) list, Settings root | 5 |
-| Chatrooms | Room detail, Create Room, Rename Room | 3 |
+| Chatrooms | Room detail, Create Room | 2 |
 | Contacts | Relationship editor | 1 |
 | Shared people/messaging | User layout, Conversation, Talk thread (per matched talk) | 3 |
 | Talks | Creator replies triage, Talk detail/responses, Talk Response | 3 |
@@ -5064,12 +5097,12 @@ Counting **distinct page/layout types** (shared nodes counted once):
 | Settings · itemized | languages, incoming-language, distance, grammar, dirty-word, cutoff, location, travel, age-verify, linked devices, feature toggles, erase this device | 12 |
 | Settings · read-only | Credit / Reputation | 1 |
 | Settings · dev | Development settings | 1 |
-| **Primary pages subtotal** | | **35** |
+| **Primary pages subtotal** | | **34** |
 | Auxiliary overlays | notifications, send-talks picker, My Talks dialog, location-suggestion banner, system-announcement banner | 5 |
 | App shell | bottom-nav frame | 1 |
-| **Grand total** | | **≈ 41** |
+| **Grand total** | | **≈ 40** |
 
-So: **35 distinct primary pages**, plus the shell and ~5 floating overlays ≈ **41 navigable layouts**. (Instance counts are unbounded — one Room/User/Conversation/Thread/Talk page type renders per room, per user, per thread, per matched talk.)
+So: **34 distinct primary pages**, plus the shell and ~5 floating overlays ≈ **40 navigable layouts**. (Instance counts are unbounded — one Room/User/Conversation/Thread/Talk page type renders per room, per user, per thread, per matched talk.)
 
 ##### Navigation graph — pages travel to and from one another
 
@@ -5251,7 +5284,7 @@ Merged from the former Stages 2 and 3 (both were three-user stages). Where a fun
 |---|:--:|:--:|:--:|:--:|:--:|
 | Every-page clickability sweep | ✓ | | | | |
 | Chatroom hierarchy + headcount | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Create/rename room | ✓ | | | | |
+| Create room (non-privileged creator) | ✓ | | | | |
 | Empty contacts state | ✓ | | | | |
 | Create talks (all 4 types) | ✓ | ✓ | ✓ | | ✓ |
 | Talk sort/filter controls | ✓ | | | | |
@@ -5303,9 +5336,7 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | `⋯` overflow | width matrix 320/390/768/1024 | inline count shrinks per priority (➕, 📣, 🏠, 🆕); menu items fire handlers, keep testids 🌐 | T2 `stage1/52` | 1 |
 | Hierarchy node caret | expand + collapse every node | children shown/hidden; no push | **New** `stage1/60-chatroom-hierarchy-walk` | 1 |
 | Room row → detail | one leaf per level + custom room | headcount correct (occupied 1 / others 0) | `stage1/60` + existing headcount specs | 1 |
-| `create-custom-chatroom-btn` → dialog | type=community; type=business (headline appears, filled/empty); description empty/filled; capacity empty/1/50000; name 1 char (R4) / 80 chars; cancel; scrim | created room opened; business headline stored; guard toast on short name | T6 `stage1/55` (extend to full option grid) | 1 |
-| Rename dialog (`rename-custom-room-input`) | valid rename; 1-char (R4); cancel; scrim | new name in list + detail + AppBar center | T6 `stage1/55` | 1 |
-| `chatroom-delete-btn` | owner deletes | back to list; room gone | `stage1/55` | 1 |
+| `create-custom-chatroom-btn` → dialog | type=community; type=business (headline appears, filled/empty); description empty/filled; name 1 char (R4) / 80 chars; cancel; scrim | created room opened; creator is the first ordinary participant; no capacity/role controls; business headline stored; guard toast on short name | T6 `stage1/55` (extend to full option grid) | 1 |
 | `return-home-btn` | disabled at home; enabled in travel; click | guard state per context; lands in home room | existing travel specs + T3 `stage1/53` | 1 |
 | `broadcast-talk-btn` → preamble | empty OUT (guard, R4); non-empty: `broadcast-preamble-send` / `-cancel` / scrim | guard toast; send ⇒ `broadcast-bulk-ack`; cancel ⇒ nothing sent | `stage1/55` (guard) · `stage5/13` (send) | 1, 5 |
 
@@ -5857,10 +5888,10 @@ chatrooms/<chatroomId>
 ├── uniqueVisitors/<userId>  →  presence flag (dedup)
 └── uniqueVisitorCount       →  running number
 
-chatroomRoles/<chatroomId>/<userId>
-→  { chatroomId, userId, role:'owner'|'moderator'|'member'|'guest',
-     assignedAt (unix ms), assignedBy (userId) }
 ```
+
+There is no `chatroomRoles` graph. The creator's signature on a root descriptor records provenance
+only; it grants no admission, moderation, rename, deletion, or capacity authority.
 
 Private per-user chatroom prefs stored SEA-encrypted at `gun.user().private/chatrooms/...`
 
