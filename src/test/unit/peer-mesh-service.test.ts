@@ -4,6 +4,19 @@ import type { P2PMeshFrame, P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload }
 import { p2pMeshFrameSigningPayload } from '../../shared/p2p-mesh-protocol';
 import { createSignedP2PEnvelopeProof } from '../../shared/p2p-runtime';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
+import { portableSha256Hex } from '../../shared/portable-sha256';
+import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
+import {
+  PROTOCOL_MANIFEST_FORMAT_VERSION,
+  PROTOCOL_MANIFEST_KIND,
+  PROTOCOL_MANIFEST_SIGNATURE_ALGORITHM,
+  createProtocolReleaseKey,
+  protocolManifestHash,
+  signProtocolManifest,
+  type ProtocolManifestBody,
+  type ProtocolManifestRuntimePolicy,
+  type ProtocolManifestTrustState,
+} from '../../shared/protocol-manifest';
 import type { WebGunService } from '../../web/services/web-gun-service';
 
 type FakeSessionRecord = {
@@ -58,7 +71,178 @@ function mockGunService(
   } as unknown as WebGunService;
 }
 
+const meshManifestRuntimePolicy: ProtocolManifestRuntimePolicy = {
+  manifestEngineVersion: 1,
+  roomProtocolVersion: 1,
+  capabilities: ['room-presence-v1'],
+  minimumChatroomCapacity: 1,
+  maximumChatroomCapacity: 2_000,
+};
+
+function meshManifestAnchor(nextSigner: SeaSigningPair, recovery: SeaSigningPair): ProtocolManifestTrustState {
+  return {
+    networkId: 'iinpublic-mesh-test',
+    sequence: 1,
+    manifestHash: portableSha256Hex('iinpublic-mesh-test-manifest-1'),
+    nextReleaseKeys: [createProtocolReleaseKey(nextSigner.pub)],
+    recoveryPolicy: { threshold: 1, keys: [createProtocolReleaseKey(recovery.pub)] },
+  };
+}
+
+function meshManifestBody(params: {
+  sequence: number;
+  previousManifestHash: string;
+  nextSigner: SeaSigningPair;
+  recovery: SeaSigningPair;
+}): ProtocolManifestBody {
+  return {
+    kind: PROTOCOL_MANIFEST_KIND,
+    formatVersion: PROTOCOL_MANIFEST_FORMAT_VERSION,
+    networkId: 'iinpublic-mesh-test',
+    sequence: params.sequence,
+    previousManifestHash: params.previousManifestHash,
+    protocolEpoch: params.sequence,
+    effectiveAt: '2026-10-04T00:00:00.000Z',
+    minimumManifestEngine: 1,
+    minimumRoomProtocol: 1,
+    chatroomCapacity: 498,
+    requiredCapabilities: [],
+    optionalCapabilities: ['manifest-relay-v1'],
+    retirementMode: 'none',
+    nextReleaseKeys: [createProtocolReleaseKey(params.nextSigner.pub)],
+    recoveryPolicy: { threshold: 1, keys: [createProtocolReleaseKey(params.recovery.pub)] },
+    signatureAlgorithm: PROTOCOL_MANIFEST_SIGNATURE_ALGORITHM,
+  };
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for condition');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 describe('PeerMeshService', () => {
+  it('synchronizes a complete authenticated manifest chain before exchanging room traffic', async () => {
+    const [alicePair, bobPair, k2, k3, k4, recovery] = await Promise.all([
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+    ]) as SeaSigningPair[];
+    const anchor = meshManifestAnchor(k2, recovery);
+    const m2 = await signProtocolManifest(meshManifestBody({
+      sequence: 2,
+      previousManifestHash: anchor.manifestHash,
+      nextSigner: k3,
+      recovery,
+    }), k2);
+    const m3 = await signProtocolManifest(meshManifestBody({
+      sequence: 3,
+      previousManifestHash: protocolManifestHash(m2),
+      nextSigner: k4,
+      recovery,
+    }), k3);
+    const [aliceController, bobController] = await Promise.all([
+      ProtocolManifestController.create({ anchor, runtimePolicy: meshManifestRuntimePolicy }),
+      ProtocolManifestController.create({
+        anchor,
+        runtimePolicy: meshManifestRuntimePolicy,
+        bundledManifests: [m2, m3],
+      }),
+    ]);
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+    const network = createFakeNetwork();
+    const bobPings: string[] = [];
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: network.createSession,
+      protocolManifestController: aliceController,
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'bob',
+      localStageName: 'Bob',
+      createSession: network.createSession,
+      protocolManifestController: bobController,
+      onPing: (fromUserId) => { bobPings.push(fromUserId); },
+    });
+    const members = [
+      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'bob', stageName: 'Bob' },
+    ];
+
+    await alice.joinRoom('global', members);
+    await bob.joinRoom('global', members);
+    await waitUntil(() => aliceController.summary().sequence === 3
+      && alice.getDiagnostics().manifestReadyNeighborCount === 1
+      && bob.getDiagnostics().manifestReadyNeighborCount === 1);
+
+    expect(aliceController.publicArchive()).toEqual([m2, m3]);
+    await alice.sendPing('manifest-synchronized');
+    await waitUntil(() => bobPings.includes('alice'));
+    alice.leaveRoom();
+    bob.leaveRoom();
+  });
+
+  it('rejects a same-sequence checkpoint fork and does not exchange room traffic', async () => {
+    const [alicePair, bobPair, k2, recovery] = await Promise.all([
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+    ]) as SeaSigningPair[];
+    const aliceAnchor = meshManifestAnchor(k2, recovery);
+    const bobAnchor = {
+      ...meshManifestAnchor(k2, recovery),
+      manifestHash: portableSha256Hex('forked-iinpublic-mesh-test-manifest-1'),
+    };
+    const [aliceController, bobController] = await Promise.all([
+      ProtocolManifestController.create({ anchor: aliceAnchor, runtimePolicy: meshManifestRuntimePolicy }),
+      ProtocolManifestController.create({ anchor: bobAnchor, runtimePolicy: meshManifestRuntimePolicy }),
+    ]);
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+    const network = createFakeNetwork();
+    const bobPings: string[] = [];
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: network.createSession,
+      protocolManifestController: aliceController,
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'bob',
+      localStageName: 'Bob',
+      createSession: network.createSession,
+      protocolManifestController: bobController,
+      onPing: (fromUserId) => { bobPings.push(fromUserId); },
+    });
+    const members = [
+      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'bob', stageName: 'Bob' },
+    ];
+
+    await alice.joinRoom('global', members);
+    await bob.joinRoom('global', members);
+    await waitUntil(() => alice.getDiagnostics().manifestRejectedNeighborCount === 1
+      && bob.getDiagnostics().manifestRejectedNeighborCount === 1);
+
+    await alice.sendPing('must-not-cross-fork');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(bobPings).toEqual([]);
+    expect(alice.getDiagnostics().manifestReadyNeighborCount).toBe(0);
+    expect(bob.getDiagnostics().manifestReadyNeighborCount).toBe(0);
+    alice.leaveRoom();
+    bob.leaveRoom();
+  });
+
   it('reconnects a neighbor whose session died after it had connected (stale connected flag)', async () => {
     jest.useFakeTimers();
     try {

@@ -4,18 +4,27 @@ import {
   type SeaSigningPair,
 } from '../../shared/p2p-runtime';
 import {
+  isP2PProtocolManifestChainPayload,
+  isP2PProtocolManifestRequestPayload,
+  isP2PProtocolManifestSummaryPayload,
   isP2PMeshTalkBodyPayload,
   isP2PMeshTalkResponsePayload,
   isP2PMeshTalkRetractedPayload,
+  isProtocolManifestControlKind,
   p2pMeshFrameSigningPayload,
   type P2PMeshFrame,
   type P2PMeshFramePayload,
+  type P2PProtocolManifestChainPayload,
+  type P2PProtocolManifestRequestPayload,
+  type P2PProtocolManifestSummaryPayload,
   type P2PMeshTalkAnnouncePayload,
   type P2PMeshTalkBodyPayload,
   type P2PMeshTalkBodyRequestPayload,
   type P2PMeshTalkResponsePayload,
   type P2PMeshTalkRetractedPayload,
 } from '../../shared/p2p-mesh-protocol';
+import type { ProtocolManifestCompatibility } from '../../shared/protocol-manifest';
+import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
 import type { Talk } from '../../shared/types';
 import type { WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession } from './p2p-webrtc-session';
@@ -96,6 +105,11 @@ type PeerMeshServiceOptions = {
   onMailboxFallback?: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) => void | Promise<void>;
   forwardingSettings?: Partial<ForwardingSettings>;
   getForwardingContext?: (neighborUserId: string) => ForwardingContext;
+  protocolManifestController?: ProtocolManifestController;
+  onProtocolManifestCompatibility?: (
+    compatibility: ProtocolManifestCompatibility,
+    sourceUserId: string,
+  ) => void | Promise<void>;
 };
 
 type Neighbor = {
@@ -213,6 +227,9 @@ export class PeerMeshService {
   private readonly bodyRequestWaiters = new Map<string, (payload: P2PMeshTalkBodyPayload) => void>();
   private readonly acknowledgements = new Map<string, Set<string>>();
   private readonly acknowledgementWaiters = new Map<string, Set<() => void>>();
+  /** A neighbor may carry room traffic only after both sides report the same verified checkpoint. */
+  private readonly manifestReadyPeerIds = new Set<string>();
+  private readonly manifestRejectedPeerIds = new Set<string>();
   private readonly forwardingPolicy: MeshForwardingPolicy;
 
   constructor(
@@ -236,6 +253,8 @@ export class PeerMeshService {
     connectedNeighborCount: number;
     seenCount: number;
     cachedTalkBodies: number;
+    manifestReadyNeighborCount: number;
+    manifestRejectedNeighborCount: number;
   } {
     return {
       roomId: this.currentRoomId,
@@ -243,6 +262,8 @@ export class PeerMeshService {
       connectedNeighborCount: [...this.neighbors.values()].filter(isNeighborLive).length,
       seenCount: this.seen.size,
       cachedTalkBodies: this.talkBodies.size,
+      manifestReadyNeighborCount: this.manifestReadyPeerIds.size,
+      manifestRejectedNeighborCount: this.manifestRejectedPeerIds.size,
     };
   }
 
@@ -258,6 +279,7 @@ export class PeerMeshService {
             new Promise((_, reject) => setTimeout(() => reject(new Error('mesh neighbor wait timeout')), 750)),
           ]);
           neighbor.connected = true;
+          void this.sendProtocolManifestSummary(neighbor);
           return true;
         } catch {
           neighbor.connected = false;
@@ -290,6 +312,8 @@ export class PeerMeshService {
       this.neighbors.clear();
       this.currentRoomMembers.clear();
       this.currentRoomMemberIds.clear();
+      this.manifestReadyPeerIds.clear();
+      this.manifestRejectedPeerIds.clear();
     }
     this.currentRoomId = roomId;
     const remoteMembers = members.filter(
@@ -400,6 +424,8 @@ export class PeerMeshService {
       if (!wanted.has(userId)) {
         this.neighbors.get(userId)?.session.dispose?.();
         this.neighbors.delete(userId);
+        this.manifestReadyPeerIds.delete(userId);
+        this.manifestRejectedPeerIds.delete(userId);
       }
     }
 
@@ -424,6 +450,8 @@ export class PeerMeshService {
         session,
         connected: false,
       };
+      this.manifestReadyPeerIds.delete(member.userId);
+      this.manifestRejectedPeerIds.delete(member.userId);
       this.neighbors.set(member.userId, neighbor);
       session.setOnRemoteMeshFrame((otherUserId, frame) => this.handleRemoteFrame(otherUserId, frame));
       this.connectNeighbor(neighbor);
@@ -436,6 +464,7 @@ export class PeerMeshService {
       .then(() => {
         if (!neighbor.connected) console.info(`[mesh] neighbor ${neighbor.userId.slice(0, 8)} connected (${Date.now() - startedAt} ms this attempt)`);
         neighbor.connected = true;
+        void this.sendProtocolManifestSummary(neighbor);
       })
       .catch(() => {
         neighbor.connected = false;
@@ -471,6 +500,8 @@ export class PeerMeshService {
     this.bodyRequestWaiters.clear();
     this.acknowledgements.clear();
     this.acknowledgementWaiters.clear();
+    this.manifestReadyPeerIds.clear();
+    this.manifestRejectedPeerIds.clear();
   }
 
   /**
@@ -805,7 +836,15 @@ export class PeerMeshService {
     payload: P2PMeshFramePayload,
     opts: { recipientUserId?: string; ttlHops?: number } = {},
   ): Promise<P2PMeshFrame> {
+    if (
+      this.opts.protocolManifestController
+      && !isProtocolManifestControlKind(kind)
+      && !this.opts.protocolManifestController.isRoomExchangeAllowed()
+    ) {
+      throw new Error('Room exchange is disabled by the active protocol manifest');
+    }
     const local = this.localIdentity();
+    const manifestSummary = this.opts.protocolManifestController?.summary();
     const frame: P2PMeshFrame = {
       version: 1,
       kind,
@@ -816,6 +855,15 @@ export class PeerMeshService {
       ...(opts.recipientUserId ? { recipientUserId: opts.recipientUserId } : {}),
       createdAt: new Date().toISOString(),
       ttlHops: opts.ttlHops ?? 6,
+      ...(manifestSummary
+        ? {
+            protocolManifest: {
+              networkId: manifestSummary.networkId,
+              sequence: manifestSummary.sequence,
+              manifestHash: manifestSummary.manifestHash,
+            },
+          }
+        : {}),
       payload,
     };
     const proof = await createSignedP2PEnvelopeProof({
@@ -921,7 +969,10 @@ export class PeerMeshService {
     const forwarded = { ...frame, ttlHops: frame.ttlHops - 1 };
     const directTarget = frame.recipientUserId ? this.neighbors.get(frame.recipientUserId) : undefined;
     const available = [...this.neighbors.values()]
-      .filter((neighbor) => neighbor.userId !== exceptUserId);
+      .filter((neighbor) => neighbor.userId !== exceptUserId)
+      .filter((neighbor) => !this.opts.protocolManifestController
+        || isProtocolManifestControlKind(frame.kind)
+        || this.manifestReadyPeerIds.has(neighbor.userId));
     // A cached direct edge may be stale while a healthy relay path exists. Directed
     // frames therefore remain gossip-routed: try the direct peer first, but also send
     // through the rest of the bounded overlay. Seen-set dedup and TTL cap duplicates.
@@ -1019,6 +1070,25 @@ export class PeerMeshService {
     this.verifyingFrameIds.add(frame.msgId);
     try {
       if (!(await this.verifyOrigin(frame))) return;
+      if (isProtocolManifestControlKind(frame.kind)) {
+        // Manifest exchange is deliberately one-hop. A relayed public manifest is fine, but the
+        // receiver asks its direct neighbor for it and verifies the chain itself.
+        if (frame.originUserId !== fromUserId || frame.recipientUserId !== this.opts.localUserId) return;
+      } else if (this.opts.protocolManifestController) {
+        if (!this.opts.protocolManifestController.isRoomExchangeAllowed()) return;
+        const localManifest = this.opts.protocolManifestController.summary();
+        if (
+          !frame.protocolManifest
+          || frame.protocolManifest.networkId !== localManifest.networkId
+          || frame.protocolManifest.sequence !== localManifest.sequence
+          || frame.protocolManifest.manifestHash !== localManifest.manifestHash
+          || !this.manifestReadyPeerIds.has(fromUserId)
+        ) {
+          const neighbor = this.neighbors.get(fromUserId);
+          if (neighbor) void this.sendProtocolManifestSummary(neighbor);
+          return;
+        }
+      }
       this.rememberSeen(frame.msgId);
 
       const addressedToMe = !frame.recipientUserId || frame.recipientUserId === this.opts.localUserId;
@@ -1033,7 +1103,22 @@ export class PeerMeshService {
     }
   }
 
-  private async handleLocalFrame(_fromUserId: string, frame: P2PMeshFrame): Promise<void> {
+  private async handleLocalFrame(fromUserId: string, frame: P2PMeshFrame): Promise<void> {
+    if (frame.kind === 'protocol-manifest-summary' && isP2PProtocolManifestSummaryPayload(frame.payload)) {
+      await this.handleProtocolManifestSummary(fromUserId, frame.payload);
+      return;
+    }
+
+    if (frame.kind === 'protocol-manifest-request' && isP2PProtocolManifestRequestPayload(frame.payload)) {
+      await this.handleProtocolManifestRequest(fromUserId, frame.payload);
+      return;
+    }
+
+    if (frame.kind === 'protocol-manifest-chain' && isP2PProtocolManifestChainPayload(frame.payload)) {
+      await this.handleProtocolManifestChain(fromUserId, frame.payload);
+      return;
+    }
+
     if (frame.kind === 'mesh-ping') {
       // Pass frame.originUserId (the cryptographically-verified ping originator) rather than
       // fromUserId (the immediate relay neighbor) so callers always see who sent the ping,
@@ -1151,6 +1236,128 @@ export class PeerMeshService {
       }
       await this.opts.onTalkRetracted?.(frame.payload);
     }
+  }
+
+  private async sendProtocolManifestSummary(neighbor: Neighbor): Promise<void> {
+    const controller = this.opts.protocolManifestController;
+    if (!controller || !isNeighborLive(neighbor)) return;
+    const frame = await this.buildFrame('protocol-manifest-summary', controller.summary(), {
+      recipientUserId: neighbor.userId,
+      ttlHops: 1,
+    });
+    this.rememberSeen(frame.msgId);
+    await this.sendFrameToNeighbor(neighbor, frame);
+  }
+
+  private async sendProtocolManifestControl(
+    neighborUserId: string,
+    kind: 'protocol-manifest-request' | 'protocol-manifest-chain',
+    payload: P2PProtocolManifestRequestPayload | P2PProtocolManifestChainPayload,
+  ): Promise<void> {
+    const neighbor = this.neighbors.get(neighborUserId);
+    if (!neighbor || !isNeighborLive(neighbor)) return;
+    const frame = await this.buildFrame(kind, payload, { recipientUserId: neighborUserId, ttlHops: 1 });
+    this.rememberSeen(frame.msgId);
+    await this.sendFrameToNeighbor(neighbor, frame);
+  }
+
+  private async handleProtocolManifestSummary(
+    fromUserId: string,
+    remote: P2PProtocolManifestSummaryPayload,
+  ): Promise<void> {
+    const controller = this.opts.protocolManifestController;
+    if (!controller) return;
+    const local = controller.summary();
+    if (remote.networkId !== local.networkId) {
+      const firstRejection = !this.manifestRejectedPeerIds.has(fromUserId);
+      this.manifestRejectedPeerIds.add(fromUserId);
+      this.manifestReadyPeerIds.delete(fromUserId);
+      const neighbor = this.neighbors.get(fromUserId);
+      if (firstRejection && neighbor) await this.sendProtocolManifestSummary(neighbor);
+      return;
+    }
+    if (remote.sequence === local.sequence) {
+      if (remote.manifestHash === local.manifestHash) {
+        this.manifestRejectedPeerIds.delete(fromUserId);
+        this.manifestReadyPeerIds.add(fromUserId);
+      } else {
+        const firstRejection = !this.manifestRejectedPeerIds.has(fromUserId);
+        this.manifestRejectedPeerIds.add(fromUserId);
+        this.manifestReadyPeerIds.delete(fromUserId);
+        const neighbor = this.neighbors.get(fromUserId);
+        if (firstRejection && neighbor) await this.sendProtocolManifestSummary(neighbor);
+      }
+      return;
+    }
+    this.manifestReadyPeerIds.delete(fromUserId);
+    if (remote.sequence > local.sequence) {
+      await this.sendProtocolManifestControl(fromUserId, 'protocol-manifest-request', {
+        networkId: local.networkId,
+        sequence: local.sequence,
+        manifestHash: local.manifestHash,
+      });
+      return;
+    }
+    const suffix = controller.manifestSuffixAfter(remote.sequence, remote.manifestHash);
+    if (!suffix) {
+      this.manifestRejectedPeerIds.add(fromUserId);
+      return;
+    }
+    await this.sendProtocolManifestControl(fromUserId, 'protocol-manifest-chain', {
+      networkId: local.networkId,
+      afterSequence: remote.sequence,
+      afterManifestHash: remote.manifestHash,
+      manifests: suffix,
+    });
+  }
+
+  private async handleProtocolManifestRequest(
+    fromUserId: string,
+    request: P2PProtocolManifestRequestPayload,
+  ): Promise<void> {
+    const controller = this.opts.protocolManifestController;
+    if (!controller || request.networkId !== controller.summary().networkId) return;
+    const suffix = controller.manifestSuffixAfter(request.sequence, request.manifestHash);
+    if (!suffix) {
+      this.manifestRejectedPeerIds.add(fromUserId);
+      return;
+    }
+    await this.sendProtocolManifestControl(fromUserId, 'protocol-manifest-chain', {
+      networkId: request.networkId,
+      afterSequence: request.sequence,
+      afterManifestHash: request.manifestHash,
+      manifests: suffix,
+    });
+  }
+
+  private async handleProtocolManifestChain(
+    fromUserId: string,
+    payload: P2PProtocolManifestChainPayload,
+  ): Promise<void> {
+    const controller = this.opts.protocolManifestController;
+    if (!controller) return;
+    const before = controller.summary();
+    if (
+      payload.networkId !== before.networkId
+      || payload.afterSequence !== before.sequence
+      || payload.afterManifestHash !== before.manifestHash
+    ) {
+      const neighbor = this.neighbors.get(fromUserId);
+      if (neighbor) await this.sendProtocolManifestSummary(neighbor);
+      return;
+    }
+    const result = await controller.acceptManifestSuffix(payload.manifests);
+    if (!result.ok) {
+      this.manifestRejectedPeerIds.add(fromUserId);
+      this.manifestReadyPeerIds.delete(fromUserId);
+      return;
+    }
+    this.manifestReadyPeerIds.clear();
+    this.manifestRejectedPeerIds.delete(fromUserId);
+    this.manifestReadyPeerIds.add(fromUserId);
+    const compatibility = controller.currentCompatibility();
+    await this.opts.onProtocolManifestCompatibility?.(compatibility, fromUserId);
+    await Promise.all([...this.neighbors.values()].map((neighbor) => this.sendProtocolManifestSummary(neighbor)));
   }
 
   private scheduleTalkBodyRequest(announce: P2PMeshTalkAnnouncePayload): void {

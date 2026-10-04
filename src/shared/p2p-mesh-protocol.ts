@@ -1,4 +1,5 @@
 import type { SignedP2PEnvelopeProof } from './p2p-runtime';
+import type { SignedProtocolManifest } from './protocol-manifest';
 
 export type P2PMeshMessageKind =
   | 'mesh-ping'
@@ -8,7 +9,33 @@ export type P2PMeshMessageKind =
   | 'talk-body'
   | 'talk-response'
   | 'talk-retracted'
+  | 'protocol-manifest-summary'
+  | 'protocol-manifest-request'
+  | 'protocol-manifest-chain'
   | 'ack';
+
+export type P2PProtocolManifestCheckpoint = {
+  networkId: string;
+  sequence: number;
+  manifestHash: string;
+};
+
+export type P2PProtocolManifestSummaryPayload = P2PProtocolManifestCheckpoint & {
+  manifestEngineVersion: number;
+  roomProtocolVersion: number;
+  capabilities: string[];
+};
+
+export type P2PProtocolManifestRequestPayload = P2PProtocolManifestCheckpoint;
+
+export type P2PProtocolManifestChainPayload = {
+  networkId: string;
+  afterSequence: number;
+  afterManifestHash: string;
+  manifests: SignedProtocolManifest[];
+};
+
+const MAX_PROTOCOL_MANIFEST_CHAIN_PAYLOAD_BYTES = 512 * 1024;
 
 export type P2PMeshTalkAnnouncePayload = {
   talkId: string;
@@ -87,6 +114,9 @@ export type P2PMeshFramePayload =
   | P2PMeshTalkBodyPayload
   | P2PMeshTalkResponsePayload
   | P2PMeshTalkRetractedPayload
+  | P2PProtocolManifestSummaryPayload
+  | P2PProtocolManifestRequestPayload
+  | P2PProtocolManifestChainPayload
   | { msgId: string };
 
 export type P2PMeshFrame = {
@@ -99,6 +129,7 @@ export type P2PMeshFrame = {
   recipientUserId?: string;
   createdAt: string;
   ttlHops: number;
+  protocolManifest?: P2PProtocolManifestCheckpoint;
   payload: P2PMeshFramePayload;
   proof?: SignedP2PEnvelopeProof;
 };
@@ -114,6 +145,7 @@ export function p2pMeshFrameSigningPayload(frame: P2PMeshFrame): unknown {
     originPub: frame.originPub,
     recipientUserId: frame.recipientUserId ?? null,
     createdAt: frame.createdAt,
+    ...(frame.protocolManifest ? { protocolManifest: frame.protocolManifest } : {}),
     payload: frame.payload,
   };
 }
@@ -122,14 +154,69 @@ export function isP2PMeshFrame(value: unknown): value is P2PMeshFrame {
   if (!value || typeof value !== 'object') return false;
   const frame = value as Partial<P2PMeshFrame>;
   return frame.version === 1
-    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'ack'].includes(String(frame.kind))
+    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'ack'].includes(String(frame.kind))
     && typeof frame.msgId === 'string' && frame.msgId.length > 0 && frame.msgId.length <= 256
     && typeof frame.roomId === 'string' && frame.roomId.length <= 256
     && typeof frame.originUserId === 'string' && frame.originUserId.length <= 256
     && typeof frame.originPub === 'string' && frame.originPub.length <= 2048
     && typeof frame.createdAt === 'string' && Number.isFinite(Date.parse(frame.createdAt))
     && Number.isSafeInteger(frame.ttlHops) && Number(frame.ttlHops) >= 0 && Number(frame.ttlHops) <= 16
+    && (frame.protocolManifest === undefined || isP2PProtocolManifestCheckpoint(frame.protocolManifest))
     && !!frame.payload && typeof frame.payload === 'object';
+}
+
+export function isP2PProtocolManifestCheckpoint(value: unknown): value is P2PProtocolManifestCheckpoint {
+  if (!value || typeof value !== 'object') return false;
+  const checkpoint = value as Partial<P2PProtocolManifestCheckpoint>;
+  return typeof checkpoint.networkId === 'string'
+    && checkpoint.networkId.length > 0
+    && checkpoint.networkId.length <= 128
+    && Number.isSafeInteger(checkpoint.sequence)
+    && Number(checkpoint.sequence) >= 1
+    && typeof checkpoint.manifestHash === 'string'
+    && /^[a-f0-9]{64}$/.test(checkpoint.manifestHash);
+}
+
+export function isP2PProtocolManifestSummaryPayload(value: unknown): value is P2PProtocolManifestSummaryPayload {
+  if (!isP2PProtocolManifestCheckpoint(value)) return false;
+  const summary = value as Partial<P2PProtocolManifestSummaryPayload>;
+  return Number.isSafeInteger(summary.manifestEngineVersion)
+    && Number(summary.manifestEngineVersion) >= 1
+    && Number.isSafeInteger(summary.roomProtocolVersion)
+    && Number(summary.roomProtocolVersion) >= 1
+    && Array.isArray(summary.capabilities)
+    && summary.capabilities.length <= 64
+    && summary.capabilities.every((capability) => typeof capability === 'string' && capability.length > 0 && capability.length <= 128);
+}
+
+export function isP2PProtocolManifestRequestPayload(value: unknown): value is P2PProtocolManifestRequestPayload {
+  return isP2PProtocolManifestCheckpoint(value);
+}
+
+export function isP2PProtocolManifestChainPayload(value: unknown): value is P2PProtocolManifestChainPayload {
+  if (!value || typeof value !== 'object') return false;
+  const chain = value as Partial<P2PProtocolManifestChainPayload>;
+  const structurallyValid = typeof chain.networkId === 'string'
+    && chain.networkId.length > 0
+    && chain.networkId.length <= 128
+    && Number.isSafeInteger(chain.afterSequence)
+    && Number(chain.afterSequence) >= 1
+    && typeof chain.afterManifestHash === 'string'
+    && /^[a-f0-9]{64}$/.test(chain.afterManifestHash)
+    && Array.isArray(chain.manifests)
+    && chain.manifests.length <= 128;
+  if (!structurallyValid) return false;
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength <= MAX_PROTOCOL_MANIFEST_CHAIN_PAYLOAD_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+export function isProtocolManifestControlKind(kind: P2PMeshMessageKind): boolean {
+  return kind === 'protocol-manifest-summary'
+    || kind === 'protocol-manifest-request'
+    || kind === 'protocol-manifest-chain';
 }
 
 export function isP2PMeshTalkBodyPayload(

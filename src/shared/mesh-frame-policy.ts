@@ -9,6 +9,9 @@ export const MESH_FRAME_INVENTORY: Readonly<Record<P2PMeshMessageKind, MeshFrame
   'talk-body': 'adapt-to-gun-sync',
   'talk-response': 'adapt-to-gun-sync',
   'talk-retracted': 'retain-control',
+  'protocol-manifest-summary': 'retain-control',
+  'protocol-manifest-request': 'retain-control',
+  'protocol-manifest-chain': 'retain-control',
   ack: 'retain-control',
 };
 
