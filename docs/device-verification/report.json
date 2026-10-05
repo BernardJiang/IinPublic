@@ -1,8 +1,14 @@
 {
   "version": 1,
   "generatedFrom": "docs/device-verification/runs.json",
-  "totalRuns": 5,
+  "totalRuns": 8,
   "routes": [
+    {
+      "route": "lan-direct",
+      "supported": false,
+      "physicalPasses": 2,
+      "totalRuns": 2
+    },
     {
       "route": "wifi-aware",
       "supported": false,
@@ -13,7 +19,7 @@
       "route": "wifi-direct-offline",
       "supported": false,
       "physicalPasses": 2,
-      "totalRuns": 4
+      "totalRuns": 5
     }
   ],
   "errors": []

@@ -89,6 +89,65 @@
       "lifecycleState": "foreground",
       "result": "unsupported",
       "notes": "By design: Android 7–9 can neither create nor join a group with app-chosen credentials, so it sits out offline Wi-Fi Direct (verified: no group, no prompt) and links over a shared LAN instead."
+    },
+    {
+      "id": "open36-lan-offline-p30-honor-1.0.107",
+      "recordedAt": "2026-10-04",
+      "level": "physical",
+      "deviceModel": "Huawei P30 Pro (VOG-L29) ↔ Honor 8 (FRD-L04)",
+      "os": "Android 10 / Android 7.0",
+      "appBuild": "1.0.107",
+      "route": "lan-direct",
+      "batteryState": "usb-charging; drain estimated via batterystats with charging masked",
+      "networkType": "same home Wi-Fi LAN, no internet (hub unreachable); found via NSD",
+      "direction": "bidirectional",
+      "lifecycleState": "foreground, then 20 min screen off",
+      "result": "pass",
+      "metrics": {
+        "latencyMs": 40,
+        "throughputKbps": 55243,
+        "batteryDrainPercentPerHour": 10.9,
+        "reconnectMs": 8000,
+        "forwardingBytes": 0
+      },
+      "notes": "Linked 8 s after launch, host↔host 192.168.10.x. Idle RTT 11–17 ms seen from the Honor, 64–84 ms from the P30 (Wi-Fi power save), median ~40 ms. Throughput 2 MB burst P30→Honor 55.2 Mbps (Honor→P30 110.8 Mbps). Relink 8 s after the Honor app restarted. After 20 min asleep and unplugged (simulated) both apps were alive (no OEM kill) and a talk reached the still-sleeping Honor in 14 s. Battery 152 mAh in 20 min (Wi-Fi radio 125) = 10.9 %/h — caused by an incoming-talk envelope write loop (>1 write/s, ~16 KB/s of Gun traffic), not by the LAN link; fixed in 1.0.108 (0 writes, 0 bytes in 15 s). Versions checked before and after."
+    },
+    {
+      "id": "open36-wd-sleep-ph1-c10-1.0.107",
+      "recordedAt": "2026-10-04",
+      "level": "physical",
+      "deviceModel": "Essential PH-1 owner ↔ C10 tablet client",
+      "os": "Android 10 / Android 14",
+      "appBuild": "1.0.107",
+      "route": "wifi-direct-offline",
+      "batteryState": "usb-charging, unplugged simulated",
+      "networkType": "no internet; Wi-Fi Direct group",
+      "direction": "PH-1 → C10",
+      "lifecycleState": "both screens off 20 min (Dozing; deviceidle deep INACTIVE)",
+      "result": "fail",
+      "notes": "Group survived 20 min on both (groupFormed true, apps alive, no kill). PH-1 (Android 10) still ran JS while asleep and broadcast a talk, but the Android 14 tablet froze its WebView page while dozing (no console output at all) and did not receive until the app is opened again. Waking the screen behind the lock screen did not resume it."
+    },
+    {
+      "id": "open36-lan-offline-p30-honor-1.0.108",
+      "recordedAt": "2026-10-05",
+      "level": "physical",
+      "deviceModel": "Huawei P30 Pro (VOG-L29) ↔ Honor 8 (FRD-L04)",
+      "os": "Android 10 / Android 7.0",
+      "appBuild": "1.0.108",
+      "route": "lan-direct",
+      "batteryState": "usb-charging; drain estimated via batterystats with charging masked",
+      "networkType": "same home Wi-Fi LAN, no internet (hub unreachable); found via NSD",
+      "direction": "bidirectional",
+      "lifecycleState": "foreground, then screen off",
+      "result": "pass",
+      "metrics": {
+        "latencyMs": 50,
+        "throughputKbps": 18100,
+        "batteryDrainPercentPerHour": 0.7,
+        "reconnectMs": 12000,
+        "forwardingBytes": 0
+      },
+      "notes": "After the incoming-talk write-loop fix: P30 Gun traffic 881 B sent / 1.9 KB received in 15 s (was ~240 KB both ways). Battery: P30 app 3.42 mAh (CPU 2.44, Wi-Fi 0.97) over 7 min on battery = 0.70 %/h (was 10.9 %/h on 1.0.107); the window ended early because the P30 performed a scheduled power-off (boot reason shutdown,timealarm), unrelated to the app. The Honor figure from the same window (7.5 %/h, all CPU) is excluded: its first-run walkthrough was left open and its infinite CSS animation kept the compositor busy. RTT median ~50 ms (20–367 ms, Wi-Fi power save); throughput P30→Honor 18.1 Mbps, Honor→P30 161 Mbps; linked 12 s after launch. Versions checked before and after."
     }
   ]
 }

@@ -651,10 +651,9 @@ review capacity is available and the issue is promoted after the website/Android
   `npm run verify:devices` validates the inventory schema; the physical run inventory is currently
   empty.
 
-- [ ] **OPEN-36 — Nearby link: same Wi-Fi, then Android Wi-Fi Direct (implemented 2026-10-04,
-  v1.0.106; offline LAN + Wi-Fi Direct verified on P30 / PH-1 / C10 / Honor, recorded in
-  `docs/device-verification/runs.json`; remaining: screen-off/Doze measurement and the LAN-route
-  metrics record, both to be re-run with exclusive device access).** Intended flow: two
+- [x] **OPEN-36 — Nearby link: same Wi-Fi, then Android Wi-Fi Direct (done 2026-10-05, v1.0.108;
+  offline LAN + Wi-Fi Direct verified on P30 / PH-1 / C10 / Honor, recorded in
+  `docs/device-verification/runs.json`; follow-ups OPEN-38, OPEN-39).** Intended flow: two
   phones find each other through the website over cellular; if they share a Wi-Fi network they
   exchange talks over it; if not, they form a Wi-Fi Direct group and exchange talks over it.
   Implementation: `src/shared/wifi-direct-link.ts` (election, path classification, `wd-*` frame
@@ -830,12 +829,12 @@ review capacity is available and the issue is promoted after the website/Android
       (`docs/protocol/connectivity-v1.md`); recognize known contacts by stored SEA pubs; treat
       strangers as new SEA keys, as online. Talk exchange needs only local Gun + SEA.
       → Same as online: mesh frames are SEA-signed and the P2P-Q handshake binds each session to the peer's SEA pub; known contacts are recognised by stored pubs, strangers are new keys.
-    - [ ] Android constraints to measure on real phones: foreground app or foreground service
+    - [x] Android constraints to measure on real phones: foreground app or foreground service
       required on both sides; service discovery is flaky/slow on some devices (re-issue every
       10–30 s, expect seconds to tens of seconds); `NEARBY_WIFI_DEVICES` (already in manifest) and
       Location on for older Android; battery cost — run only while the user is in an explicit
       "nearby" mode.
-      → Measured on own builds (v1.0.103–104): with the app in the background and the screen on, the Wi-Fi Direct link holds and a talk arrived in 7 s. NOT yet measured: long screen-off / Doze and OEM background killing — an attempt on 2026-10-04 was invalidated because another agent (Codex, `IinPublic.codex`, `dev.codex` 1.0.103) reinstalled its own build on the shared phones mid-run (its install force-stop looked like an OEM kill). Re-run with exclusive device access.
+      → Measured on own builds (v1.0.103–108, versions checked before and after each run): app in background with the screen on keeps the Wi-Fi Direct link (talk in 7 s); 20 min screen off + "unplugged": LAN link and Wi-Fi Direct group both survive and no OEM kill happened (P30, Honor, PH-1, C10); a sleeping Android 7 receiver got a talk over the LAN in 14 s and an Android 10 sender still sent while asleep, but the Android 14 tablet freezes its WebView page while dozing and receives nothing until the app is opened (OPEN-38). Battery after the write-loop fix: 0.70 %/h on the LAN link (runs.json). An earlier "OEM kill" observation was another agent reinstalling its build mid-run (see memory note).
   - **Platform scope**
     - [x] Android ↔ Android only. iOS has no Wi-Fi Direct; iPhone pairs stay on WebRTC/STUN until
       OPEN-22 (Apple Wi-Fi Aware, iOS 26+) is verified.
@@ -860,11 +859,24 @@ review capacity is available and the issue is promoted after the website/Android
     - [x] Decide default-on once verified (today: off unless `wifi_direct_link=1`).
       → Decided: offline nearby mode is on by default, with Settings switches for Wi-Fi Direct and Bluetooth. The hub-matchmade *online* upgrade (`wifi_direct_link` flag) stays off by default — online pairs already connect directly, so it would only save relay bandwidth, and users were told Wi-Fi Direct runs only without internet.
 
-- [ ] **OPEN-37 — Measure, then reduce, the LAN link's Wi-Fi radio cost.** A first 9-min sample on
-  the P30 (LAN link to the Honor, no internet) showed ~4.1 %/h with 21.3 of 25.9 mAh on the Wi-Fi
-  radio — but it ran on another agent's build (see OPEN-36 note), so re-measure on our build first.
-  Suspects if it holds: continuous NSD discovery, Gun websocket heartbeats/membership traffic and
-  mesh keepalives keeping the radio out of power save.
+- [x] **OPEN-37 — LAN link Wi-Fi radio cost (done 2026-10-05, v1.0.108).** Measured 10.9 %/h on
+  the P30 (1.0.107; 125 of 152 mAh in 20 min on the Wi-Fi radio), not caused by Wi-Fi Direct
+  (unchanged with it switched off). Cause: an incoming-talk write loop — the owner-envelope
+  subscription refreshed from local Gun and mirrored every cluster straight back, rewriting the
+  5.5 KB envelope >1×/s (~16 KB/s of Gun traffic to every connected peer, also to the hub online,
+  in plaintext). The refresh path no longer writes back (`refreshIncomingTalkClustersFromLocalGun`):
+  0 envelope writes and ~0.9 KB of Gun traffic per 15 s afterwards; battery 0.70 %/h.
+
+- [ ] **OPEN-38 — Receive talks while an Android 12+ phone sleeps.** The talk mesh runs in the
+  WebView page; Android 14 (C10) freezes that page while dozing, so a sleeping phone receives
+  nothing until the app is opened, although the node service and the Wi-Fi Direct group stay up.
+  Options: move mesh reception into the embedded node (foreground service), or have peers re-offer
+  undelivered talks when the receiver's run epoch shows it is active again.
+
+- [ ] **OPEN-39 — First-run walkthrough animation burns CPU while left open.** Its decorative
+  `walkthrough-float` orbit animation loops forever; on the Honor (Android 7) it kept the
+  compositor at ~38 % of a core (≈7.5 %/h battery in an idle 10-min window). Stop it after a few
+  loops, when the page is hidden, and under `prefers-reduced-motion`.
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
   peer forwarding and BLE discovery/data transport before either is enabled by default. Track any
