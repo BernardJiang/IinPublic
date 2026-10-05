@@ -1,7 +1,7 @@
 import {
   encodeBlePresence,
   encodeNearbyTxt,
-  OFFLINE_GROUP_CREDENTIALS,
+  deriveOfflineGroupCredentials,
   parseBlePresence,
   isPrivateIpv4,
   lanGunPeerUrl,
@@ -14,6 +14,7 @@ import {
   type NearbyRecord,
   type NearbySelf,
 } from '../../shared/nearby-offline';
+import { activeRoomScope, BASELINE_ROOM_PROTOCOL_CHECKPOINT } from '../../shared/active-exchange-room';
 
 const NOW = 1_000_000;
 const self = (overrides: Partial<NearbySelf> = {}): NearbySelf => ({ id: 'bbbbbbbbbbbb', canHost: true, joinByCredential: true, hostScore: 1, ...overrides });
@@ -21,12 +22,24 @@ const record = (overrides: Partial<NearbyRecord> = {}): NearbyRecord => ({ id: '
 const group = { networkName: 'DIRECT-ab-IinPublic', passphrase: '0123456789abcdef0123456789abcdef', frequencyMhz: 5765 };
 
 describe('nearby offline records', () => {
-  it('round-trips a TXT record with and without group credentials', () => {
+  const roomScope = activeRoomScope({
+    version: 1,
+    roomId: 'hall-a',
+    enteredAt: new Date(NOW).toISOString(),
+    transitionId: 'test',
+    neighborLimit: 12,
+    exchangeState: 'active',
+    ...BASELINE_ROOM_PROTOCOL_CHECKPOINT,
+  }, NOW);
+
+  it('round-trips a TXT record without exposing group credentials', () => {
     const plain = encodeNearbyTxt({ ...self(), port: 8088 });
     expect(parseNearbyTxt(plain, NOW, 'aa:bb')).toEqual({ id: 'bbbbbbbbbbbb', port: 8088, joinByCredential: true, hostScore: 1, seenAt: NOW, deviceAddress: 'aa:bb' });
     const hosting = encodeNearbyTxt({ ...self({ joinByCredential: false, hostScore: 7 }), port: 8088, group });
     expect(hosting.s).toBe('3');
-    expect(parseNearbyTxt(hosting, NOW)).toMatchObject({ joinByCredential: false, hostScore: 3, group });
+    expect(hosting).not.toHaveProperty('n');
+    expect(hosting).not.toHaveProperty('k');
+    expect(parseNearbyTxt(hosting, NOW)).toMatchObject({ joinByCredential: false, hostScore: 3, hostingHint: true });
   });
 
   it('rejects malformed records and ignores malformed credentials', () => {
@@ -39,16 +52,16 @@ describe('nearby offline records', () => {
     expect(badGroup?.group).toBeUndefined();
   });
 
-  it('round-trips the 8-byte BLE presence payload', () => {
+  it('rejects legacy unscoped BLE and ignores credentials injected into TXT', () => {
     const payload = encodeBlePresence({ ...self({ hostScore: 3 }), hosting: true });
     expect(payload).toMatch(/^[0-9a-f]{16}$/);
-    expect(parseBlePresence(payload, NOW, 8088)).toEqual({ id: 'bbbbbbbbbbbb', port: 8088, joinByCredential: true, hostScore: 3, seenAt: NOW, group: OFFLINE_GROUP_CREDENTIALS });
+    expect(parseBlePresence(payload, NOW, 8088)).toBeNull();
     expect(parseBlePresence(encodeBlePresence({ ...self({ joinByCredential: false, hostScore: 0 }), hosting: false }), NOW, 8088))
-      .toEqual({ id: 'bbbbbbbbbbbb', port: 8088, joinByCredential: false, hostScore: 0, seenAt: NOW });
-    expect(parseBlePresence('02bbbbbbbbbbbb00', NOW, 8088)).toBeNull();
+      .toBeNull();
+    expect(parseBlePresence('03bbbbbbbbbbbb00', NOW, 8088)).toBeNull();
     expect(parseBlePresence('01bbbb', NOW, 8088)).toBeNull();
-    expect(parseNearbyTxt({ v: '1', id: 'bbbbbbbbbbbb', p: '8088', n: OFFLINE_GROUP_CREDENTIALS.networkName, k: OFFLINE_GROUP_CREDENTIALS.passphrase }, NOW)?.group)
-      .toEqual(OFFLINE_GROUP_CREDENTIALS);
+    expect(parseNearbyTxt({ v: '1', id: 'bbbbbbbbbbbb', p: '8088', n: group.networkName, k: group.passphrase }, NOW)?.group)
+      .toBeUndefined();
   });
 
   it('rotates the nearby id per epoch', async () => {
@@ -57,6 +70,15 @@ describe('nearby offline records', () => {
     expect(await rotatingNearbyId('pub', NEARBY_ID_EPOCH_MS - 1)).toBe(a);
     expect(await rotatingNearbyId('pub', NEARBY_ID_EPOCH_MS)).not.toBe(a);
     expect(await rotatingNearbyId('other', 0)).not.toBe(a);
+  });
+
+  it('derives different session credentials and rejects another room BLE token', () => {
+    const otherScope = { ...roomScope, roomToken: 'f'.repeat(32) };
+    expect(deriveOfflineGroupCredentials(roomScope)).not.toEqual(deriveOfflineGroupCredentials(otherScope));
+    expect(deriveOfflineGroupCredentials(roomScope).networkName).not.toContain(roomScope.roomId);
+    const payload = encodeBlePresence({ ...self(), hosting: true, roomToken: roomScope.roomToken });
+    expect(parseBlePresence(payload, NOW, 8088, roomScope.roomToken)?.roomToken).toBe(roomScope.roomToken);
+    expect(parseBlePresence(payload, NOW, 8088, otherScope.roomToken)).toBeNull();
   });
 
   it('accepts only private IPv4 Gun endpoints', () => {

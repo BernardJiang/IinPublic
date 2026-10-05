@@ -59,7 +59,6 @@ import {
 } from './chatrooms-view';
 import {
   showCreateCustomChatroomDialog as openCreateCustomChatroomDialog,
-  showRenameCustomChatroomDialog as openRenameCustomChatroomDialog,
   type CustomChatroomDraft,
 } from './custom-chatroom-dialogs';
 import {
@@ -1107,14 +1106,6 @@ export class UIManager extends EventEmitter {
       showWarning: (message) => this.showNotification(message, 'warning'),
     });
   }
-  showRenameCustomChatroomDialog(currentName: string): Promise<string | null> {
-    return openRenameCustomChatroomDialog({
-      currentName,
-      text: (key) => this.t(key),
-      formatText: (key, values) => this.tf(key, values),
-      showWarning: (message) => this.showNotification(message, 'warning'),
-    });
-  }
   private renderChatroomList(): void {
     this.chatroomShell().renderChatroomList();
   }
@@ -1931,25 +1922,6 @@ export class UIManager extends EventEmitter {
     return this.tf('chatroomCreated', { name });
   }
 
-  public formatChatroomRenameFailed(reason?: string): string {
-    return reason ? this.tf('chatroomRenameFailedWithReason', { reason }) : this.t('chatroomRenameFailed');
-  }
-
-  public formatChatroomRenamed(): string {
-    return this.t('chatroomRenamed');
-  }
-
-  public formatChatroomDeleteConfirm(): string {
-    return this.t('chatroomDeleteConfirm');
-  }
-
-  public formatChatroomDeleteFailed(reason?: string): string {
-    return reason ? this.tf('chatroomDeleteFailedWithReason', { reason }) : this.t('chatroomDeleteFailed');
-  }
-
-  public formatChatroomDeleted(): string {
-    return this.t('chatroomDeleted');
-  }
 
   public formatTalkCreateSyncSlow(): string {
     return this.t('talksCreateSyncSlow');

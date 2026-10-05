@@ -213,8 +213,10 @@ chain. There are only two honest choices for the first release:
    guarantee eventual retirement by date, but it deliberately sacrifices indefinite offline use
    and can stop valid users whose devices remain isolated.
 
-IinPublic must choose this tradeoff before the first production release; a later manifest cannot
-retroactively make an already-isolated, non-expiring release aware of a future cutoff.
+Release 1 chooses **perpetual legacy availability**. It has no local protocol lease. An isolated
+release-1 population may continue its legacy overlay, but stops current-network room exchange as
+soon as it receives and verifies a manifest that retires its epoch. A later manifest cannot make an
+already-isolated client aware of that cutoff until an authenticated chain reaches it.
 
 Clients persist the highest accepted sequence and manifest hash, reject rollback, and fail closed
 on two different valid manifests for the same sequence instead of choosing whichever number is
@@ -314,9 +316,12 @@ Wi-Fi Direct is a cluster transport, not the room itself: one room may contain s
 groups connected by sparse authenticated bridge peers, and hardware client limits remain lower
 than logical room capacity.
 
-Wi-Fi Direct group credentials must be generated per room session/epoch, rotated, and shared only
-through an authenticated room capability or existing authenticated channel. The user's ordinary
-home/work Wi-Fi SSID and password are never requested or shared.
+Wi-Fi Direct group credentials must be generated per room session/epoch and rotated. The radio
+record carries only a short rotating room correlation prefix; a client derives the full credential
+from its active room scope and still requires signed same-room SEA presence before processing room
+data. An open public room's transport credential is not an authorization boundary—a modified app
+may know the room—so every message remains locally authenticated and room-scoped. The user's
+ordinary home/work Wi-Fi SSID and password are never requested or shared.
 
 BLE remains discovery/control-plane only. It is not a bulk Talk transport.
 
@@ -395,24 +400,32 @@ Recommended settings:
 - Android hardware: foreground, background, locked screen, radio loss, app process recreation,
   LAN↔Wi-Fi Direct↔Internet route changes, and at least two simultaneous room partitions.
 
-## Current implementation gaps
+## Implementation status (2026-10-05)
 
-- Nearby offline discovery starts from application connectivity state rather than an explicit
-  active-room exchange state.
-- Native discovery is owned by `MainActivity`/the WebView instead of a `connectedDevice`
-  foreground service.
-- `NodeForegroundService` is declared as `dataSync`, which is not the intended long-lived nearby
-  service type.
-- Platform candidates can currently carry empty `roomIds`; that must fail closed for automatic
-  room-mesh links.
-- Offline Wi-Fi Direct uses fixed app-wide credentials.
-- The route-scoring and Settings models exist, but the offline controller still uses a binary
-  hub-reachable decision instead of the common route manager and measured meteredness/health.
-- Room capacity and sparse-neighbor limits are not yet enforced as one end-to-end invariant across
-  hub discovery, LAN discovery, BLE/Wi-Fi discovery, and the mesh session manager.
-- Custom-room server metadata still accepts a separate `capacity` field (default 50) even though
-  the shipped client enforces the global `CONFIG.CHATROOM_MAX_CAPACITY`; the per-room field must be
-  removed or migrated so it cannot be mistaken for an override.
-- The implementation, types, tests, and legacy UI inventory still contain room
-  owner/moderator/member/guest roles plus owner-only rename/delete operations. These conflict with
-  the non-privileged creator model and must be retired or migrated.
+- `ActiveExchangeRoomController` persists exactly one active audience and orders every switch as
+  stop-old → membership move → start-new. Signed expiring presence, hub queries, LAN NSD, BLE,
+  Wi-Fi Direct, mesh frames, and manifest checkpoints are room scoped and fail closed on missing or
+  mismatched scope.
+- Global `C` is 498 and `K` defaults to 12 (bounded to 8–16 in production policy). Candidate and
+  neighbor collections are locally bounded; the synthetic million-user proof never creates a
+  global roster. Capacity is absent from room metadata and create UI.
+- Room roles, owner-derived identifiers, owner-only mutation/deletion, and owner-gated challenge
+  configuration are retired. User-defined rooms receive random cryptographic IDs; duplicate names
+  are allowed and creators enter as ordinary participants.
+- Release-1 ships the manifest verifier, monotonic archive/checkpoint storage, full suffix relay,
+  compatibility and activation engine, ordinary next-key rotation, and separately pinned recovery
+  authorization. Changing the recovery policy itself requires the previous recovery threshold.
+- Android native discovery is owned by a `connectedDevice` foreground service. Mode, active room,
+  and bounded radio checkpoints survive Activity/process recreation; Pause/Stop act natively.
+  Cached advertisements expire fail-closed after 20 minutes if no live page refreshes them.
+- Route eligibility reads Android validated/metered path state and applies the saved policy before
+  deciding whether the Internet hub suppresses local Direct discovery. Wi-Fi credentials are
+  per-room/session and never advertised or reused app-wide.
+- Verification includes unit/integration/abuse coverage, a closed-form one-million-user topology
+  test, Android compilation, and a real three-phone pass covering two simultaneous isolated rooms,
+  no delivery on switch alone, deliberate rebroadcast, concurrent propagation, radio loss, and
+  resynchronization of a Talk created while the receiver was offline.
+
+The remaining platform limitation is explicit: Android may revoke permission, disable a radio, or
+force-stop the app. The service resumes only a still-live checkpoint; it never continues an expired
+room advertisement merely to appear always connected.

@@ -38,7 +38,10 @@ export type ConnectivityCandidate = {
 export type PeerDiscoveryStartContext = {
   localSeaPub: string;
   localUserId?: string;
-  roomIds: readonly string[];
+  /** The one room allowed to produce discovery candidates during this lifecycle. */
+  activeRoomId: string;
+  /** @deprecated Providers should use activeRoomId. Kept as a one-item compatibility view. */
+  roomIds: readonly [string];
 };
 
 export type PeerDiscoveryProviderStatus = {

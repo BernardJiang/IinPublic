@@ -5,9 +5,14 @@ import type { PathInfo } from '../../shared/connection-manager';
 import type { PeerDiscoveryProviderStatus } from '../../shared/peer-discovery-provider';
 
 export type ConnectivityPreset = 'automatic' | 'data-saver' | 'fastest' | 'local-event' | 'private' | 'advanced';
+export type NearbyExchangeMode = 'off' | 'while-open' | 'always';
 export type ConnectivitySettings = {
-  version: 1;
+  version: 2;
   preset: ConnectivityPreset;
+  nearbyMode: NearbyExchangeMode;
+  activeRoomSelection: 'manual';
+  wifiOnlyForwarding: boolean;
+  identityReveal: 'matches-only' | 'room-presence';
   freeFirst: boolean;
   directFirst: boolean;
   batteryAware: boolean;
@@ -28,7 +33,7 @@ export type ConnectivityDiagnostics = {
 const KEY = 'iinpublic_connectivity_settings_v1';
 
 export function defaultConnectivitySettings(): ConnectivitySettings {
-  return { version: 1, preset: 'automatic', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'ask', forwarding: { ...DEFAULT_FORWARDING_SETTINGS } };
+  return { version: 2, preset: 'automatic', nearbyMode: 'while-open', activeRoomSelection: 'manual', wifiOnlyForwarding: true, identityReveal: 'matches-only', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { ...DEFAULT_FORWARDING_SETTINGS } };
 }
 
 export function applyConnectivityPreset(preset: ConnectivityPreset): ConnectivitySettings {
@@ -45,12 +50,12 @@ export function loadConnectivitySettings(): ConnectivitySettings {
     const raw = localStorage.getItem(KEY); if (!raw) return defaultConnectivitySettings();
     const value = JSON.parse(raw) as Partial<ConnectivitySettings>;
     const valid = ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'].includes(String(value.preset));
-    return valid ? { ...defaultConnectivitySettings(), ...value, version: 1, forwarding: { ...DEFAULT_FORWARDING_SETTINGS, ...(value.forwarding ?? {}) } } as ConnectivitySettings : defaultConnectivitySettings();
+    return valid ? { ...defaultConnectivitySettings(), ...value, version: 2, activeRoomSelection: 'manual', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, ...(value.forwarding ?? {}) } } as ConnectivitySettings : defaultConnectivitySettings();
   } catch { return defaultConnectivitySettings(); }
 }
 
 export function saveConnectivitySettings(value: ConnectivitySettings): void {
-  localStorage.setItem(KEY, JSON.stringify({ ...value, version: 1 }));
+  localStorage.setItem(KEY, JSON.stringify({ ...value, version: 2 }));
 }
 
 export function connectivityStatusText(input: { directness: 'direct' | 'relay' | 'store-forward'; interface: string; metered: boolean }): string {

@@ -1,4 +1,6 @@
 import { sha256Hex, type WifiDirectGroupCredentials } from './wifi-direct-link';
+import { portableSha256Hex } from './portable-sha256';
+import type { ActiveRoomScope } from './active-exchange-room';
 
 /**
  * OPEN-36 offline mode: two Android phones find each other without the hub.
@@ -7,7 +9,8 @@ import { sha256Hex, type WifiDirectGroupCredentials } from './wifi-direct-link';
  *   with it (`ws://<lan-ip>:<port>/gun`). Rosters, signaling and the WebRTC mesh then work as they
  *   do through the hub; host ICE candidates carry talks across the LAN.
  * - Different networks: Wi-Fi Direct DNS-SD service discovery. Every phone advertises a small TXT
- *   record; one phone hosts a group (deterministic election below) and advertises its credentials;
+ *   record; one phone hosts a group (deterministic election below). Phones in the same authenticated
+ *   room scope derive rotating group credentials locally; credentials are never advertised.
  *   Android 10+ phones join by name + passphrase without a prompt. Gun peers with the group owner's
  *   node (`ws://192.168.49.1:<port>/gun`) and WebRTC uses each phone's loopback TURN relay on the
  *   group address (`local-link-turn-relay.ts`).
@@ -16,18 +19,19 @@ import { sha256Hex, type WifiDirectGroupCredentials } from './wifi-direct-link';
  * channel but proved unreliable on hardware: queries time out while the peer is off channel
  * serving its access point.
  *
- * Every offline group uses the same app-wide credentials (`OFFLINE_GROUP_CREDENTIALS`), so a joiner
- * needs nothing from the host but its presence. That is TODO OPEN-36 option (a) — credentials in the
- * clear — taken one step further: anyone running the app nearby can join the Wi-Fi link. All
- * protection is above it — Gun/SEA validate data, mesh frames are SEA-signed, and the WebRTC
- * DataChannel is DTLS end to end (the owner forwards ciphertext).
+ * Group credentials are derived from the short-lived active-room rendezvous token. They rotate
+ * with room sessions and are only useful to a peer that already has that authenticated room
+ * capability; the app never asks for or advertises the user's home/work Wi-Fi credentials.
  */
 
-/** Android requires the `DIRECT-xy` prefix; 8–63 printable characters for the passphrase. */
-export const OFFLINE_GROUP_CREDENTIALS: WifiDirectGroupCredentials = {
-  networkName: 'DIRECT-iP-IinPublic-nearby',
-  passphrase: 'iinpublic-nearby-v1-open-link',
-};
+/** Per-room/session credentials. There is intentionally no app-wide fallback credential. */
+export function deriveOfflineGroupCredentials(scope: ActiveRoomScope): WifiDirectGroupCredentials {
+  const digest = portableSha256Hex(`iinpublic:wifi-direct-room:v1:${scope.roomToken}`);
+  return {
+    networkName: `DIRECT-iP-${digest.slice(0, 16)}`,
+    passphrase: digest.slice(0, 32),
+  };
+}
 
 export const BLE_PRESENCE_VERSION = 1;
 
@@ -53,6 +57,10 @@ export type NearbyRecord = {
   /** Wi-Fi Direct device address the record came from (diagnostics only). */
   deviceAddress?: string;
   seenAt: number;
+  /** Opaque active-room rendezvous token. Raw room ids never enter radio records. */
+  roomToken?: string;
+  /** Host signal only. Credentials are derived locally from the already-held full room token. */
+  hostingHint?: boolean;
 };
 
 export type NearbySelf = {
@@ -68,17 +76,14 @@ export type OfflineGroupPlan =
   | { action: 'host' }
   | { action: 'join'; record: NearbyRecord & { group: WifiDirectGroupCredentials } };
 
-export async function rotatingNearbyId(seaPub: string, nowMs: number = Date.now()): Promise<string> {
+export async function rotatingNearbyId(seaPub: string, nowMs: number = Date.now(), roomToken = ''): Promise<string> {
   const epoch = Math.floor(nowMs / NEARBY_ID_EPOCH_MS);
-  return (await sha256Hex(`iinpublic-nearby:${seaPub}:${epoch}`)).slice(0, 12);
+  return (await sha256Hex(`iinpublic-nearby:${seaPub}:${roomToken}:${epoch}`)).slice(0, 12);
 }
 
 const ID_PATTERN = /^[0-9a-f]{12}$/;
-const NETWORK_NAME_PATTERN = /^DIRECT-[A-Za-z0-9]{2}[ -~]{0,23}$/;
-const PASSPHRASE_PATTERN = /^[ -~]{8,63}$/;
-
 /** TXT keys stay short: Wi-Fi Direct service responses are small. */
-export function encodeNearbyTxt(self: NearbySelf & { port: number; group?: WifiDirectGroupCredentials | null }): Record<string, string> {
+export function encodeNearbyTxt(self: NearbySelf & { port: number; roomToken?: string; group?: WifiDirectGroupCredentials | null }): Record<string, string> {
   const txt: Record<string, string> = {
     v: NEARBY_TXT_VERSION,
     id: self.id,
@@ -86,10 +91,11 @@ export function encodeNearbyTxt(self: NearbySelf & { port: number; group?: WifiD
     j: self.joinByCredential ? '1' : '0',
     s: String(Math.max(0, Math.min(3, Math.round(self.hostScore)))),
   };
+  // Advertise only a short correlation prefix. A passive scanner cannot derive the group
+  // passphrase; a legitimate room participant already holds the full authenticated token.
+  if (self.roomToken) txt.r = self.roomToken.slice(0, 8);
   if (self.group) {
-    txt.n = self.group.networkName;
-    txt.k = self.group.passphrase;
-    if (self.group.frequencyMhz) txt.f = String(self.group.frequencyMhz);
+    txt.h = '1';
   }
   return txt;
 }
@@ -110,16 +116,12 @@ export function parseNearbyTxt(txt: unknown, seenAt: number, deviceAddress?: str
     seenAt,
     ...(deviceAddress ? { deviceAddress } : {}),
   };
-  const networkName = text('n');
-  const passphrase = text('k');
-  if (NETWORK_NAME_PATTERN.test(networkName) && PASSPHRASE_PATTERN.test(passphrase)) {
-    const frequencyMhz = Number(text('f'));
-    record.group = {
-      networkName,
-      passphrase,
-      ...(Number.isInteger(frequencyMhz) && frequencyMhz > 0 && frequencyMhz <= 7125 ? { frequencyMhz } : {}),
-    };
+  const roomToken = text('r');
+  if (roomToken) {
+    if (!/^(?:[0-9a-f]{8}|[0-9a-f]{32})$/.test(roomToken)) return null;
+    record.roomToken = roomToken;
   }
+  if (text('h') === '1') record.hostingHint = true;
   return record;
 }
 
@@ -165,9 +167,9 @@ export function planOfflineGroup(input: {
   now: number;
 }): OfflineGroupPlan {
   const { self, now } = input;
-  // Offline groups use the app-wide credentials, which only Android 10+ can set (host) or join by
-  // (client). Android 7–9 phones sit out offline Wi-Fi Direct — they still link over a shared LAN —
-  // and are never waited on: their legacy groups get framework-generated credentials nobody knows.
+  // Scoped credentials require Android 10+ APIs that can set (host) or join by credentials.
+  // Android 7–9 phones use the shared-LAN path and are never waited on: their legacy groups get
+  // framework-generated credentials the app cannot safely distribute.
   if (!self.joinByCredential) return { action: 'none', reason: 'cannot-join-by-credential' };
   const nearby = input.records.filter((record) =>
     record.id !== self.id && now - record.seenAt <= NEARBY_RECORD_TTL_MS && !input.lanIds.has(record.id) && record.joinByCredential);
@@ -187,32 +189,36 @@ export function planOfflineGroup(input: {
  * BLE presence payload (hex): version, 6-byte rotating id, flags — bit 0 hosting the offline group,
  * bit 1 joins by credential, bits 2–3 host score.
  */
-export function encodeBlePresence(self: NearbySelf & { hosting: boolean }): string {
+export function encodeBlePresence(self: NearbySelf & { hosting: boolean; roomToken?: string }): string {
   const flags = (self.hosting ? 1 : 0) | (self.joinByCredential ? 2 : 0) | ((Math.max(0, Math.min(3, Math.round(self.hostScore))) & 3) << 2);
+  if (self.roomToken) return `02${self.id}${self.roomToken.slice(0, 8)}${flags.toString(16).padStart(2, '0')}`;
   return `${BLE_PRESENCE_VERSION.toString(16).padStart(2, '0')}${self.id}${flags.toString(16).padStart(2, '0')}`;
 }
 
-export function parseBlePresence(payloadHex: unknown, seenAt: number, port: number): NearbyRecord | null {
-  if (typeof payloadHex !== 'string' || !/^[0-9a-f]{16}$/.test(payloadHex)) return null;
-  if (parseInt(payloadHex.slice(0, 2), 16) !== BLE_PRESENCE_VERSION) return null;
+export function parseBlePresence(payloadHex: unknown, seenAt: number, port: number, expectedRoomToken?: string): NearbyRecord | null {
+  if (typeof payloadHex !== 'string' || !/^(?:[0-9a-f]{16}|[0-9a-f]{24})$/.test(payloadHex)) return null;
+  const version = parseInt(payloadHex.slice(0, 2), 16);
+  if (version !== BLE_PRESENCE_VERSION && version !== 2) return null;
   const id = payloadHex.slice(2, 14);
-  const flags = parseInt(payloadHex.slice(14, 16), 16);
+  const roomTokenPrefix = version === 2 ? payloadHex.slice(14, 22) : '';
+  if (!expectedRoomToken || version !== 2 || !expectedRoomToken.startsWith(roomTokenPrefix)) return null;
+  const flags = parseInt(payloadHex.slice(version === 2 ? 22 : 14, version === 2 ? 24 : 16), 16);
+  const group = deriveOfflineGroupCredentials({ roomToken: expectedRoomToken } as ActiveRoomScope);
   return {
     id,
     port,
     joinByCredential: (flags & 2) !== 0,
     hostScore: (flags >> 2) & 3,
     seenAt,
-    ...((flags & 1) !== 0 ? { group: OFFLINE_GROUP_CREDENTIALS } : {}),
+    roomToken: expectedRoomToken,
+    ...((flags & 1) !== 0 ? { group } : {}),
   };
 }
 
 // ── Wi-Fi-only fallback (no BLE, no DNS-SD) ──────────────────────────────────────────────────
 // Plain P2P peer discovery is reliable even when DNS-SD frames keep missing (phones time-slicing
-// their radio with an access point). With app-wide group credentials a phone can simply try to join
-// any phone-type group owner it sees — the join only succeeds for an IinPublic group — and, when it
-// sees phones but no owner, host after a random delay. An owner nobody joined that sees another
-// owner leaves and joins it, so two simultaneous hosts converge.
+// their radio with an access point), but sightings carry no room scope. Room-scoped production
+// mode therefore never uses this fallback to join an arbitrary owner.
 
 export type WifiDirectPeerSighting = { address: string; groupOwner: boolean; type: string; seenAt: number };
 

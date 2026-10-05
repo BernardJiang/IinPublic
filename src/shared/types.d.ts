@@ -48,7 +48,6 @@ export interface Chatroom {
     name: string;
     type: 'global' | 'location' | 'business' | 'custom';
     location?: GPSCoordinate;
-    capacity: number;
     currentUsers: string[];
     businessInfo?: BusinessInfo;
     createdBy?: string;

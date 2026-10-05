@@ -1,7 +1,9 @@
 import {
   evaluateProtocolManifestCompatibility,
   isSignedProtocolManifest,
+  parseProtocolManifestTrustState,
   protocolManifestHash,
+  serializeProtocolManifestTrustState,
   verifyProtocolManifestChain,
   type ProtocolManifestChainResult,
   type ProtocolManifestCompatibility,
@@ -9,8 +11,10 @@ import {
   type ProtocolManifestTrustState,
   type SignedProtocolManifest,
 } from './protocol-manifest';
+import type { RoomProtocolCheckpoint } from './active-exchange-room';
 
 export const PROTOCOL_MANIFEST_ARCHIVE_STORAGE_KEY = 'iinpublic_protocol_manifest_archive_v1';
+export const PROTOCOL_MANIFEST_CHECKPOINT_STORAGE_KEY = 'iinpublic_protocol_manifest_checkpoint_v1';
 const MAX_STORED_MANIFEST_ARCHIVE_BYTES = 512 * 1024;
 
 export type ProtocolManifestSummary = {
@@ -50,6 +54,7 @@ export class ProtocolManifestController {
     now?: Date;
   }): Promise<ProtocolManifestController> {
     let archive = readStoredArchive(params.storage);
+    const durableCheckpoint = readStoredCheckpoint(params.storage);
     const bundled = (params.bundledManifests || []).map(cloneManifest);
     if (bundled.length > 0) archive = mergeArchives(archive, bundled);
     const replay = await verifyProtocolManifestChain({
@@ -59,6 +64,9 @@ export class ProtocolManifestController {
       ...(params.now ? { now: params.now } : {}),
     });
     if (!replay.ok) {
+      if (durableCheckpoint && checkpointIsAheadOf(durableCheckpoint, params.anchor)) {
+        throw new Error(`Stored protocol manifest archive cannot reproduce the monotonic checkpoint: ${replay.reason}`);
+      }
       archive = bundled;
       const bundledReplay = await verifyProtocolManifestChain({
         state: cloneState(params.anchor),
@@ -67,7 +75,9 @@ export class ProtocolManifestController {
         ...(params.now ? { now: params.now } : {}),
       });
       if (!bundledReplay.ok) throw new Error(`Invalid bundled protocol manifest chain: ${bundledReplay.reason}`);
+      assertCheckpointNotRolledBack(durableCheckpoint, bundledReplay.state);
       writeStoredArchive(params.storage, archive);
+      writeStoredCheckpoint(params.storage, bundledReplay.state);
       return new ProtocolManifestController(
         cloneState(params.anchor),
         params.runtimePolicy,
@@ -77,7 +87,9 @@ export class ProtocolManifestController {
         bundledReplay.compatibility,
       );
     }
+    assertCheckpointNotRolledBack(durableCheckpoint, replay.state);
     writeStoredArchive(params.storage, archive);
+    writeStoredCheckpoint(params.storage, replay.state);
     return new ProtocolManifestController(
       cloneState(params.anchor),
       params.runtimePolicy,
@@ -107,6 +119,37 @@ export class ProtocolManifestController {
   isRoomExchangeAllowed(now: Date = new Date()): boolean {
     const status = this.currentCompatibility(now).status;
     return status === 'compatible' || status === 'pending-activation';
+  }
+
+  /**
+   * Resolve the room data-plane checkpoint for `now`. A verified future manifest is advertised as
+   * the accepted sequence/hash during its grace period while the old epoch/capacity stay active.
+   */
+  roomCheckpoint(
+    baseline: RoomProtocolCheckpoint,
+    now: Date = new Date(),
+  ): RoomProtocolCheckpoint {
+    if (baseline.networkId !== this.state.networkId) throw new Error('baseline protocol network mismatch');
+    const compatibility = this.currentCompatibility(now);
+    if (compatibility.status === 'update-required' || compatibility.status === 'retired') {
+      throw new Error(`room exchange is ${compatibility.status}`);
+    }
+    const latest = this.state.latestManifest;
+    const activated = !!latest && now.getTime() >= Date.parse(latest.effectiveAt);
+    return {
+      networkId: this.state.networkId,
+      protocolEpoch: activated ? latest.protocolEpoch : baseline.protocolEpoch,
+      manifestSequence: this.state.sequence,
+      manifestHash: this.state.manifestHash,
+      chatroomCapacity: activated ? latest.chatroomCapacity : baseline.chatroomCapacity,
+    };
+  }
+
+  nextActivationAt(now: Date = new Date()): Date | null {
+    const effectiveAt = this.state.latestManifest?.effectiveAt;
+    if (!effectiveAt) return null;
+    const value = Date.parse(effectiveAt);
+    return Number.isFinite(value) && value > now.getTime() ? new Date(value) : null;
   }
 
   manifestSuffixAfter(sequence: number, manifestHash: string): SignedProtocolManifest[] | null {
@@ -142,6 +185,7 @@ export class ProtocolManifestController {
       this.state = cloneState(result.state);
       this.compatibility = result.compatibility || this.compatibilityFor(this.state, now);
       writeStoredArchive(this.storage, this.archive);
+      writeStoredCheckpoint(this.storage, this.state);
     }
     return result;
   }
@@ -155,6 +199,44 @@ export class ProtocolManifestController {
       return { status: 'compatible', reasons: [] };
     }
     return evaluateProtocolManifestCompatibility(state.latestManifest, this.runtimePolicy, now);
+  }
+}
+
+function readStoredCheckpoint(storage?: ManifestStorage): ProtocolManifestTrustState | null {
+  if (!storage) return null;
+  let raw: string | null;
+  try {
+    raw = storage.getItem(PROTOCOL_MANIFEST_CHECKPOINT_STORAGE_KEY);
+  } catch (error) {
+    throw new Error(`Cannot read the durable protocol manifest checkpoint: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!raw) return null;
+  if (raw.length > MAX_STORED_MANIFEST_ARCHIVE_BYTES) {
+    throw new Error('Stored protocol manifest checkpoint exceeds its size bound');
+  }
+  const parsed = parseProtocolManifestTrustState(raw);
+  if (!parsed) throw new Error('Stored protocol manifest checkpoint is invalid');
+  return parsed;
+}
+
+function writeStoredCheckpoint(storage: ManifestStorage | undefined, state: ProtocolManifestTrustState): void {
+  if (!storage) return;
+  storage.setItem(PROTOCOL_MANIFEST_CHECKPOINT_STORAGE_KEY, serializeProtocolManifestTrustState(state));
+}
+
+function checkpointIsAheadOf(checkpoint: ProtocolManifestTrustState, state: ProtocolManifestTrustState): boolean {
+  return checkpoint.networkId === state.networkId && checkpoint.sequence > state.sequence;
+}
+
+function assertCheckpointNotRolledBack(
+  checkpoint: ProtocolManifestTrustState | null,
+  replayed: ProtocolManifestTrustState,
+): void {
+  if (!checkpoint) return;
+  if (checkpoint.networkId !== replayed.networkId) throw new Error('Stored protocol checkpoint network mismatch');
+  if (replayed.sequence < checkpoint.sequence) throw new Error('Protocol manifest rollback detected in durable storage');
+  if (replayed.sequence === checkpoint.sequence && replayed.manifestHash !== checkpoint.manifestHash) {
+    throw new Error('Protocol manifest same-sequence fork detected in durable storage');
   }
 }
 

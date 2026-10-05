@@ -50,12 +50,16 @@ import type {
 import {
   createPeerAckMessage,
   createPresenceRecord,
+  isAuthenticRoomScope,
   listNearbyPresence,
   prunePresenceRecords,
   verifySignedPeerAckMessage,
+  verifySignedRoomPresenceRecord,
   type PeerAckMessage,
   type PresenceRecord,
 } from '../../shared/p2p-presence';
+import type { ActiveRoomScope } from '../../shared/active-exchange-room';
+import { CONFIG } from '../../shared/config';
 import { TechSupportMessageStore, type TechSupportStoredMessage } from '../services/techsupport-message-store';
 import type { TechSupportDurableStore } from '../services/techsupport-durable-store';
 import { BoundedNonceCache, P2PAbuseDefenseContext } from '../../shared/p2p-abuse-defense';
@@ -75,6 +79,21 @@ import {
   verifyFaqEntry,
   type SignedFaqEntry,
 } from '../../shared/techsupport-faq-entry';
+
+function roomScopeFromPresenceQuery(value: unknown): ActiveRoomScope | null {
+  if (!value || typeof value !== 'object') return null;
+  const query = value as Record<string, unknown>;
+  const scope: ActiveRoomScope = {
+    roomId: String(query.roomId || ''),
+    roomToken: String(query.roomToken || ''),
+    tokenExpiresAt: String(query.tokenExpiresAt || ''),
+    networkId: String(query.networkId || ''),
+    protocolEpoch: Number(query.protocolEpoch),
+    manifestSequence: Number(query.manifestSequence),
+    manifestHash: String(query.manifestHash || ''),
+  };
+  return isAuthenticRoomScope(scope) ? scope : null;
+}
 import {
   RECOVERY_ANCHOR_HISTORY_ROOT,
   recoveryAnchorPath,
@@ -255,19 +274,33 @@ export function registerSystemRoutes(
   });
 
   // Relay hub APIs (production + dev) — presence, TechSupport store, P2P signaling
-  app.post('/api/presence/register', (req, res) => {
+  app.post('/api/presence/register', async (req, res) => {
     try {
       prunePresence();
       const body = req.body || {};
-      const record = createPresenceRecord({
-        userId: String(body.userId || ''),
-        pub: String(body.pub || ''),
-        ...(body.epub ? { epub: String(body.epub) } : {}),
-        ...(body.encryptedLocation ? { encryptedLocation: String(body.encryptedLocation) } : {}),
-        ...(Array.isArray(body.capabilities)
-          ? { capabilities: body.capabilities.map(String) }
-          : {}),
-      });
+      let record: PresenceRecord;
+      if (body.version === 2) {
+        const verified = await verifySignedRoomPresenceRecord(body);
+        if (!verified.ok) {
+          res.status(400).json({ error: verified.reason });
+          return;
+        }
+        record = verified.record;
+      } else {
+        if (process.env.NODE_ENV === 'production') {
+          res.status(400).json({ error: 'signed active-room presence is required' });
+          return;
+        }
+        record = createPresenceRecord({
+          userId: String(body.userId || ''),
+          pub: String(body.pub || ''),
+          ...(body.epub ? { epub: String(body.epub) } : {}),
+          ...(body.encryptedLocation ? { encryptedLocation: String(body.encryptedLocation) } : {}),
+          ...(Array.isArray(body.capabilities)
+            ? { capabilities: body.capabilities.map(String) }
+            : {}),
+        });
+      }
       presenceByUserId.set(record.userId, record);
       res.json({ stored: true, record });
     } catch (error) {
@@ -277,9 +310,19 @@ export function registerSystemRoutes(
 
   app.get('/api/presence/nearby', (req, res) => {
     prunePresence();
-    const limit = req.query.limit ? Number(req.query.limit) : 50;
-    const nearbyOpts: { excludeUserId?: string; limit?: number } = { limit };
+    const requestedLimit = req.query.limit ? Number(req.query.limit) : 50;
+    const limit = Math.max(1, Math.min(
+      CONFIG.CHATROOM_MAX_CAPACITY,
+      Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 50,
+    ));
+    const nearbyOpts: { excludeUserId?: string; limit?: number; roomScope?: ActiveRoomScope } = { limit };
     if (req.query.excludeUserId) nearbyOpts.excludeUserId = String(req.query.excludeUserId);
+    const roomScope = roomScopeFromPresenceQuery(req.query);
+    if (roomScope) nearbyOpts.roomScope = roomScope;
+    else if (process.env.NODE_ENV === 'production') {
+      res.status(400).json({ error: 'active room scope is required' });
+      return;
+    }
     const peers = listNearbyPresence(presenceByUserId, nearbyOpts);
     res.json({ peers, count: peers.length });
   });

@@ -2,7 +2,7 @@ import { DEFAULT_FORWARDING_SETTINGS, MeshForwardingPolicy, classifyForwardingFr
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 
 function frame(overrides: Partial<P2PMeshFrame> = {}): P2PMeshFrame {
-  return { version: 1, kind: 'talk-body', msgId: 'm1', roomId: 'global', originUserId: 'alice', originPub: 'alice-pub', recipientUserId: 'bob', createdAt: new Date().toISOString(), ttlHops: 5, payload: { talkId: 't', authorId: 'alice', authorName: 'Alice', title: 'T', questionCount: 1, talkData: {} }, ...overrides };
+  return { version: 1, kind: 'talk-body', msgId: 'm1', roomId: 'global', originUserId: 'alice', originPub: 'alice-pub', recipientUserId: 'bob', createdAt: new Date().toISOString(), ttlHops: 5, payload: { roomId: 'global', broadcastAt: new Date().toISOString(), talkId: 't', authorId: 'alice', authorName: 'Alice', title: 'T', questionCount: 1, talkData: {} }, ...overrides };
 }
 
 describe('configurable mesh forwarding policy', () => {

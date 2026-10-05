@@ -7,7 +7,8 @@ import type {
 } from './peer-discovery-provider';
 
 export const DISCOVERY_LIMITS = {
-  candidates: 500,
+  /** Hard global protocol capacity: discovery never holds a broader local room roster. */
+  candidates: 498,
   addressesPerCandidate: 8,
   capabilitiesPerCandidate: 32,
   roomsPerCandidate: 32,
@@ -28,6 +29,7 @@ export class PeerDiscoveryManager {
   private readonly listeners = new Set<CandidateListener>();
   private readonly unsubscribes: Unsubscribe[] = [];
   private readonly rateWindows = new Map<string, number[]>();
+  private activeRoomId: string | null = null;
 
   constructor(
     private readonly providers: readonly PeerDiscoveryProvider[],
@@ -38,6 +40,15 @@ export class PeerDiscoveryManager {
   }
 
   async start(context: PeerDiscoveryStartContext): Promise<void> {
+    const activeRoomId = context.activeRoomId?.trim();
+    if (!activeRoomId || context.roomIds.length !== 1 || context.roomIds[0] !== activeRoomId) {
+      throw new Error('peer discovery requires exactly one active room');
+    }
+    if (this.activeRoomId !== activeRoomId) {
+      this.candidates.clear();
+      this.rateWindows.clear();
+    }
+    this.activeRoomId = activeRoomId;
     if (this.unsubscribes.length === 0) {
       for (const provider of this.providers) {
         this.unsubscribes.push(provider.subscribeCandidates((candidate) => this.ingest(candidate)));
@@ -49,6 +60,9 @@ export class PeerDiscoveryManager {
   async stop(): Promise<void> {
     await Promise.allSettled(this.providers.map((provider) => provider.stop()));
     while (this.unsubscribes.length) this.unsubscribes.pop()?.();
+    this.candidates.clear();
+    this.rateWindows.clear();
+    this.activeRoomId = null;
   }
 
   subscribe(listener: CandidateListener): Unsubscribe {
@@ -66,7 +80,11 @@ export class PeerDiscoveryManager {
 
   private ingest(raw: ConnectivityCandidate): void {
     const candidate = validateAndNormalizeCandidate(raw, this.now());
-    if (!candidate || !this.withinRateLimit(candidate.sourceInstanceId)) return;
+    if (!candidate
+      || !this.activeRoomId
+      || candidate.roomIds.length !== 1
+      || candidate.roomIds[0] !== this.activeRoomId
+      || !this.withinRateLimit(candidate.sourceInstanceId)) return;
     this.pruneExpired();
     const key = candidateDedupKey(candidate);
     const existing = this.candidates.get(key);
@@ -115,12 +133,14 @@ export function validateAndNormalizeCandidate(
   const addresses = uniqueBy(raw.addresses.filter((value) => !!value && typeof value.kind === 'string' && typeof value.value === 'string'), (value) => `${value.kind}:${value.value}`)
     .filter((value) => value.value.length > 0 && value.value.length <= DISCOVERY_LIMITS.fieldLength)
     .slice(0, DISCOVERY_LIMITS.addressesPerCandidate);
+  const roomIds = uniqueStrings(raw.roomIds).slice(0, DISCOVERY_LIMITS.roomsPerCandidate);
+  if (roomIds.length !== 1) return null;
   return {
     ...raw,
     candidateId: raw.candidateId.slice(0, DISCOVERY_LIMITS.fieldLength),
     addresses,
     capabilities: uniqueStrings(raw.capabilities).slice(0, DISCOVERY_LIMITS.capabilitiesPerCandidate),
-    roomIds: uniqueStrings(raw.roomIds).slice(0, DISCOVERY_LIMITS.roomsPerCandidate),
+    roomIds,
   };
 }
 

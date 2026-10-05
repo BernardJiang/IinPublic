@@ -192,15 +192,15 @@ describe('ChatroomManager visit accounting', () => {
       .toMatchObject({ count: 1 });
   });
 
-  it('retains visitor history when a custom room is soft deleted', async () => {
+  it('retains visitor history because participants cannot delete an immutable room', async () => {
     const manager = buildManager();
     await manager.createChatroom({ id: 'room_2', name: 'Retired Room', type: 'custom', createdBy: 'owner' });
     await manager.joinChatroom('room_2', 'user_1', 'Tom');
-    await manager.deleteChatroom('room_2', 'owner');
+    await expect(manager.deleteChatroom('room_2', 'owner')).rejects.toThrow('no owner');
 
-    expect(await manager.getAllChatrooms()).toEqual([]);
+    expect(await manager.getAllChatrooms()).toEqual([expect.objectContaining({ id: 'room_2' })]);
     expect(await manager.getChatroom('room_2')).toMatchObject({
-      isActive: false,
+      isActive: true,
       visitCount: 1,
       uniqueVisitorCount: 1,
     });

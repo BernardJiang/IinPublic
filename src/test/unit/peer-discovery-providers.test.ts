@@ -21,11 +21,11 @@ describe('peer discovery provider adapters', () => {
     'common provider contract: %s', async (source) => {
       const providerId = `${source}-contract`;
       const baseSource = source === 'hub-presence' ? 'known-peer' : source;
-      const value = { ...transportCandidate({ providerId, source: baseSource, transportId: 'peer' }), source };
+      const value = { ...transportCandidate({ providerId, source: baseSource, transportId: 'peer', roomIds: ['global'] }), source };
       const provider = new PollingPeerDiscoveryProvider({ providerId, source, poll: async () => [value], intervalMs: 60_000 });
       const received: string[] = [];
       const unsubscribe = provider.subscribeCandidates((item) => received.push(item.candidateId));
-      await provider.start({ localSeaPub: 'alice', roomIds: [] });
+      await provider.start({ localSeaPub: 'alice', activeRoomId: 'global', roomIds: ['global'] });
       unsubscribe();
       await provider.stop();
       expect(received).toEqual([value.candidateId]);
@@ -39,7 +39,7 @@ describe('peer discovery provider adapters', () => {
     const valid = await issueConnectivityBinding({ pair, connectivityKind: 'libp2p-peer', connectivityId: 'peer-ok', sequence: 1, issuedAt: now });
     const forged = { ...valid, connectivityId: 'peer-attacker', sequence: 2 };
     const poll = authenticatedGossipPoll('gossip', async () => [forged, valid], new ConnectivityBindingVerifier(() => true), () => now);
-    const candidates = await poll({ localSeaPub: 'local', roomIds: ['global'] });
+    const candidates = await poll({ localSeaPub: 'local', activeRoomId: 'global', roomIds: ['global'] });
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({ seaPub: pair.pub, transportId: 'peer-ok', source: 'discovery-gossip' });
   });

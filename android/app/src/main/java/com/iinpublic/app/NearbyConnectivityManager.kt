@@ -107,13 +107,14 @@ class NearbyConnectivityManager(
      * unique service name and carries its rotating nearby id in the TXT record; resolves run one at
      * a time (Android < 14 rejects a second concurrent resolve with FAILURE_ALREADY_ACTIVE).
      */
-    fun startNsd(port: Int, nearbyId: String = "") {
+    fun startNsd(port: Int, nearbyId: String = "", roomTokenPrefix: String = "") {
         stopNsd()
         val manager = context.getSystemService(NsdManager::class.java)
         val suffix = nearbyId.takeIf { it.matches(Regex("^[0-9a-f]{12}$")) } ?: UUID.randomUUID().toString().replace("-", "").take(12)
         val registration = NsdServiceInfo().apply {
             serviceName = "$SERVICE_NAME-$suffix"; serviceType = NSD_TYPE; setPort(port)
             if (nearbyId.isNotEmpty()) setAttribute("id", nearbyId)
+            if (roomTokenPrefix.matches(Regex("^[0-9a-f]{8}$"))) setAttribute("r", roomTokenPrefix)
             setAttribute("v", "1")
         }
         nsdRegisteredName = registration.serviceName
@@ -181,7 +182,10 @@ class NearbyConnectivityManager(
                     val id = info.attributes["id"]?.decodeToString()?.takeIf { it.matches(idPattern) }
                         ?: info.serviceName.substringAfterLast('-').takeIf { it.matches(idPattern) }
                         ?: info.serviceName
-                    listener.onCandidate("mdns", id, "http://${address.hostAddress}:${info.port}/gun", listOf("ip", "gun-websocket"))
+                    val roomPrefix = runCatching { info.attributes["r"]?.decodeToString().orEmpty() }.getOrDefault("")
+                    val capabilities = mutableListOf("ip", "gun-websocket")
+                    if (roomPrefix.matches(Regex("^[0-9a-f]{8}$"))) capabilities += "room-token:$roomPrefix"
+                    listener.onCandidate("mdns", id, "http://${address.hostAddress}:${info.port}/gun", capabilities)
                 }
                 resolveNext(manager)
             } }

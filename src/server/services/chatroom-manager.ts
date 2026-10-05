@@ -1,8 +1,9 @@
-import type { GPSCoordinate, CommunityRole, CommunityRoleRecord } from '../../shared/types';
+import type { GPSCoordinate } from '../../shared/types';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
+import { randomBytes } from 'crypto';
+import { portableSha256Hex } from '../../shared/portable-sha256';
 import { GunService } from './gun-service';
 import { PresenceDurableStore, type PresenceMember } from './presence-durable-store';
-import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import { isTechSupportId, TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
 import { techSupportGlobalMemberFields } from '../../shared/techsupport-graph';
@@ -21,6 +22,11 @@ import {
   visitCounterPath,
   visitTotalsWithPruned,
 } from '../../shared/visit-counter';
+
+function withoutLegacyRoomAuthority(meta: Record<string, unknown>): Record<string, unknown> {
+  const { capacity: _capacity, ownerId: _ownerId, owner: _owner, moderator: _moderator, ...safe } = meta;
+  return safe;
+}
 
 export class ChatroomManager {
   private fastActiveMembers = new Map<string, Map<string, { userId: string; stageName: string; lastSeen: string }>>();
@@ -273,12 +279,12 @@ export class ChatroomManager {
           meta = await this.getPathWithRetry(['chatroomMeta', id], 1, 50);
         }
         if (!meta || typeof meta !== 'object' || meta['#'] != null) continue;
-        metaById.set(id, meta);
+        metaById.set(id, withoutLegacyRoomAuthority(meta));
       }
     }
     // … then the authoritative in-process cache overrides the mirror.
     for (const [id, meta] of this.roomMetaCache.entries()) {
-      metaById.set(id, meta);
+      metaById.set(id, withoutLegacyRoomAuthority(meta));
     }
     const list: any[] = [];
     for (const [id, meta] of metaById.entries()) {
@@ -288,7 +294,6 @@ export class ChatroomManager {
         name: meta?.name || id,
         type: meta?.type || 'location',
         description: meta?.description || '',
-        capacity: Number(meta?.capacity || 0) || 0,
         createdBy: meta?.createdBy,
         createdAt: meta?.createdAt,
         isActive: meta?.isActive !== false,
@@ -319,7 +324,7 @@ export class ChatroomManager {
     const totals = visitTotalsWithPruned(readVisitCounterState(counterRaw), readPrunedVisitAggregate(prunedRaw));
     return {
       id: chatroomId,
-      ...meta,
+      ...withoutLegacyRoomAuthority(meta),
       visitCount: totals.visitCount,
       uniqueVisitorCount: totals.uniqueVisitorCount,
     };
@@ -331,23 +336,22 @@ export class ChatroomManager {
     type: 'business' | 'custom';
     createdBy: string;
     description?: string;
-    capacity?: number;
     businessInfo?: any;
     location?: ChatroomMapLocation;
   }): Promise<any> {
-    // FR-CR-11: derive a content-addressed ID when the caller doesn't provide one.
-    // For business/custom rooms created by a known user we use deriveCommunityId
-    // so the address is self-certifying. Fallback to a random ID for anonymous creation.
-    const id = String(params.id || '').trim() ||
-      (params.createdBy
-        ? deriveCommunityId(params.createdBy, params.name)
-        : `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+    // Room identity is stable and independent of the publisher. Publishing the descriptor makes
+    // its author the first ordinary participant, not an owner or a permanent authority.
+    const requestedTestId = process.env.NODE_ENV === 'test' ? String(params.id || '').trim() : '';
+    const id = requestedTestId || `room_${portableSha256Hex([
+      'iinpublic:room-id:v1',
+      randomBytes(32).toString('hex'),
+      new Date().toISOString(),
+    ].join(':')).slice(0, 40)}`;
     const room = {
       id,
       name: String(params.name || '').trim(),
       type: params.type,
       description: String(params.description || '').trim(),
-      capacity: Math.max(1, Math.floor(Number(params.capacity || 50))),
       createdBy: params.createdBy,
       businessInfo: params.businessInfo,
       ...(params.location ? { location: params.location } : {}),
@@ -362,66 +366,7 @@ export class ChatroomManager {
     await this.gunService.putPath(['chatrooms', id, 'meta'], room);
     await this.gunService.putPath(['chatroomMeta', id], room);
 
-    // FR-CR-12: creator becomes owner automatically.
-    if (params.createdBy) {
-      await this.setRole(id, params.createdBy, 'owner', params.createdBy);
-    }
-
     return room;
-  }
-
-  // ─── Community ownership methods (FR-CR-12) ────────────────────────────────
-
-  /** Read the stored role for a user in a chatroom. Returns null if no record exists. */
-  async getRole(chatroomId: string, userId: string): Promise<CommunityRole | null> {
-    const path = chatroomRolePath(chatroomId, userId).split('/');
-    const record = await this.gunService.getPath(path);
-    if (!record || typeof record.role !== 'string') return null;
-    return record.role as CommunityRole;
-  }
-
-  /**
-   * Assign a role to a user.
-   * @param actorUserId  The user performing the assignment (must have canAssignRole permission).
-   *                     Pass the same value as userId when called internally (e.g. on room creation).
-   */
-  async setRole(
-    chatroomId: string,
-    userId: string,
-    role: CommunityRole,
-    actorUserId: string,
-  ): Promise<CommunityRoleRecord> {
-    // Internal bootstrap: owner sets their own role — always allowed.
-    if (actorUserId !== userId) {
-      const actorRole = await this.getRole(chatroomId, actorUserId);
-      if (!actorRole || !canAssignRole(actorRole, role)) {
-        throw new Error(
-          `actor ${actorUserId} with role '${actorRole ?? 'none'}' cannot assign role '${role}'`,
-        );
-      }
-    }
-    const record: CommunityRoleRecord = {
-      chatroomId,
-      userId,
-      role,
-      assignedAt: Date.now(),
-      assignedBy: actorUserId,
-    };
-    const path = chatroomRolePath(chatroomId, userId).split('/');
-    await this.gunService.putPath(path, record);
-    return record;
-  }
-
-  /**
-   * Return true if the user may broadcast a talk in this chatroom.
-   * Unknown users (no role record) are treated as guests (cannot broadcast).
-   */
-  async canUserBroadcast(chatroomId: string, userId: string): Promise<boolean> {
-    const role = await this.getRole(chatroomId, userId);
-    // No role record → treat as guest (most restrictive)
-    if (!role) return false;
-    const { getRoleCapabilities } = await import('../../shared/chatroom-hierarchy');
-    return getRoleCapabilities(role).canBroadcast;
   }
 
   async updateChatroom(
@@ -431,33 +376,16 @@ export class ChatroomManager {
       name?: string;
       description?: string;
       isActive?: boolean;
-      capacity?: number;
       location?: ChatroomMapLocation | null;
     },
   ): Promise<any> {
-    const existing = await this.getChatroom(chatroomId);
-    if (!existing) throw new Error('chatroom not found');
-    if (existing.createdBy && existing.createdBy !== actorUserId) {
-      throw new Error('only creator can update chatroom');
-    }
-    const next = {
-      ...existing,
-      ...(updates.name != null ? { name: String(updates.name).trim() } : {}),
-      ...(updates.description != null ? { description: String(updates.description).trim() } : {}),
-      ...(updates.isActive != null ? { isActive: !!updates.isActive } : {}),
-      ...(updates.capacity != null ? { capacity: Math.max(1, Math.floor(Number(updates.capacity))) } : {}),
-      ...(updates.location !== undefined ? { location: updates.location ?? undefined } : {}),
-      updatedAt: new Date().toISOString(),
-    };
-    if (!next.name) throw new Error('chatroom name is required');
-    this.roomMetaCache.set(chatroomId, next);
-    await this.gunService.putPath(['chatrooms', chatroomId, 'meta'], next);
-    await this.gunService.putPath(['chatroomMeta', chatroomId], next);
-    return next;
+    void chatroomId; void actorUserId; void updates;
+    throw new Error('room descriptors are immutable; publish a new room descriptor');
   }
 
   async deleteChatroom(chatroomId: string, actorUserId: string): Promise<void> {
-    await this.updateChatroom(chatroomId, actorUserId, { isActive: false });
+    void chatroomId; void actorUserId;
+    throw new Error('rooms have no owner and cannot be deleted by a participant');
   }
 
   async getActiveMembersWithStageName(chatroomId: string): Promise<Array<{ userId: string; stageName: string }>> {

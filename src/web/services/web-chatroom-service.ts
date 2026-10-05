@@ -17,8 +17,10 @@ import {
   type PrunedVisitAggregate,
   type VisitCounterSlot,
 } from '../../shared/visit-counter';
-import type { ChallengeGateConfig } from '../../shared/challenge-plugins';
-import { getChallengePlugin } from '../../shared/challenge-plugins';
+import type {
+  ActivateRoomInput,
+  ActiveExchangeRoomController,
+} from '../../shared/active-exchange-room';
 
 /**
  * Membership heartbeat cadence. Every member re-publishes its roster record this often and every
@@ -91,6 +93,8 @@ export class WebChatroomService {
    */
   private moveQueue: Promise<unknown> = Promise.resolve();
   private manualMovesPending = 0;
+  private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
+  private activeRoomInput: ((roomId: string) => ActivateRoomInput) | null = null;
 
   /** FIFO capacity: notice-driven, self-eviction cascade (see chatroom-capacity-controller.ts). */
   private capacity: ChatroomCapacityController;
@@ -101,6 +105,8 @@ export class WebChatroomService {
       fifoEnabled: () => CONFIG.CHATROOM_ENABLE_FIFO,
       isHierarchyRoom: (roomId) => getAllChatroomIds().includes(roomId),
       isFreshMember: (memberData) => this.isFreshActiveMember(memberData),
+      getCapacity: () => this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
+        ?? CONFIG.CHATROOM_MAX_CAPACITY,
       getCurrentRoom: () => this.currentChatroomId,
       getLocation: (userId) => this.userLocations.get(userId),
       getStageName: (userId) => this.membershipStageNameResolver?.() || this.membershipHeartbeatStageName || userId,
@@ -111,6 +117,14 @@ export class WebChatroomService {
 
   setMembershipStageNameResolver(resolver: () => string): void {
     this.membershipStageNameResolver = resolver;
+  }
+
+  configureActiveExchangeRoom(
+    controller: ActiveExchangeRoomController,
+    inputForRoom: (roomId: string) => ActivateRoomInput,
+  ): void {
+    this.activeExchangeRoomController = controller;
+    this.activeRoomInput = inputForRoom;
   }
 
   private resolveApiBase(): string {
@@ -705,8 +719,9 @@ export class WebChatroomService {
 
   /**
    * Manual room switch. Atomic with respect to every other move: it waits for any move already
-   * running, always wins over an eviction that has not started, and puts the user back in the room
-   * they came from if the new join fails, so nobody is left in no room.
+   * running and always wins over an eviction that has not started. The old room is stopped before
+   * the new room starts. If the new join fails, the client remains disconnected; silently restoring
+   * the old room would broaden traffic behind the user's back and violate the one-active-room rule.
    */
   async switchChatroom(userId: string, newChatroomId: string, stageName?: string): Promise<void> {
     this.manualMovesPending += 1;
@@ -717,12 +732,18 @@ export class WebChatroomService {
         // fast path re-records a visit unconditionally (needed for the page-reload case,
         // where a fresh service instance has no currentChatroomId to compare against).
         if (from === newChatroomId) return;
-        if (from) await this.leaveChatroom(from, userId);
-        try {
+        const moveMembership = async () => {
+          if (from) await this.leaveChatroom(from, userId);
+          this.currentChatroomId = newChatroomId;
           await this.joinChatroom(newChatroomId, userId, stageName);
-        } catch (error) {
-          if (from) await this.joinChatroom(from, userId, stageName).catch(() => undefined);
-          throw error;
+        };
+        if (this.activeExchangeRoomController && this.activeRoomInput) {
+          await this.activeExchangeRoomController.transitionTo(
+            this.activeRoomInput(newChatroomId),
+            moveMembership,
+          );
+        } else {
+          await moveMembership();
         }
       });
     } finally {
@@ -745,14 +766,14 @@ export class WebChatroomService {
     return this.runMove(async () => {
       if (this.manualMovesPending > 0 || this.currentChatroomId !== from) return false;
       await this.leaveChatroom(from, userId);
+      this.currentChatroomId = child;
       const gun = this.gunService.getGun();
       gun.get('chatrooms').get(from).get('users').get(userId).put({ movedTo: child });
       gun.get('chatrooms').get(from).get('locations').get(userId).put(null);
       try {
         await this.joinChatroom(child, userId, stageName, onMoved);
       } catch (error) {
-        console.warn(`Eviction join into ${child} failed; returning ${userId} to ${from}`, error);
-        await this.joinChatroom(from, userId, stageName, onMoved).catch(() => undefined);
+        console.warn(`Eviction join into ${child} failed; ${userId} remains disconnected`, error);
         return false;
       }
       return true;
@@ -1027,66 +1048,6 @@ export class WebChatroomService {
 
   getCurrentChatroomId(): string | undefined {
     return this.currentChatroomId;
-  }
-
-  // ─── Zone-B Challenge Plugin Configuration (FR-CPF-04) ────────────────────
-
-  /**
-   * Store per-chatroom plugin configuration in zone-B (~{ownerPub}/private/chatroom-config/<chatroomId>/challengePlugins).
-   * This allows chatroom owners to enable/disable plugins without server restart.
-   *
-   * @param chatroomId The chatroom identifier
-   * @param pluginIds Array of plugin IDs to enable for this chatroom
-   */
-  async setChallengeConfig(chatroomId: string, pluginIds: string[]): Promise<void> {
-    const path = `chatroom-config/${chatroomId}/challengePlugins`;
-    // Gun cannot store nested arrays; serialize as JSON string per CLAUDE.md pattern
-    const data = {
-      pluginIdsJson: JSON.stringify(pluginIds),
-      updatedAt: new Date().toISOString(),
-    };
-    await this.gunService.putPrivate(path, data);
-  }
-
-  /**
-   * Read and resolve per-chatroom challenge plugin configuration from zone-B.
-   * Returns a ChallengeGateConfig ready for runChallengeGate, or null if no config exists.
-   *
-   * @param chatroomId The chatroom identifier
-   * @returns ChallengeGateConfig | null
-   */
-  async getChallengeConfig(chatroomId: string): Promise<ChallengeGateConfig | null> {
-    try {
-      const path = `chatroom-config/${chatroomId}/challengePlugins`;
-      const data = await this.gunService.getPrivate(path);
-      if (!data || typeof data !== 'object') return null;
-
-      let pluginIds: string[] = [];
-      if (typeof data.pluginIdsJson === 'string') {
-        try {
-          pluginIds = JSON.parse(data.pluginIdsJson);
-        } catch {
-          return null;
-        }
-      }
-
-      if (!Array.isArray(pluginIds) || pluginIds.length === 0) return null;
-
-      // Resolve plugin instances from the registry
-      const plugins = pluginIds
-        .map((id) => getChallengePlugin(id))
-        .filter((p) => p !== undefined) as any[];
-
-      if (plugins.length === 0) return null;
-
-      return {
-        plugins,
-        semantics: 'all', // Default to AND semantics; could be extended to store in config
-      };
-    } catch {
-      // Graph lag or auth issue; no config available
-      return null;
-    }
   }
 
   /**

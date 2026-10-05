@@ -341,18 +341,14 @@ export async function readGlobalMembersFromHub(hubPort: number): Promise<Array<{
 }
 
 export async function forceJoinGlobal(page: Page): Promise<void> {
-  await publishCurrentPublicUserForRelay(page);
+  // Use the production ordered room transition so the visible room, chatroom service, active-room
+  // state machine, presence, nearby radios, and mesh all agree. The old helper mutated only the
+  // first two, which correctly caused room-bound mailbox bodies to fail closed in OPEN-37 tests.
+  await forceJoinRoom(page, 'global');
   await page.evaluate(async () => {
     const app = (window as any).__iinpublic_app?.getApp?.();
     const user = app?.currentUser;
     if (!app || !user?.id) return;
-    await Promise.race([
-      Promise.resolve(app.chatroomService?.joinChatroom?.('global', user.id, user.stageName)).catch(() => undefined),
-      // A slow Gun ack does not mean the membership write failed. Continue to
-      // the explicit HTTP membership publish below; the caller subsequently
-      // polls the hub for all seven exact user ids.
-      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 20_000)),
-    ]);
     const apiBase = app.getBackendApiBase?.();
     if (apiBase) {
       await Promise.race([
@@ -364,11 +360,37 @@ export async function forceJoinGlobal(page: Page): Promise<void> {
         new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5_000)),
       ]);
     }
-    app.currentChatroomId = 'global';
-    app.uiManager?.setCurrentChatroomId?.('global');
-    app.chatroomService?.subscribeToMembers?.('global', (members: Array<{ userId: string; stageName: string }>) => {
-      app.uiManager?.updateChatroomMembers?.(members, user.id);
-      app.syncPeerMeshRoom?.('global', members);
-    });
   });
+}
+
+/**
+ * Move a bootstrapped native user through the production one-active-room transition instead of
+ * mutating only the visible room id. OPEN-37 hardware tests use this for opaque synthetic rooms
+ * that are intentionally absent from the navigation tree.
+ */
+export async function forceJoinRoom(page: Page, roomId: string): Promise<void> {
+  await publishCurrentPublicUserForRelay(page);
+  await page.evaluate(async (nextRoomId) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const user = app?.currentUser;
+    if (!app || !user?.id || !nextRoomId) return;
+    await app.chatroomService?.switchChatroom?.(user.id, nextRoomId, user.stageName);
+    app.currentChatroomId = nextRoomId;
+    localStorage.setItem('iinpublic_last_chatroom', nextRoomId);
+    app.uiManager?.setCurrentChatroomId?.(nextRoomId);
+    app.chatroomService?.subscribeToMembers?.(nextRoomId, (members: Array<{ userId: string; stageName: string }>) => {
+      if (app.currentChatroomId !== nextRoomId) return;
+      app.uiManager?.updateChatroomMembers?.(members, user.id);
+      app.syncPeerMeshRoom?.(nextRoomId, members);
+    });
+  }, roomId);
+  await expect.poll(
+    () => page.evaluate((expectedRoomId) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      return app?.currentChatroomId === expectedRoomId
+        && app?.chatroomService?.getCurrentChatroomId?.() === expectedRoomId
+        && app?.peerMeshService?.getDiagnostics?.()?.roomId === expectedRoomId;
+    }, roomId),
+    { timeout: 30_000, message: `native user should activate room ${roomId}` },
+  ).toBe(true);
 }

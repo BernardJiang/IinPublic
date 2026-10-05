@@ -38,6 +38,10 @@ export type P2PProtocolManifestChainPayload = {
 const MAX_PROTOCOL_MANIFEST_CHAIN_PAYLOAD_BYTES = 512 * 1024;
 
 export type P2PMeshTalkAnnouncePayload = {
+  /** Origin room is repeated inside the payload because mailbox fallback has no mesh frame. */
+  roomId: string;
+  /** Reject after a receiver leaves and later re-enters this room; rebroadcast is deliberate. */
+  broadcastAt: string;
   talkId: string;
   authorId: string;
   authorName: string;
@@ -59,6 +63,8 @@ export type P2PMeshTalkAnnouncePayload = {
 
 export type P2PMeshTalkBodyRequestPayload = {
   requestId: string;
+  roomId: string;
+  broadcastAt: string;
   talkId: string;
   authorId: string;
 };
@@ -225,6 +231,8 @@ export function isP2PMeshTalkBodyPayload(
   return (
     !!payload &&
     typeof payload === 'object' &&
+    'roomId' in payload &&
+    'broadcastAt' in payload &&
     'talkId' in payload &&
     'talkData' in payload
   );

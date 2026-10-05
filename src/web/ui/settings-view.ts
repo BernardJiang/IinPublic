@@ -599,6 +599,14 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
           },
           `<div style="display:grid;gap:10px;" data-testid="settings-nearby">
             <div id="settings-nearby-status" role="status" data-testid="settings-nearby-status" style="font-weight:600;"></div>
+            <label>Nearby exchange
+              <select id="settings-nearby-mode" class="form-input" data-testid="settings-nearby-mode">
+                <option value="off" ${connectivity.nearbyMode === 'off' ? 'selected' : ''}>Off</option>
+                <option value="while-open" ${connectivity.nearbyMode === 'while-open' ? 'selected' : ''}>While IinPublic is open</option>
+                <option value="always" ${connectivity.nearbyMode === 'always' ? 'selected' : ''}>Always (persistent notification)</option>
+              </select>
+              <small>Applies to the one active room. Changing rooms is always manual.</small>
+            </label>
             <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
               <input type="checkbox" id="settings-nearby-wifi-direct" ${getNearbyWifiDirectEnabled() ? 'checked' : ''}>
               <span><strong>${deps.t('settingsNearbyWifiDirect')}</strong><br><small>${deps.t('settingsNearbyWifiDirectHelp')}</small></span>
@@ -634,6 +642,13 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <label><input id="settings-connectivity-free-first" type="checkbox" ${connectivity.freeFirst ? 'checked' : ''}> Free routes first</label>
             <label><input id="settings-connectivity-direct-first" type="checkbox" ${connectivity.directFirst ? 'checked' : ''}> Direct routes first</label>
             <label><input id="settings-connectivity-battery-aware" type="checkbox" ${connectivity.batteryAware ? 'checked' : ''}> Battery-aware</label>
+            <label><input id="settings-connectivity-wifi-forwarding" type="checkbox" ${connectivity.wifiOnlyForwarding ? 'checked' : ''}> Forward peer traffic only over Wi-Fi/local routes</label>
+            <label>Identity reveal
+              <select id="settings-connectivity-identity-reveal" class="form-input">
+                <option value="matches-only" ${connectivity.identityReveal === 'matches-only' ? 'selected' : ''}>Only after a Talk match</option>
+                <option value="room-presence" ${connectivity.identityReveal === 'room-presence' ? 'selected' : ''}>Allow room presence identity</option>
+              </select>
+            </label>
             <label>Metered network permission
               <select id="settings-connectivity-metered-permission" class="form-input">
                 ${(['ask', 'allow-once', 'always-allow', 'wait-for-free'] as const).map((permission) => `<option value="${permission}" ${connectivity.meteredPermission === permission ? 'selected' : ''}>${permission.replaceAll('-', ' ')}</option>`).join('')}

@@ -1,4 +1,5 @@
-import { encodeBlePresence, encodeNearbyTxt, OFFLINE_GROUP_CREDENTIALS, rotatingNearbyId } from '../../shared/nearby-offline';
+import { deriveOfflineGroupCredentials, encodeBlePresence, encodeNearbyTxt, rotatingNearbyId } from '../../shared/nearby-offline';
+import { activeRoomScope, BASELINE_ROOM_PROTOCOL_CHECKPOINT } from '../../shared/active-exchange-room';
 import { NearbyOfflineService, type NearbyOfflineBridge, type NearbyReadinessGap } from '../../web/services/nearby-offline-service';
 import type { WifiDirectNative, WifiDirectNativeState } from '../../web/services/wifi-direct-link-service';
 import type { WifiDirectGroupCredentials } from '../../shared/wifi-direct-link';
@@ -28,7 +29,7 @@ function fakeBridge(readiness: Readiness = { permission: true, wifiEnabled: true
   const calls: string[] = [];
   const advertised: Array<Record<string, string>> = [];
   const bridge: NearbyOfflineBridge = {
-    startLanDiscovery: (port, id) => { calls.push(`lan:${port}:${id}`); },
+    startLanDiscovery: (port, id, roomTokenPrefix) => { calls.push(`lan:${port}:${id}:${roomTokenPrefix}`); },
     stopLanDiscovery: () => { calls.push('lan-stop'); },
     advertiseWifiDirectService: (txt) => { advertised.push(JSON.parse(txt)); },
     startWifiDirectServiceDiscovery: () => { calls.push('wd-start'); },
@@ -45,6 +46,18 @@ function fakeBridge(readiness: Readiness = { permission: true, wifiEnabled: true
 const flush = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
 const relayServer = { urls: ['turn:127.0.0.1:3478?transport=udp'], username: 'u', credential: 'c' };
 const hostGroup = { networkName: 'DIRECT-ab-IinPublic', passphrase: '0123456789abcdef0123456789abcdef', frequencyMhz: 5765 };
+const TEST_ROOM_SCOPE = activeRoomScope({
+  version: 1,
+  roomId: 'test-room',
+  enteredAt: new Date(1_000_000).toISOString(),
+  transitionId: 'test',
+  neighborLimit: 12,
+  exchangeState: 'active',
+  ...BASELINE_ROOM_PROTOCOL_CHECKPOINT,
+}, 1_000_000);
+const TEST_GROUP_CREDENTIALS = deriveOfflineGroupCredentials(TEST_ROOM_SCOPE);
+const scopedTxt = (input: Parameters<typeof encodeNearbyTxt>[0]) => encodeNearbyTxt({ ...input, roomToken: TEST_ROOM_SCOPE.roomToken });
+const scopedBle = (input: Parameters<typeof encodeBlePresence>[0]) => encodeBlePresence({ ...input, roomToken: TEST_ROOM_SCOPE.roomToken });
 
 function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDirectAllowed?: boolean } = {}) {
   const events = new EventTarget();
@@ -58,6 +71,7 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
   let hubReachable = options.hubReachable ?? false;
   const service = new NearbyOfflineService({
     localPub: 'local-pub',
+    getRoomScope: () => TEST_ROOM_SCOPE,
     port: 8088,
     bridge,
     native,
@@ -78,7 +92,9 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
     setHub: (value: boolean) => { hubReachable = value; },
     advance: (ms: number) => { now += ms; },
     tick: () => (service as unknown as { tick(): Promise<void> }).tick(),
-    emitLan: (transportId: string, endpoint: string) => events.dispatchEvent(new CustomEvent('iinpublic-nearby-candidate', { detail: { source: 'mdns', transportId, endpoint } })),
+    emitLan: (transportId: string, endpoint: string, roomTokenPrefix = TEST_ROOM_SCOPE.roomToken.slice(0, 8)) => events.dispatchEvent(new CustomEvent('iinpublic-nearby-candidate', {
+      detail: { source: 'mdns', transportId, endpoint, capabilities: ['ip', 'gun-websocket', `room-token:${roomTokenPrefix}`] },
+    })),
     emitPeers: (peers: Array<{ address: string; groupOwner: boolean; type: string }>) => events.dispatchEvent(new CustomEvent('iinpublic-nearby-wd-peers', { detail: { peers } })),
     emitBle: (payload: string) => events.dispatchEvent(new CustomEvent('iinpublic-nearby-ble', { detail: { payload, rssi: -50 } })),
     emitRecord: (txt: Record<string, string>) => events.dispatchEvent(new CustomEvent('iinpublic-nearby-wd-service', { detail: { deviceAddress: 'aa:bb:cc:dd:ee:ff', txt } })),
@@ -89,13 +105,14 @@ describe('NearbyOfflineService', () => {
   it('starts LAN discovery with the rotating id and peers Gun with each LAN phone once', async () => {
     const t = setup({ hubReachable: true });
     await t.service.start();
-    const id = await rotatingNearbyId('local-pub', 1_000_000);
-    expect(t.calls).toContain(`lan:8088:${id}`);
+    const id = await rotatingNearbyId('local-pub', 1_000_000, TEST_ROOM_SCOPE.roomToken);
+    expect(t.calls).toContain(`lan:8088:${id}:${TEST_ROOM_SCOPE.roomToken.slice(0, 8)}`);
     t.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
     t.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
     t.emitLan(id, 'http://192.168.10.35:8088/gun');
     t.emitLan(`iinpublic-v1-${id}`, 'http://192.168.10.34:8088/gun');
     t.emitLan('dddddddddddd', 'http://8.8.8.8:8088/gun');
+    t.emitLan('eeeeeeeeeeee', 'http://192.168.10.72:8088/gun', 'ffffffff');
     expect(t.gunPeers).toEqual(['http://192.168.10.71:8088/gun']);
     t.service.dispose();
   });
@@ -116,15 +133,17 @@ describe('NearbyOfflineService', () => {
     expect(t.gaps).toEqual(['location']);
     expect(t.advertised.at(-1)).toMatchObject({ v: '1', p: '8088', j: '1' });
     // A peer with a higher id appears: this phone (lower id wins ties) hosts.
-    t.emitRecord(encodeNearbyTxt({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, port: 8088 }));
+    t.emitRecord(scopedTxt({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, port: 8088 }));
     await t.tick();
-    expect(t.native.created).toEqual([OFFLINE_GROUP_CREDENTIALS]);
-    // Formed: relay on the group address, ICE server set, credentials advertised.
+    expect(t.native.created).toEqual([TEST_GROUP_CREDENTIALS]);
+    // Formed: relay on the group address and a host hint is advertised, never credentials.
     t.native.set({ state: 'owner', localIp: '192.168.49.1', ownerIp: '192.168.49.1', clientCount: 0, ...t.native.created[0]!, frequencyMhz: 5765 });
     await flush();
     expect(t.relayStarts).toEqual(['192.168.49.1']);
     expect(t.iceServers.at(-1)).toEqual(relayServer);
-    expect(t.advertised.at(-1)).toMatchObject({ n: t.native.created[0]!.networkName, k: t.native.created[0]!.passphrase, f: '5765' });
+    expect(t.advertised.at(-1)).toMatchObject({ h: '1', r: TEST_ROOM_SCOPE.roomToken.slice(0, 8) });
+    expect(t.advertised.at(-1)).not.toHaveProperty('n');
+    expect(t.advertised.at(-1)).not.toHaveProperty('k');
     t.service.dispose();
     expect(t.native.left).toBe(1);
     expect(t.iceServers.at(-1)).toBeNull();
@@ -133,9 +152,9 @@ describe('NearbyOfflineService', () => {
   it('joins an advertised group and peers Gun with the owner node', async () => {
     const t = setup();
     await t.service.start();
-    t.emitRecord(encodeNearbyTxt({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, port: 9090, group: hostGroup }));
+    t.emitRecord(scopedTxt({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, port: 9090, group: hostGroup }));
     await t.tick();
-    expect(t.native.joined).toEqual([hostGroup]);
+    expect(t.native.joined).toEqual([TEST_GROUP_CREDENTIALS]);
     t.native.set({ state: 'client', networkName: hostGroup.networkName, localIp: '192.168.49.185', ownerIp: '192.168.49.1' });
     await flush();
     expect(t.gunPeers).toEqual(['http://192.168.49.1:9090/gun']);
@@ -150,7 +169,7 @@ describe('NearbyOfflineService', () => {
     const t = setup();
     await t.service.start();
     t.emitLan('ffffffffffff', 'http://192.168.10.71:8088/gun');
-    t.emitRecord(encodeNearbyTxt({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, port: 8088 }));
+    t.emitRecord(scopedTxt({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, port: 8088 }));
     await t.tick();
     expect(t.native.created).toHaveLength(0);
     t.service.dispose();
@@ -177,7 +196,7 @@ describe('NearbyOfflineService', () => {
   it('an owner without clients removes its group after a while', async () => {
     const t = setup();
     await t.service.start();
-    t.emitRecord(encodeNearbyTxt({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, port: 8088 }));
+    t.emitRecord(scopedTxt({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, port: 8088 }));
     await t.tick();
     t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...t.native.created[0]! });
     await flush();
@@ -203,30 +222,30 @@ describe('NearbyOfflineService BLE presence', () => {
   it('advertises BLE presence while offline and flips the hosting bit once it owns a group', async () => {
     const t = setup();
     await t.service.start();
-    const id = await rotatingNearbyId('local-pub', 1_000_000);
-    expect(t.calls).toContain(`ble:${encodeBlePresence({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: false })}`);
-    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...OFFLINE_GROUP_CREDENTIALS });
+    const id = await rotatingNearbyId('local-pub', 1_000_000, TEST_ROOM_SCOPE.roomToken);
+    expect(t.calls).toContain(`ble:${scopedBle({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: false })}`);
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...TEST_GROUP_CREDENTIALS });
     await flush();
-    expect(t.calls.at(-1)).toBe(`ble:${encodeBlePresence({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: true })}`);
+    expect(t.calls.at(-1)).toBe(`ble:${scopedBle({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: true })}`);
     t.service.dispose();
     expect(t.calls).toContain('ble-stop');
   });
 
-  it('joins the fixed offline group when a BLE peer says it is hosting', async () => {
+  it('joins the room-scoped rotating group when a BLE peer says it is hosting', async () => {
     const t = setup();
     await t.service.start();
-    t.emitBle(encodeBlePresence({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, hosting: true }));
+    t.emitBle(scopedBle({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, hosting: true }));
     await t.tick();
-    expect(t.native.joined).toEqual([OFFLINE_GROUP_CREDENTIALS]);
+    expect(t.native.joined).toEqual([TEST_GROUP_CREDENTIALS]);
     t.service.dispose();
   });
 
-  it('hosts the fixed offline group when it wins the election against a BLE peer', async () => {
+  it('hosts the room-scoped rotating group when it wins the election against a BLE peer', async () => {
     const t = setup();
     await t.service.start();
-    t.emitBle(encodeBlePresence({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, hosting: false }));
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, hosting: false }));
     await t.tick();
-    expect(t.native.created).toEqual([OFFLINE_GROUP_CREDENTIALS]);
+    expect(t.native.created).toEqual([TEST_GROUP_CREDENTIALS]);
     t.service.dispose();
   });
 
@@ -241,54 +260,17 @@ describe('NearbyOfflineService BLE presence', () => {
 describe('NearbyOfflineService Wi-Fi-only fallback', () => {
   const phone = (address: string, groupOwner = false) => ({ address, groupOwner, type: '10-0050F204-5' });
 
-  it('joins a phone that owns a group even without BLE or DNS-SD, and cools a failed owner down', async () => {
+  it('does not join or host from unscoped phone sightings', async () => {
     const t = setup();
     await t.service.start();
     t.emitPeers([phone('aa:bb:cc:00:00:01', true)]);
     await t.tick();
-    expect(t.native.joined).toEqual([OFFLINE_GROUP_CREDENTIALS]);
-    t.native.set({ state: 'failed', reason: 'join-timeout' });
-    await flush();
-    t.advance(21_000);
-    t.emitPeers([phone('aa:bb:cc:00:00:01', true)]);
-    await t.tick();
-    expect(t.native.joined).toHaveLength(1);
-    t.service.dispose();
-  });
-
-  it('hosts after phones have been visible for the host delay', async () => {
-    const t = setup();
-    await t.service.start();
+    t.emitPeers([phone('aa:bb:cc:00:00:01')]);
+    t.advance(15_000);
     t.emitPeers([phone('aa:bb:cc:00:00:01')]);
     await t.tick();
+    expect(t.native.joined).toHaveLength(0);
     expect(t.native.created).toHaveLength(0);
-    t.advance(15_000);
-    t.emitPeers([phone('aa:bb:cc:00:00:01')]);
-    await t.tick();
-    expect(t.native.created).toEqual([OFFLINE_GROUP_CREDENTIALS]);
-    t.service.dispose();
-  });
-
-  it('an empty fallback group merges into another owner', async () => {
-    const t = setup();
-    await t.service.start();
-    t.emitPeers([phone('aa:bb:cc:00:00:01')]);
-    await t.tick();
-    t.advance(15_000);
-    t.emitPeers([phone('aa:bb:cc:00:00:01')]);
-    await t.tick();
-    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...OFFLINE_GROUP_CREDENTIALS });
-    await flush();
-    t.emitPeers([phone('aa:bb:cc:00:00:01', true)]);
-    await t.tick();
-    t.advance(10_000);
-    t.emitPeers([phone('aa:bb:cc:00:00:01', true)]);
-    await t.tick();
-    expect(t.native.left).toBe(1);
-    t.advance(3_001);
-    t.emitPeers([phone('aa:bb:cc:00:00:01', true)]);
-    await t.tick();
-    expect(t.native.joined).toEqual([OFFLINE_GROUP_CREDENTIALS]);
     t.service.dispose();
   });
 
@@ -296,9 +278,9 @@ describe('NearbyOfflineService Wi-Fi-only fallback', () => {
     const t = setup();
     await t.service.start();
     t.emitPeers([phone('aa:bb:cc:00:00:01', true)]);
-    t.emitBle(encodeBlePresence({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, hosting: false }));
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 1, hosting: false }));
     await t.tick();
-    expect(t.native.created).toEqual([OFFLINE_GROUP_CREDENTIALS]);
+    expect(t.native.created).toEqual([TEST_GROUP_CREDENTIALS]);
     expect(t.native.joined).toHaveLength(0);
     t.service.dispose();
   });
@@ -308,7 +290,7 @@ describe('NearbyOfflineService back online', () => {
   it('leaves the offline group after the hub has been reachable for a minute', async () => {
     const t = setup();
     await t.service.start();
-    t.native.set({ state: 'client', localIp: '192.168.49.185', ownerIp: '192.168.49.1', ...OFFLINE_GROUP_CREDENTIALS });
+    t.native.set({ state: 'client', localIp: '192.168.49.185', ownerIp: '192.168.49.1', ...TEST_GROUP_CREDENTIALS });
     await flush();
     t.setHub(true);
     await t.tick();
@@ -337,7 +319,7 @@ describe('NearbyOfflineService settings switches and status', () => {
   it('turning Wi-Fi Direct off leaves the offline group and stops discovery right away', async () => {
     const t = setup();
     await t.service.start();
-    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 2, ...OFFLINE_GROUP_CREDENTIALS });
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 2, ...TEST_GROUP_CREDENTIALS });
     await flush();
     expect(t.service.getStatus()).toEqual({ kind: 'wifi-direct', hosting: true, phones: 2, lanPhones: 0 });
     t.service.updateSettings({ wifiDirect: false, bluetooth: true });
@@ -379,7 +361,7 @@ describe('NearbyOfflineService on Android 7–9', () => {
     const t = setup();
     t.native.joinByCredential = false;
     await t.service.start();
-    t.emitBle(encodeBlePresence({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, hosting: true }));
+    t.emitBle(scopedBle({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, hosting: true }));
     await t.tick();
     expect(t.native.permissionRequests).toBe(0);
     expect(t.calls).not.toContain('wd-start');
@@ -393,7 +375,7 @@ describe('NearbyOfflineService join retry', () => {
   it('retries a failed join even while native keeps re-sending the failed state', async () => {
     const t = setup();
     await t.service.start();
-    const host = () => t.emitBle(encodeBlePresence({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, hosting: true }));
+    const host = () => t.emitBle(scopedBle({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 1, hosting: true }));
     host();
     await t.tick();
     expect(t.native.joined).toHaveLength(1);
@@ -416,7 +398,7 @@ describe('NearbyOfflineService keeps Gun peers alive', () => {
     const t = setup({ hubReachable: true });
     await t.service.start();
     t.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
-    t.native.set({ state: 'client', localIp: '192.168.49.185', ownerIp: '192.168.49.1', ...OFFLINE_GROUP_CREDENTIALS });
+    t.native.set({ state: 'client', localIp: '192.168.49.185', ownerIp: '192.168.49.1', ...TEST_GROUP_CREDENTIALS });
     await flush();
     t.gunPeers.length = 0;
     await t.tick();

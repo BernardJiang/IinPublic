@@ -19,7 +19,7 @@ describe('PeerMesh frame narrowing and mixed versions', () => {
   });
 
   test('new receiver translates an old body without changing identity or authorship', () => {
-    const translated = translateLegacyTalkBody({ talkId: 'talk-1', authorId: 'alice', authorName: 'Alice', title: 'T', questionCount: 1, talkData: { id: 'talk-1' } });
+    const translated = translateLegacyTalkBody({ roomId: 'global', broadcastAt: new Date().toISOString(), talkId: 'talk-1', authorId: 'alice', authorName: 'Alice', title: 'T', questionCount: 1, talkData: { id: 'talk-1' } });
     expect(translated).toEqual({ talkId: 'talk-1', authorKey: 'alice', talkData: { id: 'talk-1' }, source: 'legacy-talk-body-v1' });
   });
   test('build/runtime preference isolates legacy and Gun-native modes', () => {

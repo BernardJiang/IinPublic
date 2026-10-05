@@ -1,6 +1,43 @@
 # IinPublic Completed Work
 
-Last updated: 2026-09-30
+Last updated: 2026-10-05
+
+## 2026-10-05 — Active chatroom is the hard P2P traffic partition (OPEN-37)
+
+- Added a persisted one-active-room state machine with ordered stop-old → membership move →
+  start-new transitions, crash-safe disconnected recovery, signed expiring room presence, stable
+  FIFO admission time, global capacity `C = 498`, and sparse automatic fanout `K = 12` bounded to
+  8–16. Candidate, roster, neighbor, and synthetic million-user tests prove bounded `O(NK)` work
+  rather than global pairwise discovery.
+- Removed per-room capacity and ownership authority: no owner/moderator/member/guest roles,
+  owner-derived IDs, owner-only rename/delete, or owner-gated challenge policy remain. Custom rooms
+  use random cryptographic IDs, allow duplicate names, and creators are ordinary first members who
+  can be FIFO-evicted without deleting the room.
+- Added the release-1 signed content-addressed protocol-manifest chain, monotonic archive/checkpoint,
+  peer suffix relay before room frames, parameter activation, compatibility/local-only behavior,
+  and separately pinned threshold recovery authorization. Rollback, same-sequence forks, replay,
+  forged links, compromised ordinary keys, recovery-policy rotation, retirement, and mixed epochs
+  fail closed; perpetual legacy availability is the recorded release-1 policy.
+- Room-scoped hub presence, mesh frames, encrypted mailbox Talk bodies, LAN NSD, BLE, and Wi-Fi
+  Direct records now reject missing, expired, or mismatched room scope. Radio records disclose only
+  rotating token prefixes and host hints. Fixed a real three-phone transition race where a mesh
+  with no active room briefly accepted old-room frames; the no-room interval now fails closed.
+- Removed automatic Talk rebroadcast on room entry/new arrivals. A sender's existing Talks do not
+  follow a room switch; reaching the new audience requires an explicit broadcast. Direct contacts,
+  conversations, durable queues, receipts, and dedupe state remain independent of room membership.
+- Moved Android nearby ownership into the user-started `connectedDevice` foreground service with
+  Off / While open / Always modes, active-room notification, native Pause/Stop, and persisted
+  bounded radio checkpoints. Fixed app-wide Wi-Fi Direct credentials by deriving rotating
+  per-room/session credentials; home/work SSIDs and passwords are never requested or advertised.
+- Added saved route/privacy controls for validated and metered paths, forwarding, battery policy,
+  identity reveal, and diagnostics. Android path selection reads actual
+  `NET_CAPABILITY_NOT_METERED` state without prompting during an exchange.
+- Verification: TypeScript, ESLint, Android debug build, unit/integration/abuse coverage, protocol
+  key/recovery/release tools, and the one-million-user topology model pass. A real three-phone run
+  (VOG-L29, C10, FRD-L04) passed in 2.4 minutes: Room A delivered while Room B received nothing;
+  switching alone still delivered nothing; explicit rebroadcast delivered after the switch; all
+  three broadcast concurrently; two continued while one phone was offline; and a Talk created
+  while that phone was offline resynchronized and was completed after reconnection.
 
 ## 2026-09-30 — Version-2 contextual chatbot choice memory
 

@@ -5,24 +5,14 @@ export interface CustomChatroomDraft {
   type: 'business' | 'custom';
   name: string;
   description?: string;
-  capacity?: number;
   businessInfo?: { headline?: string };
 }
 
 export type CustomChatroomDialogText = (key: UiTranslationKey) => string;
-export type CustomChatroomDialogFormatText = (
-  key: UiTranslationKey,
-  values: Record<string, string | number>,
-) => string;
 
 export interface CustomChatroomDialogDeps {
   text: CustomChatroomDialogText;
   showWarning: (message: string) => void;
-}
-
-export interface RenameCustomChatroomDialogOptions extends CustomChatroomDialogDeps {
-  currentName: string;
-  formatText: CustomChatroomDialogFormatText;
 }
 
 export function showCreateCustomChatroomDialog(
@@ -110,67 +100,6 @@ export function showCreateCustomChatroomDialog(
       if (type === 'business' && headline) draft.businessInfo = { headline };
       cleanup();
       resolve(draft);
-    });
-  });
-}
-
-export function showRenameCustomChatroomDialog(
-  options: RenameCustomChatroomDialogOptions,
-): Promise<string | null> {
-  const { currentName, text, formatText, showWarning } = options;
-  return new Promise((resolve) => {
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width:400px;">
-        <div class="modal-header">
-          <h2 class="modal-title">${escapeHtml(text('chatroomRenameTitle'))}</h2>
-          <p class="rename-custom-room-current" style="color:#666;font-size:0.9em;"></p>
-        </div>
-        <form id="rename-custom-chatroom-form">
-          <div class="form-group">
-            <label class="form-label">${escapeHtml(text('chatroomNewName'))}</label>
-            <input type="text" class="form-input" id="rename-custom-room-name" required minlength="2" maxlength="80" data-testid="rename-custom-room-input" />
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn" id="cancel-rename-room-btn" style="background:var(--text-tertiary);">${escapeHtml(text('chatroomCancel'))}</button>
-            <button type="submit" class="btn primary-btn">${escapeHtml(text('chatroomSave'))}</button>
-          </div>
-        </form>
-      </div>`;
-    document.body.appendChild(modal);
-    const currentNameElement = modal.querySelector('.rename-custom-room-current');
-    if (currentNameElement) {
-      currentNameElement.textContent = formatText('chatroomCurrentName', { name: currentName });
-    }
-    (modal.querySelector('#rename-custom-room-name') as HTMLInputElement).value = currentName;
-
-    const cleanup = () => {
-      document.body.removeChild(modal);
-    };
-
-    modal.querySelector('#cancel-rename-room-btn')?.addEventListener('click', () => {
-      cleanup();
-      resolve(null);
-    });
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) {
-        cleanup();
-        resolve(null);
-      }
-    });
-    const form = modal.querySelector('#rename-custom-chatroom-form') as HTMLFormElement;
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
-      const nextName = (
-        modal.querySelector('#rename-custom-room-name') as HTMLInputElement
-      ).value.trim();
-      if (nextName.length < 2) {
-        showWarning(text('chatroomNameTooShort'));
-        return;
-      }
-      cleanup();
-      resolve(nextName);
     });
   });
 }

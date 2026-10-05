@@ -3,10 +3,9 @@ import type { GPSCoordinate } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
 import {
-  capacityOwner,
+  capacityNoticeCoordinator,
   isNoticeForStay,
   overflowMembers,
-  splitOverflowMembers,
   type CapacityMember,
   type EvictionNotice,
 } from '../../shared/chatroom-capacity';
@@ -25,6 +24,8 @@ const FRONTIER_READ_TIMEOUT_MS = 700;
 export interface ChatroomCapacityDeps {
   getGun: () => any;
   fifoEnabled: () => boolean;
+  /** Active global protocol-epoch capacity; never a room metadata value. */
+  getCapacity?: () => number;
   /** True for rooms in the location hierarchy (they have a child room); false for custom/split rooms. */
   isHierarchyRoom: (roomId: string) => boolean;
   /** Same freshness rule the roster uses (drops members whose heartbeat has expired). */
@@ -47,15 +48,15 @@ export interface ChatroomCapacityDeps {
 
 /**
  * Keeps every room at or under the ONE unified capacity (CONFIG.CHATROOM_MAX_CAPACITY) without any
- * referee. Two overflow rules, chosen from the room id alone so every peer agrees:
+ * referee. Every room uses FIFO; room shape only determines the destination:
  *
- *  - Hierarchy rooms (Global, continents, cities...): FIFO down the tree. The room's NEWEST member
- *    is its "owner" and writes an eviction NOTICE for each overflow (oldest) member — one record
- *    per author, so no two peers ever write the same key. The evictee moves ITSELF to the child
- *    room for its own location, ignoring the notice if it has already left (a manual move wins).
- *  - Rooms with no child (custom rooms, the deepest regional room): the newest `n - capacity`
- *    members each move THEMSELVES on to the next numbered room (`x_part_2`, `_part_3`...). Nobody
- *    already inside is disturbed, and no notice is needed.
+ *  - Hierarchy rooms (Global, continents, cities...): FIFO down the tree. The room's newest member
+ *    is the deterministic notice coordinator and writes an eviction NOTICE for each overflow
+ *    (oldest) member — one record per author, so no two peers ever write the same key. This role
+ *    grants no room authority. The evictee moves ITSELF to the child room for its own location,
+ *    ignoring the notice if it has already left (a manual move wins).
+ *  - Rooms with no child (custom rooms, the deepest regional room): an oldest overflow member
+ *    moves itself to the next numbered room (`x_part_2`, `_part_3`...).
  *
  * Either way the move is an ordinary join, so the same check runs in the destination room and the
  * overflow ripples on until no room is over capacity.
@@ -94,12 +95,10 @@ export class ChatroomCapacityController {
     });
     this.offMembers = () => memberSub.off();
 
-    if (this.deps.isHierarchyRoom(roomId)) {
-      const noticeSub = room.get('evictions').get(userId).map().on((notice: any) => {
-        void this.handleNotice(roomId, userId, notice);
-      });
-      this.offNotices = () => noticeSub.off();
-    }
+    const noticeSub = room.get('evictions').get(userId).map().on((notice: any) => {
+      void this.handleNotice(roomId, userId, notice);
+    });
+    this.offNotices = () => noticeSub.off();
 
     // Check once soon after joining even if no other member record ever changes.
     this.scheduleReconcile();
@@ -145,14 +144,9 @@ export class ChatroomCapacityController {
     const members = this.activeMembers();
     // Not visible in our own list yet: wait for our own record to arrive before judging.
     if (!members.some((m) => m.userId === userId)) return;
-    const capacity = CONFIG.CHATROOM_MAX_CAPACITY;
+    const capacity = Math.max(1, Math.floor(this.deps.getCapacity?.() ?? CONFIG.CHATROOM_MAX_CAPACITY));
 
-    if (!this.deps.isHierarchyRoom(roomId)) {
-      await this.reconcileSplitRoom(roomId, userId, members, capacity);
-      return;
-    }
-
-    if (capacityOwner(members) !== userId) return;
+    if (capacityNoticeCoordinator(members) !== userId) return;
     for (const member of overflowMembers(members, capacity)) {
       if (member.userId === userId) continue;
       const key = `${roomId}:${member.userId}:${member.joinedAt}`;
@@ -166,14 +160,6 @@ export class ChatroomCapacityController {
       };
       this.deps.getGun().get('chatrooms').get(roomId).get('evictions').get(member.userId).get(userId).put(notice);
     }
-  }
-
-  /** A room with no child: if I am among the newest overflow members, move myself to the next numbered room. */
-  private async reconcileSplitRoom(roomId: string, userId: string, members: CapacityMember[], capacity: number): Promise<void> {
-    if (!splitOverflowMembers(members, capacity).some((m) => m.userId === userId)) return;
-    if (this.evicting || this.deps.getCurrentRoom() !== roomId) return;
-    const target = await this.chooseSplitTarget(roomId);
-    await this.relocate(roomId, userId, target);
   }
 
   /**
@@ -211,7 +197,9 @@ export class ChatroomCapacityController {
     // Already leaving/left by hand: the notice no longer applies.
     if (this.deps.getCurrentRoom() !== roomId) return;
     const location = this.deps.getLocation(userId);
-    const child = location ? findAppropriateChildChatroom(roomId, location) : null;
+    const child = this.deps.isHierarchyRoom(roomId)
+      ? (location ? findAppropriateChildChatroom(roomId, location) : null)
+      : await this.chooseSplitTarget(roomId);
     if (!child) {
       console.warn(`⚠️  Eviction notice for ${roomId} but no child room is available for ${userId}; staying`);
       return;

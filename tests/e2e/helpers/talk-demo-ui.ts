@@ -931,12 +931,6 @@ export async function findIncomingTalkIdByTitle(page: Page, titleSubstring: stri
           const latest = String(c.latestTalkId || '').trim();
           if (latest) return latest.split('__')[0] || latest;
         }
-        const talkIds = c.talkIds;
-        if (talkIds && typeof talkIds === 'object') {
-          for (const id of Object.keys(talkIds).filter((k) => !k.startsWith('_'))) {
-            return id;
-          }
-        }
       }
       return '';
     }, needle);

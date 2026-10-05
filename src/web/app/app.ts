@@ -30,7 +30,8 @@ import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repos
 import { getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
 import { getMyTalks } from '../ui/my-talks-storage';
-import { loadConnectivitySettings, type ConnectivitySettings } from '../ui/connectivity-settings';
+import { loadConnectivitySettings, routePreferencesFromSettings, type ConnectivitySettings } from '../ui/connectivity-settings';
+import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
@@ -131,6 +132,19 @@ import { getOrCreateP2PSession, listP2PSessions, onP2PSessionCreated, onP2PVersi
 import { WifiDirectLinkService } from '../services/wifi-direct-link-service';
 import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag } from '../services/android-wifi-direct-native';
 import { NearbyOfflineService, readNearbyOfflineBridge, type NearbyReadinessGap, type NearbyStatus } from '../services/nearby-offline-service';
+import {
+  ActiveExchangeRoomController,
+  BASELINE_ROOM_PROTOCOL_CHECKPOINT,
+  roomDeliveryMatchesActiveRoom,
+  type ActiveExchangeRoom,
+  type RoomProtocolCheckpoint,
+} from '../../shared/active-exchange-room';
+import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
+import {
+  BUNDLED_PROTOCOL_MANIFEST_HISTORY,
+  PRODUCTION_PROTOCOL_MANIFEST_ANCHOR,
+  PRODUCTION_PROTOCOL_MANIFEST_RUNTIME,
+} from '../../shared/production-protocol-manifest';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
@@ -266,6 +280,9 @@ export class IinPublicApp {
   private peerMeshService: PeerMeshService | null = null;
   private wifiDirectLinkService: WifiDirectLinkService | null = null;
   private nearbyOfflineService: NearbyOfflineService | null = null;
+  private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
+  private protocolManifestController: ProtocolManifestController | null = null;
+  private protocolActivationTimer: ReturnType<typeof setTimeout> | null = null;
   private mailboxClient: WebMailboxClient | null = null;
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
@@ -355,7 +372,6 @@ export class IinPublicApp {
   private roomDiscoveryService: P2PRoomDiscoveryService | null = null;
   private readonly roomDiscoveredUserIds = new Map<string, Set<string>>();
   /** Room members already scheduled for receiver-scoped historical broadcast catch-up. */
-  private readonly roomCatchupScheduledUserIds = new Map<string, Set<string>>();
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
       ? {
@@ -1528,7 +1544,6 @@ export class IinPublicApp {
         type: string;
         description?: string;
         createdBy?: string;
-        capacity?: number;
         createdAt?: string;
         businessInfo?: { headline?: string };
         location?: { latitude: number; longitude: number };
@@ -1998,7 +2013,7 @@ export class IinPublicApp {
     } else {
       void this.checkOwnDelegateEligibility();
     }
-    await this.initP2PPresenceAndBridge();
+    await this.activateRoomExchange(this.currentChatroomId || chatroomId);
     this.initDirectTalkDeliverySubscriptions();
     // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
     void this.drainMailbox().catch(() => {});
@@ -2245,9 +2260,16 @@ export class IinPublicApp {
       await this.presenceClient.startHeartbeat({
         userId: this.currentUser.id,
         pub: String(pair.pub),
+        pair,
+        getRoomScope: () => this.activeExchangeRoomController?.getScope() ?? null,
+        getRoomEnteredAt: () => this.activeExchangeRoomController?.getActiveRoom()?.enteredAt ?? null,
         ...(pair.epub ? { epub: String(pair.epub) } : {}),
       });
-      const peers = await this.presenceClient.fetchNearby(this.currentUser.id, 20);
+      const peers = await this.presenceClient.fetchNearby(
+        this.currentUser.id,
+        20,
+        this.activeExchangeRoomController?.getScope() ?? undefined,
+      );
       // K1 item 3: TechSupport's online/away indicator is real peer presence, not a fake heartbeat —
       // this reuses the same registry an eventual TechSupport client (K3) would heartbeat into by
       // running the ordinary client in TechSupport mode, same as any other peer.
@@ -2277,16 +2299,111 @@ export class IinPublicApp {
     this.initNearbyOffline(String(pair.pub));
   }
 
+  private async stopRoomExchangeRuntime(_room?: ActiveExchangeRoom): Promise<void> {
+    this.presenceClient?.stopHeartbeat();
+    this.presenceClient = null;
+    this.peerMeshService?.leaveRoom();
+    this.nearbyOfflineService?.dispose();
+    this.nearbyOfflineService = null;
+  }
+
+  private async ensureProtocolManifestController(): Promise<ProtocolManifestController> {
+    if (this.protocolManifestController) return this.protocolManifestController;
+    const controller = await ProtocolManifestController.create({
+      anchor: PRODUCTION_PROTOCOL_MANIFEST_ANCHOR,
+      runtimePolicy: PRODUCTION_PROTOCOL_MANIFEST_RUNTIME,
+      storage: localStorage,
+      bundledManifests: BUNDLED_PROTOCOL_MANIFEST_HISTORY,
+    });
+    this.protocolManifestController = controller;
+    this.peerMeshService?.setProtocolManifestController(controller);
+    this.scheduleProtocolActivation();
+    return controller;
+  }
+
+  private currentRoomProtocolCheckpoint(): RoomProtocolCheckpoint {
+    return this.protocolManifestController?.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT)
+      ?? BASELINE_ROOM_PROTOCOL_CHECKPOINT;
+  }
+
+  private scheduleProtocolActivation(): void {
+    if (this.protocolActivationTimer) clearTimeout(this.protocolActivationTimer);
+    this.protocolActivationTimer = null;
+    const activation = this.protocolManifestController?.nextActivationAt();
+    if (!activation) return;
+    const delay = Math.max(0, Math.min(activation.getTime() - Date.now() + 25, 2_147_000_000));
+    this.protocolActivationTimer = setTimeout(() => {
+      this.protocolActivationTimer = null;
+      void this.syncActiveRoomProtocolCheckpoint();
+    }, delay);
+  }
+
+  private async syncActiveRoomProtocolCheckpoint(): Promise<void> {
+    const controller = this.protocolManifestController;
+    const activeController = this.activeExchangeRoomController;
+    const active = activeController?.getActiveRoom();
+    if (!controller || !activeController || !active) return;
+    try {
+      await activeController.transitionTo({
+        roomId: active.roomId,
+        neighborLimit: active.neighborLimit,
+        ...controller.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT),
+      });
+      this.scheduleProtocolActivation();
+    } catch (error) {
+      await activeController.pause().catch(() => undefined);
+      this.uiManager.showNotification(
+        `Room exchange paused: ${error instanceof Error ? error.message : String(error)}. Update IinPublic to reconnect.`,
+        'warning',
+      );
+    }
+  }
+
+  private async activateRoomExchange(roomId: string): Promise<void> {
+    if (!roomId || !this.currentUser || isTechSupportUser(this.currentUser)) return;
+    let checkpoint: RoomProtocolCheckpoint;
+    try {
+      const manifestController = await this.ensureProtocolManifestController();
+      checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
+    } catch (error) {
+      await this.activeExchangeRoomController?.pause().catch(() => undefined);
+      this.uiManager.showNotification(
+        `Room exchange is unavailable: ${error instanceof Error ? error.message : String(error)}. Update IinPublic to reconnect. Settings, export, and identity recovery remain available.`,
+        'warning',
+      );
+      return;
+    }
+    if (!this.activeExchangeRoomController) {
+      this.activeExchangeRoomController = new ActiveExchangeRoomController(localStorage, {
+        stopRoom: (room) => this.stopRoomExchangeRuntime(room),
+        startRoom: async () => this.initP2PPresenceAndBridge(),
+      });
+      this.chatroomService.configureActiveExchangeRoom(
+        this.activeExchangeRoomController,
+        (nextRoomId) => ({ roomId: nextRoomId, ...this.currentRoomProtocolCheckpoint() }),
+      );
+    }
+    await this.activeExchangeRoomController.activate({
+      roomId,
+      ...checkpoint,
+    });
+  }
+
   /**
    * OPEN-36 offline mode: find other phones without the hub — NSD on a shared LAN (always), and
    * Wi-Fi Direct service discovery while the hub is unreachable. Android shell only.
    */
   private initNearbyOffline(localPub: string): void {
     if (this.nearbyOfflineService) return;
+    const connectivity = loadConnectivitySettings();
     const bridge = readNearbyOfflineBridge();
     const wifiDirectBridge = readAndroidWifiDirectBridge();
     const port = Number(window.location.port);
     if (!bridge || !wifiDirectBridge || !Number.isInteger(port) || port <= 0) return;
+    const activeScope = this.activeExchangeRoomController?.getScope();
+    if (!activeScope) return;
+    bridge.setNearbyExchangeMode?.(connectivity.nearbyMode, activeScope.roomId);
+    if (connectivity.nearbyMode === 'off') return;
     const apiBase = this.getBackendApiBase();
     const gapMessages: Record<NearbyReadinessGap, UiTranslationKey> = {
       permission: 'nearbyOfflinePermissionDenied',
@@ -2296,6 +2413,7 @@ export class IinPublicApp {
     };
     const service = new NearbyOfflineService({
       localPub,
+      getRoomScope: () => this.activeExchangeRoomController?.getScope() ?? null,
       port,
       bridge,
       native: new AndroidWifiDirectNative(wifiDirectBridge),
@@ -2304,7 +2422,47 @@ export class IinPublicApp {
       setLocalLinkIceServer,
       hubReachable: async () => {
         const res = await fetch(`${apiBase}/api/local-link/hub-status`, { cache: 'no-store' });
-        return res.ok && ((await res.json()) as { reachable?: unknown }).reachable === true;
+        if (!res.ok || ((await res.json()) as { reachable?: unknown }).reachable !== true) return false;
+        let nativePath: { connected?: unknown; validated?: unknown; metered?: unknown; transports?: unknown } = {};
+        try {
+          nativePath = bridge.networkPathState ? JSON.parse(bridge.networkPathState()) as typeof nativePath : {};
+        } catch {
+          // Old native shells have no path metadata; preserve their reachable-hub behavior.
+          return true;
+        }
+        if (nativePath.connected === false || nativePath.validated === false) return false;
+        const transports = Array.isArray(nativePath.transports) ? nativePath.transports.map(String) : [];
+        const networkInterface: NetworkInterface = transports.includes('wifi')
+          ? 'wifi'
+          : transports.includes('ethernet')
+            ? 'ethernet'
+            : transports.includes('cellular')
+              ? 'cellular'
+              : 'unknown';
+        const settings = loadConnectivitySettings();
+        const routes = new ConnectionManager(
+          settings.meteredPermission,
+          undefined,
+          routePreferencesFromSettings(settings),
+        );
+        routes.register({
+          path: {
+            pathId: 'internet-hub',
+            transport: 'gun-websocket',
+            interface: networkInterface,
+            directness: 'relay',
+            metered: nativePath.metered === true,
+            latencyMs: 100,
+            bandwidthKbps: 1_000,
+            batteryClass: 'low',
+            stability: 80,
+            health: 'healthy',
+          },
+          send: async () => undefined,
+        });
+        // This is a policy read, not a mid-exchange prompt. If the saved policy disallows the
+        // active metered route, nearby Wi-Fi Direct remains eligible automatically.
+        return routes.select('background-sync').selected !== null;
       },
       requestPermission: () => new Promise<boolean>((resolve) => {
         window.addEventListener('iinpublic-nearby-permission', (event) => {
@@ -2390,6 +2548,14 @@ export class IinPublicApp {
       apiBase: this.getBackendApiBase(),
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
+      ...(this.protocolManifestController
+        ? { protocolManifestController: this.protocolManifestController }
+        : {}),
+      getMaxRoomCandidates: () => this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
+        ?? BASELINE_ROOM_PROTOCOL_CHECKPOINT.chatroomCapacity,
+      onProtocolManifestCompatibility: async () => {
+        await this.syncActiveRoomProtocolCheckpoint();
+      },
       forwardingSettings: loadConnectivitySettings().forwarding,
       // Keep the E2E mesh dense enough for the 20-peer saturation scenario while
       // still using the production default cap (12) outside that harness.
@@ -2540,34 +2706,8 @@ export class IinPublicApp {
           ...members,
           { userId: this.currentUser.id, stageName: this.currentUser.stageName },
         ];
-    const scheduled = this.roomCatchupScheduledUserIds.get(chatroomId) || new Set<string>();
-    const newlyArrived = withSelf.filter((member) => {
-      const userId = String(member.userId || '').trim();
-      return !!userId && userId !== this.currentUser?.id && !scheduled.has(userId);
-    });
-    for (const member of newlyArrived) scheduled.add(member.userId);
-    this.roomCatchupScheduledUserIds.set(chatroomId, scheduled);
-
     void mesh.joinRoom(chatroomId, withSelf)
-      .then(() => {
-        if (newlyArrived.length === 0) return;
-        if (this.currentChatroomId !== chatroomId) {
-          // Not viewing this room right now — skip the auto-broadcast, but don't burn the
-          // one-shot "scheduled" mark: if we return to this room later, the next roster
-          // callback should retry catch-up for these members instead of silently dropping
-          // them forever (this is what let old talks never reach a late joiner who arrived
-          // while we were elsewhere).
-          for (const member of newlyArrived) scheduled.delete(member.userId);
-          return;
-        }
-        this.uiManager.broadcastPendingTalksToMembers(newlyArrived.map((member) => ({
-          userId: member.userId,
-          stageName: member.stageName || member.userId,
-        })));
-      })
       .catch((error) => {
-        // Let the next roster callback retry catch-up if joining the mesh failed.
-        for (const member of newlyArrived) scheduled.delete(member.userId);
         console.warn('Peer mesh room join failed:', error);
       });
     const discovery = this.ensureRoomDiscoveryService();
@@ -3267,6 +3407,12 @@ export class IinPublicApp {
 
   private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {
     if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return false;
+    const activeRoom = this.activeExchangeRoomController?.getActiveRoom();
+    const currentRoomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId;
+    // The encrypted mailbox is pair-private but deliberately route-agnostic. Carry the room
+    // boundary in the signed/encrypted Talk body too. Sender-side room switching never
+    // auto-rebroadcasts pending Talks; a broadcast remains scoped to its named origin room.
+    if (!roomDeliveryMatchesActiveRoom(payload, activeRoom, currentRoomId)) return false;
     // Mesh delivery deliberately re-floods the same talk-body frame to the same recipient for
     // reliability (broadcastTalk's flood-retry, plus a separate mailbox-fallback copy), so this
     // handler routinely runs several times for one logical delivery. Short-circuit once a
@@ -5062,7 +5208,11 @@ export class IinPublicApp {
           apiBase: this.getBackendApiBase(),
         });
         const peers = await Promise.race([
-          presence.fetchNearby(this.currentUser?.id, 200),
+          presence.fetchNearby(
+            this.currentUser?.id,
+            200,
+            this.activeExchangeRoomController?.getScope() ?? undefined,
+          ),
           new Promise<never>((_, reject) => setTimeout(
             () => reject(new Error('presence key lookup timeout')),
             1_500,
@@ -6662,7 +6812,11 @@ export class IinPublicApp {
     if (!this.currentUser) return;
     const presence = this.presenceClient ?? new P2PPresenceClient({ apiBase: this.getBackendApiBase() });
     try {
-      const peers = await presence.fetchNearby(this.currentUser.id, 200);
+      const peers = await presence.fetchNearby(
+        this.currentUser.id,
+        200,
+        this.activeExchangeRoomController?.getScope() ?? undefined,
+      );
       this.uiManager.setConversationOnlineStatus(new Set(peers.map((peer) => peer.userId)));
       // K1 item 3: same real-presence signal, kept fresh whenever we already refresh for
       // conversations rather than a separate poll loop.
@@ -6692,6 +6846,16 @@ export class IinPublicApp {
       const mesh = this.ensurePeerMeshService();
       mesh?.updateForwardingSettings(settings.forwarding);
       if (mesh) this.uiManager.updateConnectivityDiagnostics(mesh.getForwardingDiagnostics());
+      const bridge = readNearbyOfflineBridge();
+      const scope = this.activeExchangeRoomController?.getScope();
+      if (bridge && scope) bridge.setNearbyExchangeMode?.(settings.nearbyMode, scope.roomId);
+      if (settings.nearbyMode === 'off') {
+        this.nearbyOfflineService?.dispose();
+        this.nearbyOfflineService = null;
+      } else if (!this.nearbyOfflineService) {
+        const pub = this.gunService.getStoredPair()?.pub;
+        if (pub) this.initNearbyOffline(String(pub));
+      }
     });
 
     this.uiManager.on('conversationAdded', (data: { conversationId: string }) => {
@@ -7813,7 +7977,6 @@ export class IinPublicApp {
         type: 'business' | 'custom';
         name: string;
         description?: string;
-        capacity?: number;
         businessInfo?: { headline?: string };
       }) => {
         if (!this.currentUser) return;
@@ -7827,7 +7990,6 @@ export class IinPublicApp {
               type: payload.type,
               createdBy: this.currentUser.id,
               ...(payload.description != null ? { description: payload.description } : {}),
-              ...(payload.capacity != null ? { capacity: payload.capacity } : {}),
               ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
             }),
           });
@@ -7838,7 +8000,6 @@ export class IinPublicApp {
             type?: string;
             description?: string;
             createdBy?: string;
-            capacity?: number;
             createdAt?: string;
             businessInfo?: { headline?: string };
             location?: { latitude: number; longitude: number };
@@ -7851,7 +8012,6 @@ export class IinPublicApp {
                 type?: string;
                 description?: string;
                 createdBy?: string;
-                capacity?: number;
                 createdAt?: string;
                 businessInfo?: { headline?: string };
                 location?: { latitude: number; longitude: number };
@@ -7872,9 +8032,6 @@ export class IinPublicApp {
               type: created?.type === 'business' ? 'business' : 'custom',
               description: String(created?.description || payload.description || ''),
               createdBy: String(created?.createdBy || this.currentUser.id),
-              ...(created?.capacity != null || payload.capacity != null
-                ? { capacity: created?.capacity ?? payload.capacity! }
-                : {}),
               ...(created?.createdAt != null ? { createdAt: created.createdAt } : {}),
               ...(created?.businessInfo != null || payload.businessInfo != null
                 ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
@@ -7892,69 +8049,6 @@ export class IinPublicApp {
         }
       },
     );
-
-    this.uiManager.on('renameCustomChatroom', async (data: { chatroomId: string }) => {
-      if (!this.currentUser) return;
-      const meta = this.uiManager.getCustomChatroomMeta(data.chatroomId);
-      const next = await this.uiManager.showRenameCustomChatroomDialog(meta?.name || data.chatroomId);
-      if (!next) return;
-      const base = this.getBackendApiBase();
-      try {
-        const res = await fetch(`${base}/api/chatrooms/${encodeURIComponent(data.chatroomId)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: this.currentUser.id, name: next }),
-        });
-        const text = await res.text();
-        if (!res.ok) {
-          this.uiManager.showNotification(text || this.uiManager.formatChatroomRenameFailed(), 'error');
-          return;
-        }
-        await this.refreshCustomChatroomsFromServer();
-        const chatroomName = this.getChatroomDisplayName(data.chatroomId);
-        const headcount = this.uiManager.getChatroomMemberCount(data.chatroomId) || 1;
-        this.uiManager.updateStatusBar(
-          this.currentUser.stageName,
-          chatroomName,
-          headcount,
-          this.uiManager.getTotalMatches(),
-        );
-        const titleEl = document.getElementById('current-chatroom-title');
-        const headerEl = document.getElementById('header-title');
-        if (titleEl) titleEl.textContent = chatroomName;
-        if (headerEl && document.getElementById('chatroom-detail-container')?.style.display !== 'none') {
-          headerEl.textContent = chatroomName;
-        }
-        this.uiManager.showNotification(this.uiManager.formatChatroomRenamed(), 'success');
-      } catch (e) {
-        this.uiManager.showNotification(this.uiManager.formatChatroomRenameFailed((e as Error).message), 'error');
-      }
-    });
-
-    this.uiManager.on('deleteCustomChatroom', async (data: { chatroomId: string }) => {
-      if (!this.currentUser) return;
-      if (!confirm(this.uiManager.formatChatroomDeleteConfirm())) return;
-      const base = this.getBackendApiBase();
-      try {
-        const res = await fetch(
-          `${base}/api/chatrooms/${encodeURIComponent(data.chatroomId)}?userId=${encodeURIComponent(this.currentUser.id)}`,
-          { method: 'DELETE' },
-        );
-        const text = await res.text();
-        if (!res.ok) {
-          this.uiManager.showNotification(text || this.uiManager.formatChatroomDeleteFailed(), 'error');
-          return;
-        }
-        await this.refreshCustomChatroomsFromServer();
-        if (this.currentChatroomId === data.chatroomId) {
-          this.uiManager.showChatroomList();
-        }
-        this.subscribeToAllChatroomMemberCounts();
-        this.uiManager.showNotification(this.uiManager.formatChatroomDeleted(), 'success');
-      } catch (e) {
-        this.uiManager.showNotification(this.uiManager.formatChatroomDeleteFailed((e as Error).message), 'error');
-      }
-    });
 
     this.uiManager.on('chatroomChanged', async (chatroomId: string) => {
       if (!this.currentUser) {
@@ -8016,9 +8110,8 @@ export class IinPublicApp {
 
         this.subscribeToMessages(chatroomId);
             console.log(`✅ Switched to ${chatroomId}`);
-        if (this.uiManager.getChatbotEnabled()) {
-          setTimeout(() => this.uiManager.broadcastPendingTalksOnRoomEntry(), 350);
-        }
+        // Switching rooms changes the audience only. Existing Talks never follow the user or
+        // auto-send to newcomers; broadcasting in the new room is always a deliberate action.
       } else {
         // Same room: ensure app id matches (e.g. first time opening detail after join)
         this.currentChatroomId = chatroomId;
@@ -8056,8 +8149,17 @@ export class IinPublicApp {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         this.userService.setUserStatus(this.currentUser!.id, 'away');
+        if (loadConnectivitySettings().nearbyMode === 'while-open') {
+          this.nearbyOfflineService?.dispose();
+          this.nearbyOfflineService = null;
+        }
       } else {
         this.userService.setUserStatus(this.currentUser!.id, 'online');
+        const settings = loadConnectivitySettings();
+        if (settings.nearbyMode === 'while-open' && !this.nearbyOfflineService) {
+          const pub = this.gunService.getStoredPair()?.pub;
+          if (pub) this.initNearbyOffline(String(pub));
+        }
       }
     });
 

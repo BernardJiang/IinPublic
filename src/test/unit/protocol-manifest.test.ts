@@ -2,6 +2,7 @@ import SEA from 'gun/sea';
 import { portableSha256Hex } from '../../shared/portable-sha256';
 import {
   PROTOCOL_MANIFEST_ARCHIVE_STORAGE_KEY,
+  PROTOCOL_MANIFEST_CHECKPOINT_STORAGE_KEY,
   ProtocolManifestController,
 } from '../../shared/protocol-manifest-controller';
 import {
@@ -14,6 +15,7 @@ import {
   protocolManifestHash,
   serializeProtocolManifestTrustState,
   signProtocolManifest,
+  signProtocolManifestWithRecovery,
   verifyProtocolManifestChain,
   type ProtocolManifestBody,
   type ProtocolManifestRuntimePolicy,
@@ -86,9 +88,13 @@ describe('forward-authorized protocol manifests', () => {
   let k3: Pair;
   let k4: Pair;
   let recovery: Pair;
+  let recovery2: Pair;
+  let recovery3: Pair;
 
   beforeAll(async () => {
-    [k2, k3, k4, recovery] = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair(), SEA.pair()]) as Pair[];
+    [k2, k3, k4, recovery, recovery2, recovery3] = await Promise.all([
+      SEA.pair(), SEA.pair(), SEA.pair(), SEA.pair(), SEA.pair(), SEA.pair(),
+    ]) as Pair[];
   });
 
   it('uses the pinned K2 public key to authenticate M2 and learn K3', async () => {
@@ -201,6 +207,105 @@ describe('forward-authorized protocol manifests', () => {
     expect(forkResult).toEqual(expect.objectContaining({ ok: false, reason: 'same-sequence manifest fork detected' }));
   });
 
+  it('recovers from a lost ordinary release key only with the pinned threshold', async () => {
+    const recoveryAnchor = anchor(k2, recovery);
+    recoveryAnchor.recoveryPolicy = {
+      threshold: 2,
+      keys: [recovery, recovery2, recovery3].map((pair) => createProtocolReleaseKey(pair.pub)),
+    };
+    const manifestBody = body({
+      sequence: 2,
+      previousManifestHash: H1,
+      signerForNext: k3,
+      recovery: recovery3,
+    });
+    manifestBody.recoveryPolicy = {
+      threshold: 2,
+      keys: [recovery2, recovery3].map((pair) => createProtocolReleaseKey(pair.pub)),
+    };
+
+    const insufficient = await signProtocolManifestWithRecovery(manifestBody, [recovery]);
+    expect(await verifyProtocolManifestChain({ state: recoveryAnchor, manifests: [insufficient] }))
+      .toEqual(expect.objectContaining({ ok: false, reason: 'recovery signature threshold not met' }));
+
+    const recovered = await signProtocolManifestWithRecovery(manifestBody, [recovery, recovery2]);
+    const result = await verifyProtocolManifestChain({ state: recoveryAnchor, manifests: [recovered] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.nextReleaseKeys).toEqual([createProtocolReleaseKey(k3.pub)]);
+    expect(result.state.recoveryPolicy).toEqual(manifestBody.recoveryPolicy);
+  });
+
+  it('rejects forged, duplicated, and compromised-next-key recovery attempts', async () => {
+    const recoveryAnchor = anchor(k2, recovery);
+    recoveryAnchor.recoveryPolicy = {
+      threshold: 2,
+      keys: [recovery, recovery2].map((pair) => createProtocolReleaseKey(pair.pub)),
+    };
+    const manifestBody = body({ sequence: 2, previousManifestHash: H1, signerForNext: k3, recovery });
+    const forged = await signProtocolManifestWithRecovery(manifestBody, [recovery, recovery3]);
+    expect(await verifyProtocolManifestChain({ state: recoveryAnchor, manifests: [forged] }))
+      .toEqual(expect.objectContaining({ ok: false, reason: 'recovery signature threshold not met' }));
+
+    const duplicate = await signProtocolManifestWithRecovery(manifestBody, [recovery, recovery2]);
+    duplicate.recoverySignatures = [duplicate.recoverySignatures![0]!, duplicate.recoverySignatures![0]!];
+    expect(await verifyProtocolManifestChain({ state: recoveryAnchor, manifests: [duplicate] }))
+      .toEqual(expect.objectContaining({ ok: false, reason: 'duplicate recovery signature' }));
+
+    const attackerBody = {
+      ...manifestBody,
+      nextReleaseKeys: [createProtocolReleaseKey(recovery3.pub)],
+      recoveryPolicy: recoveryAnchor.recoveryPolicy,
+    };
+    const compromisedOrdinary = await signProtocolManifest(attackerBody, k2);
+    const ordinaryResult = await verifyProtocolManifestChain({ state: recoveryAnchor, manifests: [compromisedOrdinary] });
+    // A still-authorized ordinary key remains authorized until recovery revokes it; this explicitly
+    // documents the incident boundary instead of pretending threshold recovery detects compromise.
+    expect(ordinaryResult.ok).toBe(true);
+  });
+
+  it('retains recovery authority after an ordinary next-release key is compromised', async () => {
+    const compromisedBody = body({
+      sequence: 2,
+      previousManifestHash: H1,
+      signerForNext: recovery3,
+      recovery,
+    });
+    const compromisedM2 = await signProtocolManifest(compromisedBody, k2);
+    const acceptedCompromise = await verifyProtocolManifestChain({
+      state: anchor(k2, recovery),
+      manifests: [compromisedM2],
+    });
+    expect(acceptedCompromise.ok).toBe(true);
+    if (!acceptedCompromise.ok) return;
+
+    const recoveredBody = body({
+      sequence: 3,
+      previousManifestHash: protocolManifestHash(compromisedM2),
+      signerForNext: k4,
+      recovery: recovery2,
+    });
+    const recoveredM3 = await signProtocolManifestWithRecovery(recoveredBody, [recovery]);
+    const recovered = await verifyProtocolManifestChain({
+      state: acceptedCompromise.state,
+      manifests: [recoveredM3],
+    });
+    expect(recovered.ok).toBe(true);
+    if (!recovered.ok) return;
+    expect(recovered.state.nextReleaseKeys).toEqual([createProtocolReleaseKey(k4.pub)]);
+    expect(recovered.state.recoveryPolicy).toEqual(recoveredBody.recoveryPolicy);
+  });
+
+  it('does not let an ordinary release key replace the pinned recovery policy by itself', async () => {
+    const rotatedBody = body({ sequence: 2, previousManifestHash: H1, signerForNext: k3, recovery: recovery2 });
+    const ordinaryOnly = await signProtocolManifest(rotatedBody, k2);
+    expect(await verifyProtocolManifestChain({ state: anchor(k2, recovery), manifests: [ordinaryOnly] }))
+      .toEqual(expect.objectContaining({
+        ok: false,
+        reason: 'recovery policy rotation requires the previous recovery threshold',
+      }));
+  });
+
   it('classifies future activation, unsupported mandatory behavior, and retirement', () => {
     const future = body({
       sequence: 2,
@@ -289,6 +394,7 @@ describe('forward-authorized protocol manifests', () => {
     expect(controller.manifestSuffixAfter(2, protocolManifestHash(m2))).toEqual([m3]);
     expect(controller.manifestSuffixAfter(2, portableSha256Hex('wrong'))).toBeNull();
     expect(records.get(PROTOCOL_MANIFEST_ARCHIVE_STORAGE_KEY)).toBe(JSON.stringify([m2, m3]));
+    expect(records.get(PROTOCOL_MANIFEST_CHECKPOINT_STORAGE_KEY)).toBeTruthy();
 
     const reloaded = await ProtocolManifestController.create({
       anchor: anchor(k2, recovery),
@@ -313,5 +419,37 @@ describe('forward-authorized protocol manifests', () => {
     expect(controller.summary()).toEqual(expect.objectContaining({ sequence: 1, manifestHash: H1 }));
     expect(controller.publicArchive()).toEqual([]);
     expect(records.get(PROTOCOL_MANIFEST_ARCHIVE_STORAGE_KEY)).toBe('[]');
+  });
+
+  it('fails closed if storage loses an archive after accepting a higher checkpoint', async () => {
+    const records = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => records.get(key) ?? null,
+      setItem: (key: string, value: string) => { records.set(key, value); },
+    };
+    const m2 = await signProtocolManifest(body({
+      sequence: 2,
+      previousManifestHash: H1,
+      signerForNext: k3,
+      recovery,
+    }), k2);
+    await ProtocolManifestController.create({ anchor: anchor(k2, recovery), runtimePolicy, storage, bundledManifests: [m2] });
+    records.set(PROTOCOL_MANIFEST_ARCHIVE_STORAGE_KEY, '[]');
+    await expect(ProtocolManifestController.create({ anchor: anchor(k2, recovery), runtimePolicy, storage }))
+      .rejects.toThrow('rollback');
+  });
+
+  it('fails closed instead of forgetting a malformed durable checkpoint', async () => {
+    const records = new Map<string, string>([
+      [PROTOCOL_MANIFEST_CHECKPOINT_STORAGE_KEY, '{"sequence":2}'],
+    ]);
+    await expect(ProtocolManifestController.create({
+      anchor: anchor(k2, recovery),
+      runtimePolicy,
+      storage: {
+        getItem: (key: string) => records.get(key) ?? null,
+        setItem: (key: string, value: string) => { records.set(key, value); },
+      },
+    })).rejects.toThrow('checkpoint is invalid');
   });
 });

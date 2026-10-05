@@ -107,6 +107,15 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     value.batteryAware = !!(
       document.getElementById('settings-connectivity-battery-aware') as HTMLInputElement | null
     )?.checked;
+    value.nearbyMode = ((
+      document.getElementById('settings-nearby-mode') as HTMLSelectElement | null
+    )?.value || 'while-open') as typeof value.nearbyMode;
+    value.wifiOnlyForwarding = !!(
+      document.getElementById('settings-connectivity-wifi-forwarding') as HTMLInputElement | null
+    )?.checked;
+    value.identityReveal = ((
+      document.getElementById('settings-connectivity-identity-reveal') as HTMLSelectElement | null
+    )?.value || 'matches-only') as typeof value.identityReveal;
     value.meteredPermission = ((
       document.getElementById(
         'settings-connectivity-metered-permission',
@@ -134,7 +143,7 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     deps.emit('connectivitySettingsChanged', value);
   };
   document
-    .querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select')
+    .querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select, #settings-nearby-mode')
     .forEach((element) => {
       element.addEventListener('change', persistConnectivity);
     });

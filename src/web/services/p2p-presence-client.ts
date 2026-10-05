@@ -1,11 +1,13 @@
 import {
   createPeerAckMessage,
   createPresenceRecord,
+  createSignedRoomPresenceRecord,
   peerAckSigningPayload,
   type PeerAckMessage,
   type PresenceRecord,
 } from '../../shared/p2p-presence';
 import { createSignedP2PEnvelopeProof, type SeaSigningPair } from '../../shared/p2p-runtime';
+import type { ActiveRoomScope } from '../../shared/active-exchange-room';
 
 export type PresenceClientOptions = {
   apiBase: string;
@@ -24,8 +26,20 @@ export class P2PPresenceClient {
     epub?: string;
     encryptedLocation?: string;
     capabilities?: string[];
+    pair?: SeaSigningPair;
+    roomScope?: ActiveRoomScope;
+    enteredAt?: string;
   }): Promise<PresenceRecord> {
-    const record = createPresenceRecord(input);
+    const record = input.pair && input.roomScope
+      ? await createSignedRoomPresenceRecord({
+          userId: input.userId,
+          pair: input.pair,
+          roomScope: input.roomScope,
+          ...(input.enteredAt ? { enteredAt: input.enteredAt } : {}),
+          ...(input.epub ? { epub: input.epub } : {}),
+          ...(input.capabilities ? { capabilities: input.capabilities } : {}),
+        })
+      : createPresenceRecord(input);
     const res = await fetch(`${this.options.apiBase}/api/presence/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -39,10 +53,19 @@ export class P2PPresenceClient {
     return this.lastRegistered;
   }
 
-  async fetchNearby(excludeUserId?: string, limit = 50): Promise<PresenceRecord[]> {
+  async fetchNearby(excludeUserId?: string, limit = 50, roomScope?: ActiveRoomScope): Promise<PresenceRecord[]> {
     const params = new URLSearchParams();
     if (excludeUserId) params.set('excludeUserId', excludeUserId);
     if (limit) params.set('limit', String(limit));
+    if (roomScope) {
+      params.set('roomId', roomScope.roomId);
+      params.set('roomToken', roomScope.roomToken);
+      params.set('networkId', roomScope.networkId);
+      params.set('protocolEpoch', String(roomScope.protocolEpoch));
+      params.set('manifestSequence', String(roomScope.manifestSequence));
+      params.set('manifestHash', roomScope.manifestHash);
+      params.set('tokenExpiresAt', roomScope.tokenExpiresAt);
+    }
     const res = await fetch(`${this.options.apiBase}/api/presence/nearby?${params.toString()}`, {
       cache: 'no-store',
     });
@@ -86,14 +109,23 @@ export class P2PPresenceClient {
     pub: string;
     epub?: string;
     encryptedLocation?: string;
+    pair?: SeaSigningPair;
+    getRoomScope?: () => ActiveRoomScope | null;
+    getRoomEnteredAt?: () => string | null;
   }): Promise<void> {
     this.stopHeartbeat();
     const beat = () => {
-      void this.register(input).catch((err) => {
+      const roomScope = input.getRoomScope?.();
+      if (input.getRoomScope && !roomScope) return;
+      const enteredAt = input.getRoomEnteredAt?.();
+      void this.register({ ...input, ...(roomScope ? { roomScope } : {}), ...(enteredAt ? { enteredAt } : {}) }).catch((err) => {
         console.warn('presence heartbeat failed:', err);
       });
     };
-    await this.register(input);
+    const initialScope = input.getRoomScope?.();
+    if (input.getRoomScope && !initialScope) throw new Error('active room scope is required for presence');
+    const enteredAt = input.getRoomEnteredAt?.();
+    await this.register({ ...input, ...(initialScope ? { roomScope: initialScope } : {}), ...(enteredAt ? { enteredAt } : {}) });
     this.heartbeatTimer = setInterval(beat, this.options.heartbeatMs ?? 30_000);
   }
 

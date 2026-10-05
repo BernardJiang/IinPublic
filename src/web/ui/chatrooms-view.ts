@@ -1,5 +1,4 @@
 import { getActiveChatroomHierarchy, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
-import { CONFIG } from '../../shared/config';
 import { splitBaseId, splitIndex } from '../../shared/chatroom-split';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -18,7 +17,6 @@ export type CustomChatroomRow = {
   type: string;
   description?: string;
   createdBy?: string;
-  capacity?: number;
   createdAt?: string | Date;
   businessInfo?: { headline?: string };
   /** Public room-level coordinate; never a member/user coordinate. */
@@ -144,8 +142,6 @@ function renderCustomRoomMetadata(deps: ChatroomsViewDeps, custom: CustomChatroo
     ${row('chatroomType', deps.text(custom.type === 'business' ? 'chatroomTypeBusiness' : 'chatroomTypeCommunity'))}
     ${row('chatroomDescription', custom.description || deps.text('unavailable'))}
     ${custom.type === 'business' ? row('chatroomBusinessHeadlineLabel', custom.businessInfo?.headline || deps.text('unavailable')) : ''}
-    ${row('chatroomCapacity', CONFIG.CHATROOM_MAX_CAPACITY)}
-    ${row('chatroomOwner', custom.createdBy || deps.text('unavailable'))}
     ${row('chatroomCreatedDate', createdLabel)}
     ${row('chatroomActiveMembers', memberCount)}
     ${row('chatroomLifetimeVisits', visits.visitCount)}
@@ -362,25 +358,8 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
 
   const ownerBar = document.getElementById('chatroom-owner-bar');
   if (ownerBar) {
-    if (custom && deps.currentUserId && custom.createdBy === deps.currentUserId) {
-      ownerBar.style.display = 'block';
-      ownerBar.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 8px;">
-          <button type="button" class="btn" id="chatroom-rename-btn" data-testid="chatroom-rename-btn">${deps.text('chatroomRename')}</button>
-          <button type="button" class="btn" id="chatroom-delete-btn" data-testid="chatroom-delete-btn" style="background:#b33;color:#fff;">${deps.text('chatroomDelete')}</button>
-        </div>`;
-      ownerBar.querySelector('#chatroom-rename-btn')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deps.emit('renameCustomChatroom', { chatroomId });
-      });
-      ownerBar.querySelector('#chatroom-delete-btn')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deps.emit('deleteCustomChatroom', { chatroomId });
-      });
-    } else {
-      ownerBar.style.display = 'none';
-      ownerBar.innerHTML = '';
-    }
+    ownerBar.style.display = 'none';
+    ownerBar.innerHTML = '';
   }
 
   const membersList = document.getElementById('chatroom-members-list');

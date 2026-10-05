@@ -9,7 +9,10 @@ describe('malicious intermediary security boundary', () => {
       version: 1, kind: 'talk-announce', msgId: 'talk-1', roomId: 'global',
       originUserId: 'alice', originPub: alice.pub, recipientUserId: 'bob',
       createdAt: '2026-08-12T00:00:00.000Z', ttlHops: 3,
-      payload: { talkId: 'talk-1', authorId: 'alice', authorName: 'Alice', title: 'Original', questionCount: 1 },
+      payload: {
+        roomId: 'global', broadcastAt: '2026-08-12T00:00:00.000Z',
+        talkId: 'talk-1', authorId: 'alice', authorName: 'Alice', title: 'Original', questionCount: 1,
+      },
     };
     const proof = await createSignedP2PEnvelopeProof({ pair: alice, payload: p2pMeshFrameSigningPayload(unsigned), timestamp: unsigned.createdAt, nonce: 'intermediary-vector' });
     const forwarded = { ...unsigned, ttlHops: 2, proof };

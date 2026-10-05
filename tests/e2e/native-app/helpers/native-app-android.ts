@@ -365,6 +365,15 @@ async function disposeAndroidTransport(user: AndroidUser | undefined): Promise<v
 export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions & { deviceSerial: string }): Promise<AndroidUser> {
   const serial = options.deviceSerial;
   if (options.resetAppData) await resetAndroidAppData(serial);
+  // Physical-device automation has no human available to answer Android 13's notification
+  // permission sheet. Grant it before launch so OEM test/cleanup agents cannot close the task
+  // while that system-owned sheet is open. This is test-harness setup only; production still asks
+  // in MainActivity and continues safely if the user declines.
+  await execFileAsync(
+    'adb',
+    ['-s', serial, 'shell', 'pm', 'grant', ANDROID_PACKAGE, 'android.permission.POST_NOTIFICATIONS'],
+    { timeout: 5_000 },
+  ).catch(() => undefined);
   await execFileAsync(
     'adb',
     ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],

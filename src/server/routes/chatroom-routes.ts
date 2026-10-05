@@ -1,20 +1,11 @@
 import type express from 'express';
 import { ChatroomManager } from '../services/chatroom-manager';
-import type { CommunityRole } from '../../shared/types';
 import type {
   EmbeddedHubRelayClientLike,
   RelayRoomMember,
 } from '../../node-app/embedded-hub-relay-client';
-import {
-  runChallengeGate,
-  type ChallengeGateConfig,
-  type ChallengeContext,
-  type GatedAction,
-} from '../../shared/challenge-plugins';
 import { isValidChatroomMapLocation } from '../../shared/chatroom-map-geojson';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
-
-const VALID_ROLES: CommunityRole[] = ['owner', 'moderator', 'member', 'guest'];
 
 type RegisterChatroomRoutesDeps = {
   chatroomManager: ChatroomManager;
@@ -23,20 +14,11 @@ type RegisterChatroomRoutesDeps = {
    * but mirror room-membership metadata to the configured upstream hub.
    */
   hubRelayClient?: EmbeddedHubRelayClientLike;
-  /**
-   * FR-CPF-01: Optional gate resolver.  When provided, called for each
-   * gated action before the action is executed.  If it returns a config the
-   * gate is run; returning null/undefined skips the gate (no-op default).
-   */
-  resolveChallengeGate?: (
-    action: GatedAction,
-    chatroomId: string,
-  ) => ChallengeGateConfig | null | undefined | Promise<ChallengeGateConfig | null | undefined>;
 };
 
 export function registerChatroomRoutes(
   app: express.Application,
-  { chatroomManager, hubRelayClient, resolveChallengeGate }: RegisterChatroomRoutesDeps,
+  { chatroomManager, hubRelayClient }: RegisterChatroomRoutesDeps,
 ): void {
   const relayPollTimers = new Map<string, ReturnType<typeof setInterval>>();
 
@@ -125,20 +107,6 @@ export function registerChatroomRoutes(
     }
   };
 
-  /** Runs the challenge gate for `action` in `chatroomId` for `userId`.
-   *  Returns a 403-ready error string, or null if the action is allowed. */
-  async function checkGate(
-    action: GatedAction,
-    chatroomId: string,
-    context: ChallengeContext,
-  ): Promise<string | null> {
-    if (!resolveChallengeGate) return null;
-    const config = await resolveChallengeGate(action, chatroomId);
-    if (!config) return null;
-    const result = await runChallengeGate(action, context, config);
-    if (result.allowed) return null;
-    return result.reason ?? 'The challenge gate denied this action.';
-  }
   app.get('/api/chatrooms', async (_req, res) => {
     try {
       const chatrooms = await chatroomManager.getAllChatrooms();
@@ -153,12 +121,6 @@ export function registerChatroomRoutes(
       const { userId } = req.body as { userId?: string };
       if (!userId) {
         res.status(400).json({ error: 'userId is required' });
-        return;
-      }
-      // FR-CPF-01: run challenge gate for join-community when configured.
-      const deny = await checkGate('join-community', req.params.id, { userId, chatroomId: req.params.id });
-      if (deny) {
-        res.status(403).json({ error: deny });
         return;
       }
       await chatroomManager.joinChatroom(req.params.id, userId);
@@ -183,13 +145,11 @@ export function registerChatroomRoutes(
 
   app.post('/api/chatrooms', async (req, res) => {
     try {
-      const { id, name, type, createdBy, description, capacity, businessInfo, location } = req.body as {
-        id?: string;
+      const { name, type, createdBy, description, businessInfo, location } = req.body as {
         name: string;
         type: 'business' | 'custom';
         createdBy: string;
         description?: string;
-        capacity?: number;
         businessInfo?: unknown;
         location?: unknown;
       };
@@ -206,18 +166,14 @@ export function registerChatroomRoutes(
         return;
       }
       const createPayload: {
-        id?: string;
         name: string;
         type: 'business' | 'custom';
         createdBy: string;
         description?: string;
-        capacity?: number;
         businessInfo?: unknown;
         location?: ChatroomMapLocation;
       } = { name, type, createdBy };
-      if (id != null) createPayload.id = id;
       if (description != null) createPayload.description = description;
-      if (capacity != null) createPayload.capacity = capacity;
       if (businessInfo != null) createPayload.businessInfo = businessInfo;
       if (location != null) createPayload.location = location;
       const created = await chatroomManager.createChatroom(createPayload);
@@ -227,55 +183,12 @@ export function registerChatroomRoutes(
     }
   });
 
-  app.patch('/api/chatrooms/:id', async (req, res) => {
-    try {
-      const { userId, name, description, isActive, capacity, location } = req.body as {
-        userId: string;
-        name?: string;
-        description?: string;
-        isActive?: boolean;
-        capacity?: number;
-        location?: unknown;
-      };
-      if (!userId) {
-        res.status(400).json({ error: 'userId is required' });
-        return;
-      }
-      if (location !== undefined && location !== null && !isValidChatroomMapLocation(location)) {
-        res.status(400).json({ error: 'location must contain valid latitude and longitude' });
-        return;
-      }
-      const updates: {
-        name?: string;
-        description?: string;
-        isActive?: boolean;
-        capacity?: number;
-        location?: ChatroomMapLocation | null;
-      } = {};
-      if (name != null) updates.name = name;
-      if (description != null) updates.description = description;
-      if (isActive != null) updates.isActive = isActive;
-      if (capacity != null) updates.capacity = capacity;
-      if (location !== undefined) updates.location = location as ChatroomMapLocation | null;
-      const updated = await chatroomManager.updateChatroom(req.params.id, userId, updates);
-      res.json(updated);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
+  app.patch('/api/chatrooms/:id', async (_req, res) => {
+    res.status(410).json({ error: 'room descriptors are immutable; publish a new room descriptor' });
   });
 
-  app.delete('/api/chatrooms/:id', async (req, res) => {
-    try {
-      const userId = String(req.query.userId || '');
-      if (!userId) {
-        res.status(400).json({ error: 'userId query param is required' });
-        return;
-      }
-      await chatroomManager.deleteChatroom(req.params.id, userId);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
+  app.delete('/api/chatrooms/:id', async (_req, res) => {
+    res.status(410).json({ error: 'rooms have no owner and cannot be deleted by a participant' });
   });
 
   app.get('/api/chatrooms/:id/members', async (req, res) => {
@@ -328,53 +241,12 @@ export function registerChatroomRoutes(
     }
   });
 
-  // ─── Community ownership routes (FR-CR-12) ──────────────────────────────────
-
-  /**
-   * GET /api/chatrooms/:id/roles/:userId
-   * Returns the role record for the given user, or 404 if none exists.
-   */
-  app.get('/api/chatrooms/:id/roles/:userId', async (req, res) => {
-    try {
-      const role = await chatroomManager.getRole(req.params.id, req.params.userId);
-      if (!role) {
-        res.status(404).json({ error: 'no role record found' });
-        return;
-      }
-      res.json({ chatroomId: req.params.id, userId: req.params.userId, role });
-    } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
-    }
+  app.get('/api/chatrooms/:id/roles/:userId', async (_req, res) => {
+    res.status(410).json({ error: 'room roles were retired; all participants are ordinary peers' });
   });
 
-  /**
-   * PUT /api/chatrooms/:id/roles/:userId
-   * Body: { actorUserId: string, role: CommunityRole }
-   *
-   * Assigns `role` to `userId` in chatroom `:id`.
-   * The request must include `actorUserId` — the user performing the assignment.
-   * Permission rules are enforced by ChatroomManager.setRole (FR-CR-12).
-   */
-  app.put('/api/chatrooms/:id/roles/:userId', async (req, res) => {
-    try {
-      const { actorUserId, role } = req.body as { actorUserId?: string; role?: string };
-      if (!actorUserId) {
-        res.status(400).json({ error: 'actorUserId is required' });
-        return;
-      }
-      if (!role || !VALID_ROLES.includes(role as CommunityRole)) {
-        res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
-        return;
-      }
-      const record = await chatroomManager.setRole(
-        req.params.id,
-        req.params.userId,
-        role as CommunityRole,
-        actorUserId,
-      );
-      res.json(record);
-    } catch (error) {
-      res.status(403).json({ error: (error as Error).message });
-    }
+  /** Retired compatibility endpoint; room participants have no assignable roles. */
+  app.put('/api/chatrooms/:id/roles/:userId', async (_req, res) => {
+    res.status(410).json({ error: 'room roles were retired; all participants are ordinary peers' });
   });
 }

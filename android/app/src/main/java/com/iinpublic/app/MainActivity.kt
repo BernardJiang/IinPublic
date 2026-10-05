@@ -207,6 +207,17 @@ class MainActivity : AppCompatActivity() {
         if (missing.isEmpty()) nearbyBridge.permissionResult(permissions.associateWith { true }) else nearbyPermissionLauncher.launch(missing.toTypedArray())
     }
 
+    fun updateNearbyForegroundMode(mode: String, roomId: String) {
+        val safeMode = if (mode in listOf("off", "while-open", "always")) mode else "while-open"
+        val serviceIntent = Intent(this, NodeForegroundService::class.java).apply {
+            action = NodeForegroundService.ACTION_CONFIGURE_NEARBY
+            putExtra(NodeForegroundService.NEARBY_MODE_EXTRA, safeMode)
+            putExtra(NodeForegroundService.ACTIVE_ROOM_EXTRA, roomId.take(128))
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
+        else startService(serviceIntent)
+    }
+
     /** Only what Wi-Fi Direct needs (no Bluetooth prompts): asked in context, on the first upgrade. */
     fun requestWifiDirectPermission() = runOnUiThread {
         val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
@@ -353,7 +364,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        nearbyBridge.stop()
+        // The connected-device foreground service, not this Activity, owns nearby discovery.
+        // Detach only the UI event sink; "Always" mode continues across Activity recreation.
+        nearbyBridge.detach()
         webView.destroy()
         super.onDestroy()
     }

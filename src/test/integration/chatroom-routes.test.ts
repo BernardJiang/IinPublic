@@ -70,18 +70,18 @@ describe('chatroom routes', () => {
     expect(res.status).toBe(400);
   });
 
-  it('updates and soft deletes a chatroom', async () => {
+  it('retires owner mutation and deletion routes', async () => {
     const { app, manager } = buildApp();
     const patchRes = await request(app).patch('/api/chatrooms/room_1').send({
       userId: 'owner_1',
       name: 'Renamed',
     });
-    expect(patchRes.status).toBe(200);
-    expect(manager.updateChatroom).toHaveBeenCalledWith('room_1', 'owner_1', expect.objectContaining({ name: 'Renamed' }));
+    expect(patchRes.status).toBe(410);
+    expect(manager.updateChatroom).not.toHaveBeenCalled();
 
     const deleteRes = await request(app).delete('/api/chatrooms/room_1').query({ userId: 'owner_1' });
-    expect(deleteRes.status).toBe(200);
-    expect(manager.deleteChatroom).toHaveBeenCalledWith('room_1', 'owner_1');
+    expect(deleteRes.status).toBe(410);
+    expect(manager.deleteChatroom).not.toHaveBeenCalled();
   });
 
   it('supports chatroom membership list and add/remove', async () => {

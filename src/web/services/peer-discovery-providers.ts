@@ -77,7 +77,7 @@ export function presenceRecordCandidate(
     userId: record.userId,
     addresses: [],
     capabilities: record.capabilities ?? [],
-    roomIds: [],
+    roomIds: record.version === 2 ? [record.roomScope.roomId] : [],
   };
 }
 
@@ -130,7 +130,7 @@ export function authenticatedGossipPoll(
         transportId: binding.connectivityId,
         addresses: binding.addresses,
         capabilities: binding.capabilities,
-        roomIds: context.roomIds,
+        roomIds: [context.activeRoomId],
       });
     }
     return candidates;

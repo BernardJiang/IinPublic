@@ -36,10 +36,7 @@ export interface ChallengeContext {
   identityVerified?: boolean;
   /** Signed invite token (opaque string) presented by the user. */
   inviteToken?: string;
-  /**
-   * Whether the user has at least one completed talk exchange with the
-   * community owner or a moderator.
-   */
+  /** Whether the user has at least one completed Talk exchange with another participant. */
   hasPreviousInteraction?: boolean;
   /** Catch-all for future or plugin-specific context fields. */
   [key: string]: unknown;
@@ -69,7 +66,8 @@ export interface ChallengePlugin {
 /**
  * Configuration for a single challenge gate protecting one or more actions.
  *
- * Stored per-chatroom in owner-private (zone-B) storage (FR-CPF-04).
+ * A peer may apply this locally to its own actions. It grants no room authority and is not a
+ * room-wide policy that one participant can impose on another.
  */
 export interface ChallengeGateConfig {
   /** Plugins to run (in order). */
@@ -182,8 +180,7 @@ export class RequireInvitation implements ChallengePlugin {
 }
 
 /**
- * Requires the user to have at least one completed talk exchange with the
- * community owner or a moderator before joining or broadcasting.
+ * Requires the user to have at least one completed Talk exchange with another participant.
  */
 export class RequirePreviousInteraction implements ChallengePlugin {
   readonly id = 'require-previous-interaction';
@@ -192,7 +189,7 @@ export class RequirePreviousInteraction implements ChallengePlugin {
     if (context.hasPreviousInteraction === true) return { allowed: true };
     return {
       allowed: false,
-      reason: 'You must have a previous completed talk exchange with a community moderator or owner.',
+      reason: 'You must have a previous completed Talk exchange with another participant.',
     };
   }
 }
@@ -203,8 +200,8 @@ export class RequirePreviousInteraction implements ChallengePlugin {
  * A simple in-process plugin registry.  Third-party plugins register here;
  * gate configurations reference plugins by their `id`.
  *
- * In a future phase, plugin bundles will be loaded from owner-private Gun
- * paths and instantiated dynamically.
+ * Plugins remain peer-local preferences unless a future protocol explicitly defines a mutually
+ * authenticated pair policy. They must never be interpreted as room ownership.
  */
 const _registry = new Map<string, ChallengePlugin>([
   ['require-verified-identity', new RequireVerifiedIdentity()],

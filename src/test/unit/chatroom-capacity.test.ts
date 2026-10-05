@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import {
-  capacityOwner,
+  capacityNoticeCoordinator,
   isNoticeForStay,
   orderMembersFifo,
   overflowMembers,
@@ -35,9 +35,9 @@ describe('shared chatroom capacity rule', () => {
     expect(overflowMembers(members, 99)).toEqual([]);
   });
 
-  it('names the newest member as the room owner', () => {
-    expect(capacityOwner([m('a', t(1)), m('z', t(9)), m('b', t(3))])).toBe('z');
-    expect(capacityOwner([])).toBeNull();
+  it('names the newest member as the notice coordinator without granting a room role', () => {
+    expect(capacityNoticeCoordinator([m('a', t(1)), m('z', t(9)), m('b', t(3))])).toBe('z');
+    expect(capacityNoticeCoordinator([])).toBeNull();
   });
 
   it('is monotone: overflow on any partial view implies overflow on the full list', () => {
@@ -75,13 +75,13 @@ describe('shared chatroom capacity rule', () => {
 });
 
 describe('numbered overflow rooms (rooms with no child)', () => {
-  it('moves the n - capacity NEWEST members on, leaving the oldest where they are', () => {
+  it('uses FIFO too, so the longest-staying participant moves without a protected creator seat', () => {
     const members = ['a', 'b', 'c', 'd', 'e'].map((id, i) => m(id, t(i)));
-    expect(splitOverflowMembers(members, 3).map((x) => x.userId)).toEqual(['d', 'e']);
+    expect(splitOverflowMembers(members, 3).map((x) => x.userId)).toEqual(['a', 'b']);
     expect(splitOverflowMembers(members, 5)).toEqual([]);
   });
 
-  it('is monotone: newest-overflow on a partial view implies newest-overflow on the full list', () => {
+  it('is monotone: FIFO overflow on a partial view implies overflow on the full list', () => {
     let seed = 987;
     const rand = () => {
       seed = (seed * 1664525 + 1013904223) % 4294967296;
@@ -319,7 +319,7 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     expect([...authors]).toEqual(['u3']);
   });
 
-  it('splits a custom room: newcomers over the cap move themselves to _part_2, _part_3; nobody inside is moved', async () => {
+  it('splits a custom room with FIFO, including its first participant', async () => {
     setCapacity(2);
     const room = 'sport-arena';
     for (const id of ['u1', 'u2', 'u3', 'u4', 'u5']) {
@@ -328,16 +328,14 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     }
 
     const inRoom = (r: string) => activeIn(r);
-    expect(inRoom(room)).toEqual(['u1', 'u2']);
-    expect(inRoom('sport-arena_part_2')).toEqual(['u3', 'u4']);
-    expect(inRoom('sport-arena_part_3')).toEqual(['u5']);
-    expect(peers.get('u1')!.moved).toEqual([]);
-    expect(peers.get('u2')!.moved).toEqual([]);
-    // Custom rooms never write eviction notices (nobody already inside is told to leave).
-    expect(gun.read('/chatrooms/sport-arena/evictions')).toBeUndefined();
+    expect(inRoom(room)).toEqual(['u4', 'u5']);
+    expect(inRoom('sport-arena_part_2')).toEqual(['u2', 'u3']);
+    expect(inRoom('sport-arena_part_3')).toEqual(['u1']);
+    expect(peers.get('u1')!.moved).toEqual(['sport-arena_part_2', 'sport-arena_part_3']);
+    expect(gun.read('/chatrooms/sport-arena/evictions/u1/u3')).toBeDefined();
   });
 
-  it('a crowd jumps to the recent frontier instead of walking through every full room', async () => {
+  it('does not move the newcomer when the FIFO evictee is not running', async () => {
     setCapacity(1);
     const room = 'stadium';
     // Rooms 1..4 already exist and are full; the frontier hint says 4 was opened moments ago.
@@ -349,9 +347,8 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
 
     await join('u5', room);
     await settle();
-    // u5 overflowed base, jumped straight to _part_4, found it full and opened _part_5.
-    expect(peers.get('u5')!.moved[0]).toBe('stadium_part_4');
-    expect(activeIn('stadium_part_5')).toEqual(['u5']);
+    expect(peers.get('u5')!.moved).toEqual([]);
+    expect(activeIn(room)).toEqual(['u1', 'u5']);
   });
 
   it('a numbered room that is not full keeps its newcomer (no needless move)', async () => {

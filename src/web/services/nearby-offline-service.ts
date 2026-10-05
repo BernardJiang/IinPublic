@@ -1,10 +1,10 @@
 import {
   encodeBlePresence,
   encodeNearbyTxt,
+  deriveOfflineGroupCredentials,
   lanGunPeerUrl,
   NEARBY_LAN_TTL_MS,
   NEARBY_RECORD_TTL_MS,
-  OFFLINE_GROUP_CREDENTIALS,
   parseBlePresence,
   parseNearbyTxt,
   planOfflineGroup,
@@ -15,17 +15,21 @@ import {
   type NearbyRecord,
   type OfflineGroupPlan,
 } from '../../shared/nearby-offline';
+import type { ActiveRoomScope } from '../../shared/active-exchange-room';
 import { joinableCredentials } from '../../shared/wifi-direct-link';
 import type { LocalLinkRelay, WifiDirectNative, WifiDirectNativeState } from './wifi-direct-link-service';
 
 /** Offline-discovery methods on `window.IinPublicNearby` (NearbyJavascriptBridge.kt). */
 export type NearbyOfflineBridge = {
-  startLanDiscovery(port: number, nearbyId: string): void;
+  setNearbyExchangeMode?(mode: 'off' | 'while-open' | 'always', roomId: string): void;
+  startLanDiscovery(port: number, nearbyId: string, roomTokenPrefix: string): void;
   stopLanDiscovery(): void;
   advertiseWifiDirectService(txtJson: string): void;
   startWifiDirectServiceDiscovery(): void;
   stopWifiDirectServiceDiscovery(): void;
   nearbyReadiness(): string;
+  /** Android active-network health and NET_CAPABILITY_NOT_METERED; never contains SSID. */
+  networkPathState?(): string;
   openNearbySettings(kind: string): void;
   startBlePresence(payloadHex: string): void;
   stopBlePresence(): void;
@@ -61,6 +65,8 @@ export type NearbyOfflineEvent =
 
 export type NearbyOfflineServiceOptions = {
   localPub: string;
+  /** Current authenticated room capability. Nearby exchange fails closed without it. */
+  getRoomScope: () => ActiveRoomScope | null;
   /** Port of this phone's embedded node; peers' ports come from their records. */
   port: number;
   bridge: NearbyOfflineBridge;
@@ -138,12 +144,22 @@ export class NearbyOfflineService {
   private disposed = false;
 
   private readonly candidateEvent = (event: Event): void => {
-    const detail = (event as CustomEvent<{ source?: unknown; transportId?: unknown; endpoint?: unknown }>).detail;
+    const detail = (event as CustomEvent<{
+      source?: unknown;
+      transportId?: unknown;
+      endpoint?: unknown;
+      capabilities?: unknown;
+    }>).detail;
     if (detail?.source !== 'mdns') return;
     const url = lanGunPeerUrl(detail.endpoint);
     const peerId = typeof detail.transportId === 'string' ? detail.transportId : '';
+    const roomToken = this.opts.getRoomScope()?.roomToken;
+    const capabilities = Array.isArray(detail.capabilities) ? detail.capabilities.map(String) : [];
+    const advertisedRoomPrefix = capabilities.find((value) => value.startsWith('room-token:'))?.slice('room-token:'.length) || '';
     // Never peer with ourselves (a resolve without TXT falls back to the service name).
-    if (!url || !peerId || peerId === this.id || peerId.endsWith(`-${this.id}`)) return;
+    if (!url || !peerId || !roomToken || !/^[a-f0-9]{8}$/.test(advertisedRoomPrefix)
+      || !roomToken.startsWith(advertisedRoomPrefix)
+      || peerId === this.id || peerId.endsWith(`-${this.id}`)) return;
     this.lanIds.set(peerId, this.now());
     if (this.peeredUrls.has(url)) return;
     this.peeredUrls.add(url);
@@ -154,7 +170,9 @@ export class NearbyOfflineService {
   private readonly serviceEvent = (event: Event): void => {
     const detail = (event as CustomEvent<{ txt?: unknown; deviceAddress?: unknown }>).detail;
     const record = parseNearbyTxt(detail?.txt, this.now(), typeof detail?.deviceAddress === 'string' ? detail.deviceAddress : undefined);
-    if (!record || record.id === this.id) return;
+    const roomToken = this.opts.getRoomScope()?.roomToken;
+    if (!record || !roomToken || !record.roomToken || !roomToken.startsWith(record.roomToken) || record.id === this.id) return;
+    if (record.hostingHint) record.group = deriveOfflineGroupCredentials(this.opts.getRoomScope()!);
     const previous = this.records.get(record.id);
     this.records.set(record.id, record);
     if (!previous || !!previous.group !== !!record.group) {
@@ -180,7 +198,8 @@ export class NearbyOfflineService {
 
   private readonly bleEvent = (event: Event): void => {
     const detail = (event as CustomEvent<{ payload?: unknown }>).detail;
-    const record = parseBlePresence(detail?.payload, this.now(), this.opts.port);
+    const roomToken = this.opts.getRoomScope()?.roomToken;
+    const record = roomToken ? parseBlePresence(detail?.payload, this.now(), this.opts.port, roomToken) : null;
     if (!record || record.id === this.id) return;
     const previous = this.records.get(record.id);
     this.records.set(record.id, record);
@@ -197,14 +216,18 @@ export class NearbyOfflineService {
   }
 
   async start(): Promise<void> {
-    this.id = await rotatingNearbyId(this.opts.localPub, this.now());
+    const scope = this.opts.getRoomScope();
+    if (!scope) throw new Error('active room scope is required for nearby exchange');
+    this.id = await rotatingNearbyId(this.opts.localPub, this.now(), scope.roomToken);
     if (this.disposed) return;
     this.events.addEventListener('iinpublic-nearby-candidate', this.candidateEvent);
     this.events.addEventListener('iinpublic-nearby-wd-service', this.serviceEvent);
     this.events.addEventListener('iinpublic-nearby-ble', this.bleEvent);
     this.events.addEventListener('iinpublic-nearby-wd-peers', this.peersEvent);
     this.unsubscribeNative = this.opts.native.onState((state) => { void this.handleGroupState(state); });
-    if (this.opts.lanDiscovery !== false) this.opts.bridge.startLanDiscovery(this.opts.port, this.id);
+    if (this.opts.lanDiscovery !== false) {
+      this.opts.bridge.startLanDiscovery(this.opts.port, this.id, scope.roomToken.slice(0, 8));
+    }
     this.timer = setInterval(() => { void this.tick(); }, this.opts.tickMs ?? 5_000);
     // A group left over from before a restart (Android keeps it) still needs its relay and peer —
     // and must not be re-created by the planner, which would drop its clients.
@@ -223,7 +246,7 @@ export class NearbyOfflineService {
     this.wifiDirectAllowed = settings.wifiDirect;
     if (!settings.wifiDirect) {
       const state = this.opts.native.getState();
-      if ((state.state === 'owner' || state.state === 'client') && state.networkName === OFFLINE_GROUP_CREDENTIALS.networkName) {
+      if ((state.state === 'owner' || state.state === 'client') && state.networkName === this.currentCredentials()?.networkName) {
         this.ownsGroup = false;
         this.opts.native.leaveGroup();
       }
@@ -242,7 +265,7 @@ export class NearbyOfflineService {
   getStatus(): NearbyStatus {
     const state = this.opts.native.getState();
     const lanPhones = this.peeredUrls.size === 0 ? 0 : [...this.peeredUrls].filter((url) => !url.includes('192.168.49.')).length;
-    if ((state.state === 'owner' || state.state === 'client') && state.networkName === OFFLINE_GROUP_CREDENTIALS.networkName) {
+    if ((state.state === 'owner' || state.state === 'client') && state.networkName === this.currentCredentials()?.networkName) {
       return {
         kind: 'wifi-direct',
         hosting: state.state === 'owner',
@@ -311,7 +334,7 @@ export class NearbyOfflineService {
       const offline = !(await this.opts.hubReachable().catch(() => false));
       if (this.disposed) return;
       this.onlineSince = offline ? null : (this.onlineSince ?? this.now());
-      if (!offline && inGroup && state.networkName === OFFLINE_GROUP_CREDENTIALS.networkName
+      if (!offline && inGroup && state.networkName === this.currentCredentials()?.networkName
         && this.now() - this.onlineSince! >= ONLINE_LEAVE_GROUP_MS) {
         // Online again: the hub path (and the hub-matchmade upgrade) take over; free the radio.
         this.onlineSince = null;
@@ -353,9 +376,11 @@ export class NearbyOfflineService {
       return;
     }
     if (plan.action === 'host') {
+      const credentials = this.currentCredentials();
+      if (!credentials) return;
       this.ownsGroup = true;
       this.busyUntil = this.now() + CREATE_WAIT_MS;
-      this.opts.native.createGroup(OFFLINE_GROUP_CREDENTIALS);
+      this.opts.native.createGroup(credentials);
     } else if (plan.action === 'join') {
       this.ownsGroup = true;
       this.joinedRecord = plan.record;
@@ -366,6 +391,10 @@ export class NearbyOfflineService {
 
   /** Wi-Fi-only path when neither BLE nor DNS-SD has reported anyone. Returns true if it acted. */
   private fallback(offline: boolean, state: WifiDirectNativeState): boolean {
+    // Plain P2P peer sightings carry no authenticated room capability. Joining an arbitrary
+    // nearby group would cross the hard room boundary, so room-scoped mode deliberately waits
+    // for BLE/DNS-SD carrying the opaque token instead.
+    if (this.opts.getRoomScope()) return false;
     if (!offline || this.lanIds.size > 0) return false;
     const now = this.now();
     const plan = planWifiOnlyFallback({
@@ -385,15 +414,19 @@ export class NearbyOfflineService {
       case 'none':
         return false;
       case 'join':
+        const joinCredentials = this.currentCredentials();
+        if (!joinCredentials) return false;
         this.ownsGroup = true;
         this.fallbackJoinAddress = plan.address;
         this.busyUntil = now + JOIN_WAIT_MS;
-        this.opts.native.joinGroup(OFFLINE_GROUP_CREDENTIALS);
+        this.opts.native.joinGroup(joinCredentials);
         return true;
       case 'host':
+        const hostCredentials = this.currentCredentials();
+        if (!hostCredentials) return false;
         this.ownsGroup = true;
         this.busyUntil = now + CREATE_WAIT_MS;
-        this.opts.native.createGroup(OFFLINE_GROUP_CREDENTIALS);
+        this.opts.native.createGroup(hostCredentials);
         return true;
       case 'leave-and-join':
         // Our empty group loses to the other owner; the next idle tick joins it.
@@ -454,17 +487,22 @@ export class NearbyOfflineService {
 
   private advertise(): void {
     if (!this.wifiDirectActive || !this.id) return;
+    const scope = this.opts.getRoomScope();
+    if (!scope) {
+      this.stopWifiDirect('no-active-room');
+      return;
+    }
     const caps = this.opts.native.capabilities();
     const state = this.opts.native.getState();
     const group = state.state === 'owner' && state.networkName && state.passphrase
       ? { networkName: state.networkName, passphrase: state.passphrase, ...(state.frequencyMhz ? { frequencyMhz: state.frequencyMhz } : {}) }
       : null;
     const self = { id: this.id, canHost: caps.wifiDirect, joinByCredential: caps.joinByCredential, hostScore: caps.hostScore };
-    const txt = JSON.stringify(encodeNearbyTxt({ ...self, port: this.opts.port, group }));
+    const txt = JSON.stringify(encodeNearbyTxt({ ...self, port: this.opts.port, roomToken: scope.roomToken, group }));
     if (txt === this.lastAdvertised) return;
     this.lastAdvertised = txt;
     this.opts.bridge.advertiseWifiDirectService(txt);
-    if (this.blePresence) this.opts.bridge.startBlePresence(encodeBlePresence({ ...self, hosting: !!group }));
+    if (this.blePresence) this.opts.bridge.startBlePresence(encodeBlePresence({ ...self, roomToken: scope.roomToken, hosting: !!group }));
   }
 
   // ── Group state ───────────────────────────────────────────────────────────────────────────
@@ -480,7 +518,7 @@ export class NearbyOfflineService {
     if ((state.state === 'owner' || state.state === 'client') && state.localIp) {
       this.busyUntil = 0;
       // Our own offline group, kept by Android across an app restart: manage it as ours again.
-      if (state.networkName === OFFLINE_GROUP_CREDENTIALS.networkName) this.ownsGroup = true;
+      if (state.networkName === this.currentCredentials()?.networkName) this.ownsGroup = true;
       if (this.relayAddress !== state.localIp) {
         try {
           const server = await this.opts.localRelay.start(state.localIp);
@@ -544,10 +582,14 @@ export class NearbyOfflineService {
   }
 
   private async refreshId(): Promise<void> {
-    const next = await rotatingNearbyId(this.opts.localPub, this.now());
+    const scope = this.opts.getRoomScope();
+    if (!scope) return;
+    const next = await rotatingNearbyId(this.opts.localPub, this.now(), scope.roomToken);
     if (next === this.id || this.disposed) return;
     this.id = next;
-    if (this.opts.lanDiscovery !== false) this.opts.bridge.startLanDiscovery(this.opts.port, this.id);
+    if (this.opts.lanDiscovery !== false) {
+      this.opts.bridge.startLanDiscovery(this.opts.port, this.id, scope.roomToken.slice(0, 8));
+    }
     this.advertise();
   }
 
@@ -579,6 +621,11 @@ export class NearbyOfflineService {
     if (this.reportedGaps.has(gap)) return;
     this.reportedGaps.add(gap);
     this.opts.onReadinessGap?.(gap);
+  }
+
+  private currentCredentials() {
+    const scope = this.opts.getRoomScope();
+    return scope ? deriveOfflineGroupCredentials(scope) : null;
   }
 }
 

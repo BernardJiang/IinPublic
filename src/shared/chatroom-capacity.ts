@@ -47,20 +47,13 @@ export function overflowMembers(members: readonly CapacityMember[], capacity: nu
   return ordered.length > cap ? ordered.slice(0, ordered.length - cap) : [];
 }
 
-/**
- * Rooms with no child room (custom rooms, the deepest regional room) overflow the OTHER way:
- * the `n - capacity` NEWEST members move on to the next numbered room, so nobody already inside is
- * disturbed. Each such member checks only "am I in this set?" and moves itself. Also monotone under
- * partial views (an extra member can only push my position up), so a stale view never moves me
- * wrongly.
- */
+/** Every room uses the same eventual FIFO rule; creators receive no protected seat. */
 export function splitOverflowMembers(members: readonly CapacityMember[], capacity: number): CapacityMember[] {
-  const cap = Math.max(1, Math.floor(capacity));
-  return orderMembersFifo(members).slice(cap);
+  return overflowMembers(members, capacity);
 }
 
-/** The newest member owns overflow resolution for the room (sends the notices). */
-export function capacityOwner(members: readonly CapacityMember[]): string | null {
+/** The newest member deterministically coordinates overflow notices; this grants no room role. */
+export function capacityNoticeCoordinator(members: readonly CapacityMember[]): string | null {
   const ordered = orderMembersFifo(members);
   return ordered.length > 0 ? ordered[ordered.length - 1].userId : null;
 }

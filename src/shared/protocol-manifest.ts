@@ -50,6 +50,18 @@ export type SignedProtocolManifest = {
   body: ProtocolManifestBody;
   signerKeyId: string;
   signature: string;
+  /**
+   * Emergency authorization by the recovery policy from the previous checkpoint. Recovery
+   * signatures never replace the ordinary signature silently: verification enters this path only
+   * when the ordinary one-time next-release key is unavailable or unauthorized, and requires the
+   * previously pinned threshold of distinct recovery keys.
+   */
+  recoverySignatures?: ProtocolManifestRecoverySignature[];
+};
+
+export type ProtocolManifestRecoverySignature = {
+  signerKeyId: string;
+  signature: string;
 };
 
 export type ProtocolManifestTrustState = {
@@ -183,7 +195,16 @@ export function isSignedProtocolManifest(value: unknown): value is SignedProtoco
     && isSha256Hex(value.signerKeyId)
     && typeof value.signature === 'string'
     && value.signature.length >= 64
-    && value.signature.length <= 256;
+    && value.signature.length <= 256
+    && (value.recoverySignatures === undefined
+      || (Array.isArray(value.recoverySignatures)
+        && value.recoverySignatures.length <= 8
+        && value.recoverySignatures.every((entry) => isRecord(entry)
+          && typeof entry.signerKeyId === 'string'
+          && isSha256Hex(entry.signerKeyId)
+          && typeof entry.signature === 'string'
+          && entry.signature.length >= 64
+          && entry.signature.length <= 256)));
 }
 
 export function protocolManifestBodyValidationError(body: unknown): string | null {
@@ -231,6 +252,34 @@ export async function signProtocolManifest(
   const signerKeyId = protocolReleaseKeyId(signer.pub);
   const signature = await portableEcdsaSign(protocolManifestSigningPayload(body), signer.priv);
   return { body, signerKeyId, signature };
+}
+
+/**
+ * Produce a threshold-recovery manifest. The first recovery signature remains in the legacy
+ * signer fields so older parsers fail closed on an unauthorized signer instead of accepting an
+ * unsigned extension; every signature is also carried in the explicit threshold list.
+ */
+export async function signProtocolManifestWithRecovery(
+  body: ProtocolManifestBody,
+  signers: readonly SeaSigningPair[],
+): Promise<SignedProtocolManifest> {
+  const validationError = protocolManifestBodyValidationError(body);
+  if (validationError) throw new Error(validationError);
+  if (signers.length < 1 || signers.length > 8) throw new Error('recovery signer count is out of bounds');
+  const payload = protocolManifestSigningPayload(body);
+  const recoverySignatures = await Promise.all(signers.map(async (signer) => ({
+    signerKeyId: protocolReleaseKeyId(signer.pub),
+    signature: await portableEcdsaSign(payload, signer.priv),
+  })));
+  if (new Set(recoverySignatures.map((entry) => entry.signerKeyId)).size !== recoverySignatures.length) {
+    throw new Error('duplicate recovery signer');
+  }
+  return {
+    body,
+    signerKeyId: recoverySignatures[0]!.signerKeyId,
+    signature: recoverySignatures[0]!.signature,
+    recoverySignatures,
+  };
 }
 
 export function evaluateProtocolManifestCompatibility(
@@ -293,17 +342,24 @@ export async function verifyProtocolManifestChain(params: {
     if (manifest.body.sequence !== state.sequence + 1) return { ok: false, reason: 'manifest sequence gap', acceptedPrefix: accepted };
     if (manifest.body.previousManifestHash !== state.manifestHash) return { ok: false, reason: 'previous manifest hash mismatch', acceptedPrefix: accepted };
 
+    const signingPayload = protocolManifestSigningPayload(manifest.body);
     const signer = state.nextReleaseKeys.find((key) => key.keyId === manifest.signerKeyId);
-    if (!signer) return { ok: false, reason: 'manifest signer is not authorized by the previous checkpoint', acceptedPrefix: accepted };
-    if (signer.algorithm !== PROTOCOL_MANIFEST_SIGNATURE_ALGORITHM) {
-      return { ok: false, reason: 'unsupported trusted signer algorithm', acceptedPrefix: accepted };
+    const ordinarySignatureValid = !!signer
+      && signer.algorithm === PROTOCOL_MANIFEST_SIGNATURE_ALGORITHM
+      && await portableEcdsaVerify(manifest.signature, signingPayload, signer.publicKey);
+    const recoveryPolicyChanges = canonicalSerialize(manifest.body.recoveryPolicy)
+      !== canonicalSerialize(state.recoveryPolicy);
+    if (!ordinarySignatureValid || recoveryPolicyChanges) {
+      const recovery = await verifyRecoveryAuthorization(manifest, state.recoveryPolicy, signingPayload);
+      if (!recovery.ok) {
+        const reason = recoveryPolicyChanges && ordinarySignatureValid
+          ? 'recovery policy rotation requires the previous recovery threshold'
+          : signer && !manifest.recoverySignatures?.length
+          ? 'invalid manifest signature'
+          : recovery.reason;
+        return { ok: false, reason, acceptedPrefix: accepted };
+      }
     }
-    const validSignature = await portableEcdsaVerify(
-      manifest.signature,
-      protocolManifestSigningPayload(manifest.body),
-      signer.publicKey,
-    );
-    if (!validSignature) return { ok: false, reason: 'invalid manifest signature', acceptedPrefix: accepted };
 
     state = {
       networkId: state.networkId,
@@ -325,6 +381,28 @@ export async function verifyProtocolManifestChain(params: {
     accepted,
     ...(compatibility ? { compatibility } : {}),
   };
+}
+
+async function verifyRecoveryAuthorization(
+  manifest: SignedProtocolManifest,
+  policy: ProtocolRecoveryPolicy,
+  signingPayload: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const signatures = manifest.recoverySignatures;
+  if (!signatures?.length) {
+    return { ok: false, reason: 'manifest signer is not authorized by the previous checkpoint' };
+  }
+  const unique = new Map(signatures.map((entry) => [entry.signerKeyId, entry]));
+  if (unique.size !== signatures.length) return { ok: false, reason: 'duplicate recovery signature' };
+  let valid = 0;
+  for (const [keyId, entry] of unique) {
+    const key = policy.keys.find((candidate) => candidate.keyId === keyId);
+    if (!key) continue;
+    if (await portableEcdsaVerify(entry.signature, signingPayload, key.publicKey)) valid += 1;
+  }
+  return valid >= policy.threshold
+    ? { ok: true }
+    : { ok: false, reason: 'recovery signature threshold not met' };
 }
 
 export function serializeProtocolManifestTrustState(state: ProtocolManifestTrustState): string {

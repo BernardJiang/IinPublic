@@ -39,6 +39,7 @@ import { configuredMeshSyncCapabilities } from '../../shared/mesh-frame-policy';
 type RoomMember = {
   userId: string;
   stageName?: string;
+  joinedAt?: string | Date;
   /** Signing pub carried in the room roster record — lets neighbor formation skip the
    *  presence/public-record lookups that fail under simultaneous-boot load. */
   pub?: string;
@@ -58,6 +59,8 @@ type PeerMeshServiceOptions = {
   localUserId: string;
   localStageName: string;
   maxNeighbors?: number;
+  maxRoomCandidates?: number;
+  getMaxRoomCandidates?: () => number;
   sendTimeoutMs?: number;
   retryTimeoutMs?: number;
   ackTimeoutMs?: number;
@@ -231,16 +234,36 @@ export class PeerMeshService {
   private readonly manifestReadyPeerIds = new Set<string>();
   private readonly manifestRejectedPeerIds = new Set<string>();
   private readonly forwardingPolicy: MeshForwardingPolicy;
+  private protocolManifestController: ProtocolManifestController | undefined;
 
   constructor(
     private readonly gunService: WebGunService,
     private readonly opts: PeerMeshServiceOptions,
   ) {
     this.forwardingPolicy = new MeshForwardingPolicy(opts.forwardingSettings);
+    this.protocolManifestController = opts.protocolManifestController;
+  }
+
+  setProtocolManifestController(controller: ProtocolManifestController): void {
+    this.protocolManifestController = controller;
+    this.manifestReadyPeerIds.clear();
+    this.manifestRejectedPeerIds.clear();
+    void Promise.all([...this.neighbors.values()].map((neighbor) => this.sendProtocolManifestSummary(neighbor)));
   }
 
   updateForwardingSettings(settings: Partial<ForwardingSettings>): void {
     this.forwardingPolicy.update(settings);
+  }
+
+  private roomCandidateLimit(): number {
+    const configured = this.opts.getMaxRoomCandidates?.() ?? this.opts.maxRoomCandidates ?? 498;
+    return Math.max(1, Math.min(10_000, Math.floor(configured)));
+  }
+
+  private neighborLimit(): number {
+    // Production omits the override and therefore uses K=12. Unit/small-network harnesses may
+    // deliberately lower it to prove sparse routing without manufacturing eight peers.
+    return Math.max(1, Math.min(16, Math.floor(this.opts.maxNeighbors ?? 12)));
   }
 
   getForwardingDiagnostics(): ReturnType<MeshForwardingPolicy['diagnostics']> {
@@ -339,8 +362,23 @@ export class PeerMeshService {
       }
       this.currentRoomMembers.set(member.userId, next);
     }
+    const maxRoomCandidates = this.roomCandidateLimit();
+    if (this.currentRoomMembers.size > maxRoomCandidates) {
+      const retained = [...this.currentRoomMembers.values()]
+        // FIFO eviction retains the newest C members. Malformed timestamps sort last and cannot
+        // displace a valid signed-presence timestamp.
+        .sort((left, right) => {
+          const leftAt = Date.parse(String(left.joinedAt || ''));
+          const rightAt = Date.parse(String(right.joinedAt || ''));
+          const safeLeft = Number.isFinite(leftAt) ? leftAt : Number.NEGATIVE_INFINITY;
+          const safeRight = Number.isFinite(rightAt) ? rightAt : Number.NEGATIVE_INFINITY;
+          return safeRight - safeLeft || left.userId.localeCompare(right.userId);
+        })
+        .slice(0, maxRoomCandidates);
+      this.currentRoomMembers = new Map(retained.map((member) => [member.userId, member]));
+    }
     this.currentRoomMemberIds = new Set(this.currentRoomMembers.keys());
-    const maxNeighbors = this.opts.maxNeighbors ?? 12;
+    const maxNeighbors = this.neighborLimit();
     const hasDiscoveryFallback = typeof this.opts.getDiscoveryUserIds === 'function';
     if (!rosterChanged && !hasDiscoveryFallback && this.neighbors.size <= maxNeighbors) return;
     await this.reconcileNeighbors();
@@ -370,12 +408,13 @@ export class PeerMeshService {
   private async runNeighborReconcile(roomId: string): Promise<void> {
     if (this.currentRoomId !== roomId) return;
     const local = this.localIdentity();
-    const maxNeighbors = this.opts.maxNeighbors ?? 12;
+    const maxNeighbors = this.neighborLimit();
     const mergedMembers = new Map<string, RoomMember>(this.currentRoomMembers);
+    const maxRoomCandidates = this.roomCandidateLimit();
     if (typeof this.opts.getDiscoveryUserIds === 'function') {
       try {
         const discovered = await this.opts.getDiscoveryUserIds();
-        for (const userId of discovered || []) {
+        for (const userId of (discovered || []).slice(0, maxRoomCandidates)) {
           const normalized = String(userId || '').trim();
           if (!normalized || normalized === this.opts.localUserId || normalized === TECHSUPPORT_ROOT_USER_ID) continue;
           if (!mergedMembers.has(normalized)) {
@@ -388,7 +427,7 @@ export class PeerMeshService {
     }
     const rankedCandidates = this.selectNeighbors(
       [...mergedMembers.values()],
-      mergedMembers.size,
+      maxRoomCandidates,
     );
     const presencePubs = await this.fetchPresencePubs();
     const resolvedByUserId = new Map<string, string>();
@@ -557,10 +596,14 @@ export class PeerMeshService {
   ): Promise<Set<string>> {
     const talkId = String((talk as { id?: unknown }).id || '');
     if (!talkId) throw new Error('mesh broadcast requires talk.id');
+    const roomId = this.currentRoomId;
+    if (!roomId) throw new Error('mesh broadcast requires an active room');
     const talkRecord = JSON.parse(JSON.stringify(talk || {})) as Record<string, unknown>;
     this.cacheTalkBody(talkId, talkRecord);
     const pair = this.gunService.getStoredPair();
     const payload: P2PMeshTalkAnnouncePayload = {
+      roomId,
+      broadcastAt: new Date().toISOString(),
       talkId,
       authorId: this.opts.localUserId,
       authorName: this.opts.localStageName,
@@ -837,14 +880,14 @@ export class PeerMeshService {
     opts: { recipientUserId?: string; ttlHops?: number } = {},
   ): Promise<P2PMeshFrame> {
     if (
-      this.opts.protocolManifestController
+      this.protocolManifestController
       && !isProtocolManifestControlKind(kind)
-      && !this.opts.protocolManifestController.isRoomExchangeAllowed()
+      && !this.protocolManifestController.isRoomExchangeAllowed()
     ) {
       throw new Error('Room exchange is disabled by the active protocol manifest');
     }
     const local = this.localIdentity();
-    const manifestSummary = this.opts.protocolManifestController?.summary();
+    const manifestSummary = this.protocolManifestController?.summary();
     const frame: P2PMeshFrame = {
       version: 1,
       kind,
@@ -970,7 +1013,7 @@ export class PeerMeshService {
     const directTarget = frame.recipientUserId ? this.neighbors.get(frame.recipientUserId) : undefined;
     const available = [...this.neighbors.values()]
       .filter((neighbor) => neighbor.userId !== exceptUserId)
-      .filter((neighbor) => !this.opts.protocolManifestController
+      .filter((neighbor) => !this.protocolManifestController
         || isProtocolManifestControlKind(frame.kind)
         || this.manifestReadyPeerIds.has(neighbor.userId));
     // A cached direct edge may be stale while a healthy relay path exists. Directed
@@ -1065,7 +1108,9 @@ export class PeerMeshService {
 
   private async handleRemoteFrame(fromUserId: string, frame: P2PMeshFrame): Promise<void> {
     if (!frame || frame.version !== 1 || !frame.msgId || !frame.roomId) return;
-    if (this.currentRoomId && frame.roomId !== this.currentRoomId) return;
+    // During an ordered switch `leaveRoom()` deliberately creates a no-room interval. Accepting
+    // a frame in that interval made a just-left room leak into the next one on real hardware.
+    if (!this.currentRoomId || frame.roomId !== this.currentRoomId) return;
     if (this.seen.has(frame.msgId) || this.verifyingFrameIds.has(frame.msgId)) return;
     this.verifyingFrameIds.add(frame.msgId);
     try {
@@ -1074,9 +1119,9 @@ export class PeerMeshService {
         // Manifest exchange is deliberately one-hop. A relayed public manifest is fine, but the
         // receiver asks its direct neighbor for it and verifies the chain itself.
         if (frame.originUserId !== fromUserId || frame.recipientUserId !== this.opts.localUserId) return;
-      } else if (this.opts.protocolManifestController) {
-        if (!this.opts.protocolManifestController.isRoomExchangeAllowed()) return;
-        const localManifest = this.opts.protocolManifestController.summary();
+      } else if (this.protocolManifestController) {
+        if (!this.protocolManifestController.isRoomExchangeAllowed()) return;
+        const localManifest = this.protocolManifestController.summary();
         if (
           !frame.protocolManifest
           || frame.protocolManifest.networkId !== localManifest.networkId
@@ -1239,7 +1284,7 @@ export class PeerMeshService {
   }
 
   private async sendProtocolManifestSummary(neighbor: Neighbor): Promise<void> {
-    const controller = this.opts.protocolManifestController;
+    const controller = this.protocolManifestController;
     if (!controller || !isNeighborLive(neighbor)) return;
     const frame = await this.buildFrame('protocol-manifest-summary', controller.summary(), {
       recipientUserId: neighbor.userId,
@@ -1265,7 +1310,7 @@ export class PeerMeshService {
     fromUserId: string,
     remote: P2PProtocolManifestSummaryPayload,
   ): Promise<void> {
-    const controller = this.opts.protocolManifestController;
+    const controller = this.protocolManifestController;
     if (!controller) return;
     const local = controller.summary();
     if (remote.networkId !== local.networkId) {
@@ -1315,7 +1360,7 @@ export class PeerMeshService {
     fromUserId: string,
     request: P2PProtocolManifestRequestPayload,
   ): Promise<void> {
-    const controller = this.opts.protocolManifestController;
+    const controller = this.protocolManifestController;
     if (!controller || request.networkId !== controller.summary().networkId) return;
     const suffix = controller.manifestSuffixAfter(request.sequence, request.manifestHash);
     if (!suffix) {
@@ -1334,7 +1379,7 @@ export class PeerMeshService {
     fromUserId: string,
     payload: P2PProtocolManifestChainPayload,
   ): Promise<void> {
-    const controller = this.opts.protocolManifestController;
+    const controller = this.protocolManifestController;
     if (!controller) return;
     const before = controller.summary();
     if (
@@ -1376,6 +1421,8 @@ export class PeerMeshService {
     const requestId = randomId('body_req');
     const requestPayload: P2PMeshTalkBodyRequestPayload = {
       requestId,
+      roomId: announce.roomId,
+      broadcastAt: announce.broadcastAt,
       talkId: announce.talkId,
       authorId: announce.authorId,
     };
@@ -1412,6 +1459,8 @@ export class PeerMeshService {
     const pair = this.gunService.getStoredPair();
     const bodyPayload: P2PMeshTalkBodyPayload = {
       requestId: request.requestId,
+      roomId: request.roomId,
+      broadcastAt: request.broadcastAt,
       talkId: request.talkId,
       authorId: this.opts.localUserId,
       authorName: this.opts.localStageName,

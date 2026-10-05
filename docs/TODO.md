@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-04.
+Last reconciled: 2026-10-05.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -18,91 +18,6 @@ move its outcome and verification evidence to `docs/completed.md`, remove it her
 its ID.
 
 ## Active execution queue — website and Android first
-
-- [ ] **OPEN-37 — Make the active chatroom the hard P2P traffic partition (design frozen
-  2026-10-04).** One million online users must never create global discovery, a global roster, or
-  pairwise connection attempts. Each device has exactly one active exchange room; capacity `C`
-  bounds its candidate population and sparse fanout `K` bounds its live room-neighbor links.
-  Users manually switch rooms to reach another population. Inactive memberships create no live
-  traffic, while existing contacts/conversations reconnect only on demand. Authoritative design:
-  `docs/design/chatroom-scoped-p2p-traffic.md`; requirements: Technical Specification §3.3 and
-  §23. This is a prerequisite for enabling OPEN-36 nearby mode by default.
-  - [x] Record the million-user scaling model, one-active-room rule, manual-switch semantics,
-    transport layering, background lifecycle, privacy invariants, and validation plan.
-  - [x] Add the active-room partition requirements to the canonical Technical Specification.
-  - [x] Confirm capacity is one global parameter for every room, not a per-room policy or
-    creator-configurable attribute; record the current production value `C = 498`.
-  - [ ] Introduce a persisted `ActiveExchangeRoom` state machine and signed, expiring self-presence
-    tied to the global protocol epoch; distinguish known rooms and remembered rooms from the one
-    active exchange room. Do not introduce a room authority that issues admission proofs.
-  - [ ] Remove/migrate the custom-room `capacity` API/metadata field (currently defaults to 50),
-    and prevent creators or room metadata from overriding the global capacity.
-  - [ ] Retire the owner/moderator/member/guest room-role model, owner-only rename/delete controls,
-    owner-keyed room identity, and owner-gated challenge plugins. A creator is only the first
-    ordinary participant and may be FIFO-evicted; leaving/eviction does not delete the room.
-  - [ ] Remove capacity from the Create Room UI and treat trademark/name claims as outside the P2P
-    protocol. Permit duplicate display names and distinguish rooms by stable cryptographic ID plus
-    locally evaluated identity/trust evidence.
-  - [ ] Implement a content-addressed, signed protocol-manifest chain. Each release pins the next
-    release's public verification key; the next release carries an offline-signed manifest that
-    commits the following key. Peers relay missing manifests during handshake and verify the chain
-    locally without a central lookup. Bundle the public manifest history needed by the oldest
-    supported release, never historical private keys, and never omit an incompatible intermediate
-    manifest as a downgrade. Never ship a release private key in an application.
-  - [ ] Persist the highest accepted manifest sequence/hash; reject rollback and fail closed on a
-    same-sequence fork. Add a separately stored threshold recovery-key policy so loss or compromise
-    of the ordinary one-time next-release key cannot permanently strand deployed clients.
-  - [ ] Implement a global protocol-epoch transition for rare capacity changes. For `498 → 1000`,
-    gossip the signed manifest during a grace period, preserve the active set at activation, open
-    502 positions, do not resurrect evicted users, and synchronize manifests before room traffic.
-    A compatible old release updates the parameter without reinstalling; an incompatible manifest
-    engine or out-of-bounds parameter fails closed and requests an app update.
-  - [ ] Treat a release manifest as authorization for protocol parameters, not remote-binary
-    attestation. Validate every peer message locally and test forged manifests, replay, downgrade,
-    same-sequence forks, lost/compromised next keys, recovery rotation, offline catch-up, activation
-    clock skew, incompatible engines, and mixed-epoch refusal.
-  - [ ] Implement release-1 compatibility semantics before production: parameter-only updates;
-    optional capability intersection; mandatory capability/minimum-room-protocol failure; critical
-    versus non-critical unknown fields; explicit epoch retirement; and local-only/update-required
-    mode that preserves Settings, export, identity recovery, and update access.
-  - [ ] Decide before release 1 between perpetual legacy availability (recommended) and an expiring,
-    P2P-renewable protocol lease. Record that an isolated non-expiring old client cannot learn a
-    future retirement until another peer supplies the authenticated manifest chain.
-  - [ ] Define deterministic eventual FIFO/admission from signed expiring presence. Keep `C` and
-    `K` as hard per-client safety bounds, and test partition/merge convergence; do not claim an
-    instantaneous exact global roster without adding consensus or a coordinator.
-  - [ ] Make Global/over-capacity parent rooms navigation directories rather than live mesh rooms;
-    enforce the global capacity before accepting candidates into the local active set, and return
-    bounded child choices without exposing the parent roster.
-  - [ ] Populate and authenticate room scope on every discovery candidate. Fail closed on empty,
-    expired, mismatched, or unauthorized room scope before signaling or link establishment.
-  - [ ] Restrict hub presence, DHT rendezvous, LAN NSD, BLE, Wi-Fi Aware, and Wi-Fi Direct discovery
-    to the active room. Advertise rotating opaque room tokens, never raw room IDs, coordinates,
-    stage names, user IDs, or SEA public keys.
-  - [ ] Enforce `K = 8–16` configurable automatic neighbors per device with bounded candidate
-    samples/pages, jittered negotiation, backoff, diversity-aware selection, gossip TTL, seen-set,
-    rate limits, and backpressure. Never construct a full room mesh.
-  - [ ] Implement ordered room switching: stop old discovery/subscriptions and close old room-only
-    links before starting the new room; retain durable queues, receipts, dedupe state, contacts,
-    and on-demand direct conversations.
-  - [ ] Stamp announcements with active room, global protocol epoch, and accepted manifest
-    sequence/hash; synchronize and verify a missing checkpoint before processing. Keep pending
-    broadcasts in their origin room and require a deliberate broadcast after switching instead of
-    automatically rebroadcasting.
-  - [ ] Move Android nearby ownership from `MainActivity`/WebView into a user-started
-    `connectedDevice` foreground service with active-room status plus Pause/Stop actions. Persist
-    checkpoints so radio loss, process recreation, or revoked permission resumes idempotently.
-  - [ ] Wire all LAN/Direct/Aware/Internet adapters into the common route manager using actual
-    path health and `NET_CAPABILITY_NOT_METERED`; remove the binary hub-reachable route decision
-    and do not prompt in the middle of an exchange.
-  - [ ] Replace fixed `OFFLINE_GROUP_CREDENTIALS` with rotating per-room/session Wi-Fi Direct
-    credentials distributed only through an authenticated room capability/channel.
-  - [ ] Add Settings for Nearby exchange (Off / While open / Always), room selection, metered byte
-    policy, Wi-Fi-only peer forwarding, battery awareness, identity reveal, and diagnostics.
-  - [ ] Add unit/integration/abuse coverage plus a synthetic one-million-user topology test that
-    proves candidate enumeration and link attempts stay `O(NK)` with no global roster/fanout.
-  - [ ] Verify on Android hardware with two isolated rooms across foreground/background/lock,
-    room switching, radio loss, process recreation, and LAN↔Wi-Fi Direct↔Internet changes.
 
 - [ ] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
   "no deobfuscation file associated with this App Bundle").** `android/app/build.gradle`'s release

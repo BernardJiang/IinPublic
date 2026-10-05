@@ -45,6 +45,7 @@ function candidate(overrides: Partial<ConnectivityCandidate> = {}): Connectivity
 const context: PeerDiscoveryStartContext = {
   localSeaPub: 'alice-sea-pub',
   localUserId: 'alice',
+  activeRoomId: 'global',
   roomIds: ['global'],
 };
 
@@ -90,4 +91,3 @@ describe('PeerDiscoveryProvider common lifecycle', () => {
     expect(provider.getStatus()).toMatchObject({ state: 'failed', lastError: 'hub unavailable' });
   });
 });
-

@@ -656,6 +656,7 @@ describe('PeerMeshService', () => {
         await verificationGate;
         return true;
       });
+    await alice.joinRoom('global', [{ userId: 'alice', stageName: 'Alice' }]);
     const now = new Date().toISOString();
     const frame: P2PMeshFrame = {
       version: 1,
@@ -1134,6 +1135,8 @@ describe('PeerMeshService', () => {
       createdAt: new Date().toISOString(),
       ttlHops: 6,
       payload: {
+        roomId: 'room-A',
+        broadcastAt: new Date().toISOString(),
         talkId: 'cross-room-talk',
         authorId: 'alice',
         authorName: 'Alice',
@@ -1152,6 +1155,25 @@ describe('PeerMeshService', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     // Bob must NOT have received the announce — roomId guard drops it
+    expect(bobAnnounces).toHaveLength(0);
+
+    // The ordered-switch gap has no active room. It must fail closed too; accepting here was the
+    // real-device leak where a just-left room reached the next room before joinRoom completed.
+    bob.leaveRoom();
+    const noRoomFrame: P2PMeshFrame = {
+      ...announceFrame,
+      msgId: 'no-active-room-announce-1',
+      roomId: 'room-B',
+      payload: {
+        ...announceFrame.payload,
+        roomId: 'room-B',
+      },
+    };
+    const noRoomProof = await createSignedP2PEnvelopeProof({
+      pair: alicePair as SeaSigningPair,
+      payload: p2pMeshFrameSigningPayload(noRoomFrame),
+    });
+    await bobRemoteFrameHook!('alice', { ...noRoomFrame, proof: noRoomProof });
     expect(bobAnnounces).toHaveLength(0);
   });
 

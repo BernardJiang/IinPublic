@@ -82,7 +82,7 @@ describe('WebChatroomService atomic room moves', () => {
     expect(order).toEqual(['leave:A', 'join:B', 'leave:B', 'join:C']);
   });
 
-  it('puts the user back in their old room when the new join fails', async () => {
+  it('leaves the intended new room disconnected when the new join fails', async () => {
     service.joinChatroom = jest.fn(async (room: string) => {
       order.push(`join:${room}`);
       if (room === 'B') throw new Error('join failed');
@@ -90,21 +90,21 @@ describe('WebChatroomService atomic room moves', () => {
     });
 
     await expect(service.switchChatroom('u', 'B', 'u')).rejects.toThrow('join failed');
-    expect(order).toEqual(['leave:A', 'join:B', 'join:A']);
-    expect(service.currentChatroomId).toBe('A');
+    expect(order).toEqual(['leave:A', 'join:B']);
+    expect(service.currentChatroomId).toBe('B');
     // The queue is not poisoned by the failure.
     await service.switchChatroom('u', 'C', 'u');
     expect(service.currentChatroomId).toBe('C');
   });
 
-  it('returns the user to the old room when an eviction join fails', async () => {
+  it('does not restore the old room when an eviction join fails', async () => {
     service.joinChatroom = jest.fn(async (room: string) => {
       order.push(`join:${room}`);
       if (room === 'A-child') throw new Error('join failed');
       service.currentChatroomId = room;
     });
     expect(await service.moveForEviction('A', 'u', 'A-child', 'u')).toBe(false);
-    expect(order).toEqual(['leave:A', 'join:A-child', 'join:A']);
+    expect(order).toEqual(['leave:A', 'join:A-child']);
   });
 });
 

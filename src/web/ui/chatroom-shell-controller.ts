@@ -124,7 +124,6 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
           type: payload.type,
           createdBy: creatorId,
           ...(payload.description != null ? { description: payload.description } : {}),
-          ...(payload.capacity != null ? { capacity: payload.capacity } : {}),
           ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
         }),
       });
@@ -142,9 +141,6 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
           type: created?.type === 'business' ? 'business' : 'custom',
           description: String(created?.description || payload.description || ''),
           createdBy: String(created?.createdBy || creatorId),
-          ...(created?.capacity != null || payload.capacity != null
-            ? { capacity: created?.capacity ?? payload.capacity! }
-            : {}),
           ...(created?.createdAt != null ? { createdAt: created.createdAt } : {}),
           ...(created?.businessInfo != null || payload.businessInfo != null
             ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
