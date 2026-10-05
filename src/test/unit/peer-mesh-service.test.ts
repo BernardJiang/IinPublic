@@ -243,6 +243,38 @@ describe('PeerMeshService', () => {
     bob.leaveRoom();
   });
 
+  it('resets the session to a neighbor that restarted (new roster epoch) even while it still reads connected', async () => {
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+    const dispose = jest.fn();
+    const ensureConnected = jest.fn(async () => undefined);
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: () => ({
+        ensureConnected,
+        getState: () => 'connected',
+        dispose,
+        setOnRemoteMeshFrame: jest.fn(),
+        sendMeshFrame: jest.fn(async () => undefined),
+      }),
+    });
+    await alice.joinRoom('global', [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob', epoch: 'run-1' }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const callsBefore = ensureConnected.mock.calls.length;
+
+    // Same epoch again: nothing to do.
+    await alice.joinRoom('global', [{ userId: 'bob', stageName: 'Bob', epoch: 'run-1' }]);
+    expect(dispose).not.toHaveBeenCalled();
+
+    // Bob's app restarted.
+    await alice.joinRoom('global', [{ userId: 'bob', stageName: 'Bob', epoch: 'run-2' }]);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(ensureConnected.mock.calls.length).toBeGreaterThan(callsBefore);
+    alice.leaveRoom();
+  });
+
   it('reconnects a neighbor whose session died after it had connected (stale connected flag)', async () => {
     jest.useFakeTimers();
     try {

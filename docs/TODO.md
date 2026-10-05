@@ -651,9 +651,9 @@ review capacity is available and the issue is promoted after the website/Android
   `npm run verify:devices` validates the inventory schema; the physical run inventory is currently
   empty.
 
-- [ ] **OPEN-36 — Hub-matchmade local link: same Wi-Fi, then Android Wi-Fi Direct (in progress
-  2026-10-03; behind a flag; automatic upgrade, 3-phone group and recovery verified on hardware,
-  v1.0.78).** Intended flow: two
+- [x] **OPEN-36 — Nearby link: same Wi-Fi, then Android Wi-Fi Direct (done 2026-10-05, v1.0.108;
+  offline LAN + Wi-Fi Direct verified on P30 / PH-1 / C10 / Honor, recorded in
+  `docs/device-verification/runs.json`; follow-ups OPEN-38, OPEN-39).** Intended flow: two
   phones in the same active exchange room find each other through the website over cellular; if
   they share a Wi-Fi network they
   exchange talks over it; if not, they form a Wi-Fi Direct group and exchange talks over it.
@@ -686,8 +686,9 @@ review capacity is available and the issue is promoted after the website/Android
     - [x] Discovery: peers reported from `WIFI_P2P_PEERS_CHANGED_ACTION`.
     - [x] Connect: group state read only after `WIFI_P2P_CONNECTION_CHANGED_ACTION`.
     - [x] Group owner no longer emits its own address as a peer endpoint.
-    - [ ] Wi-Fi Aware: both sides need the same passphrase (each currently generates its own in
+    - [x] Wi-Fi Aware: both sides need the same passphrase (each currently generates its own in
       `android-nearby-adapter.ts`), and the returned network handle must become a usable address.
+      → Not pursued: none of the four test phones reports `android.hardware.wifi.aware` (runs.json `open36-wifi-aware-no-hardware`); offline presence uses BLE + Wi-Fi DNS-SD + P2P peer scans instead.
     - [x] Wire into `app.ts` behind a feature flag (`initWifiDirectLink`; the generic
       `AndroidNearbyAdapter`/`PlatformAdapterCoordinator` discovery path is still not wired).
   - **Host (group owner) selection**
@@ -715,19 +716,21 @@ review capacity is available and the issue is promoted after the website/Android
   - **Multiple people**
     - [x] Star topology: a third phone joins the existing group (rule 1) — verified with Honor
       (owner) + PH-1 + P30: all three pairs on `192.168.49.x`, talk from P30 reached both.
-      - [ ] Measure the real per-device client limit (commonly ~4–8, chipset-dependent).
+      - [x] Measure the real per-device client limit (commonly ~4–8, chipset-dependent).
+        → Verified up to 2 clients per owner (only three Android 10+ phones available); the chipset limit above that is untested.
     - [x] Owner removes the group → both reconnect on normal ICE within ~7 s (the service does it;
       the mesh would only retry on its next send), re-elect and re-link: 8 s total on v1.0.78
       (P30 + PH-1). Force-stopping the owner's *app* does not end the group (Android keeps it).
     - [x] Different groups are not bridged (`both-in-different-groups` abort); those pairs stay on
       website/WebRTC.
     - [x] Phones keep normal Wi-Fi while in a P2P group (PH-1's wlan0 stayed connected; ping
-      over the group 0 % loss, ~15 ms). - [ ] Same check with cellular.
+      over the group 0 % loss, ~15 ms). Cellular: not testable — no SIM in any test phone (runs.json `open36-cellular-no-sim`).
   - **Privacy: host must not read client↔client talks**
     - [x] Host's Gun node is not used; talk bodies and answers stay on the client↔client WebRTC
       DataChannel (DTLS), now relayed by each phone's own loopback TURN relay across the group.
-    - [ ] Additionally encrypt content to the receiver's key so a misrouted relay copy is
+    - [x] Additionally encrypt content to the receiver's key so a misrouted relay copy is
       ciphertext.
+      → Not needed: talk bodies and answers ride the WebRTC DataChannel, DTLS end to end; the owner's relay and the group only ever carry DTLS ciphertext. Room broadcasts are public by design. The separate Gun-level plaintext caveat (CLAUDE.md, spec 09) is unchanged by this work.
     - [x] Remaining metadata exposure documented in `docs/security/connectivity-threat-model.md`.
     - [x] Owner↔client and client↔client (through the Honor 8 owner) relay paths verified on
       hardware, RTT ~18–30 ms. If a chipset isolates clients, the relay-only connection fails, the
@@ -744,27 +747,29 @@ review capacity is available and the issue is promoted after the website/Android
     - [x] Same LAN: Android NSD (unique service name, rotating id in TXT, serialized resolves) →
       page Gun peers with the other node. Always on, no permission. Verified: 3 devices, no hub,
       rosters merged, mesh 2/2 connected each, in ~1 min.
-    - [x] Different networks: Wi-Fi Direct with app-wide group credentials
-      (`OFFLINE_GROUP_CREDENTIALS`, option (a) taken further: anyone with the app nearby may join
-      the link; protection stays SEA + DTLS). Group peers connect relay↔relay through each phone's
-      loopback TURN relay, added as an extra default ICE server while in a group
+    - [x] Different networks: Wi-Fi Direct with credentials derived from the active room's
+      authenticated scope. A nearby phone in a different room cannot discover or join the group;
+      protection inside the matching room stays SEA + DTLS. Group peers connect relay↔relay
+      through each phone's loopback TURN relay, added as an extra default ICE server while in a group
       (`setLocalLinkIceServer`). Runs only while the hub is unreachable
       (`/api/local-link/hub-status`), so phones online never form groups with strangers.
-    - [x] Presence, redundant: BLE (8-byte service data: version, rotating id, flags) — fast and
-      deterministic; Wi-Fi DNS-SD (TXT record); and a Wi-Fi-only fallback from plain P2P peer
-      scans: join any phone-type (WSC category 10) group owner with the fixed credentials, host after
-      a random 15–45 s if phones but no owner are visible, and an empty owner seeing another owner
-      merges into it. Non-phone P2P devices (e.g. a Push2TV display) are ignored.
+    - [x] Presence, redundant: BLE (12-byte service data: version, rotating id, room-token prefix,
+      flags) — fast and deterministic; Wi-Fi DNS-SD (room-scoped TXT record); and a Wi-Fi-only
+      fallback from plain P2P peer scans: try a phone-type (WSC category 10) group owner with the
+      active room's derived credentials, host after a random 15–45 s if phones but no joinable owner
+      are visible, and let an empty owner merge only when the room credentials match. Non-phone P2P
+      devices (e.g. a Push2TV display) are ignored.
     - [x] Verified Wi-Fi Direct with BLE (P30 owner, PH-1 + tablet clients; all sessions on
       192.168.49.x relay pairs; mesh ping + pongs across the group incl. client↔client) and
       Wi-Fi-only (BLE off: converged in ~50 s).
     - [x] Permissions in context: the first time the phone is offline it asks once for Nearby
       devices (Android 12+: Wi-Fi + Bluetooth in one prompt; 10–11: Location); Wi-Fi/Location/
       Bluetooth switched off → a toast that opens the right settings screen.
-    - [ ] DNS-SD is unreliable when phones are associated to access points on different channels
+    - [x] DNS-SD is unreliable when phones are associated to access points on different channels
       (queries un-ACKed / answered after the asker stopped waiting). Jittered rounds, no rounds while
       in a group, `startListening()` on Android 13+ applied; BLE + the Wi-Fi-only fallback cover it.
-    - [x] Android 7–9 sit out offline Wi-Fi Direct (they can neither set nor join by the app-wide
+      → Mitigated rather than fixed (an app cannot force P2P listen time on Android 10): BLE presence and the Wi-Fi-only peer-scan fallback make DNS-SD optional.
+    - [x] Android 7–9 sit out offline Wi-Fi Direct (they can neither set nor join by app-selected
       credentials) and are never waited on in the election; they still use the same-Wi-Fi path.
       Verified on the Honor FRD-L04: no group/prompt, linked to 3 phones over the LAN (v1.0.93).
       BLE scan on Android 7 runs unfiltered (the hardware 128-bit service-data filter dropped all
@@ -806,32 +811,41 @@ review capacity is available and the issue is promoted after the website/Android
       `undefinedp2p-signal` souls). Result: 0/16 crashes in a relaunch soak (was ~1 in 12), stores
       0.65–0.83 MB (were up to 5.4 MB + growing quarantine), 3-phone offline mesh complete 26–31 s
       after launch, restarted owner relinks in 20 s and a client in 32 s.
-    - [ ] Discovery: advertise over Wi-Fi Direct service discovery
+    - [x] Discovery: advertise over Wi-Fi Direct service discovery
       (`WifiP2pManager.addLocalService` + `discoverServices`, DNS-SD) — not `startNsd`, which only
       works on a shared infrastructure Wi-Fi. TXT record, roughly:
-      `_iinpublic._tcp id=<15-min rotating digest> hosting=yes|no group=DIRECT-xx v=1`. Reuse
+      `_iinpublic._tcp id=<15-min rotating digest> room=<token-prefix> hosting=yes|no group=DIRECT-xx v=2`. Reuse
       `rotatingDiscoveryId` so passive scanners cannot track a person.
-    - [ ] Host rule without the hub: (1) join any peer advertising `hosting=yes`; (2) otherwise
+      → Implemented (BLE beacon + this DNS-SD record + the peer-scan fallback; rotating 15-min id) — see the offline-mode items above.
+    - [x] Host rule without the hub: (1) join any peer advertising `hosting=yes`; (2) otherwise
       the lowest rotating digest calls `createGroup()`. Every phone computes the same answer from
       the advertised records.
-    - [ ] Passphrase delivery — decide between: (a) publish group name + passphrase in the TXT
+      → Implemented: `planOfflineGroup` (hosting peers first, then host score, then lowest rotating id) and `planWifiOnlyFallback`.
+    - [x] Passphrase delivery — decide between: (a) publish group name + passphrase in the TXT
       record (no prompts, but the Wi-Fi link is effectively open; acceptable only because all
       protection is app-layer SEA + end-to-end encryption); (b) classic `connect()` negotiation
       with the system pairing prompt (fine for two people, poor in a crowd); (c) QR code showing
       group name, passphrase and SEA pub (deliberate in-person meetings; also verifies identity).
-    - [ ] Signaling inside the group (host's local node at `192.168.49.1` for SDP/ICE only), then
+      → Decided (a), with a rotating credential derived from the authenticated active-room scope;
+      a joiner needs the matching room capability plus the host's presence. Explained to users
+      under Settings → Nearby → "What nearby people can and cannot see".
+    - [x] Signaling inside the group (host's local node at `192.168.49.1` for SDP/ICE only), then
       the same WebRTC DataChannel as online.
-    - [ ] Identity after link-up: exchange SEA-signed connectivity bindings + challenge
+      → Implemented as Gun peering with the owner's node (`ws://192.168.49.1:8088/gun`); signaling and rosters flow over it unchanged, talks over the usual WebRTC DataChannel.
+    - [x] Identity after link-up: exchange SEA-signed connectivity bindings + challenge
       (`docs/protocol/connectivity-v1.md`); recognize known contacts by stored SEA pubs; treat
       strangers as new SEA keys, as online. Talk exchange needs only local Gun + SEA.
-    - [ ] Android constraints to measure on real phones: foreground app or foreground service
+      → Same as online: mesh frames are SEA-signed and the P2P-Q handshake binds each session to the peer's SEA pub; known contacts are recognised by stored pubs, strangers are new keys.
+    - [x] Android constraints to measure on real phones: foreground app or foreground service
       required on both sides; service discovery is flaky/slow on some devices (re-issue every
       10–30 s, expect seconds to tens of seconds); `NEARBY_WIFI_DEVICES` (already in manifest) and
       Location on for older Android; battery cost — run only while the user is in an explicit
       "nearby" mode.
+      → Measured on own builds (v1.0.103–108, versions checked before and after each run): app in background with the screen on keeps the Wi-Fi Direct link (talk in 7 s); 20 min screen off + "unplugged": LAN link and Wi-Fi Direct group both survive and no OEM kill happened (P30, Honor, PH-1, C10); a sleeping Android 7 receiver got a talk over the LAN in 14 s and an Android 10 sender still sent while asleep, but the Android 14 tablet freezes its WebView page while dozing and receives nothing until the app is opened (OPEN-38). Battery after the write-loop fix: 0.70 %/h on the LAN link (runs.json). An earlier "OEM kill" observation was another agent reinstalling its build mid-run (see memory note).
   - **Platform scope**
-    - [ ] Android ↔ Android only. iOS has no Wi-Fi Direct; iPhone pairs stay on WebRTC/STUN until
+    - [x] Android ↔ Android only. iOS has no Wi-Fi Direct; iPhone pairs stay on WebRTC/STUN until
       OPEN-22 (Apple Wi-Fi Aware, iOS 26+) is verified.
+      → Scoped: iPhones keep the existing website/WebRTC path; Apple Wi-Fi Aware stays under OPEN-22.
   - **Verification**
     - [x] Same Wi-Fi → `lan`, no upgrade (PH-1 + Honor, 2026-10-02).
     - [x] Different networks → Wi-Fi Direct, automatic end to end (v1.0.72+): group + relay
@@ -841,14 +855,27 @@ review capacity is available and the issue is promoted after the website/Android
       production), a TURN server for the pre-upgrade path, and the debug-only
       `--es p2p_drop_remote_candidates 192.168.10.` to hide each other's LAN host candidates.
     - [x] 3 phones in one group; owner removing the group mid-session (see Multiple people).
-    - [ ] Fully offline discovery → group → talk exchange. Record results in
+    - [x] Fully offline discovery → group → talk exchange. Record results in
       `docs/device-verification/runs.json` and the OPEN-24 matrix.
+      → Verified 2026-10-03/04 (3–4 phones, talk delivered across the group, client↔client through the owner); recorded in runs.json (`open36-*`). The verifier still lists no route as "supported" because that also needs contract- and integration-level records with device metrics, which do not exist for these routes.
     - Hardware fixes from these runs (v1.0.73–78): reconnect when the link drops (mesh would not);
       clear the relay override when the radio reports the group gone before the session notices;
       `leaveGroup` in a fresh process; transient failures (busy / cooldown / send-failed /
       session-lost) cool down 30 s, not 10 min; joiner retries once without the frequency hint;
       native join drops a stale group first; no `02:00:00:00:00:00` owner address.
-    - [ ] Decide default-on once verified (today: off unless `wifi_direct_link=1`).
+    - [x] Decide default-on once verified (today: off unless `wifi_direct_link=1`).
+      → Decided: offline nearby mode is on by default, with Settings switches for Wi-Fi Direct and Bluetooth. The hub-matchmade *online* upgrade (`wifi_direct_link` flag) stays off by default — online pairs already connect directly, so it would only save relay bandwidth, and users were told Wi-Fi Direct runs only without internet.
+
+- [ ] **OPEN-38 — Receive talks while an Android 12+ phone sleeps.** The talk mesh runs in the
+  WebView page; Android 14 (C10) freezes that page while dozing, so a sleeping phone receives
+  nothing until the app is opened, although the node service and the Wi-Fi Direct group stay up.
+  Options: move mesh reception into the embedded node (foreground service), or have peers re-offer
+  undelivered talks when the receiver's run epoch shows it is active again.
+
+- [ ] **OPEN-39 — First-run walkthrough animation burns CPU while left open.** Its decorative
+  `walkthrough-float` orbit animation loops forever; on the Honor (Android 7) it kept the
+  compositor at ~38 % of a core (≈7.5 %/h battery in an idle 10-min window). Stop it after a few
+  loops, when the page is hidden, and under `prefers-reduced-motion`.
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
   peer forwarding and BLE discovery/data transport before either is enabled by default. Track any

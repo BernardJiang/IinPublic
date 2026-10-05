@@ -6557,14 +6557,18 @@ export class IinPublicApp {
     const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
       waitMs: 500,
     });
-    this.mergeIncomingClusterIntoUi(clusters);
+    // Just read from local Gun: render only. Mirroring it straight back re-wrote the whole owner
+    // envelope once per cluster, which re-fired this refresh's own subscription — a feedback loop
+    // measured on hardware at >1 write/s (5.5 KB each, ~16 KB/s of Gun traffic sent to every
+    // connected peer, ~10 %/h battery on the Wi-Fi radio).
+    this.mergeIncomingClusterIntoUi(clusters, { persist: false });
   }
 
-  private mergeIncomingClusterIntoUi(clusters: any[]): void {
-    this.applyIncomingTalkClusters(clusters);
+  private mergeIncomingClusterIntoUi(clusters: any[], options: { persist?: boolean } = {}): void {
+    this.applyIncomingTalkClusters(clusters, options);
   }
 
-  private applyIncomingTalkClusters(clusters: any[]): void {
+  private applyIncomingTalkClusters(clusters: any[], options: { persist?: boolean } = {}): void {
     // Replace the UI snapshot with the current local/direct or legacy server cluster list.
     // Spreading incomingClustersMap left stale/non-identity entries and could prevent IN rows from matching.
     const next: Record<string, any> = {};
@@ -6574,7 +6578,7 @@ export class IinPublicApp {
       }
     }
     const list = Object.values(next).filter((c: any) => c && c.identityKey);
-    if (this.currentUser?.id) {
+    if (this.currentUser?.id && options.persist !== false) {
       mirrorIncomingTalkClustersToLocalGun(
         this.gunService,
         this.currentUser.id,

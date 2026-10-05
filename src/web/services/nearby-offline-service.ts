@@ -31,7 +31,8 @@ export type NearbyOfflineBridge = {
   /** Android active-network health and NET_CAPABILITY_NOT_METERED; never contains SSID. */
   networkPathState?(): string;
   openNearbySettings(kind: string): void;
-  startBlePresence(payloadHex: string): void;
+  /** `scan` false once in a group: keep advertising (newcomers find us), stop scanning (battery). */
+  startBlePresence(payloadHex: string, scan: boolean): void;
   stopBlePresence(): void;
   requestOfflineNearbyPermission(): void;
   /** Re-read a group Android kept from an earlier process; the answer arrives as a state event. */
@@ -498,11 +499,18 @@ export class NearbyOfflineService {
       ? { networkName: state.networkName, passphrase: state.passphrase, ...(state.frequencyMhz ? { frequencyMhz: state.frequencyMhz } : {}) }
       : null;
     const self = { id: this.id, canHost: caps.wifiDirect, joinByCredential: caps.joinByCredential, hostScore: caps.hostScore };
+    const inGroup = state.state === 'owner' || state.state === 'client';
     const txt = JSON.stringify(encodeNearbyTxt({ ...self, port: this.opts.port, roomToken: scope.roomToken, group }));
-    if (txt === this.lastAdvertised) return;
-    this.lastAdvertised = txt;
+    const advertisementState = txt + (inGroup ? '|in-group' : '');
+    if (advertisementState === this.lastAdvertised) return;
+    this.lastAdvertised = advertisementState;
     this.opts.bridge.advertiseWifiDirectService(txt);
-    if (this.blePresence) this.opts.bridge.startBlePresence(encodeBlePresence({ ...self, roomToken: scope.roomToken, hosting: !!group }));
+    if (this.blePresence) {
+      this.opts.bridge.startBlePresence(
+        encodeBlePresence({ ...self, roomToken: scope.roomToken, hosting: !!group }),
+        !inGroup,
+      );
+    }
   }
 
   // ── Group state ───────────────────────────────────────────────────────────────────────────

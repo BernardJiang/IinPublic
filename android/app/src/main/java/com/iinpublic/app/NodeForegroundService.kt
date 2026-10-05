@@ -55,6 +55,7 @@ class NodeForegroundService : Service() {
         private const val WIFI_TXT_PREF = "wifi_txt"
         private const val WIFI_DISCOVERY_PREF = "wifi_discovery"
         private const val BLE_PAYLOAD_PREF = "ble_payload"
+        private const val BLE_SCAN_PREF = "ble_scan"
         private const val CHECKPOINT_AT_PREF = "checkpoint_at"
         private const val NEARBY_CHECKPOINT_MAX_AGE_MS = 20 * 60 * 1000L
 
@@ -113,14 +114,15 @@ class NodeForegroundService : Service() {
             }
         }
 
-        internal fun startBlePresence(payload: ByteArray) {
+        internal fun startBlePresence(payload: ByteArray, scan: Boolean) {
             serviceInstance?.mainHandler?.post {
                 val service = serviceInstance ?: return@post
                 if (!service.nearbyEnabled()) return@post
                 service.blePayloadHex = payload.joinToString("") { "%02x".format(it) }
+                service.bleScan = scan
                 service.touchNearbyCheckpoint()
                 service.persistNearbyState()
-                service.nearbyManager.startBlePresence(payload)
+                service.nearbyManager.startBlePresence(payload, scan)
             }
         }
 
@@ -128,6 +130,7 @@ class NodeForegroundService : Service() {
             serviceInstance?.mainHandler?.post {
                 val service = serviceInstance ?: return@post
                 service.blePayloadHex = ""
+                service.bleScan = true
                 service.persistNearbyState()
                 service.nearbyManager.stopBlePresence()
             }
@@ -155,6 +158,7 @@ class NodeForegroundService : Service() {
     private var wifiTxtJson = ""
     private var wifiDiscovery = false
     private var blePayloadHex = ""
+    private var bleScan = true
     private var nearbyCheckpointAt = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private val nearbyExpiryRunnable = Runnable {
@@ -181,6 +185,7 @@ class NodeForegroundService : Service() {
             wifiTxtJson = prefs.getString(WIFI_TXT_PREF, "").orEmpty()
             wifiDiscovery = prefs.getBoolean(WIFI_DISCOVERY_PREF, false)
             blePayloadHex = prefs.getString(BLE_PAYLOAD_PREF, "").orEmpty()
+            bleScan = prefs.getBoolean(BLE_SCAN_PREF, true)
             nearbyCheckpointAt = prefs.getLong(CHECKPOINT_AT_PREF, 0L)
         }
         nearbyManager = NearbyConnectivityManager(applicationContext, object : NearbyConnectivityManager.Listener {
@@ -270,6 +275,7 @@ class NodeForegroundService : Service() {
             .putString(WIFI_TXT_PREF, wifiTxtJson)
             .putBoolean(WIFI_DISCOVERY_PREF, wifiDiscovery)
             .putString(BLE_PAYLOAD_PREF, blePayloadHex)
+            .putBoolean(BLE_SCAN_PREF, bleScan)
             .putLong(CHECKPOINT_AT_PREF, nearbyCheckpointAt)
             .apply()
     }
@@ -278,7 +284,7 @@ class NodeForegroundService : Service() {
 
     private fun clearNearbyCheckpoint() {
         nsdPort = 0; nsdId = ""; nsdRoomPrefix = ""
-        wifiTxtJson = ""; wifiDiscovery = false; blePayloadHex = ""
+        wifiTxtJson = ""; wifiDiscovery = false; blePayloadHex = ""; bleScan = true
         nearbyCheckpointAt = 0L
         mainHandler.removeCallbacks(nearbyExpiryRunnable)
     }
@@ -305,7 +311,10 @@ class NodeForegroundService : Service() {
         }
         if (wifiDiscovery) nearbyManager.startWifiDirectServiceDiscovery()
         if (blePayloadHex.matches(Regex("^[0-9a-f]{2,24}$")) && blePayloadHex.length % 2 == 0) {
-            nearbyManager.startBlePresence(blePayloadHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray())
+            nearbyManager.startBlePresence(
+                blePayloadHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray(),
+                bleScan,
+            )
         }
     }
 

@@ -43,6 +43,8 @@ type RoomMember = {
   /** Signing pub carried in the room roster record — lets neighbor formation skip the
    *  presence/public-record lookups that fail under simultaneous-boot load. */
   pub?: string;
+  /** Per-app-run id from the roster; a change means the peer restarted. */
+  epoch?: string;
 };
 
 type MeshSession = {
@@ -358,6 +360,19 @@ export class PeerMeshService {
         ...(stageName ? { stageName } : {}),
       };
       if (!prior || prior.stageName !== next.stageName) {
+        rosterChanged = true;
+      }
+      if (prior?.epoch && member.epoch && prior.epoch !== member.epoch) {
+        // The peer restarted: our session to it is dead even if WebRTC has not noticed yet (it
+        // takes ~30–40 s), and as initiator we would not re-offer until it did. Remove the old
+        // session so reconciliation creates a fresh transport, including fresh fallback state.
+        const neighbor = this.neighbors.get(member.userId);
+        if (neighbor) {
+          neighbor.session.dispose?.();
+          this.neighbors.delete(member.userId);
+          this.manifestReadyPeerIds.delete(member.userId);
+          this.manifestRejectedPeerIds.delete(member.userId);
+        }
         rosterChanged = true;
       }
       this.currentRoomMembers.set(member.userId, next);

@@ -39,6 +39,18 @@ Last updated: 2026-10-05
   three broadcast concurrently; two continued while one phone was offline; and a Talk created
   while that phone was offline resynchronized and was completed after reconnection.
 
+## 2026-10-05 — LAN link Wi-Fi radio write-loop fix (OPEN-36 follow-up)
+
+- Measured 10.9 %/h on the P30 (v1.0.107; 125 of 152 mAh in 20 minutes on the Wi-Fi radio),
+  unchanged with Wi-Fi Direct disabled. The cause was an incoming-Talk write loop: the
+  owner-envelope subscription refreshed from local Gun and mirrored every cluster back, rewriting
+  the 5.5 KB envelope more than once per second and sending about 16 KB/s to every connected peer
+  and the online hub.
+- `refreshIncomingTalkClustersFromLocalGun` no longer writes on its refresh path. The verified
+  result was zero envelope writes, about 0.9 KB of Gun traffic per 15 seconds, and 0.70 %/h battery
+  use. This work had independently been numbered OPEN-37 on `origin/dev`; it is recorded here as
+  an OPEN-36 follow-up so OPEN-37 remains the canonical active-room traffic-partition issue.
+
 ## 2026-09-30 — Version-2 contextual chatbot choice memory
 
 - Replaced ordinary question-only/history fallback with one deterministic rule: the chatbot

@@ -39,10 +39,13 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun nearbyReadiness(): String = NodeForegroundService.nearbyReadiness().toString()
     /** Active Android path health, including NET_CAPABILITY_NOT_METERED. No SSID/location data. */
     @JavascriptInterface fun networkPathState(): String = NodeForegroundService.networkPathState().toString()
-    /** Offline presence: `payloadHex` is the 8-byte BLE service-data payload built by JS. */
-    @JavascriptInterface fun startBlePresence(payloadHex: String) {
+    /** Offline presence: `payloadHex` is the room-scoped BLE service-data payload built by JS. */
+    @JavascriptInterface fun startBlePresence(payloadHex: String, scan: Boolean) {
         if (!payloadHex.matches(Regex("^[0-9a-f]{2,24}$")) || payloadHex.length % 2 != 0) return
-        NodeForegroundService.startBlePresence(payloadHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray())
+        NodeForegroundService.startBlePresence(
+            payloadHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray(),
+            scan,
+        )
     }
     @JavascriptInterface fun stopBlePresence() = NodeForegroundService.stopBlePresence()
     /** Wi-Fi Direct + BLE permissions for offline nearby, in one system prompt. */
