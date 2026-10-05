@@ -288,8 +288,22 @@ class MainActivity : AppCompatActivity() {
             // First launch on older phones can spend 30–45 seconds unpacking the embedded
             // Node project before the loopback health endpoint opens. A 20-second deadline
             // stranded otherwise healthy Android 7 devices on the connecting screen forever.
-            val deadline = System.currentTimeMillis() + 90_000
+            // Past this point show a "still starting" note but keep waiting: a node that was only
+            // slow (seen once on the C10 tablet right after an update) used to strand the user on a
+            // permanent "did not start" page even though it came up moments later.
+            val noticeAt = System.currentTimeMillis() + 90_000
+            val deadline = System.currentTimeMillis() + 10 * 60_000
+            var noticeShown = false
             while (System.currentTimeMillis() < deadline) {
+                if (!noticeShown && System.currentTimeMillis() >= noticeAt) {
+                    noticeShown = true
+                    runOnUiThread {
+                        webView.loadData(
+                            "<h2>IinPublic is still starting…</h2><p>This can take a while after an update. It will open by itself.</p>",
+                            "text/html", "utf-8"
+                        )
+                    }
+                }
                 if (portOpen(port)) {
                     val nodeHealthReadyEpochMs = System.currentTimeMillis()
                     runOnUiThread {
@@ -303,11 +317,11 @@ class MainActivity : AppCompatActivity() {
                     }
                     return@Thread
                 }
-                Thread.sleep(300)
+                Thread.sleep(if (noticeShown) 1_000 else 300)
             }
             runOnUiThread {
                 webView.loadData(
-                    "<h2>IinPublic node did not start</h2>",
+                    "<h2>IinPublic node did not start</h2><p>Close the app and open it again.</p>",
                     "text/html", "utf-8"
                 )
             }

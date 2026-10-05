@@ -1,4 +1,116 @@
 {
   "version": 1,
-  "runs": []
+  "runs": [
+    {
+      "recordedAt": "2026-10-04",
+      "level": "physical",
+      "id": "open36-wd-owner-client-p30-ph1",
+      "deviceModel": "Huawei P30 Pro (VOG-L29) owner ↔ Essential PH-1 client",
+      "os": "Android 10 / Android 10",
+      "appBuild": "1.0.104",
+      "route": "wifi-direct-offline",
+      "batteryState": "usb-charging; drain estimated via batterystats with charging masked",
+      "networkType": "no internet (hub unreachable); Wi-Fi Direct group, each phone also associated to a home AP on a different band",
+      "direction": "bidirectional (owner↔client)",
+      "lifecycleState": "foreground, screen on",
+      "result": "pass",
+      "metrics": {
+        "latencyMs": 28,
+        "throughputKbps": 23845,
+        "batteryDrainPercentPerHour": 1.49,
+        "reconnectMs": 17000,
+        "forwardingBytes": 0
+      },
+      "notes": "RTT 11–28 ms idle (~100 ms during a 2 MB burst); throughput = 2 MB DataChannel burst P30→PH-1 (PH-1→P30 33.0 Mbps); reconnectMs = full relink after the owner app restart (v1.0.104); battery = P30 app CPU 20.8 mAh in 20 min on 4200 mAh."
+    },
+    {
+      "recordedAt": "2026-10-04",
+      "level": "physical",
+      "id": "open36-wd-client-client-ph1-c10",
+      "deviceModel": "Essential PH-1 client ↔ C10 tablet client, through P30 owner",
+      "os": "Android 10 / Android 14",
+      "appBuild": "1.0.104",
+      "route": "wifi-direct-offline",
+      "batteryState": "usb-charging; drain estimated via batterystats with charging masked",
+      "networkType": "no internet; Wi-Fi Direct group, relay↔relay through the owner",
+      "direction": "bidirectional (client↔client)",
+      "lifecycleState": "foreground, screen on",
+      "result": "pass",
+      "metrics": {
+        "latencyMs": 14,
+        "throughputKbps": 7871,
+        "batteryDrainPercentPerHour": 7.8,
+        "reconnectMs": 42000,
+        "forwardingBytes": 27902
+      },
+      "notes": "RTT 14 ms idle (130 ms under load); throughput tablet→PH-1 2 MB burst; reconnect = relink after the client app restart (v1.0.104, run epoch fix); battery = PH-1 Bluetooth 78.7 mAh/20 min on 3040 mAh with LOW_LATENCY BLE presence (fixed in v1.0.105: BALANCED, no scan in a group — P30 then measured 0.3 mAh Bluetooth/20 min); forwardingBytes = mesh forwarding counters PH-1 + tablet."
+    },
+    {
+      "recordedAt": "2026-10-04",
+      "level": "physical",
+      "id": "open36-lan-offline-p30-honor",
+      "deviceModel": "Huawei P30 Pro (VOG-L29) ↔ Honor 8 (FRD-L04)",
+      "os": "Android 10 / Android 7.0",
+      "appBuild": "1.0.106",
+      "route": "lan-direct",
+      "batteryState": "usb-charging; drain estimated via batterystats with charging masked",
+      "networkType": "same home Wi-Fi LAN, no internet (hub unreachable); found via NSD",
+      "direction": "bidirectional",
+      "lifecycleState": "foreground, screen on",
+      "result": "pass",
+      "metrics": {
+        "latencyMs": 135,
+        "throughputKbps": 19247,
+        "batteryDrainPercentPerHour": 4.1,
+        "reconnectMs": 10000,
+        "forwardingBytes": 0
+      },
+      "notes": "RTT median ~135 ms idle (16–225 ms: Wi-Fi power save, phones on different bands of one router); throughput P30→Honor 2 MB burst (Honor→P30 25.7 Mbps); reconnect = linked 10 s after both apps restarted; battery = P30 app 25.9 mAh in 9 min (Wi-Fi radio 21.3, CPU 4.6, Bluetooth 0.12). Also: Honor with screen off received a talk 3 s after it was sent."
+    },
+    {
+      "recordedAt": "2026-10-04",
+      "level": "physical",
+      "id": "open36-cellular-no-sim",
+      "deviceModel": "P30 Pro, PH-1, C10, Honor 8",
+      "os": "Android 7–14",
+      "appBuild": "1.0.106",
+      "route": "wifi-direct-offline",
+      "batteryState": "usb-charging",
+      "networkType": "cellular",
+      "direction": "n/a",
+      "lifecycleState": "n/a",
+      "result": "unsupported",
+      "notes": "No SIM in any test phone: the \"keep cellular while in a group\" check could not be run."
+    },
+    {
+      "recordedAt": "2026-10-04",
+      "level": "physical",
+      "id": "open36-wifi-aware-no-hardware",
+      "deviceModel": "P30 Pro, PH-1, C10, Honor 8",
+      "os": "Android 7–14",
+      "appBuild": "1.0.106",
+      "route": "wifi-aware",
+      "batteryState": "usb-charging",
+      "networkType": "n/a",
+      "direction": "n/a",
+      "lifecycleState": "n/a",
+      "result": "unsupported",
+      "notes": "None of the phones reports android.hardware.wifi.aware; presence uses BLE + Wi-Fi DNS-SD + P2P peer scans instead."
+    },
+    {
+      "recordedAt": "2026-10-04",
+      "level": "physical",
+      "id": "open36-wd-android7-honor",
+      "deviceModel": "Honor 8 (FRD-L04)",
+      "os": "Android 7.0",
+      "appBuild": "1.0.106",
+      "route": "wifi-direct-offline",
+      "batteryState": "usb-charging",
+      "networkType": "no internet",
+      "direction": "n/a",
+      "lifecycleState": "foreground",
+      "result": "unsupported",
+      "notes": "By design: Android 7–9 can neither create nor join a group with app-chosen credentials, so it sits out offline Wi-Fi Direct (verified: no group, no prompt) and links over a shared LAN instead."
+    }
+  ]
 }

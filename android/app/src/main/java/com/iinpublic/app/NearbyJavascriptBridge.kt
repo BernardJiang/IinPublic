@@ -30,9 +30,9 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun stopWifiDirectServiceDiscovery() = activity.runOnUiThread { manager.stopWifiDirectServiceDiscovery() }
     @JavascriptInterface fun nearbyReadiness(): String = manager.nearbyReadiness().toString()
     /** Offline presence: `payloadHex` is the 8-byte BLE service-data payload built by JS. */
-    @JavascriptInterface fun startBlePresence(payloadHex: String) = activity.runOnUiThread {
+    @JavascriptInterface fun startBlePresence(payloadHex: String, scan: Boolean) = activity.runOnUiThread {
         if (!payloadHex.matches(Regex("^[0-9a-f]{2,20}$")) || payloadHex.length % 2 != 0) return@runOnUiThread
-        manager.startBlePresence(payloadHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray())
+        manager.startBlePresence(payloadHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray(), scan)
     }
     @JavascriptInterface fun stopBlePresence() = activity.runOnUiThread { manager.stopBlePresence() }
     /** Wi-Fi Direct + BLE permissions for offline nearby, in one system prompt. */

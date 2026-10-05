@@ -616,6 +616,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
                 <li>${deps.t('settingsNearbyPrivacyBluetooth')}</li>
               </ul>
             </details>
+            <small style="color:var(--text-tertiary);">${deps.t('settingsNearbyScreenOff')}</small>
           </div>`,
         ) : ''}
         ${renderSettingsSection(

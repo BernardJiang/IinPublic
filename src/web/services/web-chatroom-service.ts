@@ -45,7 +45,16 @@ type ChatroomMember = {
   lastSeen?: string;
   epub?: string;
   pub?: string;
+  /** Random per app run; a change means the member restarted (see PeerMeshService.joinRoom). */
+  epoch?: string;
 };
+
+/**
+ * Identifies this app run in the room roster. When a peer's epoch changes it restarted, and any
+ * WebRTC session to it is dead even though the transport may still report "connected" for the
+ * ~30–40 s it takes to notice — on hardware that stalled re-linking a restarted phone for minutes.
+ */
+export const MEMBERSHIP_RUN_EPOCH = Math.random().toString(36).slice(2, 10);
 
 export class WebChatroomService {
   private currentChatroomId?: string;
@@ -478,6 +487,7 @@ export class WebChatroomService {
           lastSeen: now,
           userId,
           stageName: liveName,
+          epoch: MEMBERSHIP_RUN_EPOCH,
           ...(includeKeys && epub ? { epub } : {}),
           ...(includeKeys && pub ? { pub } : {}),
         });
@@ -959,6 +969,7 @@ export class WebChatroomService {
             ...(memberData.joinedAt ? { joinedAt: memberData.joinedAt } : {}),
             ...(typeof memberData.epub === 'string' && memberData.epub ? { epub: memberData.epub } : {}),
             ...(typeof memberData.pub === 'string' && memberData.pub ? { pub: memberData.pub } : {}),
+            ...(typeof memberData.epoch === 'string' && memberData.epoch ? { epoch: memberData.epoch } : {}),
           });
         } else if (memberData && (memberData.isActive === false || this.isDefinitelyStale(memberData))) {
           // Only remove on a definite signal (explicitly inactive, or a genuinely old lastSeen).

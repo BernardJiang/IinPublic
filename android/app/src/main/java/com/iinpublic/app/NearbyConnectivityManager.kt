@@ -277,7 +277,12 @@ class NearbyConnectivityManager(
     private var presenceAdvertiseCallback: AdvertiseCallback? = null
     private var presenceScanCallback: ScanCallback? = null
 
-    fun startBlePresence(payload: ByteArray) {
+    /**
+     * Battery (measured on PH-1, 2026-10-04): LOW_LATENCY scan + advertise cost ~79 mAh per 20 min
+     * (~7.7 %/h). Advertise BALANCED, scan BALANCED only while searching, and not at all once this
+     * phone is in a group (`scan = false`) — it still advertises so newcomers find the group.
+     */
+    fun startBlePresence(payload: ByteArray, scan: Boolean = true) {
         if (!hasBluetoothPermission()) { listener.onStatus("android-ble-presence", "permission-denied"); return }
         val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
         if (adapter?.isEnabled != true) { listener.onStatus("android-ble-presence", "unavailable", "disabled"); return }
@@ -288,10 +293,15 @@ class NearbyConnectivityManager(
             override fun onStartFailure(errorCode: Int) = listener.onStatus("android-ble-presence", "degraded", "advertise:$errorCode")
         }.also { callback ->
             adapter.bluetoothLeAdvertiser?.startAdvertising(
-                AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY).setConnectable(false).build(),
+                AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED).setConnectable(false).build(),
                 AdvertiseData.Builder().setIncludeDeviceName(false).addServiceData(parcelUuid, payload).build(),
                 callback,
             )
+        }
+        if (!scan) {
+            presenceScanCallback?.let { runCatching { adapter.bluetoothLeScanner?.stopScan(it) } }
+            presenceScanCallback = null
+            return
         }
         if (presenceScanCallback != null) return
         presenceScanCallback = object : ScanCallback() {
@@ -309,7 +319,7 @@ class NearbyConnectivityManager(
             val filters = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) listOf(ScanFilter.Builder().setServiceData(parcelUuid, null).build()) else emptyList()
             adapter.bluetoothLeScanner?.startScan(
                 filters,
-                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
+                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build(),
                 callback,
             )
         }

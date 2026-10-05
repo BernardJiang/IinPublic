@@ -35,7 +35,7 @@ function fakeBridge(readiness: Readiness = { permission: true, wifiEnabled: true
     stopWifiDirectServiceDiscovery: () => { calls.push('wd-stop'); },
     nearbyReadiness: () => JSON.stringify(readiness),
     openNearbySettings: (kind) => { calls.push(`open:${kind}`); },
-    startBlePresence: (payload) => { calls.push(`ble:${payload}`); },
+    startBlePresence: (payload, scan) => { calls.push(`ble:${payload}${scan ? '' : ':no-scan'}`); },
     stopBlePresence: () => { calls.push('ble-stop'); },
     requestOfflineNearbyPermission: () => { calls.push('permission'); },
   };
@@ -207,7 +207,8 @@ describe('NearbyOfflineService BLE presence', () => {
     expect(t.calls).toContain(`ble:${encodeBlePresence({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: false })}`);
     t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...OFFLINE_GROUP_CREDENTIALS });
     await flush();
-    expect(t.calls.at(-1)).toBe(`ble:${encodeBlePresence({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: true })}`);
+    // In a group: still advertising (now as host), no longer scanning.
+    expect(t.calls.at(-1)).toBe(`ble:${encodeBlePresence({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: true })}:no-scan`);
     t.service.dispose();
     expect(t.calls).toContain('ble-stop');
   });
