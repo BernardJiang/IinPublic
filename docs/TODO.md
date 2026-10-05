@@ -651,9 +651,10 @@ review capacity is available and the issue is promoted after the website/Android
   `npm run verify:devices` validates the inventory schema; the physical run inventory is currently
   empty.
 
-- [x] **OPEN-36 — Nearby link: same Wi-Fi, then Android Wi-Fi Direct (done 2026-10-04, v1.0.106;
-  offline LAN + Wi-Fi Direct verified on P30 / PH-1 / C10 / Honor, recorded in
-  `docs/device-verification/runs.json`).** Intended flow: two
+- [ ] **OPEN-36 — Nearby link: same Wi-Fi, then Android Wi-Fi Direct (implemented 2026-10-04,
+  v1.0.106; offline LAN + Wi-Fi Direct verified on P30 / PH-1 / C10 / Honor, recorded in
+  `docs/device-verification/runs.json`; remaining: screen-off/Doze measurement and the LAN-route
+  metrics record, both to be re-run with exclusive device access).** Intended flow: two
   phones find each other through the website over cellular; if they share a Wi-Fi network they
   exchange talks over it; if not, they form a Wi-Fi Direct group and exchange talks over it.
   Implementation: `src/shared/wifi-direct-link.ts` (election, path classification, `wd-*` frame
@@ -829,12 +830,12 @@ review capacity is available and the issue is promoted after the website/Android
       (`docs/protocol/connectivity-v1.md`); recognize known contacts by stored SEA pubs; treat
       strangers as new SEA keys, as online. Talk exchange needs only local Gun + SEA.
       → Same as online: mesh frames are SEA-signed and the P2P-Q handshake binds each session to the peer's SEA pub; known contacts are recognised by stored pubs, strangers are new keys.
-    - [x] Android constraints to measure on real phones: foreground app or foreground service
+    - [ ] Android constraints to measure on real phones: foreground app or foreground service
       required on both sides; service discovery is flaky/slow on some devices (re-issue every
       10–30 s, expect seconds to tens of seconds); `NEARBY_WIFI_DEVICES` (already in manifest) and
       Location on for older Android; battery cost — run only while the user is in an explicit
       "nearby" mode.
-      → Measured (v1.0.103–106): app in background with the screen on keeps the link (talk delivered in 7 s); LAN with the screen off for a short time works (talk in 3 s, Honor); a phone left asleep in Doze loses its Wi-Fi Direct group (~20 min), and Huawei EMUI force-stopped the app ~11 min after the screen went off on battery. The Nearby settings tell users that reopening the app reconnects. Battery: see runs.json and OPEN-37.
+      → Measured on own builds (v1.0.103–104): with the app in the background and the screen on, the Wi-Fi Direct link holds and a talk arrived in 7 s. NOT yet measured: long screen-off / Doze and OEM background killing — an attempt on 2026-10-04 was invalidated because another agent (Codex, `IinPublic.codex`, `dev.codex` 1.0.103) reinstalled its own build on the shared phones mid-run (its install force-stop looked like an OEM kill). Re-run with exclusive device access.
   - **Platform scope**
     - [x] Android ↔ Android only. iOS has no Wi-Fi Direct; iPhone pairs stay on WebRTC/STUN until
       OPEN-22 (Apple Wi-Fi Aware, iOS 26+) is verified.
@@ -859,11 +860,11 @@ review capacity is available and the issue is promoted after the website/Android
     - [x] Decide default-on once verified (today: off unless `wifi_direct_link=1`).
       → Decided: offline nearby mode is on by default, with Settings switches for Wi-Fi Direct and Bluetooth. The hub-matchmade *online* upgrade (`wifi_direct_link` flag) stays off by default — online pairs already connect directly, so it would only save relay bandwidth, and users were told Wi-Fi Direct runs only without internet.
 
-- [ ] **OPEN-37 — Reduce the LAN link's Wi-Fi radio cost.** Measured on the P30 (v1.0.106, LAN
-  link to the Honor, no internet): the app drew ~4.1 %/h, 21.3 of 25.9 mAh in 9 min on the Wi-Fi
-  radio (CPU 4.6, Bluetooth 0.12). Likely contributors: continuous NSD discovery, Gun websocket
-  heartbeats/membership traffic and mesh keepalives keeping the radio out of power save. Measure each
-  and back them off while idle.
+- [ ] **OPEN-37 — Measure, then reduce, the LAN link's Wi-Fi radio cost.** A first 9-min sample on
+  the P30 (LAN link to the Honor, no internet) showed ~4.1 %/h with 21.3 of 25.9 mAh on the Wi-Fi
+  radio — but it ran on another agent's build (see OPEN-36 note), so re-measure on our build first.
+  Suspects if it holds: continuous NSD discovery, Gun websocket heartbeats/membership traffic and
+  mesh keepalives keeping the radio out of power save.
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
   peer forwarding and BLE discovery/data transport before either is enabled by default. Track any

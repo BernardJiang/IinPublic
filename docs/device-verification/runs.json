@@ -48,28 +48,6 @@
     {
       "recordedAt": "2026-10-04",
       "level": "physical",
-      "id": "open36-lan-offline-p30-honor",
-      "deviceModel": "Huawei P30 Pro (VOG-L29) ↔ Honor 8 (FRD-L04)",
-      "os": "Android 10 / Android 7.0",
-      "appBuild": "1.0.106",
-      "route": "lan-direct",
-      "batteryState": "usb-charging; drain estimated via batterystats with charging masked",
-      "networkType": "same home Wi-Fi LAN, no internet (hub unreachable); found via NSD",
-      "direction": "bidirectional",
-      "lifecycleState": "foreground, screen on",
-      "result": "pass",
-      "metrics": {
-        "latencyMs": 135,
-        "throughputKbps": 19247,
-        "batteryDrainPercentPerHour": 4.1,
-        "reconnectMs": 10000,
-        "forwardingBytes": 0
-      },
-      "notes": "RTT median ~135 ms idle (16–225 ms: Wi-Fi power save, phones on different bands of one router); throughput P30→Honor 2 MB burst (Honor→P30 25.7 Mbps); reconnect = linked 10 s after both apps restarted; battery = P30 app 25.9 mAh in 9 min (Wi-Fi radio 21.3, CPU 4.6, Bluetooth 0.12). Also: Honor with screen off received a talk 3 s after it was sent."
-    },
-    {
-      "recordedAt": "2026-10-04",
-      "level": "physical",
       "id": "open36-cellular-no-sim",
       "deviceModel": "P30 Pro, PH-1, C10, Honor 8",
       "os": "Android 7–14",
