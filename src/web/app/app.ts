@@ -2387,6 +2387,10 @@ export class IinPublicApp {
       roomId,
       ...checkpoint,
     });
+    // startRoom (initP2PPresenceAndBridge) runs while the room is still 'starting', when
+    // initNearbyOffline has no room scope and returns early. Start nearby now that it is active.
+    const pub = this.gunService.getStoredPair()?.pub;
+    if (pub) this.initNearbyOffline(String(pub));
   }
 
   /**

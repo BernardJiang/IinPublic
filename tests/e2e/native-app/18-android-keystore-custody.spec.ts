@@ -140,28 +140,20 @@ for (const serial of SERIALS) {
         expect(prepared.nativeAfter.pair).toBeNull();
         expect(prepared.hasV1).toBe(true);
 
-        // Reload is the actual v1 -> v3 startup migration boundary. Do not reload immediately
-        // after synthesizing the v1 row: Android WebView's localStorage is synchronous at the JS
-        // API level but flushes to the underlying SQLite store asynchronously. Without a real
-        // wait here, the fixture's OWN setItem() above can still be in flight to disk when
-        // reload() fires; its eventual disk commit can then land AFTER the migration boundary's
-        // own delete, silently resurrecting the "removed" legacy record moments later.
-        //
-        // Found 2026-09-27 (docs/TODO.md OPEN-34, reproduced 4/4 without this wait): a
-        // Storage.prototype.setItem/removeItem trap covering the ENTIRE page JS realm (not just
-        // this app's own custody code) showed exactly one setItem (this fixture) and exactly one
-        // removeItem (the real migration code, verified deleted immediately by reading it back
-        // as null) — and nothing else ever wrote to the key afterward at the JS level, yet the
-        // test's later assertion still read back the original blob. That is conclusive for a
-        // storage-layer flush race, not an application bug: the migration code (`migrateFrom` /
-        // `removeIfMatches` in web-gun-service.ts) does exactly what it should, synchronously.
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        // Reload is the actual v1 -> v3 startup migration boundary.
         await user.window.reload();
         await expect(user.window.locator('#app')).toBeVisible({ timeout: 45_000 });
         await expect.poll(async () => (await readBridge(user!))?.read?.pair?.pub ?? null, { timeout: 45_000 }).toBe(originalPair.pub);
         const migrated = await readBridge(user);
         expect(migrated!.read.pair).toEqual(originalPair);
-        expect(await user.window.evaluate(() => localStorage.getItem('iinpublic_key_custody_v1'))).toBeNull();
+        // docs/TODO.md OPEN-34: migration writes + verifies native custody BEFORE it unwraps and
+        // deletes the v1 record, so the native pair becomes readable a few hundred ms before v1
+        // is gone. Reading v1 the instant the bridge returns the pair raced that window (the old
+        // intermittent failure). Wait for the delete, then require it to stay deleted.
+        const readV1 = () => user!.window.evaluate(() => localStorage.getItem('iinpublic_key_custody_v1'));
+        await expect.poll(readV1, { timeout: 15_000 }).toBeNull();
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        expect(await readV1()).toBeNull();
 
         // Exercise the real native manager/bridge against a conflicting source. It must reject
         // before write and leave the current Keystore identity byte-for-byte intact.

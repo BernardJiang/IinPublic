@@ -19,23 +19,23 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-- [ ] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
-  "no deobfuscation file associated with this App Bundle").** `android/app/build.gradle`'s release
-  buildType has `minifyEnabled false`, and references a `proguard-rules.pro` that has never
-  actually existed (`proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
-  'proguard-rules.pro'` — silently unused while minify is off; AGP only reads the file list when
-  minification is actually on). Deliberately NOT flipped on blind for the first closed-testing
-  release: two classes expose `@JavascriptInterface` methods the WebView calls **by exact name**
-  from JavaScript (`NativeCustodyBridge` — the Android-Keystore-backed identity custody read/
-  write path — and `NearbyJavascriptBridge`), and R8's default behavior without explicit keep
-  rules is to rename/strip anything it can't see a Kotlin-side call site for. A regression there
-  wouldn't crash loudly; it would silently break identity load/save for real users. To do this
-  properly: write real keep rules for both `@JavascriptInterface` classes and any JNI native
-  method declarations, enable `minifyEnabled`, build a release AAB, and verify on a real Android
-  test phone (identity read/write survives, nearby discovery still works) before trusting it —
-  not just a clean Gradle build. Low priority: this is a non-blocking Play Console warning, not an
-  error; the app publishes and functions fine without it, just slightly larger and without
-  crash-report symbolication.
+- [x] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
+  "no deobfuscation file associated with this App Bundle"). Done 2026-10-05.**
+  - `android/app/proguard-rules.pro` (new) keeps every `@JavascriptInterface` member, the three
+    bridge classes the WebView calls by name (`NativeCustodyBridge`, `NearbyJavascriptBridge`,
+    `NativeAttestationBridge`), JNI `native` methods plus `NodeBridge` (bound by name from
+    `native-lib.cpp`), and the `WifiAwareConnectivityProvider` constructor that
+    `NearbyConnectivityManager` loads by `Class.forName`. Release `minifyEnabled true`.
+  - Signed `bundleRelease` builds with R8; the AAB carries
+    `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map`, which is what the Play
+    warning asks for. `mapping.txt` confirms all bridge class and method names are unchanged.
+  - Device check without wiping identities: `IINPUBLIC_MINIFY_DEBUG=1` (or
+    `-PiinpublicMinifyDebug`) runs R8 with the release rules on the debug build, so it installs
+    over existing debug installs and stays WebView-debuggable. On that build (1.0.109–1.0.111):
+    `18-android-keystore-custody.spec.ts` passed 4/4 runs on RNV0217207000190; an upgrade install
+    on PM1 and PADC kept their Keystore identity (`IinPublicCustody.read()` pub = active pub);
+    the attestation and nearby bridges answered; all 4 phones found each other by LAN NSD and
+    peered Gun at `http://<ip>:8088/gun`.
 
 The balanced production-security decision is documented in
 `docs/security/techsupport-and-user-production-security.md`. Implement it in this order; keep the
@@ -255,10 +255,16 @@ phrase complexity into normal use.
       pass-through/null-safety; 2 existing integration tests updated
       (`system-routes.test.ts`) that had encoded the old (buggy) plain-array `putPath` call as
       the expected behavior.
-  - [ ] Cross-client "stale cache / installed Android version catches up" scenario has no E2E
-    coverage yet — only unit/integration. The mechanism (client-side monotonic cache +
-    HTTP-relay poll, identical in shape to the already-E2E-tested OPEN-27 delegate-grant
-    hardening) gives reasonable confidence, but this is asserted, not demonstrated end to end.
+  - [x] Cross-client "stale cache / installed Android version catches up" E2E (2026-10-05).
+    `stage1-single-user/91-techsupport-recovery-anchor-catch-up.spec.ts` (browser + relay): a
+    stale cache catches up on boot, a newer cache survives poll ticks and a reload, a running
+    client learns a record published later, and the relay returns 409 for a rollback.
+    `native-app/27-android-techsupport-recovery-anchor-catch-up.spec.ts` (real phone, app data
+    kept): a stale cache reaches the hub's record while running, and a newer cache survives
+    polls and a force-stop relaunch. Both sign with `TECHSUPPORT_RECOVERY_SEA_PAIR_JSON` from
+    `.env.local` and skip without it; both passed (27 on PM1LHMA7A2707315). Remaining for
+    production readiness is the user action above: move the recovery private key to cold
+    storage.
   - [x] **Master-operator recovery banner (2026-09-27).** `techsupport-recovery-banner-view.ts`
     renders a warning banner (reason, issued date, revoked-key count) at the top of the master's
     own Settings, above the Delegates section — only for a session logged in as
@@ -388,48 +394,21 @@ phrase complexity into normal use.
     launch-time alone covers the common case; add a timer later if that assumption turns out wrong
     in practice.
 
-- [ ] **OPEN-34 — Android Keystore custody migration intermittently leaves the legacy v1 record non-null
-  (found 2026-09-27, investigated in depth, MITIGATED but not conclusively fixed).**
-  `18-android-keystore-custody.spec.ts`'s "migrates atomically..." test on RNV0217207000190 (Honor): after a
-  v1->v3 migration (write the v1 legacy localStorage record with the real active pair, remove native custody,
-  reload — production's actual startup migration boundary), the migrated pair is always correct, but
-  `localStorage.getItem('iinpublic_key_custody_v1')` intermittently comes back non-null afterward — the SAME
-  identity's original encrypted blob, not a different/stale record from an earlier run (confirmed by comparing
-  `publicIdentity.pub` against the active pair — they match).
-  - **Ruled out with direct evidence, not just reasoning:**
-    - `IdentityPasswordCustodyManager` (a separate subsystem that also names `iinpublic_key_custody_v1` as ITS
-      OWN legacy key) — its `getStatus()` is read-only when no password is set; never called on this path.
-    - A second write from `persistCustodyRecord` via the `pairStoredInV3`-guarded fallback path — instrumented
-      every call site with a stack trace; it fired exactly once, from the test's own setup, before the delete.
-    - A source-level trace on `removeIfMatches` — confirmed the delete runs and reads back `null` immediately.
-    - A **global `Storage.prototype.setItem`/`removeItem` trap**, installed via Playwright `addInitScript` (runs
-      before ANY bundled module's own top-level code, closing the gap where a module could cache the original
-      method reference before a same-bundle trap installs) — across a full test run, exactly ONE `removeItem`
-      fired (the real migration code) and ZERO further writes of any kind occurred anywhere in the page's JS
-      realm, yet the record still reappeared moments later.
-  - That is conclusive that no JS-level code in this page writes the key a second time — the reappearance is a
-    storage-engine effect (WebView's `localStorage` is synchronous at the JS API level but backed by an
-    async-flushing store), not an application logic bug in `migrateFrom`/`removeIfMatches`.
-  - **Attempted fixes, both evidence-based, neither conclusively resolved it:**
-    1. A 1.5s wait between writing the v1 fixture and reloading (`18-android-keystore-custody.spec.ts`) — kept,
-       doesn't hurt, but alone did not fix it (still failed 4/4 with it added).
-    2. `NativePasswordFreeCustodyManager.migrateFrom` (`native-password-free-custody-manager.ts`) now re-checks
-       `source.readPair()` after the delete and retries `removeIfMatches` up to 4 times with backoff (250ms x
-       1..4) — real, safe, evidence-grounded hardening against exactly the flush-race class of bug, kept
-       committed. **Measured pass rate with this fix: 1/9 (11%) across repeated trials on the same device — not
-       statistically distinguishable from the failure rate without it.** The retry does not appear to be hitting
-       the actual window where the stale write lands; whatever the precise mechanism is (possibly a
-       multi-process WebView storage-partition sync effect, possibly something below the JS engine entirely),
-       it was not pinned down further before ending this investigation.
-  - **Still open:** the real mechanism. Does not affect the active identity (always correct in every trial) —
-    remains a leftover-plaintext-adjacent hygiene concern, not a correctness bug, but worth resolving before
-    trusting it for any OPEN-06 custody guarantee. Only reproduced/investigated on RNV0217207000190 (Honor); not
-    checked on the other two phones. Next step if resumed: check whether a genuine cold `am force-stop` + full
-    process relaunch (not same-process `location.reload()`) exhibits the same behavior — `reload()` keeps the
-    renderer/storage-partition connection alive in a way a real process death does not, and this device is
-    independently documented elsewhere in this codebase as one that can restart its foreground-service process
-    mid-cold-boot, which is a class of behavior no diagnostic pass in this session actually checked for despite
-    being a documented, real behavior of this exact harness.
+- [x] **OPEN-34 — Android Keystore custody migration intermittently leaves the legacy v1 record non-null
+  (found 2026-09-27). Root cause found and fixed 2026-10-05: a race in the spec, not in the app or
+  the WebView storage engine.**
+  - `migrateFrom` writes and verifies native custody, then unwraps the v1 record to confirm the
+    identity, then deletes it. The native pair is therefore readable a few hundred ms before v1 is
+    gone. `18-android-keystore-custody.spec.ts` polled until the bridge returned the pair and read
+    v1 in the same instant, so it often landed in that window.
+  - Evidence on RNV0217207000190: a 100 ms trace of the real migration (3 rounds) showed v1
+    present right after reload, the "Migrated SEA identity" log, then v1 null about 0.85 s after
+    reload and still null 20 s later. A throwaway localStorage key run through
+    write/wait/reload/remove 12 times (reload, no reload, reload without wait) never reappeared,
+    so the earlier "async-flushing storage engine" explanation was wrong.
+  - Fix: the spec waits up to 15 s for v1 to become null, then requires it to stay null for 3 s.
+    Removed the retry loop added to `NativePasswordFreeCustodyManager.migrateFrom` on 2026-09-27;
+    it targeted the wrong theory. Result: 4/4 full spec runs pass (previously about 1/9).
 
 - [x] **OPEN-32 — Production `GET /api/support/delegate-grants` silently returned an EMPTY roster after ~1 day of uptime
   (found 2026-09-25). User-facing impact mitigated 2026-09-27; the underlying root cause is still NOT known.**

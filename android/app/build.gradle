@@ -14,8 +14,8 @@ android {
         applicationId "com.iinpublic.app"
         minSdk 24
         targetSdk 36
-        versionCode 1000108
-        versionName "1.0.108"
+        versionCode 1000111
+        versionName "1.0.111"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
@@ -70,8 +70,18 @@ android {
     }
 
     buildTypes {
+        // `-PiinpublicMinifyDebug` (or IINPUBLIC_MINIFY_DEBUG=1, which survives the npm wrapper
+        // scripts that call assembleDebug) runs R8 with the release rules on a debug-signed, WebView-
+        // debuggable build, so the device E2E suites (custody, nearby) can exercise the
+        // minified bridges over an existing debug install without wiping its identity.
+        debug {
+            if (project.hasProperty('iinpublicMinifyDebug') || System.getenv('IINPUBLIC_MINIFY_DEBUG') == '1') {
+                minifyEnabled true
+                proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            }
+        }
         release {
-            minifyEnabled false
+            minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (releaseKeystorePath) {
                 signingConfig signingConfigs.release
