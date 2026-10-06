@@ -3,9 +3,9 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { waitForGunApiReady } from '../../helpers/clear-database';
 import { gunBaseURL } from '../../helpers/ports';
 
-function roomId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-}
+// Rooms are ownerless and the relay assigns the id (chatroom-manager.ts createChatroom); a
+// client-supplied id is ignored outside unit tests.
+const SERVER_ROOM_ID = /^room_[0-9a-f]{40}$/;
 
 test.describe('Chatroom custom/business API scripts', () => {
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
@@ -28,11 +28,9 @@ test.describe('Chatroom custom/business API scripts', () => {
     });
     expect(invalid.status()).toBe(400);
 
-    const id = roomId('custom_room');
     const createdBy = 'owner_custom_1';
     const createRes = await request.post(`${base}/api/chatrooms`, {
       data: {
-        id,
         name: 'Neighborhood Buy/Sell',
         type: 'custom',
         createdBy,
@@ -48,7 +46,7 @@ test.describe('Chatroom custom/business API scripts', () => {
       createdBy: string;
       isActive: boolean;
     };
-    expect(created.id).toBe(id);
+    expect(created.id).toMatch(SERVER_ROOM_ID);
     expect(created.name).toBe('Neighborhood Buy/Sell');
     expect(created.type).toBe('custom');
     expect(created.createdBy).toBe(createdBy);
@@ -56,13 +54,11 @@ test.describe('Chatroom custom/business API scripts', () => {
   });
 
   test('business chatroom create returns business metadata', async ({ request }) => {
-    const id = roomId('biz_room');
     const ownerId = 'business_owner_1';
     const base = gunBaseURL();
 
     const createRes = await request.post(`${base}/api/chatrooms`, {
       data: {
-        id,
         name: 'Coffee Shop Live',
         type: 'business',
         createdBy: ownerId,
@@ -88,7 +84,7 @@ test.describe('Chatroom custom/business API scripts', () => {
       createdBy?: string;
       businessInfo?: { brandName?: string; ownerId?: string; verified?: boolean };
     };
-    expect(room.id).toBe(id);
+    expect(room.id).toMatch(SERVER_ROOM_ID);
     expect(room.type).toBe('business');
     expect(room.createdBy).toBe(ownerId);
     expect(room.businessInfo?.brandName).toBe('Coffee Shop');
@@ -97,13 +93,13 @@ test.describe('Chatroom custom/business API scripts', () => {
   });
 
   test('members add/remove endpoints accept valid payloads and reject invalid payloads', async ({ request }) => {
-    const id = roomId('members_room');
     const base = gunBaseURL();
 
     const createRes = await request.post(`${base}/api/chatrooms`, {
-      data: { id, name: 'Members Room', type: 'custom', createdBy: 'owner_members_1' },
+      data: { name: 'Members Room', type: 'custom', createdBy: 'owner_members_1' },
     });
     expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const { id } = (await createRes.json()) as { id: string };
 
     const invalidAdd = await request.post(`${base}/api/chatrooms/${encodeURIComponent(id)}/members`, {
       data: {},

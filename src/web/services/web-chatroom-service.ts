@@ -58,6 +58,20 @@ type ChatroomMember = {
  */
 export const MEMBERSHIP_RUN_EPOCH = Math.random().toString(36).slice(2, 10);
 
+/**
+ * Local-debug/E2E capacity (CONFIG: dev build value, test env, or `?e2e_capacity=`). Only honoured
+ * outside production bundles: in production the signed protocol manifest's capacity always wins,
+ * so a URL parameter can never make a client evict other members early.
+ */
+export function chatroomCapacityTestOverride(
+  nodeEnv = process.env.NODE_ENV,
+  configured = CONFIG.CHATROOM_MAX_CAPACITY,
+  releaseDefault = 498,
+): number | null {
+  if (nodeEnv === 'production') return null;
+  return Number.isSafeInteger(configured) && configured > 0 && configured !== releaseDefault ? configured : null;
+}
+
 export class WebChatroomService {
   private currentChatroomId?: string;
   private activeMembersUnsubscribe?: () => void;
@@ -114,7 +128,8 @@ export class WebChatroomService {
       fifoEnabled: () => CONFIG.CHATROOM_ENABLE_FIFO,
       isHierarchyRoom: (roomId) => getAllChatroomIds().includes(roomId),
       isFreshMember: (memberData) => this.isFreshActiveMember(memberData),
-      getCapacity: () => this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
+      getCapacity: () => chatroomCapacityTestOverride()
+        ?? this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
         ?? CONFIG.CHATROOM_MAX_CAPACITY,
       getCurrentRoom: () => this.currentChatroomId,
       getLocation: (userId) => this.userLocations.get(userId),

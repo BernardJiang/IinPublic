@@ -177,9 +177,14 @@ export class ActiveExchangeRoomController {
     return this.snapshot.active ? { ...this.snapshot.active } : null;
   }
 
+  /**
+   * Scope of the room being exchanged in. Also returned while 'starting': the startRoom hook is
+   * what builds that room's presence and nearby discovery, and needs its scope to do so.
+   * Accepting inbound traffic still requires 'active' (roomDeliveryMatchesActiveRoom).
+   */
   getScope(now = this.now()): ActiveRoomScope | null {
     const active = this.snapshot.active;
-    if (!active || active.exchangeState !== 'active') return null;
+    if (!active || (active.exchangeState !== 'active' && active.exchangeState !== 'starting')) return null;
     return activeRoomScope(active, now.getTime());
   }
 

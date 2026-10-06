@@ -40,6 +40,21 @@ describe('ActiveExchangeRoomController', () => {
     expect(JSON.parse(storage.records.get(ACTIVE_EXCHANGE_ROOM_STORAGE_KEY)!)).toEqual(controller.getSnapshot());
   });
 
+  it('exposes the starting room scope to the startRoom hook, and none while paused', async () => {
+    let scopeDuringStart: string | null | undefined;
+    const controller: ActiveExchangeRoomController = new ActiveExchangeRoomController(memoryStorage(), {
+      stopRoom: async () => undefined,
+      // Presence and nearby discovery are built inside this hook and need the room's scope.
+      startRoom: async () => { scopeDuringStart = controller.getScope()?.roomId ?? null; },
+    }, () => new Date('2026-10-04T12:00:00.000Z'));
+
+    await controller.activate({ roomId: 'hall-a', ...BASELINE_ROOM_PROTOCOL_CHECKPOINT });
+    expect(scopeDuringStart).toBe('hall-a');
+    expect(controller.getScope()?.roomId).toBe('hall-a');
+    await controller.pause();
+    expect(controller.getScope()).toBeNull();
+  });
+
   it('does not silently restore the old room if starting the new room fails', async () => {
     const storage = memoryStorage();
     const events: string[] = [];

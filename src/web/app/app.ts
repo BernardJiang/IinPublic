@@ -271,6 +271,9 @@ export class IinPublicApp {
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
   private supportBootstrapChecked = false;
+  /** When this session rendered the welcome greeting; null until then. */
+  private supportGreetingTimestamp: string | null = null;
+  private supportGreetingRendered: string | null = null;
   private presenceClient: P2PPresenceClient | null = null;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
@@ -2387,10 +2390,6 @@ export class IinPublicApp {
       roomId,
       ...checkpoint,
     });
-    // startRoom (initP2PPresenceAndBridge) runs while the room is still 'starting', when
-    // initNearbyOffline has no room scope and returns early. Start nearby now that it is active.
-    const pub = this.gunService.getStoredPair()?.pub;
-    if (pub) this.initNearbyOffline(String(pub));
   }
 
   /**
@@ -4184,18 +4183,26 @@ export class IinPublicApp {
 
   private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
     if (!this.currentUser || this.supportBootstrapChecked || isTechSupportUser(this.currentUser)) return;
-
-    const userId = this.currentUser.id;
-    const conversationId = this.ensureSupportConversationRecord();
-    const now = new Date().toISOString();
     // Idempotency no longer needs a localStorage gate: the greeting write below uses a
     // deterministic message id (a repeat call overwrites the same soul), so the in-memory
     // flag is a per-session no-op optimization, not persistence.
     this.supportBootstrapChecked = true;
+    this.supportGreetingTimestamp = new Date().toISOString();
+    await this.renderSupportGreeting({ notify: true });
+  }
 
-    // K2 (docs/TODO.md): render the pre-signed, per-locale welcome template — verify against
-    // the compiled DM trust anchors BEFORE rendering. A client that cannot verify shows no
-    // greeting at all (K2-3: silent suppression, never a fabricated/impersonated message).
+  /**
+   * K2 (docs/TODO.md): render the pre-signed, per-locale welcome template — verify against the
+   * compiled DM trust anchors BEFORE rendering. A client that cannot verify shows no greeting at
+   * all (K2-3: silent suppression, never a fabricated/impersonated message). Also called after a
+   * stage-name change so the welcome names the user as they now are (same message id, original
+   * timestamp; the signature covers the template, not the rendered name).
+   */
+  private async renderSupportGreeting(options: { notify: boolean }): Promise<void> {
+    if (!this.currentUser || isTechSupportUser(this.currentUser) || !this.supportGreetingTimestamp) return;
+    const userId = this.currentUser.id;
+    const conversationId = this.ensureSupportConversationRecord();
+    const timestamp = this.supportGreetingTimestamp;
     const locale = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages)) as GreetingLocale;
     const bundle = techsupportGreetingBundle.greetings as SignedGreeting[];
     const entry = bundle.find((g) => g.locale === locale) ?? bundle.find((g) => g.locale === 'en');
@@ -4213,7 +4220,7 @@ export class IinPublicApp {
         id: `support_welcome_${userId}`,
         senderId: TECHSUPPORT_ROOT_USER_ID,
         text: rendered,
-        timestamp: now,
+        timestamp,
         channel: 'public',
         transport: 'star-gun',
         greetingLocale: verified.locale,
@@ -4222,9 +4229,14 @@ export class IinPublicApp {
       },
       { otherUserId: userId },
     );
-    this.uiManager.updateConversationMessage(conversationId, rendered, now);
+    // On a rename, only refresh the list preview while the greeting is still the latest message.
+    const preview = (this.uiManager.getMyConversations() as Record<string, { lastMessage?: string }>)[conversationId]?.lastMessage;
+    if (options.notify || !preview || preview === this.supportGreetingRendered) {
+      this.uiManager.updateConversationMessage(conversationId, rendered, timestamp);
+    }
+    this.supportGreetingRendered = rendered;
 
-    if (!this.uiManager.isSupportNotificationsMuted()) {
+    if (options.notify && !this.uiManager.isSupportNotificationsMuted()) {
       this.uiManager.showNotification(rendered, 'info');
     }
 
@@ -7013,6 +7025,7 @@ export class IinPublicApp {
           });
           // Refresh the UI to show the new name
           this.uiManager.showMainInterface(this.currentUser);
+          await this.renderSupportGreeting({ notify: false });
 
           // Update the stage name in the current chatroom so others can see it
           if (this.currentChatroomId) {

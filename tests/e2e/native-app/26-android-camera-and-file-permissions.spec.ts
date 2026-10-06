@@ -56,13 +56,42 @@ async function adb(serial: string, ...args: string[]): Promise<string> {
 /** The window that currently has input focus, e.g. `com.iinpublic.app/com.iinpublic.app.MainActivity`. */
 async function focusedWindow(serial: string): Promise<string> {
   const dump = await adb(serial, 'shell', 'dumpsys', 'window');
-  const line = dump.split('\n').find((l) => /mCurrentFocus=/.test(l)) ?? '';
+  // Some phones (Huawei P30) list a virtual display first whose focus is always null, so prefer
+  // the display that actually has a focused window.
+  const lines = dump.split('\n').filter((l) => /mCurrentFocus=/.test(l));
+  const line = lines.find((l) => !/mCurrentFocus=null/.test(l)) ?? lines[0] ?? '';
   return line.trim();
 }
 
 /** Dismiss the top dialog/picker (BACK = "not now" for a permission dialog and cancel for a picker). */
 async function pressBack(serial: string): Promise<void> {
   await adb(serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK');
+}
+
+/**
+ * Deny the runtime-permission dialog. Android 11+ treats BACK as "deny"; the Android 7-10 phones
+ * in this matrix ignore BACK on that dialog, so fall back to tapping its Deny button.
+ */
+async function denyPermissionDialog(serial: string): Promise<void> {
+  await pressBack(serial);
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  if (!/GrantPermissionsActivity|permissioncontroller|packageinstaller/i.test(await focusedWindow(serial))) return;
+  await adb(serial, 'shell', 'uiautomator', 'dump', '/sdcard/iinpublic-ui.xml');
+  const xml = await adb(serial, 'shell', 'cat', '/sdcard/iinpublic-ui.xml');
+  const match = xml.match(/resource-id="[^"]*:id\/permission_deny_button"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
+  if (!match) throw new Error('permission dialog ignored BACK and has no Deny button');
+  const [x1, y1, x2, y2] = match.slice(1).map(Number);
+  await adb(serial, 'shell', 'input', 'tap', String(Math.round((x1 + x2) / 2)), String(Math.round((y1 + y2) / 2)));
+}
+
+/**
+ * Grant CAMERA the way the system dialog would. On Android 10 a shell `pm revoke` also leaves the
+ * UID-level CAMERA app-op at `ignore`, which `pm grant` does not reset, so the camera then fails
+ * with "disabled by policy" (NotReadableError) even though the permission reads as granted.
+ */
+async function grantCamera(serial: string): Promise<void> {
+  await adb(serial, 'shell', 'pm', 'grant', ANDROID_PACKAGE, CAMERA_PERMISSION);
+  await adb(serial, 'shell', 'appops', 'set', '--uid', ANDROID_PACKAGE, 'CAMERA', 'allow').catch(() => undefined);
 }
 
 async function dismissWalkthrough(user: AndroidUser): Promise<void> {
@@ -121,7 +150,7 @@ for (const serial of SERIALS) {
           message: 'the Android runtime-permission dialog should take focus',
         })
         .toMatch(/GrantPermissionsActivity|permissioncontroller|packageinstaller/i);
-      await pressBack(serial); // dismiss without allowing
+      await denyPermissionDialog(serial); // dismiss without allowing
       const denied = await user.window.evaluate(() => (window as any).__cameraProbe);
       expect(denied).toEqual({ ok: false, name: 'NotAllowedError' });
       // Denying via BACK must not have granted anything.
@@ -130,7 +159,7 @@ for (const serial of SERIALS) {
       );
 
       // --- granted path ---
-      await adb(serial, 'shell', 'pm', 'grant', ANDROID_PACKAGE, CAMERA_PERMISSION);
+      await grantCamera(serial);
       const granted = await user.window.evaluate(async () => {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
         const track = stream.getVideoTracks()[0];
@@ -145,7 +174,7 @@ for (const serial of SERIALS) {
       test.setTimeout(240_000);
       test.skip(!(await isAndroidDeviceReady(serial)), `${serial} unavailable`);
       const hubGunUrl = `http://${lanIp()}:${HUB_GUN_PORT}/gun`;
-      await adb(serial, 'shell', 'pm', 'grant', ANDROID_PACKAGE, CAMERA_PERMISSION);
+      await grantCamera(serial);
       user = await launchAndroidUserViaAdb({ hubGunUrl, deviceSerial: serial });
       await expect(user.window.locator('#app')).toBeVisible({ timeout: 45_000 });
       await dismissWalkthrough(user);
@@ -181,7 +210,12 @@ for (const serial of SERIALS) {
           message: 'the system document picker should take focus (previously nothing happened)',
         })
         .not.toContain(ANDROID_PACKAGE);
-      await pressBack(serial); // cancel the picker
+      // Cancel the picker. Android 7's picker opens with its roots drawer showing, and the first
+      // BACK only closes the drawer, so keep pressing (bounded) until the app has focus again.
+      for (let attempt = 0; attempt < 3 && !(await focusedWindow(serial)).includes(ANDROID_PACKAGE); attempt += 1) {
+        await pressBack(serial);
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
       await expect
         .poll(async () => focusedWindow(serial), { timeout: 20_000 })
         .toContain(ANDROID_PACKAGE);
