@@ -48,6 +48,7 @@ import type { RecoveryAnchorRecord } from '../../shared/techsupport-recovery';
 import type { TechSupportDelegateRequest } from '../../shared/techsupport-delegate-invite';
 import {
   createSupportSettingsController,
+  type SupportDelegateInviteHooks,
   type SupportSettingsController,
 } from './support-settings-controller';
 import type { GraphNodeTarget } from './graph-navigation';
@@ -294,8 +295,7 @@ export class UIManager extends EventEmitter {
   private chatroomShellController?: ChatroomShellController;
   private talkEditorController?: TalkEditorController;
   private supportSettingsController?: SupportSettingsController;
-  private supportDelegateInviteCreator?: () => { code: string; expiresAt: number } | null;
-  private supportDelegateInviteCodeSubmitter?: (code: string) => Promise<'invalid' | 'expired' | 'unavailable' | null>;
+  private supportDelegateInviteHooks?: SupportDelegateInviteHooks;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -939,8 +939,8 @@ export class UIManager extends EventEmitter {
         emit: (event, payload) => this.emit(event, payload),
         t: (key) => this.t(key),
         tf: (key, values) => this.tf(key, values),
-        onCreateInvite: () => this.supportDelegateInviteCreator?.() ?? null,
-        onSubmitInviteCode: (code) => this.supportDelegateInviteCodeSubmitter?.(code) ?? Promise.resolve('unavailable' as const),
+        getInviteHooks: () => this.supportDelegateInviteHooks,
+        notify: (message) => this.showNotification(message, 'info'),
       });
     }
     return this.supportSettingsController;
@@ -1603,12 +1603,8 @@ export class UIManager extends EventEmitter {
    * invite-code submission — both need direct return values (a code to show, an error to
    * display inline), so like `setIdentityLinkHooks` these are plain function refs, not the
    * fire-and-forget `emit` pattern the rest of the delegates panel uses. */
-  setSupportDelegateInviteHooks(hooks: {
-    createInvite: () => { code: string; expiresAt: number } | null;
-    submitInviteCode: (code: string) => Promise<'invalid' | 'expired' | 'unavailable' | null>;
-  }): void {
-    this.supportDelegateInviteCreator = hooks.createInvite;
-    this.supportDelegateInviteCodeSubmitter = hooks.submitInviteCode;
+  setSupportDelegateInviteHooks(hooks: SupportDelegateInviteHooks): void {
+    this.supportDelegateInviteHooks = hooks;
   }
 
   setIdentityPasswordHooks(hooks: {
@@ -2813,6 +2809,10 @@ export class UIManager extends EventEmitter {
 
   updateTechSupportDelegateRequests(requests: TechSupportDelegateRequest[]): void {
     this.supportSettings().updateDelegateRequests(requests);
+  }
+
+  setIncomingTargetedDelegateInvite(invite: { expiresAt: number } | null, opts: { notify?: boolean } = {}): void {
+    this.supportSettings().setIncomingTargetedInvite(invite, opts);
   }
 
   updateDelegateActivity(entries: SupportFaqEntry[]): void {

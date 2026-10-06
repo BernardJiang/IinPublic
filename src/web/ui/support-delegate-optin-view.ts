@@ -21,6 +21,10 @@ export type SupportDelegateOptInViewDeps = {
   optedIn: boolean;
   onToggle: (nextOptedIn: boolean) => void;
   onSubmitInviteCode: (code: string) => Promise<'invalid' | 'expired' | 'unavailable' | null>;
+  /** A verified invite TechSupport addressed to this identity (targeted, no code needed). */
+  incomingInvite?: { expiresAt: number } | null;
+  onRespondToInvite?: (accept: boolean) => Promise<'invalid' | 'expired' | 'unavailable' | null>;
+  formatDate?: (date: Date) => string;
 };
 
 export function renderSupportDelegateOptInSection(deps: SupportDelegateOptInViewDeps): void {
@@ -28,9 +32,21 @@ export function renderSupportDelegateOptInSection(deps: SupportDelegateOptInView
   if (!container) return;
 
   if (!deps.eligible) {
+    const invite = deps.incomingInvite;
+    const inviteCard = invite
+      ? `
+        <div data-testid="support-delegate-targeted-invite" style="padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);margin-bottom:12px;">
+          <div style="font-weight:600;">${deps.text('supportDelegateTargetedInviteTitle')}</div>
+          <div style="font-size:0.82em;color:var(--text-tertiary);margin:4px 0 8px;">${deps.text('supportDelegateTargetedInviteHelp')}${deps.formatDate ? ` · ${deps.escapeHtml(deps.formatDate(new Date(invite.expiresAt)))}` : ''}</div>
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="btn primary-btn" id="support-delegate-targeted-accept" data-testid="support-delegate-targeted-accept">${deps.text('supportDelegateTargetedInviteAccept')}</button>
+            <button type="button" class="btn" id="support-delegate-targeted-decline" data-testid="support-delegate-targeted-decline">${deps.text('supportDelegateTargetedInviteDecline')}</button>
+          </div>
+        </div>`
+      : '';
     container.innerHTML = renderSettingsSection(
       { title: deps.text('supportDelegateInviteEntryTitle'), subtitle: deps.text('supportDelegateInviteEntryHelp') },
-      `
+      `${inviteCard}
         <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
           <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85em;flex:1;min-width:160px;">
             <span>${deps.text('supportDelegatesInvite')}</span>
@@ -56,6 +72,23 @@ export function renderSupportDelegateOptInSection(deps: SupportDelegateOptInView
       if (!err && input) input.value = '';
     };
     container.querySelector('#support-delegate-invite-code-submit')?.addEventListener('click', () => void submit());
+    const respond = async (accept: boolean): Promise<void> => {
+      container.querySelectorAll<HTMLButtonElement>('#support-delegate-targeted-accept, #support-delegate-targeted-decline')
+        .forEach((b) => { b.disabled = true; });
+      const err = await (deps.onRespondToInvite?.(accept) ?? Promise.resolve('unavailable' as const));
+      // Query after the await: a successful response re-renders this section without the card.
+      const status = container.querySelector('#support-delegate-invite-code-status') as HTMLElement | null;
+      if (!status) return;
+      if (err) {
+        status.textContent = deps.text(err === 'expired' ? 'supportDelegateInviteErrorExpired' : 'supportDelegateInviteErrorUnavailable');
+        container.querySelectorAll<HTMLButtonElement>('#support-delegate-targeted-accept, #support-delegate-targeted-decline')
+          .forEach((b) => { b.disabled = false; });
+      } else if (accept) {
+        status.textContent = deps.text('supportDelegateInviteEntryPending');
+      }
+    };
+    container.querySelector('#support-delegate-targeted-accept')?.addEventListener('click', () => void respond(true));
+    container.querySelector('#support-delegate-targeted-decline')?.addEventListener('click', () => void respond(false));
     return;
   }
 

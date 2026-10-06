@@ -91,6 +91,7 @@ import {
   fetchRecoveryAnchorFromServer,
   readCachedRecoveryAnchor,
 } from '../services/techsupport-recovery-cache';
+import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
 import {
   signDelegateGrant,
   verifyValidDelegateGrant,
@@ -115,7 +116,12 @@ import {
   verifyDelegateRequest,
   delegateRequestMatchesInvite,
   delegateRequestPath,
+  signTargetedDelegateInvite,
+  verifyTargetedDelegateInvite,
+  delegateRequestMatchesTargetedInvite,
+  targetedDelegateInvitePath,
   type DelegateInvitePayload,
+  type TargetedDelegateInvite,
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
@@ -311,6 +317,13 @@ export class IinPublicApp {
   private techSupportDelegateRequestsUnsubscribe: (() => void) | null = null;
   /** K7 follow-on — verified requests matching this session's outstanding invite, shown for approval. */
   private delegateRequestsCache: TechSupportDelegateRequest[] = [];
+  /** Targeted (remote) invites this master has sent, keyed by requestId (persisted — they last days, not minutes). */
+  private targetedDelegateInvites: Map<string, TargetedDelegateInvite> = this.loadTargetedDelegateInvites();
+  private static readonly TARGETED_DELEGATE_INVITES_STORAGE_KEY = 'iinpublic_techsupport_targeted_invites_v1';
+  /** Candidate side — requestIds of targeted invites already accepted or declined on this device. */
+  private static readonly HANDLED_DELEGATE_INVITES_STORAGE_KEY = 'iinpublic_techsupport_handled_invites_v1';
+  /** Candidate side — a verified invite addressed to this identity, awaiting Accept/Decline. */
+  private incomingTargetedDelegateInvite: TargetedDelegateInvite | null = null;
   /** K7 follow-on — tracks which grant pubs an expiry-soon warning has already fired for this session, so a re-render doesn't re-notify. */
   private delegateExpiryWarned: Set<string> = new Set();
   /** Guards `subscribeToSupportInboxIfTechSupport` against double-subscribing — it is now called both at boot and when a delegate opts in later in the session. */
@@ -1092,6 +1105,10 @@ export class IinPublicApp {
     this.uiManager.setSupportDelegateInviteHooks({
       createInvite: () => this.handleCreateTechSupportDelegateInvite(),
       submitInviteCode: (code) => this.handleSubmitTechSupportDelegateRequest(code),
+      previewInviteTarget: (userId) => this.previewTargetedDelegateInviteTarget(userId),
+      sendTargetedInvite: (userId) => this.handleSendTargetedDelegateInvite(userId),
+      acceptTargetedInvite: () => this.handleRespondToTargetedDelegateInvite(true),
+      declineTargetedInvite: () => this.handleRespondToTargetedDelegateInvite(false),
     });
     this.uiManager.setDeviceSyncHooks({
       stateFor: (pub) => this.deviceSyncService.peerState(pub),
@@ -4364,6 +4381,7 @@ export class IinPublicApp {
 
   private techSupportRelayPollTimer: ReturnType<typeof setInterval> | undefined;
   private techSupportRelayPollInFlight = false;
+  private techSupportTargetedInviteTick = 0;
 
   /**
    * docs/TODO.md K7 follow-on: a native (embedded-node) device has no generic Gun peering to the
@@ -4386,6 +4404,12 @@ export class IinPublicApp {
         if (!apiBase) return;
         const grants = await fetchDelegateGrantsFromServer(apiBase);
         for (const grant of grants) this.handleVerifiedDelegateGrant(grant);
+        // Targeted (remote) delegate invites: candidates look for one addressed to them, the
+        // master looks for the resulting requests. Slower cadence (~30s) — invites last days.
+        if (this.techSupportTargetedInviteTick++ % 6 === 0) {
+          await this.checkIncomingTargetedDelegateInvite(apiBase);
+          await this.pollTargetedDelegateInviteRequests(apiBase);
+        }
         // docs/TODO.md OPEN-31: no whole-FAQ poll any more — an asker's answer message carries its
         // own signed record. Only operator sessions have FAQ state to refresh: hide pending rows a
         // competing delegate already answered, and (master) refresh the "Delegate activity" audit
@@ -4605,6 +4629,146 @@ export class IinPublicApp {
   }
 
   /**
+   * Targeted (remote) invite — the redundant, no-proximity alternative to the code/QR dialog.
+   * The master looks up a known user, confirms their name + fingerprint, and publishes an invite
+   * addressed to that user's pub. The candidate's client discovers it (relay poll) and accepts
+   * from anywhere; the request is only honored when signed by that exact pub.
+   */
+  private async previewTargetedDelegateInviteTarget(userId: string): Promise<{ stageName: string; pub: string } | null> {
+    if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return null;
+    const id = userId.trim();
+    if (!id || id === TECHSUPPORT_ROOT_USER_ID) return null;
+    const user = await this.gunService.getPublicUser(id).catch(() => null);
+    if (!user?.pub) return null;
+    return { stageName: String(user.stageName || id), pub: user.pub };
+  }
+
+  private async handleSendTargetedDelegateInvite(userId: string): Promise<'sent' | 'unknown-user' | 'unavailable'> {
+    if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return 'unavailable';
+    const target = await this.previewTargetedDelegateInviteTarget(userId);
+    if (!target) return 'unknown-user';
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv || !pair.pub) return 'unavailable';
+    try {
+      const invite = await signTargetedDelegateInvite(
+        { targetPub: target.pub, targetUserId: userId.trim(), randomSecret: () => this.randomSecretHex() },
+        pair as import('../sea-gun').GunPair & { pub: string; priv: string },
+      );
+      this.targetedDelegateInvites.set(invite.requestId, invite);
+      this.persistTargetedDelegateInvites();
+      this.subscribeToTechSupportDelegateRequests();
+      let ref = this.gunService.getGun().get(targetedDelegateInvitePath(invite.targetPub)[0]);
+      for (const segment of targetedDelegateInvitePath(invite.targetPub).slice(1)) ref = ref.get(segment);
+      ref.put(invite as unknown as Record<string, unknown>);
+      const apiBase = this.getBackendApiBase();
+      if (!apiBase) return 'sent';
+      const response = await fetch(`${apiBase}/api/support/delegate-invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(invite),
+      });
+      return response.ok ? 'sent' : 'unavailable';
+    } catch {
+      return 'unavailable';
+    }
+  }
+
+  private loadTargetedDelegateInvites(): Map<string, TargetedDelegateInvite> {
+    try {
+      const raw = JSON.parse(localStorage.getItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
+      const live = (Array.isArray(raw) ? raw : []).filter(
+        (i: TargetedDelegateInvite) => i && typeof i.requestId === 'string' && !isDelegateInviteExpired(i),
+      );
+      return new Map(live.map((i: TargetedDelegateInvite) => [i.requestId, i]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  private persistTargetedDelegateInvites(): void {
+    try {
+      const live = [...this.targetedDelegateInvites.values()].filter((i) => !isDelegateInviteExpired(i));
+      localStorage.setItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(live));
+    } catch {
+      /* best-effort persistence only */
+    }
+  }
+
+  /** Master: native devices never get the live Gun push, so poll each outstanding targeted invite's request slot. */
+  private async pollTargetedDelegateInviteRequests(apiBase: string): Promise<void> {
+    if (this.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    for (const invite of this.targetedDelegateInvites.values()) {
+      if (isDelegateInviteExpired(invite)) continue;
+      if (this.delegateRequestsCache.some((r) => r.requestId === invite.requestId)) continue;
+      try {
+        const response = await fetch(`${apiBase}/api/support/delegate-requests/${encodeURIComponent(invite.requestId)}`);
+        if (response.ok) await this.handleIncomingDelegateRequest(await response.json());
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  private readHandledDelegateInvites(): string[] {
+    try {
+      const raw = JSON.parse(localStorage.getItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private markDelegateInviteHandled(requestId: string): void {
+    try {
+      const next = [...this.readHandledDelegateInvites().filter((id) => id !== requestId), requestId].slice(-20);
+      localStorage.setItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* best-effort persistence only */
+    }
+  }
+
+  /** Candidate: look for an invite addressed to this identity (relay first — it reaches native devices too). */
+  private async checkIncomingTargetedDelegateInvite(apiBase: string): Promise<void> {
+    if (!this.currentUser || this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) return;
+    if (isValidDelegateGrant(this.techSupportDelegateGrant)) return;
+    const pub = this.gunService.getStoredPair()?.pub;
+    if (!pub) return;
+    let raw: unknown = null;
+    try {
+      const response = await fetch(`${apiBase}/api/support/delegate-invites/${encodeURIComponent(pub)}`);
+      if (response.ok) raw = await response.json();
+    } catch {
+      /* best-effort */
+    }
+    const invite = await verifyTargetedDelegateInvite(raw);
+    const usable =
+      !!invite &&
+      invite.targetPub === pub &&
+      isTrustedDmPubWithRecovery(invite.masterPub, readCachedRecoveryAnchor()) &&
+      !isDelegateInviteExpired(invite) &&
+      !this.readHandledDelegateInvites().includes(invite.requestId);
+    const next = usable ? invite : null;
+    if (next?.requestId === this.incomingTargetedDelegateInvite?.requestId) return;
+    this.incomingTargetedDelegateInvite = next;
+    this.uiManager.setIncomingTargetedDelegateInvite(next ? { expiresAt: next.expiresAt } : null, { notify: !!next });
+  }
+
+  private async handleRespondToTargetedDelegateInvite(accept: boolean): Promise<'invalid' | 'expired' | 'unavailable' | null> {
+    const invite = this.incomingTargetedDelegateInvite;
+    if (!invite) return 'invalid';
+    if (accept) {
+      const err = await this.handleSubmitTechSupportDelegateRequest(
+        encodeDelegateInviteCode({ version: invite.version, requestId: invite.requestId, secret: invite.secret, expiresAt: invite.expiresAt }),
+      );
+      if (err) return err;
+    }
+    this.markDelegateInviteHandled(invite.requestId);
+    this.incomingTargetedDelegateInvite = null;
+    this.uiManager.setIncomingTargetedDelegateInvite(null);
+    return null;
+  }
+
+  /**
    * K7 follow-on: candidate-side — decode + validate the invite code, sign a request with the
    * candidate's OWN key (never the master's), and publish it for the master to review. Never
    * throws — a network/signing failure surfaces as 'unavailable' so the UI can show an inline
@@ -4658,11 +4822,14 @@ export class IinPublicApp {
   }
 
   private async handleIncomingDelegateRequest(raw: unknown): Promise<void> {
-    const invite = this.pendingDelegateInvite;
-    if (!invite || isDelegateInviteExpired(invite)) return;
     const request = await verifyDelegateRequest(raw);
     if (!request) return;
-    if (!(await delegateRequestMatchesInvite(request, invite))) return;
+    const invite = this.pendingDelegateInvite;
+    const matchesCodeInvite = !!invite && !isDelegateInviteExpired(invite) && (await delegateRequestMatchesInvite(request, invite));
+    const targeted = this.targetedDelegateInvites.get(request.requestId);
+    const matchesTargetedInvite =
+      !!targeted && !isDelegateInviteExpired(targeted) && (await delegateRequestMatchesTargetedInvite(request, targeted));
+    if (!matchesCodeInvite && !matchesTargetedInvite) return;
     if (this.delegateRequestsCache.some((r) => r.requestId === request.requestId)) return;
     this.delegateRequestsCache = [...this.delegateRequestsCache, request];
     this.uiManager.updateTechSupportDelegateRequests(this.delegateRequestsCache);

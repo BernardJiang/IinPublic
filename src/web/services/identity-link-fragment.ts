@@ -10,12 +10,50 @@
  */
 
 import { decodePairingCode, type PairingPayload } from '../../shared/identity-linking';
+import { readNativeHostInfo } from '../ui/native-host-info';
 
 const LINK_FRAGMENT_PREFIX = '#link=';
 
-/** Build the shareable link-fragment URL for a generated pairing code. */
+const PUBLIC_WEB_ORIGIN = 'https://www.iinpublic.com';
+
+/**
+ * Build the shareable link-fragment URL for a generated pairing code. A native shell serves the
+ * bundle from its own loopback node (`?native_platform=` / `window.iinpublicNative`, see
+ * native-host-info.ts) — that origin means nothing on another device, so native builds point
+ * at the public site instead.
+ */
 export function buildLinkFragmentUrl(code: string): string {
-  return `${window.location.origin}${window.location.pathname}${LINK_FRAGMENT_PREFIX}${encodeURIComponent(code)}`;
+  const base = readNativeHostInfo().platform !== 'web'
+    ? `${PUBLIC_WEB_ORIGIN}/`
+    : `${window.location.origin}${window.location.pathname}`;
+  return `${base}${LINK_FRAGMENT_PREFIX}${encodeURIComponent(code)}`;
+}
+
+/**
+ * Remote-friendly hand-off: share the link (and the raw code, for a recipient running the
+ * native app, which can't open a web fragment) through the OS share sheet — any messenger or
+ * email to yourself works, no physical proximity needed. Falls back to copying the same text.
+ * Returns how it was delivered, or null if neither path was available.
+ */
+export async function shareLinkCode(code: string, message: string): Promise<'shared' | 'copied' | null> {
+  const url = buildLinkFragmentUrl(code);
+  const text = `${message}\n${code}`;
+  const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void> };
+  if (typeof nav.share === 'function') {
+    try {
+      await nav.share({ text, url });
+      return 'shared';
+    } catch (error) {
+      // The person dismissed the sheet — not an error, and not a reason to copy instead.
+      if ((error as { name?: string })?.name === 'AbortError') return null;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(`${text}\n${url}`);
+    return 'copied';
+  } catch {
+    return null;
+  }
 }
 
 /**

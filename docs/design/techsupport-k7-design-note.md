@@ -254,3 +254,21 @@ already holds its own ordinary identity keys.
    answers → asker receives it attributed to TechSupport → master's audit view shows the delegate
    (e2e, `stage2`); revoked delegate's *new* session can no longer answer (their *already open*
    session limitation stated above is not testable as a "fix," only documented).
+
+## Addendum 2026-10-06 — remote (targeted) delegate invite
+
+A redundant alternative to the invite code / QR, which assumes both people can exchange a
+5-minute code. **Invite a user remotely** in the Delegates panel: the master enters a user ID,
+**Look up** shows the user's name + identity fingerprint, and **Send invite** publishes a
+master-signed `TargetedDelegateInvite` (7-day TTL) at `techsupport-delegate-invites/<targetPub>`
+(Gun + `POST /api/support/delegate-invites`, which verifies the signature and trusted anchor before
+storing; `GET /api/support/delegate-invites/:pub` reads it, with embedded-hub relay for native
+devices). The candidate's client polls its own slot (~30 s), shows an Accept/Decline card in
+Settings → Support delegate, and Accept publishes the ordinary signed `TechSupportDelegateRequest`.
+The master still approves it under Pending.
+
+Binding: the invite's secret is not confidential (it travels in plaintext), so the master only
+honors a request **signed by `targetPub`** (`delegateRequestMatchesTargetedInvite`). Sent invites
+persist on the master device (localStorage) for their 7-day life. The code/QR path is unchanged.
+Tests: `techsupport-delegate-invite.test.ts`, `system-routes.test.ts`,
+`support-delegate-targeted-invite-views.test.ts`, e2e `stage2/00o`.

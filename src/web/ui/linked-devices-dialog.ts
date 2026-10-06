@@ -27,7 +27,7 @@ import {
 } from '../services/local-device-metadata';
 import { activateModalAccessibility } from './modal-accessibility';
 import { isQrCameraScanSupported, renderLinkCodeQr, startQrCameraScan } from './link-code-qr';
-import { buildLinkFragmentUrl } from '../services/identity-link-fragment';
+import { buildLinkFragmentUrl, shareLinkCode } from '../services/identity-link-fragment';
 import { loopbackLinkUrl, probeLoopbackNode } from '../services/loopback-probe';
 import {
   showChangeIdentityPasswordDialog,
@@ -696,6 +696,7 @@ export function showLinkedDevicesDialog(
         <div class="modal-actions">
           <button type="button" class="btn" data-testid="link-device-copy" id="link-device-copy">${deps.text('copy', 'Copy')}</button>
           <button type="button" class="btn" data-testid="link-device-copy-link" id="link-device-copy-link">${deps.text('copyLink', 'Copy link')}</button>
+          <button type="button" class="btn" data-testid="link-device-share" id="link-device-share">${deps.text('shareLinkCode', 'Share…')}</button>
           <button type="button" class="btn primary-btn" data-testid="link-device-check-request" id="link-device-check-request">${deps.text('checkForLinkRequest', 'Check for request')}</button>
           <button type="button" class="btn primary-btn" id="link-device-done">${deps.text('done', 'Done')}</button>
         </div>
@@ -743,6 +744,13 @@ export function showLinkedDevicesDialog(
     });
     modal.querySelector('#link-device-copy-link')?.addEventListener('click', () => {
       navigator.clipboard?.writeText(buildLinkFragmentUrl(code)).catch(() => {});
+    });
+    // Remote alternative to the QR: send the link + code to yourself through any app.
+    modal.querySelector('#link-device-share')?.addEventListener('click', async () => {
+      const result = await shareLinkCode(code, deps.text('shareLinkCodeMessage', 'Open this link on your other device, or enter the code in Settings → Identity & devices:'));
+      if (result === 'copied' && modal.isConnected) {
+        requestStatus.textContent = deps.text('shareLinkCodeCopied', 'Copied — paste it into any app to send it to your other device.');
+      }
     });
     const closeCode = (cancelPending = true): void => {
       window.clearInterval(timer);

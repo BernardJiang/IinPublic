@@ -8,6 +8,7 @@
 
 import {
   buildLinkFragmentUrl,
+  shareLinkCode,
   parseLinkFragment,
   parseLinkFragmentPayload,
   clearLinkFragmentFromUrl,
@@ -25,6 +26,15 @@ describe('buildLinkFragmentUrl', () => {
   it('appends #link=<code> to the current origin+pathname', () => {
     const url = buildLinkFragmentUrl('abc123');
     expect(url).toBe(`${window.location.origin}${window.location.pathname}#link=abc123`);
+  });
+
+  it('points a native build (loopback origin) at the public site instead', () => {
+    (window as unknown as { iinpublicNative?: unknown }).iinpublicNative = { platform: 'android', version: '1.0.0' };
+    try {
+      expect(buildLinkFragmentUrl('abc123')).toBe('https://www.iinpublic.com/#link=abc123');
+    } finally {
+      delete (window as unknown as { iinpublicNative?: unknown }).iinpublicNative;
+    }
   });
 
   it('URL-encodes characters the base64url code shouldn\'t contain but a caller might pass', () => {
@@ -82,5 +92,33 @@ describe('clearLinkFragmentFromUrl', () => {
     expect(window.location.hash).toBe('');
     expect(window.location.pathname).toBe('/app');
     expect(window.location.search).toBe('?x=1');
+  });
+});
+
+describe('shareLinkCode', () => {
+  const nav = navigator as Navigator & { share?: unknown };
+  afterEach(() => {
+    delete (nav as { share?: unknown }).share;
+  });
+
+  it('uses the OS share sheet with the link and the raw code when available', async () => {
+    const share = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(nav, 'share', { value: share, configurable: true });
+    await expect(shareLinkCode('abc123', 'Open this:')).resolves.toBe('shared');
+    expect(share).toHaveBeenCalledWith({ text: 'Open this:\nabc123', url: expect.stringContaining('#link=abc123') });
+  });
+
+  it('does not fall back to copying when the person dismisses the sheet', async () => {
+    const abort = Object.assign(new Error('dismissed'), { name: 'AbortError' });
+    Object.defineProperty(nav, 'share', { value: jest.fn().mockRejectedValue(abort), configurable: true });
+    await expect(shareLinkCode('abc123', 'Open this:')).resolves.toBeNull();
+  });
+
+  it('copies the same text when no share sheet exists', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await expect(shareLinkCode('abc123', 'Open this:')).resolves.toBe('copied');
+    expect(writeText.mock.calls[0][0]).toContain('abc123');
+    expect(writeText.mock.calls[0][0]).toContain('#link=abc123');
   });
 });

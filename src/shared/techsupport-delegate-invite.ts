@@ -170,6 +170,117 @@ export function delegateRequestPath(requestId: string): string[] {
   return [DELEGATE_REQUESTS_ROOT, requestId];
 }
 
+// --- Targeted (remote) invites --------------------------------------------------
+// A redundant alternative to showing the code/QR: the master picks a specific known user and
+// publishes an invite addressed to that user's pub. The candidate's client discovers it at its
+// own per-pub slot and shows Accept/Decline; accepting publishes the ordinary signed request
+// above. No physical proximity or out-of-band channel is needed, because the binding no longer
+// rests on the secret staying private — the request is only accepted when it is signed by
+// `targetPub` itself (see `delegateRequestMatchesTargetedInvite`). The `secret` field is kept so
+// the candidate side reuses `buildDelegateRequest` unchanged; it is NOT confidential here (the
+// invite travels in plaintext on the graph/relay).
+
+export const TARGETED_DELEGATE_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const TARGETED_DELEGATE_INVITES_ROOT = 'techsupport-delegate-invites';
+
+export interface TargetedDelegateInvite {
+  version: typeof DELEGATE_INVITE_SCHEMA_VERSION;
+  requestId: string;
+  secret: string;
+  /** The invited user's identity pub — only a request signed by this key is accepted. */
+  targetPub: string;
+  targetUserId: string;
+  expiresAt: number;
+  /** Master pub that signed this invite; must be a trusted TechSupport anchor. */
+  masterPub: string;
+  signature: string;
+}
+
+export type UnsignedTargetedDelegateInvite = Omit<TargetedDelegateInvite, 'signature'>;
+
+function targetedInviteSigningPayload(invite: UnsignedTargetedDelegateInvite): string {
+  return canonicalSerialize({
+    kind: 'techsupport-delegate-targeted-invite',
+    version: invite.version,
+    requestId: invite.requestId,
+    secret: invite.secret,
+    targetPub: invite.targetPub,
+    targetUserId: invite.targetUserId,
+    expiresAt: invite.expiresAt,
+    masterPub: invite.masterPub,
+  });
+}
+
+/** Master device only: build + sign an invite addressed to one known user. */
+export async function signTargetedDelegateInvite(
+  input: { targetPub: string; targetUserId: string; randomSecret: () => string; now?: number },
+  pair: { pub: string; priv: string; epub?: string; epriv?: string },
+): Promise<TargetedDelegateInvite> {
+  const unsigned: UnsignedTargetedDelegateInvite = {
+    version: DELEGATE_INVITE_SCHEMA_VERSION,
+    requestId: input.randomSecret(),
+    secret: input.randomSecret(),
+    targetPub: input.targetPub,
+    targetUserId: input.targetUserId,
+    expiresAt: (input.now ?? Date.now()) + TARGETED_DELEGATE_INVITE_TTL_MS,
+    masterPub: pair.pub,
+  };
+  const signature = await SEA.sign(targetedInviteSigningPayload(unsigned), pair);
+  if (!signature) throw new Error('Could not sign TechSupport targeted delegate invite');
+  return { ...unsigned, signature };
+}
+
+/**
+ * Signature + shape only — never throws, fail-closed. Callers on the candidate side must
+ * additionally check `masterPub` against the trusted TechSupport anchors and that `targetPub` is
+ * their own pub; expiry is checked with `isDelegateInviteExpired`.
+ */
+export async function verifyTargetedDelegateInvite(value: unknown): Promise<TargetedDelegateInvite | null> {
+  if (!value || typeof value !== 'object') return null;
+  const c = value as Partial<TargetedDelegateInvite>;
+  if (
+    c.version !== DELEGATE_INVITE_SCHEMA_VERSION ||
+    typeof c.requestId !== 'string' || c.requestId.length < 8 ||
+    typeof c.secret !== 'string' || c.secret.length < 8 ||
+    !c.targetPub || !c.targetUserId || !c.masterPub || !c.signature ||
+    !Number.isSafeInteger(c.expiresAt) || (c.expiresAt as number) <= 0
+  ) {
+    return null;
+  }
+  const unsigned: UnsignedTargetedDelegateInvite = {
+    version: c.version,
+    requestId: c.requestId,
+    secret: c.secret,
+    targetPub: c.targetPub,
+    targetUserId: c.targetUserId,
+    expiresAt: c.expiresAt as number,
+    masterPub: c.masterPub,
+  };
+  if (unsigned.targetPub === unsigned.masterPub) return null;
+  try {
+    const verified = await SEA.verify(c.signature, c.masterPub);
+    const recovered = typeof verified === 'string' ? verified : canonicalSerialize(verified);
+    if (recovered !== targetedInviteSigningPayload(unsigned)) return null;
+  } catch {
+    return null;
+  }
+  return { ...unsigned, signature: c.signature };
+}
+
+/** Master side: the request matches only when signed by the invited user's own key. */
+export async function delegateRequestMatchesTargetedInvite(
+  request: Pick<TechSupportDelegateRequest, 'requestId' | 'secretHash' | 'candidatePub'>,
+  invite: Pick<TargetedDelegateInvite, 'requestId' | 'secret' | 'targetPub'>,
+): Promise<boolean> {
+  if (request.candidatePub !== invite.targetPub) return false;
+  return delegateRequestMatchesInvite(request, invite);
+}
+
+/** The invited user's single inbox slot — a newer invite for the same user replaces the older. */
+export function targetedDelegateInvitePath(targetPub: string): string[] {
+  return [TARGETED_DELEGATE_INVITES_ROOT, targetPub];
+}
+
 // --- base64url helpers ---------------------------------------------------------
 // Deliberately duplicated from identity-linking.ts rather than shared: this is a
 // different wire format (4 fields, no `pub`) and must never be interchangeable

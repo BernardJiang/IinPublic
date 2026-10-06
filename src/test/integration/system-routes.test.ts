@@ -13,6 +13,7 @@ import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-rel
 import { signFaqEntry } from '../../shared/techsupport-faq-entry';
 import { buildSupportFaqEntry, supportQuestionKey } from '../../shared/techsupport-faq';
 import { signDelegateGrant } from '../../shared/techsupport-delegate';
+import { signTargetedDelegateInvite } from '../../shared/techsupport-delegate-invite';
 import { recoveryAnchorToDurableWire } from '../../shared/techsupport-recovery';
 import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
@@ -1124,5 +1125,45 @@ describeWithRealTechSupportPair('per-entry FAQ routes (docs/TODO.md OPEN-31)', (
     await request(app).post('/api/support/faq-bundle').send({ signature: 's2', authorPub: 'p2' });
     expect(techSupportStore.putPath).toHaveBeenCalledWith(['techsupport-faq', 'bundle'], { signature: 's2', authorPub: 'p2' });
     expect(gunService.putPath).not.toHaveBeenCalled();
+  });
+});
+
+describeWithRealTechSupportPair('targeted delegate invite routes (remote invite, no code/QR)', (DEV_PAIR) => {
+  function fakeStore() {
+    const data = new Map<string, unknown>();
+    return {
+      putPath: jest.fn(async (path: string[], value: unknown) => void data.set(path.join('/'), value)),
+      getPath: jest.fn(async (path: string[]) => data.get(path.join('/')) ?? null),
+      getSet: jest.fn(async () => []),
+    };
+  }
+  const secret = () => Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+
+  it('stores a root-signed invite at the target pub slot and serves it back', async () => {
+    const techSupportStore = fakeStore();
+    const { app } = buildApp('test', undefined, { techSupportStore });
+    const candidate = await SEA.pair();
+    const invite = await signTargetedDelegateInvite({ targetPub: candidate.pub, targetUserId: 'user-bob', randomSecret: secret }, DEV_PAIR);
+
+    const posted = await request(app).post('/api/support/delegate-invites').send(invite);
+    expect(posted.status).toBe(200);
+    expect(techSupportStore.putPath).toHaveBeenCalledWith(['techsupport-delegate-invites', candidate.pub], invite);
+
+    const got = await request(app).get(`/api/support/delegate-invites/${encodeURIComponent(candidate.pub)}`);
+    expect(got.status).toBe(200);
+    expect(got.body).toEqual(invite);
+    const miss = await request(app).get('/api/support/delegate-invites/nobody');
+    expect(miss.status).toBe(404);
+  });
+
+  it('refuses an invite signed by an untrusted key (no overwriting someone else\'s inbox)', async () => {
+    const techSupportStore = fakeStore();
+    const { app } = buildApp('test', undefined, { techSupportStore });
+    const impostor = await SEA.pair();
+    const candidate = await SEA.pair();
+    const invite = await signTargetedDelegateInvite({ targetPub: candidate.pub, targetUserId: 'user-bob', randomSecret: secret }, impostor);
+    const posted = await request(app).post('/api/support/delegate-invites').send(invite);
+    expect(posted.status).toBe(400);
+    expect(techSupportStore.putPath).not.toHaveBeenCalled();
   });
 });

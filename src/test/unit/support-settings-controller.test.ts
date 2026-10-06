@@ -24,8 +24,8 @@ function makeDeps(overrides: Partial<SupportSettingsControllerDeps> = {}): Suppo
     emit: jest.fn(),
     t: (key) => String(key),
     tf: (key, values) => `${String(key)}:${String(values.date || '')}`,
-    onCreateInvite: () => null,
-    onSubmitInviteCode: async () => 'unavailable',
+    getInviteHooks: () => undefined,
+    notify: jest.fn(),
     ...overrides,
   };
 }
@@ -137,7 +137,9 @@ describe('support settings controller', () => {
   it('renders the not-yet-eligible invite-entry state and forwards code submission', () => {
     document.body.innerHTML = '<div id="support-delegate-optin-section"></div>';
     const onSubmitInviteCode = jest.fn().mockResolvedValue(null);
-    const controller = createSupportSettingsController(makeDeps({ onSubmitInviteCode }));
+    const controller = createSupportSettingsController(makeDeps({
+      getInviteHooks: () => ({ createInvite: () => null, submitInviteCode: onSubmitInviteCode }),
+    }));
     controller.setDelegateEligibility(false, '', false);
 
     controller.renderDelegateOptIn();
@@ -150,7 +152,9 @@ describe('support settings controller', () => {
   it('forwards pending delegate requests into the delegates render and the invite creator hook', () => {
     document.body.innerHTML = '<div id="support-delegates-section"></div>';
     const onCreateInvite = jest.fn().mockReturnValue({ code: 'abc', expiresAt: 123 });
-    const controller = createSupportSettingsController(makeDeps({ onCreateInvite }));
+    const controller = createSupportSettingsController(makeDeps({
+      getInviteHooks: () => ({ createInvite: onCreateInvite, submitInviteCode: async () => null }),
+    }));
     const request = { requestId: 'r1', candidateUserId: 'candidate' } as any;
 
     controller.updateDelegateRequests([request]);
@@ -158,5 +162,49 @@ describe('support settings controller', () => {
     expect(renderDelegates).toHaveBeenLastCalledWith(expect.any(Object), [], [], [request]);
     renderDelegates.mock.calls[0][0].onCreateInvite();
     expect(onCreateInvite).toHaveBeenCalled();
+  });
+
+  it('shows an incoming targeted invite on the opt-in section, notifies once, and forwards Accept/Decline', async () => {
+    document.body.innerHTML = '<div id="support-delegate-optin-section"></div>';
+    const notify = jest.fn();
+    const acceptTargetedInvite = jest.fn().mockResolvedValue(null);
+    const declineTargetedInvite = jest.fn().mockResolvedValue(null);
+    const controller = createSupportSettingsController(makeDeps({
+      notify,
+      getInviteHooks: () => ({
+        createInvite: () => null,
+        submitInviteCode: async () => null,
+        acceptTargetedInvite,
+        declineTargetedInvite,
+      }),
+    }));
+
+    controller.setIncomingTargetedInvite({ expiresAt: 999 }, { notify: true });
+
+    expect(notify).toHaveBeenCalledWith('supportDelegateTargetedInviteToast');
+    const deps = renderOptIn.mock.calls[renderOptIn.mock.calls.length - 1][0];
+    expect(deps.incomingInvite).toEqual({ expiresAt: 999 });
+    await deps.onRespondToInvite?.(true);
+    await deps.onRespondToInvite?.(false);
+    expect(acceptTargetedInvite).toHaveBeenCalledTimes(1);
+    expect(declineTargetedInvite).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers support-inbox askers as targeted-invite suggestions and forwards preview/send', async () => {
+    document.body.innerHTML = '<div id="support-delegates-section"></div><div id="support-inbox-section"></div>';
+    const previewInviteTarget = jest.fn().mockResolvedValue({ stageName: 'Bob', pub: 'pub-bob' });
+    const sendTargetedInvite = jest.fn().mockResolvedValue('sent');
+    const controller = createSupportSettingsController(makeDeps({
+      getInviteHooks: () => ({ createInvite: () => null, submitInviteCode: async () => null, previewInviteTarget, sendTargetedInvite }),
+    }));
+    controller.updateInbox([
+      { askedBy: 'user-bob' }, { askedBy: 'user-bob' }, { askedBy: 'user-amy' },
+    ] as any);
+
+    controller.renderDelegates();
+    const deps = renderDelegates.mock.calls[renderDelegates.mock.calls.length - 1][0];
+    expect(deps.knownUserIds?.()).toEqual(['user-bob', 'user-amy']);
+    await expect(deps.onPreviewInviteTarget?.('user-bob')).resolves.toEqual({ stageName: 'Bob', pub: 'pub-bob' });
+    await expect(deps.onSendTargetedInvite?.('user-bob')).resolves.toBe('sent');
   });
 });

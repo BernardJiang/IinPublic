@@ -67,6 +67,9 @@ export interface EmbeddedHubRelayClientLike {
   postDelegateRequest(request: unknown): Promise<void>;
   postDelegateGrant?(grant: unknown): Promise<void>;
   listDelegateGrants(): Promise<unknown[]>;
+  /** Targeted (remote) delegate invites — optional like postDelegateGrant. */
+  postTargetedDelegateInvite?(invite: unknown): Promise<void>;
+  getTargetedDelegateInvite?(targetPub: string): Promise<unknown | null>;
   /**
    * OPEN-29: same "embedded node dials the hub for discovery only" gap, one layer up — a native
    * device needs to be able to discover a published recovery anchor record too, arguably more
@@ -264,6 +267,19 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(grant),
     });
+  }
+
+  async postTargetedDelegateInvite(invite: unknown): Promise<void> {
+    await this.request('/api/support/delegate-invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(invite),
+    });
+  }
+
+  async getTargetedDelegateInvite(targetPub: string): Promise<unknown | null> {
+    const response = await this.request(`/api/support/delegate-invites/${encodeURIComponent(targetPub)}`);
+    return response.ok ? await response.json() : null;
   }
 
   async listDelegateGrants(): Promise<unknown[]> {

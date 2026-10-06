@@ -4833,6 +4833,12 @@ of one physical/legal person. See `docs/architecture/identity-v1-semantics.md`.
    write mutual signed `LINK_IDENTITY` attestations to Gun — `identity-links/<pubA>/<pubB>` signed
    by A and the reverse path signed by B. A link exists only when both attestations verify;
    one-sided claims are ignored.
+   **Remote hand-off (2026-10-06):** the code dialog's **Share…** button sends the
+   `#link=<code>` URL together with the raw code through the OS share sheet (clipboard fallback),
+   so the person can message it to themselves and open it on the other device — no camera or
+   physical proximity. Native builds point the URL at `https://www.iinpublic.com/` (their own
+   loopback origin is meaningless elsewhere); a native recipient pastes the included code. Same
+   one-time payload and expiry as the QR.
 3. Either identity can **Remove link**. `UNLINK_IDENTITY` supersedes the direct attestation for
    future decisions. Expired, reused, malformed, and self-link codes fail safely.
 

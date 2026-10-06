@@ -8,6 +8,11 @@ import {
   delegateRequestMatchesInvite,
   delegateRequestPath,
   DELEGATE_INVITE_TTL_MS,
+  signTargetedDelegateInvite,
+  verifyTargetedDelegateInvite,
+  delegateRequestMatchesTargetedInvite,
+  targetedDelegateInvitePath,
+  TARGETED_DELEGATE_INVITE_TTL_MS,
   type DelegateInvitePayload,
 } from '../../shared/techsupport-delegate-invite';
 import SEA from 'gun/sea';
@@ -117,5 +122,43 @@ describe('techsupport-delegate-invite (K7 follow-on)', () => {
 
   it('delegateRequestPath produces the expected Gun path', () => {
     expect(delegateRequestPath('abc')).toEqual(['techsupport-delegate-requests', 'abc']);
+  });
+
+  describe('targeted (remote) invites', () => {
+    it('sign + verify round-trips with a 7-day expiry', async () => {
+      const master = await SEA.pair();
+      const candidate = await SEA.pair();
+      const now = Date.now();
+      const invite = await signTargetedDelegateInvite({ targetPub: candidate.pub, targetUserId: 'user-bob', randomSecret, now }, master);
+      expect(invite.expiresAt).toBe(now + TARGETED_DELEGATE_INVITE_TTL_MS);
+      expect(invite.masterPub).toBe(master.pub);
+      expect(await verifyTargetedDelegateInvite(JSON.parse(JSON.stringify(invite)))).toEqual(invite);
+    });
+
+    it('rejects a tampered target or a signature by another key', async () => {
+      const master = await SEA.pair();
+      const other = await SEA.pair();
+      const candidate = await SEA.pair();
+      const invite = await signTargetedDelegateInvite({ targetPub: candidate.pub, targetUserId: 'user-bob', randomSecret }, master);
+      expect(await verifyTargetedDelegateInvite({ ...invite, targetPub: other.pub })).toBeNull();
+      expect(await verifyTargetedDelegateInvite({ ...invite, masterPub: other.pub })).toBeNull();
+      expect(await verifyTargetedDelegateInvite(null)).toBeNull();
+      expect(await verifyTargetedDelegateInvite({ ...invite, version: 2 })).toBeNull();
+    });
+
+    it('matches only a request signed by the invited identity, even if the secret leaked', async () => {
+      const master = await SEA.pair();
+      const candidate = await SEA.pair();
+      const attacker = await SEA.pair();
+      const invite = await signTargetedDelegateInvite({ targetPub: candidate.pub, targetUserId: 'user-bob', randomSecret }, master);
+      const genuine = await buildDelegateRequest({ requestId: invite.requestId, secret: invite.secret, candidateUserId: 'user-bob' }, candidate);
+      const hijack = await buildDelegateRequest({ requestId: invite.requestId, secret: invite.secret, candidateUserId: 'user-eve' }, attacker);
+      expect(await delegateRequestMatchesTargetedInvite(genuine, invite)).toBe(true);
+      expect(await delegateRequestMatchesTargetedInvite(hijack, invite)).toBe(false);
+    });
+
+    it('targetedDelegateInvitePath is one slot per invited identity', () => {
+      expect(targetedDelegateInvitePath('pubX')).toEqual(['techsupport-delegate-invites', 'pubX']);
+    });
   });
 });

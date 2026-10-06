@@ -27,6 +27,10 @@ export type SupportDelegatesViewDeps = {
   now?: () => number;
   /** Generates a fresh invite code (master-only); null if not currently the master session. */
   onCreateInvite: () => { code: string; expiresAt: number } | null;
+  /** Targeted (remote) invite: suggestions + confirm-then-send for one specific known user. */
+  knownUserIds?: () => string[];
+  onPreviewInviteTarget?: (userId: string) => Promise<{ stageName: string; pub: string } | null>;
+  onSendTargetedInvite?: (userId: string) => Promise<'sent' | 'unknown-user' | 'unavailable'>;
   /** Approve a pending request — reuses the same issue path as a manual re-issue/renewal. */
   onIssue: (input: { delegateUserId: string; label: string; ttlDays: number }) => void;
   onRevoke: (delegatePub: string) => void;
@@ -57,6 +61,7 @@ export function renderSupportDelegatesSection(
     `
       <div style="margin-bottom:14px;">
         <button type="button" class="btn primary-btn" id="support-delegate-invite-btn" data-testid="support-delegate-invite-btn">${deps.text('supportDelegatesInvite')}</button>
+        ${deps.onSendTargetedInvite ? `<button type="button" class="btn" id="support-delegate-invite-user-btn" data-testid="support-delegate-invite-user-btn">${deps.text('supportDelegatesInviteUser')}</button>` : ''}
       </div>
       <div style="font-weight:700;color:var(--text-primary);margin-bottom:6px;">${deps.text('supportDelegatesPendingTitle')}</div>
       <div style="display:grid;gap:8px;margin-bottom:16px;" id="support-delegate-pending-list">
@@ -135,6 +140,9 @@ export function renderSupportDelegatesSection(
 
   container.querySelector<HTMLButtonElement>('#support-delegate-invite-btn')?.addEventListener('click', () => {
     openInviteDialog(deps);
+  });
+  container.querySelector<HTMLButtonElement>('#support-delegate-invite-user-btn')?.addEventListener('click', () => {
+    openTargetedInviteDialog(deps);
   });
 
   container.querySelectorAll<HTMLElement>('.support-delegate-pending-item').forEach((item) => {
@@ -217,6 +225,83 @@ function openInviteDialog(deps: SupportDelegatesViewDeps): void {
   modal.addEventListener('click', (e) => {
     if (e.target === modal) close();
   });
+}
+
+/**
+ * Redundant, no-proximity alternative to the code/QR dialog: pick a known user, confirm their
+ * name + fingerprint, and send an invite addressed to their identity. They accept from their own
+ * Settings wherever they are; the resulting request still lands in "Pending" for final approval.
+ */
+function openTargetedInviteDialog(deps: SupportDelegatesViewDeps): void {
+  const opener = document.activeElement as HTMLElement | null;
+  const suggestions = deps.knownUserIds?.() ?? [];
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'support-delegate-targeted-modal';
+  modal.dataset.testid = 'support-delegate-targeted-modal';
+  modal.innerHTML = `
+    <div class="modal-content size-s" role="dialog" aria-modal="true" aria-labelledby="support-delegate-targeted-title">
+      <div class="modal-header"><h3 class="modal-title" id="support-delegate-targeted-title">${deps.text('supportDelegatesInviteUser')}</h3></div>
+      <p style="font-size:0.85em;color:var(--text-tertiary);">${deps.text('supportDelegatesInviteUserHelp')}</p>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85em;">
+        <span>${deps.text('supportDelegatesUserIdLabel')}</span>
+        <input type="text" class="form-input" id="support-delegate-targeted-userid" data-testid="support-delegate-targeted-userid" list="support-delegate-targeted-suggestions" autocomplete="off" />
+        <datalist id="support-delegate-targeted-suggestions">${suggestions.map((id) => `<option value="${deps.escapeHtml(id)}"></option>`).join('')}</datalist>
+      </label>
+      <div id="support-delegate-targeted-status" data-testid="support-delegate-targeted-status" role="status" aria-live="polite" style="font-size:0.84em;color:var(--text-secondary);min-height:1.4em;margin-top:8px;word-break:break-word;"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="support-delegate-targeted-cancel">${deps.text('cancel')}</button>
+        <button type="button" class="btn" id="support-delegate-targeted-lookup" data-testid="support-delegate-targeted-lookup">${deps.text('supportDelegatesLookUp')}</button>
+        <button type="button" class="btn primary-btn" id="support-delegate-targeted-send" data-testid="support-delegate-targeted-send" disabled>${deps.text('supportDelegatesSendInvite')}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const input = modal.querySelector('#support-delegate-targeted-userid') as HTMLInputElement;
+  const status = modal.querySelector('#support-delegate-targeted-status') as HTMLElement;
+  const send = modal.querySelector('#support-delegate-targeted-send') as HTMLButtonElement;
+  let confirmedUserId = '';
+  const close = (): void => {
+    modal.remove();
+    opener?.focus?.();
+  };
+  // Any edit invalidates the confirmation — the master must re-check name + fingerprint.
+  input.addEventListener('input', () => {
+    confirmedUserId = '';
+    send.disabled = true;
+    status.textContent = '';
+  });
+  modal.querySelector('#support-delegate-targeted-lookup')?.addEventListener('click', async () => {
+    const userId = input.value.trim();
+    if (!userId) return;
+    status.textContent = '…';
+    const target = await (deps.onPreviewInviteTarget?.(userId) ?? Promise.resolve(null));
+    if (!modal.isConnected || input.value.trim() !== userId) return;
+    if (!target) {
+      status.textContent = deps.text('supportDelegatesUnknownUser');
+      return;
+    }
+    confirmedUserId = userId;
+    send.disabled = false;
+    status.innerHTML = `${deps.escapeHtml(target.stageName)} · <span style="font-family:monospace;">${deps.escapeHtml(formatIdentityFingerprint(target.pub))}</span>`;
+  });
+  send.addEventListener('click', async () => {
+    if (!confirmedUserId) return;
+    send.disabled = true;
+    const result = await (deps.onSendTargetedInvite?.(confirmedUserId) ?? Promise.resolve('unavailable' as const));
+    if (!modal.isConnected) return;
+    if (result === 'sent') {
+      status.textContent = deps.text('supportDelegatesInviteSent');
+      return;
+    }
+    status.textContent = deps.text(result === 'unknown-user' ? 'supportDelegatesUnknownUser' : 'supportDelegateInviteErrorUnavailable');
+    send.disabled = false;
+  });
+  modal.querySelector('#support-delegate-targeted-cancel')?.addEventListener('click', close);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) close();
+  });
+  input.focus();
 }
 
 export type { DelegateInvitePayload };

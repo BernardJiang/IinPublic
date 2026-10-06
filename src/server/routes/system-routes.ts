@@ -71,7 +71,12 @@ import {
   verifyDelegateGrant,
   type TechSupportDelegateGrant,
 } from '../../shared/techsupport-delegate';
-import { delegateRequestPath } from '../../shared/techsupport-delegate-invite';
+import {
+  delegateRequestPath,
+  targetedDelegateInvitePath,
+  verifyTargetedDelegateInvite,
+} from '../../shared/techsupport-delegate-invite';
+import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
 import {
   FAQ_ENTRIES_ROOT,
   faqEntryRecordPath,
@@ -482,6 +487,45 @@ export function registerSystemRoutes(
       return;
     }
     res.json(raw);
+  });
+
+  // Targeted (remote) delegate invites — the redundant alternative to the master's code/QR: the
+  // master addresses an invite to one known user's pub and the candidate discovers it here, from
+  // anywhere, without any out-of-band code exchange. Unlike the shallow delegate-request relay,
+  // this route verifies the master signature + trusted anchor before storing, so the one-slot
+  // per-user inbox can't be overwritten by arbitrary writers.
+  app.post('/api/support/delegate-invites', async (req, res) => {
+    try {
+      const invite = await verifyTargetedDelegateInvite(req.body);
+      if (!invite || !isTrustedDmPubWithRecovery(invite.masterPub, null)) {
+        res.status(400).json({ error: 'A valid root-signed targeted delegate invite is required' });
+        return;
+      }
+      if (hasSupportStorage) await putSupportPath(targetedDelegateInvitePath(invite.targetPub), invite);
+      if (hubRelayClient?.postTargetedDelegateInvite) {
+        await hubRelayClient.postTargetedDelegateInvite(invite).catch(() => undefined);
+      }
+      res.json({ stored: true, targetPub: invite.targetPub });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/support/delegate-invites/:targetPub', async (req, res) => {
+    const targetPub = req.params.targetPub;
+    let invite = hasSupportStorage
+      ? await verifyTargetedDelegateInvite(await getSupportPath(targetedDelegateInvitePath(targetPub)))
+      : null;
+    if (!invite && hubRelayClient?.getTargetedDelegateInvite) {
+      invite = await verifyTargetedDelegateInvite(
+        await hubRelayClient.getTargetedDelegateInvite(targetPub).catch(() => null),
+      );
+    }
+    if (!invite || invite.targetPub !== targetPub) {
+      res.status(404).json({ error: 'No invite for that identity' });
+      return;
+    }
+    res.json(invite);
   });
 
   app.get('/api/support/delegate-grants', async (_req, res) => {

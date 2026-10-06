@@ -17,8 +17,22 @@ export type SupportSettingsControllerDeps = {
   emit: (event: string, payload: unknown) => void;
   t: (key: UiTranslationKey) => string;
   tf: (key: UiTranslationKey, values: Record<string, string | number>) => string;
-  onCreateInvite: () => { code: string; expiresAt: number } | null;
-  onSubmitInviteCode: (code: string) => Promise<'invalid' | 'expired' | 'unavailable' | null>;
+  getInviteHooks: () => SupportDelegateInviteHooks | undefined;
+  notify: (message: string) => void;
+};
+
+type InviteError = 'invalid' | 'expired' | 'unavailable';
+
+/** Direct-return hooks app.ts supplies for the invite handshakes (code/QR and targeted). */
+export type SupportDelegateInviteHooks = {
+  createInvite: () => { code: string; expiresAt: number } | null;
+  submitInviteCode: (code: string) => Promise<InviteError | null>;
+  /** Master: resolve a user id to a name + pub for confirmation before a targeted invite. */
+  previewInviteTarget?: (userId: string) => Promise<{ stageName: string; pub: string } | null>;
+  sendTargetedInvite?: (userId: string) => Promise<'sent' | 'unknown-user' | 'unavailable'>;
+  /** Candidate: respond to an invite addressed to this identity. */
+  acceptTargetedInvite?: () => Promise<InviteError | null>;
+  declineTargetedInvite?: () => Promise<InviteError | null>;
 };
 
 export type SupportSettingsController = ReturnType<typeof createSupportSettingsController>;
@@ -32,6 +46,9 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
   let delegateLabel = '';
   let delegateOptedIn = false;
   let recoveryAnchor: RecoveryAnchorRecord | null = null;
+  let incomingTargetedInvite: { expiresAt: number } | null = null;
+  // Master: user ids seen in the support inbox — offered as suggestions in the targeted-invite dialog.
+  const knownAskerIds = (): string[] => [...new Set(inboxEntries.map((e) => e.askedBy).filter(Boolean))];
 
   const renderInbox = (): void => {
     if (!document.getElementById('support-inbox-section')) return;
@@ -50,7 +67,11 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
       text: deps.t,
       tf: deps.tf,
       formatDate: deps.formatDate,
-      onCreateInvite: deps.onCreateInvite,
+      onCreateInvite: () => deps.getInviteHooks()?.createInvite() ?? null,
+      knownUserIds: knownAskerIds,
+      onPreviewInviteTarget: (userId) => deps.getInviteHooks()?.previewInviteTarget?.(userId) ?? Promise.resolve(null),
+      onSendTargetedInvite: (userId) =>
+        deps.getInviteHooks()?.sendTargetedInvite?.(userId) ?? Promise.resolve('unavailable' as const),
       onIssue: (input) => deps.emit('issueTechSupportDelegate', input),
       onRevoke: (delegatePub) => deps.emit('revokeTechSupportDelegate', delegatePub),
     }, delegateGrants, delegateActivity, delegatePendingRequests);
@@ -75,7 +96,14 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
       label: delegateLabel,
       optedIn: delegateOptedIn,
       onToggle: (nextOptedIn) => deps.emit('toggleTechSupportDelegateOptIn', nextOptedIn),
-      onSubmitInviteCode: deps.onSubmitInviteCode,
+      onSubmitInviteCode: (code) => deps.getInviteHooks()?.submitInviteCode(code) ?? Promise.resolve('unavailable' as const),
+      incomingInvite: incomingTargetedInvite,
+      onRespondToInvite: (accept) => {
+        const hooks = deps.getInviteHooks();
+        const respond = accept ? hooks?.acceptTargetedInvite : hooks?.declineTargetedInvite;
+        return respond?.() ?? Promise.resolve('unavailable' as const);
+      },
+      formatDate: deps.formatDate,
     });
   };
 
@@ -122,6 +150,11 @@ export function createSupportSettingsController(deps: SupportSettingsControllerD
     updateInbox(entries: SupportInboxEntry[]): void {
       inboxEntries = entries;
       renderInbox();
+    },
+    setIncomingTargetedInvite(invite: { expiresAt: number } | null, opts: { notify?: boolean } = {}): void {
+      incomingTargetedInvite = invite;
+      renderDelegateOptIn();
+      if (invite && opts.notify) deps.notify(deps.t('supportDelegateTargetedInviteToast'));
     },
     updateRecoveryAnchor(record: RecoveryAnchorRecord | null): void {
       recoveryAnchor = record;
