@@ -115,6 +115,8 @@ type PeerMeshServiceOptions = {
     compatibility: ProtocolManifestCompatibility,
     sourceUserId: string,
   ) => void | Promise<void>;
+  /** A direct link to a room neighbor just came up (WebRTC over LAN, Wi-Fi Direct or relay). */
+  onNeighborConnected?: (userId: string, roomId: string) => void;
 };
 
 type Neighbor = {
@@ -303,8 +305,10 @@ export class PeerMeshService {
             neighbor.session.ensureConnected(),
             new Promise((_, reject) => setTimeout(() => reject(new Error('mesh neighbor wait timeout')), 750)),
           ]);
+          const newlyConnected = !neighbor.connected;
           neighbor.connected = true;
           void this.sendProtocolManifestSummary(neighbor);
+          if (newlyConnected) this.notifyNeighborConnected(userId);
           return true;
         } catch {
           neighbor.connected = false;
@@ -512,13 +516,25 @@ export class PeerMeshService {
     }));
   }
 
+  private notifyNeighborConnected(userId: string): void {
+    const roomId = this.currentRoomId;
+    if (!roomId) return;
+    try {
+      this.opts.onNeighborConnected?.(userId, roomId);
+    } catch (error) {
+      console.warn('[mesh] neighbor-connected handler failed:', error);
+    }
+  }
+
   private connectNeighbor(neighbor: Neighbor): void {
     const startedAt = Date.now();
     void neighbor.session.ensureConnected()
       .then(() => {
-        if (!neighbor.connected) console.info(`[mesh] neighbor ${neighbor.userId.slice(0, 8)} connected (${Date.now() - startedAt} ms this attempt)`);
+        const newlyConnected = !neighbor.connected;
+        if (newlyConnected) console.info(`[mesh] neighbor ${neighbor.userId.slice(0, 8)} connected (${Date.now() - startedAt} ms this attempt)`);
         neighbor.connected = true;
         void this.sendProtocolManifestSummary(neighbor);
+        if (newlyConnected) this.notifyNeighborConnected(neighbor.userId);
       })
       .catch(() => {
         neighbor.connected = false;

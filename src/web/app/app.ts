@@ -30,6 +30,8 @@ import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repos
 import { getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
 import { getMyTalks } from '../ui/my-talks-storage';
+import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
+import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
 import { loadConnectivitySettings, routePreferencesFromSettings, type ConnectivitySettings } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
@@ -235,6 +237,9 @@ type MailboxSupportQuestionPayload = {
   askedAt: string;
 };
 
+/** Debounce for automatic same-room catch-up to one peer (link flaps, roster heartbeats). */
+const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
+
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -271,6 +276,8 @@ export class IinPublicApp {
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
   private supportBootstrapChecked = false;
+  /** `${roomId}|${peerId}` → last automatic catch-up send (see catchUpPeerInActiveRoom). */
+  private readonly roomCatchupSentAt = new Map<string, number>();
   /** When this session rendered the welcome greeting; null until then. */
   private supportGreetingTimestamp: string | null = null;
   private supportGreetingRendered: string | null = null;
@@ -2551,6 +2558,7 @@ export class IinPublicApp {
       apiBase: this.getBackendApiBase(),
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
+      onNeighborConnected: (userId, roomId) => this.catchUpPeerInActiveRoom(userId, roomId),
       ...(this.protocolManifestController
         ? { protocolManifestController: this.protocolManifestController }
         : {}),
@@ -2697,6 +2705,34 @@ export class IinPublicApp {
     return this.roomDiscoveryService;
   }
 
+  /**
+   * Peers that can reach each other in the same room exchange Talks automatically: when a link to
+   * a room peer comes up (LAN, Wi-Fi Direct or relay) or a peer appears in the roster, send it the
+   * Talks this device deliberately broadcast in THIS room that it has not received yet. The
+   * per-peer delivery ledger keeps this idempotent; Talks never follow the user to another room.
+   */
+  private catchUpPeerInActiveRoom(userId: string, roomId: string, stageName?: string): void {
+    const peerId = String(userId || '').trim();
+    if (!peerId || !this.currentUser || isTechSupportUser(this.currentUser) || peerId === this.currentUser.id) return;
+    if (peerId === TECHSUPPORT_ROOT_USER_ID) return;
+    const scope = this.activeExchangeRoomController?.getScope();
+    if (!scope || scope.roomId !== roomId || this.currentChatroomId !== roomId) return;
+    const key = `${roomId}|${peerId}`;
+    const now = Date.now();
+    if (now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
+    const broadcastHere = talksBroadcastInRoom(roomId);
+    const talkIds = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) => broadcastHere.has(talkId));
+    if (talkIds.length === 0) return;
+    this.roomCatchupSentAt.set(key, now);
+    this.uiManager.emit('broadcastTalk', {
+      chatroomId: roomId,
+      members: [{ userId: peerId, stageName: stageName || peerId }],
+      talkIds,
+      automatic: true,
+      catchUp: true,
+    });
+  }
+
   private syncPeerMeshRoom(
     chatroomId: string,
     members: Array<{ userId: string; stageName?: string; pub?: string }>,
@@ -2710,6 +2746,9 @@ export class IinPublicApp {
           { userId: this.currentUser.id, stageName: this.currentUser.stageName },
         ];
     void mesh.joinRoom(chatroomId, withSelf)
+      .then(() => {
+        for (const member of members) this.catchUpPeerInActiveRoom(member.userId, chatroomId, member.stageName);
+      })
       .catch((error) => {
         console.warn('Peer mesh room join failed:', error);
       });
@@ -6279,6 +6318,8 @@ export class IinPublicApp {
       this.uiManager.setBroadcastBulkAck(0, targetCount);
       return { talksSent: 0, receivers: targetCount };
     }
+    // Same as the Broadcast button: these Talks are now owed to anyone who links into this room.
+    recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
     let sent = 0;
     const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
     for (const talkId of broadcastableIds) {
@@ -7196,6 +7237,7 @@ export class IinPublicApp {
         const wantSendToChatroom = (talkData as { sendToChatroom?: boolean }).sendToChatroom !== false;
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (chatroomId && wantSendToChatroom) {
+          recordTalksBroadcastInRoom(chatroomId, [talk.id], Object.keys(getMyTalks()));
           void (async () => {
             const receivers = await this.resolveBroadcastReceivers(
               chatroomId,
@@ -7286,6 +7328,8 @@ export class IinPublicApp {
         broadcastTargetTags?: string[];
         broadcastMaxDistanceMiles?: number;
         automatic?: boolean;
+        /** Background catch-up to a newly linked same-room peer: no toasts, no bulk-ack change. */
+        catchUp?: boolean;
       }) => {
         try {
           const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
@@ -7322,11 +7366,17 @@ export class IinPublicApp {
             this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
             return;
           }
+          // A deliberate broadcast is what makes these Talks owed to anyone who links into this
+          // room later (catchUpPeerInActiveRoom); it never carries them into another room.
+          // (A plain Broadcast tap arrives as `automatic` — it only skips the confirm dialog.)
+          if (!data.catchUp) {
+            recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
+          }
 
           // Immediate feedback before the slow work below (resolving receivers, fetching
           // talk payloads) — without this, a tap that shows nothing for a few seconds reads
           // as "nothing happened," and the user taps Broadcast again.
-          this.uiManager.showNotification(this.uiManager.formatBroadcastInProgress(), 'info');
+          if (!data.catchUp) this.uiManager.showNotification(this.uiManager.formatBroadcastInProgress(), 'info');
 
           const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
           const targetCount = receivers.length;
@@ -7404,8 +7454,12 @@ export class IinPublicApp {
             });
           }
 
-          this.uiManager.setBroadcastBulkAck(sent, targetCount);
-          this.uiManager.showNotification(this.uiManager.formatBroadcastSent(sent, targetCount), 'success');
+          if (data.catchUp) {
+            console.info(`[catch-up] sent ${broadcastableIds.length} talk(s) to ${sent}/${targetCount} newly linked peer(s) in ${chatroomId}`);
+          } else {
+            this.uiManager.setBroadcastBulkAck(sent, targetCount);
+            this.uiManager.showNotification(this.uiManager.formatBroadcastSent(sent, targetCount), 'success');
+          }
         } catch (error) {
           console.error('Broadcast talks failed:', error);
           this.uiManager.showNotification(this.uiManager.formatBroadcastFailed((error as Error).message), 'error');

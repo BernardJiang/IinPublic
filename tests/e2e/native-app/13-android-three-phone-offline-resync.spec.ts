@@ -189,8 +189,9 @@ test.describe('Native app: three real Android phones — concurrent propagation,
     }
 
     // Hard room partition on real phones. Two phones share room A; the third is alone in room B.
-    // Room B must not receive the Talk either before or after switching into A: pending broadcasts
-    // remain in their origin room and only a deliberate second broadcast makes it eligible.
+    // Room B must never receive the Talk. Once the third phone joins room A and links to the
+    // author, it is owed the Talk broadcast there and receives it automatically (product rule:
+    // phones that can reach each other in a room exchange Talks without another tap).
     const partitionRun = `open37-partition-${Date.now()}`;
     const roomA = `${partitionRun}-a`;
     const roomB = `${partitionRun}-b`;
@@ -204,7 +205,12 @@ test.describe('Native app: three real Android phones — concurrent propagation,
       title: `${partitionRun}-talk`,
       timeoutMs: 90_000,
     });
-    await broadcastTalkTo(roomAuthor, roomPeer, isolatedTalk);
+    // A real room broadcast (the Broadcast button's path), so room A members — including any
+    // phone that joins A later — are owed this Talk.
+    const roomBroadcast = await roomAuthor.user.window.evaluate(
+      () => (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e?.(1),
+    );
+    expect(roomBroadcast?.talksSent ?? 0).toBeGreaterThan(0);
     await expect.poll(async () => {
       try {
         return (await findIncomingTalkIdByTitle(roomPeer.user.window, isolatedTalk.talkData.title)) === isolatedTalk.talkId;
@@ -215,8 +221,6 @@ test.describe('Native app: three real Android phones — concurrent propagation,
     await expectTalkAbsentFor(isolatedPeer, isolatedTalk.talkData.title, 10_000);
 
     await forceJoinRoom(isolatedPeer.user.window, roomA);
-    await expectTalkAbsentFor(isolatedPeer, isolatedTalk.talkData.title, 5_000);
-    await broadcastTalkTo(roomAuthor, isolatedPeer, isolatedTalk);
     await expect.poll(async () => {
       try {
         return (await findIncomingTalkIdByTitle(isolatedPeer.user.window, isolatedTalk.talkData.title)) === isolatedTalk.talkId;
@@ -224,7 +228,7 @@ test.describe('Native app: three real Android phones — concurrent propagation,
         return false;
       }
     }, { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(true);
-    console.log('[three-phone] two-room isolation and deliberate switch/rebroadcast verified');
+    console.log('[three-phone] two-room isolation and automatic same-room catch-up verified');
 
     await Promise.all(peers.map((peer) => forceJoinGlobal(peer.user.window)));
     await expect.poll(async () => {
