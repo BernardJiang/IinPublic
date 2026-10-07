@@ -220,6 +220,8 @@ describe('production/development topology contract', () => {
 
   it('keeps hard-coded loopback URLs limited to explicit native/dev-local paths', () => {
     const allowedFiles = new Set([
+      // OPEN-38: the foreground service polls its own on-device node's mailbox.
+      'android/app/src/main/java/com/iinpublic/app/MailboxWatcher.kt',
       'android/app/src/main/java/com/iinpublic/app/MainActivity.kt',
       'android/app/src/main/java/com/iinpublic/app/NearbyConnectivityManager.kt',
       'android/app/src/main/java/com/iinpublic/app/NodeBridge.kt',

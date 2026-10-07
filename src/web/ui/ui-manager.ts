@@ -2284,6 +2284,7 @@ export class UIManager extends EventEmitter {
     isOwnTalk: boolean;
     fullTalk: any;
     autoAnsweredByChatbot?: boolean;
+    silentUpdate?: boolean;
   }): void {
     displayIncomingTalkImpl(talk, {
       showNotification: (message, type) => this.showNotification(message, type),

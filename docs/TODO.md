@@ -864,13 +864,13 @@ review capacity is available and the issue is promoted after the website/Android
   compositor at ~38 % of a core (≈7.5 %/h battery in an idle 10-min window). Stop it after a few
   loops, when the page is hidden, and under `prefers-reduced-motion`.
 
-- [ ] **OPEN-40 — Routing-only Talk edits never reach receivers (found 2026-10-07).** A Talk's
+- [x] **OPEN-40 — Routing-only Talk edits never reach receivers (found 2026-10-07; done 2026-10-07, product owner: update in place — spec REQ-LEDGER-11a; `talk-revision.ts`, per-peer revision record, receivers refresh their answered copy silently; e2e stage3/05b).** A Talk's
   content identity hashes type, language, question and answer texts only, so an author's edit
   that changes just the title or which answer matches/ignores is "unchanged" to the broadcast
   ledger and is never re-sent; receivers keep the old routing. Decide whether routing belongs in
   the delivery revision key, and re-send such edits.
 
-- [ ] **OPEN-41 — Author edits never re-check existing matches (found 2026-10-07).** A
+- [x] **OPEN-41 — Author edits never re-check existing matches (found 2026-10-07; decided 2026-10-07, product owner: keep matches — already the behavior; recorded as spec REQ-LEDGER-11b).** A
   conversation formed under a Talk's old rules stays even if the edited rules would reject the
   same answers. Decide the product rule (re-score stored answers on edit vs. keep matches), then
   implement it.

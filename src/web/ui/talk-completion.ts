@@ -143,3 +143,31 @@ export function completeTalk(
     wasIgnored ? 'info' : 'success',
   );
 }
+
+/**
+ * OPEN-40: an author's title/routing-only edit arrives as the same content (same identity). When
+ * this device already answered (or retained / ignored) that content from that author, refresh the
+ * stored copy in place — new title, new routing — keeping the answers, which still apply to the
+ * unchanged questions. Returns true when it was such an update (the caller then stays quiet: it is
+ * not a new talk and nothing needs doing).
+ */
+export function applyTalkRevisionToAnsweredCopy(talk: any, authorId: string): boolean {
+  let contentId = '';
+  try {
+    contentId = computeTalkIdFromTalkData(talk);
+  } catch {
+    return false;
+  }
+  const answeredTalkId = getAnsweredTalkByContent()[contentId];
+  const myTalks = getMyTalks();
+  const entry = answeredTalkId ? myTalks[answeredTalkId] : undefined;
+  if (!entry || !authorId || !(entry.senders || []).includes(authorId)) return false;
+  if (entry.role === 'created') return false;
+  myTalks[answeredTalkId!] = {
+    ...entry,
+    title: String(talk?.title || entry.title),
+    fullTalk: entry.fullTalk ? { ...entry.fullTalk, ...talk, id: entry.fullTalk.id ?? talk?.id } : talk,
+  };
+  setMyTalks(myTalks);
+  return true;
+}

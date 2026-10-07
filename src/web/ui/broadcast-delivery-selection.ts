@@ -1,4 +1,6 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { computeTalkRevisionHash } from '../../shared/talk-revision';
+import { talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
 import { buildTagIdentityKeys } from '../../shared/talk-ledger';
 import { shouldSuppressForPeer } from '../services/web-talk-ledger-store';
 import { getBroadcastableTalkIds } from './broadcast-audience-preview';
@@ -8,12 +10,15 @@ export type BroadcastDeliverySelectionDeps = {
   getMyTalks: () => Record<string, any>;
   getBroadcastableTalkIds: () => string[];
   shouldSuppressForPeer: (receiverId: string, identityKey: string) => boolean;
+  /** OPEN-40: peer has this content but an older title/routing revision (read-only check). */
+  revisionOwedToPeer?: (receiverId: string, talkId: string, revision: string) => boolean;
 };
 
 const defaultDeps: BroadcastDeliverySelectionDeps = {
   getMyTalks,
   getBroadcastableTalkIds,
   shouldSuppressForPeer,
+  revisionOwedToPeer: (receiverId, talkId, revision) => talkRevisionOwedToPeer(receiverId, talkId, revision),
 };
 
 /**
@@ -33,7 +38,8 @@ export function isBroadcastUnsentForReceiver(
   if (!fullTalk) return true;
   const wholeTalkIdentityKey = computeTalkIdFromTalkData(fullTalk);
   const identityKeys = buildTagIdentityKeys(fullTalk, wholeTalkIdentityKey);
-  return identityKeys.some((identityKey) => !deps.shouldSuppressForPeer(receiverId, identityKey));
+  if (identityKeys.some((identityKey) => !deps.shouldSuppressForPeer(receiverId, identityKey))) return true;
+  return deps.revisionOwedToPeer?.(receiverId, talkId, computeTalkRevisionHash(fullTalk)) ?? false;
 }
 
 /** Broadcastable talk ids still owed to at least one receiver. */

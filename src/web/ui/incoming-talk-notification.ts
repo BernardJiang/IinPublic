@@ -24,10 +24,12 @@ export function displayIncomingTalk(
     fullTalk: any;
     /** OPEN-42: the chatbot is answering it — say so instead of "New talk" (nothing to do). */
     autoAnsweredByChatbot?: boolean;
+    /** OPEN-40: an in-place title/routing update of a talk already answered — no notice at all. */
+    silentUpdate?: boolean;
   },
   deps: DisplayIncomingTalkDeps,
 ): void {
-  if (!talk.isOwnTalk) {
+  if (!talk.isOwnTalk && !talk.silentUpdate) {
     const message = deps.tf(
       talk.autoAnsweredByChatbot ? 'talksAutoAnsweredNotification' : 'newTalkNotification',
       { name: talk.authorName, title: talk.title },

@@ -287,4 +287,53 @@ test.describe('Edited talk is answered fully automatically', () => {
       }, titleA)).toBe('none');
     });
   }
+
+  // OPEN-40: a title/routing-only edit is the same content — receivers get it in place, not as a
+  // new talk, and nothing is re-answered.
+  test('title/routing-only edit updates the receiver\'s copy in place', async () => {
+    const title = 'E2E Routing Edit';
+    const retitled = 'E2E Routing Edit (renamed)';
+    const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
+    contextTom = tom.context;
+    pageTom = tom.page;
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await afterSync();
+    const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
+    contextJerry = jerry.context;
+    pageJerry = jerry.page;
+    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await afterSync();
+
+    await fillThreeQuestionFlow(pageTom, title, Q3_OLD);
+    await broadcastFromGlobalChatroom(pageTom);
+    await waitForTabActive(pageTom, 'chatrooms');
+    await afterSync();
+    await openIncomingTalkModal(pageJerry, title);
+    await answerYesAuto(pageJerry, [Q1, Q2, Q3_OLD]);
+    const readJerryEntry = () => pageJerry!.evaluate(() => {
+      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      return Object.values(talks).filter((t: any) => String(t?.title || '').startsWith('E2E Routing Edit'))
+        .map((t: any) => ({ title: t.title, answers: (t.completedAnswers || []).length, by: t.answeredBy ?? null }));
+    });
+    expect(await readJerryEntry()).toEqual([{ title, answers: 3, by: null }]);
+
+    // Title + routing only: rename, and make "No" on the last question the match instead of "Yes".
+    await pageTom.click('.nav-btn[data-view="talks"]');
+    await waitForTabActive(pageTom, 'talks');
+    await pageTom.locator('.talk-list-item[data-role="created"]').filter({ hasText: title }).first().click();
+    await pageTom.waitForSelector('#talk-editor-form');
+    await pageTom.fill('#talk-title', retitled);
+    const last = pageTom.locator('.question-item').nth(2);
+    await last.locator('.answer-item').nth(0).locator('.answer-next').selectOption('ignore');
+    await last.locator('.answer-item').nth(1).locator('.answer-next').selectOption('noticed');
+    await submitTalkEditorAndWaitForOut(pageTom, retitled);
+    await broadcastFromGlobalChatroom(pageTom);
+    await waitForTabActive(pageTom, 'chatrooms');
+
+    // Jerry's one copy now carries the new title; still his own 3 answers, no second talk, no 🤖.
+    await expect.poll(readJerryEntry, { timeout: 60_000 }).toEqual([{ title: retitled, answers: 3, by: null }]);
+    await pageJerry.click('.nav-btn[data-view="talks"]');
+    await waitForTabActive(pageJerry, 'talks');
+    await expect(pageJerry.locator('.talk-list-item.talk-incoming-new').filter({ hasText: 'E2E Routing Edit' })).toHaveCount(0);
+  });
 });

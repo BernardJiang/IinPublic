@@ -30,6 +30,9 @@ import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repos
 import { getAnsweredTalkByContent, getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
 import { getMyTalks } from '../ui/my-talks-storage';
+import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
+import { computeTalkRevisionHash } from '../../shared/talk-revision';
+import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
 import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
 import { loadConnectivitySettings, routePreferencesFromSettings, type ConnectivitySettings } from '../ui/connectivity-settings';
@@ -3540,8 +3543,11 @@ export class IinPublicApp {
     // Delivery is ACK-eligible only after the receiver's local Gun commit and
     // repository read-back verification complete.
     await this.talkService.cacheReceivedTalk(payload.talkId, talkData);
+    // OPEN-40: same content already answered from this author → refresh that copy in place.
+    const silentUpdate = applyTalkRevisionToAnsweredCopy(talkData, payload.authorId);
     this.uiManager.displayIncomingTalk({
-      autoAnsweredByChatbot: this.chatbotWillAnswer(payload.talkId, talkData, payload.authorId),
+      silentUpdate,
+      autoAnsweredByChatbot: !silentUpdate && this.chatbotWillAnswer(payload.talkId, talkData, payload.authorId),
       id: payload.talkId,
       title: String(payload.title || (talkData as any).title || 'Talk'),
       authorName: payload.authorName || 'Unknown',
@@ -5158,7 +5164,9 @@ export class IinPublicApp {
   private talkRevisionPairKey(talkId: string, authorId: string, talkData: unknown): string {
     let content = '';
     try {
-      content = talkData ? computeTalkIdFromTalkData(talkData) : '';
+      // OPEN-40: the full revision (content + title + routing), so an in-place routing or title
+      // update is ingested too, not dropped as already delivered.
+      content = talkData ? computeTalkRevisionHash(talkData) : '';
     } catch {
       /* unidentifiable body: fall back to the per-talk key */
     }
@@ -5726,6 +5734,7 @@ export class IinPublicApp {
     const identityKeys = buildTagIdentityKeys(talk, wholeTalkIdentityKey);
     const isTagTalk = talk.type === 'tag' && identityKeys.length > 1;
     const nowMs = Date.now();
+    const talkRevision = computeTalkRevisionHash(talk);
 
     // Build per-recipient delivery plan:
     //   null    → skip entirely (all identities suppressed or edge gated)
@@ -5747,10 +5756,17 @@ export class IinPublicApp {
         }
       }
 
-      // If ALL identity keys suppressed → skip recipient entirely.
+      // If ALL identity keys suppressed → skip recipient entirely — unless the peer holds an older
+      // revision of the same content (title/routing edit, OPEN-40): then re-send it whole as an
+      // in-place update.
+      let revisionUpdate = false;
       if (suppressedSet.size === identityKeys.length) {
-        console.debug(`[Ledger] Suppressing talk deliver to ${recipientId} for all identityKey(s) ${identityKeys.join(',')} — already exchanged`);
-        continue;
+        if (!talkRevisionOwedToPeer(recipientId, talkId, talkRevision, { baselineIfUnknown: true })) {
+          console.debug(`[Ledger] Suppressing talk deliver to ${recipientId} for all identityKey(s) ${identityKeys.join(',')} — already exchanged`);
+          continue;
+        }
+        revisionUpdate = true;
+        console.debug(`[Ledger] Re-sending ${talkId} to ${recipientId} — title/routing updated in place`);
       }
 
       // Step 8.3: client per-edge cooldown/quota gate.
@@ -5760,9 +5776,9 @@ export class IinPublicApp {
         continue;
       }
 
-      const sentIdentityKeys = identityKeys.filter((ik) => !suppressedSet.has(ik));
+      const sentIdentityKeys = revisionUpdate ? identityKeys : identityKeys.filter((ik) => !suppressedSet.has(ik));
 
-      if (isTagTalk && suppressedSet.size > 0) {
+      if (isTagTalk && suppressedSet.size > 0 && !revisionUpdate) {
         // Partial suppression for tag talk: deliver filtered body.
         const filterResult = filterTalkForRecipient(talk, suppressedSet);
         if (!filterResult) {
@@ -5838,6 +5854,7 @@ export class IinPublicApp {
       for (const ik of plan.sentIdentityKeys) {
         markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
       }
+      recordTalkRevisionSent(plan.recipientId, talkId, talkRevision);
     }
 
     const suppressedCount = receiverIds.length - plans.length;

@@ -304,9 +304,9 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 - **REQ-CHATBOT-02 — Differential answering:** When a new talk arrives, the chatbot classifies each question as auto-filled (cached answer found) or needs-input (no cached answer). Only needs-input questions are presented as active inputs; auto-filled answers appear alongside in a grayed, overridable state. If all questions are auto-filled, a review screen is shown before submission — silent auto-submit is not permitted.
 
-- **REQ-CHATBOT-03 — TALK_SUPERSEDED triggers cache seed:** When a new talk T2 arrives and the sender's ledger contains `TALK_SUPERSEDED { oldTalkId: T1, newTalkId: T2 }`, the chatbot pre-seeds its cache for T2 using the user's answers to T1 before running the differential algorithm. The client prompts: *"[Sender] updated this talk. Your previous answers are pre-filled — please review and answer any new questions."*
+- **REQ-CHATBOT-03 — Edited talks are new talks, answered automatically (revised 2026-10-07, product owner):** No "updated this talk" banner or review step. A content-edited talk (question or answer text changed) reaches receivers as a new talk; the receiver's chatbot answers it fully automatically whenever every question on its path resolves from the receiver's Auto answers — including a changed question already answered in another talk — under the "Whenever offered" scope by default. The record is the 🤖 marker (Talks row + Me answers); a later manual answer replaces it. Delivery dedupe is per content revision (talkId + author + revision), not per talkId.
 
-- **REQ-CHATBOT-04 — No silent re-submission after TALK_SUPERSEDED:** If the chatbot had previously auto-submitted to T1 without manual review, a review step is always forced for T2 — a change in the talk means the situation has materially changed and silent re-submission is not appropriate.
+- **REQ-CHATBOT-04 — Superseded (2026-10-07):** the forced review step for an edited talk was dropped by the product-owner decision recorded in REQ-CHATBOT-03; automatic answers are instead visibly marked 🤖 and remain editable.
 
 - **REQ-CHATBOT-05 — Cache write-back:** An **Auto** choice writes either `answerCache[contextHash] = answer` or the explicit question-default contract, according to the global Auto scope. A **Manual** choice does not create reusable chatbot memory. Existing auto-filled choices may refresh metadata only under the active scope.
 
@@ -474,6 +474,8 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **REQ-LEDGER-10 — Migration compatibility:** During Phases E–G, new interactions write to both legacy Gun paths and ledger paths. Back-filling of pre-ledger history is not required. See [§19.12 Network Migration Phases](#1912-network-migration-phases-ad-hub-evolution).
 
 - **REQ-LEDGER-11 — TALK_SUPERSEDED:** Advisory event emitted when a talk is edited and a new version broadcast. Carries `{ oldTalkId, newTalkId }`. Does not invalidate prior answers or matches. Triggers chatbot differential answering (REQ-CHATBOT-03).
+- **REQ-LEDGER-11a — Title/routing-only edits update in place (2026-10-07, OPEN-40):** an edit that leaves question and answer texts unchanged keeps the talk's content identity, so it is NOT a new talk. The author re-sends it to peers holding an older *revision* (content + title + routing, `computeTalkRevisionHash`); receivers refresh their stored copy (title, routing) and keep their answers; no notice, no re-answer.
+- **REQ-LEDGER-11b — Edits never re-score existing matches (2026-10-07, OPEN-41):** matches and conversations formed under a talk's old rules are kept. Only answers that arrive after an edit are scored against the edited rules.
 
 - **REQ-LEDGER-12 — CIDv1 for all content addresses:** All content-addressed identifiers (`talkId`, `responseId`, `messageId`, event `id`) use CIDv1 (dag-json, sha2-256) via `multiformats`. No IPFS daemon required. Text-only talks are never added to IPFS; CIDv1 is a locally-computed identifier only.
 

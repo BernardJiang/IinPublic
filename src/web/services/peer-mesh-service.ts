@@ -26,7 +26,7 @@ import {
 import type { ProtocolManifestCompatibility } from '../../shared/protocol-manifest';
 import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
 import type { Talk } from '../../shared/types';
-import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import type { WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession } from './p2p-webrtc-session';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -216,7 +216,8 @@ function talkRevisionDeliveryKey(talkId: string, authorId: string, contentHash?:
 /** `{ contentHash }` for a talk body, or `{}` when it can't be identified. */
 function contentHashField(talk: unknown): { contentHash?: string } {
   try {
-    const contentHash = computeTalkIdFromTalkData(talk);
+    // OPEN-40: the full revision, so a title/routing-only update is a new delivery too.
+    const contentHash = computeTalkRevisionHash(talk);
     return contentHash ? { contentHash } : {};
   } catch {
     return {};
