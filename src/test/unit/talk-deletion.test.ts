@@ -114,6 +114,38 @@ describe('deleteMyTalk', () => {
     expect(call![1].retractedAt).toBeGreaterThanOrEqual(before);
   });
 
+  it('removing an answered Flow copy keeps it answered so the original does not resurface', () => {
+    setMyTalks({
+      t1: {
+        talkId: 't1', title: 'T', type: 'flow', timestamp: '', role: 'copied',
+        completedAnswers: [{ questionId: 'q1', answerId: 'a1' }], senders: ['author'],
+      },
+    });
+    setAnsweredTalkByContent({ contentKey: 't1', contentAlias: 't1' });
+    setFlatAnswerHistory({
+      answer: {
+        id: 'answer', talkId: 't1', title: 'T', type: 'flow', outcome: 'match',
+        answeredAt: '', senderIds: ['author'], items: [],
+      },
+    });
+    const d = deps();
+
+    deleteMyTalk('t1', d);
+
+    expect(getMyTalks().t1).toBeUndefined();
+    expect(getAnsweredTalkByContent()).toEqual({ contentKey: 't1', contentAlias: 't1' });
+    expect(Object.keys(getFlatAnswerHistory())).toEqual(['answer']);
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it('removing an unanswered Flow copy still clears its local state', () => {
+    setMyTalks({ t1: { talkId: 't1', title: 'T', type: 'flow', timestamp: '', role: 'copied' } });
+    setAnsweredTalkByContent({ contentKey: 't1' });
+    deleteMyTalk('t1', deps());
+    expect(getMyTalks().t1).toBeUndefined();
+    expect(getAnsweredTalkByContent().contentKey).toBeUndefined();
+  });
+
   it('removes a received tag from Me history without retracting the author\'s network talk', () => {
     setMyTalks({ t1: { talkId: 't1', title: 'T', type: 'tag', timestamp: '', role: 'copied' } });
     setFlatAnswerHistory({

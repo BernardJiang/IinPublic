@@ -298,7 +298,10 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     expect(storedOutcome.historyTitles).toEqual(expect.arrayContaining([disabledTitle, enabledTitle]));
   });
 
-  test('Ignored incoming talks do not copy and old talks open without an Edit button', async () => {
+  // Since 8c89d9d4 only the dedicated Ignore gesture (swipe; covered by stage1/83) marks a talk
+  // ignored. An author-written answer that merely reads like "ignore" is an ordinary answer: it is
+  // never filed as Ignored and stays in Me answer history, which still offers no Edit button.
+  test('An author-written "ignore" answer is a normal answer, not the Ignore action; Me rows have no Edit button', async () => {
     const ignoredTitle = 'UI Regression Ignored Talk';
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Ignore UI');
@@ -319,9 +322,13 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await waitForTabActive(pageJerry, 'talks');
     await afterSync();
 
-    await pageJerry.locator('#talks-filter-incoming').uncheck();
-    await afterSync();
-    await expect(pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: ignoredTitle })).toHaveCount(0);
+    const jerryRole = await pageJerry.evaluate((title) => {
+      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const entry = Object.values(talks).find((t: any) => t?.title === title) as any;
+      return entry?.role || '';
+    }, ignoredTitle);
+    expect(jerryRole).not.toBe('ignored');
+    expect(jerryRole).not.toBe('');
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
     await expect(pageJerry.locator('#answers-content').getByText(ignoredTitle).first()).toBeVisible({ timeout: 30_000 });

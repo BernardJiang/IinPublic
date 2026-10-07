@@ -295,16 +295,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#custom-room-capacity')).toHaveCount(0);
     await expect(p.locator('[data-testid="custom-room-submit-btn"]')).toHaveText('创建');
     await p.locator('#cancel-custom-room-btn').click();
-    await p.evaluate(() => {
-      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
-      void ui.showRenameCustomChatroomDialog('演示房间');
-    });
-    const renameRoomModal = p.locator('#rename-custom-chatroom-form').locator('xpath=..');
-    await expect(renameRoomModal).toContainText('重命名房间');
-    await expect(renameRoomModal).toContainText('当前：演示房间');
-    await expect(p.locator('#rename-custom-room-name')).toHaveValue('演示房间');
-    await expect(p.locator('#cancel-rename-room-btn')).toHaveText('取消');
-    await p.locator('#cancel-rename-room-btn').click();
+    // The custom-room rename dialog was retired with the owner/role model (74f437d8), so there
+    // is no rename modal left to check for Chinese copy.
     await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       void ui.confirmBroadcastAudience([{
@@ -373,15 +365,21 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#peer-send-talks-btn')).toContainText('发送我的话题');
     await expect(p.locator('#peer-dm-input')).toHaveAttribute('placeholder', '输入消息...');
     await p.locator('#back-from-peer-detail').click();
+    // At most two toasts are visible at once (notification-toast.ts drops the oldest), so
+    // check these localized messages two at a time.
     await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       ui?.showNotification(ui.formatAgeVoteSubmitted(), 'success');
       ui?.showNotification(ui.formatUserBlockChanged(true), 'success');
-      ui?.showNotification(ui.formatUserBlockChanged(false), 'success');
-      ui?.showNotification(ui.formatMatchToStartConversation(), 'info');
     });
     await expect(p.locator('.notification').filter({ hasText: '已提交年龄验证担保。' })).toBeVisible();
     await expect(p.locator('.notification').filter({ hasText: '已屏蔽该用户，话题投递现已停用。' })).toBeVisible();
+    await p.evaluate(() => {
+      document.querySelectorAll('.notification').forEach((notification) => notification.remove());
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      ui?.showNotification(ui.formatUserBlockChanged(false), 'success');
+      ui?.showNotification(ui.formatMatchToStartConversation(), 'info');
+    });
     await expect(p.locator('.notification').filter({ hasText: '已取消屏蔽该用户。' })).toBeVisible();
     await expect(p.locator('.notification').filter({ hasText: '请先通过话题与该用户匹配，再开始对话！' })).toBeVisible();
     await p.evaluate(() => {
@@ -424,19 +422,21 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#conversation-message-input')).toHaveAttribute('placeholder', '输入消息...');
     await expect(p.locator('#send-conversation-message')).toHaveText('发送');
     await expect(p.locator('#conversation-messages')).toContainText('欢迎来到 IinPublic，Ming');
-    await p.evaluate(() => {
-      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
-      ui?.showNotification(ui.formatAnswerProcessFailed('测试失败'), 'error');
-      ui?.showNotification(ui.formatNotInChatroom(), 'error');
-      ui?.showNotification(ui.formatMessageSent(), 'success');
-      ui?.showNotification(ui.formatMessageSendFailed('网络故障'), 'error');
-      ui?.showNotification(ui.formatConversationLoadFailed('网络故障'), 'error');
-    });
-    await expect(p.locator('.notification').filter({ hasText: '无法处理回答：测试失败' })).toBeVisible();
-    await expect(p.locator('.notification').filter({ hasText: '当前不在聊天室中。' })).toBeVisible();
-    await expect(p.locator('.notification').filter({ hasText: '消息已发送！' })).toBeVisible();
-    await expect(p.locator('.notification').filter({ hasText: '无法发送消息：网络故障' })).toBeVisible();
-    await expect(p.locator('.notification').filter({ hasText: '无法加载对话：网络故障' })).toBeVisible();
+    // Two-toast visible cap (see above): show and check each localized message on its own.
+    const conversationToasts: Array<[string, string | null, 'error' | 'success', string]> = [
+      ['formatAnswerProcessFailed', '测试失败', 'error', '无法处理回答：测试失败'],
+      ['formatNotInChatroom', null, 'error', '当前不在聊天室中。'],
+      ['formatMessageSent', null, 'success', '消息已发送！'],
+      ['formatMessageSendFailed', '网络故障', 'error', '无法发送消息：网络故障'],
+      ['formatConversationLoadFailed', '网络故障', 'error', '无法加载对话：网络故障'],
+    ];
+    for (const [formatter, arg, type, expected] of conversationToasts) {
+      await p.evaluate(({ formatter, arg, type }) => {
+        const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+        ui?.showNotification(arg === null ? ui[formatter]() : ui[formatter](arg), type);
+      }, { formatter, arg, type });
+      await expect(p.locator('.notification').filter({ hasText: expected })).toBeVisible();
+    }
     await p.evaluate(() => {
       document.querySelectorAll('.notification').forEach((notification) => notification.remove());
     });
@@ -463,7 +463,9 @@ test.describe('UI navigation and settings shell', () => {
     // "no talks yet" message (talksNoTalks) — that older text only shows once the account has SOME
     // talk history but the current filter happens to hide all of it. This account is still fresh
     // at this point in the test, so the starter shelf is the correct thing to assert on.
-    await expect(p.locator('#talks-list')).toContainText('认识你的练习机器人');
+    // The shelf's copy changed (d7b07d45); its localized action buttons are the stable check.
+    await expect(p.locator('[data-testid="talks-starter-more"]')).toHaveText('从模板构建');
+    await expect(p.locator('[data-testid="talks-starter-scratch"]')).toHaveText('从空白构建');
     await p.evaluate(() => {
       localStorage.setItem('myTalks', JSON.stringify({
         localized_created: {
@@ -548,12 +550,11 @@ test.describe('UI navigation and settings shell', () => {
       }],
     }, { skipAutoAnswer: true }));
     await expect(p.locator('#talk-response-modal')).toContainText('问题 1 共 1');
-    // Contextual chatbot choice memory (2026-09-30): the old global auto/manual toggle was
-    // replaced by explicit per-answer contract scopes — see
-    // docs/design/contextual-chatbot-memory.md and ui-translations.ts.
-    await expect(p.locator('#talk-response-modal')).toContainText('相同上下文');
-    await expect(p.locator('#talk-response-modal')).toContainText('每当出现此选项');
-    await expect(p.locator('#talk-response-modal')).toContainText('仅这一次');
+    // Answer modes were simplified to per-answer Auto / Manual columns (03b1afe6).
+    const modeGroup = p.locator('#talk-response-modal [role="radiogroup"]');
+    await expect(modeGroup).toContainText('回答');
+    await expect(modeGroup).toContainText('自动');
+    await expect(modeGroup).toContainText('手动');
     await p.evaluate(() => document.getElementById('talk-response-modal')?.remove());
     await p.evaluate(() => localStorage.removeItem('myTalks'));
     await p.locator('.nav-btn[data-view="me"]').click();
@@ -691,18 +692,17 @@ test.describe('UI navigation and settings shell', () => {
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showPreferencesDialog());
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');
     await expect(p.locator('#preferences-modal')).toContainText('最近回答：');
-    // Contextual chatbot choice memory (2026-09-30): legacy non-v2 records normalize to the
-    // "manual" UI mode, now labeled "Ask me every time" (preferencesManualMode) rather than the
-    // old "Manual" badge — see docs/design/contextual-chatbot-memory.md.
-    await expect(p.locator('#preferences-modal')).toContainText('每次都问我');
+    // Answer modes were simplified to Auto / Manual (03b1afe6): legacy non-v2 records normalize
+    // to Manual; Auto applies the single scope chosen in Settings (default: same context).
+    await expect(p.locator('#preferences-modal .mode-select')).toHaveValue('manual');
     // A completed tag is stored under both a context-aware key and a legacy fallback key.
     // They are one logical answer and must never render as two cards.
     await expect(p.locator('#preferences-modal .preference-item')).toHaveCount(1);
-    await expect(p.locator('#preferences-modal .mode-select option')).toHaveText([
-      '每次都问我',
-      '相同上下文和选项',
-    ]);
-    await p.locator('#preferences-modal .mode-select').selectOption('temporary');
+    await expect(p.locator('#preferences-modal .mode-select option')).toHaveText(['自动', '手动']);
+    // Auto's scope defaults to "whenever offered"; pin the same-context scope so this keeps
+    // covering the temporary (same context and choices) contract.
+    await p.evaluate(() => localStorage.setItem('iinpublic_auto_answer_scope', 'same-context'));
+    await p.locator('#preferences-modal .mode-select').selectOption('auto');
     await expect(p.locator('.notification').filter({ hasText: '仅在上下文和选项相同时重复此选择' })).toBeVisible();
     await expect
       .poll(() => p.evaluate(() => {

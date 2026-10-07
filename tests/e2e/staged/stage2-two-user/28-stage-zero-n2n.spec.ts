@@ -227,8 +227,10 @@ test.describe('Stage zero N2N smoke', () => {
     // Actionable starter Talk onboarding (dev.codex, 2026-09-27): a genuinely fresh account with
     // no talk history at all now shows the starter template shelf here instead of the old plain
     // "no talks yet" message (talksNoTalks) — Adam is brand new at this point, so the starter
-    // shelf is the correct thing to assert on.
-    await expect(page.locator('#talks-list')).toContainText('What would you like IinPublic to repeat for you?');
+    // shelf is the correct thing to assert on. Its copy changed (d7b07d45), so assert on the
+    // stable starter-action hooks rather than the headline wording.
+    await expect(page.locator('[data-testid="talks-starter-more"]')).toBeVisible();
+    await expect(page.locator('[data-testid="talks-starter-scratch"]')).toBeVisible();
 
     for (const talk of talkSet('Adam', runId)) {
       if (talk.type === 'tag') {

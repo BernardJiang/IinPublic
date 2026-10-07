@@ -27,9 +27,24 @@ function removeLocalTalkState(talkId: string): void {
   if (answeredContentChanged) setAnsweredTalkByContent(answeredByContent);
 }
 
+/**
+ * A copy of a received Flow/Survey/Route that was already answered: ownership and completion are
+ * independent, so removing the copy must not forget the answer — otherwise the sender's original
+ * would resurface in IN as unanswered. Tags differ on purpose: unchecking a retained tag is the
+ * answer itself, so it still clears everything.
+ */
+function isAnsweredNonTagCopy(entry: any): boolean {
+  const type = String(entry?.type || entry?.fullTalk?.type || '').toLowerCase();
+  return entry?.role === 'copied'
+    && type !== 'tag'
+    && Array.isArray(entry?.completedAnswers)
+    && entry.completedAnswers.length > 0;
+}
+
 export function deleteMyTalk(talkId: string, deps: TalkDeletionDeps): void {
   const existing = getMyTalks()[talkId];
-  removeLocalTalkState(talkId);
+  if (isAnsweredNonTagCopy(existing)) deleteMyTalkEntry(talkId);
+  else removeLocalTalkState(talkId);
   deps.displayTalksList();
   deps.displayAnswersList();
   deps.showNotification(deps.t('talksRemovedFromList'), 'success');
