@@ -40,7 +40,7 @@ import { applySettingsSectionView as applySettingsSectionViewImpl } from './sett
 import { parseIpfsSharePayload as parseIpfsSharePayloadImpl } from './attachment-metadata';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
-import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
@@ -518,8 +518,7 @@ export class UIManager extends EventEmitter {
   private getHomeChatroomId(): string {
     if (this.travelModeActive && this.travelHomeChatroomId) return this.travelHomeChatroomId;
     if (this.currentLocation) {
-      const path = getLocationChatroomPath(this.currentLocation);
-      return path[path.length - 1] || 'global';
+      return getAutomaticLocationChatroomId(this.currentLocation);
     }
     return 'global';
   }

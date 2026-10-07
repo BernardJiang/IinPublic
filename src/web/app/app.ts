@@ -40,7 +40,7 @@ import { WebLedgerService } from '../services/web-ledger-service';
 import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
-import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { applyPublicChatroomHierarchy, getAllChatroomIds, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import {
   isRenderableSystemAnnouncement,
@@ -267,6 +267,8 @@ export class IinPublicApp {
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;
+  /** First boot used a neutral placeholder; move once, automatically, after a real fix arrives. */
+  private pendingInitialLocationRoom = false;
   /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
   private processedTalkResponseKeys = new Set<string>();
   /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
@@ -1392,7 +1394,10 @@ export class IinPublicApp {
           .get('location')
           .once((locData: unknown) => resolve(locData));
       });
-      return (data as any)?.trueLocation ?? (data as any) ?? undefined;
+      const region = data && typeof data === 'object' ? (data as { region?: unknown }).region : undefined;
+      return typeof region === 'string'
+        ? LocationPrivacy.coordinateFromRegion(region) ?? undefined
+        : undefined;
     });
     // Get or create user
     await this.initializeUser();
@@ -1445,12 +1450,6 @@ export class IinPublicApp {
     // Best-effort, never a boot blocker.
     void this.deviceHandoffService.publishEpub().catch(() => {});
     this.subscribeToPublicAnnouncements();
-    // Skip when the location we booted with is still the placeholder (index.ts resolves the
-    // real one in the background for a first-ever open with no cache) — updateCurrentLocation
-    // fires this instead once the real fix lands, so the one-time suggestion is never consumed
-    // by a location that was never real.
-    if (this.locationConfirmed) this.showLocationRoomSuggestion();
-
     // Subscribe to member counts for all chatrooms (real-time updates)
     this.subscribeToAllChatroomMemberCounts();
     void this.refreshCustomChatroomsFromServer().then(() => {
@@ -1462,6 +1461,7 @@ export class IinPublicApp {
       this.startStageZeroHeadcountWatchdog();
     }
     this.initialized = true;
+    this.applyPendingInitialLocationRoom();
     markStartupPhase('initialSyncComplete');
   }
 
@@ -1519,14 +1519,17 @@ export class IinPublicApp {
   /**
    * Cache-first UI (index.ts): called once the real GPS fix resolves in the background, after
    * boot already painted with a cached-or-placeholder location so first paint never waits on it.
-   * A no-op before `initialize()` has run (this.currentUser unset yet — showLocationRoomSuggestion
-   * itself already guards on that) or after manualCleanup.
+   * A no-op before initialization has established a pending first-room assignment.
    */
   updateCurrentLocation(location: GPSCoordinate): void {
     this.currentLocation = location;
     this.locationConfirmed = true;
+    if (this.currentUser) this.chatroomService.updateLocalUserLocation(this.currentUser.id, location);
     this.uiManager.setCurrentLocation(location);
-    this.showLocationRoomSuggestion();
+    if (this.currentUser) {
+      void this.userService.updateUserLocation(this.currentUser.id, location).catch(() => {});
+    }
+    this.applyPendingInitialLocationRoom();
   }
 
   /**
@@ -1541,20 +1544,12 @@ export class IinPublicApp {
       : undefined;
   }
 
-  /** Show once per user/device after location has selected a more specific hierarchy room. */
-  private showLocationRoomSuggestion(): void {
-    if (!this.currentUser || !this.currentLocation) return;
-    const key = `iinpublic_location_room_suggestion_shown:${this.currentUser.id}`;
-    if (localStorage.getItem(key)) return;
-    const path = getLocationChatroomPath(this.currentLocation);
-    const roomId = path[path.length - 1];
-    if (!roomId || roomId === this.currentChatroomId) return;
-    const room = getFlatChatroomList().find((entry) => entry.id === roomId);
-    if (!room) return;
-    localStorage.setItem(key, '1');
-    this.uiManager.showLocationRoomSuggestion(room.name, () => {
-      this.uiManager.emit('chatroomChanged', roomId);
-    });
+  /** Complete a first-time user's deferred automatic grid assignment after real GPS resolves. */
+  private applyPendingInitialLocationRoom(): void {
+    if (!this.pendingInitialLocationRoom || !this.initialized || !this.currentUser || !this.currentLocation) return;
+    this.pendingInitialLocationRoom = false;
+    const roomId = getAutomaticLocationChatroomId(this.currentLocation);
+    if (roomId !== this.currentChatroomId) this.uiManager.emit('chatroomChanged', roomId);
   }
 
   /**
@@ -1742,7 +1737,7 @@ export class IinPublicApp {
     // createUser/getUser above. Waiting here just to observe a relay ack (which a relay-only
     // production hub may never send at all — see WebGunService.put's doc comment) used to make
     // every boot pay for a network round trip it didn't actually need to open the app.
-    if (this.currentLocation) {
+    if (this.currentLocation && this.locationConfirmed) {
       void this.userService.updateUserLocation(this.currentUser.id, this.currentLocation).catch((error) => {
         console.warn('Boot-time location publication skipped (non-fatal):', error);
       });
@@ -1814,7 +1809,9 @@ export class IinPublicApp {
     // Show user creation UI
     const userData = await this.uiManager.showUserCreationDialog();
 
-    const blurredLocation = LocationPrivacy.blurLocation(this.currentLocation!);
+    const blurredLocation = this.locationConfirmed
+      ? LocationPrivacy.blurLocation(this.currentLocation!)
+      : { region: '', chatrooms: [] };
     const pair = this.gunService.getStoredPair();
 
     if (options.rootTechSupport) {
@@ -1856,6 +1853,7 @@ export class IinPublicApp {
 
     // Get last chatroom from localStorage (for re-entry logic)
     const lastChatroomId = localStorage.getItem('iinpublic_last_chatroom') || undefined;
+    this.pendingInitialLocationRoom = !lastChatroomId && !this.locationConfirmed;
     this.loadTravelModeStateFromStorage();
 
     // Find optimal chatroom using hierarchical assignment
@@ -1863,6 +1861,7 @@ export class IinPublicApp {
       this.currentLocation,
       this.currentUser.id,
       lastChatroomId,
+      this.locationConfirmed,
     );
 
     this.currentChatroomId = chatroomId; // Track current chatroom
@@ -8204,9 +8203,13 @@ export class IinPublicApp {
     this.uiManager.on('returnHomeFromTravel', async () => {
       if (!this.currentUser) return;
       const locationPath = this.currentLocation ? getLocationChatroomPath(this.currentLocation) : [];
+      const automaticHome = this.currentLocation
+        ? getAutomaticLocationChatroomId(this.currentLocation)
+        : undefined;
       const home =
-        (!this.travelModeActive && locationPath[locationPath.length - 1]) ||
+        (!this.travelModeActive && automaticHome) ||
         this.travelHomeChatroomId ||
+        automaticHome ||
         locationPath[locationPath.length - 1] ||
         'global';
       this.travelModeActive = false;
@@ -8521,6 +8524,7 @@ export class IinPublicApp {
       this.currentLocation = newLocation;
 
       if (this.currentUser) {
+        this.chatroomService.updateLocalUserLocation(this.currentUser.id, newLocation);
         await this.userService.updateUserLocation(this.currentUser.id, newLocation);
 
         if (this.travelModeActive) {

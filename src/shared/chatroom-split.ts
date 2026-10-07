@@ -12,6 +12,10 @@ export const SPLIT_FRONTIER_PATH = 'chatroomSplitFrontier';
 
 /** A frontier hint older than this is ignored (an old burst must not steer newcomers forever). */
 export const SPLIT_FRONTIER_FRESH_MS = 10 * 60 * 1000;
+/** A remote clock may be slightly ahead, but a far-future record must not remain fresh forever. */
+export const SPLIT_FRONTIER_MAX_FUTURE_MS = 5 * 60 * 1000;
+/** A single untrusted frontier hint may not isolate a user arbitrarily far from its current lane. */
+export const SPLIT_FRONTIER_MAX_JUMP = 64;
 
 export interface SplitFrontierRecord {
   index: number;
@@ -43,6 +47,7 @@ export function nextSplitRoomId(roomId: string, minIndex = 0): string {
 export function freshFrontierIndex(record: Partial<SplitFrontierRecord> | null | undefined, nowMs: number): number {
   const index = Number(record?.index);
   const at = Date.parse(String(record?.at ?? ''));
-  if (!Number.isInteger(index) || index < 2 || !Number.isFinite(at)) return 0;
-  return nowMs - at <= SPLIT_FRONTIER_FRESH_MS ? index : 0;
+  if (!Number.isSafeInteger(index) || index < 2 || index > 1_000_000 || !Number.isFinite(at)) return 0;
+  const age = nowMs - at;
+  return age >= -SPLIT_FRONTIER_MAX_FUTURE_MS && age <= SPLIT_FRONTIER_FRESH_MS ? index : 0;
 }

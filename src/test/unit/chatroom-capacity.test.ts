@@ -9,7 +9,14 @@ import {
   type CapacityMember,
 } from '../../shared/chatroom-capacity';
 import { CONFIG } from '../../shared/config';
-import { freshFrontierIndex, nextSplitRoomId, splitBaseId, splitIndex, splitRoomId } from '../../shared/chatroom-split';
+import {
+  SPLIT_FRONTIER_MAX_FUTURE_MS,
+  freshFrontierIndex,
+  nextSplitRoomId,
+  splitBaseId,
+  splitIndex,
+  splitRoomId,
+} from '../../shared/chatroom-split';
 import { ChatroomCapacityController } from '../../web/services/chatroom-capacity-controller';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import type { GPSCoordinate } from '../../shared/types';
@@ -114,6 +121,11 @@ describe('numbered overflow rooms (rooms with no child)', () => {
     expect(freshFrontierIndex({ index: 5, at: t(999) }, now)).toBe(5);
     expect(freshFrontierIndex({ index: 5, at: new Date(now - 60 * 60 * 1000).toISOString() }, now)).toBe(0);
     expect(freshFrontierIndex({ index: 1, at: t(999) }, now)).toBe(0);
+    expect(freshFrontierIndex({
+      index: 5,
+      at: new Date(now + SPLIT_FRONTIER_MAX_FUTURE_MS + 1).toISOString(),
+    }, now)).toBe(0);
+    expect(freshFrontierIndex({ index: Number.MAX_SAFE_INTEGER + 1, at: t(999) }, now)).toBe(0);
     expect(freshFrontierIndex(null, now)).toBe(0);
   });
 });
@@ -316,7 +328,24 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
         if (gun.read(`/chatrooms/${path[0]}/evictions/${evictee}/${author}`)) authors.add(author);
       }
     }
-    expect([...authors]).toEqual(['u3']);
+    // Independent self-correction can move the overflow member before a notice is needed. If a
+    // courtesy notice is written, only the deterministic newest member may author it.
+    expect([...authors].every((author) => author === 'u3')).toBe(true);
+  });
+
+  it('ignores a forged matching-stay notice when local capacity computation says I fit', async () => {
+    setCapacity(2);
+    await join('u1', 'stadium');
+    gun.node('/chatrooms/stadium/evictions/u1/attacker').put({
+      by: 'attacker',
+      at: nextIso(),
+      capacity: 2,
+      evicteeJoinedAt: gun.read('/chatrooms/stadium/users/u1').joinedAt,
+    });
+    await settle();
+
+    expect(peers.get('u1')!.moved).toEqual([]);
+    expect(activeIn('stadium')).toEqual(['u1']);
   });
 
   it('splits a custom room with FIFO, including its first participant', async () => {
@@ -332,7 +361,6 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     expect(inRoom('sport-arena_part_2')).toEqual(['u2', 'u3']);
     expect(inRoom('sport-arena_part_3')).toEqual(['u1']);
     expect(peers.get('u1')!.moved).toEqual(['sport-arena_part_2', 'sport-arena_part_3']);
-    expect(gun.read('/chatrooms/sport-arena/evictions/u1/u3')).toBeDefined();
   });
 
   it('does not move the newcomer when the FIFO evictee is not running', async () => {

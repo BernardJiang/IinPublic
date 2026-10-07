@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-05.
+Last reconciled: 2026-10-06.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -18,6 +18,62 @@ move its outcome and verification evidence to `docs/completed.md`, remove it her
 its ID.
 
 ## Active execution queue — website and Android first
+
+- [ ] **OPEN-40 — Make blurred-location micro-rooms safe at arena scale (10,000 people in one
+  place).** New users with a confirmed location must enter their smallest blurred GPS-grid room
+  directly. The grid's parent/control scope must never become a 10,000-person Talk roster; when a
+  grid exceeds the global capacity, ownerless deterministic micro-rooms must be selected before
+  active presence, nearby advertisement, or Talk exchange. Wi-Fi Direct remains only a transport
+  inside the selected micro-room. Exact global FIFO across all micro-rooms is not implementable
+  together with coordinator-free bounded pre-admission; retain creator-neutral FIFO only within a
+  micro-room unless a future protocol explicitly introduces consensus/admission authority.
+  - [x] **P0 privacy:** separate local exact GPS from public `BlurredLocation`; never publish
+    `trueLocation`, exact latitude/longitude, accuracy, or GPS timestamps under user, room,
+    presence, discovery, or Gun paths. Tombstone legacy per-room exact-location rows encountered
+    by the current user. Keep distance features on blurred grid coordinates and add regression
+    tests proving public records contain no exact GPS.
+  - [x] **P0 automatic placement:** confirmed GPS selects the deterministic blurred-grid base room
+    on first entry and on an explicit location refresh. A placeholder/unconfirmed boot location
+    must not assign a false grid; switch automatically after the first real fix. Update the
+    specification's obsolete “Global first” and manual location-suggestion language.
+  - [ ] **P0 bounded pre-admission:** replace reactive subscribe-to-everyone-then-evict behavior
+    with a bounded grid control plane and deterministic lane assignment before active presence.
+    For 10,000 users at `C=498`, create at least 21 lanes and normally leave headroom (for example
+    25–32 lanes) so uneven decentralized assignment cannot overflow immediately. A room ID must be
+    a pure function of version, blurred grid, split generation, and lane; first signed presence
+    materializes it and grants no ownership.
+    - [x] Added the pure v1 allocator: no split through `C`, power-of-two lane generations with
+      25% target headroom after overflow, stable public-identity hashing, and coordinate-free room
+      IDs. At 10,000 users and `C=498` it deterministically selects 32 lanes. It is deliberately
+      not wired to live membership until the bounded corroborated split-control plane exists.
+  - [ ] **P0 authority hardening:** eviction/frontier messages are untrusted hints, never commands.
+    A receiver moves only after independently validating its signed current-room view and local
+    overflow status. Authenticate all split-control records, reject unreasonable jumps/rollback,
+    and prevent forged `joinedAt` or an arbitrary writer from isolating another user.
+    - [x] A notice now moves a user only when its author/key/capacity match the receiver's current
+      view and the receiver independently computes itself in the monotone overflow set; active
+      overflow members self-correct without waiting for a notice.
+    - [x] Reject far-future, unsafe-integer, and extreme frontier records; cap one hinted jump to
+      64 lanes. The frontier remains an unauthenticated optimization pending the signed control
+      plane above.
+  - [ ] **P0 non-cooperating/offline members:** capacity safety must not require the displaced
+    phone to be online and perform its own move. Every client independently derives the eligible
+    set; a returning excluded user derives a valid lane before advertising or exchanging.
+  - [ ] **P1 convergence/churn:** define split-generation convergence under Internet/LAN/BLE
+    partitions, stale occupancy, simultaneous arrivals, GPS drift, and grid-boundary neighbors.
+    Add hysteresis and preserve one-active-room stop-before-start behavior.
+  - [ ] **P1 compaction:** expire empty lanes and deterministically compact/merge underfilled lanes
+    after a stability window without silently rebroadcasting old Talks or creating an owner.
+  - [ ] **P1 UI:** display one blurred place plus a simple internal group label and occupancy; do
+    not expose raw `_part_N` or coordinate-bearing IDs. Explain that Nearby exchange reveals an
+    approximate grid, especially at home/work, and retain Contacts-only/Off controls.
+  - [ ] **Verification:** add a deterministic 10,000-identity simulation plus partition, reconnect,
+    churn, malicious-control-record, stale-presence, and boundary tests. Assert ≤498 candidates,
+    ≤configured neighbor limit, no full parent roster subscription, stable lane derivation, safe
+    compaction, no exact GPS publication, and same-room-only Talk exchange. The existing topology
+    formula test and small FIFO tests are insufficient; close the current SPEC-5 coverage gap.
+    - [x] Pure 10,000-identity assignment simulation verifies all identities are assigned across
+      32 non-empty lanes and the deterministic fixture's maximum occupancy remains below 498.
 
 - [x] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
   "no deobfuscation file associated with this App Bundle"). Done 2026-10-05.**

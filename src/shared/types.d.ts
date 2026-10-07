@@ -35,7 +35,6 @@ export interface Reputation {
 export interface BlurredLocation {
     region: string;
     chatrooms: string[];
-    trueLocation?: GPSCoordinate;
 }
 export interface GPSCoordinate {
     latitude: number;

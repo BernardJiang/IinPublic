@@ -126,7 +126,6 @@ export interface Reputation {
 export interface BlurredLocation {
   region: string; // blurred region identifier
   chatrooms: string[]; // chatroom IDs user belongs to
-  trueLocation?: GPSCoordinate; // only stored locally, never transmitted
 }
 
 export interface GPSCoordinate {

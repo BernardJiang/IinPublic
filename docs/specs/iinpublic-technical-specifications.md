@@ -250,8 +250,12 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 ### 3.3 Chatroom Management
 
-- **FR-CR-1**: The system SHALL maintain a **global chatroom** accessible to all users at app start.
-- **FR-CR-2**: The system SHALL automatically place new users into the global chatroom first.
+- **FR-CR-1**: The system SHALL maintain a **global navigation directory** accessible to all users
+  at app start. It SHALL NOT become an unbounded active exchange roster.
+- **FR-CR-2**: With a confirmed GPS fix, the system SHALL automatically place a new user into the
+  smallest blurred GPS-grid chatroom. A neutral placeholder location SHALL NOT select a false grid;
+  the app MAY use a temporary compatibility room while location is pending and SHALL move once to
+  the correct grid when the first real fix arrives.
 - **FR-CR-3**: Every chatroom SHALL use the same global capacity threshold (current production
   value 498 active users; no per-room override). When a chatroom exceeds that threshold, the
   system SHALL:
@@ -261,7 +265,10 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-CR-5**: Any user SHALL be able to publish a **user-defined chatroom** descriptor (including a business chatroom). Creation makes that user the first ordinary participant; it grants no ownership, moderation, reserved seat, rename, deletion, or admission power.
 - **FR-CR-6**: Each **business chatroom** descriptor MAY include a display name, address, GPS coordinates, and description. The creator MAY sign the descriptor as its originator, but that signature SHALL NOT confer room authority or prove a trademark/business claim. The protocol SHALL permit duplicate display names and distinguish rooms by cryptographic ID.
 - **FR-CR-7**: When a chatroom is full and a new user enters, the system SHALL identify the longest-staying user, notify that user, and remove that user to maintain capacity (FIFO eviction). The room creator SHALL be evicted on exactly the same basis as every other participant.
-- **FR-CR-8**: The system SHALL store **true location** from GPS and use a blurred region for all public operations.
+- **FR-CR-8**: The system SHALL keep **true location** only in local process/device storage and use
+  a blurred region for every public, peer, relay, room, presence, discovery, and Gun operation.
+  Public records SHALL NOT contain exact latitude/longitude, GPS accuracy, timestamps, or a nested
+  `trueLocation` field.
 - **FR-CR-9**: A user MAY belong to multiple chatrooms that include their true location.
 - **FR-CR-10**: A user MAY actively "travel" to exactly one remote chatroom at a time and SHALL be marked as **traveller** there.
 - **FR-CR-11 (Content-Addressed Community Identity)**: Each chatroom/community SHALL have a stable, globally unique identifier derived from its immutable root descriptor: `CommunityID = CIDv1(CommunityRootObject)`. The descriptor MAY contain the creator's public key to distinguish otherwise identical roots, but the key is provenance rather than authority. A community address alone SHALL be sufficient to join, discover peers, and synchronize content; no centralized name or trademark registry is required.

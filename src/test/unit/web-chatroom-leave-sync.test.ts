@@ -33,6 +33,7 @@ describe('WebChatroomService leave relay synchronization', () => {
       expect.objectContaining({ isActive: false, leftAt: expect.any(String) }),
       expect.any(Function),
     );
+    expect(gun.put).toHaveBeenCalledWith(null);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/api\/chatrooms\/room%20%2F%20one\/members\/user%20%2F%20one$/),
       expect.objectContaining({ method: 'DELETE', signal: expect.any(AbortSignal) }),

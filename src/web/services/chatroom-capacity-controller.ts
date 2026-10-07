@@ -11,6 +11,7 @@ import {
 } from '../../shared/chatroom-capacity';
 import {
   SPLIT_FRONTIER_PATH,
+  SPLIT_FRONTIER_MAX_JUMP,
   freshFrontierIndex,
   splitBaseId,
   splitIndex,
@@ -95,8 +96,8 @@ export class ChatroomCapacityController {
     });
     this.offMembers = () => memberSub.off();
 
-    const noticeSub = room.get('evictions').get(userId).map().on((notice: any) => {
-      void this.handleNotice(roomId, userId, notice);
+    const noticeSub = room.get('evictions').get(userId).map().on((notice: any, authorKey: string) => {
+      void this.handleNotice(roomId, userId, notice, authorKey);
     });
     this.offNotices = () => noticeSub.off();
 
@@ -145,9 +146,18 @@ export class ChatroomCapacityController {
     // Not visible in our own list yet: wait for our own record to arrive before judging.
     if (!members.some((m) => m.userId === userId)) return;
     const capacity = Math.max(1, Math.floor(this.deps.getCapacity?.() ?? CONFIG.CHATROOM_MAX_CAPACITY));
+    const overflow = overflowMembers(members, capacity);
+
+    // Capacity is a locally-derived rule, not authority granted by a notice writer. If this peer
+    // can already prove from its own current view that it belongs in overflow, move directly.
+    // The monotonic partial-view property in chatroom-capacity.ts makes this safe.
+    if (overflow.some((member) => member.userId === userId)) {
+      await this.selfEvict(roomId, userId);
+      return;
+    }
 
     if (capacityNoticeCoordinator(members) !== userId) return;
-    for (const member of overflowMembers(members, capacity)) {
+    for (const member of overflow) {
       if (member.userId === userId) continue;
       const key = `${roomId}:${member.userId}:${member.joinedAt}`;
       if (this.notified.has(key)) continue;
@@ -177,15 +187,25 @@ export class ChatroomCapacityController {
         resolve(data);
       });
     });
-    const index = Math.max(splitIndex(roomId) + 1, freshFrontierIndex(record, Date.now()));
+    const currentIndex = splitIndex(roomId);
+    const hintedIndex = freshFrontierIndex(record, Date.now());
+    const boundedHint = Math.min(hintedIndex, currentIndex + SPLIT_FRONTIER_MAX_JUMP);
+    const index = Math.max(currentIndex + 1, boundedHint);
     node.put({ index, at: new Date().toISOString() });
     return splitRoomId(base, index);
   }
 
-  private async handleNotice(roomId: string, userId: string, notice: any): Promise<void> {
+  private async handleNotice(roomId: string, userId: string, notice: any, authorKey: string): Promise<void> {
     if (!notice || typeof notice !== 'object') return;
     const mine = this.members.get(userId);
     if (!isNoticeForStay(notice, mine?.joinedAt)) return;
+    if (String(notice.by || '') !== String(authorKey || '')) return;
+    const members = this.activeMembers();
+    const capacity = Math.max(1, Math.floor(this.deps.getCapacity?.() ?? CONFIG.CHATROOM_MAX_CAPACITY));
+    if (Number(notice.capacity) !== capacity) return;
+    if (capacityNoticeCoordinator(members) !== notice.by) return;
+    if (!overflowMembers(members, capacity).some((member) =>
+      member.userId === userId && member.joinedAt === mine?.joinedAt)) return;
     const stayKey = `${roomId}:${notice.evicteeJoinedAt}`;
     if (this.handled.has(stayKey)) return;
     this.handled.add(stayKey);

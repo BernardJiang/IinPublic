@@ -1,7 +1,7 @@
 import { GPSCoordinate } from '../../shared/types';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
-import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { ChatroomCapacityController } from './chatroom-capacity-controller';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_GLOBAL_ROOM_ID, techSupportRosterMember } from '../../shared/techsupport';
@@ -214,9 +214,14 @@ export class WebChatroomService {
 
   async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
     const chatroomPath = getLocationChatroomPath(location);
-    const chatroomId = chatroomPath[chatroomPath.length - 1] || CONFIG.GLOBAL_CHATROOM_ID;
+    const chatroomId = getAutomaticLocationChatroomId(location);
     console.log(`🔍 Finding hierarchical chatroom: ${chatroomPath.join(' → ')} -> ${chatroomId}`);
     return chatroomId;
+  }
+
+  /** Exact GPS is retained only in this process for local room routing; it is never published. */
+  updateLocalUserLocation(userId: string, location: GPSCoordinate): void {
+    this.userLocations.set(userId, location);
   }
 
   /**
@@ -237,6 +242,7 @@ export class WebChatroomService {
     location: GPSCoordinate,
     userId: string,
     lastChatroomId?: string,
+    locationConfirmed = true,
   ): Promise<string> {
     console.log(`🔍 Finding optimal chatroom for user ${userId}`);
     console.log(`  Location: ${location.latitude}, ${location.longitude}`);
@@ -245,10 +251,16 @@ export class WebChatroomService {
     // Store user location for FIFO eviction
     this.userLocations.set(userId, location);
 
-    // If no last chatroom, start at Global
+    // A placeholder boot location must never assign a false grid. The app automatically moves
+    // this first-time user after its real GPS fix resolves.
     if (!lastChatroomId) {
-      console.log(`  → New user, starting at Global`);
-      return CONFIG.GLOBAL_CHATROOM_ID;
+      if (!locationConfirmed) {
+        console.log(`  → New user, location pending; using temporary Global room`);
+        return CONFIG.GLOBAL_CHATROOM_ID;
+      }
+      const locationRoom = getAutomaticLocationChatroomId(location);
+      console.log(`  → New user, entering blurred-grid room: ${locationRoom}`);
+      return locationRoom;
     }
 
     // Re-entering user: always rejoin last room (even if empty)
@@ -268,10 +280,6 @@ export class WebChatroomService {
     onMoved?: (newChatroomId: string) => void,
   ): Promise<void> {
     this.currentChatroomId = chatroomId;
-
-    // Get user's location from the local map
-    const userLocation = this.userLocations.get(userId);
-    console.log(`🗺️  User location from Map:`, userLocation);
 
     const userData: any = {
       joinedAt: new Date().toISOString(),
@@ -366,77 +374,9 @@ export class WebChatroomService {
     await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
     await this.recordRoomVisit(chatroomId, userId);
 
-    // Store location in a dedicated path for reliable retrieval
-    // This is non-blocking - if it fails, we still allow the user to join
-    if (userLocation) {
-      console.log(`📍 Storing location in dedicated path for user ${userId}`);
-
-      // Helper function to attempt location write with retry
-      const writeLocationWithRetry = async (maxRetries: number = 3): Promise<void> => {
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            await new Promise<void>((resolve, reject) => {
-              const timeoutId = setTimeout(() => {
-                reject(new Error('Location write timeout'));
-              }, 2000); // 2 second timeout per attempt
-
-              gun
-                .get('chatrooms')
-                .get(chatroomId)
-                .get('locations')
-                .get(userId)
-                .put(
-                  {
-                    latitude: userLocation.latitude,
-                    longitude: userLocation.longitude,
-                    accuracy: userLocation.accuracy,
-                    timestamp: userLocation.timestamp.toISOString(),
-                  },
-                  (ack: any) => {
-                    clearTimeout(timeoutId);
-                    if (ack.err) {
-                      console.error(
-                        `❌ [Attempt ${attempt}/${maxRetries}] Failed to write location:`,
-                        ack.err,
-                      );
-                      reject(new Error(ack.err));
-                    } else {
-                      console.log(`✅ Successfully wrote location for user ${userId}`);
-                      resolve();
-                    }
-                  },
-                );
-            });
-
-            // Success! Break out of retry loop
-            return;
-          } catch (error) {
-            if (attempt === maxRetries) {
-              // Final attempt failed - log warning but don't throw
-              console.warn(
-                `⚠️  Location write failed after ${maxRetries} attempts. Continuing without location storage.`,
-              );
-              console.warn(`   This may affect FIFO eviction routing for user ${userId}`);
-            } else {
-              // Wait before retry (exponential backoff)
-              const delayMs = attempt * 500;
-              console.log(`   Retrying in ${delayMs}ms...`);
-              await new Promise((resolve) => setTimeout(resolve, delayMs));
-            }
-          }
-        }
-      };
-
-      // Fire and don't wait - make it non-blocking
-      writeLocationWithRetry().catch((err) => {
-        console.warn(`⚠️  Background location write encountered error:`, err);
-      });
-
-      // Give it a brief moment to complete (but don't block on it)
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    } else {
-      console.log(`⚠️  No location in Map for user ${userId}`);
-    }
+    // Legacy builds wrote exact GPS under this public room path. Room routing needs exact GPS only
+    // in the local `userLocations` map above, so remove any legacy row instead of republishing it.
+    gun.get('chatrooms').get(chatroomId).get('locations').get(userId).put(null);
 
     // Brief pause for Gun peer propagation.
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -732,6 +672,8 @@ export class WebChatroomService {
           },
         );
     });
+    // Best-effort privacy migration for rows written by older releases.
+    gun.get('chatrooms').get(chatroomId).get('locations').get(userId).put(null);
     await this.syncLeaveWithServer(chatroomId, userId);
     console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }

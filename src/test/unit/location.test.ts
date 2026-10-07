@@ -15,7 +15,8 @@ describe('LocationPrivacy', () => {
 
       expect(blurred.region).toMatch(/^region_40\.71_-74\.01$/);
       expect(blurred.chatrooms).toEqual([]);
-      expect(blurred.trueLocation).toEqual(coordinate);
+      expect(JSON.stringify(blurred)).not.toContain('trueLocation');
+      expect(JSON.stringify(blurred)).not.toContain('40.7128');
     });
 
     it('should consistently blur similar coordinates to the same region', () => {
@@ -37,6 +38,29 @@ describe('LocationPrivacy', () => {
       const blurred2 = LocationPrivacy.blurLocation(coord2);
 
       expect(blurred1.region).toBe(blurred2.region);
+    });
+
+    it('strips exact GPS from a legacy blurred-location object before publication', () => {
+      const legacy = {
+        region: 'region_40.71_-74.01',
+        chatrooms: ['one', 'one'],
+        trueLocation: { latitude: 40.7128, longitude: -74.006, accuracy: 10 },
+      } as any;
+
+      expect(LocationPrivacy.sanitizeBlurredLocation(legacy)).toEqual({
+        region: 'region_40.71_-74.01',
+        chatrooms: ['one'],
+      });
+    });
+
+    it('converts only the public grid id to a coarse centre for distance features', () => {
+      expect(LocationPrivacy.coordinateFromRegion('region_40.71_-74.01')).toEqual({
+        latitude: 40.715,
+        longitude: -74.005,
+        accuracy: 1000,
+        timestamp: new Date(0),
+      });
+      expect(LocationPrivacy.coordinateFromRegion('not-a-grid')).toBeNull();
     });
   });
 
