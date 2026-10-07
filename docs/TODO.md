@@ -875,7 +875,7 @@ review capacity is available and the issue is promoted after the website/Android
   same answers. Decide the product rule (re-score stored answers on edit vs. keep matches), then
   implement it.
 
-- [ ] **OPEN-42 — "New talk" toast after the chatbot already answered (found 2026-10-07).** When
+- [x] **OPEN-42 — "New talk" toast after the chatbot already answered (found 2026-10-07; done 2026-10-07: when the chatbot is about to answer, the toast — and the hidden-page native notification — reads "🤖 Your chatbot answered {name}'s talk: {title}" instead).** When
   a received Talk is answered automatically (🤖), the "New talk from …" notification still fires
   first, implying the user must act. Show an "answered automatically by your chatbot" notice
   instead, or nothing.

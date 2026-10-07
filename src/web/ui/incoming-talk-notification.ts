@@ -22,11 +22,16 @@ export function displayIncomingTalk(
     timestamp: string;
     isOwnTalk: boolean;
     fullTalk: any;
+    /** OPEN-42: the chatbot is answering it — say so instead of "New talk" (nothing to do). */
+    autoAnsweredByChatbot?: boolean;
   },
   deps: DisplayIncomingTalkDeps,
 ): void {
   if (!talk.isOwnTalk) {
-    const message = deps.tf('newTalkNotification', { name: talk.authorName, title: talk.title });
+    const message = deps.tf(
+      talk.autoAnsweredByChatbot ? 'talksAutoAnsweredNotification' : 'newTalkNotification',
+      { name: talk.authorName, title: talk.title },
+    );
     deps.showNotification(message, 'info');
     notifyNativeWhileHidden(message);
     const authorId = talk.fullTalk?.authorId;

@@ -99,3 +99,15 @@ describe('native notification while hidden (OPEN-38)', () => {
     expect(() => notifyNativeWhileHidden('x')).not.toThrow();
   });
 });
+
+describe('incoming talk the chatbot answers (OPEN-42)', () => {
+  it('says the chatbot answered it instead of "New talk"', () => {
+    const d = deps();
+    displayIncomingTalk(talk({ autoAnsweredByChatbot: true }), d);
+    expect(d.showNotification).toHaveBeenCalledWith(
+      tf('talksAutoAnsweredNotification', { name: 'Alice', title: 'My Talk' }),
+      'info',
+    );
+    expect(d.showNotification).not.toHaveBeenCalledWith(expect.stringContaining('newTalkNotification'), expect.anything());
+  });
+});

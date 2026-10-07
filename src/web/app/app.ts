@@ -3541,6 +3541,7 @@ export class IinPublicApp {
     // repository read-back verification complete.
     await this.talkService.cacheReceivedTalk(payload.talkId, talkData);
     this.uiManager.displayIncomingTalk({
+      autoAnsweredByChatbot: this.chatbotWillAnswer(payload.talkId, talkData, payload.authorId),
       id: payload.talkId,
       title: String(payload.title || (talkData as any).title || 'Talk'),
       authorName: payload.authorName || 'Unknown',
@@ -5165,6 +5166,39 @@ export class IinPublicApp {
   }
 
   /**
+   * Already answered for THIS author on this device (manually, or by an earlier chatbot pass) —
+   * the response was sent then; never re-answer it or relabel a manual answer as 🤖. The same
+   * content announced by a different person is still auto-answered for them.
+   */
+  private alreadyAnsweredForAuthor(contentId: string, authorId: string): boolean {
+    const answeredTalkId = contentId ? getAnsweredTalkByContent()[contentId] : undefined;
+    const answeredSenders = answeredTalkId ? getMyTalks()[answeredTalkId]?.senders || [] : [];
+    return answeredSenders.includes(authorId);
+  }
+
+  private chatbotHasAnswersFor(talkId: string, contentId: string, talkData: any): boolean {
+    return !!this.uiManager.getChatbotTemplate(talkId)
+      || (!!contentId && contentId !== talkId && !!this.uiManager.getChatbotTemplate(contentId))
+      || !!this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
+  }
+
+  /**
+   * OPEN-42: true when the chatbot is about to answer this talk on its own, so the user is told
+   * "answered automatically" instead of a "New talk" notice that implies they must act.
+   */
+  private chatbotWillAnswer(talkId: string, talkData: any, authorId: string): boolean {
+    if (!authorId || authorId === this.currentUser?.id || !this.uiManager.getChatbotEnabled()) return false;
+    if (this.chatbotAutoReplySentForPair.has(this.talkRevisionPairKey(talkId, authorId, talkData))) return false;
+    let contentId = '';
+    try {
+      contentId = computeTalkIdFromTalkData(talkData);
+    } catch {
+      return false;
+    }
+    return !this.alreadyAnsweredForAuthor(contentId, authorId) && this.chatbotHasAnswersFor(talkId, contentId, talkData);
+  }
+
+  /**
    * When chatbot is on and we have a saved template for this talk, reply once per announcer
    * (e.g. Bob re-broadcasts the same talk Tom created — Jerry auto-replies on first receipt, not only on Gun replay).
    */
@@ -5185,21 +5219,11 @@ export class IinPublicApp {
       return;
     }
     const contentId = computeTalkIdFromTalkData(talkData);
-    // Already answered for THIS author on this device (manually, or by an earlier chatbot pass)
-    // — the response was sent then; never re-answer it or relabel a manual answer as 🤖. The
-    // same content announced by a different person is still auto-answered for them.
-    const answeredTalkId = contentId ? getAnsweredTalkByContent()[contentId] : undefined;
-    const answeredSenders = answeredTalkId ? getMyTalks()[answeredTalkId]?.senders || [] : [];
-    if (answeredSenders.includes(authorId)) {
+    if (this.alreadyAnsweredForAuthor(contentId, authorId)) {
       console.log('🤖 Chatbot auto-reply skipped: content already answered', { talkId, contentId });
       return;
     }
-    const canAuto =
-      !!this.uiManager.getChatbotTemplate(talkId) ||
-      (!!contentId &&
-        contentId !== talkId &&
-        !!this.uiManager.getChatbotTemplate(contentId)) ||
-      !!this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
+    const canAuto = this.chatbotHasAnswersFor(talkId, contentId, talkData);
     if (!canAuto) {
       const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
       if (retries < 6) {
