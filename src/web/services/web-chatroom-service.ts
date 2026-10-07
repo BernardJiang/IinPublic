@@ -1,9 +1,8 @@
 import { GPSCoordinate } from '../../shared/types';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
-import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { ChatroomCapacityController } from './chatroom-capacity-controller';
-import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_GLOBAL_ROOM_ID, techSupportRosterMember } from '../../shared/techsupport';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import {
@@ -43,6 +42,8 @@ export const SERVER_MEMBERS_POLL_MS = 5_000;
 type ChatroomMember = {
   userId: string;
   stageName: string;
+  /** True when this user deliberately entered a room other than their home room. */
+  isTraveler?: boolean;
   joinedAt?: string | Date;
   lastSeen?: string;
   epub?: string;
@@ -108,6 +109,8 @@ export class WebChatroomService {
   private membershipHeartbeatStageName: string | null = null;
   /** Set by the app to expose the CURRENT user's stage name to heartbeat beats (see beat()). */
   private membershipStageNameResolver: (() => string) | null = null;
+  /** Set by the app so every join/heartbeat publishes the current room's travel status. */
+  private membershipTravelerResolver: ((chatroomId: string) => boolean) | null = null;
 
   /**
    * Every room change (manual switch or eviction) runs through this one queue, so two moves can
@@ -126,7 +129,6 @@ export class WebChatroomService {
     this.capacity = new ChatroomCapacityController({
       getGun: () => this.gunService.getGun(),
       fifoEnabled: () => CONFIG.CHATROOM_ENABLE_FIFO,
-      isHierarchyRoom: (roomId) => getAllChatroomIds().includes(roomId),
       isFreshMember: (memberData) => this.isFreshActiveMember(memberData),
       getCapacity: () => chatroomCapacityTestOverride()
         ?? this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
@@ -141,6 +143,10 @@ export class WebChatroomService {
 
   setMembershipStageNameResolver(resolver: () => string): void {
     this.membershipStageNameResolver = resolver;
+  }
+
+  setMembershipTravelerResolver(resolver: (chatroomId: string) => boolean): void {
+    this.membershipTravelerResolver = resolver;
   }
 
   configureActiveExchangeRoom(
@@ -194,10 +200,14 @@ export class WebChatroomService {
       if (!Array.isArray(rows)) return [];
       return rows.flatMap((row): ChatroomMember[] => {
         if (!row || typeof row !== 'object') return [];
-        const record = row as { userId?: unknown; stageName?: unknown };
+        const record = row as { userId?: unknown; stageName?: unknown; isTraveler?: unknown };
         const userId = String(record.userId || '').trim();
         if (!userId) return [];
-        return [{ userId, stageName: String(record.stageName || userId) }];
+        return [{
+          userId,
+          stageName: String(record.stageName || userId),
+          ...(typeof record.isTraveler === 'boolean' ? { isTraveler: record.isTraveler } : {}),
+        }];
       });
     } catch {
       return null;
@@ -214,9 +224,14 @@ export class WebChatroomService {
 
   async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
     const chatroomPath = getLocationChatroomPath(location);
-    const chatroomId = chatroomPath[chatroomPath.length - 1] || CONFIG.GLOBAL_CHATROOM_ID;
+    const chatroomId = getAutomaticLocationChatroomId(location);
     console.log(`🔍 Finding hierarchical chatroom: ${chatroomPath.join(' → ')} -> ${chatroomId}`);
     return chatroomId;
+  }
+
+  /** Exact GPS is retained only in this process for local room routing; it is never published. */
+  updateLocalUserLocation(userId: string, location: GPSCoordinate): void {
+    this.userLocations.set(userId, location);
   }
 
   /**
@@ -237,17 +252,21 @@ export class WebChatroomService {
     location: GPSCoordinate,
     userId: string,
     lastChatroomId?: string,
+    locationConfirmed = true,
   ): Promise<string> {
     console.log(`🔍 Finding optimal chatroom for user ${userId}`);
     console.log(`  Location: ${location.latitude}, ${location.longitude}`);
     console.log(`  Last chatroom: ${lastChatroomId || 'none (new user)'}`);
 
-    // Store user location for FIFO eviction
-    this.userLocations.set(userId, location);
+    // Only a confirmed fix may route a later Global eviction. The boot placeholder must never
+    // send a GPS-less desktop/phone into a fictional regional room.
+    if (locationConfirmed) this.userLocations.set(userId, location);
+    else this.userLocations.delete(userId);
 
-    // If no last chatroom, start at Global
+    // Global is the common first room: it maximizes encounters while the network is small and is
+    // usable by desktops without GPS. Capacity eviction performs the location/unknown routing.
     if (!lastChatroomId) {
-      console.log(`  → New user, starting at Global`);
+      console.log(`  → New user, entering common Global room`);
       return CONFIG.GLOBAL_CHATROOM_ID;
     }
 
@@ -269,16 +288,13 @@ export class WebChatroomService {
   ): Promise<void> {
     this.currentChatroomId = chatroomId;
 
-    // Get user's location from the local map
-    const userLocation = this.userLocations.get(userId);
-    console.log(`🗺️  User location from Map:`, userLocation);
-
     const userData: any = {
       joinedAt: new Date().toISOString(),
       isActive: true,
       lastSeen: new Date().toISOString(),
       userId: userId,
       stageName: stageName || userId, // Use stageName if provided, otherwise fall back to userId
+      isTraveler: this.membershipTravelerResolver?.(chatroomId) === true,
     };
 
     console.log(`👥 Joining chatroom: ${chatroomId} as user: ${userId}`);
@@ -297,7 +313,7 @@ export class WebChatroomService {
     });
     if (alreadyActive) {
       this.watchForEviction(userId, chatroomId, onMoved);
-      await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
+      await this.syncJoinWithServer(chatroomId, userId, userData.stageName, userData.isTraveler);
       await this.recordRoomVisit(chatroomId, userId);
       this.startMembershipHeartbeat(chatroomId, userId, userData.stageName);
       console.log(`✅ Already active in chatroom, rerecording visit: ${chatroomId}`);
@@ -363,80 +379,12 @@ export class WebChatroomService {
     };
 
     await writeUserWithRetry();
-    await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
+    await this.syncJoinWithServer(chatroomId, userId, userData.stageName, userData.isTraveler);
     await this.recordRoomVisit(chatroomId, userId);
 
-    // Store location in a dedicated path for reliable retrieval
-    // This is non-blocking - if it fails, we still allow the user to join
-    if (userLocation) {
-      console.log(`📍 Storing location in dedicated path for user ${userId}`);
-
-      // Helper function to attempt location write with retry
-      const writeLocationWithRetry = async (maxRetries: number = 3): Promise<void> => {
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            await new Promise<void>((resolve, reject) => {
-              const timeoutId = setTimeout(() => {
-                reject(new Error('Location write timeout'));
-              }, 2000); // 2 second timeout per attempt
-
-              gun
-                .get('chatrooms')
-                .get(chatroomId)
-                .get('locations')
-                .get(userId)
-                .put(
-                  {
-                    latitude: userLocation.latitude,
-                    longitude: userLocation.longitude,
-                    accuracy: userLocation.accuracy,
-                    timestamp: userLocation.timestamp.toISOString(),
-                  },
-                  (ack: any) => {
-                    clearTimeout(timeoutId);
-                    if (ack.err) {
-                      console.error(
-                        `❌ [Attempt ${attempt}/${maxRetries}] Failed to write location:`,
-                        ack.err,
-                      );
-                      reject(new Error(ack.err));
-                    } else {
-                      console.log(`✅ Successfully wrote location for user ${userId}`);
-                      resolve();
-                    }
-                  },
-                );
-            });
-
-            // Success! Break out of retry loop
-            return;
-          } catch (error) {
-            if (attempt === maxRetries) {
-              // Final attempt failed - log warning but don't throw
-              console.warn(
-                `⚠️  Location write failed after ${maxRetries} attempts. Continuing without location storage.`,
-              );
-              console.warn(`   This may affect FIFO eviction routing for user ${userId}`);
-            } else {
-              // Wait before retry (exponential backoff)
-              const delayMs = attempt * 500;
-              console.log(`   Retrying in ${delayMs}ms...`);
-              await new Promise((resolve) => setTimeout(resolve, delayMs));
-            }
-          }
-        }
-      };
-
-      // Fire and don't wait - make it non-blocking
-      writeLocationWithRetry().catch((err) => {
-        console.warn(`⚠️  Background location write encountered error:`, err);
-      });
-
-      // Give it a brief moment to complete (but don't block on it)
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    } else {
-      console.log(`⚠️  No location in Map for user ${userId}`);
-    }
+    // Legacy builds wrote exact GPS under this public room path. Room routing needs exact GPS only
+    // in the local `userLocations` map above, so remove any legacy row instead of republishing it.
+    gun.get('chatrooms').get(chatroomId).get('locations').get(userId).put(null);
 
     // Brief pause for Gun peer propagation.
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -479,6 +427,7 @@ export class WebChatroomService {
       // the heartbeat with the pre-rename name) — the beats then clobber the renamed member
       // record back to the old name every beat, and peers' rosters never see the new name.
       const liveName = this.membershipStageNameResolver?.() || stageName;
+      const isTraveler = this.membershipTravelerResolver?.(chatroomId) === true;
       const now = new Date().toISOString();
       // Carry this member's public keys in the roster record: peers who need to encrypt
       // FOR us (epub — talk-body mailbox posting, pair offers) or open a signed mesh
@@ -516,11 +465,12 @@ export class WebChatroomService {
           lastSeen: now,
           userId,
           stageName: liveName,
+          isTraveler,
           epoch: MEMBERSHIP_RUN_EPOCH,
           ...(includeKeys && epub ? { epub } : {}),
           ...(includeKeys && pub ? { pub } : {}),
         });
-      void this.syncMembershipHeartbeatWithServer(chatroomId, userId, liveName, now);
+      void this.syncMembershipHeartbeatWithServer(chatroomId, userId, liveName, now, isTraveler);
     };
     beat();
     this.membershipBeatNow = () => beat(true);
@@ -536,6 +486,7 @@ export class WebChatroomService {
     userId: string,
     stageName: string,
     lastSeen: string,
+    isTraveler: boolean,
   ): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
@@ -545,7 +496,7 @@ export class WebChatroomService {
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stageName, lastSeen }),
+          body: JSON.stringify({ stageName, lastSeen, isTraveler }),
           signal: controller.signal,
         },
       );
@@ -568,14 +519,19 @@ export class WebChatroomService {
   }
 
   /** Register join on server index so GET /members is immediate (not Gun-map lag). */
-  private async syncJoinWithServer(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+  private async syncJoinWithServer(
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+    isTraveler = false,
+  ): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
       await fetch(`${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, stageName: stageName || userId }),
+        body: JSON.stringify({ userId, stageName: stageName || userId, isTraveler }),
         signal: controller.signal,
       });
     } catch (error) {
@@ -732,6 +688,8 @@ export class WebChatroomService {
           },
         );
     });
+    // Best-effort privacy migration for rows written by older releases.
+    gun.get('chatrooms').get(chatroomId).get('locations').get(userId).put(null);
     await this.syncLeaveWithServer(chatroomId, userId);
     console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }
@@ -1006,6 +964,7 @@ export class WebChatroomService {
             ...(typeof memberData.epub === 'string' && memberData.epub ? { epub: memberData.epub } : {}),
             ...(typeof memberData.pub === 'string' && memberData.pub ? { pub: memberData.pub } : {}),
             ...(typeof memberData.epoch === 'string' && memberData.epoch ? { epoch: memberData.epoch } : {}),
+            ...(typeof memberData.isTraveler === 'boolean' ? { isTraveler: memberData.isTraveler } : {}),
           });
         } else if (memberData && (memberData.isActive === false || this.isDefinitelyStale(memberData))) {
           // Only remove on a definite signal (explicitly inactive, or a genuinely old lastSeen).

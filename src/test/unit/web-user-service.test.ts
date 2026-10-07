@@ -24,8 +24,12 @@ describe('WebUserService', () => {
       chatroomPath: ['global', 'north-america', 'usa', 'california', 'san-diego'],
     }));
     const affinity = gunService.put.mock.calls[1][1];
+    const publicLocation = gunService.put.mock.calls[0][1];
+    expect(publicLocation).toEqual({ region: 'region_32.71_-117.17', chatrooms: [] });
     expect(JSON.stringify(affinity)).not.toContain('latitude');
     expect(JSON.stringify(affinity)).not.toContain('longitude');
+    expect(JSON.stringify(publicLocation)).not.toContain('latitude');
+    expect(JSON.stringify(publicLocation)).not.toContain('longitude');
   });
 
   it('creates a public user record and stores owner-only fields privately', async () => {
@@ -57,6 +61,11 @@ describe('WebUserService', () => {
           addedAt: new Date('2026-04-21T11:00:00.000Z'),
         },
       ],
+      location: {
+        region: 'region_40.71_-74.01',
+        chatrooms: [],
+        trueLocation: { latitude: 40.7128, longitude: -74.006, accuracy: 10 },
+      } as any,
       pub: pair.pub,
       epub: pair.epub,
     });
@@ -71,6 +80,8 @@ describe('WebUserService', () => {
     expect(publicRecord.languages).toEqual(['en', 'fr']);
     expect(publicRecord.interests).toEqual([{ id: 'coffee', name: 'Coffee', category: 'other', popularity: 1 }]);
     expect(publicRecord.knownPeople).toEqual([]);
+    expect(publicRecord.location).toEqual({ region: 'region_40.71_-74.01', chatrooms: [] });
+    expect(JSON.stringify(publicRecord.location)).not.toContain('trueLocation');
     expect(publicRecord.headshot).toBe('data:image/png;base64,abc');
     const createdUserId = publicRecord.id;
     expect(gunService.put).toHaveBeenCalledWith(

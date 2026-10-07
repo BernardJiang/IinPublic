@@ -55,4 +55,9 @@ describe('resolveChatroomTitle', () => {
     hierarchy.getFlatChatroomList.mockReturnValue([{ id: 'global', name: 'Global', icon: '🌍' }]);
     expect(resolveChatroomTitle('global', [customRoom({ id: 'global', name: 'Custom Global' })])).toBe('💬 Custom Global');
   });
+
+  it('labels non-geographic Global overflow rooms as Global groups', () => {
+    expect(resolveChatroomTitle('global-unknown', [])).toBe('🌍 Global · Group 2');
+    expect(resolveChatroomTitle('global-unknown_part_2', [])).toBe('🌍 Global · Group 3');
+  });
 });

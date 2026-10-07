@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-05.
+Last reconciled: 2026-10-07.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -18,6 +18,94 @@ move its outcome and verification evidence to `docs/completed.md`, remove it her
 its ID.
 
 ## Active execution queue — website and Android first
+
+- [ ] **OPEN-40 — Make blurred-location micro-rooms safe at arena scale (10,000 people in one
+  place).** Every first-time user enters the bounded Global room so a small population can find one
+  another and GPS-less desktops remain useful. When Global is full, its oldest ordinary member
+  moves to a coarse coordinate-grid room if that device has a confirmed local fix, or to a bounded
+  non-geographic Global overflow family otherwise. Country/state borders are never automatic
+  routing inputs. When one coarse grid fills at an arena, ownerless deterministic micro-rooms must
+  be selected before active presence, nearby advertisement, or Talk exchange. Wi-Fi Direct remains
+  only a transport inside the selected active room. Exact global FIFO across all micro-rooms is not
+  implementable together with coordinator-free bounded pre-admission; retain creator-neutral FIFO
+  only within a room unless a future protocol explicitly introduces consensus/admission authority.
+  - [x] **P0 privacy:** separate local exact GPS from public `BlurredLocation`; never publish
+    `trueLocation`, exact latitude/longitude, accuracy, or GPS timestamps under user, room,
+    presence, discovery, or Gun paths. Tombstone legacy per-room exact-location rows encountered
+    by the current user. Keep distance features on blurred grid coordinates and add regression
+    tests proving public records contain no exact GPS.
+  - [x] **P0 Global-first overflow routing:** first entry is Global. A confirmed fix is retained
+    locally for a later capacity move but never forces a user out of Global. A full Global moves
+    the oldest confirmed-location member directly to their coarse coordinate cell, without a
+    political hierarchy; an unknown/untrusted-location member moves to `global-unknown`, then the
+    same fixed-capacity numbered overflow family. These rooms have no fake coordinates and do not
+    appear as geographic points on the map. Manual travel remains in the selected room family.
+  - [x] **P0 traveler visibility:** travel-mode membership publishes an `isTraveler` flag through
+    Gun presence, the REST presence index, the embedded-node relay, and durable presence; other
+    room members see a Traveler badge. Returning home clears it immediately.
+  - [ ] **P0 bounded pre-admission:** replace reactive subscribe-to-everyone-then-evict behavior
+    with a bounded grid control plane and deterministic lane assignment before active presence.
+    For 10,000 users at `C=498`, create at least 21 lanes and normally leave headroom (for example
+    25–32 lanes) so uneven decentralized assignment cannot overflow immediately. A room ID must be
+    a pure function of version, blurred grid, split generation, and lane; first signed presence
+    materializes it and grants no ownership.
+    - [x] Added the pure v1 allocator: no split through `C`, power-of-two lane generations with
+      25% target headroom after overflow, stable public-identity hashing, and coordinate-free room
+      IDs. At 10,000 users and `C=498` it deterministically selects 32 lanes. It is deliberately
+      not driven by a claimed headcount; live assignment advances only from verified overflow
+      certificates.
+    - [x] Wire Internet pre-admission before the public room join: a separate control-only signed
+      presence registry retains at most `C+1` witnesses per lane, serializes concurrent certificate
+      formation, and returns only the missing/current certificate suffix. Clients verify and cache
+      the monotone chain, derive their lane before joining/advertising Talks, refresh every 15s,
+      and republish missing history after an ephemeral relay restart. The relay transports evidence
+      but has no admission authority. LAN/BLE transport for the same records is still open.
+    - [ ] Route Global capacity moves into the same verified pre-admission path before joining a
+      coarse grid. The current verified path covers deliberate/re-entry grid admission; Global's
+      self-eviction currently derives the correct grid but still joins it before the certificate
+      control plane can choose a bounded arena lane.
+  - [ ] **P0 authority hardening:** eviction/frontier messages are untrusted hints, never commands.
+    A receiver moves only after independently validating its signed current-room view and local
+    overflow status. Authenticate all split-control records, reject unreasonable jumps/rollback,
+    and prevent forged `joinedAt` or an arbitrary writer from isolating another user.
+    - [x] A notice now moves a user only when its author/key/capacity match the receiver's current
+      view and the receiver independently computes itself in the monotone overflow set; active
+      overflow members self-correct without waiting for a notice.
+    - [x] Reject far-future, unsafe-integer, and extreme frontier records; cap one hinted jump to
+      64 lanes. The old numbered-room frontier remains only a legacy fallback; automatic blurred
+      grids now use the signed certificate control plane above.
+    - [x] Define bounded ownerless overflow certificates: advancing one generation requires
+      exactly `C+1` distinct, authentic signed presences that were simultaneously live in one
+      lane under the receiver's locally verified protocol checkpoint. Certificates form a
+      monotone contiguous chain, remain historically verifiable, reject tampering/cross-lane
+      witnesses/future timestamps, and expose only a coordinate-free control-scope ID. This
+      closes the control-record format and verification primitive; live discovery/transport
+      wiring remains under bounded pre-admission.
+  - [ ] **P0 non-cooperating/offline members:** capacity safety must not require the displaced
+    phone to be online and perform its own move. Every client independently derives the eligible
+    set; a returning excluded user derives a valid lane before advertising or exchanging.
+    - [x] On the Internet path, an overflow entrant advances before active membership while the
+      existing lane remains at no more than `C`; foreground peers poll forward, and a returning
+      peer uses its durable generation as a no-rollback floor before active presence. Fully
+      offline LAN/BLE convergence still needs the control-evidence transport below.
+  - [ ] **P1 convergence/churn:** define split-generation convergence under Internet/LAN/BLE
+    partitions, stale occupancy, simultaneous arrivals, GPS drift, and grid-boundary neighbors.
+    Add hysteresis and preserve one-active-room stop-before-start behavior.
+  - [ ] **P1 compaction:** expire empty lanes and deterministically compact/merge underfilled lanes
+    after a stability window without silently rebroadcasting old Talks or creating an owner.
+  - [ ] **P1 UI:** display one blurred place plus a simple internal group label and occupancy; do
+    not expose raw `_part_N` or coordinate-bearing IDs. Explain that Nearby exchange reveals an
+    approximate grid, especially at home/work, and retain Contacts-only/Off controls.
+  - [ ] **Verification:** add a deterministic 10,000-identity simulation plus partition, reconnect,
+    churn, malicious-control-record, stale-presence, and boundary tests. Assert ≤498 candidates,
+    ≤configured neighbor limit, no full parent roster subscription, stable lane derivation, safe
+    compaction, no exact GPS publication, and same-room-only Talk exchange. The existing topology
+    formula test and small FIFO tests are insufficient; close the current SPEC-5 coverage gap.
+    - [x] Pure 10,000-identity assignment simulation verifies all identities are assigned across
+      32 non-empty lanes and the deterministic fixture's maximum occupancy remains below 498.
+    - [x] Certificate/control tests cover `C+1`, distinct-key enforcement, tampering, cross-lane
+      witnesses, future records, historical verification, contiguous advancement, no rollback,
+      local offline reuse, and the relay HTTP formation/read path.
 
 - [x] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
   "no deobfuscation file associated with this App Bundle"). Done 2026-10-05.**

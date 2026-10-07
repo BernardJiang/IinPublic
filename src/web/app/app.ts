@@ -43,7 +43,7 @@ import { WebLedgerService } from '../services/web-ledger-service';
 import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
-import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { applyPublicChatroomHierarchy, getAllChatroomIds, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import {
   isRenderableSystemAnnouncement,
@@ -134,6 +134,7 @@ import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../sha
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
+import { MicroRoomPreAdmissionClient } from '../services/micro-room-pre-admission-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
@@ -151,6 +152,10 @@ import {
   type ActiveExchangeRoom,
   type RoomProtocolCheckpoint,
 } from '../../shared/active-exchange-room';
+import {
+  microRoomBelongsToBase,
+  microRoomGenerationForRoom,
+} from '../../shared/micro-room-assignment';
 import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
 import {
   BUNDLED_PROTOCOL_MANIFEST_HISTORY,
@@ -292,6 +297,10 @@ export class IinPublicApp {
   private supportGreetingTimestamp: string | null = null;
   private supportGreetingRendered: string | null = null;
   private presenceClient: P2PPresenceClient | null = null;
+  private microRoomPreAdmissionClient: MicroRoomPreAdmissionClient | null = null;
+  private microRoomBaseGridRoomId: string | null = null;
+  private microRoomRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  private microRoomRefreshInFlight = false;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
@@ -1015,6 +1024,12 @@ export class IinPublicApp {
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
     // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
     this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
+    // Travel is room-membership metadata, not a private UI decoration: peers in the room must
+    // agree that a user deliberately visiting away from their saved home is a traveler.
+    this.chatroomService.setMembershipTravelerResolver((chatroomId) =>
+      this.travelModeActive &&
+      (!this.travelHomeChatroomId || chatroomId !== this.travelHomeChatroomId),
+    );
     this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase(), {
       meshLocalFirst: usesMeshTalkDelivery(this.p2pRuntimeFlags),
     });
@@ -1395,7 +1410,10 @@ export class IinPublicApp {
           .get('location')
           .once((locData: unknown) => resolve(locData));
       });
-      return (data as any)?.trueLocation ?? (data as any) ?? undefined;
+      const region = data && typeof data === 'object' ? (data as { region?: unknown }).region : undefined;
+      return typeof region === 'string'
+        ? LocationPrivacy.coordinateFromRegion(region) ?? undefined
+        : undefined;
     });
     // Get or create user
     await this.initializeUser();
@@ -1448,12 +1466,6 @@ export class IinPublicApp {
     // Best-effort, never a boot blocker.
     void this.deviceHandoffService.publishEpub().catch(() => {});
     this.subscribeToPublicAnnouncements();
-    // Skip when the location we booted with is still the placeholder (index.ts resolves the
-    // real one in the background for a first-ever open with no cache) — updateCurrentLocation
-    // fires this instead once the real fix lands, so the one-time suggestion is never consumed
-    // by a location that was never real.
-    if (this.locationConfirmed) this.showLocationRoomSuggestion();
-
     // Subscribe to member counts for all chatrooms (real-time updates)
     this.subscribeToAllChatroomMemberCounts();
     void this.refreshCustomChatroomsFromServer().then(() => {
@@ -1522,14 +1534,16 @@ export class IinPublicApp {
   /**
    * Cache-first UI (index.ts): called once the real GPS fix resolves in the background, after
    * boot already painted with a cached-or-placeholder location so first paint never waits on it.
-   * A no-op before `initialize()` has run (this.currentUser unset yet — showLocationRoomSuggestion
-   * itself already guards on that) or after manualCleanup.
+   * A no-op before initialization has established a pending first-room assignment.
    */
   updateCurrentLocation(location: GPSCoordinate): void {
     this.currentLocation = location;
     this.locationConfirmed = true;
+    if (this.currentUser) this.chatroomService.updateLocalUserLocation(this.currentUser.id, location);
     this.uiManager.setCurrentLocation(location);
-    this.showLocationRoomSuggestion();
+    if (this.currentUser) {
+      void this.userService.updateUserLocation(this.currentUser.id, location).catch(() => {});
+    }
   }
 
   /**
@@ -1542,22 +1556,6 @@ export class IinPublicApp {
     return this.currentLocation && this.locationConfirmed
       ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
       : undefined;
-  }
-
-  /** Show once per user/device after location has selected a more specific hierarchy room. */
-  private showLocationRoomSuggestion(): void {
-    if (!this.currentUser || !this.currentLocation) return;
-    const key = `iinpublic_location_room_suggestion_shown:${this.currentUser.id}`;
-    if (localStorage.getItem(key)) return;
-    const path = getLocationChatroomPath(this.currentLocation);
-    const roomId = path[path.length - 1];
-    if (!roomId || roomId === this.currentChatroomId) return;
-    const room = getFlatChatroomList().find((entry) => entry.id === roomId);
-    if (!room) return;
-    localStorage.setItem(key, '1');
-    this.uiManager.showLocationRoomSuggestion(room.name, () => {
-      this.uiManager.emit('chatroomChanged', roomId);
-    });
   }
 
   /**
@@ -1745,7 +1743,7 @@ export class IinPublicApp {
     // createUser/getUser above. Waiting here just to observe a relay ack (which a relay-only
     // production hub may never send at all — see WebGunService.put's doc comment) used to make
     // every boot pay for a network round trip it didn't actually need to open the app.
-    if (this.currentLocation) {
+    if (this.currentLocation && this.locationConfirmed) {
       void this.userService.updateUserLocation(this.currentUser.id, this.currentLocation).catch((error) => {
         console.warn('Boot-time location publication skipped (non-fatal):', error);
       });
@@ -1817,7 +1815,9 @@ export class IinPublicApp {
     // Show user creation UI
     const userData = await this.uiManager.showUserCreationDialog();
 
-    const blurredLocation = LocationPrivacy.blurLocation(this.currentLocation!);
+    const blurredLocation = this.locationConfirmed
+      ? LocationPrivacy.blurLocation(this.currentLocation!)
+      : { region: '', chatrooms: [] };
     const pair = this.gunService.getStoredPair();
 
     if (options.rootTechSupport) {
@@ -1862,11 +1862,19 @@ export class IinPublicApp {
     this.loadTravelModeStateFromStorage();
 
     // Find optimal chatroom using hierarchical assignment
-    const chatroomId = await this.chatroomService.findOptimalChatroomHierarchical(
+    let chatroomId = await this.chatroomService.findOptimalChatroomHierarchical(
       this.currentLocation,
       this.currentUser.id,
       lastChatroomId,
+      this.locationConfirmed,
     );
+
+    const automaticBaseGrid = this.locationConfirmed
+      ? getAutomaticLocationChatroomId(this.currentLocation)
+      : null;
+    if (automaticBaseGrid && microRoomBelongsToBase(chatroomId, automaticBaseGrid)) {
+      chatroomId = await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, chatroomId);
+    }
 
     this.currentChatroomId = chatroomId; // Track current chatroom
 
@@ -2283,6 +2291,67 @@ export class IinPublicApp {
   }
 
   /** P2P-I / P2P-O: register live presence and probe local node bridge (stack only). */
+  private async resolveMicroRoomBeforeAdmission(
+    baseGridRoomId: string,
+    currentRoomId: string,
+  ): Promise<string> {
+    const user = this.currentUser;
+    const pair = this.gunService.getStoredPair();
+    if (!user?.id || !pair?.pub || !pair.priv) return currentRoomId;
+    try {
+      const manifestController = await this.ensureProtocolManifestController();
+      const checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
+      this.microRoomPreAdmissionClient ??= new MicroRoomPreAdmissionClient({
+        apiBase: this.getBackendApiBase(),
+        storage: localStorage,
+      });
+      const minimumSplitGeneration = microRoomGenerationForRoom(currentRoomId, baseGridRoomId) ?? 0;
+      const result = await this.microRoomPreAdmissionClient.resolve({
+        userId: user.id,
+        pair,
+        baseGridRoomId,
+        checkpoint,
+        minimumSplitGeneration,
+      });
+      this.microRoomBaseGridRoomId = baseGridRoomId;
+      this.startMicroRoomControlHeartbeat();
+      return result.assignment.roomId;
+    } catch (error) {
+      console.warn('Micro-room pre-admission resolution failed; retaining the last safe room:', error);
+      return currentRoomId;
+    }
+  }
+
+  private startMicroRoomControlHeartbeat(): void {
+    if (this.microRoomRefreshTimer) return;
+    this.microRoomRefreshTimer = setInterval(() => {
+      void this.refreshMicroRoomControl();
+    }, 15_000);
+  }
+
+  private async refreshMicroRoomControl(): Promise<void> {
+    if (this.microRoomRefreshInFlight) return;
+    const baseGridRoomId = this.microRoomBaseGridRoomId;
+    const currentRoomId = this.currentChatroomId;
+    if (!baseGridRoomId || !currentRoomId || !microRoomBelongsToBase(currentRoomId, baseGridRoomId)) {
+      if (this.microRoomRefreshTimer) clearInterval(this.microRoomRefreshTimer);
+      this.microRoomRefreshTimer = null;
+      this.microRoomBaseGridRoomId = null;
+      return;
+    }
+    this.microRoomRefreshInFlight = true;
+    try {
+      const resolved = await this.resolveMicroRoomBeforeAdmission(baseGridRoomId, currentRoomId);
+      if (resolved !== currentRoomId
+        && this.currentChatroomId === currentRoomId
+        && microRoomBelongsToBase(resolved, baseGridRoomId)) {
+        this.uiManager.emit('chatroomChanged', resolved);
+      }
+    } finally {
+      this.microRoomRefreshInFlight = false;
+    }
+  }
+
   private async initP2PPresenceAndBridge(): Promise<void> {
     if (!this.currentUser?.id || isTechSupportUser(this.currentUser)) return;
     const pair = this.gunService.getStoredPair();
@@ -8288,14 +8357,19 @@ export class IinPublicApp {
         }
         this.uiManager.showNotification(this.uiManager.formatTravelReturnedHomeRoom(), 'success');
       }
+      this.chatroomService.announceMembershipNow();
     });
 
     this.uiManager.on('returnHomeFromTravel', async () => {
       if (!this.currentUser) return;
       const locationPath = this.currentLocation ? getLocationChatroomPath(this.currentLocation) : [];
+      const automaticHome = this.currentLocation
+        ? getAutomaticLocationChatroomId(this.currentLocation)
+        : undefined;
       const home =
-        (!this.travelModeActive && locationPath[locationPath.length - 1]) ||
+        (!this.travelModeActive && automaticHome) ||
         this.travelHomeChatroomId ||
+        automaticHome ||
         locationPath[locationPath.length - 1] ||
         'global';
       this.travelModeActive = false;
@@ -8322,6 +8396,7 @@ export class IinPublicApp {
         });
       }
       this.uiManager.showNotification(this.uiManager.formatTravelReturnedHome(), 'success');
+      this.chatroomService.announceMembershipNow();
     });
 
     this.uiManager.on('setHomeChatroom', async (data: { chatroomId: string }) => {
@@ -8336,6 +8411,7 @@ export class IinPublicApp {
         active: this.travelModeActive,
         homeChatroomId: this.travelHomeChatroomId,
       });
+      this.chatroomService.announceMembershipNow();
       this.uiManager.showNotification(this.uiManager.formatTravelHomeSet(this.getChatroomDisplayName(chatroomId)), 'success');
     });
 
@@ -8418,10 +8494,16 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('chatroomChanged', async (chatroomId: string) => {
+    this.uiManager.on('chatroomChanged', async (requestedChatroomId: string) => {
       if (!this.currentUser) {
         return;
       }
+      const automaticBaseGrid = this.currentLocation && this.locationConfirmed
+        ? getAutomaticLocationChatroomId(this.currentLocation)
+        : null;
+      const chatroomId = automaticBaseGrid && requestedChatroomId === automaticBaseGrid
+        ? await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, requestedChatroomId)
+        : requestedChatroomId;
       const previousChatroomId = this.currentChatroomId;
       this.uiManager.setCurrentChatroomId(chatroomId);
 
@@ -8610,6 +8692,7 @@ export class IinPublicApp {
       this.currentLocation = newLocation;
 
       if (this.currentUser) {
+        this.chatroomService.updateLocalUserLocation(this.currentUser.id, newLocation);
         await this.userService.updateUserLocation(this.currentUser.id, newLocation);
 
         if (this.travelModeActive) {

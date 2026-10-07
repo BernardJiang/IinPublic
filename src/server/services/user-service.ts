@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { assertBlockTargetAllowed, assertStageNameAllowed, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { buildUserTagsEnvelope, USER_TAGS_KEY } from '../../shared/user-tags';
 import { blockPairHash } from '../../shared/block-pair';
+import { LocationPrivacy } from '../../shared/location';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
@@ -148,7 +149,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
         blockCount: 0,
         isHidden: false,
       },
-      location: userData.location || { region: '', chatrooms: [] },
+      location: LocationPrivacy.sanitizeBlurredLocation(userData.location),
       languages: userData.languages || ['en'],
       interests: userData.interests || [],
       createdAt: new Date(),
@@ -200,7 +201,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
         blockCount: 0,
         isHidden: false,
       },
-      location: userData.location || { region: '', chatrooms: [] },
+      location: LocationPrivacy.sanitizeBlurredLocation(userData.location),
       languages: userData.languages || ['en'],
       interests: userData.interests || [],
       createdAt: userData.createdAt || new Date(),
@@ -494,28 +495,13 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return this.parseTalkFilters(filtersNode?.filtersJson, userNode?.languages);
   }
 
-  /**
-   * Normalize blurred or raw location nodes from Gun into GPS for intake distance rules.
-   * Web client writes `users/:id/location` (often with `trueLocation`); parent `users/:id` may not embed it.
-   */
+  /** Normalize a public blurred-grid location into its approximate centre for distance rules. */
   private parseStoredLocationForDelivery(raw: unknown): GPSCoordinate | undefined {
     if (!raw || typeof raw !== 'object') return undefined;
     const o = raw as Record<string, unknown>;
-    const inner = o.trueLocation && typeof o.trueLocation === 'object' ? (o.trueLocation as Record<string, unknown>) : o;
-    if (
-      typeof inner.latitude !== 'number' ||
-      typeof inner.longitude !== 'number' ||
-      typeof inner.accuracy !== 'number'
-    ) {
-      return undefined;
-    }
-    const ts = inner.timestamp;
-    return {
-      latitude: Number(inner.latitude),
-      longitude: Number(inner.longitude),
-      accuracy: Number(inner.accuracy),
-      timestamp: ts instanceof Date ? ts : new Date(typeof ts === 'string' || typeof ts === 'number' ? ts : Date.now()),
-    };
+    return typeof o.region === 'string'
+      ? LocationPrivacy.coordinateFromRegion(o.region) ?? undefined
+      : undefined;
   }
 
   async getUserDeliveryContext(userId: string): Promise<{
@@ -551,7 +537,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
   }
 
   async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {
-    await this.gunService.put(`users/${userId}/location`, location);
+    await this.gunService.put(`users/${userId}/location`, LocationPrivacy.blurLocation(location));
   }
 
   async setUserOffline(userId: string): Promise<void> {

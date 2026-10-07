@@ -118,7 +118,7 @@ The system supports:
 | **Just-once Answer** | A user choice used for the current response but not reusable by the chatbot. |
 | **Chatroom** | A public, location-based or user-defined "place" where users can find each other; all conversations remain one-on-one. |
 | **Business Chatroom** | A user-defined chatroom bound to a specific brand and address (e.g., a bar). |
-| **Traveller** | A user present in a chatroom outside their blurred true-location region. |
+| **Traveler** | A user deliberately present in a chatroom other than their selected home room. |
 | **Tag** | The simplest talk unit: a single keyword or short phrase with a checkbox (checked = interested / match, unchecked = not interested / ignore). No question-mark required. No answers beyond the checked/unchecked state. |
 | **Flow** | The Linear Thread. A path-graph talk whose question context rolls forward from the immediately preceding context hash and selected answer. |
 | **Survey** | One or more independent Q/A pairs. Every question starts from the root context but still commits to its own question and complete choice set. |
@@ -250,20 +250,30 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 ### 3.3 Chatroom Management
 
-- **FR-CR-1**: The system SHALL maintain a **global chatroom** accessible to all users at app start.
-- **FR-CR-2**: The system SHALL automatically place new users into the global chatroom first.
+- **FR-CR-1**: Every first-time user SHALL enter the bounded **Global** active room, maximizing the
+  chance of meeting another user while the network is small and supporting desktop/GPS-less users.
+  Global SHALL obey the same capacity as every other room and SHALL NOT become unbounded.
+- **FR-CR-2**: A confirmed exact GPS fix SHALL remain local and provide only a coarse coordinate
+  cell for capacity routing. Receiving a first fix SHALL NOT automatically pull an active user out
+  of Global. A neutral, missing, or untrusted location SHALL NOT select a false geographic room.
 - **FR-CR-3**: Every chatroom SHALL use the same global capacity threshold (current production
   value 498 active users; no per-room override). When a chatroom exceeds that threshold, the
   system SHALL:
-  - Split the room into finer location-based subrooms (continent → country → state → city → district → GPS grid).
-  - Move users into appropriate subrooms based on GPS coordinates.
+  - From Global, move the longest-staying ordinary member directly to their coarse coordinate cell
+    when a confirmed local fix exists; do not route automatically through continent/country/state.
+  - From Global without a confirmed fix, move that member to the bounded non-geographic Global
+    overflow family. From any other full room, preserve the selected room family when splitting.
 - **FR-CR-4**: The system SHALL automatically create pure location-based chatrooms; users SHALL NOT be able to delete these automatic rooms.
 - **FR-CR-5**: Any user SHALL be able to publish a **user-defined chatroom** descriptor (including a business chatroom). Creation makes that user the first ordinary participant; it grants no ownership, moderation, reserved seat, rename, deletion, or admission power.
 - **FR-CR-6**: Each **business chatroom** descriptor MAY include a display name, address, GPS coordinates, and description. The creator MAY sign the descriptor as its originator, but that signature SHALL NOT confer room authority or prove a trademark/business claim. The protocol SHALL permit duplicate display names and distinguish rooms by cryptographic ID.
 - **FR-CR-7**: When a chatroom is full and a new user enters, the system SHALL identify the longest-staying user, notify that user, and remove that user to maintain capacity (FIFO eviction). The room creator SHALL be evicted on exactly the same basis as every other participant.
-- **FR-CR-8**: The system SHALL store **true location** from GPS and use a blurred region for all public operations.
+- **FR-CR-8**: The system SHALL keep **true location** only in local process/device storage and use
+  a blurred region for every public, peer, relay, room, presence, discovery, and Gun operation.
+  Public records SHALL NOT contain exact latitude/longitude, GPS accuracy, timestamps, or a nested
+  `trueLocation` field.
 - **FR-CR-9**: A user MAY belong to multiple chatrooms that include their true location.
-- **FR-CR-10**: A user MAY actively "travel" to exactly one remote chatroom at a time and SHALL be marked as **traveller** there.
+- **FR-CR-10**: A user MAY actively "travel" to exactly one remote chatroom at a time and SHALL
+  publish a **traveler** membership marker visible to that room. Returning home SHALL clear it.
 - **FR-CR-11 (Content-Addressed Community Identity)**: Each chatroom/community SHALL have a stable, globally unique identifier derived from its immutable root descriptor: `CommunityID = CIDv1(CommunityRootObject)`. The descriptor MAY contain the creator's public key to distinguish otherwise identical roots, but the key is provenance rather than authority. A community address alone SHALL be sufficient to join, discover peers, and synchronize content; no centralized name or trademark registry is required.
 - **FR-CR-12 (No Community Roles)**: User-defined chatrooms SHALL NOT have an owner, moderator, privileged member, guest role, creator-reserved seat, or creator-controlled admission. Every active participant follows the same room rules. A participant may locally leave, hide, block, or distrust a room or peer, but no participant can rename or delete the shared room for everyone.
 - **FR-CR-13 (One Active Exchange Room)**: A device SHALL have at most one active exchange room. A user MAY retain several memberships, but inactive rooms SHALL NOT create roster subscriptions, peer discovery, radio advertisements, Talk gossip, or automatic peer connections. Reaching another room's population requires an explicit user switch.
@@ -654,24 +664,27 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 ## 6. Architecture Overview
 
-### 6.1 Chatroom Hierarchy (Hybrid Approach)
+### 6.1 Chatroom Routing and Navigation
 
 ```
 /chatrooms
 ├── global (global capacity: 498)
-├── /continent/{continent}
-│   ├── /country/{country}
-│   │   ├── /state/{state}
-│   │   │   ├── /city/{city}
-│   │   │   │   ├── /district/{district}
-│   │   │   │   │   └── /gps-grid/{grid-hash}
+├── global-unknown[/_part_N]       (non-geographic GPS-less overflow)
+├── /gps-grid/{coarse-cell}        (automatic coordinate routing)
+│   └── /micro-room/{version-generation-lane}
+└── /user-defined/{chatroomId}     (manual/custom/business destinations)
 ```
 
 **Implementation Details:**
-- Gun.js native spatial queries for GPS grid lookups
-- Custom geographical nodes for administrative boundaries
-- Automatic room splitting when capacity exceeded (FIFO eviction of longest-staying user per FR-CR-7)
-- Room merging when occupancy drops below threshold
+- Every new identity enters Global first; later GPS acquisition only prepares a possible capacity
+  move and does not silently change the active audience.
+- Automatic geographic routing uses coarse coordinate cells only. Political and administrative
+  boundaries may be navigation labels, but are never authoritative automatic routing inputs.
+- A GPS-less/untrusted-location Global eviction uses the non-geographic Global overflow family.
+  It has no fake Ocean/North-Pole coordinate and is therefore omitted from geographic map points.
+- Automatic room splitting uses FIFO eviction of the longest-staying ordinary user per FR-CR-7.
+- A manual remote-room visit remains in that destination's split family and publishes the traveler
+  marker; it is not silently rerouted to the user's physical location.
 - Business chatrooms (FR-CR-6) stored as user-defined nodes alongside the automatic hierarchy
 
 **GPS Grid ID derivation:** The `{grid-hash}` node key is produced by rounding the device's geo coordinates to the grid precision, then hashing the rounded value together with the app ID. This ensures that two users at nearby coordinates produce the same hash (and land in the same chatroom node) without exposing exact GPS positions in the graph path.
@@ -1365,7 +1378,9 @@ users/
 
 chatrooms/
   global/
-  continent/<name>/country/<name>/state/<name>/city/<name>/district/<name>/gps-grid/<hash>/
+  global-unknown[/_part_N]/          ← non-geographic fixed-capacity overflow
+  region_<coarse-lat>_<coarse-lng>/  ← automatic coarse coordinate cells
+  micro/<version-generation-lane>/   ← coordinate-free arena overflow lanes
   user-defined/<chatroomId>/    ← user and business chatrooms
 
 talks/

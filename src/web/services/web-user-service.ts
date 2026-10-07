@@ -198,7 +198,7 @@ export class WebUserService {
       stageName: user.stageName,
       profile: publicProfile,
       reputation: user.reputation,
-      location: user.location,
+      location: LocationPrivacy.sanitizeBlurredLocation(user.location),
       languages: user.languages || ['en'],
       interests: user.interests || [],
       createdAt: user.createdAt,
@@ -575,7 +575,7 @@ export class WebUserService {
         blockCount: 0,
         isHidden: false,
       },
-      location: userData.location || { region: '', chatrooms: [] },
+      location: LocationPrivacy.sanitizeBlurredLocation(userData.location),
       languages: userData.languages || ['en'],
       interests: userData.interests || [],
       talkFilters: userData.talkFilters || getDefaultTalkIntakeFilters(userData.languages),
@@ -642,7 +642,10 @@ export class WebUserService {
 
   async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {
     const blurredLocation = LocationPrivacy.blurLocation(location);
-    await this.gunService.put(`users/${userId}/location`, blurredLocation);
+    await this.gunService.put(
+      `users/${userId}/location`,
+      LocationPrivacy.sanitizeBlurredLocation(blurredLocation),
+    );
     const chatroomPath = getLocationChatroomPath(location);
     const chatroomId = chatroomPath[chatroomPath.length - 1] || 'global';
     // Public affinity is a room identifier/path only — never publish raw GPS.

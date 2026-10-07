@@ -310,8 +310,8 @@ describe('Service Integration Tests', () => {
         maxDistanceMiles: 50,
         requireGoodGrammar: true,
         blockDirtyWords: true,
-        allowedTalkTypes: ['tag'],
         contactsOnlyTalks: false,
+        allowedTalkTypes: ['tag'],
         customBlockedTerms: [],
         dirtyWords: ['fuck', 'cunt', 'bitch', 'cock'],
       });

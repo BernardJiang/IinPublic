@@ -30,7 +30,7 @@ describe('EmbeddedHubRelayClient', () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => [
-        { userId: 'alice', stageName: 'Alice' },
+        { userId: 'alice', stageName: 'Alice', isTraveler: true },
         { userId: 'bob' },
         { userId: '' },
       ],
@@ -43,7 +43,7 @@ describe('EmbeddedHubRelayClient', () => {
     });
 
     await expect(client.listMembers('global')).resolves.toEqual([
-      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'alice', stageName: 'Alice', isTraveler: true },
       { userId: 'bob', stageName: 'bob' },
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -64,13 +64,13 @@ describe('EmbeddedHubRelayClient', () => {
       requestTimeoutMs: 500,
     });
 
-    await client.addMember('global', 'alice', 'Alice');
+    await client.addMember('global', 'alice', 'Alice', true);
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8080/api/chatrooms/global/members',
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 'alice', stageName: 'Alice' }),
+        body: JSON.stringify({ userId: 'alice', stageName: 'Alice', isTraveler: true }),
       }),
     );
   });

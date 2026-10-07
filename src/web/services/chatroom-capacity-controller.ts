@@ -1,7 +1,7 @@
 import { CONFIG } from '../../shared/config';
 import type { GPSCoordinate } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
-import { findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
 import {
   capacityNoticeCoordinator,
   isNoticeForStay,
@@ -11,6 +11,7 @@ import {
 } from '../../shared/chatroom-capacity';
 import {
   SPLIT_FRONTIER_PATH,
+  SPLIT_FRONTIER_MAX_JUMP,
   freshFrontierIndex,
   splitBaseId,
   splitIndex,
@@ -26,8 +27,6 @@ export interface ChatroomCapacityDeps {
   fifoEnabled: () => boolean;
   /** Active global protocol-epoch capacity; never a room metadata value. */
   getCapacity?: () => number;
-  /** True for rooms in the location hierarchy (they have a child room); false for custom/split rooms. */
-  isHierarchyRoom: (roomId: string) => boolean;
   /** Same freshness rule the roster uses (drops members whose heartbeat has expired). */
   isFreshMember: (memberData: any) => boolean;
   getCurrentRoom: () => string | undefined;
@@ -50,13 +49,12 @@ export interface ChatroomCapacityDeps {
  * Keeps every room at or under the ONE unified capacity (CONFIG.CHATROOM_MAX_CAPACITY) without any
  * referee. Every room uses FIFO; room shape only determines the destination:
  *
- *  - Hierarchy rooms (Global, continents, cities...): FIFO down the tree. The room's newest member
- *    is the deterministic notice coordinator and writes an eviction NOTICE for each overflow
- *    (oldest) member — one record per author, so no two peers ever write the same key. This role
- *    grants no room authority. The evictee moves ITSELF to the child room for its own location,
- *    ignoring the notice if it has already left (a manual move wins).
- *  - Rooms with no child (custom rooms, the deepest regional room): an oldest overflow member
- *    moves itself to the next numbered room (`x_part_2`, `_part_3`...).
+ *  - Global is the common first room. An oldest overflow member with a confirmed location moves
+ *    directly to its neutral blurred-coordinate cell; one without location moves to the virtual,
+ *    non-geographic Global overflow family.
+ *  - Every other room — geographic, named, custom, or manually visited — overflows within its own
+ *    family (`x_part_2`, `_part_3`...). This preserves a traveler's explicit destination and never
+ *    infers a country/state hierarchy from approximate coordinates.
  *
  * Either way the move is an ordinary join, so the same check runs in the destination room and the
  * overflow ripples on until no room is over capacity.
@@ -95,8 +93,8 @@ export class ChatroomCapacityController {
     });
     this.offMembers = () => memberSub.off();
 
-    const noticeSub = room.get('evictions').get(userId).map().on((notice: any) => {
-      void this.handleNotice(roomId, userId, notice);
+    const noticeSub = room.get('evictions').get(userId).map().on((notice: any, authorKey: string) => {
+      void this.handleNotice(roomId, userId, notice, authorKey);
     });
     this.offNotices = () => noticeSub.off();
 
@@ -145,9 +143,18 @@ export class ChatroomCapacityController {
     // Not visible in our own list yet: wait for our own record to arrive before judging.
     if (!members.some((m) => m.userId === userId)) return;
     const capacity = Math.max(1, Math.floor(this.deps.getCapacity?.() ?? CONFIG.CHATROOM_MAX_CAPACITY));
+    const overflow = overflowMembers(members, capacity);
+
+    // Capacity is a locally-derived rule, not authority granted by a notice writer. If this peer
+    // can already prove from its own current view that it belongs in overflow, move directly.
+    // The monotonic partial-view property in chatroom-capacity.ts makes this safe.
+    if (overflow.some((member) => member.userId === userId)) {
+      await this.selfEvict(roomId, userId);
+      return;
+    }
 
     if (capacityNoticeCoordinator(members) !== userId) return;
-    for (const member of overflowMembers(members, capacity)) {
+    for (const member of overflow) {
       if (member.userId === userId) continue;
       const key = `${roomId}:${member.userId}:${member.joinedAt}`;
       if (this.notified.has(key)) continue;
@@ -177,15 +184,25 @@ export class ChatroomCapacityController {
         resolve(data);
       });
     });
-    const index = Math.max(splitIndex(roomId) + 1, freshFrontierIndex(record, Date.now()));
+    const currentIndex = splitIndex(roomId);
+    const hintedIndex = freshFrontierIndex(record, Date.now());
+    const boundedHint = Math.min(hintedIndex, currentIndex + SPLIT_FRONTIER_MAX_JUMP);
+    const index = Math.max(currentIndex + 1, boundedHint);
     node.put({ index, at: new Date().toISOString() });
     return splitRoomId(base, index);
   }
 
-  private async handleNotice(roomId: string, userId: string, notice: any): Promise<void> {
+  private async handleNotice(roomId: string, userId: string, notice: any, authorKey: string): Promise<void> {
     if (!notice || typeof notice !== 'object') return;
     const mine = this.members.get(userId);
     if (!isNoticeForStay(notice, mine?.joinedAt)) return;
+    if (String(notice.by || '') !== String(authorKey || '')) return;
+    const members = this.activeMembers();
+    const capacity = Math.max(1, Math.floor(this.deps.getCapacity?.() ?? CONFIG.CHATROOM_MAX_CAPACITY));
+    if (Number(notice.capacity) !== capacity) return;
+    if (capacityNoticeCoordinator(members) !== notice.by) return;
+    if (!overflowMembers(members, capacity).some((member) =>
+      member.userId === userId && member.joinedAt === mine?.joinedAt)) return;
     const stayKey = `${roomId}:${notice.evicteeJoinedAt}`;
     if (this.handled.has(stayKey)) return;
     this.handled.add(stayKey);
@@ -197,8 +214,10 @@ export class ChatroomCapacityController {
     // Already leaving/left by hand: the notice no longer applies.
     if (this.deps.getCurrentRoom() !== roomId) return;
     const location = this.deps.getLocation(userId);
-    const child = this.deps.isHierarchyRoom(roomId)
-      ? (location ? findAppropriateChildChatroom(roomId, location) : null)
+    const child = roomId === CONFIG.GLOBAL_CHATROOM_ID
+      ? (location
+          ? getAutomaticLocationChatroomId(location)
+          : CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID)
       : await this.chooseSplitTarget(roomId);
     if (!child) {
       console.warn(`⚠️  Eviction notice for ${roomId} but no child room is available for ${userId}; staying`);

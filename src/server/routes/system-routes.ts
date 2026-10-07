@@ -77,6 +77,7 @@ import {
   verifyTargetedDelegateInvite,
 } from '../../shared/techsupport-delegate-invite';
 import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
+import { MicroRoomControlStore } from '../services/micro-room-control-store';
 import {
   FAQ_ENTRIES_ROOT,
   faqEntryRecordPath,
@@ -186,6 +187,7 @@ export function registerSystemRoutes(
   const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
   const signalingByConversation = new Map<string, SignalingRelayFrame[]>();
   const presenceByUserId = new Map<string, PresenceRecord>();
+  const microRoomControlStore = new MicroRoomControlStore();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
@@ -330,6 +332,63 @@ export function registerSystemRoutes(
     }
     const peers = listNearbyPresence(presenceByUserId, nearbyOpts);
     res.json({ peers, count: peers.length });
+  });
+
+  app.get('/api/micro-rooms/control/:controlScopeId/certificates', (req, res) => {
+    const controlScopeId = String(req.params.controlScopeId || '');
+    if (!/^grid_[a-f0-9]{24}_control_v1$/.test(controlScopeId)) {
+      res.status(400).json({ error: 'invalid micro-room control scope' });
+      return;
+    }
+    const fromGeneration = Number(req.query.fromGeneration ?? 0);
+    if (!Number.isSafeInteger(fromGeneration) || fromGeneration < 0 || fromGeneration > 20) {
+      res.status(400).json({ error: 'invalid micro-room split generation' });
+      return;
+    }
+    const allCertificates = microRoomControlStore.list(controlScopeId);
+    const certificates = allCertificates.filter((certificate) =>
+      certificate.fromSplitGeneration >= fromGeneration);
+    const highestSplitGeneration = allCertificates.length > 0
+      ? allCertificates[allCertificates.length - 1]!.fromSplitGeneration
+      : -1;
+    res.json({ certificates, highestSplitGeneration });
+  });
+
+  app.post('/api/micro-rooms/control/certificates', async (req, res) => {
+    try {
+      const baseGridRoomId = String(req.body?.baseGridRoomId || '');
+      if (!baseGridRoomId || baseGridRoomId.length > 256) {
+        res.status(400).json({ error: 'invalid micro-room base grid' });
+        return;
+      }
+      const certificates = await microRoomControlStore.publishCertificates(
+        baseGridRoomId,
+        Array.isArray(req.body?.certificates) ? req.body.certificates : [],
+      );
+      res.json({ certificates });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.post('/api/micro-rooms/control/presence', async (req, res) => {
+    try {
+      const baseGridRoomId = String(req.body?.baseGridRoomId || '');
+      if (!baseGridRoomId || baseGridRoomId.length > 256) {
+        res.status(400).json({ error: 'invalid micro-room base grid' });
+        return;
+      }
+      if (Array.isArray(req.body?.certificates)) {
+        await microRoomControlStore.publishCertificates(baseGridRoomId, req.body.certificates);
+      }
+      const registration = await microRoomControlStore.register(
+        baseGridRoomId,
+        req.body?.presence,
+      );
+      res.json(registration);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
   });
 
   app.post('/api/presence/ack', async (req, res) => {
@@ -1209,6 +1268,7 @@ export function registerSystemRoutes(
           logger.info('Clearing Gun.js in-memory database...');
           gun._.graph = {};
           if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
+          microRoomControlStore.clear();
           clearForTesting?.();
           await onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();

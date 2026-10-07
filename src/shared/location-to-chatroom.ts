@@ -45,6 +45,12 @@ export function getLocationChatroomPath(location: GPSCoordinate): string[] {
   return path;
 }
 
+/** The default active exchange room for a confirmed GPS fix: its smallest public blurred grid. */
+export function getAutomaticLocationChatroomId(location: GPSCoordinate): string {
+  const blurred = LocationPrivacy.blurLocation(location);
+  return LocationPrivacy.generateChatroomId(blurred.region);
+}
+
 function getCityFromCoordinates(lat: number, lon: number, region: string | null): string | null {
   if (region === 'california') {
     if (lat >= 32.5 && lat <= 33.2 && lon >= -117.4 && lon <= -116.8) return 'san-diego';

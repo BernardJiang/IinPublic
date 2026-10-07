@@ -81,9 +81,10 @@ when their active population exceeds capacity. They must not expose a million-me
 or form a global mesh. The user enters an eligible child location, business, event, or custom room
 before exchanging Talks.
 
-Automatic location may recommend an appropriate room, but it must not silently activate several
-overlapping location levels. Parent, child, nearby business, saved, and travelled rooms are not
-simultaneously active. The user can accept a recommendation or manually select a different room.
+Confirmed automatic location selects the smallest blurred GPS-grid room as the default active
+exchange room. It must not silently activate several overlapping location levels. Parent, child,
+nearby business, saved, and travelled rooms are not simultaneously active. The user may manually
+select a different room; a placeholder location must never select a false grid.
 
 ### Capacity behavior
 

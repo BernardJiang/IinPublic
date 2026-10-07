@@ -30,7 +30,40 @@ export class LocationPrivacy {
     return {
       region,
       chatrooms: [], // Will be populated by chatroom service
-      trueLocation: coordinate // Only stored locally, never transmitted
+    };
+  }
+
+  /**
+   * Strip legacy/private fields before a location object is written to any shared graph. Older
+   * clients embedded `trueLocation` in `BlurredLocation`; accepting that shape at runtime is
+   * necessary for migration, but republishing it is not.
+   */
+  static sanitizeBlurredLocation(location: Partial<BlurredLocation> | null | undefined): BlurredLocation {
+    return {
+      region: typeof location?.region === 'string' ? location.region : '',
+      chatrooms: Array.isArray(location?.chatrooms)
+        ? [...new Set(location.chatrooms.map(String).filter(Boolean))]
+        : [],
+    };
+  }
+
+  /**
+   * Approximate centre of a public blurred grid. This preserves distance sorting/filtering without
+   * recovering or publishing a device's exact GPS fix.
+   */
+  static coordinateFromRegion(region: string): GPSCoordinate | null {
+    const match = /^region_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)$/.exec(String(region || ''));
+    if (!match) return null;
+    const latitude = Math.round((Number(match[1]) + 0.005) * 1_000_000) / 1_000_000;
+    const longitude = Math.round((Number(match[2]) + 0.005) * 1_000_000) / 1_000_000;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    return {
+      latitude,
+      longitude,
+      // Half the diagonal of a 0.01-degree cell is roughly 0.8 km at the equator. Round upward
+      // because longitude scale and GPS uncertainty vary, and callers must treat this as coarse.
+      accuracy: 1_000,
+      timestamp: new Date(0),
     };
   }
 

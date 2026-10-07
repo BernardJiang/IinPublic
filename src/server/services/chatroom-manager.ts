@@ -28,8 +28,21 @@ function withoutLegacyRoomAuthority(meta: Record<string, unknown>): Record<strin
   return safe;
 }
 
+type ActiveRoomMember = {
+  userId: string;
+  stageName: string;
+  lastSeen: string;
+  isTraveler?: boolean;
+};
+
+type RoomMemberSummary = {
+  userId: string;
+  stageName: string;
+  isTraveler?: boolean;
+};
+
 export class ChatroomManager {
-  private fastActiveMembers = new Map<string, Map<string, { userId: string; stageName: string; lastSeen: string }>>();
+  private fastActiveMembers = new Map<string, Map<string, ActiveRoomMember>>();
   /** When the in-memory roster dropped a member for staleness (per room). Reconciliation must not
    *  revive them from a durable record that simply hasn't caught up yet (OPEN-43). */
   private stalePrunedAt = new Map<string, Map<string, number>>();
@@ -137,6 +150,7 @@ export class ChatroomManager {
           ? {
               ...durable,
               stageName: live.stageName,
+              ...(typeof live.isTraveler === 'boolean' ? { isTraveler: live.isTraveler } : {}),
               lastSeen: Date.parse(live.lastSeen) > Date.parse(durable.lastSeen) ? live.lastSeen : durable.lastSeen,
             }
           : durable;
@@ -207,18 +221,19 @@ export class ChatroomManager {
     userId: string,
     stageName?: string,
     lastSeen?: string,
-    opts: { bypassResetFence?: boolean } = {},
+    opts: { bypassResetFence?: boolean; isTraveler?: boolean } = {},
   ): void {
     // E2E reset fence: replayed member records from before a clear-database must never
     // re-enter the map. Exception: an explicit PATCH that deliberately backdates lastSeen
     // (the stale-membership prune specs inject staleness that way) bypasses the fence.
     if (!opts.bypassResetFence && lastSeen && this.predatesReset({ lastSeen })) return;
     this.stalePrunedAt.get(chatroomId)?.delete(userId);
-    const room = this.fastActiveMembers.get(chatroomId) ?? new Map<string, { userId: string; stageName: string; lastSeen: string }>();
+    const room = this.fastActiveMembers.get(chatroomId) ?? new Map<string, ActiveRoomMember>();
     room.set(userId, {
       userId,
       stageName: stageName || userId,
       lastSeen: lastSeen || new Date().toISOString(),
+      ...(typeof opts.isTraveler === 'boolean' ? { isTraveler: opts.isTraveler } : {}),
     });
     this.fastActiveMembers.set(chatroomId, room);
   }
@@ -230,10 +245,10 @@ export class ChatroomManager {
     if (room.size === 0) this.fastActiveMembers.delete(chatroomId);
   }
 
-  private getFastActiveMembers(chatroomId: string, now = new Date()): Array<{ userId: string; stageName: string }> {
+  private getFastActiveMembers(chatroomId: string, now = new Date()): RoomMemberSummary[] {
     const room = this.fastActiveMembers.get(chatroomId);
     if (!room) return [];
-    const members: Array<{ userId: string; stageName: string }> = [];
+    const members: RoomMemberSummary[] = [];
     let pruned = false;
     for (const [userId, member] of room) {
       // TechSupport is never evicted from a room (decision K1-3, docs/TODO.md), including here —
@@ -248,7 +263,11 @@ export class ChatroomManager {
         pruned = true;
         continue;
       }
-      members.push({ userId, stageName: member.stageName });
+      members.push({
+        userId,
+        stageName: member.stageName,
+        ...(typeof member.isTraveler === 'boolean' ? { isTraveler: member.isTraveler } : {}),
+      });
     }
     if (room.size === 0) this.fastActiveMembers.delete(chatroomId);
     // publishRoomMemberCount's aggregate (public/room-member-counts, what the client's room-list
@@ -405,7 +424,7 @@ export class ChatroomManager {
     throw new Error('rooms have no owner and cannot be deleted by a participant');
   }
 
-  async getActiveMembersWithStageName(chatroomId: string): Promise<Array<{ userId: string; stageName: string }>> {
+  async getActiveMembersWithStageName(chatroomId: string): Promise<RoomMemberSummary[]> {
     const fastMembers = this.getFastActiveMembers(chatroomId);
     if (fastMembers.length > 0) return fastMembers;
     // Same embedded-node Radisk hazard as the sweep timer above — see its comment.
@@ -422,7 +441,7 @@ export class ChatroomManager {
       if (pruned) void this.publishRoomMemberCountValue(chatroomId, 0);
       return [];
     }
-    const members: Array<{ userId: string; stageName: string }> = [];
+    const members: RoomMemberSummary[] = [];
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
       if (!userId || userId.startsWith('_')) continue;
       if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
@@ -430,6 +449,9 @@ export class ChatroomManager {
       members.push({
         userId,
         stageName: String((data as any).stageName || userId),
+        ...(typeof (data as any).isTraveler === 'boolean'
+          ? { isTraveler: (data as any).isTraveler }
+          : {}),
       });
     }
     if (pruned) void this.publishRoomMemberCountValue(chatroomId, members.length);
@@ -528,12 +550,12 @@ export class ChatroomManager {
   /** Browser clients write `chatrooms/<id>/users`; API joins use `chatroomMembers`. Read both. */
   private async collectActiveMembersFromUsersNode(
     chatroomId: string,
-  ): Promise<Array<{ userId: string; stageName: string }>> {
+  ): Promise<RoomMemberSummary[]> {
     const fromMap = await this.collectActiveMembersFromGunMap(['chatrooms', chatroomId, 'users'], 500);
     if (fromMap.length > 0) return fromMap;
     const users = await this.getPathWithRetry(['chatrooms', chatroomId, 'users'], 2, 80);
     if (!users || typeof users !== 'object') return [];
-    const members: Array<{ userId: string; stageName: string }> = [];
+    const members: RoomMemberSummary[] = [];
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
       if (!userId || userId.startsWith('_')) continue;
       if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
@@ -541,6 +563,9 @@ export class ChatroomManager {
       members.push({
         userId,
         stageName: String((data as any).stageName || userId),
+        ...(typeof (data as any).isTraveler === 'boolean'
+          ? { isTraveler: (data as any).isTraveler }
+          : {}),
       });
     }
     return members;
@@ -550,14 +575,14 @@ export class ChatroomManager {
   private collectActiveMembersFromGunMap(
     path: string[],
     observeMs: number,
-  ): Promise<Array<{ userId: string; stageName: string }>> {
+  ): Promise<RoomMemberSummary[]> {
     return new Promise((resolve) => {
       const gun = this.gunService.getGun();
       let ref: any = gun;
       for (const seg of path) {
         ref = ref.get(seg);
       }
-      const members: Array<{ userId: string; stageName: string }> = [];
+      const members: RoomMemberSummary[] = [];
       const seen = new Set<string>();
       const mapRef = ref.map();
       const finish = () => {
@@ -578,6 +603,9 @@ export class ChatroomManager {
         members.push({
           userId: key,
           stageName: String((data as { stageName?: string }).stageName || key),
+          ...(typeof (data as { isTraveler?: unknown }).isTraveler === 'boolean'
+            ? { isTraveler: (data as { isTraveler: boolean }).isTraveler }
+            : {}),
         });
       });
       timer.unref?.();
@@ -606,13 +634,19 @@ export class ChatroomManager {
     await this.publishRoomMemberCount(chatroomId);
   }
 
-  async addMemberFast(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+  async addMemberFast(
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+    isTraveler = false,
+  ): Promise<void> {
     const requestStartedAt = Date.now();
     const nowIso = new Date().toISOString();
     const memberData = {
       joinedAt: new Date(),
       isActive: true,
       ...(stageName ? { stageName } : {}),
+      isTraveler,
     };
     // Same out-of-order race touchMemberFast's isActive guard handles, for join instead of
     // touch: this join's own HTTP request can be slow enough (this method does several
@@ -628,7 +662,7 @@ export class ChatroomManager {
       const leftAt = currentlyLeft?.leftAt ? Date.parse(String(currentlyLeft.leftAt)) : NaN;
       if (Number.isFinite(leftAt) && leftAt >= requestStartedAt) return;
     }
-    this.upsertFastMember(chatroomId, userId, stageName);
+    this.upsertFastMember(chatroomId, userId, stageName, undefined, { isTraveler });
     await Promise.all([
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
       this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
@@ -639,6 +673,7 @@ export class ChatroomManager {
       isActive: true,
       joinedAt: nowIso,
       lastSeen: nowIso,
+      isTraveler,
     });
     // Publishing the public member count re-reads the whole room. On a cold isolated Gun the
     // read can race the writes we just issued and stall on the per-read timeout budget
@@ -685,7 +720,7 @@ export class ChatroomManager {
   async touchMemberFast(
     chatroomId: string,
     userId: string,
-    options: { stageName?: string; lastSeen?: string } = {},
+    options: { stageName?: string; lastSeen?: string; isTraveler?: boolean } = {},
   ): Promise<void> {
     const now = new Date().toISOString();
     // This is the read behind the membership-heartbeat PATCH every connected client sends every
@@ -717,6 +752,11 @@ export class ChatroomManager {
     const effectiveStageName = incomingStageNameIsStale
       ? existing?.stageName
       : options.stageName || existing?.stageName;
+    const effectiveIsTraveler = incomingStageNameIsStale
+      ? existing?.isTraveler === true
+      : typeof options.isTraveler === 'boolean'
+        ? options.isTraveler
+        : existing?.isTraveler === true;
     // A "touch" (this heartbeat PATCH) must never be what reactivates an already-left member —
     // only an explicit join (addMemberFast/joinChatroom) may do that. Without this guard, a
     // heartbeat beat() fired just before the user left races its own async Gun read/write
@@ -738,6 +778,7 @@ export class ChatroomManager {
       isActive: true,
       lastSeen: options.lastSeen || now,
       ...(effectiveStageName ? { stageName: String(effectiveStageName) } : {}),
+      isTraveler: effectiveIsTraveler,
       userId,
     };
     this.upsertFastMember(
@@ -747,7 +788,7 @@ export class ChatroomManager {
       memberData.lastSeen,
       // A caller-provided lastSeen is a deliberate update (prune specs backdate it to force
       // staleness); only auto-stamped heartbeats stay subject to the reset fence.
-      { bypassResetFence: Boolean(options.lastSeen) },
+      { bypassResetFence: Boolean(options.lastSeen), isTraveler: effectiveIsTraveler },
     );
     await Promise.all([
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
@@ -759,6 +800,7 @@ export class ChatroomManager {
       isActive: true,
       joinedAt: memberData.joinedAt,
       lastSeen: memberData.lastSeen,
+      isTraveler: effectiveIsTraveler,
     });
   }
 
