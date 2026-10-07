@@ -1,14 +1,17 @@
 package com.iinpublic.app
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
+import android.util.Log
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -24,6 +27,12 @@ import java.util.concurrent.Executors
  * It only reads envelope ids — never ciphertext, sender, or kind — and, while the app is not in
  * the foreground, posts one "new activity" notification for ids it hasn't seen. Opening the app
  * lets the page drain the mailbox exactly as it already does on wake.
+ *
+ * Scheduling: a Handler delay counts only awake time and network is suspended in Doze, so each
+ * poll is an idle-allowed alarm (`setAndAllowWhileIdle`, no exact-alarm permission needed) that
+ * Android delivers in Doze maintenance windows together with a brief network grant; the poll holds
+ * a short partial wake lock. In Doze that means minutes of latency — the platform's limit without a
+ * push service.
  */
 internal class MailboxWatcher(private val context: Context, private val port: Int) {
     companion object {
@@ -32,7 +41,10 @@ internal class MailboxWatcher(private val context: Context, private val port: In
         private const val SEEN_PREF = "seen_ids"
         private const val CHANNEL_ID = "iinpublic_activity"
         private const val NOTIF_ID = 2
-        internal const val POLL_INTERVAL_MS = 30_000L
+        internal const val POLL_INTERVAL_MS = 60_000L
+        internal const val ACTION_POLL = "com.iinpublic.app.MAILBOX_POLL"
+        private const val TAG = "IinPublicMailbox"
+        private const val WAKE_LOCK_MS = 20_000L
         private const val MAX_SEEN = 500
 
         /** Envelope ids present now that were not present at the last poll (pure, unit-tested). */
@@ -87,15 +99,8 @@ internal class MailboxWatcher(private val context: Context, private val port: In
     }
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var running = false
-    private val tick = object : Runnable {
-        override fun run() {
-            io.execute { pollOnce() }
-            if (running) handler.postDelayed(this, POLL_INTERVAL_MS)
-        }
-    }
 
     fun setRecipient(userId: String) {
         val clean = userId.trim().take(128)
@@ -107,21 +112,59 @@ internal class MailboxWatcher(private val context: Context, private val port: In
     fun start() {
         if (running) return
         running = true
-        handler.postDelayed(tick, POLL_INTERVAL_MS)
+        scheduleNext()
     }
 
     fun stop() {
         running = false
-        handler.removeCallbacks(tick)
+        alarmManager().cancel(pollIntent())
+    }
+
+    /** One alarm-driven poll: keep the CPU up while it runs, then schedule the next one. */
+    fun pollFromAlarm(onDone: () -> Unit) {
+        val wakeLock = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IinPublic:mailbox-poll")
+        wakeLock.acquire(WAKE_LOCK_MS)
+        io.execute {
+            try {
+                pollOnce()
+            } finally {
+                if (wakeLock.isHeld) wakeLock.release()
+                if (running) scheduleNext()
+                onDone()
+            }
+        }
+    }
+
+    private fun alarmManager() = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+    private fun pollIntent(): PendingIntent = PendingIntent.getBroadcast(
+        context,
+        4,
+        Intent(context, MailboxPollReceiver::class.java).setAction(ACTION_POLL),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private fun scheduleNext() {
+        alarmManager().setAndAllowWhileIdle(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + POLL_INTERVAL_MS,
+            pollIntent(),
+        )
     }
 
     private fun pollOnce() {
         val recipient = prefs.getString(RECIPIENT_PREF, "").orEmpty()
         if (recipient.isBlank()) return
-        val ids = fetchEnvelopeIds(recipient) ?: return
+        val ids = fetchEnvelopeIds(recipient)
+        if (ids == null) {
+            Log.i(TAG, "poll: mailbox unreachable")
+            return
+        }
         val seen = prefs.getStringSet(SEEN_PREF, emptySet()).orEmpty()
         val fresh = newIds(ids, seen)
         prefs.edit().putStringSet(SEEN_PREF, nextSeen(ids)).apply()
+        Log.i(TAG, "poll: ${ids.size} envelope(s), ${fresh.size} new, foreground=${MainActivity.isInForeground}")
         // In the foreground the page is live and handles everything itself.
         if (fresh.isEmpty() || MainActivity.isInForeground) return
         notifyNewActivity(fresh.size)
@@ -150,5 +193,15 @@ internal class MailboxWatcher(private val context: Context, private val port: In
             else if (count == 1) "You have new activity — open IinPublic to see it"
             else "You have $count new items — open IinPublic to see them",
         )
+    }
+}
+
+/** Receives the idle-allowed poll alarm and runs it on the live service's watcher. */
+class MailboxPollReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != MailboxWatcher.ACTION_POLL) return
+        val watcher = NodeForegroundService.mailboxWatcherOrNull() ?: return
+        val pending = goAsync()
+        watcher.pollFromAlarm { pending.finish() }
     }
 }

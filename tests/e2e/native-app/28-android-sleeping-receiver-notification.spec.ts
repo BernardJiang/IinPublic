@@ -31,6 +31,9 @@ const SENDER = process.env.NATIVE_APP_ANDROID_SENDER?.trim() || 'DUM021941800166
 const SLEEPER = process.env.NATIVE_APP_ANDROID_SLEEPER?.trim() || 'PADC100013000534';
 const RUN = process.env.E2E_REAL_ANDROID_SLEEP_NOTIFY === '1';
 const NOTIFY_TIMEOUT_MS = Number(process.env.E2E_SLEEP_NOTIFY_TIMEOUT_MS || '240000');
+// How long the receiver sleeps before the broadcast. 20 s exercises "page still alive in the
+// background"; several minutes lets Android freeze the page so the mailbox watcher path runs.
+const SLEEP_SETTLE_MS = Number(process.env.E2E_SLEEP_SETTLE_MS || '20000');
 
 process.env.E2E_PORT_OFFSET = String(HUB_GUN_PORT - 8080);
 
@@ -58,7 +61,9 @@ async function hasActivityNotification(serial: string): Promise<boolean> {
 async function sleepPhone(serial: string): Promise<void> {
   await adb(serial, 'input', 'keyevent', 'KEYCODE_HOME');
   await adb(serial, 'input', 'keyevent', 'KEYCODE_SLEEP');
-  await adb(serial, 'dumpsys', 'deviceidle', 'force-idle').catch(() => '');
+  // E2E_SLEEP_FORCE_IDLE=0 measures an ordinary screen-off phone (light idle first) instead of
+  // forcing deep Doze immediately.
+  if (process.env.E2E_SLEEP_FORCE_IDLE !== '0') await adb(serial, 'dumpsys', 'deviceidle', 'force-idle').catch(() => '');
 }
 
 async function wakePhone(serial: string): Promise<void> {
@@ -91,7 +96,7 @@ test.describe('Native app: a sleeping Android 12+ phone is notified of a Talk (O
   });
 
   test('sleeping receiver gets a notification, then the Talk on wake', async () => {
-    test.setTimeout(600_000);
+    test.setTimeout(600_000 + SLEEP_SETTLE_MS);
     test.skip(!(await isAndroidDeviceReady(SENDER)) || !(await isAndroidDeviceReady(SLEEPER)), 'Both phones must be connected via adb.');
     const lanHubUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
 
@@ -119,7 +124,7 @@ test.describe('Native app: a sleeping Android 12+ phone is notified of a Talk (O
 
     // Receiver goes to sleep; give Android time to freeze the WebView page.
     await sleepPhone(SLEEPER);
-    await sender.window.waitForTimeout(20_000);
+    await sender.window.waitForTimeout(SLEEP_SETTLE_MS);
 
     // A real room broadcast (the Broadcast button's path). The frozen receiver can't ACK, so the
     // sender's flood/ack loop falls back to the mailbox.

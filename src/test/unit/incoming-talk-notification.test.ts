@@ -83,13 +83,12 @@ describe('native notification while hidden (OPEN-38)', () => {
     delete (window as any).IinPublicNearby;
   });
 
-  it('asks the native shell to notify, without the leading emoji, only while hidden', () => {
+  it('hands the message (without the leading emoji) to the native shell, which decides', () => {
     const notifyNewActivity = jest.fn();
     (window as any).IinPublicNearby = { notifyNewActivity };
+    // Even "visible": an un-paused Android WebView reports visible with the screen off, so the
+    // foreground decision belongs to the native side (MainActivity.isInForeground).
     setVisibility('visible');
-    notifyNativeWhileHidden('📥 New talk from Tom: Tennis');
-    expect(notifyNewActivity).not.toHaveBeenCalled();
-    setVisibility('hidden');
     notifyNativeWhileHidden('📥 New talk from Tom: Tennis');
     expect(notifyNewActivity).toHaveBeenCalledWith('New talk from Tom: Tennis');
   });

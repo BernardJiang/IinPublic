@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Optional, only if location-based chatrooms are enabled in-app -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" />
@@ -56,5 +57,10 @@
             android:name=".NodeForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync|connectedDevice" />
+
+        <!-- OPEN-38: idle-allowed alarm that polls the mailbox while the phone dozes. -->
+        <receiver
+            android:name=".MailboxPollReceiver"
+            android:exported="false" />
     </application>
 </manifest>

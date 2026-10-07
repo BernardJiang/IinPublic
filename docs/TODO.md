@@ -858,6 +858,19 @@ review capacity is available and the issue is promoted after the website/Android
     Jest). Open: device verification with `native-app/28` on the C10 (blocked: tablet has a
     secure screen lock), and the sender's room-broadcast fallback skips recipients whose presence
     lapsed — a long-asleep phone may then get no mailbox envelope at all.
+  - 2026-10-07 device results (C10, Android 14, v1.0.119, `native-app/28`):
+    - Page still alive after screen-off (20 s): PASS — the page receives the Talk and the native
+      notification appears immediately. Fixed on the way: the page must not gate on
+      `document.visibilityState` (the WebView is never paused, so it reports "visible" with the
+      screen off); the native side decides via `MainActivity.isInForeground`.
+    - Page frozen (5 min asleep): the sender correctly falls back to the mailbox, but the watcher
+      never polls. The Handler loop stalled in deep sleep, so polling moved to idle-allowed alarms
+      + a short wake lock — and the tablet's vendor power manager (Unisoc `PowerGuruService`)
+      still never delivers the alarm while the screen is off, with or without forced Doze and even
+      with the app on Android's own battery-optimization allowlist (standby bucket ACTIVE, no
+      appops restriction). Next: check the tablet's per-app battery/background setting
+      ("Unrestricted" / launch management) and re-run; longer term a hub-pushed wake over the node's
+      existing connection instead of polling.
 
 - [x] **OPEN-39 — First-run walkthrough animation burns CPU while left open (done 2026-10-07: the orbit now runs 3 loops then rests; reduced-motion already disabled it; guarded by `onboarding-walkthrough.test.ts`).** Its decorative
   `walkthrough-float` orbit animation loops forever; on the Honor (Android 7) it kept the

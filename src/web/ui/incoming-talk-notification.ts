@@ -48,12 +48,13 @@ export function displayIncomingTalk(
 
 /**
  * OPEN-38: on Android the page may still be alive (screen off, app in the background) when a
- * Talk arrives, but an in-page toast is invisible then. Ask the native service for its system
- * notification instead; a frozen page is covered by the service's own mailbox watch. No-op in
- * browsers, while visible, and on builds without the bridge method.
+ * Talk arrives, but an in-page toast is invisible then. Hand the message to the native shell,
+ * which posts its system notification only while the app is not in the foreground
+ * (MainActivity.isInForeground). The page can't judge that itself: the WebView is never paused,
+ * so `document.visibilityState` stays "visible" with the screen off (seen on the C10). A frozen
+ * page is covered by the service's own mailbox watch. No-op in browsers and older builds.
  */
 export function notifyNativeWhileHidden(message: string): void {
-  if (typeof document === 'undefined' || document.visibilityState !== 'hidden') return;
   const bridge = (window as unknown as { IinPublicNearby?: { notifyNewActivity?: (text: string) => void } }).IinPublicNearby;
   if (typeof bridge?.notifyNewActivity !== 'function') return;
   try {
