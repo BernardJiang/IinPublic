@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-06.
+Last reconciled: 2026-10-07.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -20,22 +20,29 @@ its ID.
 ## Active execution queue — website and Android first
 
 - [ ] **OPEN-40 — Make blurred-location micro-rooms safe at arena scale (10,000 people in one
-  place).** New users with a confirmed location must enter their smallest blurred GPS-grid room
-  directly. The grid's parent/control scope must never become a 10,000-person Talk roster; when a
-  grid exceeds the global capacity, ownerless deterministic micro-rooms must be selected before
-  active presence, nearby advertisement, or Talk exchange. Wi-Fi Direct remains only a transport
-  inside the selected micro-room. Exact global FIFO across all micro-rooms is not implementable
-  together with coordinator-free bounded pre-admission; retain creator-neutral FIFO only within a
-  micro-room unless a future protocol explicitly introduces consensus/admission authority.
+  place).** Every first-time user enters the bounded Global room so a small population can find one
+  another and GPS-less desktops remain useful. When Global is full, its oldest ordinary member
+  moves to a coarse coordinate-grid room if that device has a confirmed local fix, or to a bounded
+  non-geographic Global overflow family otherwise. Country/state borders are never automatic
+  routing inputs. When one coarse grid fills at an arena, ownerless deterministic micro-rooms must
+  be selected before active presence, nearby advertisement, or Talk exchange. Wi-Fi Direct remains
+  only a transport inside the selected active room. Exact global FIFO across all micro-rooms is not
+  implementable together with coordinator-free bounded pre-admission; retain creator-neutral FIFO
+  only within a room unless a future protocol explicitly introduces consensus/admission authority.
   - [x] **P0 privacy:** separate local exact GPS from public `BlurredLocation`; never publish
     `trueLocation`, exact latitude/longitude, accuracy, or GPS timestamps under user, room,
     presence, discovery, or Gun paths. Tombstone legacy per-room exact-location rows encountered
     by the current user. Keep distance features on blurred grid coordinates and add regression
     tests proving public records contain no exact GPS.
-  - [x] **P0 automatic placement:** confirmed GPS selects the deterministic blurred-grid base room
-    on first entry and on an explicit location refresh. A placeholder/unconfirmed boot location
-    must not assign a false grid; switch automatically after the first real fix. Update the
-    specification's obsolete “Global first” and manual location-suggestion language.
+  - [x] **P0 Global-first overflow routing:** first entry is Global. A confirmed fix is retained
+    locally for a later capacity move but never forces a user out of Global. A full Global moves
+    the oldest confirmed-location member directly to their coarse coordinate cell, without a
+    political hierarchy; an unknown/untrusted-location member moves to `global-unknown`, then the
+    same fixed-capacity numbered overflow family. These rooms have no fake coordinates and do not
+    appear as geographic points on the map. Manual travel remains in the selected room family.
+  - [x] **P0 traveler visibility:** travel-mode membership publishes an `isTraveler` flag through
+    Gun presence, the REST presence index, the embedded-node relay, and durable presence; other
+    room members see a Traveler badge. Returning home clears it immediately.
   - [ ] **P0 bounded pre-admission:** replace reactive subscribe-to-everyone-then-evict behavior
     with a bounded grid control plane and deterministic lane assignment before active presence.
     For 10,000 users at `C=498`, create at least 21 lanes and normally leave headroom (for example
@@ -53,6 +60,10 @@ its ID.
       the monotone chain, derive their lane before joining/advertising Talks, refresh every 15s,
       and republish missing history after an ephemeral relay restart. The relay transports evidence
       but has no admission authority. LAN/BLE transport for the same records is still open.
+    - [ ] Route Global capacity moves into the same verified pre-admission path before joining a
+      coarse grid. The current verified path covers deliberate/re-entry grid admission; Global's
+      self-eviction currently derives the correct grid but still joins it before the certificate
+      control plane can choose a bounded arena lane.
   - [ ] **P0 authority hardening:** eviction/frontier messages are untrusted hints, never commands.
     A receiver moves only after independently validating its signed current-room view and local
     overflow status. Authenticate all split-control records, reject unreasonable jumps/rollback,

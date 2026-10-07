@@ -257,6 +257,22 @@ describe('ChatroomManager TechSupport built-in presence (docs/TODO.md K1)', () =
     expect(members.map((m) => m.userId).sort()).toEqual([TECHSUPPORT_ROOT_USER_ID, 'user_1'].sort());
   });
 
+  it('publishes and clears traveler membership through the fast presence roster', async () => {
+    const manager = buildManager();
+    await manager.addMemberFast('remote-room', 'visitor', 'Visitor', true);
+    expect(await manager.getActiveMembersWithStageName('remote-room')).toEqual([
+      { userId: 'visitor', stageName: 'Visitor', isTraveler: true },
+    ]);
+
+    await manager.touchMemberFast('remote-room', 'visitor', {
+      isTraveler: false,
+      lastSeen: new Date().toISOString(),
+    });
+    expect(await manager.getActiveMembersWithStageName('remote-room')).toEqual([
+      { userId: 'visitor', stageName: 'Visitor', isTraveler: false },
+    ]);
+  });
+
   it('re-seeding refreshes lastSeen so a boot seed after reset never reads as stale', async () => {
     const manager = buildManager();
     await manager.seedTechSupportGlobalMembership();

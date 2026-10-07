@@ -6,6 +6,7 @@ import type { MailboxEnvelope } from '../server/services/mailbox-store';
 export type RelayRoomMember = {
   userId: string;
   stageName: string;
+  isTraveler?: boolean;
 };
 
 export type SignalingRelayFrame = {
@@ -26,6 +27,7 @@ export type SignalingRelayFrame = {
 export type TouchMemberOptions = {
   stageName?: string;
   lastSeen?: string;
+  isTraveler?: boolean;
 };
 
 export type RelayTurnCredentials = {
@@ -37,7 +39,7 @@ export type RelayTurnCredentials = {
 
 export interface EmbeddedHubRelayClientLike {
   listMembers(chatroomId: string): Promise<RelayRoomMember[]>;
-  addMember(chatroomId: string, userId: string, stageName?: string): Promise<void>;
+  addMember(chatroomId: string, userId: string, stageName?: string, isTraveler?: boolean): Promise<void>;
   touchMember(chatroomId: string, userId: string, options?: TouchMemberOptions): Promise<void>;
   removeMember(chatroomId: string, userId: string): Promise<void>;
   listSignalingFrames(conversationId: string, recipientPub?: string): Promise<SignalingRelayFrame[]>;
@@ -156,23 +158,29 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     return rows
       .map((row) => {
         if (!row || typeof row !== 'object') return null;
-        const record = row as { userId?: unknown; stageName?: unknown };
+        const record = row as { userId?: unknown; stageName?: unknown; isTraveler?: unknown };
         const userId = String(record.userId || '').trim();
         if (!userId) return null;
         return {
           userId,
           stageName: String(record.stageName || userId),
+          ...(typeof record.isTraveler === 'boolean' ? { isTraveler: record.isTraveler } : {}),
         };
       })
       .filter((row): row is RelayRoomMember => row !== null);
   }
 
-  async addMember(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+  async addMember(
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+    isTraveler = false,
+  ): Promise<void> {
     assertRelayMetadataPath(['chatrooms', chatroomId, 'users', userId]);
     await this.request(`/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, stageName: stageName || userId }),
+      body: JSON.stringify({ userId, stageName: stageName || userId, isTraveler }),
     });
   }
 

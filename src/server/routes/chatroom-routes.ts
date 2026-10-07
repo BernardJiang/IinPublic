@@ -32,6 +32,7 @@ export function registerChatroomRoutes(
       byUser.set(member.userId, {
         userId: member.userId,
         stageName: member.stageName || member.userId,
+        ...(typeof member.isTraveler === 'boolean' ? { isTraveler: member.isTraveler } : {}),
       });
     }
     return Array.from(byUser.values());
@@ -45,6 +46,7 @@ export function registerChatroomRoutes(
         chatroomManager.touchMemberFast(chatroomId, member.userId, {
           stageName: member.stageName,
           lastSeen: new Date().toISOString(),
+          ...(typeof member.isTraveler === 'boolean' ? { isTraveler: member.isTraveler } : {}),
         }),
       ),
     );
@@ -72,10 +74,15 @@ export function registerChatroomRoutes(
     chatroomId: string,
     userId: string,
     stageName?: string,
+    isTraveler?: boolean,
   ): Promise<void> => {
     if (!hubRelayClient) return;
     try {
-      await hubRelayClient.addMember(chatroomId, userId, stageName);
+      if (typeof isTraveler === 'boolean') {
+        await hubRelayClient.addMember(chatroomId, userId, stageName, isTraveler);
+      } else {
+        await hubRelayClient.addMember(chatroomId, userId, stageName);
+      }
       observeRelayRoom(chatroomId);
       await syncMembersFromRelayBestEffort(chatroomId);
     } catch {
@@ -86,7 +93,7 @@ export function registerChatroomRoutes(
   const mirrorRelayTouch = async (
     chatroomId: string,
     userId: string,
-    options: { stageName?: string; lastSeen?: string },
+    options: { stageName?: string; lastSeen?: string; isTraveler?: boolean },
   ): Promise<void> => {
     if (!hubRelayClient) return;
     try {
@@ -204,13 +211,23 @@ export function registerChatroomRoutes(
 
   app.post('/api/chatrooms/:id/members', async (req, res) => {
     try {
-      const { userId, stageName } = req.body as { userId: string; stageName?: string };
+      const { userId, stageName, isTraveler } = req.body as {
+        userId: string;
+        stageName?: string;
+        isTraveler?: boolean;
+      };
       if (!userId) {
         res.status(400).json({ error: 'userId is required' });
         return;
       }
-      await chatroomManager.addMemberFast(req.params.id, userId, stageName);
-      await mirrorRelayJoin(req.params.id, userId, stageName);
+      if (typeof isTraveler === 'boolean') {
+        await chatroomManager.addMemberFast(req.params.id, userId, stageName, isTraveler);
+        await mirrorRelayJoin(req.params.id, userId, stageName, isTraveler);
+      } else {
+        // Keep older clients/test doubles source-compatible; absence means the pre-marker shape.
+        await chatroomManager.addMemberFast(req.params.id, userId, stageName);
+        await mirrorRelayJoin(req.params.id, userId, stageName);
+      }
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -219,10 +236,15 @@ export function registerChatroomRoutes(
 
   app.patch('/api/chatrooms/:id/members/:userId', async (req, res) => {
     try {
-      const { stageName, lastSeen } = req.body as { stageName?: string; lastSeen?: string };
-      const options: { stageName?: string; lastSeen?: string } = {};
+      const { stageName, lastSeen, isTraveler } = req.body as {
+        stageName?: string;
+        lastSeen?: string;
+        isTraveler?: boolean;
+      };
+      const options: { stageName?: string; lastSeen?: string; isTraveler?: boolean } = {};
       if (stageName !== undefined) options.stageName = stageName;
       if (lastSeen !== undefined) options.lastSeen = lastSeen;
+      if (isTraveler !== undefined) options.isTraveler = isTraveler;
       await chatroomManager.touchMemberFast(req.params.id, req.params.userId, options);
       await mirrorRelayTouch(req.params.id, req.params.userId, options);
       res.json({ success: true });

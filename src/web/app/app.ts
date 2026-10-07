@@ -272,8 +272,6 @@ export class IinPublicApp {
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;
-  /** First boot used a neutral placeholder; move once, automatically, after a real fix arrives. */
-  private pendingInitialLocationRoom = false;
   /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
   private processedTalkResponseKeys = new Set<string>();
   /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
@@ -1023,6 +1021,12 @@ export class IinPublicApp {
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
     // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
     this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
+    // Travel is room-membership metadata, not a private UI decoration: peers in the room must
+    // agree that a user deliberately visiting away from their saved home is a traveler.
+    this.chatroomService.setMembershipTravelerResolver((chatroomId) =>
+      this.travelModeActive &&
+      (!this.travelHomeChatroomId || chatroomId !== this.travelHomeChatroomId),
+    );
     this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase(), {
       meshLocalFirst: usesMeshTalkDelivery(this.p2pRuntimeFlags),
     });
@@ -1470,7 +1474,6 @@ export class IinPublicApp {
       this.startStageZeroHeadcountWatchdog();
     }
     this.initialized = true;
-    this.applyPendingInitialLocationRoom();
     markStartupPhase('initialSyncComplete');
   }
 
@@ -1538,7 +1541,6 @@ export class IinPublicApp {
     if (this.currentUser) {
       void this.userService.updateUserLocation(this.currentUser.id, location).catch(() => {});
     }
-    this.applyPendingInitialLocationRoom();
   }
 
   /**
@@ -1551,14 +1553,6 @@ export class IinPublicApp {
     return this.currentLocation && this.locationConfirmed
       ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
       : undefined;
-  }
-
-  /** Complete a first-time user's deferred automatic grid assignment after real GPS resolves. */
-  private applyPendingInitialLocationRoom(): void {
-    if (!this.pendingInitialLocationRoom || !this.initialized || !this.currentUser || !this.currentLocation) return;
-    this.pendingInitialLocationRoom = false;
-    const roomId = getAutomaticLocationChatroomId(this.currentLocation);
-    if (roomId !== this.currentChatroomId) this.uiManager.emit('chatroomChanged', roomId);
   }
 
   /**
@@ -1862,7 +1856,6 @@ export class IinPublicApp {
 
     // Get last chatroom from localStorage (for re-entry logic)
     const lastChatroomId = localStorage.getItem('iinpublic_last_chatroom') || undefined;
-    this.pendingInitialLocationRoom = !lastChatroomId && !this.locationConfirmed;
     this.loadTravelModeStateFromStorage();
 
     // Find optimal chatroom using hierarchical assignment
@@ -8275,6 +8268,7 @@ export class IinPublicApp {
         }
         this.uiManager.showNotification(this.uiManager.formatTravelReturnedHomeRoom(), 'success');
       }
+      this.chatroomService.announceMembershipNow();
     });
 
     this.uiManager.on('returnHomeFromTravel', async () => {
@@ -8313,6 +8307,7 @@ export class IinPublicApp {
         });
       }
       this.uiManager.showNotification(this.uiManager.formatTravelReturnedHome(), 'success');
+      this.chatroomService.announceMembershipNow();
     });
 
     this.uiManager.on('setHomeChatroom', async (data: { chatroomId: string }) => {
@@ -8327,6 +8322,7 @@ export class IinPublicApp {
         active: this.travelModeActive,
         homeChatroomId: this.travelHomeChatroomId,
       });
+      this.chatroomService.announceMembershipNow();
       this.uiManager.showNotification(this.uiManager.formatTravelHomeSet(this.getChatroomDisplayName(chatroomId)), 'success');
     });
 

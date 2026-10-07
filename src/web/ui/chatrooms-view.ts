@@ -1,5 +1,6 @@
 import { getActiveChatroomHierarchy, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import { splitBaseId, splitIndex } from '../../shared/chatroom-split';
+import { CONFIG } from '../../shared/config';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { avatarInnerHtml } from './profile-avatar';
@@ -9,7 +10,12 @@ import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
 
-type ChatroomMember = { userId: string; stageName: string; joinedAt?: string | Date };
+type ChatroomMember = {
+  userId: string;
+  stageName: string;
+  joinedAt?: string | Date;
+  isTraveler?: boolean;
+};
 
 export type CustomChatroomRow = {
   id: string;
@@ -154,12 +160,18 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
 
   if (deps.currentChatroom && !allChatrooms.find((room) => room.id === deps.currentChatroom)) {
     const customFallback = deps.customChatrooms.find((c) => c.id === deps.currentChatroom);
+    const isGlobalOverflow = splitBaseId(deps.currentChatroom) === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID;
+    const globalOverflowGroup = deps.currentChatroom === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID
+      ? 2
+      : splitIndex(deps.currentChatroom) + 1;
     allChatrooms.unshift({
       id: deps.currentChatroom,
-      name: customFallback?.name || 'My Location',
-      icon: customFallback ? customRoomIcon(customFallback.type) : '📍',
+      name: customFallback?.name || (isGlobalOverflow ? `Global · Group ${globalOverflowGroup}` : 'My Location'),
+      icon: customFallback ? customRoomIcon(customFallback.type) : isGlobalOverflow ? '🌍' : '📍',
       level: 0,
-      description: customFallback?.description || 'Your current location chatroom',
+      description: customFallback?.description || (isGlobalOverflow
+        ? 'Non-geographic room for members without a confirmed location'
+        : 'Your current location chatroom'),
       hasChildren: false,
     });
   }
@@ -468,11 +480,14 @@ function renderOrdinaryMemberRow(member: ChatroomMember, deps: ChatroomsViewDeps
   // .presence-indicator treatment the Contacts tab uses (contacts-view.ts).
   const online = deps.isUserOnline(member.userId);
   const onlineIndicator = `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(member.userId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
+  const travelerBadge = member.isTraveler
+    ? `<span class="chatroom-member-traveler-badge" title="${deps.text('chatroomTraveler')}" aria-label="${deps.text('chatroomTraveler')}">✈ ${deps.text('chatroomTraveler')}</span>`
+    : '';
   return `
-    <div class="chatroom-member-item ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}"${isMatched ? ' data-matched="true"' : ''}>
+    <div class="chatroom-member-item ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}" data-traveler="${member.isTraveler === true}"${isMatched ? ' data-matched="true"' : ''}>
       <div class="chatroom-member-avatar">${avatarInnerHtml(deps.getCachedHeadshot?.(member.userId) ?? undefined, member.stageName.charAt(0).toUpperCase(), deps.escapeHtml)}</div>
       <div class="chatroom-member-info">
-        <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}${onlineIndicator}</div>
+        <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}${travelerBadge}${onlineIndicator}</div>
         <div class="chatroom-member-status">${statusText}</div>
       </div>
       <div class="chatroom-member-arrow">›</div>
@@ -606,6 +621,10 @@ async function loadMemberStats(
 export function resolveChatroomTitle(chatroomId: string, customChatrooms: readonly CustomChatroomRow[]): string {
   // A numbered overflow room (`x_part_3`) is shown as its base room plus the number: "Arena (3)".
   const baseId = splitBaseId(chatroomId);
+  if (baseId === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID) {
+    const groupNumber = baseId === chatroomId ? 2 : splitIndex(chatroomId) + 1;
+    return `🌍 Global · Group ${groupNumber}`;
+  }
   if (baseId !== chatroomId) return `${resolveChatroomTitle(baseId, customChatrooms)} (${splitIndex(chatroomId)})`;
   const custom = customChatrooms.find((c) => c.id === chatroomId);
   if (custom) {

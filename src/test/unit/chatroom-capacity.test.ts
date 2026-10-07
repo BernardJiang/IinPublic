@@ -18,7 +18,7 @@ import {
   splitRoomId,
 } from '../../shared/chatroom-split';
 import { ChatroomCapacityController } from '../../web/services/chatroom-capacity-controller';
-import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import type { GPSCoordinate } from '../../shared/types';
 
 const m = (userId: string, joinedAt: string): CapacityMember => ({ userId, joinedAt });
@@ -193,12 +193,13 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
   let clock: number;
   let peers: Map<string, { controller: ChatroomCapacityController; room: string | undefined; moved: string[] }>;
   const path = getLocationChatroomPath(SF);
+  const sfGrid = getAutomaticLocationChatroomId(SF);
   const originalCapacity = CONFIG.CHATROOM_MAX_CAPACITY;
   const setCapacity = (n: number) => { (CONFIG as { CHATROOM_MAX_CAPACITY: number }).CHATROOM_MAX_CAPACITY = n; };
 
   const nextIso = () => new Date(Date.UTC(2026, 0, 1, 0, 0, ++clock)).toISOString();
 
-  function addPeer(userId: string, stayConnected = true): void {
+  function addPeer(userId: string, stayConnected = true, location: GPSCoordinate | null = SF): void {
     const peer: { controller: ChatroomCapacityController; room: string | undefined; moved: string[] } = {
       controller: undefined as never,
       room: undefined,
@@ -207,10 +208,9 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     peer.controller = new ChatroomCapacityController({
       getGun: () => gun.node(''),
       fifoEnabled: () => true,
-      isHierarchyRoom: (id) => path.includes(id),
       isFreshMember: () => true,
       getCurrentRoom: () => peer.room,
-      getLocation: () => SF,
+      getLocation: () => location ?? undefined,
       getStageName: () => userId,
       moveForEviction: async (from, id, child, _stage, onMoved) => {
         if (peer.room !== from) return false;
@@ -262,7 +262,7 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     jest.restoreAllMocks();
   });
 
-  it('moves the oldest member down when a newcomer pushes the room over capacity', async () => {
+  it('moves the oldest Global member directly into a neutral blurred-coordinate cell', async () => {
     setCapacity(3);
     for (const id of ['u1', 'u2', 'u3']) await join(id, path[0]!);
     await settle();
@@ -272,12 +272,12 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     await settle();
 
     expect(activeIn(path[0]!)).toEqual(['u2', 'u3', 'u4']);
-    expect(activeIn(path[1]!)).toEqual(['u1']);
-    expect(peers.get('u1')!.moved).toContain(path[1]);
-    expect(gun.read(`/chatrooms/${path[0]}/users/u1`)?.movedTo).toBe(path[1]);
+    expect(activeIn(sfGrid)).toEqual(['u1']);
+    expect(peers.get('u1')!.moved).toContain(sfGrid);
+    expect(gun.read(`/chatrooms/${path[0]}/users/u1`)?.movedTo).toBe(sfGrid);
   });
 
-  it('cascades: the child room is trimmed too, all the way down', async () => {
+  it('cascades within the coordinate-cell family without using country borders', async () => {
     setCapacity(2);
     for (const id of ['u1', 'u2']) await join(id, path[0]!);
     await settle();
@@ -286,10 +286,35 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
       await settle();
     }
 
-    for (const room of path) expect(activeIn(room!).length).toBeLessThanOrEqual(2);
+    const rooms = [path[0]!, sfGrid, `${sfGrid}_part_2`, `${sfGrid}_part_3`];
+    for (const room of rooms) expect(activeIn(room).length).toBeLessThanOrEqual(2);
     // Nobody vanished: everyone is active somewhere.
-    const everyone = path.flatMap((room) => activeIn(room!));
+    const everyone = rooms.flatMap((room) => activeIn(room));
     expect(everyone.sort()).toEqual(['u1', 'u2', 'u3', 'u4', 'u5', 'u6']);
+  });
+
+  it('routes a GPS-less Global evictee into the virtual Global overflow family', async () => {
+    setCapacity(1);
+    peers.get('u1')!.controller.stop();
+    peers.delete('u1');
+    addPeer('u1', true, null);
+    await join('u1', CONFIG.GLOBAL_CHATROOM_ID);
+    await join('u2', CONFIG.GLOBAL_CHATROOM_ID);
+    await settle();
+
+    expect(activeIn(CONFIG.GLOBAL_CHATROOM_ID)).toEqual(['u2']);
+    expect(activeIn(CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID)).toEqual(['u1']);
+  });
+
+  it('keeps a manually selected named room in its own overflow family', async () => {
+    setCapacity(1);
+    const namedRoom = path[1]!;
+    await join('u1', namedRoom);
+    await join('u2', namedRoom);
+    await settle();
+
+    expect(activeIn(namedRoom)).toEqual(['u2']);
+    expect(activeIn(`${namedRoom}_part_2`)).toEqual(['u1']);
   });
 
   it('ignores a notice once the member has already left by hand (no race with a manual move)', async () => {
@@ -303,7 +328,7 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     await settle();
 
     expect(peers.get('u1')!.moved).toEqual([]);
-    expect(activeIn(path[1]!)).not.toContain('u1');
+    expect(activeIn(sfGrid)).not.toContain('u1');
   });
 
   it('does nothing for a notice addressed to an earlier stay of the same user', async () => {

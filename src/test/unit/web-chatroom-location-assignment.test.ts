@@ -10,16 +10,16 @@ const SAN_DIEGO: GPSCoordinate = {
   timestamp: new Date('2026-10-06T12:00:00.000Z'),
 };
 
-describe('WebChatroomService automatic blurred-grid assignment', () => {
+describe('WebChatroomService Global-first assignment', () => {
   const service = new WebChatroomService({ getGun: jest.fn() } as any);
 
-  it('places a confirmed first-time user directly into the smallest blurred grid', async () => {
+  it('places a confirmed first-time user into Global to maximize early encounters', async () => {
     await expect(
       service.findOptimalChatroomHierarchical(SAN_DIEGO, 'user-1', undefined, true),
-    ).resolves.toBe('region_32.71_-117.17_room_0');
+    ).resolves.toBe('global');
   });
 
-  it('does not derive a room from an unconfirmed placeholder location', async () => {
+  it('also places an unconfirmed/GPS-less first-time user into Global', async () => {
     await expect(
       service.findOptimalChatroomHierarchical(SAN_DIEGO, 'user-1', undefined, false),
     ).resolves.toBe('global');

@@ -104,4 +104,23 @@ describe('chatroom roster shows peers\' profile photos', () => {
     expect(avatar('honor').querySelector('img')).toBeNull();
     expect(avatar('honor').textContent).toBe('😎');
   });
+
+  it('marks a remote-room visitor as a traveler without changing ordinary members', () => {
+    updateChatroomMembers(
+      buildDeps(),
+      [
+        { userId: 'me', stageName: 'Me' },
+        { userId: 'visitor', stageName: 'Visitor', isTraveler: true },
+        { userId: 'local', stageName: 'Local', isTraveler: false },
+      ],
+      'me',
+    );
+
+    const visitor = document.querySelector<HTMLElement>('[data-user-id="visitor"]')!;
+    const local = document.querySelector<HTMLElement>('[data-user-id="local"]')!;
+    expect(visitor.dataset.traveler).toBe('true');
+    expect(visitor.querySelector('.chatroom-member-traveler-badge')?.textContent).toContain('chatroomTraveler');
+    expect(local.dataset.traveler).toBe('false');
+    expect(local.querySelector('.chatroom-member-traveler-badge')).toBeNull();
+  });
 });

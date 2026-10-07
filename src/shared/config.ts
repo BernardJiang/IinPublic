@@ -36,6 +36,8 @@ export const CONFIG = {
   CHATROOM_ENABLE_FIFO:
     (e2eUrlParam('e2e_fifo') || process.env.CHATROOM_ENABLE_FIFO || 'true') !== 'false',
   GLOBAL_CHATROOM_ID: 'global',
+  /** Non-geographic overflow family for Global participants who have no confirmed location. */
+  GLOBAL_UNKNOWN_CHATROOM_ID: 'global-unknown',
   /** OSM vector basemap used by the lazy MapLibre chatroom view. Override for self-hosting. */
   CHATROOM_MAP_STYLE_URL:
     typeof process !== 'undefined' && process.env?.IINPUBLIC_MAP_STYLE_URL

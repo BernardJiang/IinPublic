@@ -1,7 +1,7 @@
 import { CONFIG } from '../../shared/config';
 import type { GPSCoordinate } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
-import { findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
 import {
   capacityNoticeCoordinator,
   isNoticeForStay,
@@ -27,8 +27,6 @@ export interface ChatroomCapacityDeps {
   fifoEnabled: () => boolean;
   /** Active global protocol-epoch capacity; never a room metadata value. */
   getCapacity?: () => number;
-  /** True for rooms in the location hierarchy (they have a child room); false for custom/split rooms. */
-  isHierarchyRoom: (roomId: string) => boolean;
   /** Same freshness rule the roster uses (drops members whose heartbeat has expired). */
   isFreshMember: (memberData: any) => boolean;
   getCurrentRoom: () => string | undefined;
@@ -51,13 +49,12 @@ export interface ChatroomCapacityDeps {
  * Keeps every room at or under the ONE unified capacity (CONFIG.CHATROOM_MAX_CAPACITY) without any
  * referee. Every room uses FIFO; room shape only determines the destination:
  *
- *  - Hierarchy rooms (Global, continents, cities...): FIFO down the tree. The room's newest member
- *    is the deterministic notice coordinator and writes an eviction NOTICE for each overflow
- *    (oldest) member — one record per author, so no two peers ever write the same key. This role
- *    grants no room authority. The evictee moves ITSELF to the child room for its own location,
- *    ignoring the notice if it has already left (a manual move wins).
- *  - Rooms with no child (custom rooms, the deepest regional room): an oldest overflow member
- *    moves itself to the next numbered room (`x_part_2`, `_part_3`...).
+ *  - Global is the common first room. An oldest overflow member with a confirmed location moves
+ *    directly to its neutral blurred-coordinate cell; one without location moves to the virtual,
+ *    non-geographic Global overflow family.
+ *  - Every other room — geographic, named, custom, or manually visited — overflows within its own
+ *    family (`x_part_2`, `_part_3`...). This preserves a traveler's explicit destination and never
+ *    infers a country/state hierarchy from approximate coordinates.
  *
  * Either way the move is an ordinary join, so the same check runs in the destination room and the
  * overflow ripples on until no room is over capacity.
@@ -217,8 +214,10 @@ export class ChatroomCapacityController {
     // Already leaving/left by hand: the notice no longer applies.
     if (this.deps.getCurrentRoom() !== roomId) return;
     const location = this.deps.getLocation(userId);
-    const child = this.deps.isHierarchyRoom(roomId)
-      ? (location ? findAppropriateChildChatroom(roomId, location) : null)
+    const child = roomId === CONFIG.GLOBAL_CHATROOM_ID
+      ? (location
+          ? getAutomaticLocationChatroomId(location)
+          : CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID)
       : await this.chooseSplitTarget(roomId);
     if (!child) {
       console.warn(`⚠️  Eviction notice for ${roomId} but no child room is available for ${userId}; staying`);

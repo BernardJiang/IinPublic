@@ -17,6 +17,7 @@ function defaultDataDir(): string {
 export type PresenceMember = {
   userId: string;
   stageName: string;
+  isTraveler?: boolean;
   isActive: boolean;
   joinedAt: string;
   lastSeen: string;
