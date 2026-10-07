@@ -63,3 +63,17 @@ describe('onboarding walkthrough', () => {
     expect(document.activeElement).toBe(document.getElementById('opener'));
   });
 });
+
+describe('walkthrough decorative animation (OPEN-39)', () => {
+  const css = require('fs').readFileSync(require('path').resolve(__dirname, '../../web/styles/main.css'), 'utf8') as string;
+
+  it('never loops the orbit animation forever', () => {
+    const rule = css.match(/\.walkthrough-orbit\s*\{[^}]*\}/)?.[0] || '';
+    expect(rule).toMatch(/animation:\s*walkthrough-float[^;]*;/);
+    expect(rule).not.toMatch(/infinite/);
+  });
+
+  it('turns the animation off under prefers-reduced-motion', () => {
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[^@]*\.walkthrough-orbit[^}]*animation:\s*none/);
+  });
+});

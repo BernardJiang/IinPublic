@@ -851,10 +851,30 @@ review capacity is available and the issue is promoted after the website/Android
   Options: move mesh reception into the embedded node (foreground service), or have peers re-offer
   undelivered talks when the receiver's run epoch shows it is active again.
 
-- [ ] **OPEN-39 — First-run walkthrough animation burns CPU while left open.** Its decorative
+- [x] **OPEN-39 — First-run walkthrough animation burns CPU while left open (done 2026-10-07: the orbit now runs 3 loops then rests; reduced-motion already disabled it; guarded by `onboarding-walkthrough.test.ts`).** Its decorative
   `walkthrough-float` orbit animation loops forever; on the Honor (Android 7) it kept the
   compositor at ~38 % of a core (≈7.5 %/h battery in an idle 10-min window). Stop it after a few
   loops, when the page is hidden, and under `prefers-reduced-motion`.
+
+- [ ] **OPEN-40 — Routing-only Talk edits never reach receivers (found 2026-10-07).** A Talk's
+  content identity hashes type, language, question and answer texts only, so an author's edit
+  that changes just the title or which answer matches/ignores is "unchanged" to the broadcast
+  ledger and is never re-sent; receivers keep the old routing. Decide whether routing belongs in
+  the delivery revision key, and re-send such edits.
+
+- [ ] **OPEN-41 — Author edits never re-check existing matches (found 2026-10-07).** A
+  conversation formed under a Talk's old rules stays even if the edited rules would reject the
+  same answers. Decide the product rule (re-score stored answers on edit vs. keep matches), then
+  implement it.
+
+- [ ] **OPEN-42 — "New talk" toast after the chatbot already answered (found 2026-10-07).** When
+  a received Talk is answered automatically (🤖), the "New talk from …" notification still fires
+  first, implying the user must act. Show an "answered automatically by your chatbot" notice
+  instead, or nothing.
+
+- [ ] **OPEN-43 — Spec stage2/42 (stale member pruned from Global headcount) flakes under
+  test:all load (found 2026-10-07).** Failed in two consecutive full runs at the 35 s headcount
+  wait, passes alone every time. Root-cause the timing instead of widening the timeout blindly.
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
   peer forwarding and BLE discovery/data transport before either is enabled by default. Track any

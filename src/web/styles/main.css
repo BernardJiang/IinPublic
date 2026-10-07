@@ -2649,7 +2649,9 @@ button.talk-icon-btn:hover {
   position: absolute;
   border-radius: 50%;
   background: var(--walkthrough-accent-soft);
-  animation: walkthrough-float 3.2s ease-in-out infinite;
+  /* OPEN-39: decorative only — a few loops, then rest. A never-ending loop kept the compositor at
+     ~38 % of a core on Android 7 while the walkthrough stayed open. */
+  animation: walkthrough-float 3.2s ease-in-out 3;
 }
 
 .walkthrough-orbit.orbit-one {
