@@ -311,4 +311,35 @@ describe('ChatroomManager durable-presence reconciliation vs. renames', () => {
     expect(written.stageName).toBe('Ann');
     (manager as any).staleMemberCountSweepTimer && clearInterval((manager as any).staleMemberCountSweepTimer);
   });
+
+  it('does not revive a member the in-process roster just pruned as stale (OPEN-43)', async () => {
+    const freshSeen = nowIso();
+    // The durable copy still carries Bob's last real heartbeat: its write of the backdated
+    // lastSeen hasn't landed yet when the sweep runs.
+    const { manager, gun } = buildWithDurable([
+      { userId: 'bob', stageName: 'Bob', isActive: true, joinedAt: freshSeen, lastSeen: freshSeen },
+    ]);
+    await manager.addMemberFast('global', 'bob', 'Bob');
+    await manager.touchMemberFast('global', 'bob', { lastSeen: new Date(Date.now() - 10 * 60 * 1000).toISOString() });
+
+    await manager.sweepStaleMembersNow();
+
+    const written = await gun.getPath(['chatrooms', 'global', 'users', 'bob']);
+    const revivedAsFresh = written?.isActive === true && Date.parse(String(written.lastSeen)) > Date.now() - 60_000;
+    expect(revivedAsFresh).toBe(false);
+    (manager as any).staleMemberCountSweepTimer && clearInterval((manager as any).staleMemberCountSweepTimer);
+  });
+
+  it('lets a pruned member back in when they rejoin', async () => {
+    const { manager } = buildWithDurable([]);
+    await manager.addMemberFast('global', 'bob', 'Bob');
+    await manager.touchMemberFast('global', 'bob', { lastSeen: new Date(Date.now() - 10 * 60 * 1000).toISOString() });
+    await manager.sweepStaleMembersNow();
+    // A pruned member's plain heartbeat is ignored by design; an explicit join re-admits them.
+    await manager.addMemberFast('global', 'bob', 'Bob');
+
+    expect((manager as any).stalePrunedAt.get('global')?.has('bob')).toBe(false);
+    expect((manager as any).fastActiveMembers.get('global')?.has('bob')).toBe(true);
+    (manager as any).staleMemberCountSweepTimer && clearInterval((manager as any).staleMemberCountSweepTimer);
+  });
 });

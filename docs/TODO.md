@@ -880,8 +880,12 @@ review capacity is available and the issue is promoted after the website/Android
   first, implying the user must act. Show an "answered automatically by your chatbot" notice
   instead, or nothing.
 
-- [ ] **OPEN-43 — Spec stage2/42 (stale member pruned from Global headcount) flakes under
-  test:all load (found 2026-10-07).** Failed in two consecutive full runs at the 35 s headcount
+- [x] **OPEN-43 — Spec stage2/42 (stale member pruned from Global headcount) flakes under
+  test:all load (found 2026-10-07; fixed 2026-10-07 — real bug: the sweep's durable-presence
+  reconcile revived a member the in-memory roster had just pruned, because the durable copy is
+  written fire-and-forget and still held the older fresh lastSeen; reconcile now leaves freshly
+  pruned members alone until they rejoin. The spec also runs the sweep on demand via the
+  non-production `POST /api/test/chatrooms/sweep` instead of waiting for the 30 s tick; 10/10).** Failed in two consecutive full runs at the 35 s headcount
   wait, passes alone every time. Root-cause the timing instead of widening the timeout blindly.
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular

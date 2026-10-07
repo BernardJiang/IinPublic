@@ -30,6 +30,9 @@ function withoutLegacyRoomAuthority(meta: Record<string, unknown>): Record<strin
 
 export class ChatroomManager {
   private fastActiveMembers = new Map<string, Map<string, { userId: string; stageName: string; lastSeen: string }>>();
+  /** When the in-memory roster dropped a member for staleness (per room). Reconciliation must not
+   *  revive them from a durable record that simply hasn't caught up yet (OPEN-43). */
+  private stalePrunedAt = new Map<string, Map<string, number>>();
   /**
    * Authoritative in-process room metadata (same pattern as fastActiveMembers /
    * the server's incomingTalksMap): Gun paths are a mirror. `.once` reads of
@@ -81,27 +84,29 @@ export class ChatroomManager {
     // (what every browser's UI reads) in the first place — an embedded phone's local graph isn't
     // that shared roster — so skip the Gun-writing prune there entirely rather than risk
     // recreating the same corruption after a device's data is cleared.
-    const isEmbeddedNode = process.env.IINPUBLIC_EMBEDDED_NODE === '1';
     const sweepMs = Math.max(1000, Math.min(30_000, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)));
     this.staleMemberCountSweepTimer = setInterval(() => {
-      for (const chatroomId of this.fastActiveMembers.keys()) {
-        this.getFastActiveMembers(chatroomId);
-        if (isEmbeddedNode) continue;
-        void this.pruneStaleRoomMemberships(chatroomId).catch(() => {
-          /* best-effort — the next sweep tick tries again */
-        });
-        // Reconciliation: re-assert the durable store's view of this room's active members
-        // back into the ephemeral graph browsers actually subscribe to (WebChatroomService.
-        // subscribeToMembers) — heals a write that silently failed the first time (see
-        // presence-durable-store.ts's doc comment) within one sweep interval instead of the
-        // member staying invisible for the rest of the session. Meaningless on an embedded
-        // node (its own main graph is already durable), so skip there too.
-        void this.reconcilePresenceFromDurableStore(chatroomId).catch(() => {
-          /* best-effort — the next sweep tick tries again */
-        });
-      }
+      void this.sweepStaleMembersNow();
     }, sweepMs);
     this.staleMemberCountSweepTimer.unref?.();
+  }
+
+  /**
+   * One stale-membership sweep (the periodic timer above calls this). Also exposed so E2E can run
+   * a sweep on demand (`POST /api/test/chatrooms/sweep`) instead of waiting up to a full interval.
+   */
+  async sweepStaleMembersNow(): Promise<void> {
+    const isEmbeddedNode = process.env.IINPUBLIC_EMBEDDED_NODE === '1';
+    const work: Promise<unknown>[] = [];
+    for (const chatroomId of this.fastActiveMembers.keys()) {
+      this.getFastActiveMembers(chatroomId);
+      if (isEmbeddedNode) continue;
+      // Reconciliation re-asserts the durable store's active members into the ephemeral graph
+      // browsers subscribe to; both are skipped on an embedded node (see the timer's comment).
+      work.push(this.pruneStaleRoomMemberships(chatroomId).catch(() => undefined));
+      work.push(this.reconcilePresenceFromDurableStore(chatroomId).catch(() => undefined));
+    }
+    await Promise.all(work);
   }
 
   /** See the sweep loop's own comment above for why this exists. Re-puts each durably-known
@@ -120,6 +125,14 @@ export class ChatroomManager {
         // 15b failed on every repeat run for this reason). Durable data only fills in members the
         // in-memory roster no longer has, which is its actual purpose (restart / lost write).
         const live = this.fastActiveMembers.get(chatroomId)?.get(durable.userId);
+        // OPEN-43: a member this process just pruned as stale stays pruned. The durable copy is
+        // written fire-and-forget and can still carry the previous (fresh-looking) lastSeen; re-
+        // asserting it would revive the member in every client's roster until the TTL lapsed.
+        // A member who genuinely heartbeats again re-enters through upsertFastMember.
+        const prunedAt = this.stalePrunedAt.get(chatroomId)?.get(durable.userId);
+        if (!live && prunedAt !== undefined && Date.now() - prunedAt < ROOM_MEMBERSHIP_TTL_SECONDS * 1000) {
+          return Promise.resolve();
+        }
         const member = live
           ? {
               ...durable,
@@ -200,6 +213,7 @@ export class ChatroomManager {
     // re-enter the map. Exception: an explicit PATCH that deliberately backdates lastSeen
     // (the stale-membership prune specs inject staleness that way) bypasses the fence.
     if (!opts.bypassResetFence && lastSeen && this.predatesReset({ lastSeen })) return;
+    this.stalePrunedAt.get(chatroomId)?.delete(userId);
     const room = this.fastActiveMembers.get(chatroomId) ?? new Map<string, { userId: string; stageName: string; lastSeen: string }>();
     room.set(userId, {
       userId,
@@ -228,6 +242,9 @@ export class ChatroomManager {
       // or a TechSupport device that never heartbeats would silently age out after the TTL.
       if (!isTechSupportId(userId) && this.roomMembershipIsStale({ isActive: true, lastSeen: member.lastSeen }, now)) {
         room.delete(userId);
+        const prunedInRoom = this.stalePrunedAt.get(chatroomId) ?? new Map<string, number>();
+        prunedInRoom.set(userId, now.getTime());
+        this.stalePrunedAt.set(chatroomId, prunedInRoom);
         pruned = true;
         continue;
       }

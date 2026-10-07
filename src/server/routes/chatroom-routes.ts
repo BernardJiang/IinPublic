@@ -245,6 +245,15 @@ export function registerChatroomRoutes(
     res.status(410).json({ error: 'room roles were retired; all participants are ordinary peers' });
   });
 
+  // E2E only: run the stale-membership sweep now rather than waiting for the next timer tick
+  // (OPEN-43 — spec stage2/42 otherwise waits on a 30 s interval plus propagation under load).
+  if (process.env.NODE_ENV !== 'production') {
+    app.post('/api/test/chatrooms/sweep', async (_req, res) => {
+      await chatroomManager.sweepStaleMembersNow();
+      res.json({ swept: true });
+    });
+  }
+
   /** Retired compatibility endpoint; room participants have no assignable roles. */
   app.put('/api/chatrooms/:id/roles/:userId', async (_req, res) => {
     res.status(410).json({ error: 'room roles were retired; all participants are ordinary peers' });

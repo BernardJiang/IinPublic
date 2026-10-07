@@ -74,13 +74,11 @@ test.describe('Room membership TTL cleanup', () => {
     expect(res.ok).toBe(true);
     await afterSync();
 
-    // The prune this asserts on isn't triggered by the GET above — it's a passive background
-    // sweep (chatroom-manager.ts's staleMemberCountSweepTimer), which ticks every
-    // min(30_000, ROOM_MEMBERSHIP_TTL_SECONDS*1000/3) = 30s at the current 180s TTL. A 20s
-    // timeout here is shorter than that interval, so whenever this test's own reset happens to
-    // land shortly after a sweep tick, the assertion times out waiting for the NEXT tick that
-    // hasn't fired yet — deterministic, not flaky (reproduced twice in a row in a real
-    // `test:all` run). 35s safely covers one full sweep interval plus slack.
+    // The prune is normally a passive background sweep (chatroom-manager.ts, every 30 s at the
+    // 180 s TTL). Waiting for that tick plus client propagation flaked under test:all load
+    // (OPEN-43), so run the sweep now; the wait below then only covers propagation to Alice.
+    const sweepRes = await fetch(`${gunBaseURL()}/api/test/chatrooms/sweep`, { method: 'POST' });
+    expect(sweepRes.ok).toBe(true);
     await expect(globalHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 35_000 });
   });
 });
