@@ -61,6 +61,7 @@ export function normalizeDirtyWords(raw: unknown): string[] {
 
 export function getDefaultTalkIntakeFilters(seedLanguages?: string[]): TalkIntakeFilters {
   return {
+    contactsOnlyTalks: false,
     allowedLanguages: Array.isArray(seedLanguages) && seedLanguages.length > 0 ? seedLanguages : ['en'],
     minDistanceMiles: 0,
     maxDistanceMiles: 50,

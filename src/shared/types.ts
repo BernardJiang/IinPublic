@@ -9,6 +9,12 @@ export type ReceivedBlockSignals = Record<string, string[]>;
 export type SharedBlockSignals = Record<string, { groupId: string; signalId: string; sharedAt: string }>;
 
 export interface TalkIntakeFilters {
+  /**
+   * When enabled, Talk offers and responses may only cross an edge to a user in
+   * `knownPeople`. Nearby/chatroom discovery remains available; this only gates
+   * Talk exchange. Undefined is treated as false for pre-feature accounts.
+   */
+  contactsOnlyTalks?: boolean;
   minDistanceMiles?: number;
   maxDistanceMiles?: number;
   sentAfter?: string;

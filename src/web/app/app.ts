@@ -128,6 +128,7 @@ import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-t
 import { getNearbyBluetoothEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
+import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
@@ -2129,6 +2130,9 @@ export class IinPublicApp {
     // checked before any filter so it cannot be re-enabled through intake settings.
     if (!acceptsIncomingTalks(me.id)) return false;
     if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
+    if (!talkContactPolicyAllowsPeer(offer.senderId, getTalkIntakeFilters(), me.knownPeople)) {
+      return false;
+    }
     const talkData = offer.talkData;
     // Resolve ageVerified asynchronously before calling the shared synchronous filter function.
     // Only fetch when the talk is actually adult-flagged to avoid an unnecessary API call.
@@ -3539,6 +3543,11 @@ export class IinPublicApp {
 
   private async handleMeshTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {
     if (!this.currentUser?.id || payload.authorId !== this.currentUser.id) return;
+    if (!talkContactPolicyAllowsPeer(
+      payload.responderId,
+      getTalkIntakeFilters(),
+      this.currentUser.knownPeople,
+    )) return;
     console.log(`[RESP-INGEST] talk=${String(payload.talkId).slice(-8)} from=${String(payload.responderId).slice(0, 8)} v=${payload.version ?? 1}`);
     const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}::v${payload.version ?? 1}`;
     if (this.processedTalkResponseKeys.has(dedupeKey)) return;
@@ -5658,6 +5667,11 @@ export class IinPublicApp {
       const allowed = new Set(eligibleReceiverIds);
       receiverIds = receiverIds.filter((id) => allowed.has(id));
     }
+    receiverIds = filterTalkPeersByContactPolicy(
+      receiverIds,
+      getTalkIntakeFilters(),
+      me.knownPeople,
+    );
     if (receiverIds.length === 0) return false;
 
     // Step 8.2 / Step 11.3: sender-side per-identity suppression.
@@ -5838,7 +5852,12 @@ export class IinPublicApp {
       memberIds = [...uiNameById.keys()];
     }
 
-    return memberIds.map((userId) => ({
+    const permittedMemberIds = filterTalkPeersByContactPolicy(
+      memberIds,
+      getTalkIntakeFilters(),
+      this.currentUser?.knownPeople,
+    );
+    return permittedMemberIds.map((userId) => ({
       userId,
       stageName: uiNameById.get(userId) || userId,
     }));
@@ -6042,6 +6061,11 @@ export class IinPublicApp {
     isAutoResponse: boolean;
   }): Promise<void> {
     if (!this.currentUser?.id) return;
+    if (!talkContactPolicyAllowsPeer(
+      params.authorId,
+      getTalkIntakeFilters(),
+      this.currentUser.knownPeople,
+    )) return;
     // Persist exact-answer memory and provenance privately before any chatbot/manual
     // response can leave this device. Public offers never subscribe to this path.
     try {
@@ -6124,6 +6148,14 @@ export class IinPublicApp {
       targetEpub?: string,
       targetTalkId = params.talkId,
     ): Promise<void> => {
+      // Change-of-mind fanout can include every prior sender of identical content.
+      // Re-check each target so a historic stranger edge cannot bypass the current
+      // contacts-only preference through that secondary delivery path.
+      if (!talkContactPolicyAllowsPeer(
+        targetAuthorId,
+        getTalkIntakeFilters(),
+        this.currentUser?.knownPeople,
+      )) return;
       const authorEpub = targetEpub ?? this.pairTalkPeerEpubHint(
         targetAuthorId === params.authorId ? params.talkData?.authorEpub : undefined,
         targetAuthorId === params.authorId ? params.talkData?.senderEpub : undefined,
@@ -6296,6 +6328,11 @@ export class IinPublicApp {
         for (const sender of allSenders) {
           const senderId = sender.peerId;
           if (senderId === params.authorId) continue;
+          if (!talkContactPolicyAllowsPeer(
+            senderId,
+            getTalkIntakeFilters(),
+            this.currentUser.knownPeople,
+          )) continue;
           const sentResponse = sentResponseByAuthor.get(senderId);
           writeResponderExchangedEntry({
             authorId: senderId,

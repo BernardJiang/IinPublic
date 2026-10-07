@@ -187,6 +187,9 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
       document.querySelectorAll<HTMLElement>('#dirty-word-chips .dirty-word-chip'),
     );
     const nextFilters: TalkIntakeFilters = {
+      contactsOnlyTalks: !!(
+        document.getElementById('settings-contacts-only-talks') as HTMLInputElement | null
+      )?.checked,
       allowedLanguages: filterLanguages,
       requireGoodGrammar: !!(
         document.getElementById('settings-grammar-filter') as HTMLInputElement | null
@@ -270,6 +273,7 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     'settings-min-distance',
     'settings-max-distance',
     'settings-sent-after',
+    'settings-contacts-only-talks',
     'settings-grammar-filter',
     'settings-dirty-words-filter',
   ].forEach((id) => {

@@ -1,6 +1,7 @@
 import { WebUserService } from '../../web/services/web-user-service';
 import type { GunPair } from '../../web/services/gun-bridge';
 import type { User } from '../../shared/types';
+import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
 
 const pair: GunPair = {
   pub: 'pub-key',
@@ -84,12 +85,8 @@ describe('WebUserService', () => {
       `user-talk-filters/${createdUserId}`,
       expect.objectContaining({
         filtersJson: JSON.stringify({
-          allowedLanguages: ['en', 'fr'],
-          minDistanceMiles: 0,
-          maxDistanceMiles: 50,
-          requireGoodGrammar: true,
-          blockDirtyWords: true,
-          allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+          ...getDefaultTalkIntakeFilters(['en', 'fr']),
+          contactsOnlyTalks: undefined,
         }),
       }),
     );
@@ -471,6 +468,7 @@ describe('WebUserService', () => {
     const service = new WebUserService(gunService as any);
 
     await service.updateTalkFilters('user-1', {
+      contactsOnlyTalks: true,
       allowedLanguages: ['zh'],
       requireGoodGrammar: true,
       blockDirtyWords: true,
@@ -494,6 +492,7 @@ describe('WebUserService', () => {
       'profile',
       expect.objectContaining({
         talkFilters: expect.objectContaining({
+          contactsOnlyTalks: true,
           allowedLanguages: ['zh'],
           requireGoodGrammar: true,
           blockDirtyWords: true,

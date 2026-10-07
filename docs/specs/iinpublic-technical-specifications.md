@@ -424,6 +424,10 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **FR-SP-6**: The system SHALL track how many users block a given user and adjust that user's send capacity downward as block count increases.
 - **FR-SP-7**: Age-restricted talks SHALL require an age verification question as the first question.
 - **FR-SP-8**: Underage users SHALL never see adult content talks.
+- **FR-SP-9**: Stranger Talk exchange SHALL remain enabled by default. A user MAY enable one
+  contacts-only preference that symmetrically prevents sending Talks or Talk responses to users
+  outside their private known-person list and rejects incoming Talks or responses from them.
+  This preference SHALL NOT hide chatroom members or disable nearby/chatroom discovery.
 
 ### 3.9 Survey Talks
 
@@ -1081,6 +1085,11 @@ const value = await SEA.decrypt(enc, userPair);
 - Every user starts as a stranger to every other user.
 - All stranger communications are sent in plaintext over the Gun graph.
 - The chatbot may answer talks on the user's behalf using public/auto answers.
+- Users who do not want stranger Talk exchange can enable **Only exchange Talks with contacts** in
+  Settings → Content Filters. The gate applies to outgoing broadcasts/direct delivery, incoming
+  offers, outgoing answers (including change-of-mind fanout), and incoming answers. It is
+  fail-closed until the encrypted known-person list is available, but it leaves room membership,
+  nearby discovery, and the visible member list unchanged.
 
 **Marking a Known Person:**
 

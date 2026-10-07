@@ -119,6 +119,7 @@ import {
   starterIncomingTalkClusters,
   type StarterPracticeContactId,
 } from './starter-talk-seeds';
+import { filterIncomingTalkClustersByContactPolicy } from '../../shared/talk-contact-policy';
 import { showActionableFirstRun, showFirstRunIfNeeded, showProductReferenceTour } from './first-run-controller';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
@@ -2455,7 +2456,12 @@ export class UIManager extends EventEmitter {
   }
 
   private allIncomingTalkClusters(): any[] {
-    return [...starterIncomingTalkClusters(this.starterPracticeContacts()), ...this.incomingTalkClusters];
+    const actualIncoming = filterIncomingTalkClustersByContactPolicy(
+      this.incomingTalkClusters,
+      this.currentUser?.talkFilters ?? getTalkIntakeFilters(),
+      this.currentUser?.knownPeople,
+    );
+    return [...starterIncomingTalkClusters(this.starterPracticeContacts()), ...actualIncoming];
   }
 
   private removeStarterPracticeContact(id: StarterPracticeContactId): void {
