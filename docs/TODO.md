@@ -868,9 +868,15 @@ review capacity is available and the issue is promoted after the website/Android
       + a short wake lock — and the tablet's vendor power manager (Unisoc `PowerGuruService`)
       still never delivers the alarm while the screen is off, with or without forced Doze and even
       with the app on Android's own battery-optimization allowlist (standby bucket ACTIVE, no
-      appops restriction). Next: check the tablet's per-app battery/background setting
-      ("Unrestricted" / launch management) and re-run; longer term a hub-pushed wake over the node's
-      existing connection instead of polling.
+      appops restriction). The tablet's per-app battery setting (changed by the product owner)
+      did not help either; its vendor layer (Allwinner `powerguru`/`power_ex`) exposes no
+      allowlist. With the screen ON and the app backgrounded, polls run every ~105 s.
+    - Other phones, 5 min screen-off without forced Doze (v1.0.119): PH-1 (Android 10) PASS,
+      notification 1 s after the Talk; P30 (Huawei, Android 10) PASS, 2 s. On both the page
+      stays alive asleep and the watcher alarm keeps firing every ~60 s, so either path works.
+    - Conclusion: the C10's vendor power layer is the outlier. Remaining option if such devices
+      matter: a hub-pushed wake over the embedded node's existing connection (network data can
+      wake the device where timers cannot), then the node signals the Android side.
 
 - [x] **OPEN-39 — First-run walkthrough animation burns CPU while left open (done 2026-10-07: the orbit now runs 3 loops then rests; reduced-motion already disabled it; guarded by `onboarding-walkthrough.test.ts`).** Its decorative
   `walkthrough-float` orbit animation loops forever; on the Honor (Android 7) it kept the
