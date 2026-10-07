@@ -131,6 +131,7 @@ import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../sha
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
+import { MicroRoomPreAdmissionClient } from '../services/micro-room-pre-admission-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
@@ -148,6 +149,10 @@ import {
   type ActiveExchangeRoom,
   type RoomProtocolCheckpoint,
 } from '../../shared/active-exchange-room';
+import {
+  microRoomBelongsToBase,
+  microRoomGenerationForRoom,
+} from '../../shared/micro-room-assignment';
 import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
 import {
   BUNDLED_PROTOCOL_MANIFEST_HISTORY,
@@ -291,6 +296,10 @@ export class IinPublicApp {
   private supportGreetingTimestamp: string | null = null;
   private supportGreetingRendered: string | null = null;
   private presenceClient: P2PPresenceClient | null = null;
+  private microRoomPreAdmissionClient: MicroRoomPreAdmissionClient | null = null;
+  private microRoomBaseGridRoomId: string | null = null;
+  private microRoomRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  private microRoomRefreshInFlight = false;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
@@ -1857,12 +1866,19 @@ export class IinPublicApp {
     this.loadTravelModeStateFromStorage();
 
     // Find optimal chatroom using hierarchical assignment
-    const chatroomId = await this.chatroomService.findOptimalChatroomHierarchical(
+    let chatroomId = await this.chatroomService.findOptimalChatroomHierarchical(
       this.currentLocation,
       this.currentUser.id,
       lastChatroomId,
       this.locationConfirmed,
     );
+
+    const automaticBaseGrid = this.locationConfirmed
+      ? getAutomaticLocationChatroomId(this.currentLocation)
+      : null;
+    if (automaticBaseGrid && microRoomBelongsToBase(chatroomId, automaticBaseGrid)) {
+      chatroomId = await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, chatroomId);
+    }
 
     this.currentChatroomId = chatroomId; // Track current chatroom
 
@@ -2279,6 +2295,67 @@ export class IinPublicApp {
   }
 
   /** P2P-I / P2P-O: register live presence and probe local node bridge (stack only). */
+  private async resolveMicroRoomBeforeAdmission(
+    baseGridRoomId: string,
+    currentRoomId: string,
+  ): Promise<string> {
+    const user = this.currentUser;
+    const pair = this.gunService.getStoredPair();
+    if (!user?.id || !pair?.pub || !pair.priv) return currentRoomId;
+    try {
+      const manifestController = await this.ensureProtocolManifestController();
+      const checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
+      this.microRoomPreAdmissionClient ??= new MicroRoomPreAdmissionClient({
+        apiBase: this.getBackendApiBase(),
+        storage: localStorage,
+      });
+      const minimumSplitGeneration = microRoomGenerationForRoom(currentRoomId, baseGridRoomId) ?? 0;
+      const result = await this.microRoomPreAdmissionClient.resolve({
+        userId: user.id,
+        pair,
+        baseGridRoomId,
+        checkpoint,
+        minimumSplitGeneration,
+      });
+      this.microRoomBaseGridRoomId = baseGridRoomId;
+      this.startMicroRoomControlHeartbeat();
+      return result.assignment.roomId;
+    } catch (error) {
+      console.warn('Micro-room pre-admission resolution failed; retaining the last safe room:', error);
+      return currentRoomId;
+    }
+  }
+
+  private startMicroRoomControlHeartbeat(): void {
+    if (this.microRoomRefreshTimer) return;
+    this.microRoomRefreshTimer = setInterval(() => {
+      void this.refreshMicroRoomControl();
+    }, 15_000);
+  }
+
+  private async refreshMicroRoomControl(): Promise<void> {
+    if (this.microRoomRefreshInFlight) return;
+    const baseGridRoomId = this.microRoomBaseGridRoomId;
+    const currentRoomId = this.currentChatroomId;
+    if (!baseGridRoomId || !currentRoomId || !microRoomBelongsToBase(currentRoomId, baseGridRoomId)) {
+      if (this.microRoomRefreshTimer) clearInterval(this.microRoomRefreshTimer);
+      this.microRoomRefreshTimer = null;
+      this.microRoomBaseGridRoomId = null;
+      return;
+    }
+    this.microRoomRefreshInFlight = true;
+    try {
+      const resolved = await this.resolveMicroRoomBeforeAdmission(baseGridRoomId, currentRoomId);
+      if (resolved !== currentRoomId
+        && this.currentChatroomId === currentRoomId
+        && microRoomBelongsToBase(resolved, baseGridRoomId)) {
+        this.uiManager.emit('chatroomChanged', resolved);
+      }
+    } finally {
+      this.microRoomRefreshInFlight = false;
+    }
+  }
+
   private async initP2PPresenceAndBridge(): Promise<void> {
     if (!this.currentUser?.id || isTechSupportUser(this.currentUser)) return;
     const pair = this.gunService.getStoredPair();
@@ -8332,10 +8409,16 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('chatroomChanged', async (chatroomId: string) => {
+    this.uiManager.on('chatroomChanged', async (requestedChatroomId: string) => {
       if (!this.currentUser) {
         return;
       }
+      const automaticBaseGrid = this.currentLocation && this.locationConfirmed
+        ? getAutomaticLocationChatroomId(this.currentLocation)
+        : null;
+      const chatroomId = automaticBaseGrid && requestedChatroomId === automaticBaseGrid
+        ? await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, requestedChatroomId)
+        : requestedChatroomId;
       const previousChatroomId = this.currentChatroomId;
       this.uiManager.setCurrentChatroomId(chatroomId);
 

@@ -1,5 +1,9 @@
 import {
   assignMicroRoom,
+  assignMicroRoomForGeneration,
+  microRoomBelongsToBase,
+  microRoomControlScopeId,
+  microRoomGenerationForRoom,
   microRoomLaneIndex,
   recommendedMicroRoomLaneCount,
 } from '../../shared/micro-room-assignment';
@@ -11,6 +15,7 @@ describe('OPEN-40 deterministic micro-room assignment', () => {
     expect(recommendedMicroRoomLaneCount(0, 498)).toBe(1);
     expect(recommendedMicroRoomLaneCount(498, 498)).toBe(1);
     expect(recommendedMicroRoomLaneCount(499, 498)).toBe(2);
+    expect(assignMicroRoom('pub-alice', baseGrid, 498, 498).roomId).toBe(baseGrid);
   });
 
   it('plans 32 headroom lanes for 10,000 users at C=498', () => {
@@ -41,5 +46,18 @@ describe('OPEN-40 deterministic micro-room assignment', () => {
     expect(() => microRoomLaneIndex('pub-alice', baseGrid, 21)).toThrow(
       'micro-room lane count must be a power of two',
     );
+  });
+
+  it('derives a coordinate-free control scope and assignment from a verified generation', () => {
+    expect(microRoomControlScopeId(baseGrid)).toMatch(/^grid_[a-f0-9]{24}_control_v1$/);
+    expect(microRoomControlScopeId(baseGrid)).not.toContain('32.71');
+    const assignment = assignMicroRoomForGeneration('pub-alice', baseGrid, 5);
+    expect(assignment).toEqual(
+      expect.objectContaining({ laneCount: 32, splitGeneration: 5 }),
+    );
+    expect(microRoomBelongsToBase(assignment.roomId, baseGrid)).toBe(true);
+    expect(microRoomGenerationForRoom(assignment.roomId, baseGrid)).toBe(5);
+    expect(microRoomGenerationForRoom(baseGrid, baseGrid)).toBe(0);
+    expect(microRoomBelongsToBase('unrelated-room', baseGrid)).toBe(false);
   });
 });

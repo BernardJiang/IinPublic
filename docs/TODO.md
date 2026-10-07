@@ -45,7 +45,14 @@ its ID.
     - [x] Added the pure v1 allocator: no split through `C`, power-of-two lane generations with
       25% target headroom after overflow, stable public-identity hashing, and coordinate-free room
       IDs. At 10,000 users and `C=498` it deterministically selects 32 lanes. It is deliberately
-      not wired to live membership until the bounded corroborated split-control plane exists.
+      not driven by a claimed headcount; live assignment advances only from verified overflow
+      certificates.
+    - [x] Wire Internet pre-admission before the public room join: a separate control-only signed
+      presence registry retains at most `C+1` witnesses per lane, serializes concurrent certificate
+      formation, and returns only the missing/current certificate suffix. Clients verify and cache
+      the monotone chain, derive their lane before joining/advertising Talks, refresh every 15s,
+      and republish missing history after an ephemeral relay restart. The relay transports evidence
+      but has no admission authority. LAN/BLE transport for the same records is still open.
   - [ ] **P0 authority hardening:** eviction/frontier messages are untrusted hints, never commands.
     A receiver moves only after independently validating its signed current-room view and local
     overflow status. Authenticate all split-control records, reject unreasonable jumps/rollback,
@@ -54,11 +61,22 @@ its ID.
       view and the receiver independently computes itself in the monotone overflow set; active
       overflow members self-correct without waiting for a notice.
     - [x] Reject far-future, unsafe-integer, and extreme frontier records; cap one hinted jump to
-      64 lanes. The frontier remains an unauthenticated optimization pending the signed control
-      plane above.
+      64 lanes. The old numbered-room frontier remains only a legacy fallback; automatic blurred
+      grids now use the signed certificate control plane above.
+    - [x] Define bounded ownerless overflow certificates: advancing one generation requires
+      exactly `C+1` distinct, authentic signed presences that were simultaneously live in one
+      lane under the receiver's locally verified protocol checkpoint. Certificates form a
+      monotone contiguous chain, remain historically verifiable, reject tampering/cross-lane
+      witnesses/future timestamps, and expose only a coordinate-free control-scope ID. This
+      closes the control-record format and verification primitive; live discovery/transport
+      wiring remains under bounded pre-admission.
   - [ ] **P0 non-cooperating/offline members:** capacity safety must not require the displaced
     phone to be online and perform its own move. Every client independently derives the eligible
     set; a returning excluded user derives a valid lane before advertising or exchanging.
+    - [x] On the Internet path, an overflow entrant advances before active membership while the
+      existing lane remains at no more than `C`; foreground peers poll forward, and a returning
+      peer uses its durable generation as a no-rollback floor before active presence. Fully
+      offline LAN/BLE convergence still needs the control-evidence transport below.
   - [ ] **P1 convergence/churn:** define split-generation convergence under Internet/LAN/BLE
     partitions, stale occupancy, simultaneous arrivals, GPS drift, and grid-boundary neighbors.
     Add hysteresis and preserve one-active-room stop-before-start behavior.
@@ -74,6 +92,9 @@ its ID.
     formula test and small FIFO tests are insufficient; close the current SPEC-5 coverage gap.
     - [x] Pure 10,000-identity assignment simulation verifies all identities are assigned across
       32 non-empty lanes and the deterministic fixture's maximum occupancy remains below 498.
+    - [x] Certificate/control tests cover `C+1`, distinct-key enforcement, tampering, cross-lane
+      witnesses, future records, historical verification, contiguous advancement, no rollback,
+      local offline reuse, and the relay HTTP formation/read path.
 
 - [x] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
   "no deobfuscation file associated with this App Bundle"). Done 2026-10-05.**

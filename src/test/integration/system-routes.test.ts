@@ -1,5 +1,5 @@
 import express from 'express';
-import request from 'supertest';
+import request, { type Response } from 'supertest';
 import SEA from 'gun/sea';
 import { registerSystemRoutes } from '../../server/routes/system-routes';
 import {
@@ -9,6 +9,9 @@ import {
   type SeaSigningPair,
 } from '../../shared/p2p-runtime';
 import { peerAckSigningPayload } from '../../shared/p2p-presence';
+import { createMicroRoomControlPresence } from '../../shared/micro-room-control-presence';
+import { microRoomControlScopeId } from '../../shared/micro-room-assignment';
+import type { RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 import { signFaqEntry } from '../../shared/techsupport-faq-entry';
 import { buildSupportFaqEntry, supportQuestionKey } from '../../shared/techsupport-faq';
@@ -498,6 +501,87 @@ describe('system routes', () => {
     expect(list.body.messages).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'support_1', text: 'Welcome' })]),
     );
+  });
+
+  it('forms and serves a bounded verifiable micro-room overflow certificate at C+1', async () => {
+    const { app } = buildApp('test');
+    const baseGridRoomId = 'region_32.71_-117.17_room_0';
+    const checkpoint: RoomProtocolCheckpoint = {
+      networkId: 'iinpublic-test',
+      protocolEpoch: 1,
+      manifestSequence: 1,
+      manifestHash: 'b'.repeat(64),
+      chatroomCapacity: 3,
+    };
+    let lastResponse: Response | null = null;
+    for (let index = 0; index < 4; index += 1) {
+      const pair = await SEA.pair() as SeaSigningPair;
+      const presence = await createMicroRoomControlPresence({
+        userId: `arena-user-${index}`,
+        pair,
+        baseGridRoomId,
+        splitGeneration: 0,
+        laneIndex: 0,
+        checkpoint,
+      });
+      lastResponse = await request(app)
+        .post('/api/micro-rooms/control/presence')
+        .send({ baseGridRoomId, presence });
+      expect(lastResponse.status).toBe(200);
+      expect(lastResponse.body.laneWitnessCount).toBe(index + 1);
+    }
+    expect(lastResponse?.body.certificates).toEqual([
+      expect.objectContaining({
+        fromSplitGeneration: 0,
+        toSplitGeneration: 1,
+        witnesses: expect.any(Array),
+      }),
+    ]);
+    expect(lastResponse?.body.certificates[0].witnesses).toHaveLength(4);
+
+    const listed = await request(app).get(
+      `/api/micro-rooms/control/${microRoomControlScopeId(baseGridRoomId)}/certificates`,
+    );
+    expect(listed.status).toBe(200);
+    expect(listed.body.certificates).toHaveLength(1);
+
+    const tampered = await request(app)
+      .post('/api/micro-rooms/control/presence')
+      .send({
+        baseGridRoomId,
+        presence: { ...lastResponse?.body.record, laneIndex: 1 },
+      });
+    expect(tampered.status).toBe(400);
+  });
+
+  it('serializes simultaneous overflow formation so no more than C entrants receive generation zero', async () => {
+    const { app } = buildApp('test');
+    const baseGridRoomId = 'region_40.71_-74.00_room_0';
+    const checkpoint: RoomProtocolCheckpoint = {
+      networkId: 'iinpublic-test',
+      protocolEpoch: 1,
+      manifestSequence: 1,
+      manifestHash: 'd'.repeat(64),
+      chatroomCapacity: 1,
+    };
+    const presences = await Promise.all(Array.from({ length: 5 }, async (_, index) => {
+      const pair = await SEA.pair() as SeaSigningPair;
+      return createMicroRoomControlPresence({
+        userId: `simultaneous-user-${index}`,
+        pair,
+        baseGridRoomId,
+        splitGeneration: 0,
+        laneIndex: 0,
+        checkpoint,
+      });
+    }));
+    const responses = await Promise.all(presences.map((presence) => request(app)
+      .post('/api/micro-rooms/control/presence')
+      .send({ baseGridRoomId, presence })));
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses.filter((response) => response.body.certificates.length === 0)).toHaveLength(1);
+    expect(responses.filter((response) => response.body.certificates.length === 1)).toHaveLength(4);
   });
 
   it('forwards a posted TechSupport message to the explicit hub relay and merges remote messages on read', async () => {
