@@ -109,6 +109,7 @@ import {
   subscribeToDelegateGrants,
   fetchGrantLive,
   fetchDelegateGrantsFromServer,
+  applyRawDelegateGrant,
 } from '../services/techsupport-delegate-cache';
 import {
   createDelegateInvite,
@@ -3612,7 +3613,7 @@ export class IinPublicApp {
     // Delivery is ACK-eligible only after the receiver's local Gun commit and
     // repository read-back verification complete.
     await this.talkService.cacheReceivedTalk(payload.talkId, talkData);
-    // OPEN-40: same content already answered from this author → refresh that copy in place.
+    // OPEN-45: same content already answered from this author → refresh that copy in place.
     const silentUpdate = applyTalkRevisionToAnsweredCopy(talkData, payload.authorId);
     this.uiManager.displayIncomingTalk({
       silentUpdate,
@@ -4636,7 +4637,10 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair();
     const delegateUserId = input.delegateUserId.trim();
     if (!pair?.priv || !delegateUserId) return;
-    const delegatePub = (await this.gunService.getPublicUser(delegateUserId))?.pub;
+    // Approving a pending request: its signed candidatePub is already in hand, so skip the public
+    // user lookup (a network read that ran past the panel's refresh window under load).
+    const delegatePub = this.delegateRequestsCache.find((r) => r.candidateUserId === delegateUserId)?.candidatePub
+      || (await this.gunService.getPublicUser(delegateUserId))?.pub;
     if (!delegatePub) {
       console.warn('[Support] Cannot issue delegate grant — no such user id', delegateUserId);
       return;
@@ -4693,7 +4697,9 @@ export class IinPublicApp {
     let ref = this.gunService.getGun().get(delegateGrantPath(grant.delegatePub)[0]);
     for (const segment of delegateGrantPath(grant.delegatePub).slice(1)) ref = ref.get(segment);
     ref.put(grant);
-    this.refreshDelegateAdminPanel();
+    // Our own freshly signed grant: cache it now (same verify + rollback rules as any received
+    // grant) so the roster shows it at once instead of after the Gun echo / 5 s relay poll.
+    void applyRawDelegateGrant(grant).finally(() => this.refreshDelegateAdminPanel());
   }
 
   /** docs/TODO.md K7: pushes the current roster + delegate-answered FAQ entries to the master's Delegates panel.
@@ -5233,7 +5239,7 @@ export class IinPublicApp {
   private talkRevisionPairKey(talkId: string, authorId: string, talkData: unknown): string {
     let content = '';
     try {
-      // OPEN-40: the full revision (content + title + routing), so an in-place routing or title
+      // OPEN-45: the full revision (content + title + routing), so an in-place routing or title
       // update is ingested too, not dropped as already delivered.
       content = talkData ? computeTalkRevisionHash(talkData) : '';
     } catch {
@@ -5826,7 +5832,7 @@ export class IinPublicApp {
       }
 
       // If ALL identity keys suppressed → skip recipient entirely — unless the peer holds an older
-      // revision of the same content (title/routing edit, OPEN-40): then re-send it whole as an
+      // revision of the same content (title/routing edit, OPEN-45): then re-send it whole as an
       // in-place update.
       let revisionUpdate = false;
       if (suppressedSet.size === identityKeys.length) {

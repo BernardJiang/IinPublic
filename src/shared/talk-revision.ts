@@ -1,7 +1,7 @@
 import { buildIdentityPayloadFromTalk, hashIdentityPayload } from './cid';
 
 /**
- * OPEN-40: a talk's delivery revision. The content identity (`computeTalkIdFromTalkData`) keys
+ * OPEN-45: a talk's delivery revision. The content identity (`computeTalkIdFromTalkData`) keys
  * answers, chatbot memory and "already exchanged" — it deliberately excludes the title and the
  * routing, so a routing-only edit is the SAME talk to a receiver. But that also meant the edit was
  * never re-sent. The revision adds the title and every routing field on top of the identity, so a

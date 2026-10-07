@@ -22,7 +22,7 @@ const flow = (overrides: Record<string, any> = {}) => ({
 
 beforeEach(() => localStorage.clear());
 
-describe('computeTalkRevisionHash (OPEN-40)', () => {
+describe('computeTalkRevisionHash (OPEN-45)', () => {
   it('changes with title or routing while the content identity stays the same', () => {
     const base = flow();
     const retitled = flow({ title: 'Tennis partner' });

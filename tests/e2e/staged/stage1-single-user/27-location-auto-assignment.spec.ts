@@ -1,5 +1,7 @@
 /**
  * Location-based chatroom auto-assignment after an explicit location refresh.
+ * FR-CR-2 (2026-10-07): automatic geographic routing uses coarse coordinate cells only, never
+ * continent/country/state rooms, so an explicit refresh lands in the user's coarse cell room.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -51,7 +53,7 @@ test.describe('Location-based chatroom assignment', () => {
     await clearGunForStage1Spec();
   });
 
-  test('explicit location refresh moves the user to the mapped regional chatroom', async () => {
+  test('explicit location refresh moves the user to their coarse coordinate cell room', async () => {
     const p = page!;
     await expect.poll(async () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '')).toBe('global');
 
@@ -70,6 +72,6 @@ test.describe('Location-based chatroom assignment', () => {
         async () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || ''),
         { timeout: 30_000, intervals: [300, 600, 1000] },
       )
-      .toBe('new-york-state');
+      .toMatch(/^region_40\.71_-74\.01(_|$)/);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * OPEN-40: which revision (`computeTalkRevisionHash`) of each authored talk each peer last
+ * OPEN-45: which revision (`computeTalkRevisionHash`) of each authored talk each peer last
  * accepted. The delivery ledger suppresses by content identity, so this is what tells a title- or
  * routing-only edit apart from "already has it" and lets the edit go out as an in-place update.
  * Local, bounded, best-effort (a lost record only means one baseline is re-taken).

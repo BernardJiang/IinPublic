@@ -288,7 +288,7 @@ test.describe('Edited talk is answered fully automatically', () => {
     });
   }
 
-  // OPEN-40: a title/routing-only edit is the same content — receivers get it in place, not as a
+  // OPEN-45: a title/routing-only edit is the same content — receivers get it in place, not as a
   // new talk, and nothing is re-answered.
   test('title/routing-only edit updates the receiver\'s copy in place', async () => {
     const title = 'E2E Routing Edit';

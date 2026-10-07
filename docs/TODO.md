@@ -971,7 +971,7 @@ review capacity is available and the issue is promoted after the website/Android
   compositor at ~38 % of a core (≈7.5 %/h battery in an idle 10-min window). Stop it after a few
   loops, when the page is hidden, and under `prefers-reduced-motion`.
 
-- [x] **OPEN-40 — Routing-only Talk edits never reach receivers (found 2026-10-07; done 2026-10-07, product owner: update in place — spec REQ-LEDGER-11a; `talk-revision.ts`, per-peer revision record, receivers refresh their answered copy silently; e2e stage3/05b).** A Talk's
+- [x] **OPEN-45 (filed as OPEN-40 before a numbering clash with the arena micro-room item) — Routing-only Talk edits never reach receivers (found 2026-10-07; done 2026-10-07, product owner: update in place — spec REQ-LEDGER-11a; `talk-revision.ts`, per-peer revision record, receivers refresh their answered copy silently; e2e stage3/05b).** A Talk's
   content identity hashes type, language, question and answer texts only, so an author's edit
   that changes just the title or which answer matches/ignores is "unchanged" to the broadcast
   ledger and is never re-sent; receivers keep the old routing. Decide whether routing belongs in

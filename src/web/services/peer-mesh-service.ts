@@ -216,7 +216,7 @@ function talkRevisionDeliveryKey(talkId: string, authorId: string, contentHash?:
 /** `{ contentHash }` for a talk body, or `{}` when it can't be identified. */
 function contentHashField(talk: unknown): { contentHash?: string } {
   try {
-    // OPEN-40: the full revision, so a title/routing-only update is a new delivery too.
+    // OPEN-45: the full revision, so a title/routing-only update is a new delivery too.
     const contentHash = computeTalkRevisionHash(talk);
     return contentHash ? { contentHash } : {};
   } catch {

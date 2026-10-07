@@ -145,7 +145,7 @@ export function completeTalk(
 }
 
 /**
- * OPEN-40: an author's title/routing-only edit arrives as the same content (same identity). When
+ * OPEN-45: an author's title/routing-only edit arrives as the same content (same identity). When
  * this device already answered (or retained / ignored) that content from that author, refresh the
  * stored copy in place — new title, new routing — keeping the answers, which still apply to the
  * unchanged questions. Returns true when it was such an update (the caller then stays quiet: it is

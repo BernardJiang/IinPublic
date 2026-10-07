@@ -55,6 +55,23 @@ export function renderSupportDelegatesSection(
 
   const now = deps.now?.() ?? Date.now();
   const sorted = [...grants].sort((a, b) => (a.issuedAt < b.issuedAt ? 1 : -1));
+  // This section is re-rendered on every roster/poll update. Keep what the operator is typing into
+  // a pending request (label, duration) and their focus — otherwise a refresh landing between
+  // typing a label and pressing Approve silently issues the grant under the default label.
+  const typed = new Map<string, { label: string | undefined; ttl: string | undefined }>();
+  container.querySelectorAll<HTMLElement>('.support-delegate-pending-item').forEach((item) => {
+    const id = item.dataset.requestId;
+    if (!id) return;
+    typed.set(id, {
+      label: (item.querySelector('.support-delegate-pending-label') as HTMLInputElement | null)?.value,
+      ttl: (item.querySelector('.support-delegate-pending-ttl') as HTMLInputElement | null)?.value,
+    });
+  });
+  const focused = document.activeElement as HTMLElement | null;
+  const focusedRequestId = focused?.closest<HTMLElement>('.support-delegate-pending-item')?.dataset.requestId;
+  const focusedClass = focused?.classList.contains('support-delegate-pending-label')
+    ? 'support-delegate-pending-label'
+    : focused?.classList.contains('support-delegate-pending-ttl') ? 'support-delegate-pending-ttl' : '';
 
   container.innerHTML = renderSettingsSection(
     { title: deps.text('supportDelegatesTitle'), subtitle: deps.text('supportDelegatesHelp') },
@@ -137,6 +154,18 @@ export function renderSupportDelegatesSection(
       </div>
     `,
   );
+
+  container.querySelectorAll<HTMLElement>('.support-delegate-pending-item').forEach((item) => {
+    const kept = typed.get(item.dataset.requestId || '');
+    if (!kept) return;
+    const label = item.querySelector('.support-delegate-pending-label') as HTMLInputElement | null;
+    const ttl = item.querySelector('.support-delegate-pending-ttl') as HTMLInputElement | null;
+    if (label && kept.label !== undefined) label.value = kept.label;
+    if (ttl && kept.ttl !== undefined) ttl.value = kept.ttl;
+    if (focusedRequestId && item.dataset.requestId === focusedRequestId && focusedClass) {
+      (item.querySelector(`.${focusedClass}`) as HTMLInputElement | null)?.focus();
+    }
+  });
 
   container.querySelector<HTMLButtonElement>('#support-delegate-invite-btn')?.addEventListener('click', () => {
     openInviteDialog(deps);

@@ -7,6 +7,7 @@ import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
+import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
 
@@ -618,6 +619,22 @@ async function loadMemberStats(
  * hierarchy list's icon + name, then a depth-first search of the tree (for a room present in
  * the tree but not the flat list), then a title-cased fallback derived from the id itself.
  */
+/**
+ * Automatic coarse-coordinate cell rooms (`region_<lat>_<lng>_room_<lane>`, FR-CR-2) have no entry
+ * in the named hierarchy; title them by the most specific named place covering the cell —
+ * "📍 Near San Diego" — instead of the raw id. Later lanes add "· Group N".
+ */
+function coarseCellTitle(chatroomId: string): string | null {
+  const cell = /^region_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)(?:_room_(\d+))?$/.exec(chatroomId);
+  if (!cell) return null;
+  const path = getLocationChatroomPath({ latitude: Number(cell[1]), longitude: Number(cell[2]), accuracy: 0, timestamp: new Date() });
+  const names = new Map(getFlatChatroomList().map((node) => [node.id, node.name] as const));
+  const place = [...path].reverse().map((id) => names.get(id)).find(Boolean);
+  const label = place ? `📍 Near ${place}` : '📍 Nearby';
+  const lane = Number(cell[3] || 0);
+  return lane > 0 ? `${label} · Group ${lane + 1}` : label;
+}
+
 export function resolveChatroomTitle(chatroomId: string, customChatrooms: readonly CustomChatroomRow[]): string {
   // A numbered overflow room (`x_part_3`) is shown as its base room plus the number: "Arena (3)".
   const baseId = splitBaseId(chatroomId);
@@ -646,6 +663,8 @@ export function resolveChatroomTitle(chatroomId: string, customChatrooms: readon
   };
   const treeName = findInTree(getActiveChatroomHierarchy());
   if (treeName) return treeName;
+  const cellTitle = coarseCellTitle(chatroomId);
+  if (cellTitle) return cellTitle;
   return chatroomId
     .split('-')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

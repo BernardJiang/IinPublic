@@ -122,3 +122,25 @@ describe('candidate: incoming targeted invite card', () => {
     expect(document.querySelector('[data-testid="support-delegate-targeted-invite"]')).toBeNull();
   });
 });
+
+describe('delegates panel keeps typed approval details across refreshes', () => {
+  it('a re-render does not reset a pending request label the operator is typing', () => {
+    document.body.innerHTML = '<div id="support-delegates-section"></div>';
+    const request = { requestId: 'req-1', candidateUserId: 'user-dana', candidatePub: 'pub-dana-xxxxxxxx', requestedAt: new Date().toISOString() } as any;
+    const deps = {
+      escapeHtml: (s: string) => s, text: ((k: string) => k) as any, tf: ((k: string) => k) as any,
+      formatDate: () => 'd', onCreateInvite: () => null, onIssue: jest.fn(), onRevoke: jest.fn(),
+    };
+    renderSupportDelegatesSection(deps, [], [], [request]);
+    const label = () => document.querySelector('[data-testid="support-delegate-pending-label"]') as HTMLInputElement;
+    label().value = "Dana's laptop";
+    label().focus();
+
+    renderSupportDelegatesSection(deps, [], [], [request]); // periodic refresh
+    expect(label().value).toBe("Dana's laptop");
+    expect(document.activeElement).toBe(label());
+
+    (document.querySelector('[data-testid="support-delegate-approve-btn"]') as HTMLButtonElement).click();
+    expect(deps.onIssue).toHaveBeenCalledWith(expect.objectContaining({ label: "Dana's laptop" }));
+  });
+});

@@ -10,7 +10,7 @@ export type BroadcastDeliverySelectionDeps = {
   getMyTalks: () => Record<string, any>;
   getBroadcastableTalkIds: () => string[];
   shouldSuppressForPeer: (receiverId: string, identityKey: string) => boolean;
-  /** OPEN-40: peer has this content but an older title/routing revision (read-only check). */
+  /** OPEN-45: peer has this content but an older title/routing revision (read-only check). */
   revisionOwedToPeer?: (receiverId: string, talkId: string, revision: string) => boolean;
 };
 

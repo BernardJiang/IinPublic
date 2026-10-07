@@ -103,14 +103,16 @@ test.describe('Capacity and eviction', () => {
     await clearGunForStage4Spec();
   });
 
-  test('Four users: Global fills to 3, fourth bumps first to North America; persistence after re-enter', async () => {
+  test('Four users: Global fills to 3, fourth bumps the first to their coarse location cell; persistence after re-enter', async () => {
     const storageDir = e2eTestStorageDir();
     if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
 
     const newContext = (b: Browser) =>
       b.newContext({ viewport: { width: 640, height: 600 }, deviceScaleFactor: 1 });
 
-    // --- Phase 1: Four users join sequentially; U4 should evict U1 to North America ---
+    // --- Phase 1: Four users join sequentially; U4 should evict U1 to U1's coarse location cell ---
+    // (FR-CR-2, 2026-10-07: never a continent/country/state room; the default test location is
+    // San Diego, so the cell room is titled "📍 Near San Diego").
 
     context1 = await newContext(browser1);
     page1 = await newCapacityPage(context1, 'U1');
@@ -130,12 +132,12 @@ test.describe('Capacity and eviction', () => {
     await afterSync();
     await afterSync();
 
-    // U1 should have been evicted to North America by FIFO logic
-    await expectStatusBar(page1, 'North America', 'U1 after eviction');
-    console.log('✅ U1 bumped to North America');
+    // U1 should have been evicted to its coarse cell by FIFO logic
+    await expectStatusBar(page1, 'Near San Diego', 'U1 after eviction');
+    console.log('✅ U1 bumped to its coarse cell (Near San Diego)');
 
     await afterAction();
-    await expectStatusBar(page1, 'North America', 'U1 stable after action');
+    await expectStatusBar(page1, 'Near San Diego', 'U1 stable after action');
 
     // Save storage states before closing
     await context1.storageState({ path: path.join(storageDir, 'cap-user1.json') });
@@ -157,7 +159,7 @@ test.describe('Capacity and eviction', () => {
     await context4.close();
     await afterSync();
 
-    // --- Phase 2: All four re-enter; U1 should still be in North America ---
+    // --- Phase 2: All four re-enter; U1 should still be in its coarse cell ---
 
     const reenterContext = async (browser: Browser, storageFile: string) =>
       browser.newContext({
@@ -197,7 +199,7 @@ test.describe('Capacity and eviction', () => {
     attachE2eBrowserTabLabel(page4, 'U4 re-enter');
 
     await afterSync();
-    await expectStatusBar(page1, 'North America', 'U1 persistence check');
+    await expectStatusBar(page1, 'Near San Diego', 'U1 persistence check');
     await expectStatusBar(page2, 'Global', 'U2 persistence check');
     await expectStatusBar(page3, 'Global', 'U3 persistence check');
     await expectStatusBar(page4, 'Global', 'U4 persistence check');

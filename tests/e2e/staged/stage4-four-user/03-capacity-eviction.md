@@ -17,11 +17,11 @@ covers: SPEC-3.3  <!-- auto-seeded; refine by hand -->
 
 4. **User 3 enters:** Joins Global chatroom. Headcount shows `3` — room is now at capacity.
 
-5. **User 4 enters:** This triggers FIFO eviction — User 1 (who was first to join) is bumped from Global and automatically reassigned to the "North America" room. User 1's status bar confirms "North America".
+5. **User 4 enters:** This triggers FIFO eviction — User 1 (who was first to join) is bumped from Global and automatically reassigned to their coarse location cell (FR-CR-2: never a continent/country/state room). With the default San Diego test location that room is titled "📍 Near San Diego", which User 1's status bar confirms.
 
 6. **All four users save their storage state, call cleanup, and close.**
 
-7. **Phase 2 — All four re-enter with saved storage states:** User 1 re-enters and is persistently placed back in "North America" (not Global). Users 2, 3, 4 re-enter and land in "Global". Status bars are verified for each user.
+7. **Phase 2 — All four re-enter with saved storage states:** User 1 re-enters and is persistently placed back in that coarse cell room, "Near San Diego" (not Global). Users 2, 3, 4 re-enter and land in "Global". Status bars are verified for each user.
 
 > **Why this matters:** Verifies that chatroom capacity limits (FIFO eviction) work correctly and that room reassignment persists across browser close/reopen — eviction decisions survive page reloads.
 
