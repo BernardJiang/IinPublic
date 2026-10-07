@@ -2333,11 +2333,16 @@ export class UIManager extends EventEmitter {
     navigateToMyAnswerForTalkImpl(talkId);
   }
 
+  /** Record (locally, quietly) a talk the chatbot already answered for the user — marked 🤖. */
+  recordChatbotAnsweredTalk(talk: any, answers: any[], outcome: 'match' | 'mismatch'): void {
+    this.completeTalk(talk, answers, outcome, { answeredByChatbot: true });
+  }
+
   private completeTalk(
     talk: any,
     answers: any[],
     outcome?: 'match' | 'mismatch',
-    meta?: { withholdFromSender?: boolean; forceCopyToMyTalks?: boolean },
+    meta?: { withholdFromSender?: boolean; forceCopyToMyTalks?: boolean; answeredByChatbot?: boolean },
   ): void {
     completeTalkImpl(talk, answers, outcome, meta, {
       t: (key) => this.t(key),

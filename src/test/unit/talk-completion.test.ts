@@ -179,3 +179,29 @@ describe('completeTalk', () => {
     expect(d.showNotification).toHaveBeenCalledWith(expectedKey, 'success');
   });
 });
+
+describe('completeTalk — answered by the chatbot', () => {
+  const q = { id: 'q1', text: 'Tennis?', answers: [{ id: 'a1', text: 'Yes', isMatch: true }] };
+
+  it('records the answer with a 🤖 marker, quietly, without re-sending a response', () => {
+    const d = deps();
+    completeTalk(talk({ questions: [q] }), [{ questionId: 'q1', answerId: 'a1', answerText: 'Yes' }], 'match', { answeredByChatbot: true }, d);
+
+    expect(getMyTalks().t1.answeredBy).toBe('chatbot');
+    expect(getMyTalks().t1.completedAnswers).toHaveLength(1);
+    expect(Object.values(getFlatAnswerHistory())[0].answeredBy).toBe('chatbot');
+    expect(Object.keys(getAnsweredTalkByContent()).length).toBeGreaterThan(0);
+    expect(d.emit).not.toHaveBeenCalled();
+    expect(d.showNotification).not.toHaveBeenCalled();
+  });
+
+  it('a later manual answer clears the 🤖 marker and is sent as usual', () => {
+    completeTalk(talk({ questions: [q] }), [{ questionId: 'q1', answerId: 'a1' }], 'match', { answeredByChatbot: true }, deps());
+    const d = deps();
+    completeTalk(talk({ questions: [q] }), [{ questionId: 'q1', answerId: 'a1' }], 'match', undefined, d);
+
+    expect(getMyTalks().t1.answeredBy).toBeUndefined();
+    expect(Object.values(getFlatAnswerHistory())[0].answeredBy).toBeUndefined();
+    expect(d.emit).toHaveBeenCalledWith('talkCompleted', expect.objectContaining({ talkId: 't1' }));
+  });
+});

@@ -17,6 +17,8 @@ export type MyTalkEntry = {
     mode?: string;
   }> | undefined;
   outcome?: 'match' | 'mismatch' | undefined;
+  /** Set when the receiver's chatbot answered with no user action; cleared by a manual answer. */
+  answeredBy?: 'chatbot' | undefined;
   disabled?: boolean | undefined;
   expiresAt?: number | undefined;
   locationRadiusMiles?: number | undefined;

@@ -290,6 +290,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         senders: { [talkId]: { senderName: primaryName } },
         isAnswered: true,
         outcome: talk?.outcome,
+        ...(talk?.answeredBy === 'chatbot' ? { answeredBy: 'chatbot' } : {}),
         questionCount: Array.isArray(fullTalk?.questions) ? fullTalk.questions.length : 0,
         updatedAt: talk?.lastInteraction || talk?.timestamp || Date.now(),
         expiresAt: fullTalk?.expiresAt ?? talk?.expiresAt,
@@ -460,6 +461,11 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 const roleBadge = talk.role === 'copied'
                   ? `<span class="talk-badge talk-badge-copied" title="${escapeHtml(deps.t('talksCopied'))}" style="background:var(--accent-soft);color:var(--accent-text);">📋<span class="visually-hidden"> ${deps.t('talksCopied')}</span></span>`
                   : `<span class="talk-badge talk-badge-created" title="${escapeHtml(deps.t('talksCreated'))}" style="background:var(--accent-soft);color:var(--accent-text);">📝<span class="visually-hidden"> ${deps.t('talksCreated')}</span></span>`;
+                // A received talk the chatbot answered (and auto-copy saved here): same 🤖 record.
+                const outByChatbot = talk.role === 'copied' && talk.answeredBy === 'chatbot';
+                const outChatbotBadge = outByChatbot
+                  ? `<span class="talk-badge talk-badge-chatbot" data-testid="talk-answered-by-chatbot" title="${escapeHtml(deps.t('talksAnsweredByChatbot'))}">🤖<span class="visually-hidden"> ${escapeHtml(deps.t('talksAnsweredByChatbot'))}</span></span>`
+                  : '';
                 const talkTypeLower = String(talk.type || talk.fullTalk?.type || '').toLowerCase();
                 const talkLanguage = String(talk.language || talk.fullTalk?.language || 'en').toLowerCase();
                 const typeAccent =
@@ -495,12 +501,13 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 // its own row button. matchedLine stays visible on the row: it's the interactive
                 // N3 click-to-DM affordance, not decorative detail.
                 return `
-      <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-right:5px solid ${typeAccent};background:var(--surface);">
+      <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}${outByChatbot ? ' talk-answered-by-chatbot' : ''}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}"${outByChatbot ? ' data-answered-by="chatbot"' : ''} style="border-right:5px solid ${outByChatbot ? 'var(--chatbot-accent, #7c5cd6)' : typeAccent};background:${outByChatbot ? 'var(--chatbot-soft, #f1ecfb)' : 'var(--surface)'};">
         <div class="talk-item-header">
           <label class="talk-icon-badge" title="${disabled ? deps.t('talksBroadcastOff') : deps.t('talksBroadcastOn')}">
             <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
             <span aria-hidden="true">${typeIcon}</span>
           </label>
+          ${outChatbotBadge}
           <div class="talk-item-title">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</div>
           ${pinButtonHtml(`out:${talkId}`)}
           <span class="talk-item-chevron" aria-hidden="true">›</span>
@@ -652,10 +659,18 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 `📍 ${locText}`,
                 questionProgressText,
               ].filter(Boolean);
+              // Answered automatically by the receiver's chatbot: a distinct 🤖 marker and tint so
+              // the user has a record of it without having done anything; opening the row reviews
+              // (and can re-answer) it like any answered talk.
+              const byChatbot = isAnswered && cluster?.answeredBy === 'chatbot';
+              const chatbotBadge = byChatbot
+                ? `<span class="talk-badge talk-badge-chatbot" data-testid="talk-answered-by-chatbot" title="${escapeHtml(deps.t('talksAnsweredByChatbot'))}">🤖<span class="visually-hidden"> ${escapeHtml(deps.t('talksAnsweredByChatbot'))}</span></span>`
+                : '';
               return `
-      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" data-ignore-label="${escapeHtml(deps.t('talksIgnore'))}" style="border-left:5px solid ${typeAccent};background:var(--accent-soft);">
+      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}${byChatbot ? ' talk-answered-by-chatbot' : ''}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}"${byChatbot ? ' data-answered-by="chatbot"' : ''} data-ignore-label="${escapeHtml(deps.t('talksIgnore'))}" style="border-left:5px solid ${byChatbot ? 'var(--chatbot-accent, #7c5cd6)' : typeAccent};background:${byChatbot ? 'var(--chatbot-soft, #f1ecfb)' : 'var(--accent-soft)'};">
         <div class="talk-item-header">
           <span class="talk-icon-badge" title="${escapeHtml(deps.formatTalkType(String(cluster?.type || 'flow')))}" aria-hidden="true">📥 ${typeIcon}</span>
+          ${chatbotBadge}
           <button type="button" class="talk-item-title view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="${titleStyle}background:none;border:none;padding:0;text-align:left;cursor:pointer;font:inherit;">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
           ${pinButtonHtml(pinKey)}
           <span class="talk-item-chevron" aria-hidden="true">›</span>

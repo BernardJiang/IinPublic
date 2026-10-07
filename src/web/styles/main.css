@@ -4957,3 +4957,24 @@ body.iinpublic-debug .conversation-health-status {
     min-width: 0;
   }
 }
+
+/* Answered automatically by the receiver's chatbot (🤖): one scheme-independent violet so the
+   record stands apart from every accent/talk-type color, in light and dark. */
+:root {
+  --chatbot-accent: #7c5cd6;
+  --chatbot-soft: #f1ecfb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --chatbot-accent: #a58cf0;
+    --chatbot-soft: #241d36;
+  }
+}
+:root[data-theme="dark"] {
+  --chatbot-accent: #a58cf0;
+  --chatbot-soft: #241d36;
+}
+.talk-badge-chatbot,
+.answer-chatbot-mark {
+  color: var(--chatbot-accent);
+}

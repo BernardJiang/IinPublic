@@ -41,7 +41,7 @@ export function completeTalk(
   talk: any,
   answers: any[],
   outcome: 'match' | 'mismatch' | undefined,
-  meta: { withholdFromSender?: boolean; forceCopyToMyTalks?: boolean } | undefined,
+  meta: { withholdFromSender?: boolean; forceCopyToMyTalks?: boolean; answeredByChatbot?: boolean } | undefined,
   deps: TalkCompletionDeps,
 ): void {
   console.log('✅ Talk completed:', talk.id, answers, outcome);
@@ -105,12 +105,24 @@ export function completeTalk(
     fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
     completedAnswers,
     outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
+    // A manual answer replaces (and so clears) an earlier chatbot answer's marker.
+    answeredBy: meta?.answeredByChatbot ? 'chatbot' : undefined,
     senders,
   }, deps);
   // Ignore is a talk-list state, not an answer. Keep it out of the normal Me-tab Q&A history;
   // the dedicated Ignored list is the one place where it should remain visible.
   if (!wasIgnored) {
-    saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
+    saveFlatAnswerHistoryRecord(
+      talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders,
+      meta?.answeredByChatbot ? { answeredBy: 'chatbot' } : {},
+    );
+  }
+
+  // The chatbot already sent its response to the author; this call only records it locally,
+  // quietly — the user did nothing, and the 🤖 marker on the row is the record.
+  if (meta?.answeredByChatbot) {
+    deps.displayTalksList();
+    return;
   }
 
   deps.emit('talkCompleted', {

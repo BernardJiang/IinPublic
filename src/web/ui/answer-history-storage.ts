@@ -41,6 +41,8 @@ export type FlatAnswerHistoryRecord = {
   answeredAt: string;
   senderIds: string[];
   locationRadiusMiles?: number;
+  /** Set when the receiver's chatbot answered this talk with no user action (shown with 🤖). */
+  answeredBy?: 'chatbot';
   items: FlatAnswerHistoryItem[];
 };
 
@@ -113,6 +115,7 @@ export function saveFlatAnswerHistoryRecord(
   }>,
   outcome: 'match' | 'mismatch',
   senders: string[],
+  opts: { answeredBy?: 'chatbot' } = {},
 ): void {
   const questions = Array.isArray(talk?.questions) ? talk.questions : [];
   const talkType = String(talk?.type || '').toLowerCase();
@@ -204,6 +207,7 @@ export function saveFlatAnswerHistoryRecord(
     answeredAt: new Date().toISOString(),
     senderIds: [...new Set(senders.filter(Boolean))],
     ...(talk?.locationRadiusMiles != null ? { locationRadiusMiles: talk.locationRadiusMiles } : {}),
+    ...(opts.answeredBy ? { answeredBy: opts.answeredBy } : {}),
     items,
   });
 }

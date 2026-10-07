@@ -27,7 +27,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
-import { getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
+import { getAnsweredTalkByContent, getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
 import { getMyTalks } from '../ui/my-talks-storage';
 import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
@@ -3483,7 +3483,9 @@ export class IinPublicApp {
     // Only marked on acceptance, not on entry: a REJECTED delivery (e.g. filtered by
     // talkFilters) keeps re-checking on each redundant copy, since eligibility could change
     // between flood attempts.
-    const pairKey = `${payload.talkId}::${payload.authorId}`;
+    // The content identity is part of the key: an author's in-place edit keeps the talkId, and
+    // that revised body must be ingested (and offered to the chatbot) as a new talk.
+    const pairKey = this.talkRevisionPairKey(payload.talkId, payload.authorId, payload.talkData);
     const bodyDedupeKey = `mesh-talk-body::${pairKey}`;
     if (this.processedTalkResponseKeys.has(bodyDedupeKey)) return true;
     if (payload.authorEpub) this.peerEpubByUserId.set(payload.authorId, payload.authorEpub);
@@ -5124,6 +5126,17 @@ export class IinPublicApp {
       });
   }
 
+  /** `talkId::authorId::contentIdentity` — one key per revision of a talk from one author. */
+  private talkRevisionPairKey(talkId: string, authorId: string, talkData: unknown): string {
+    let content = '';
+    try {
+      content = talkData ? computeTalkIdFromTalkData(talkData) : '';
+    } catch {
+      /* unidentifiable body: fall back to the per-talk key */
+    }
+    return `${talkId}::${authorId}::${content}`;
+  }
+
   /**
    * When chatbot is on and we have a saved template for this talk, reply once per announcer
    * (e.g. Bob re-broadcasts the same talk Tom created — Jerry auto-replies on first receipt, not only on Gun replay).
@@ -5135,7 +5148,7 @@ export class IinPublicApp {
     authorName: string,
   ): void {
     if (!authorId || authorId === this.currentUser?.id) return;
-    const pairKey = `${talkId}::${authorId}`;
+    const pairKey = this.talkRevisionPairKey(talkId, authorId, talkData);
     if (this.chatbotAutoReplySentForPair.has(pairKey)) {
       console.log('🤖 Chatbot auto-reply skipped: pair already handled', { pairKey });
       return;
@@ -5145,6 +5158,15 @@ export class IinPublicApp {
       return;
     }
     const contentId = computeTalkIdFromTalkData(talkData);
+    // Already answered for THIS author on this device (manually, or by an earlier chatbot pass)
+    // — the response was sent then; never re-answer it or relabel a manual answer as 🤖. The
+    // same content announced by a different person is still auto-answered for them.
+    const answeredTalkId = contentId ? getAnsweredTalkByContent()[contentId] : undefined;
+    const answeredSenders = answeredTalkId ? getMyTalks()[answeredTalkId]?.senders || [] : [];
+    if (answeredSenders.includes(authorId)) {
+      console.log('🤖 Chatbot auto-reply skipped: content already answered', { talkId, contentId });
+      return;
+    }
     const canAuto =
       !!this.uiManager.getChatbotTemplate(talkId) ||
       (!!contentId &&
@@ -5574,6 +5596,14 @@ export class IinPublicApp {
       authorName,
       isAutoResponse: true,
     });
+    // Keep a visible record: the talk leaves the unanswered inbox and shows as answered by 🤖,
+    // reviewable and re-answerable later like any answered talk.
+    const outcome = checkIfMatch(
+      talkData,
+      template.answers,
+      this.resolveResponderSelfTagForAnswers(talkData, template.answers),
+    ) ? 'match' : 'mismatch';
+    this.uiManager.recordChatbotAnsweredTalk({ ...talkData, id: talkId, authorId }, template.answers, outcome);
   }
 
 
@@ -5926,7 +5956,7 @@ export class IinPublicApp {
           respondedAt: new Date().toISOString(),
         },
       );
-      const pairKey = `${data.talkId}::${String(data.talkData.authorId)}`;
+      const pairKey = this.talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
       this.chatbotAutoReplySentForPair.add(pairKey);
       this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
       return;
@@ -5965,7 +5995,7 @@ export class IinPublicApp {
     // A manual response already handled this sender/talk pair. Do not let later Gun replays
     // or duplicate room announcements trigger a chatbot follow-up to the same announcer.
     if (!isChatbot && this.currentUser?.id && data.talkData?.authorId) {
-      const pairKey = `${data.talkId}::${String(data.talkData.authorId)}`;
+      const pairKey = this.talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
       this.chatbotAutoReplySentForPair.add(pairKey);
       this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
     }

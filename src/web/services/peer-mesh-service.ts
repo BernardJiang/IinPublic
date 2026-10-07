@@ -26,6 +26,7 @@ import {
 import type { ProtocolManifestCompatibility } from '../../shared/protocol-manifest';
 import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
 import type { Talk } from '../../shared/types';
+import { computeTalkIdFromTalkData } from '../../shared/cid';
 import type { WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession } from './p2p-webrtc-session';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -199,6 +200,27 @@ function meshConversationId(roomId: string, userA: string, userB: string): strin
 
 function talkBodyDeliveryKey(talkId: string, authorId: string): string {
   return `${talkId}::${authorId}`;
+}
+
+/**
+ * Delivery-tracking key for one REVISION of a talk. An author's in-place edit keeps the talkId,
+ * so the announced content hash is part of the key — a revised body is a new delivery while
+ * flood re-sends of the same revision still dedupe. Peers on builds that don't send
+ * `contentHash` keep the old per-talk behavior.
+ */
+function talkRevisionDeliveryKey(talkId: string, authorId: string, contentHash?: unknown): string {
+  const base = talkBodyDeliveryKey(talkId, authorId);
+  return typeof contentHash === 'string' && contentHash ? `${base}::${contentHash}` : base;
+}
+
+/** `{ contentHash }` for a talk body, or `{}` when it can't be identified. */
+function contentHashField(talk: unknown): { contentHash?: string } {
+  try {
+    const contentHash = computeTalkIdFromTalkData(talk);
+    return contentHash ? { contentHash } : {};
+  } catch {
+    return {};
+  }
 }
 
 async function mapWithConcurrency<T>(
@@ -651,6 +673,7 @@ export class PeerMeshService {
       ...(Array.isArray((talk as { tags?: unknown }).tags) ? { tags: (talk as { tags: unknown[] }).tags.map(String).slice(0, 32) } : {}),
       requestedAuthorization: 'accepted-talk-read',
       syncCapabilities: configuredMeshSyncCapabilities(process.env.IINPUBLIC_MESH_SYNC_MODE),
+      ...contentHashField(talkRecord),
     };
     const bodyPayload: P2PMeshTalkBodyPayload = {
       ...payload,
@@ -1231,7 +1254,7 @@ export class PeerMeshService {
       // for durable diagnostics (e.g. E2E meshAnnounceDiagnostics) without waiting for
       // the talk-body-request/talk-body round-trip.
       const accepted = await this.opts.onTalkAnnounce?.(payload, frame);
-      const offerKey = talkBodyDeliveryKey(String(payload.talkId || ''), String(payload.authorId || ''));
+      const offerKey = talkRevisionDeliveryKey(String(payload.talkId || ''), String(payload.authorId || ''), payload.contentHash);
       if (accepted === false) {
         this.rejectedTalkOfferIds.add(offerKey);
         return;
@@ -1248,7 +1271,7 @@ export class PeerMeshService {
 
     if (frame.kind === 'talk-body' && isP2PMeshTalkBodyPayload(frame.payload)) {
       const talkId = String(frame.payload.talkId || '');
-      const deliveryKey = talkBodyDeliveryKey(talkId, String(frame.payload.authorId || ''));
+      const deliveryKey = talkRevisionDeliveryKey(talkId, String(frame.payload.authorId || ''), frame.payload.contentHash);
       if (this.rejectedTalkOfferIds.has(deliveryKey)) return;
       const pendingTimer = talkId ? this.pendingTalkBodyRequestTimers.get(deliveryKey) : undefined;
       if (pendingTimer) {
@@ -1438,7 +1461,7 @@ export class PeerMeshService {
 
   private scheduleTalkBodyRequest(announce: P2PMeshTalkAnnouncePayload): void {
     const talkId = String(announce.talkId || '');
-    const deliveryKey = talkBodyDeliveryKey(talkId, String(announce.authorId || ''));
+    const deliveryKey = talkRevisionDeliveryKey(talkId, String(announce.authorId || ''), announce.contentHash);
     if (!talkId || this.deliveredTalkBodyIds.has(deliveryKey) || this.pendingTalkBodyRequestTimers.has(deliveryKey)) return;
     const timer = setTimeout(() => {
       this.pendingTalkBodyRequestTimers.delete(deliveryKey);
@@ -1499,6 +1522,7 @@ export class PeerMeshService {
       title: String(talkData.title || 'Untitled Talk'),
       ...(typeof talkData.type === 'string' ? { type: String(talkData.type) } : {}),
       questionCount: Array.isArray(talkData.questions) ? talkData.questions.length : 0,
+      ...contentHashField(talkData),
       talkData,
     };
     const frame = await this.buildFrame('talk-body', bodyPayload, {

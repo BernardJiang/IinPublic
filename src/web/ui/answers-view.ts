@@ -83,6 +83,8 @@ type AnswerVariant = {
   locationRadiusMiles?: number;
   answerCounter?: number;
   chatbotGenerated: boolean;
+  /** The receiver's chatbot answered this talk with no user action (FlatAnswerHistoryRecord.answeredBy). */
+  answeredByChatbot?: boolean;
   autoUseCount: number;
   latestAutoUseAt?: number;
 };
@@ -342,6 +344,7 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
           language,
           ...(record.locationRadiusMiles != null ? { locationRadiusMiles: record.locationRadiusMiles } : {}),
           chatbotGenerated: item.mode === 'auto' || item.mode === 'permanent',
+          ...(record.answeredBy === 'chatbot' ? { answeredByChatbot: true } : {}),
           autoUseCount,
           ...(latestAutoUseAt != null ? { latestAutoUseAt } : {}),
         });
@@ -545,6 +548,11 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     // an indented, independently-clickable line per context. Clicking any answer jumps straight
     // to its source talk at that question (the click handler above) — no talk metadata (date,
     // outcome, senders, language, chatbot use) is shown on this page at all.
+    // Answered automatically by the chatbot: a 🤖 mark next to the answer (and a tinted row) is
+    // the user's record of it; clicking the answer opens the talk to review or re-answer it.
+    const chatbotMark = (variant: AnswerVariant): string => variant.answeredByChatbot
+      ? ` <span class="answer-chatbot-mark" data-testid="answer-answered-by-chatbot" title="${deps.escapeHtml(deps.text('talksAnsweredByChatbot'))}">🤖</span>`
+      : '';
     const renderAnswerLine = (variant: AnswerVariant, indent: boolean): string => {
       const hasSenders = variant.senderIds.length > 0;
       const contextSuffix = variant.contextLabel
@@ -560,7 +568,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       return `
         <span style="${indent ? 'display:block;padding:2px 0;' : 'display:inline;'}">
           <span class="answer-context-jump" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-talk-title="${deps.escapeHtml(variant.talkTitle)}" data-question-id="${deps.escapeHtml(variant.questionId)}" data-has-senders="${hasSenders ? '1' : '0'}" style="cursor:pointer;">
-            → ${deps.escapeHtml(formatChoiceForDisplay(variant, deps))}${contextSuffix}
+            → ${deps.escapeHtml(formatChoiceForDisplay(variant, deps))}${chatbotMark(variant)}${contextSuffix}
           </span>${contactLink}
         </span>
       `;
@@ -590,7 +598,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           </div>
         `;
       return `
-        <div class="answer-question-item answer-talk-item ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-pin-id="${deps.escapeHtml(pinKey)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" style="display: flex;flex-direction:column;gap:2px;padding:10px 48px 10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+        <div class="answer-question-item answer-talk-item${primary.answeredByChatbot ? ' answer-answered-by-chatbot' : ''} ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-pin-id="${deps.escapeHtml(pinKey)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" style="display: flex;flex-direction:column;gap:2px;padding:10px 48px 10px 14px;border:1px solid ${primary.answeredByChatbot ? 'var(--chatbot-accent, #7c5cd6)' : 'var(--border)'};border-radius:10px;background:${primary.answeredByChatbot ? 'var(--chatbot-soft, #f1ecfb)' : 'var(--surface)'};">
           <button type="button" class="list-pin-button answer-pin-button ${pinned ? 'is-pinned' : ''}" data-pin-id="${deps.escapeHtml(pinKey)}" aria-label="${deps.escapeHtml(pinLabel)}" title="${deps.escapeHtml(pinLabel)}" aria-pressed="${pinned}">📌</button>
           ${bodyHtml}
         </div>
