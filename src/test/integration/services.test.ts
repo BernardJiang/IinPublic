@@ -311,6 +311,7 @@ describe('Service Integration Tests', () => {
         requireGoodGrammar: true,
         blockDirtyWords: true,
         allowedTalkTypes: ['tag'],
+        contactsOnlyTalks: false,
         customBlockedTerms: [],
         dirtyWords: ['fuck', 'cunt', 'bitch', 'cock'],
       });
