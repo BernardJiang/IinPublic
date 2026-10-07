@@ -289,6 +289,10 @@ that doesn't as a cross-platform bug, not just a bug.
       immediately
 - [ ] Toggle a Content Filters checkbox, leave the tab, come back — setting persisted;
       but re-entering Settings resets to the menu (expected — matches Chatrooms/Contacts)
+- [ ] Enable **Only exchange Talks with contacts**: a contact can send and receive a Talk and its
+      response; a stranger in the same room can still appear in the member list but neither side's
+      Talk or response crosses the contacts-only user's edge. Disable it and confirm stranger Talk
+      exchange resumes.
 
 ### 2.4 Contacts tab
 - [ ] Empty state renders sensibly before any matches exist

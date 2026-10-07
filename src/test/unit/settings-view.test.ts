@@ -146,6 +146,29 @@ describe('settings view extraction', () => {
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-languages');
   });
 
+  it('shows contacts-only Talk exchange off by default and checked when enabled', () => {
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    renderSettingsView(makeUser(), viewDeps());
+    expect(
+      document.querySelector<HTMLInputElement>('#settings-contacts-only-talks')?.checked,
+    ).toBe(false);
+
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    renderSettingsView(
+      makeUser({
+        id: 'settings-user-enabled',
+        talkFilters: {
+          ...normalizeTalkFilterShape(undefined),
+          contactsOnlyTalks: true,
+        },
+      }),
+      viewDeps(),
+    );
+    expect(
+      document.querySelector<HTMLInputElement>('#settings-contacts-only-talks')?.checked,
+    ).toBe(true);
+  });
+
   it('does nothing when the settings root is absent', () => {
     const deps = viewDeps();
     renderSettingsView(makeUser(), deps);
@@ -258,6 +281,27 @@ describe('settings view extraction', () => {
     select.dispatchEvent(new Event('change', { bubbles: true }));
 
     expect(getAutoAnswerScope()).toBe('whenever');
+  });
+
+  it('persists and emits the contacts-only Talk exchange preference', () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="settings-contacts-only-talks">
+      <input type="checkbox" id="settings-grammar-filter">
+      <input type="checkbox" id="settings-dirty-words-filter">
+    `;
+    const user = makeUser();
+    const deps = controlsDeps({ currentUser: user });
+    bindSettingsControls(deps);
+
+    const checkbox = document.getElementById('settings-contacts-only-talks') as HTMLInputElement;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(user.talkFilters?.contactsOnlyTalks).toBe(true);
+    expect(deps.emit).toHaveBeenCalledWith(
+      'updateTalkFilters',
+      expect.objectContaining({ contactsOnlyTalks: true }),
+    );
   });
 
   it('keeps the actionable guide and reference tour as separate Help actions', () => {

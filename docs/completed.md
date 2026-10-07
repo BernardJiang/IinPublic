@@ -1,6 +1,19 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
+
+## 2026-10-06 — Contacts-only Talk exchange
+
+- Added **Only exchange Talks with contacts** under Settings → Content Filters. It defaults off,
+  persists and syncs with the account's private Talk preferences, and explains that discovery and
+  chatroom visibility remain available. The switch is omitted from the public relay filter mirror
+  because the relay cannot evaluate the encrypted contact list.
+- Enforced the preference symmetrically at the Talk boundaries: outgoing room/direct/catch-up
+  delivery, incoming Talk intake, outgoing answers and change-of-mind fanout, and incoming Talk
+  responses. When enabled, a missing/not-yet-loaded contact list fails closed.
+- Added English and Chinese copy, a shared contact-policy helper, unit coverage for default-open,
+  exact-contact, fail-closed, recipient-filtering, UI rendering, persistence, and event emission,
+  plus the normative FR-SP-9 requirement and a manual cross-device test case.
 
 ## 2026-10-05 — Active chatroom is the hard P2P traffic partition (OPEN-37)
 

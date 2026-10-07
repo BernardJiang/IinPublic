@@ -65,7 +65,12 @@ describe('normalizeDirtyWords', () => {
 
 describe('getDefaultTalkIntakeFilters seeds the dirty-word list', () => {
   it('includes the four defaults', () => {
-    expect(getDefaultTalkIntakeFilters().dirtyWords).toEqual(['fuck', 'cunt', 'bitch', 'cock']);
+    expect(getDefaultTalkIntakeFilters()).toEqual(
+      expect.objectContaining({
+        contactsOnlyTalks: false,
+        dirtyWords: ['fuck', 'cunt', 'bitch', 'cock'],
+      }),
+    );
   });
 });
 

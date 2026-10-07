@@ -531,7 +531,14 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: deps.t('settingsContentFiltersHelp'),
           },
           `
-          <div style="font-size:0.85em;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">${deps.t('settingsMessageFiltersHeading')}</div>
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-subtle);cursor:pointer;">
+            <input type="checkbox" id="settings-contacts-only-talks" data-testid="settings-contacts-only-talks" ${talkFilters.contactsOnlyTalks ? 'checked' : ''} style="margin-top:3px;">
+            <span>
+              <strong>${deps.t('settingsContactsOnlyTalks')}</strong><br>
+              <small style="color:var(--text-tertiary);">${deps.t('settingsContactsOnlyTalksHelp')}</small>
+            </span>
+          </label>
+          <div style="font-size:0.85em;font-weight:600;color:var(--text-secondary);margin:16px 0 8px;">${deps.t('settingsMessageFiltersHeading')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${deps.t('settingsGrammar')}</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> ${deps.t('settingsDirtyWords')}</label>

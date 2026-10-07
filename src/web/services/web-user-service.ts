@@ -33,6 +33,7 @@ import {
 } from '../../shared/user-tags';
 import { blockPairHash } from '../../shared/block-pair';
 import { recordBlockSignal, recordSharedBlockSignal as mergeSharedBlockSignal } from '../../shared/block-signal';
+import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
 
 const USER_TAGS_DELTA_KEY = 'user-tags-delta';
 const TAG_INDEX_KEY = 'tag-index';
@@ -313,8 +314,13 @@ export class WebUserService {
   }
 
   private async putPublicTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
+    // The relay-side intake mirror cannot evaluate membership in this user's SEA-private
+    // knownPeople list. Publishing the switch would reveal a privacy choice without enabling
+    // enforcement, so keep it only in the owner-encrypted preference record and linked-device sync.
+    const publicTalkFilters = { ...talkFilters };
+    delete publicTalkFilters.contactsOnlyTalks;
     await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, {
-      filtersJson: JSON.stringify(talkFilters),
+      filtersJson: JSON.stringify(publicTalkFilters),
     });
   }
 
@@ -572,14 +578,7 @@ export class WebUserService {
       location: userData.location || { region: '', chatrooms: [] },
       languages: userData.languages || ['en'],
       interests: userData.interests || [],
-      talkFilters: userData.talkFilters || {
-        allowedLanguages: userData.languages || ['en'],
-        minDistanceMiles: 0,
-        maxDistanceMiles: 50,
-        requireGoodGrammar: true,
-        blockDirtyWords: true,
-        allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
-      },
+      talkFilters: userData.talkFilters || getDefaultTalkIntakeFilters(userData.languages),
       createdAt: now,
       lastActive: now,
       knownPeople: userData.knownPeople ?? [],
@@ -601,14 +600,10 @@ export class WebUserService {
     void Promise.all([
       this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(user)),
       this.putPublicProfileFoundation(user),
-      this.putPublicTalkFilters(userId, user.talkFilters || {
-        allowedLanguages: user.languages || ['en'],
-        minDistanceMiles: 0,
-        maxDistanceMiles: 50,
-        requireGoodGrammar: true,
-        blockDirtyWords: true,
-        allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
-      }),
+      this.putPublicTalkFilters(
+        userId,
+        user.talkFilters || getDefaultTalkIntakeFilters(user.languages),
+      ),
       this.putPrivateUserData(user),
     ]).catch((error) => {
       console.warn('createUser background publish encountered an error (non-fatal):', error);
