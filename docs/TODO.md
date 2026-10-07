@@ -907,6 +907,19 @@ review capacity is available and the issue is promoted after the website/Android
   non-production `POST /api/test/chatrooms/sweep` instead of waiting for the 30 s tick; 10/10).** Failed in two consecutive full runs at the 35 s headcount
   wait, passes alone every time. Root-cause the timing instead of widening the timeout blindly.
 
+- [ ] **OPEN-44 — Notify a sleeping phone whose vendor power layer blocks background timers
+  (found 2026-10-07, later).** On the C10 tablet (Android 14, Allwinner `powerguru`/`power_ex`)
+  the OPEN-38 mailbox watcher never runs while the screen is off: idle-allowed alarms are withheld
+  regardless of forced Doze, Android's battery allowlist, or the device's per-app battery setting,
+  and the vendor layer exposes no allowlist. A Talk that arrives after the app's page is frozen
+  therefore raises no notification until the app is opened (it is still delivered then from the
+  mailbox). PH-1 and P30 (Android 10) are unaffected. Planned fix: a hub-pushed wake — when a
+  mailbox envelope is posted for a user, the hub signals that user's embedded node over its
+  existing connection (incoming network data can wake the device where timers cannot), and the
+  node hands it to the Android side to post the notification. Measure first whether this vendor
+  also drops the node's connection while asleep. Verify with `native-app/28`
+  (`NATIVE_APP_ANDROID_SLEEPER=PADC100013000534 E2E_SLEEP_SETTLE_MS=300000 E2E_SLEEP_FORCE_IDLE=0`).
+
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
   peer forwarding and BLE discovery/data transport before either is enabled by default. Track any
   remediation as new ordered issues.
