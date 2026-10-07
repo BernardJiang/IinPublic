@@ -145,6 +145,18 @@ class NodeForegroundService : Service() {
         internal fun wifiDirectState(): JSONObject =
             serviceInstance?.nearbyManager?.wifiDirectState() ?: JSONObject().put("version", 1).put("state", "idle")
 
+        /** OPEN-38: the page (alive but not visible) asks for the activity notification. */
+        internal fun notifyFromPage(text: String) {
+            val context = serviceInstance?.applicationContext ?: return
+            if (MainActivity.isInForeground) return
+            MailboxWatcher.postActivityNotification(context, text)
+        }
+
+        /** OPEN-38: the page tells the service whose mailbox to watch while it sleeps. */
+        internal fun setMailboxRecipient(userId: String) {
+            serviceInstance?.mailboxWatcher?.setRecipient(userId)
+        }
+
         internal fun networkPathState(): JSONObject = serviceInstance?.networkPathState()
             ?: JSONObject().put("version", 1).put("connected", false).put("metered", true)
     }
@@ -170,6 +182,7 @@ class NodeForegroundService : Service() {
         }
     }
     private lateinit var nearbyManager: NearbyConnectivityManager
+    private var mailboxWatcher: MailboxWatcher? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -199,6 +212,7 @@ class NodeForegroundService : Service() {
             override fun onWifiDirectService(deviceAddress: String, txt: Map<String, String>) =
                 nearbyListener?.onWifiDirectService(deviceAddress, txt) ?: Unit
         })
+        mailboxWatcher = MailboxWatcher(applicationContext, LOCAL_PORT).also { it.start() }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -247,6 +261,7 @@ class NodeForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        mailboxWatcher?.stop()
         nearbyManager.stop()
         if (serviceInstance === this) serviceInstance = null
         super.onDestroy()

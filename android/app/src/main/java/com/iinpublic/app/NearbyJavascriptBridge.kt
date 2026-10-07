@@ -39,6 +39,10 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun nearbyReadiness(): String = NodeForegroundService.nearbyReadiness().toString()
     /** Active Android path health, including NET_CAPABILITY_NOT_METERED. No SSID/location data. */
     @JavascriptInterface fun networkPathState(): String = NodeForegroundService.networkPathState().toString()
+    /** OPEN-38: which local user's mailbox the always-on service should watch while the page sleeps. */
+    @JavascriptInterface fun setMailboxWatch(userId: String) = NodeForegroundService.setMailboxRecipient(userId)
+    /** OPEN-38: a Talk arrived while the app isn't visible — show the activity notification. */
+    @JavascriptInterface fun notifyNewActivity(text: String) = NodeForegroundService.notifyFromPage(text)
     /** Offline presence: `payloadHex` is the room-scoped BLE service-data payload built by JS. */
     @JavascriptInterface fun startBlePresence(payloadHex: String, scan: Boolean) {
         if (!payloadHex.matches(Regex("^[0-9a-f]{2,24}$")) || payloadHex.length % 2 != 0) return

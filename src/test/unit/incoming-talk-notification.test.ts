@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { displayIncomingTalk } from '../../web/ui/incoming-talk-notification';
+import { displayIncomingTalk, notifyNativeWhileHidden } from '../../web/ui/incoming-talk-notification';
 
 const tf = (key: string, vars: Record<string, string | number>): string => `${key}(${JSON.stringify(vars)})`;
 
@@ -72,5 +72,30 @@ describe('displayIncomingTalk', () => {
     const d = deps();
     displayIncomingTalk(talk({ isOwnTalk: true }), d);
     expect(d.refreshTalksListIfActive).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('native notification while hidden (OPEN-38)', () => {
+  const setVisibility = (state: 'hidden' | 'visible') =>
+    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+  afterEach(() => {
+    setVisibility('visible');
+    delete (window as any).IinPublicNearby;
+  });
+
+  it('asks the native shell to notify, without the leading emoji, only while hidden', () => {
+    const notifyNewActivity = jest.fn();
+    (window as any).IinPublicNearby = { notifyNewActivity };
+    setVisibility('visible');
+    notifyNativeWhileHidden('📥 New talk from Tom: Tennis');
+    expect(notifyNewActivity).not.toHaveBeenCalled();
+    setVisibility('hidden');
+    notifyNativeWhileHidden('📥 New talk from Tom: Tennis');
+    expect(notifyNewActivity).toHaveBeenCalledWith('New talk from Tom: Tennis');
+  });
+
+  it('is a no-op without the bridge method (browsers, older builds)', () => {
+    setVisibility('hidden');
+    expect(() => notifyNativeWhileHidden('x')).not.toThrow();
   });
 });

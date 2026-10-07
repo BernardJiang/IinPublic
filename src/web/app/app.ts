@@ -2824,11 +2824,29 @@ export class IinPublicApp {
   }
 
   private startMailboxPolling(): void {
+    this.registerNativeMailboxWatch();
     if (this.mailboxPollTimer) return;
     this.mailboxPollTimer = setInterval(() => {
       void this.drainMailbox().catch(() => {});
       void this.retryFailedMailboxPosts().catch(() => {});
     }, 3_000);
+  }
+
+  /**
+   * OPEN-38: Android 12+ freezes this page while the phone dozes, so this 3 s poll stops. Tell
+   * the always-on native service whose mailbox to watch meanwhile — it only counts envelope ids
+   * and posts a "new activity" notification; this page still does every decrypt/drain on open.
+   * A no-op in browsers and on builds without the bridge method.
+   */
+  private registerNativeMailboxWatch(): void {
+    const userId = this.currentUser?.id;
+    const bridge = (window as unknown as { IinPublicNearby?: { setMailboxWatch?: (id: string) => void } }).IinPublicNearby;
+    if (!userId || typeof bridge?.setMailboxWatch !== 'function') return;
+    try {
+      bridge.setMailboxWatch(userId);
+    } catch {
+      /* native shell without the watcher — nothing to register */
+    }
   }
 
   /**

@@ -850,6 +850,14 @@ review capacity is available and the issue is promoted after the website/Android
   nothing until the app is opened, although the node service and the Wi-Fi Direct group stay up.
   Options: move mesh reception into the embedded node (foreground service), or have peers re-offer
   undelivered talks when the receiver's run epoch shows it is active again.
+  - 2026-10-07 (product owner chose the full route): `MailboxWatcher` in the foreground service
+    polls the embedded node's `GET /api/mailbox/<user>` (local + hub) every 30 s, ids only, and
+    posts one "new activity" notification while the app isn't in the foreground; the page
+    registers the user via `IinPublicNearby.setMailboxWatch`, and a page that is alive but hidden
+    asks for the same notification (`notifyNewActivity`) when a Talk arrives. Unit-tested (JVM +
+    Jest). Open: device verification with `native-app/28` on the C10 (blocked: tablet has a
+    secure screen lock), and the sender's room-broadcast fallback skips recipients whose presence
+    lapsed — a long-asleep phone may then get no mailbox envelope at all.
 
 - [x] **OPEN-39 — First-run walkthrough animation burns CPU while left open (done 2026-10-07: the orbit now runs 3 loops then rests; reduced-motion already disabled it; guarded by `onboarding-walkthrough.test.ts`).** Its decorative
   `walkthrough-float` orbit animation loops forever; on the Honor (Android 7) it kept the

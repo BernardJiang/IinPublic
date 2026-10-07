@@ -341,9 +341,13 @@ class MainActivity : AppCompatActivity() {
 
     /** Device testing: `adb shell am start ... --ez wifi_direct_link true|false` toggles the
      *  OPEN-36 Wi-Fi Direct link flag (the web side persists it in localStorage). */
-    private companion object {
-        const val WIFI_DIRECT_LINK_EXTRA = "wifi_direct_link"
-        const val DROP_REMOTE_CANDIDATES_EXTRA = "p2p_drop_remote_candidates"
+    internal companion object {
+        private const val WIFI_DIRECT_LINK_EXTRA = "wifi_direct_link"
+        private const val DROP_REMOTE_CANDIDATES_EXTRA = "p2p_drop_remote_candidates"
+
+        /** OPEN-38: true while the UI is visible — MailboxWatcher stays quiet then. */
+        @Volatile
+        internal var isInForeground = false
     }
 
     private fun wifiDirectLinkQuery(): String {
@@ -375,6 +379,16 @@ class MainActivity : AppCompatActivity() {
         code in 200..499
     } catch (_: Exception) {
         false
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isInForeground = true
+    }
+
+    override fun onPause() {
+        isInForeground = false
+        super.onPause()
     }
 
     override fun onDestroy() {
