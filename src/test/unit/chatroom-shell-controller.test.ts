@@ -111,15 +111,27 @@ describe('chatroom shell controller', () => {
     global.fetch = fetchMock as typeof fetch;
     const deps = makeDeps({
       showCreateCustomChatroomDialog: jest.fn().mockResolvedValue({ name: 'New Room', type: 'custom' }),
+      getAnchorCell: () => 'region_32.71_-117.17',
     });
     const controller = createChatroomShellController(deps);
 
     await controller.handleCreateCustomChatroomClick();
 
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/chatrooms', expect.objectContaining({ method: 'POST' }));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ anchorCell: 'region_32.71_-117.17' });
     expect(deps.upsertCustomChatroomFromServer).toHaveBeenCalledWith(expect.objectContaining({ id: 'room-1' }));
     expect(openRoom).toHaveBeenCalledWith(expect.any(Object), 'room-1');
     expect(deps.showNotification).toHaveBeenCalledWith('chatroomCreated:New Room', 'success');
+  });
+
+  it('refuses to create a room without a confirmed location (custom rooms are local)', async () => {
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as typeof fetch;
+    const deps = makeDeps({ getAnchorCell: () => null });
+    await createChatroomShellController(deps).handleCreateCustomChatroomClick();
+    expect(deps.showCreateCustomChatroomDialog).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deps.showNotification).toHaveBeenCalledWith('chatroomCreateNeedsLocation', 'error');
   });
 
   it('updates member names and delegates live member rendering', () => {

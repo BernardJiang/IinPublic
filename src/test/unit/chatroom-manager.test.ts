@@ -192,6 +192,15 @@ describe('ChatroomManager visit accounting', () => {
       .toMatchObject({ count: 1 });
   });
 
+  it('creates custom rooms as local places: anchored to the blurred cell, id encodes it', async () => {
+    const manager = buildManager();
+    await expect(manager.createChatroom({ name: 'Nowhere', type: 'custom', createdBy: 'owner' }))
+      .rejects.toThrow('anchorCell');
+    const room = await manager.createChatroom({ name: 'Bean There Café', type: 'business', createdBy: 'owner', anchorCell: 'region_32.71_-117.17' });
+    expect(room.id).toMatch(/^place_32\.71_-117\.17_[0-9a-f]{24}$/);
+    expect(room).toMatchObject({ anchorCell: 'region_32.71_-117.17', location: { latitude: 32.71, longitude: -117.17 } });
+  });
+
   it('retains visitor history because participants cannot delete an immutable room', async () => {
     const manager = buildManager();
     await manager.createChatroom({ id: 'room_2', name: 'Retired Room', type: 'custom', createdBy: 'owner' });

@@ -23,7 +23,11 @@ export type RoutingAnchor =
 
 const COARSE_CELL_ID = /^region_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)(?:_room_\d+)?$/;
 
-/** Where the oldest overflow member of `roomId` goes: a child room, or `split` (own `_part_N` family). */
+/**
+ * Where the oldest overflow member of `roomId` goes: a child room, or `split` (own `_part_N`
+ * family). A local custom room always splits within its own family (people came for that place),
+ * and a tile never evicts strangers into a custom room.
+ */
 export function evictionDestination(roomId: string, anchor: RoutingAnchor): { kind: 'room'; roomId: string } | { kind: 'split' } {
   if (splitIndex(roomId) > 1) return { kind: 'split' };
   if (roomId === CONFIG.GLOBAL_CHATROOM_ID) {
@@ -51,8 +55,8 @@ function childTileToward(layer: number, anchor: RoutingAnchor): string | null {
 /**
  * The room one step "up" from `roomId`, or null when there is none to move to automatically:
  * `_part_N` → `_part_(N−1)` (or the base), tile → parent tile (L1 → Global), Global overflow →
- * Global, a legacy 1 km grid room → its L4 tile. Global and custom base rooms have no automatic
- * step up (a custom room is the user's own choice).
+ * Global, a legacy 1 km grid room → its L4 tile. Global and custom rooms (local or legacy) have
+ * no automatic step up: a custom room family only shrinks back into its own base room.
  */
 export function promotionTarget(roomId: string): string | null {
   const index = splitIndex(roomId);
@@ -62,6 +66,8 @@ export function promotionTarget(roomId: string): string | null {
   if (ref) return ref.layer === 1 ? CONFIG.GLOBAL_CHATROOM_ID : parentTileId(roomId);
   const cell = COARSE_CELL_ID.exec(roomId);
   if (cell) return tileIdAt(TILE_BOTTOM_LAYER, Number(cell[1]), Number(cell[2]));
+  // A local custom room shows under its L4 tile in the tree, but nobody is ever moved out of it
+  // automatically: only its numbered rooms shrink back into it (the `_part_N` branch above).
   return null;
 }
 

@@ -1,3 +1,4 @@
+import { parseAnchorCell } from '../../shared/place-rooms';
 import type express from 'express';
 import { ChatroomManager } from '../services/chatroom-manager';
 import type {
@@ -152,10 +153,11 @@ export function registerChatroomRoutes(
 
   app.post('/api/chatrooms', async (req, res) => {
     try {
-      const { name, type, createdBy, description, businessInfo, location } = req.body as {
+      const { name, type, createdBy, description, businessInfo, location, anchorCell } = req.body as {
         name: string;
         type: 'business' | 'custom';
         createdBy: string;
+        anchorCell?: string;
         description?: string;
         businessInfo?: unknown;
         location?: unknown;
@@ -172,14 +174,30 @@ export function registerChatroomRoutes(
         res.status(400).json({ error: 'location must contain valid latitude and longitude' });
         return;
       }
+      const anchor = parseAnchorCell(String(anchorCell || ''));
+      if (!anchor) {
+        res.status(400).json({ error: 'a local room needs the creator\'s blurred location cell (anchorCell)' });
+        return;
+      }
+      // A business pin must lie inside the room's own ~1 km cell (it cannot claim a wider area).
+      if (location != null && isValidChatroomMapLocation(location)) {
+        const pin = location as ChatroomMapLocation;
+        const inCell = Math.floor(pin.latitude * 100) / 100 === anchor.latitude
+          && Math.floor(pin.longitude * 100) / 100 === anchor.longitude;
+        if (!inCell) {
+          res.status(400).json({ error: 'location must lie inside the room\'s anchor cell' });
+          return;
+        }
+      }
       const createPayload: {
         name: string;
         type: 'business' | 'custom';
         createdBy: string;
+        anchorCell: string;
         description?: string;
         businessInfo?: unknown;
         location?: ChatroomMapLocation;
-      } = { name, type, createdBy };
+      } = { name, type, createdBy, anchorCell: String(anchorCell) };
       if (description != null) createPayload.description = description;
       if (businessInfo != null) createPayload.businessInfo = businessInfo;
       if (location != null) createPayload.location = location;

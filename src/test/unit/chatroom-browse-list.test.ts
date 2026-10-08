@@ -89,6 +89,20 @@ describe('room browse tree', () => {
     expect(tree.some((room) => room.id === tileIdAt(2, 30, -40))).toBe(false);
   });
 
+  it('hangs a local custom room under its anchor cell\'s L4 tile; legacy unanchored rooms are not in the tree', () => {
+    const cafe = { id: 'place_32.71_-117.17_0123456789abcdef01234567', name: 'Bean There Café', type: 'business' };
+    const legacy = { id: 'room_legacy', name: 'Taiwan', type: 'custom' };
+    const tree = buildBrowseTree([], [cafe, legacy]);
+    const l4 = tileIdAt(4, 32.71, -117.17);
+    expect(tree.find((room) => room.id === cafe.id)).toMatchObject({ level: 5, parentId: l4, name: 'Bean There Café', icon: '🏪' });
+    expect(tree.find((room) => room.id === l4)).toMatchObject({ level: 4, hasChildren: true });
+    expect(tree.some((room) => room.id === legacy.id)).toBe(false);
+    // Its numbered overflow rooms only appear on the current room's path (never empty ones).
+    expect(tree.some((room) => room.id === `${cafe.id}_part_2`)).toBe(false);
+    const inPart = buildBrowseTree([`${cafe.id}_part_2`], [cafe]);
+    expect(inPart.find((room) => room.id === `${cafe.id}_part_2`)).toMatchObject({ level: 6, parentId: cafe.id, name: 'Bean There Café (2)' });
+  });
+
   it('titles tile rooms by their label', () => {
     expect(resolveChatroomTitle('tile_1_3_3', [])).toBe('🇪🇺 Europe · North Atlantic');
   });

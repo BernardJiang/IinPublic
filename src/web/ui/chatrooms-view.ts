@@ -8,6 +8,7 @@ import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { isPlaceRoomId, placeRoomTile } from '../../shared/place-rooms';
 import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
@@ -98,10 +99,6 @@ export function flashChatroomMemberForNewTalk(authorId: string): void {
   void (item as HTMLElement).offsetWidth;
   item.classList.add('flash-new-talk');
   setTimeout(() => item.classList.remove('flash-new-talk'), 1000);
-}
-
-function hierarchyIds(): Set<string> {
-  return new Set(getFlatChatroomList().map((r) => r.id));
 }
 
 function customRoomIcon(type: string): string {
@@ -198,7 +195,10 @@ export function browsePath(roomId: string): string[] {
   if (parseTileId(base)) path = tileLineage(base);
   else {
     const cell = COARSE_CELL_ID.exec(base);
-    if (cell) path = [...tileLineage(tileIdAt(TILE_BOTTOM_LAYER, Number(cell[1]), Number(cell[2]))), base];
+    const placeTile = placeRoomTile(base);
+    // A local custom room hangs under the L4 tile of its anchor cell; so does a legacy 1 km grid room.
+    if (placeTile) path = [...tileLineage(placeTile), base];
+    else if (cell) path = [...tileLineage(tileIdAt(TILE_BOTTOM_LAYER, Number(cell[1]), Number(cell[2]))), base];
   }
   if (path.length && base !== roomId) path.push(roomId);
   return path;
@@ -240,11 +240,15 @@ function compareBrowseChildren(a: string, b: string): number {
 }
 
 /**
- * Global → L1 tiles → … Every tile can be expanded to its sub-tiles that contain a named city, and
- * each room in `roomIds` (normally the current room) is shown with its whole path under its L1
- * tile; an ocean/Antarctica tile appears only when it holds one of those rooms.
+ * Global → L1 tiles → … Every tile can be expanded to its sub-tiles that contain a named city;
+ * local custom rooms (`customRooms`) hang under their L4 tile; each room in `roomIds` (normally the
+ * current room) is shown with its whole path. Numbered overflow rooms (`_part_N`) only appear on
+ * that path, so an empty one is never listed. An ocean/Antarctica tile appears only when used.
  */
-export function buildBrowseTree(roomIds: readonly string[]): FlatChatroomNode[] {
+export function buildBrowseTree(
+  roomIds: readonly string[],
+  customRooms: ReadonlyArray<Pick<CustomChatroomRow, 'id' | 'name' | 'type'>> = [],
+): FlatChatroomNode[] {
   const [root, ...landTiles] = getBrowsableBuiltInChatrooms();
   const children = new Map<string, string[]>();
   const addEdge = (parent: string, child: string): void => {
@@ -254,7 +258,8 @@ export function buildBrowseTree(roomIds: readonly string[]): FlatChatroomNode[] 
   };
   for (const [parent, list] of cityTileEdges()) for (const child of list) addEdge(parent, child);
   const usedL1 = new Set<string>();
-  for (const id of new Set(roomIds)) {
+  const customById = new Map(customRooms.filter((room) => isPlaceRoomId(room.id)).map((room) => [room.id, room] as const));
+  for (const id of new Set([...customById.keys(), ...roomIds])) {
     const path = browsePath(id);
     if (!path.length) continue;
     usedL1.add(path[0]);
@@ -265,7 +270,11 @@ export function buildBrowseTree(roomIds: readonly string[]): FlatChatroomNode[] 
   const out: FlatChatroomNode[] = [root];
   const addDescendants = (parentId: string, level: number): void => {
     for (const id of children.get(parentId) ?? []) {
-      out.push(pathRoomNode(id, parentId, level, (children.get(id) ?? []).length > 0));
+      const custom = customById.get(splitBaseId(id));
+      const node = pathRoomNode(id, parentId, level, (children.get(id) ?? []).length > 0);
+      if (custom && custom.id === id) Object.assign(node, { name: custom.name, icon: customRoomIcon(custom.type), description: 'Local room' });
+      else if (custom) Object.assign(node, { name: `${custom.name} (${splitIndex(id)})`, icon: customRoomIcon(custom.type) });
+      out.push(node);
       addDescendants(id, level + 1);
     }
   };
@@ -317,7 +326,7 @@ function splitTitleIcon(title: string): { icon: string; name: string } {
 let autoExpandedFor = '';
 
 export function renderChatroomList(deps: ChatroomsViewDeps): void {
-  const allChatrooms = buildBrowseTree(deps.currentChatroom ? [deps.currentChatroom] : []);
+  const allChatrooms = buildBrowseTree(deps.currentChatroom ? [deps.currentChatroom] : [], deps.customChatrooms);
   if (deps.currentChatroom !== autoExpandedFor) {
     autoExpandedFor = deps.currentChatroom;
     deps.expandedChatrooms.add(CONFIG.GLOBAL_CHATROOM_ID);
@@ -325,10 +334,9 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     for (const id of browsePath(deps.currentChatroom).slice(0, -1)) deps.expandedChatrooms.add(id);
   }
 
-  // Rooms outside the tree (Global overflow, a legacy named room) stay reachable at the top. Custom
-  // rooms are not repeated here: they always have their own row right under Global.
-  const currentIsCustom = deps.customChatrooms.some((c) => c.id === deps.currentChatroom);
-  if (deps.currentChatroom && !currentIsCustom && !allChatrooms.find((room) => room.id === deps.currentChatroom)) {
+  // Rooms outside the tree (Global overflow, a legacy named room, a legacy unanchored custom room)
+  // stay reachable at the top while you are in them.
+  if (deps.currentChatroom && !allChatrooms.find((room) => room.id === deps.currentChatroom)) {
     const customFallback = deps.customChatrooms.find((c) => c.id === deps.currentChatroom);
     const isGlobalOverflow = splitBaseId(deps.currentChatroom) === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID;
     const title = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
@@ -354,9 +362,9 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     return true;
   });
 
-  const skipCustom = hierarchyIds();
+  // Local custom rooms are in the tree under their L4 tile; this list only feeds their map pins.
   const customNodes = deps.customChatrooms
-    .filter((c) => c.id && !skipCustom.has(c.id))
+    .filter((c) => isPlaceRoomId(c.id))
     .map((c) => ({
       id: c.id,
       name: c.name,
@@ -366,12 +374,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       hasChildren: false as const,
     }));
 
-  // Custom/business rooms go right under Global, ahead of the ~25 region tiles: listed last they
-  // fell below the fold on phones and looked lost.
-  const globalIndex = visibleChatrooms.findIndex((room) => room.id === CONFIG.GLOBAL_CHATROOM_ID);
-  const rows = globalIndex >= 0
-    ? [...visibleChatrooms.slice(0, globalIndex + 1), ...customNodes, ...visibleChatrooms.slice(globalIndex + 1)]
-    : [...customNodes, ...visibleChatrooms];
+  const rows = visibleChatrooms;
 
   const chatroomList = document.getElementById('chatroom-list');
   if (!chatroomList) return;

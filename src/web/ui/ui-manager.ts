@@ -912,6 +912,10 @@ export class UIManager extends EventEmitter {
         openPeerDetail: (userId, stageName) => this.openUserConversationFirst(userId, stageName),
         rememberPeerName: (userId, stageName) => this.rememberPeerName(userId, stageName),
         showCreateCustomChatroomDialog: () => this.showCreateCustomChatroomDialog(),
+        // Custom rooms are local: anchored to the creator's blurred ~1 km cell (confirmed GPS only).
+        getAnchorCell: () => (this.currentLocation && this.locationConfirmed
+          ? LocationPrivacy.blurLocation(this.currentLocation).region
+          : null),
         upsertCustomChatroomFromServer: (row) => this.upsertCustomChatroomFromServer(row),
         showNotification: (message, type) => this.showNotification(message, type),
         emit: (eventName, payload) => this.emit(eventName, payload),

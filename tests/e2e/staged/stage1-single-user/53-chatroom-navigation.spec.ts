@@ -246,10 +246,10 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     const customRow = p.locator('.chatroom-item').filter({ hasText: roomName }).first();
     const customId = await customRow.getAttribute('data-chatroom-id');
     expect(customId).toBeTruthy();
-    // Custom rooms sit right under Global, not below the ~25 region tiles (they looked lost there).
-    const order = await p.locator('#chatroom-list .chatroom-item').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-chatroom-id')));
-    expect(order.indexOf(customId)).toBeGreaterThan(order.indexOf('global'));
-    expect(order.indexOf(customId)).toBeLessThan(order.findIndex((id) => id?.startsWith('tile_1_')));
+    // Custom rooms are local: anchored to the creator's blurred cell and listed under that cell's
+    // L4 (~78 km) tile — the default test location is San Diego.
+    expect(customId).toMatch(/^place_32\.71_-117\.17_/);
+    await expect(customRow).toHaveAttribute('data-level', '5');
     await p.locator('[data-testid="chatroom-map-view-btn"]').click();
     await expect(p.locator('#chatroom-map-status')).toContainText('custom rooms without a public location');
     await expect(p.locator(`.chatroom-map-marker[data-chatroom-id="${customId}"]`)).toHaveCount(0);

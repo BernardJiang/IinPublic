@@ -1,3 +1,4 @@
+import { parseAnchorCell, placeRoomId } from '../../shared/place-rooms';
 import type { GPSCoordinate } from '../../shared/types';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { randomBytes } from 'crypto';
@@ -371,18 +372,27 @@ export class ChatroomManager {
     name: string;
     type: 'business' | 'custom';
     createdBy: string;
+    /** Creator's blurred ~1 km cell (`region_<lat>_<lng>`): the room is local to it. */
+    anchorCell?: string;
     description?: string;
     businessInfo?: any;
     location?: ChatroomMapLocation;
   }): Promise<any> {
     // Room identity is stable and independent of the publisher. Publishing the descriptor makes
     // its author the first ordinary participant, not an owner or a permanent authority.
+    // Custom rooms are local places: the anchor cell is encoded in the id so every peer places the
+    // room under that cell's L4 tile in the room tree (src/shared/place-rooms.ts).
     const requestedTestId = process.env.NODE_ENV === 'test' ? String(params.id || '').trim() : '';
-    const id = requestedTestId || `room_${portableSha256Hex([
-      'iinpublic:room-id:v1',
+    const anchor = parseAnchorCell(String(params.anchorCell || ''));
+    if (!requestedTestId && !anchor) {
+      throw new Error('a local room needs the creator\'s blurred location cell (anchorCell)');
+    }
+    const id = requestedTestId || placeRoomId(anchor!, portableSha256Hex([
+      'iinpublic:room-id:v2',
+      anchor!.cellId,
       randomBytes(32).toString('hex'),
       new Date().toISOString(),
-    ].join(':')).slice(0, 40)}`;
+    ].join(':')));
     const room = {
       id,
       name: String(params.name || '').trim(),
@@ -390,7 +400,11 @@ export class ChatroomManager {
       description: String(params.description || '').trim(),
       createdBy: params.createdBy,
       businessInfo: params.businessInfo,
-      ...(params.location ? { location: params.location } : {}),
+      ...(anchor ? { anchorCell: anchor.cellId } : {}),
+      // Public map pin: the (already blurred) anchor cell, unless a business pin was supplied.
+      ...(params.location
+        ? { location: params.location }
+        : anchor ? { location: { latitude: anchor.latitude, longitude: anchor.longitude } } : {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isActive: true,

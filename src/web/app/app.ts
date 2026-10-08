@@ -8444,6 +8444,12 @@ export class IinPublicApp {
         businessInfo?: { headline?: string };
       }) => {
         if (!this.currentUser) return;
+        // Custom rooms are local: anchored to the creator's blurred ~1 km cell (confirmed GPS only).
+        if (!this.locationConfirmed || !this.currentLocation) {
+          this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed('location required'), 'error');
+          return;
+        }
+        const anchorCell = LocationPrivacy.blurLocation(this.currentLocation).region;
         const base = this.getBackendApiBase();
         try {
           const res = await fetch(`${base}/api/chatrooms`, {
@@ -8453,6 +8459,7 @@ export class IinPublicApp {
               name: payload.name,
               type: payload.type,
               createdBy: this.currentUser.id,
+              anchorCell,
               ...(payload.description != null ? { description: payload.description } : {}),
               ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
             }),

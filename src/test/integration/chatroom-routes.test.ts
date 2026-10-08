@@ -33,6 +33,7 @@ describe('chatroom routes', () => {
       type: 'custom',
       createdBy: 'user_1',
       description: 'Support room',
+      anchorCell: 'region_32.71_-117.17',
     });
     expect(res.status).toBe(201);
     expect(manager.createChatroom).toHaveBeenCalledTimes(1);
@@ -44,6 +45,7 @@ describe('chatroom routes', () => {
       name: 'Coffee discussion',
       type: 'custom',
       createdBy: 'user_1',
+      anchorCell: 'region_32.71_-117.17',
       location: { latitude: 32.7157, longitude: -117.1611 },
     });
 
@@ -57,10 +59,25 @@ describe('chatroom routes', () => {
       name: 'Impossible room',
       type: 'custom',
       createdBy: 'user_1',
+      anchorCell: 'region_32.71_-117.17',
       location: { latitude: 91, longitude: 0 },
     });
 
     expect(invalid.status).toBe(400);
+    expect(manager.createChatroom).not.toHaveBeenCalled();
+  });
+
+  it('requires a blurred anchor cell (custom rooms are local) and a pin inside that cell', async () => {
+    const { app, manager } = buildApp();
+    const noAnchor = await request(app).post('/api/chatrooms').send({ name: 'Taiwan', type: 'custom', createdBy: 'user_1' });
+    expect(noAnchor.status).toBe(400);
+    const badAnchor = await request(app).post('/api/chatrooms').send({ name: 'X', type: 'custom', createdBy: 'user_1', anchorCell: 'usa' });
+    expect(badAnchor.status).toBe(400);
+    const pinElsewhere = await request(app).post('/api/chatrooms').send({
+      name: 'Far pin', type: 'business', createdBy: 'user_1', anchorCell: 'region_32.71_-117.17',
+      location: { latitude: 34.05, longitude: -118.24 },
+    });
+    expect(pinElsewhere.status).toBe(400);
     expect(manager.createChatroom).not.toHaveBeenCalled();
   });
 

@@ -38,6 +38,8 @@ export type ChatroomShellControllerDeps = {
   openPeerDetail: (userId: string, stageName: string) => void;
   rememberPeerName: (userId: string, stageName: string) => void;
   showCreateCustomChatroomDialog: () => Promise<CustomChatroomDraft | null>;
+  /** The creator's blurred ~1 km cell (`region_<lat>_<lng>`), or null without a confirmed GPS fix. */
+  getAnchorCell?: () => string | null;
   upsertCustomChatroomFromServer: (row: CustomChatroomRow) => void;
   showNotification: (message: string, type: 'success' | 'error') => void;
   emit: (eventName: string, payload: unknown) => void;
@@ -109,6 +111,12 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   };
 
   const handleCreateCustomChatroomClick = async (): Promise<void> => {
+    // A custom room is a local place under its L4 tile: no confirmed location, no room.
+    const anchorCell = deps.getAnchorCell?.() ?? null;
+    if (!anchorCell) {
+      deps.showNotification(deps.t('chatroomCreateNeedsLocation'), 'error');
+      return;
+    }
     const payload = await deps.showCreateCustomChatroomDialog();
     if (!payload) return;
     const creatorId = deps.getCurrentUserId()
@@ -123,6 +131,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
           name: payload.name,
           type: payload.type,
           createdBy: creatorId,
+          anchorCell,
           ...(payload.description != null ? { description: payload.description } : {}),
           ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
         }),

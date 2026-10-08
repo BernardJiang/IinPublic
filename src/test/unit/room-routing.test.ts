@@ -73,7 +73,13 @@ describe('promotionTarget (up one step)', () => {
     expect(promotionTarget('region_32.71_-117.17_room_0')).toBe(sd(4));
   });
 
-  it('has no automatic step up from Global or a custom room', () => {
+  it('never moves anyone up out of a custom room; its numbered rooms shrink back into it like a stack', () => {
+    const cafe = 'place_32.71_-117.17_0123456789abcdef01234567';
+    expect(promotionTarget(cafe)).toBeNull();
+    expect(promotionTarget(`${cafe}_part_3`)).toBe(`${cafe}_part_2`);
+    expect(promotionTarget(`${cafe}_part_2`)).toBe(cafe);
+    expect(isSelfOrAbove(CONFIG.GLOBAL_CHATROOM_ID, `${cafe}_part_2`)).toBe(false);
+    expect(evictionDestination(cafe, atSD)).toEqual({ kind: 'split' });
     expect(promotionTarget(CONFIG.GLOBAL_CHATROOM_ID)).toBeNull();
     expect(promotionTarget('room_abc')).toBeNull();
   });
