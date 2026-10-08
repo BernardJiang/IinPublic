@@ -55,7 +55,10 @@ async function adb(serial: string, ...args: string[]): Promise<string> {
 /** True when our "new activity" notification is posted on the phone. */
 async function hasActivityNotification(serial: string): Promise<boolean> {
   const dump = await adb(serial, 'dumpsys', 'notification', '--noredact').catch(() => '');
-  return dump.split('\n').some((line) => line.includes('pkg=com.iinpublic.app') && line.includes('iinpublic_activity'));
+  // Match by channel, or by the activity notification's fixed id (MailboxWatcher NOTIF_ID = 2):
+  // MagicOS masks the channel in records ("channel=***") even with --noredact.
+  return dump.split('\n').some((line) => line.includes('pkg=com.iinpublic.app')
+    && (line.includes('iinpublic_activity') || /\bid=2\b/.test(line)));
 }
 
 async function sleepPhone(serial: string): Promise<void> {

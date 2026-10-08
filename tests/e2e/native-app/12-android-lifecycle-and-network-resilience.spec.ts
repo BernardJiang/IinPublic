@@ -85,6 +85,20 @@ async function setAndroidWifiEnabled(serial: string, enabled: boolean): Promise<
   await execFileAsync('adb', ['-s', serial, 'shell', 'svc', 'wifi', enabled ? 'enable' : 'disable'], { timeout: 10_000 });
 }
 
+/**
+ * Some OEM builds deny `svc wifi` to the adb shell user outright (Huawei EMUI on the FRD-L04:
+ * "Neither user 2000 nor current process has android.permission.CHANGE_WIFI_STATE"). Probe with a
+ * no-op enable so the Wi-Fi test skips with the reason instead of failing on a device restriction.
+ */
+async function supportsWifiToggle(serial: string): Promise<boolean> {
+  try {
+    await execFileAsync('adb', ['-s', serial, 'shell', 'svc', 'wifi', 'enable'], { timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function sendHomeKey(serial: string): Promise<void> {
   await execFileAsync('adb', ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_HOME'], { timeout: 5_000 });
 }
@@ -210,6 +224,7 @@ test.describe('Native app: Android real-hardware lifecycle and network resilienc
   });
 
   test('Wi-Fi disconnect/reconnect: a message sent while offline converges once the phone reconnects', async () => {
+    test.skip(!(await supportsWifiToggle(ANDROID_SERIAL!)), `${ANDROID_SERIAL} denies adb Wi-Fi toggling (OEM restriction).`);
     test.setTimeout(180_000);
     await resetAndroidAppData(ANDROID_SERIAL);
     const lanHubUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;

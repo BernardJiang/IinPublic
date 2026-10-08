@@ -1001,7 +1001,8 @@ review capacity is available and the issue is promoted after the website/Android
   regardless of forced Doze, Android's battery allowlist, or the device's per-app battery setting,
   and the vendor layer exposes no allowlist. A Talk that arrives after the app's page is frozen
   therefore raises no notification until the app is opened (it is still delivered then from the
-  mailbox). PH-1 and P30 (Android 10) are unaffected. Planned fix: a hub-pushed wake — when a
+  mailbox). PH-1 and P30 (Android 10) and the HONOR FCP-AN10 (Android 16 / MagicOS, added
+  2026-10-07, alarms keep firing with the screen off) are unaffected. Planned fix: a hub-pushed wake — when a
   mailbox envelope is posted for a user, the hub signals that user's embedded node over its
   existing connection (incoming network data can wake the device where timers cannot), and the
   node hands it to the Android side to post the notification. Measure first whether this vendor
