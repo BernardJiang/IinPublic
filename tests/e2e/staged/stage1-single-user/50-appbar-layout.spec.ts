@@ -9,7 +9,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { GRID_PLACES, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('AppBar layout', () => {
   let context: BrowserContext | undefined;
@@ -89,7 +89,7 @@ test.describe('AppBar layout', () => {
     // At the list root there is no visible back icon.
     await expect(p.locator('#app-bar-left #back-to-chatrooms')).toBeHidden();
 
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     // Room detail: the back control is the single left-corner icon (‹), not a text button.
     const back = p.locator('#app-bar-left #back-to-chatrooms');
     await expect(back).toBeVisible();

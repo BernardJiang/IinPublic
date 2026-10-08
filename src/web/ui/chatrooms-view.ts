@@ -7,8 +7,8 @@ import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
-import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
-import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileCenter, tileIdAt, type L1TileInfo } from '../../shared/room-tiles';
+import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
 
@@ -182,27 +182,83 @@ export function l1TileForGridRoom(chatroomId: string): string | undefined {
 }
 
 /**
- * Global → L1 tiles → grid rooms. `gridRoomIds` (the current room, plus any other grid room the
- * caller knows) nest under their L1 tile; an ocean/Antarctica tile appears only when it holds one.
+ * The tree path from an L1 tile down to `roomId`: tile rooms walk their tile lineage, a 1 km grid
+ * room hangs under its L4 tile, and a numbered overflow room (`_part_N`) under its base room.
+ * Empty for rooms outside the tile tree (Global, custom rooms, the Global overflow family).
  */
-export function buildBrowseTree(gridRoomIds: readonly string[]): FlatChatroomNode[] {
+export function browsePath(roomId: string): string[] {
+  const base = splitBaseId(roomId);
+  let path: string[] = [];
+  if (parseTileId(base)) path = tileLineage(base);
+  else {
+    const cell = COARSE_CELL_ID.exec(base);
+    if (cell) path = [...tileLineage(tileIdAt(TILE_BOTTOM_LAYER, Number(cell[1]), Number(cell[2]))), base];
+  }
+  if (path.length && base !== roomId) path.push(roomId);
+  return path;
+}
+
+/**
+ * Global → L1 tiles → … → the given rooms. Each room in `roomIds` (normally the current room) is
+ * shown with its whole path under its L1 tile; an ocean/Antarctica tile appears only when used.
+ */
+export function buildBrowseTree(roomIds: readonly string[]): FlatChatroomNode[] {
   const [root, ...landTiles] = getBrowsableBuiltInChatrooms();
-  const grids = [...new Set(gridRoomIds)].filter((id) => COARSE_CELL_ID.test(splitBaseId(id)));
+  const children = new Map<string, string[]>();
+  const usedL1 = new Set<string>();
+  for (const id of new Set(roomIds)) {
+    const path = browsePath(id);
+    if (!path.length) continue;
+    usedL1.add(path[0]);
+    for (let i = 1; i < path.length; i++) {
+      const list = children.get(path[i - 1]) ?? [];
+      if (!list.includes(path[i])) list.push(path[i]);
+      children.set(path[i - 1], list);
+    }
+  }
   const listed = new Set(landTiles.map((tile) => tile.id));
-  const usedTiles = new Set(grids.map((id) => l1TileForGridRoom(id)!));
   const out: FlatChatroomNode[] = [root];
+  const addDescendants = (parentId: string, level: number): void => {
+    for (const id of children.get(parentId) ?? []) {
+      out.push(pathRoomNode(id, parentId, level, (children.get(id) ?? []).length > 0));
+      addDescendants(id, level + 1);
+    }
+  };
   for (const tile of getL1Tiles()) {
-    if (!listed.has(tile.id) && !usedTiles.has(tile.id)) continue;
-    const children = grids.filter((id) => l1TileForGridRoom(id) === tile.id);
-    out.push({ ...l1TileNode(tile, root.id), hasChildren: children.length > 0 });
-    for (const id of children) out.push(gridRoomNode(id, tile.id, 2));
+    if (!listed.has(tile.id) && !usedL1.has(tile.id)) continue;
+    out.push({ ...l1TileNode(tile, root.id), hasChildren: (children.get(tile.id) ?? []).length > 0 });
+    addDescendants(tile.id, 2);
   }
   return out;
 }
 
-function gridRoomNode(id: string, parentId: string, level: number): FlatChatroomNode {
+function pathRoomNode(id: string, parentId: string, level: number, hasChildren: boolean): FlatChatroomNode {
   const title = splitTitleIcon(resolveChatroomTitle(id, []));
-  return { id, name: title.name, icon: title.icon, description: 'GPS grid room', level, parentId, hasChildren: false };
+  return { id, name: title.name, icon: title.icon, description: 'Region', level, parentId, hasChildren };
+}
+
+/**
+ * Titles for tiles below L1, by the named city nearest the tile's centre that lies inside it:
+ * L2 "🗺️ Large region around Los Angeles", L3 "🗺️ Region around San Diego", L4 "📍 Around San
+ * Diego"; otherwise the centre's coordinates. City names only — never a state or country.
+ */
+function deepTileTitle(id: string): string | null {
+  const ref = parseTileId(id);
+  if (!ref || ref.layer < 2) return null;
+  const bounds = tileBounds(ref);
+  const centre = tileCenter(ref);
+  const names = new Map(getFlatChatroomList().filter((node) => !node.hasChildren).map((node) => [node.id, node.name] as const));
+  let best: { name: string; distance: number } | null = null;
+  for (const [cityId, name] of names) {
+    const at = getChatroomMapLocation(cityId);
+    if (!at || at.latitude < bounds.south || at.latitude >= bounds.north || at.longitude < bounds.west || at.longitude >= bounds.east) continue;
+    const distance = (at.latitude - centre.latitude) ** 2 + (at.longitude - centre.longitude) ** 2;
+    if (!best || distance < best.distance) best = { name, distance };
+  }
+  const coords = `${Math.abs(centre.latitude).toFixed(1)}°${centre.latitude >= 0 ? 'N' : 'S'} ${Math.abs(centre.longitude).toFixed(1)}°${centre.longitude >= 0 ? 'E' : 'W'}`;
+  if (ref.layer === TILE_BOTTOM_LAYER) return best ? `📍 Around ${best.name}` : `📍 Area ${coords}`;
+  const kind = ref.layer === 2 ? 'Large region' : 'Region';
+  return best ? `🗺️ ${kind} around ${best.name}` : `🗺️ ${kind} ${coords}`;
 }
 
 /** Split a resolved title ("📍 Near San Diego") into its leading icon and the name. */
@@ -212,16 +268,16 @@ function splitTitleIcon(title: string): { icon: string; name: string } {
   return { icon: '📍', name: title };
 }
 
-/** Auto-expand the current room's continent once per room change (the user can still collapse it). */
+/** Auto-expand the current room's path once per room change (the user can still collapse it). */
 let autoExpandedFor = '';
 
 export function renderChatroomList(deps: ChatroomsViewDeps): void {
   const allChatrooms = buildBrowseTree(deps.currentChatroom ? [deps.currentChatroom] : []);
-  const currentTile = l1TileForGridRoom(deps.currentChatroom);
   if (deps.currentChatroom !== autoExpandedFor) {
     autoExpandedFor = deps.currentChatroom;
     deps.expandedChatrooms.add(CONFIG.GLOBAL_CHATROOM_ID);
-    if (currentTile) deps.expandedChatrooms.add(currentTile);
+    // Open every room on the path down to the current one.
+    for (const id of browsePath(deps.currentChatroom).slice(0, -1)) deps.expandedChatrooms.add(id);
   }
 
   // Rooms outside the tree (custom, Global overflow, a legacy named room) stay reachable at the top.
@@ -241,10 +297,12 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     });
   }
 
+  // A row shows only when EVERY ancestor is expanded: collapsing a region tile hides its whole
+  // subtree, not just its direct children.
+  const parentOf = new Map(allChatrooms.map((room) => [room.id, room.parentId] as const));
   const visibleChatrooms = allChatrooms.filter((room) => {
-    if (room.level === 0) return true;
-    if (room.parentId) {
-      return deps.expandedChatrooms.has(room.parentId);
+    for (let parent = room.parentId, guard = 0; parent && guard < 16; parent = parentOf.get(parent), guard++) {
+      if (!deps.expandedChatrooms.has(parent)) return false;
     }
     return true;
   });
@@ -389,10 +447,8 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       rooms: mapRooms,
       currentChatroom: deps.currentChatroom,
       openChatroom: (chatroomId) => showChatroomDetail(deps, chatroomId),
-      openLocation: (latitude, longitude) => showChatroomDetail(
-        deps,
-        getAutomaticLocationChatroomId({ latitude, longitude, accuracy: 0, timestamp: new Date() }),
-      ),
+      // A tap opens the bottom-layer tile (~78 km) there: the room the tree routes people to.
+      openLocation: (latitude, longitude) => showChatroomDetail(deps, tileIdAt(TILE_BOTTOM_LAYER, latitude, longitude)),
       mapLoadFailedText: deps.text('chatroomMapLoadFailed'),
       membersText: (count) => deps.text(count === 1 ? 'chatroomMemberOne' : 'chatroomMembers').replace('{count}', String(count)),
       visitsText: (count) => deps.text(count === 1 ? 'chatroomVisitOne' : 'chatroomVisits').replace('{count}', String(count)),
@@ -725,6 +781,8 @@ export function resolveChatroomTitle(chatroomId: string, customChatrooms: readon
   if (baseId !== chatroomId) return `${resolveChatroomTitle(baseId, customChatrooms)} (${splitIndex(chatroomId)})`;
   const tile = getL1TileInfo(chatroomId);
   if (tile) return `${tile.icon} ${tile.name}`;
+  const deepTile = deepTileTitle(chatroomId);
+  if (deepTile) return deepTile;
   const custom = customChatrooms.find((c) => c.id === chatroomId);
   if (custom) {
     const icon = custom.type === 'business' ? '🏪' : '💬';

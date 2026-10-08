@@ -1,13 +1,14 @@
 /**
- * Chatroom hierarchy in both views (FR-CR-4a): Global → L1 region tiles (45° squares labeled by
- * continent) → GPS grid rooms. Countries,
- * states and cities are never rooms in the UI; a grid room is titled by its nearest city.
+ * Chatroom hierarchy in both views (FR-CR-4a, docs/design/room-tree-routing.md): Global → L1 region
+ * tiles (45° squares labeled by continent) → L2 → L3 → L4 area rooms (~78 km). Countries, states
+ * and cities are never rooms in the UI; deeper tiles are titled by their nearest city.
  *
  * One user located in San Diego:
- *   1. Tree: Global ▼ → land region tiles; "North America · West & Central" ▼ → "📍 Near San Diego".
- *   2. Collapse/expand North America hides/shows the grid room.
- *   3. Map: region-tile pins + the current grid room's pin; tapping it opens the room.
- *   4. Travel to London's grid room: tree shows "Europe · North Atlantic" ▼ → "📍 Near London".
+ *   1. Tree: Global ▼ → land region tiles; "North America · West & Central" ▼ → L2 ▼ → L3 ▼ →
+ *      "📍 Around San Diego" (my area room, ~78 km).
+ *   2. Collapsing the region tile hides its whole subtree; expanding shows it again.
+ *   3. Map: region-tile pins + the current area room's pin; tapping it opens the room.
+ *   4. Travel to London's area room: tree shows "Europe · North Atlantic" ▼ … → "📍 Around London".
  * Screenshots of each step are attached to the report (and written to test-results).
  */
 import { BrowserContext, Page } from '@playwright/test';
@@ -16,7 +17,8 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { GRID_PLACES, gridRoomIdAt, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, areaRoomIdAt, openAreaRoomAt } from '../../helpers/chatroom-nav';
+import { tileLineage } from '../../../../src/shared/room-tiles';
 
 const SD_TILE = 'tile_1_2_1'; // North America · West & Central
 const LONDON_TILE = 'tile_1_3_3'; // Europe · North Atlantic
@@ -79,15 +81,19 @@ test.describe('Chatroom tree and map views', () => {
     await p.waitForTimeout(1_500); // let tiles paint for the screenshot
   };
 
-  test('tree: Global → region tiles → my grid room; no country/state/city rooms', async () => {
+  /** The rendered tree: id → level, in order. */
+  const treeRows = () => page!.locator('#chatroom-list .chatroom-item').evaluateAll((rows) =>
+    rows.map((r) => ({ id: r.getAttribute('data-chatroom-id') || '', level: Number(r.getAttribute('data-level')) })));
+
+  test('tree: Global → region tile → L2 → L3 → my area room; no country/state/city rooms', async () => {
     const p = page!;
-    // Enter my own grid room (the room a Global overflow would move me to).
+    // Enter my own area room (bottom-layer tile), the room the tree routes me down to.
     const home = await p.evaluate(() => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       return app?.currentLocation ? app.currentLocation : null;
     });
     expect(home).not.toBeNull();
-    const homeGrid = await openGridRoomAt(p, { latitude: home.latitude, longitude: home.longitude });
+    const homeArea = await openAreaRoomAt(p, { latitude: home.latitude, longitude: home.longitude });
     await showTree();
 
     await expect(row('global')).toHaveAttribute('data-level', '0');
@@ -99,36 +105,39 @@ test.describe('Chatroom tree and map views', () => {
     await expect(p.locator('#chatroom-list .chatroom-item', { hasText: 'Antarctica' })).toHaveCount(0);
     for (const named of NEVER_LISTED) await expect(row(named)).toHaveCount(0);
 
-    const homeRow = row(homeGrid);
-    await expect(homeRow).toHaveAttribute('data-level', '2');
-    await expect(homeRow).toHaveClass(/current-room/);
-    await expect(homeRow.locator('.chatroom-name')).toContainText('Near San Diego');
-    // It sits directly under its region tile in the rendered order.
-    const ids = await p.locator('#chatroom-list .chatroom-item').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-chatroom-id')));
-    expect(ids.indexOf(homeGrid)).toBe(ids.indexOf(SD_TILE) + 1);
+    // The whole path down to my room is open, one level per layer.
+    const path = tileLineage(homeArea);
+    expect(path[0]).toBe(SD_TILE);
+    const rows = await treeRows();
+    const at = rows.findIndex((r) => r.id === SD_TILE);
+    expect(rows.slice(at, at + 4)).toEqual(path.map((id, i) => ({ id, level: i + 1 })));
+    await expect(row(path[1])).toContainText('Large region around San Diego');
+    await expect(row(path[2])).toContainText('Region around San Diego');
+    await expect(row(homeArea)).toHaveClass(/current-room/);
+    await expect(row(homeArea).locator('.chatroom-name')).toContainText('Around San Diego');
     await snap('1-tree-region-expanded');
 
-    // Collapse and re-expand the region tile.
+    // Collapse and re-expand the region tile: its whole subtree hides and returns.
     await row(SD_TILE).locator('.chatroom-expand-icon').click();
     await afterSync();
-    await expect(row(homeGrid)).toHaveCount(0);
+    for (const id of path.slice(1)) await expect(row(id)).toHaveCount(0);
     await snap('2-tree-region-collapsed');
     await row(SD_TILE).locator('.chatroom-expand-icon').click();
     await afterSync();
-    await expect(row(homeGrid)).toBeVisible();
+    await expect(row(homeArea)).toBeVisible();
   });
 
-  test('map: region-tile pins plus my grid room pin; tapping my pin opens it', async () => {
+  test('map: region-tile pins plus my area room pin; tapping my pin opens it', async () => {
     const p = page!;
     await showTree();
     await showMap();
     const map = p.locator('[data-testid="chatroom-map"]');
     await expect(map.locator('.chatroom-map-marker.current-room')).toBeVisible();
-    await snap('3-map-current-grid-room');
+    await snap('3-map-current-area-room');
 
     await map.locator('.chatroom-map-marker.current-room').click();
     await afterNav();
-    await expect(p.locator('#current-chatroom-title')).toContainText('Near San Diego');
+    await expect(p.locator('#current-chatroom-title')).toContainText('Around San Diego');
 
     // Zoom out to the world: region tiles appear as pins/clusters.
     await p.locator('#back-to-chatrooms').click();
@@ -143,23 +152,25 @@ test.describe('Chatroom tree and map views', () => {
     await snap('4-map-world-regions');
   });
 
-  test('travel to London grid: tree shows Europe · North Atlantic → Near London; map follows', async () => {
+  test('travel to London: tree shows Europe · North Atlantic → … → Around London; map follows', async () => {
     const p = page!;
-    const london = await openGridRoomAt(p, GRID_PLACES.london);
-    expect(london).toBe(gridRoomIdAt(GRID_PLACES.london));
-    await expect(p.locator('#current-chatroom-title')).toContainText('Near London');
+    const london = await openAreaRoomAt(p, AREA_PLACES.london);
+    expect(london).toBe(areaRoomIdAt(AREA_PLACES.london));
+    await expect(p.locator('#current-chatroom-title')).toContainText('Around London');
 
     await showTree();
-    await expect(row(london)).toHaveAttribute('data-level', '2');
+    const path = tileLineage(london);
+    expect(path[0]).toBe(LONDON_TILE);
+    const rows = await treeRows();
+    const at = rows.findIndex((r) => r.id === LONDON_TILE);
+    expect(rows.slice(at, at + 4)).toEqual(path.map((id, i) => ({ id, level: i + 1 })));
     await expect(row(london)).toHaveClass(/current-room/);
-    const ids = await p.locator('#chatroom-list .chatroom-item').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-chatroom-id')));
-    expect(ids.indexOf(london)).toBe(ids.indexOf(LONDON_TILE) + 1);
     for (const named of NEVER_LISTED) await expect(row(named)).toHaveCount(0);
     await snap('5-tree-london');
 
     await showMap();
     await expect(p.locator('[data-testid="chatroom-map"] .chatroom-map-marker.current-room')).toBeVisible();
-    await snap('6-map-london-grid-room');
+    await snap('6-map-london-area-room');
     await p.locator('[data-testid="chatroom-tree-view-btn"]').click();
   });
 });

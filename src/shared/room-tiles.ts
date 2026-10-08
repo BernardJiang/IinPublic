@@ -132,3 +132,33 @@ export function isLandL1Tile(tile: L1TileInfo): boolean {
 export function getL1TileInfo(id: string): L1TileInfo | undefined {
   return getL1Tiles().find((tile) => tile.id === id);
 }
+
+/** Parent tile id (16 children per tile: rows and columns divide by 4), or null for an L1 tile. */
+export function parentTileId(id: string): string | null {
+  const ref = parseTileId(id);
+  if (!ref || ref.layer <= 1) return null;
+  return `tile_${ref.layer - 1}_${Math.floor(ref.row / 4)}_${Math.floor(ref.col / 4)}`;
+}
+
+/** The tile's ancestors from L1 down to the tile itself (`[L1, …, id]`), or [] for a non-tile id. */
+export function tileLineage(id: string): string[] {
+  if (!parseTileId(id)) return [];
+  const chain: string[] = [id];
+  for (let parent = parentTileId(id); parent; parent = parentTileId(parent)) chain.unshift(parent);
+  return chain;
+}
+
+/** The tile at `layer` that contains tile `id` (itself when `layer` equals its layer), or null. */
+export function tileAncestorAt(id: string, layer: number): string | null {
+  const ref = parseTileId(id);
+  if (!ref || layer < 1 || layer > ref.layer) return null;
+  return tileLineage(id)[layer - 1] ?? null;
+}
+
+/** `[min, max)` latitude/longitude bounds of a tile. */
+export function tileBounds(ref: TileRef): { south: number; north: number; west: number; east: number } {
+  const size = TILE_LAYER_DEGREES[ref.layer];
+  const south = -90 + size * ref.row;
+  const west = -180 + size * ref.col;
+  return { south, north: south + size, west, east: west + size };
+}

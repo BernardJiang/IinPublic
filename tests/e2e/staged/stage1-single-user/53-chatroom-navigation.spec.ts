@@ -10,7 +10,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { GRID_PLACES, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename (merged)', () => {
   let context: BrowserContext | undefined;
@@ -48,7 +48,7 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     const back = p.locator('#app-bar-left #back-to-chatrooms');
 
     await expect(back).toBeHidden();
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     await expect(back).toBeVisible();
     await expect(back).toHaveText('‹');
     await expect(p.locator('#chatroom-detail-container')).toBeVisible();
@@ -59,7 +59,7 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await expect(p.locator('#chatroom-list-container')).toBeVisible();
 
     // Re-entering a room brings the icon straight back.
-    await openGridRoomAt(p, GRID_PLACES.london);
+    await openAreaRoomAt(p, AREA_PLACES.london);
     await expect(back).toBeVisible();
   });
 
@@ -69,7 +69,7 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     const home = p.locator('#return-home-btn');
 
     // Detail of a non-home room → enabled.
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     await expect(home).toBeEnabled();
 
     // Back to the list: current room is still the Tokyo grid room → stays enabled.
@@ -83,7 +83,7 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await expect(home).toBeDisabled({ timeout: 10_000 });
 
     // The back icon does not leak into other tabs.
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     await expect(p.locator('#app-bar-left #back-to-chatrooms')).toBeVisible();
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
@@ -126,7 +126,7 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
   test('toggles between tree and OpenStreetMap views, opens a room marker, and a map tap opens a grid room', async () => {
     const p = page!;
     // Be in a grid room so the map has a located marker (Global itself has no map position).
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     await toChatroomList(p);
     await p.route('https://tiles.openfreemap.org/styles/liberty*', async (route) => {
       await route.fulfill({
@@ -159,7 +159,8 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await expect(map).toHaveClass(/maplibregl-map/, { timeout: 15_000 });
     await expect(map).toHaveAttribute('data-map-geojson-feature-count', /[1-9]\d*/);
     await expect(map).toHaveAttribute('data-map-clustering', 'true');
-    await expect(map).toHaveAttribute('data-map-rendered-feature-count', /[1-9]\d*/);
+    // The current room is drawn as its own (never clustered) marker, so at area zoom the clustered
+    // layer may legitimately render nothing nearby; the marker assertion below covers rendering.
     await expect(map.locator('.chatroom-map-marker')).not.toHaveCount(0);
     await expect(map.locator('a[href*="openstreetmap.org/copyright"]')).toBeVisible();
     await expect(p.locator('#chatroom-map-status')).toContainText('geographic rooms');
@@ -179,14 +180,14 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
     await expect(map).toBeVisible();
-    // Tapping open map (not a marker) opens the coarse GPS grid room covering that point.
+    // Tapping open map (not a marker) opens the area room (bottom-layer tile) covering that point.
     const box = (await map.boundingBox())!;
     await p.mouse.click(box.x + 30, box.y + box.height / 2);
     await afterNav();
     await expect(p.locator('#chatroom-detail-container')).toBeVisible();
     await expect
       .poll(() => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''))
-      .toMatch(/^region_/);
+      .toMatch(/^tile_4_/);
     await expect(p.locator('#current-chatroom-title')).toContainText('📍');
     await p.locator('#back-to-chatrooms').click();
     await afterNav();

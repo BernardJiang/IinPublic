@@ -14,7 +14,7 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { GRID_PLACES, ensureChatroomList, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, ensureChatroomList, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 const MATCH_ANSWER = 'Yes, lets play.';
 const IGNORE_ANSWER = 'No thanks.';
@@ -79,7 +79,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
       await waitForIncomingTalkClusterOnServer(pageJerry, talkTitle, { timeout: 60_000, polling: 500 });
 
       await ensureChatroomList(pageJerry);
-      await openGridRoomAt(pageJerry, GRID_PLACES.london);
+      await openAreaRoomAt(pageJerry, AREA_PLACES.london);
       await afterSync();
 
       await openIncomingTalkModal(pageJerry, talkTitle);

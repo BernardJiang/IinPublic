@@ -46,8 +46,10 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
+import { openAreaRoomAt } from '../../helpers/chatroom-nav';
 
-const LOCAL_ROOM_ID = 'san-diego';
+/** The local room: the San Diego area room (bottom-layer tile, ~78 km), as a map tap opens it. */
+const SAN_DIEGO = { latitude: 32.7157, longitude: -117.1611 };
 
 type RideQuestion = { text: string; matchAnswerText: string; otherAnswerText: string };
 
@@ -120,7 +122,7 @@ async function createRideTalk(
   await expect(page.locator('#talk-validation-errors')).not.toBeVisible();
 }
 
-/** Enters the San Diego city room (not Global) — the "local chatroom" from the scenario. */
+/** Enters the San Diego area room (not Global) — the "local chatroom" from the scenario. */
 async function ensureInLocalRoom(page: Page): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await waitForTabActive(page, 'chatrooms');
@@ -129,7 +131,7 @@ async function ensureInLocalRoom(page: Page): Promise<void> {
     await page.click('#back-to-chatrooms').catch(() => {});
     await afterSync();
   }
-  await page.locator(`.chatroom-item[data-chatroom-id="${LOCAL_ROOM_ID}"]`).first().click();
+  await openAreaRoomAt(page, SAN_DIEGO);
   await afterSync();
 }
 

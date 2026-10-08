@@ -259,10 +259,17 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-CR-3**: Every chatroom SHALL use the same global capacity threshold (current production
   value 498 active users; no per-room override). When a chatroom exceeds that threshold, the
   system SHALL:
-  - From Global, move the longest-staying ordinary member directly to their coarse coordinate cell
-    when a confirmed local fix exists; do not route automatically through continent/country/state.
-  - From Global without a confirmed fix, move that member to the bounded non-geographic Global
-    overflow family. From any other full room, preserve the selected room family when splitting.
+  - Move the longest-staying ordinary member **one layer down** the geometric tile tree (Global →
+    L1 45° → L2 → L3 → L4 ~78 km tiles) toward their confirmed position, or toward their chosen
+    home tile when they have no fix; never route through continent/country/state rooms.
+  - From Global with neither a fix nor a home tile, move that member to the bounded
+    non-geographic Global overflow family. A room with no child for that member (L4, the home
+    tile, custom, numbered, Global overflow) splits within its own family (`_part_N`).
+  - Move a member **up** one step when their room has had fewer than 2 other members for the
+    dwell time and the room above holds at most `C − 10%`, unless they were evicted from that room
+    or one below it within the eviction cooldown (15 min, doubling per repeat, cap 4 h, 24 h
+    memory). Never move a member up out of a room they chose by hand.
+    (Details: `docs/design/room-tree-routing.md`.)
 - **FR-CR-4**: The system SHALL automatically create pure location-based chatrooms; users SHALL NOT be able to delete these automatic rooms.
 - **FR-CR-4a (No National Borders in the UI)**: The room list (tree), room map, and home-room
   picker SHALL show the hierarchy as **Global → L1 region tiles → coarse GPS grid rooms**, and SHALL

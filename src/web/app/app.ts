@@ -43,7 +43,8 @@ import { WebLedgerService } from '../services/web-ledger-service';
 import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
-import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
+import { parseTileId, tileIdAt } from '../../shared/room-tiles';
 import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { getBrowsableBuiltInChatrooms } from '../ui/chatrooms-view';
 import {
@@ -1026,6 +1027,23 @@ export class IinPublicApp {
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
     // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
     this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
+    // A GPS-less device routes by its chosen home tile, any layer (docs/design/room-tree-routing.md §5).
+    this.chatroomService.setHomeTileResolver(() =>
+      this.travelHomeChatroomId && parseTileId(this.travelHomeChatroomId) ? this.travelHomeChatroomId : undefined);
+    this.chatroomService.setPromotionStatusListener((status) => {
+      if (!status || status.blockedUntil <= 0) {
+        this.lastPromotionNoticeKey = '';
+        return;
+      }
+      const key = `${status.target}:${status.blockedUntil}`;
+      if (key === this.lastPromotionNoticeKey) return;
+      this.lastPromotionNoticeKey = key;
+      const minutes = Math.max(1, Math.ceil((status.blockedUntil - Date.now()) / 60_000));
+      this.uiManager.showNotification(
+        this.uiManager.formatRoomPromotionWaiting(this.getChatroomDisplayName(status.target), minutes),
+        'info',
+      );
+    });
     // Travel is room-membership metadata, not a private UI decoration: peers in the room must
     // agree that a user deliberately visiting away from their saved home is a traveler.
     this.chatroomService.setMembershipTravelerResolver((chatroomId) =>
@@ -1182,6 +1200,7 @@ export class IinPublicApp {
    * suppressing the correct suggestion once the real fix comes in.
    */
   private locationConfirmed = true;
+  private lastPromotionNoticeKey = '';
 
   async initialize(location: GPSCoordinate, options: { locationConfirmed?: boolean } = {}): Promise<void> {
     this.initialized = false;
@@ -1190,7 +1209,7 @@ export class IinPublicApp {
 
     // Paint Global/the cached hierarchy immediately. Identity, presence and counts hydrate below.
     this.uiManager.initialize();
-    this.uiManager.setCurrentLocation(location);
+    this.uiManager.setCurrentLocation(location, this.locationConfirmed);
     this.uiManager.showStartupInterface();
     markStartupPhase('firstUsableNavigation');
 
@@ -8363,15 +8382,15 @@ export class IinPublicApp {
 
     this.uiManager.on('returnHomeFromTravel', async () => {
       if (!this.currentUser) return;
-      const locationPath = this.currentLocation ? getLocationChatroomPath(this.currentLocation) : [];
-      const automaticHome = this.currentLocation
-        ? getAutomaticLocationChatroomId(this.currentLocation)
+      // With a confirmed fix, home is the user's own bottom-layer tile (~78 km), the room the tree
+      // routes them to (docs/design/room-tree-routing.md); the 1 km cell is only a business anchor.
+      const automaticHome = this.currentLocation && this.locationConfirmed
+        ? tileIdAt(4, this.currentLocation.latitude, this.currentLocation.longitude)
         : undefined;
       const home =
         (!this.travelModeActive && automaticHome) ||
         this.travelHomeChatroomId ||
         automaticHome ||
-        locationPath[locationPath.length - 1] ||
         'global';
       this.travelModeActive = false;
       this.travelChatroomId = undefined;

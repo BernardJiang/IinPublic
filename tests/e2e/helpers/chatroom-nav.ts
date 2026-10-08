@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { afterNav } from './timing';
-import { getAutomaticLocationChatroomId } from '../../../src/shared/location-to-chatroom';
+import { tileIdAt } from '../../../src/shared/room-tiles';
 
 /**
  * Opens the Chatrooms list even when the product correctly restores a previously opened room.
@@ -27,23 +27,24 @@ export async function ensureChatroomList(page: Page): Promise<void> {
   await expect(list).toBeVisible();
 }
 
-/** Remote spots used to "travel" to a coarse GPS grid room (named rooms are no longer listed). */
-export const GRID_PLACES = {
+/** Remote spots used to "travel" to an area room (named country/city rooms are not offered). */
+export const AREA_PLACES = {
   london: { latitude: 51.5074, longitude: -0.1278 },
   tokyo: { latitude: 35.6762, longitude: 139.6503 },
 } as const;
 
-export function gridRoomIdAt(place: { latitude: number; longitude: number }): string {
-  return getAutomaticLocationChatroomId({ ...place, accuracy: 0, timestamp: new Date() });
+/** The bottom-layer tile (~78 km, `tile_4_…`) covering `place` — what a map tap opens. */
+export function areaRoomIdAt(place: { latitude: number; longitude: number }): string {
+  return tileIdAt(4, place.latitude, place.longitude);
 }
 
 /**
- * Opens the coarse grid room covering `place` exactly the way a tap on the chatroom map does
- * (map click → `getAutomaticLocationChatroomId` → `showChatroomDetail`), without depending on
- * map tiles loading in the test browser. Returns the room id.
+ * Opens the area room (bottom-layer tile) covering `place` exactly the way a tap on the chatroom
+ * map does (map click → `tileIdAt(4, …)` → `showChatroomDetail`), without depending on map tiles
+ * loading in the test browser. Returns the room id.
  */
-export async function openGridRoomAt(page: Page, place: { latitude: number; longitude: number }): Promise<string> {
-  const roomId = gridRoomIdAt(place);
+export async function openAreaRoomAt(page: Page, place: { latitude: number; longitude: number }): Promise<string> {
+  const roomId = areaRoomIdAt(place);
   // A row click implicitly waited for the list to render; the switch is ignored until the app
   // has its user, so wait for that first.
   await expect

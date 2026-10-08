@@ -1,7 +1,15 @@
 import { CONFIG } from '../../shared/config';
-import type { GPSCoordinate } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
-import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
+import {
+  PROMOTE_BELOW_OTHERS,
+  evictionDestination,
+  parentHasHeadroom,
+  promotionBlockedUntil,
+  promotionTarget,
+  pruneEvictionHistory,
+  type EvictionRecord,
+  type RoutingAnchor,
+} from '../../shared/room-routing';
 import {
   capacityNoticeCoordinator,
   isNoticeForStay,
@@ -21,6 +29,7 @@ import {
 /** How long after the last member-list change before the room is re-checked (throttle window). */
 const RECONCILE_DELAY_MS = 1500;
 const FRONTIER_READ_TIMEOUT_MS = 700;
+const PROMOTION_COUNT_TIMEOUT_MS = 8_000;
 
 export interface ChatroomCapacityDeps {
   getGun: () => any;
@@ -30,7 +39,21 @@ export interface ChatroomCapacityDeps {
   /** Same freshness rule the roster uses (drops members whose heartbeat has expired). */
   isFreshMember: (memberData: any) => boolean;
   getCurrentRoom: () => string | undefined;
-  getLocation: (userId: string) => GPSCoordinate | undefined;
+  /** Confirmed GPS position, else the user's chosen home tile, else none (room-routing.ts). */
+  getAnchor: (userId: string) => RoutingAnchor;
+  /**
+   * False while the current room is the user's own choice (a manual switch or travel): they are
+   * never moved up out of it automatically. Defaults to true.
+   */
+  canAutoPromote?: (roomId: string) => boolean;
+  /** Active ordinary members (no TechSupport) of another room, for the promotion headroom check. */
+  countActiveMembers?: (roomId: string) => Promise<number>;
+  /** Persisted eviction history for the promotion cooldown (loop guard). */
+  readEvictionHistory?: () => EvictionRecord[];
+  writeEvictionHistory?: (history: EvictionRecord[]) => void;
+  /** Promotion state for the UI: waiting on a cooldown/headroom, or cleared (null). */
+  onPromotionStatus?: (status: { target: string; blockedUntil: number } | null) => void;
+  now?: () => number;
   getStageName: (userId: string) => string;
   /**
    * Atomically move `userId` from `from` to `child`. Resolves false (and changes nothing) when a
@@ -47,14 +70,15 @@ export interface ChatroomCapacityDeps {
 
 /**
  * Keeps every room at or under the ONE unified capacity (CONFIG.CHATROOM_MAX_CAPACITY) without any
- * referee. Every room uses FIFO; room shape only determines the destination:
+ * referee, and moves members of thin rooms back up (docs/design/room-tree-routing.md).
  *
- *  - Global is the common first room. An oldest overflow member with a confirmed location moves
- *    directly to its neutral blurred-coordinate cell; one without location moves to the virtual,
- *    non-geographic Global overflow family.
- *  - Every other room — geographic, named, custom, or manually visited — overflows within its own
- *    family (`x_part_2`, `_part_3`...). This preserves a traveler's explicit destination and never
- *    infers a country/state hierarchy from approximate coordinates.
+ *  - Down: every room uses FIFO. The oldest overflow member moves ONE layer down the tile tree
+ *    toward their GPS position or chosen home tile (Global → L1 → … → L4); a room with no child for
+ *    them (L4, their home tile, custom, `_part_N`, the non-geographic Global overflow) splits into
+ *    its own `_part_N` family. Global without any anchor overflows to the Global overflow family.
+ *  - Up: when the room has fewer than PROMOTE_BELOW_OTHERS other members for the dwell time, the
+ *    room above has headroom (≤ C − 10%), and no eviction cooldown blocks it, the member moves up.
+ *    The cooldown (15 min, doubling per repeat, cap 4 h) stops evict → promote → evict loops.
  *
  * Either way the move is an ordinary join, so the same check runs in the destination room and the
  * overflow ripples on until no room is over capacity.
@@ -70,6 +94,12 @@ export class ChatroomCapacityController {
   private notified = new Set<string>();
   private handled = new Set<string>();
   private evicting = false;
+  private promoteTimer: ReturnType<typeof setInterval> | null = null;
+  private underflowSince: number | undefined;
+  private promoteJitterMs = 0;
+  private promoting = false;
+  private lastPromotionWait = '';
+  private subscriptionGeneration = 0;
 
   constructor(private deps: ChatroomCapacityDeps) {}
 
@@ -86,7 +116,14 @@ export class ChatroomCapacityController {
     this.onMoved = onMoved;
     const room = this.deps.getGun().get('chatrooms').get(roomId);
 
+    // Gun's `off()` on a `map().on()` does not stop callbacks immediately: late callbacks from the
+    // PREVIOUS room's subscription would land in this room's member map (an evictee then sees the
+    // old room's members as company and is never promoted; counts are wrong for eviction too).
+    // Each subscription only writes while it is still the current one.
+    const generation = ++this.subscriptionGeneration;
+    const isCurrent = () => generation === this.subscriptionGeneration && this.roomId === roomId;
     const memberSub = room.get('users').map().on((data: any, key: string) => {
+      if (!isCurrent()) return;
       if (!data || typeof data !== 'object' || key === TECHSUPPORT_ROOT_USER_ID) this.members.delete(key);
       else this.members.set(key, data);
       this.scheduleReconcile();
@@ -94,23 +131,34 @@ export class ChatroomCapacityController {
     this.offMembers = () => memberSub.off();
 
     const noticeSub = room.get('evictions').get(userId).map().on((notice: any, authorKey: string) => {
+      if (!isCurrent()) return;
       void this.handleNotice(roomId, userId, notice, authorKey);
     });
     this.offNotices = () => noticeSub.off();
 
     // Check once soon after joining even if no other member record ever changes.
     this.scheduleReconcile();
+
+    this.underflowSince = undefined;
+    this.promoteJitterMs = Math.floor(Math.random() * (CONFIG.CHATROOM_PROMOTE_JITTER_MS + 1));
+    const checkEvery = Math.min(15_000, Math.max(500, Math.floor(CONFIG.CHATROOM_PROMOTE_DWELL_MS / 3)));
+    this.promoteTimer = setInterval(() => void this.considerPromotion(), checkEvery);
   }
 
   /** Stop watching. When `roomId` is given, only stops if that is the room being watched. */
   stop(roomId?: string): void {
     if (roomId && this.roomId !== roomId) return;
+    this.subscriptionGeneration += 1;
     this.offMembers?.();
     this.offNotices?.();
     this.offMembers = undefined;
     this.offNotices = undefined;
     if (this.reconcileTimer) clearTimeout(this.reconcileTimer);
     this.reconcileTimer = null;
+    if (this.promoteTimer) clearInterval(this.promoteTimer);
+    this.promoteTimer = null;
+    this.underflowSince = undefined;
+    this.deps.onPromotionStatus?.(null);
     this.members.clear();
     this.roomId = undefined;
     this.userId = undefined;
@@ -213,29 +261,107 @@ export class ChatroomCapacityController {
     if (this.evicting) return;
     // Already leaving/left by hand: the notice no longer applies.
     if (this.deps.getCurrentRoom() !== roomId) return;
-    const location = this.deps.getLocation(userId);
-    const child = roomId === CONFIG.GLOBAL_CHATROOM_ID
-      ? (location
-          ? getAutomaticLocationChatroomId(location)
-          : CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID)
-      : await this.chooseSplitTarget(roomId);
+    const destination = evictionDestination(roomId, this.deps.getAnchor(userId));
+    const child = destination.kind === 'room' ? destination.roomId : await this.chooseSplitTarget(roomId);
     if (!child) {
       console.warn(`⚠️  Eviction notice for ${roomId} but no child room is available for ${userId}; staying`);
       return;
     }
-    await this.relocate(roomId, userId, child);
+    const moved = await this.relocate(roomId, userId, child, 'Over capacity');
+    if (moved) this.recordEviction(roomId);
   }
 
-  /** Move myself out of `roomId` into `child` (atomic in the service; manual moves win). */
-  private async relocate(roomId: string, userId: string, child: string): Promise<void> {
-    if (this.evicting || this.deps.getCurrentRoom() !== roomId) return;
+  private now(): number {
+    return this.deps.now?.() ?? Date.now();
+  }
+
+  private recordEviction(fromRoom: string): void {
+    if (!this.deps.readEvictionHistory || !this.deps.writeEvictionHistory) return;
+    const now = this.now();
+    this.deps.writeEvictionHistory(pruneEvictionHistory([...this.deps.readEvictionHistory(), { room: fromRoom, at: now }], now));
+  }
+
+  /**
+   * Underflow: move up one step when this room has been too thin for the dwell time, the room above
+   * has headroom, and no eviction cooldown blocks it (docs/design/room-tree-routing.md §4).
+   */
+  private async considerPromotion(): Promise<void> {
+    const roomId = this.roomId;
+    const userId = this.userId;
+    if (!roomId || !userId || this.evicting || this.promoting) return;
+    if (this.deps.getCurrentRoom() !== roomId) {
+      this.logPromotionWait(`service is in ${this.deps.getCurrentRoom()}, not ${roomId}`);
+      return;
+    }
+    if (this.deps.canAutoPromote && !this.deps.canAutoPromote(roomId)) {
+      this.logPromotionWait('room was chosen by hand');
+      return;
+    }
+    const target = promotionTarget(roomId);
+    if (!target || !this.deps.countActiveMembers) return;
+    const members = this.activeMembers();
+    if (!members.some((member) => member.userId === userId)) {
+      this.logPromotionWait(`own presence not fresh in ${roomId} (${this.members.size} records)`);
+      return;
+    }
+    const now = this.now();
+    if (members.length - 1 >= PROMOTE_BELOW_OTHERS) {
+      this.underflowSince = undefined;
+      this.deps.onPromotionStatus?.(null);
+      return;
+    }
+    this.underflowSince ??= now;
+    if (now - this.underflowSince < CONFIG.CHATROOM_PROMOTE_DWELL_MS + this.promoteJitterMs) return;
+
+    const history = this.deps.readEvictionHistory?.() ?? [];
+    const blockedUntil = promotionBlockedUntil(target, history, now, CONFIG.CHATROOM_EVICTION_COOLDOWN_MS);
+    if (blockedUntil) {
+      this.logPromotionWait(`cooldown until ${new Date(blockedUntil).toISOString()} before ${target}`);
+      this.deps.onPromotionStatus?.({ target, blockedUntil });
+      return;
+    }
+    this.promoting = true;
+    try {
+      const capacity = Math.max(1, Math.floor(this.deps.getCapacity?.() ?? CONFIG.CHATROOM_MAX_CAPACITY));
+      // A hung or failed count must never wedge promotion: treat it as unknown and retry next tick.
+      const aboveCount = await Promise.race([
+        this.deps.countActiveMembers(target).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), PROMOTION_COUNT_TIMEOUT_MS)),
+      ]);
+      if (aboveCount === null) {
+        this.logPromotionWait(`could not count ${target}`);
+        return;
+      }
+      if (!parentHasHeadroom(aboveCount, capacity)) {
+        this.logPromotionWait(`${target} has ${aboveCount}/${capacity} (needs headroom)`);
+        this.deps.onPromotionStatus?.({ target, blockedUntil: 0 });
+        return;
+      }
+      if (this.roomId !== roomId || this.deps.getCurrentRoom() !== roomId) return;
+      this.deps.onPromotionStatus?.(null);
+      await this.relocate(roomId, userId, target, `Too few members (${members.length - 1} others)`);
+    } finally {
+      this.promoting = false;
+    }
+  }
+
+  private logPromotionWait(reason: string): void {
+    if (reason === this.lastPromotionWait) return;
+    this.lastPromotionWait = reason;
+    console.log(`⏳ Thin room ${this.roomId}: not moving up yet — ${reason}`);
+  }
+
+  /** Move myself out of `roomId` into `target` (atomic in the service; manual moves win). */
+  private async relocate(roomId: string, userId: string, target: string, reason: string): Promise<boolean> {
+    if (this.evicting || this.deps.getCurrentRoom() !== roomId) return false;
     this.evicting = true;
     const onMoved = this.onMoved;
     try {
-      console.log(`🚪 Over capacity: moving ${userId} from ${roomId} to ${child}`);
-      const moved = await this.deps.moveForEviction(roomId, userId, child, this.deps.getStageName(userId), onMoved);
-      // The join into `child` started this controller there, which cascades if it is full too.
-      if (moved) onMoved?.(child);
+      console.log(`🚪 ${reason}: moving ${userId} from ${roomId} to ${target}`);
+      const moved = await this.deps.moveForEviction(roomId, userId, target, this.deps.getStageName(userId), onMoved);
+      // The join into `target` started this controller there, which cascades if it is full too.
+      if (moved) onMoved?.(target);
+      return moved;
     } finally {
       this.evicting = false;
     }

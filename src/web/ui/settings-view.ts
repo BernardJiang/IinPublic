@@ -5,7 +5,7 @@ import {
   type User,
 } from '../../shared/types';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
-import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
+import { parseTileId } from '../../shared/room-tiles';
 import { getBrowsableBuiltInChatrooms, resolveChatroomTitle } from './chatrooms-view';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
@@ -47,6 +47,9 @@ import type { CustomChatroomRow } from './chatrooms-view';
 
 export interface SettingsViewDeps {
   currentLocation: GPSCoordinate | undefined;
+  /** The user's own bottom-layer tile (confirmed GPS only). */
+  ownTileId?: string | undefined;
+  currentChatroomId?: string;
   incomingTalkClusters: any[];
   customChatrooms: CustomChatroomRow[];
   getHomeChatroomId: () => string;
@@ -233,11 +236,12 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
       ? [...DEFAULT_DIRTY_WORDS]
       : normalizeDirtyWords(talkFilters.dirtyWords);
   const homeOptions = [
-    // Global plus the user's own coarse GPS grid room — never continent/country/state rooms.
-    ...getBrowsableBuiltInChatrooms().map((room) => ({ id: room.id, label: `${room.icon} ${room.name}` })),
-    ...(deps.currentLocation
-      ? [getAutomaticLocationChatroomId(deps.currentLocation)].map((id) => ({ id, label: resolveChatroomTitle(id, deps.customChatrooms) }))
-      : []),
+    // Global, the region tiles, the user's own tile, and any tile (any layer) they are in or chose
+    // — e.g. a GPS-less desktop that tapped its area on the map. Never country/state rooms.
+    ...[...new Set([
+      ...getBrowsableBuiltInChatrooms().map((room) => room.id),
+      ...[deps.ownTileId, deps.currentChatroomId, home].filter((id): id is string => !!id && !!parseTileId(id)),
+    ])].map((id) => ({ id, label: resolveChatroomTitle(id, deps.customChatrooms) })),
     ...deps.customChatrooms.map((room) => ({
       id: room.id,
       label: `${room.type === 'business' ? '🏪' : '💬'} ${room.name}`,

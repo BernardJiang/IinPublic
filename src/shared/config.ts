@@ -35,6 +35,15 @@ export const CONFIG = {
   ),
   CHATROOM_ENABLE_FIFO:
     (e2eUrlParam('e2e_fifo') || process.env.CHATROOM_ENABLE_FIFO || 'true') !== 'false',
+  /**
+   * Two-way routing (docs/design/room-tree-routing.md §4): a thin room promotes its members up
+   * after this dwell (plus up to 60 s jitter), and an eviction blocks promotion back into that room
+   * for this base cooldown (doubling per repeat eviction, capped at 4 h). E2E: `?e2e_promote_ms=`,
+   * `?e2e_cooldown_ms=`.
+   */
+  CHATROOM_PROMOTE_DWELL_MS: parseInt(e2eUrlParam('e2e_promote_ms') || '180000', 10),
+  CHATROOM_PROMOTE_JITTER_MS: e2eUrlParam('e2e_promote_ms') ? 0 : 60_000,
+  CHATROOM_EVICTION_COOLDOWN_MS: parseInt(e2eUrlParam('e2e_cooldown_ms') || '900000', 10),
   GLOBAL_CHATROOM_ID: 'global',
   /** Non-geographic overflow family for Global participants who have no confirmed location. */
   GLOBAL_UNKNOWN_CHATROOM_ID: 'global-unknown',

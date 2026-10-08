@@ -70,9 +70,9 @@ All persistence goes through [Gun.js](https://gun.eco/). The server has a `GunSe
 - `ownerIncomingTalkIndex/<userId>/<identityKey>` — incoming talk clusters, one shared body + a
   `senders` map per cluster (`IncomingTalkClusterWire`, `src/shared/peer-talk-delivery.ts`);
   client-side only, gated by `p2pClientTalkMirror`/`p2pDirectTalkDelivery`
-- `chatrooms/<roomId>/evictions/<evicteeId>/<noticerId>` — FIFO eviction notices for hierarchy rooms: the room's newest member writes one per overflow member (`src/shared/chatroom-capacity.ts` rule); the evictee moves itself down the hierarchy, which cascades (`chatroom-capacity-controller.ts`)
+- `chatrooms/<roomId>/evictions/<evicteeId>/<noticerId>` — FIFO eviction notices: the room's newest member writes one per overflow member (`src/shared/chatroom-capacity.ts` rule); the evictee moves itself one layer down, which cascades (`chatroom-capacity-controller.ts`)
 - `chatroomSplitFrontier/<baseRoomId>` — hint: highest numbered overflow room (`<base>_part_N`) opened recently, so a crowd jumps straight to it
-- Capacity is ONE unified number for every room (`CONFIG.CHATROOM_MAX_CAPACITY`: 498 release / 3 local debug). Hierarchy rooms overflow oldest-first down the tree; rooms with no child (custom rooms, the deepest regional room) send the newest overflow members to `<base>_part_2`, `_part_3`… (`src/shared/chatroom-split.ts`)
+- Capacity is ONE unified number for every room (`CONFIG.CHATROOM_MAX_CAPACITY`: 498 release / 3 local debug). Rooms form a geometric tile tree, never countries (`src/shared/room-tiles.ts`, `docs/design/room-tree-routing.md`): Global → L1 45° tiles (labeled by continent) → L2 → L3 → L4 ~78 km tiles (`tile_<layer>_<row>_<col>`). **Down:** a full room moves its OLDEST member one layer down toward their GPS position or chosen home tile (`src/shared/room-routing.ts`); rooms with no child for them (L4, the home tile, custom rooms, `_part_N`, `global-unknown`) split oldest-first into `<base>_part_2`, `_part_3`… (`src/shared/chatroom-split.ts`). **Up:** a member with < 2 others for the dwell (3 min) moves up one step when the room above has ≤ C − 10%, unless an eviction cooldown blocks it (15 min, doubling, cap 4 h — the evict/promote loop guard); never out of a room chosen by hand. E2E knobs: `?e2e_capacity=`, `?e2e_promote_ms=`, `?e2e_cooldown_ms=`; `window.__test_location = 'none'` boots a GPS-less device
 - `conversations/<id>` / `users/<id>/conversations/<convId>` — conversation records
 - `talkAnswerTemplateByUser/<userId>/<identityKey>` — cached answer templates for chatbot auto-reply
 
@@ -152,7 +152,8 @@ UI modules (all in `src/web/ui/`):
 - `talk-engine.ts` — `checkIfMatch` / `checkIfIgnore` (used by both server and browser)
 - `reputation.ts` — `ReputationManager.updateReputation(rep, eventType, value?)`
 - `talk-content-id.ts` — `buildTalkIdentityKey` / `computeTalkIdFromTalkData` (content-hash dedup)
-- `chatroom-hierarchy.ts` — static `CHATROOM_HIERARCHY` tree (Global → Region → City)
+- `chatroom-hierarchy.ts` — static named place tree; no longer rooms in the UI or routing, only the city-name source for tile/grid titles ("📍 Around San Diego")
+- `room-tiles.ts` / `room-routing.ts` — the tile tree and two-way routing (down on overflow, up on underflow with cooldown)
 - `talk-intake-filters.ts` — `talkPassesIntakeFilters` (delivery-time filter predicate)
 - `location.ts` — `LocationPrivacy.blurLocation` / `getCurrentLocation`
 

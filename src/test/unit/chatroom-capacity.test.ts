@@ -19,6 +19,8 @@ import {
 } from '../../shared/chatroom-split';
 import { ChatroomCapacityController } from '../../web/services/chatroom-capacity-controller';
 import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import type { EvictionRecord, RoutingAnchor } from '../../shared/room-routing';
+import { tileIdAt } from '../../shared/room-tiles';
 import type { GPSCoordinate } from '../../shared/types';
 
 const m = (userId: string, joinedAt: string): CapacityMember => ({ userId, joinedAt });
@@ -135,6 +137,8 @@ class FakeGun {
   private leaves = new Map<string, any>();
   private nodeSubs: Array<{ path: string; cb: (d: any, k: string) => void }> = [];
   private mapSubs: Array<{ prefix: string; cb: (d: any, k: string) => void }> = [];
+  /** Like real Gun: `off()` on a `map().on()` does not stop the callbacks. */
+  leakyMapOff = false;
 
   read(path: string): any {
     return this.leaves.get(path);
@@ -178,7 +182,7 @@ class FakeGun {
             for (const [p, v] of self.leaves) {
               if (p.startsWith(`${path}/`) && !p.slice(path.length + 1).includes('/')) cb(v, p.slice(path.length + 1));
             }
-            return { off: () => { self.mapSubs = self.mapSubs.filter((s) => s !== sub); } };
+            return { off: () => { if (!self.leakyMapOff) self.mapSubs = self.mapSubs.filter((s) => s !== sub); } };
           },
         };
       },
@@ -194,23 +198,45 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
   let peers: Map<string, { controller: ChatroomCapacityController; room: string | undefined; moved: string[] }>;
   const path = getLocationChatroomPath(SF);
   const sfGrid = getAutomaticLocationChatroomId(SF);
+  const sfTile = (layer: number) => tileIdAt(layer, SF.latitude, SF.longitude);
   const originalCapacity = CONFIG.CHATROOM_MAX_CAPACITY;
   const setCapacity = (n: number) => { (CONFIG as { CHATROOM_MAX_CAPACITY: number }).CHATROOM_MAX_CAPACITY = n; };
 
   const nextIso = () => new Date(Date.UTC(2026, 0, 1, 0, 0, ++clock)).toISOString();
 
-  function addPeer(userId: string, stayConnected = true, location: GPSCoordinate | null = SF): void {
+  const histories = new Map<string, EvictionRecord[]>();
+  const statuses = new Map<string, Array<{ target: string; blockedUntil: number } | null>>();
+
+  function addPeer(
+    userId: string,
+    stayConnected = true,
+    location: GPSCoordinate | null = SF,
+    opts: { anchor?: RoutingAnchor; promote?: boolean; canAutoPromote?: boolean } = {},
+  ): void {
     const peer: { controller: ChatroomCapacityController; room: string | undefined; moved: string[] } = {
       controller: undefined as never,
       room: undefined,
       moved: [],
     };
+    const anchor: RoutingAnchor = opts.anchor
+      ?? (location ? { kind: 'position', latitude: location.latitude, longitude: location.longitude } : { kind: 'none' });
     peer.controller = new ChatroomCapacityController({
       getGun: () => gun.node(''),
       fifoEnabled: () => true,
       isFreshMember: () => true,
       getCurrentRoom: () => peer.room,
-      getLocation: () => location ?? undefined,
+      getAnchor: () => anchor,
+      ...(opts.promote
+        ? {
+            canAutoPromote: () => opts.canAutoPromote ?? true,
+            countActiveMembers: async (room: string) => activeIn(room).length,
+            readEvictionHistory: () => histories.get(userId) ?? [],
+            writeEvictionHistory: (history: EvictionRecord[]) => { histories.set(userId, history); },
+            onPromotionStatus: (status: { target: string; blockedUntil: number } | null) => {
+              statuses.set(userId, [...(statuses.get(userId) ?? []), status]);
+            },
+          }
+        : {}),
       getStageName: () => userId,
       moveForEviction: async (from, id, child, _stage, onMoved) => {
         if (peer.room !== from) return false;
@@ -252,6 +278,8 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     gun = new FakeGun();
     clock = 0;
     peers = new Map();
+    histories.clear();
+    statuses.clear();
     ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'].forEach((id) => addPeer(id));
   });
 
@@ -262,7 +290,7 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     jest.restoreAllMocks();
   });
 
-  it('moves the oldest Global member directly into a neutral blurred-coordinate cell', async () => {
+  it('moves the oldest Global member one layer down, into the L1 tile at their position', async () => {
     setCapacity(3);
     for (const id of ['u1', 'u2', 'u3']) await join(id, path[0]!);
     await settle();
@@ -272,12 +300,13 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     await settle();
 
     expect(activeIn(path[0]!)).toEqual(['u2', 'u3', 'u4']);
-    expect(activeIn(sfGrid)).toEqual(['u1']);
-    expect(peers.get('u1')!.moved).toContain(sfGrid);
-    expect(gun.read(`/chatrooms/${path[0]}/users/u1`)?.movedTo).toBe(sfGrid);
+    expect(activeIn(sfTile(1))).toEqual(['u1']);
+    expect(activeIn(sfGrid)).toEqual([]);
+    expect(peers.get('u1')!.moved).toEqual([sfTile(1)]);
+    expect(gun.read(`/chatrooms/${path[0]}/users/u1`)?.movedTo).toBe(sfTile(1));
   });
 
-  it('cascades within the coordinate-cell family without using country borders', async () => {
+  it('cascades one tile layer at a time, oldest deepest, without country borders', async () => {
     setCapacity(2);
     for (const id of ['u1', 'u2']) await join(id, path[0]!);
     await settle();
@@ -286,11 +315,41 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
       await settle();
     }
 
-    const rooms = [path[0]!, sfGrid, `${sfGrid}_part_2`, `${sfGrid}_part_3`];
-    for (const room of rooms) expect(activeIn(room).length).toBeLessThanOrEqual(2);
-    // Nobody vanished: everyone is active somewhere.
-    const everyone = rooms.flatMap((room) => activeIn(room));
-    expect(everyone.sort()).toEqual(['u1', 'u2', 'u3', 'u4', 'u5', 'u6']);
+    expect(activeIn(path[0]!)).toEqual(['u5', 'u6']);
+    expect(activeIn(sfTile(1))).toEqual(['u3', 'u4']);
+    expect(activeIn(sfTile(2))).toEqual(['u1', 'u2']);
+    expect(peers.get('u1')!.moved).toEqual([sfTile(1), sfTile(2)]);
+  });
+
+  it('splits the bottom (L4) tile into its own numbered rooms', async () => {
+    setCapacity(1);
+    await join('u1', sfTile(4));
+    await join('u2', sfTile(4));
+    await settle();
+    expect(activeIn(sfTile(4))).toEqual(['u2']);
+    expect(activeIn(`${sfTile(4)}_part_2`)).toEqual(['u1']);
+  });
+
+  it('routes a GPS-less member with a chosen home tile down toward it, then splits at the home tile', async () => {
+    setCapacity(1);
+    const home = sfTile(2);
+    peers.get('u1')!.controller.stop();
+    peers.delete('u1');
+    addPeer('u1', true, null, { anchor: { kind: 'home-tile', tileId: home } });
+    await join('u1', CONFIG.GLOBAL_CHATROOM_ID);
+    await join('u2', CONFIG.GLOBAL_CHATROOM_ID);
+    await settle();
+    expect(activeIn(sfTile(1))).toEqual(['u1']);
+
+    await join('u3', sfTile(1));
+    await settle();
+    expect(activeIn(home)).toEqual(['u1']);
+
+    await join('u4', home);
+    await settle();
+    // No position inside the home tile: overflow stays in the home tile's own family.
+    expect(activeIn(`${home}_part_2`)).toEqual(['u1']);
+    expect(activeIn(sfTile(3))).toEqual([]);
   });
 
   it('routes a GPS-less Global evictee into the virtual Global overflow family', async () => {
@@ -410,5 +469,97 @@ describe('ChatroomCapacityController (notice-driven eviction cascade)', () => {
     await settle();
     expect(activeIn('my-club')).toEqual(['u1', 'u2', 'u3']);
     expect(peers.get('u3')!.moved).toEqual([]);
+  });
+
+  describe('promotion (moving back up)', () => {
+    const dwell = CONFIG.CHATROOM_PROMOTE_DWELL_MS;
+    const cooldown = CONFIG.CHATROOM_EVICTION_COOLDOWN_MS;
+    const jitter = CONFIG.CHATROOM_PROMOTE_JITTER_MS;
+    const setConfig = (key: string, value: number) => { (CONFIG as unknown as Record<string, number>)[key] = value; };
+
+    beforeEach(() => {
+      setConfig('CHATROOM_PROMOTE_DWELL_MS', 3_000);
+      setConfig('CHATROOM_EVICTION_COOLDOWN_MS', 60_000);
+      setConfig('CHATROOM_PROMOTE_JITTER_MS', 0);
+      for (const id of ['u1', 'u2', 'u3', 'u4']) {
+        peers.get(id)!.controller.stop();
+        addPeer(id, true, SF, { promote: true });
+      }
+    });
+
+    afterEach(() => {
+      setConfig('CHATROOM_PROMOTE_DWELL_MS', dwell);
+      setConfig('CHATROOM_EVICTION_COOLDOWN_MS', cooldown);
+      setConfig('CHATROOM_PROMOTE_JITTER_MS', jitter);
+    });
+
+    it('moves a lone member up one layer when the room above has headroom', async () => {
+      setCapacity(3);
+      await join('u2', CONFIG.GLOBAL_CHATROOM_ID);
+      await join('u1', sfTile(2));
+      await settle();
+      await settle();
+      // Alone in L2, then alone in L1; Global (1 member) has headroom: up one layer at a time.
+      expect(activeIn(CONFIG.GLOBAL_CHATROOM_ID)).toEqual(['u1', 'u2']);
+      expect(peers.get('u1')!.moved).toEqual([sfTile(1), CONFIG.GLOBAL_CHATROOM_ID]);
+    });
+
+    it('stays put while the room above has no headroom (count > C − 10%)', async () => {
+      setCapacity(3);
+      for (const id of ['u2', 'u3', 'u4']) await join(id, CONFIG.GLOBAL_CHATROOM_ID);
+      await join('u1', sfTile(1));
+      await settle();
+      await settle();
+      expect(activeIn(sfTile(1))).toEqual(['u1']);
+      expect(peers.get('u1')!.moved).toEqual([]);
+    });
+
+    it('never moves up out of a room the user chose by hand', async () => {
+      setCapacity(3);
+      peers.get('u1')!.controller.stop();
+      addPeer('u1', true, SF, { promote: true, canAutoPromote: false });
+      await join('u1', sfTile(1));
+      await settle();
+      await settle();
+      expect(activeIn(sfTile(1))).toEqual(['u1']);
+    });
+
+    it('a lone evictee is NOT promoted back during the eviction cooldown (no evict/promote loop)', async () => {
+      setCapacity(3);
+      for (const id of ['u1', 'u2', 'u3']) await join(id, CONFIG.GLOBAL_CHATROOM_ID);
+      await settle();
+      await join('u4', CONFIG.GLOBAL_CHATROOM_ID);
+      await settle();
+      expect(activeIn(sfTile(1))).toEqual(['u1']);
+      expect(histories.get('u1')?.map((record) => record.room)).toEqual([CONFIG.GLOBAL_CHATROOM_ID]);
+
+      // Someone leaves Global: it now has headroom, but u1 was just pushed out of it.
+      gun.node(`/chatrooms/${CONFIG.GLOBAL_CHATROOM_ID}/users/u4`).put({ isActive: false });
+      await settle();
+      expect(activeIn(sfTile(1))).toEqual(['u1']);
+      expect((statuses.get('u1') ?? []).some((status) => status && status.blockedUntil > 0)).toBe(true);
+
+      // After the 60 s cooldown it moves back up.
+      for (let i = 0; i < 30; i += 1) await jest.advanceTimersByTimeAsync(2_000);
+      expect(activeIn(CONFIG.GLOBAL_CHATROOM_ID)).toEqual(['u1', 'u2', 'u3']);
+    });
+
+    it('ignores late callbacks from the previous room (Gun off() leaks) so a lone evictee still moves up', async () => {
+      gun.leakyMapOff = true;
+      setCapacity(3);
+      setConfig('CHATROOM_EVICTION_COOLDOWN_MS', 10_000);
+      for (const id of ['u1', 'u2', 'u3']) await join(id, CONFIG.GLOBAL_CHATROOM_ID);
+      await settle();
+      await join('u4', CONFIG.GLOBAL_CHATROOM_ID);
+      await settle();
+      expect(activeIn(sfTile(1))).toEqual(['u1']);
+      gun.node(`/chatrooms/${CONFIG.GLOBAL_CHATROOM_ID}/users/u4`).put({ isActive: false });
+      // Global's members keep heartbeating; those writes still reach u1's leaked Global subscription.
+      for (let i = 0; i < 20; i += 1) {
+        for (const id of ['u2', 'u3']) gun.node(`/chatrooms/${CONFIG.GLOBAL_CHATROOM_ID}/users/${id}`).put({ lastSeen: nextIso() });
+        await jest.advanceTimersByTimeAsync(2_000);
+      }
+      expect(activeIn(CONFIG.GLOBAL_CHATROOM_ID)).toEqual(['u1', 'u2', 'u3']);
+    });
   });
 });

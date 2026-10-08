@@ -25,10 +25,8 @@ describe('WebChatroomService Global-first assignment', () => {
     ).resolves.toBe('global');
   });
 
-  it('uses the blurred grid after a confirmed location refresh', async () => {
-    await expect(service.findOptimalChatroom(SAN_DIEGO)).resolves.toBe(
-      'region_32.71_-117.17_room_0',
-    );
+  it('uses the bottom-layer area tile (~78 km) after a confirmed location refresh', async () => {
+    await expect(service.findOptimalChatroom(SAN_DIEGO)).resolves.toBe('tile_4_174_89');
   });
 
   it('preserves an existing room assignment on re-entry', async () => {

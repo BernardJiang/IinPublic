@@ -1,6 +1,7 @@
 # Room tree and routing — design proposal (draft, 2026-10-07)
 
-Status: **proposal, not implemented.** Supersedes the "Global → coarse 1 km cell" jump in
+Status: **implemented 2026-10-07** (two-way routing, desktop home tile, tile tree UI); custom-room
+rules in `local-business-rooms.md` are still a proposal. Supersedes the "Global → coarse 1 km cell" jump in
 FR-CR-3 (evictions currently go straight from Global to a ~1 km cell, and nothing ever moves a
 user back up). Companion: `local-business-rooms.md`. Open points are marked **[decide]**.
 
@@ -82,8 +83,10 @@ cooldown or while the parent is above `C − H`.
 because the user chose those on purpose. Inside a custom room's family, `_part_N` members are
 promoted back toward the base room (`local-business-rooms.md` §4a).
 
-**On restart:** the same rule applies before rejoining the last room. If the room is nearly empty,
-the parent has space, and no cooldown is active, start in the parent instead.
+**On restart:** the user rejoins their last room (startup never blocks on a count read); the
+same promotion check then runs after the dwell, so a thin room is left within a few minutes. The
+"manual vs automatic" arrival is remembered across restarts (`iinpublic_room_arrival`), as is the
+eviction history for the cooldown (`iinpublic_room_eviction_history`).
 
 ## 5. Users without GPS
 
@@ -130,14 +133,16 @@ fix yet. They can't descend by geography, so they get a **parallel non-geographi
 | `H` | 10% of C | parent headroom required to promote |
 | `E` | 15 min, doubling, cap 4 h | eviction cooldown before any promotion |
 
-## 8. Migration from today
+## 8. Migration from today (as implemented)
 
-- Users in `region_*` (1 km) rooms: on next boot, map them to their L4 tile (the cell's centre is
-  known from the id). The same for the legacy named rooms (`usa`, `california`…): map them to
-  Global.
-- `region_*` ids stay valid as business-room anchors.
-- FR-CR-3 changes from "Global → coarse cell" to §3–§4. The OPEN-40 arena micro-rooms then sit
-  under an L4 tile's `_part_N` family.
+- Users already sitting in a `region_*` (1 km) room move up to its L4 tile through the normal
+  promotion rule once the room is thin (`promotionTarget` maps a grid room to its L4 tile).
+- Users in a legacy named room (`usa`, `california`…) keep it until they leave; it has no
+  automatic step up and is shown at the top of the list as their current room.
+- "📍 Use my location" and "Return home" now go to the user's own L4 tile, not the 1 km cell.
+- A map tap opens the L4 tile at that point. `region_*` ids stay valid as business-room anchors.
+- The OPEN-40 arena micro-room code only acts on rooms in a `region_*` family, which no automatic
+  route produces any more; it is dormant until re-homed under an L4 tile's `_part_N` family.
 
 ## 9. Tests
 

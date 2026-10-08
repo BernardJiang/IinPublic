@@ -1,9 +1,9 @@
 /**
- * The room tree is Global → L1 tiles (45° squares, labeled by continent) → GPS grid rooms.
+ * The room tree is Global → L1 tiles (45° squares, labeled by continent) → L2 → L3 → L4 area rooms.
  * Countries, states and cities are never offered (no national borders in the UI).
  */
-import { buildBrowseTree, getBrowsableBuiltInChatrooms, l1TileForGridRoom, resolveChatroomTitle } from '../../web/ui/chatrooms-view';
-import { getL1Tiles, parseTileId, tileCenter, tileIdAt } from '../../shared/room-tiles';
+import { browsePath, buildBrowseTree, getBrowsableBuiltInChatrooms, resolveChatroomTitle } from '../../web/ui/chatrooms-view';
+import { getL1Tiles, parseTileId, tileCenter, tileIdAt, tileLineage } from '../../shared/room-tiles';
 
 const SAN_DIEGO_GRID = 'region_32.71_-117.17_room_0';
 const HONOLULU_GRID = 'region_21.31_-157.86_room_0';
@@ -50,20 +50,34 @@ describe('room browse tree', () => {
     expect(rooms.some((room) => room.name === 'Antarctica' || room.name.includes('Pacific ·'))).toBe(false);
   });
 
-  it('nests a grid room under its L1 tile, titled by city', () => {
-    expect(l1TileForGridRoom(SAN_DIEGO_GRID)).toBe('tile_1_2_1');
-    const tree = buildBrowseTree([SAN_DIEGO_GRID]);
+  it('shows the whole tile path down to the current area room, titled by city', () => {
+    const area = tileIdAt(4, 32.7157, -117.1611);
+    const path = browsePath(area);
+    expect(path).toEqual(tileLineage(area));
+    const tree = buildBrowseTree([area]);
     const i = tree.findIndex((room) => room.id === 'tile_1_2_1');
-    expect(tree[i]).toMatchObject({ level: 1, parentId: 'global', hasChildren: true });
-    expect(tree[i + 1]).toMatchObject({ id: SAN_DIEGO_GRID, level: 2, parentId: 'tile_1_2_1', name: 'Near San Diego', icon: '📍' });
+    expect(tree.slice(i, i + 4).map((room) => [room.id, room.level, room.hasChildren])).toEqual([
+      [path[0], 1, true], [path[1], 2, true], [path[2], 3, true], [area, 4, false],
+    ]);
+    expect(tree[i + 1].name).toBe('Large region around San Diego');
+    expect(tree[i + 2].name).toBe('Region around San Diego');
+    expect(tree[i + 3]).toMatchObject({ name: 'Around San Diego', icon: '📍', parentId: path[2] });
   });
 
-  it('shows an ocean tile only when it holds the grid room', () => {
+  it('hangs a legacy 1 km grid room and a numbered overflow room under their base', () => {
+    expect(browsePath(SAN_DIEGO_GRID)).toEqual([...tileLineage(tileIdAt(4, 32.71, -117.17)), SAN_DIEGO_GRID]);
+    const part = `${tileIdAt(4, 32.7157, -117.1611)}_part_2`;
+    expect(browsePath(part).slice(-2)).toEqual([tileIdAt(4, 32.7157, -117.1611), part]);
+    expect(browsePath('room_custom')).toEqual([]);
+    expect(browsePath('global')).toEqual([]);
+  });
+
+  it('shows an ocean tile only when it holds the current room', () => {
     expect(buildBrowseTree([]).some((room) => room.id === 'tile_1_2_0')).toBe(false);
     const tree = buildBrowseTree([HONOLULU_GRID]);
     const i = tree.findIndex((room) => room.id === 'tile_1_2_0');
     expect(tree[i]).toMatchObject({ name: 'North Pacific', hasChildren: true });
-    expect(tree[i + 1]).toMatchObject({ id: HONOLULU_GRID, level: 2 });
+    expect(tree.find((room) => room.id === HONOLULU_GRID)).toMatchObject({ level: 5 });
   });
 
   it('titles tile rooms by their label', () => {

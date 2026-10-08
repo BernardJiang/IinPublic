@@ -14,7 +14,7 @@ import {
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import type { Talk } from '../../../../src/shared/types';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { GRID_PLACES, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 function talkSet(owner: string, runId: number): Talk[] {
   return [
@@ -128,7 +128,7 @@ async function openFreshPage(context: BrowserContext): Promise<Page> {
   return page;
 }
 
-/** `homeRoom: 'own-grid'` picks the user's own coarse GPS grid room (the only non-Global built-in home). */
+/** `homeRoom: 'own-grid'` picks the user's own area room (bottom-layer tile, ~78 km). */
 async function configureFirstUser(page: Page, name: string, homeRoom: string): Promise<void> {
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
@@ -153,7 +153,7 @@ async function configureFirstUser(page: Page, name: string, homeRoom: string): P
   await page.fill('#settings-min-distance', '0');
   await page.fill('#settings-max-distance', '50');
   const homeValue = homeRoom === 'own-grid'
-    ? await page.locator('#settings-home-room option[value^="region_"]').first().getAttribute('value')
+    ? await page.locator('#settings-home-room option[value^="tile_4_"]').first().getAttribute('value')
     : homeRoom;
   await page.selectOption('#settings-home-room', homeValue || 'global');
   await backToSettingsMenu(page);
@@ -265,8 +265,8 @@ test.describe('Stage zero N2N smoke', () => {
     // Tree is Global → L1 region tiles → GPS grid rooms; travel targets are grid rooms (map tap).
     await expect(page.locator('.chatroom-item[data-chatroom-id="tile_1_2_1"]')).toContainText('North America');
     await expect(page.locator('.chatroom-item[data-chatroom-id="usa"]')).toHaveCount(0);
-    for (const place of [GRID_PLACES.london, GRID_PLACES.tokyo]) {
-      const roomId = await openGridRoomAt(page, place);
+    for (const place of [AREA_PLACES.london, AREA_PLACES.tokyo]) {
+      const roomId = await openAreaRoomAt(page, place);
       await expect
         .poll(
           () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''),
@@ -283,7 +283,7 @@ test.describe('Stage zero N2N smoke', () => {
     }
     await page.click('#return-home-btn');
     await afterNav();
-    await expect(page.locator('.chatroom-item.current-room')).toContainText('Near San Diego', { timeout: 45_000 });
+    await expect(page.locator('.chatroom-item.current-room')).toContainText('Around San Diego', { timeout: 45_000 });
 
     await page.reload();
     await page.waitForLoadState('load');

@@ -1,7 +1,7 @@
 /**
  * Location-based chatroom auto-assignment after an explicit location refresh.
- * FR-CR-2 (2026-10-07): automatic geographic routing uses coarse coordinate cells only, never
- * continent/country/state rooms, so an explicit refresh lands in the user's coarse cell room.
+ * Rooms are geometric tiles (docs/design/room-tree-routing.md), never country/state rooms, so an
+ * explicit refresh lands in the user's area room: the bottom-layer (~78 km) tile at their position.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -9,6 +9,7 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { tileIdAt } from '../../../../src/shared/room-tiles';
 
 test.describe('Location-based chatroom assignment', () => {
   let context: BrowserContext | undefined;
@@ -53,7 +54,7 @@ test.describe('Location-based chatroom assignment', () => {
     await clearGunForStage1Spec();
   });
 
-  test('explicit location refresh moves the user to their coarse coordinate cell room', async () => {
+  test('explicit location refresh moves the user to their area room (bottom-layer tile)', async () => {
     const p = page!;
     await expect.poll(async () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '')).toBe('global');
 
@@ -72,6 +73,6 @@ test.describe('Location-based chatroom assignment', () => {
         async () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || ''),
         { timeout: 30_000, intervals: [300, 600, 1000] },
       )
-      .toMatch(/^region_40\.71_-74\.01(_|$)/);
+      .toBe(tileIdAt(4, 40.7128, -74.006));
   });
 });

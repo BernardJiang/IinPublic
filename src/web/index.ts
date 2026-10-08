@@ -77,7 +77,12 @@ class WebApp {
       if (USE_TEST_LOCATION) {
         // Check if test has set a custom location
         const customLocation = (window as any).__test_location;
-        if (customLocation) {
+        if (customLocation === 'none') {
+          // A device without GPS (desktop): neutral placeholder, never a confirmed fix.
+          location = LocationPrivacy.getMockLocation();
+          locationConfirmed = false;
+          console.log('🧪 Using TEST no-location (GPS-less device)');
+        } else if (customLocation) {
           location = {
             latitude: customLocation.latitude,
             longitude: customLocation.longitude,

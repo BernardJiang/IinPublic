@@ -110,9 +110,10 @@ test.describe('Capacity and eviction', () => {
     const newContext = (b: Browser) =>
       b.newContext({ viewport: { width: 640, height: 600 }, deviceScaleFactor: 1 });
 
-    // --- Phase 1: Four users join sequentially; U4 should evict U1 to U1's coarse location cell ---
-    // (FR-CR-2, 2026-10-07: never a continent/country/state room; the default test location is
-    // San Diego, so the cell room is titled "📍 Near San Diego").
+    // --- Phase 1: Four users join sequentially; U4 should evict U1 one layer down ---
+    // (docs/design/room-tree-routing.md: Global → the L1 region tile at U1's position; the default
+    // test location is San Diego, so that is "🌎 North America · West & Central").
+    // Promotion back up is held off by the eviction cooldown (15 min), so U1 stays there.
 
     context1 = await newContext(browser1);
     page1 = await newCapacityPage(context1, 'U1');
@@ -132,12 +133,12 @@ test.describe('Capacity and eviction', () => {
     await afterSync();
     await afterSync();
 
-    // U1 should have been evicted to its coarse cell by FIFO logic
-    await expectStatusBar(page1, 'Near San Diego', 'U1 after eviction');
-    console.log('✅ U1 bumped to its coarse cell (Near San Diego)');
+    // U1 should have been evicted one layer down by FIFO logic
+    await expectStatusBar(page1, 'North America · West & Central', 'U1 after eviction');
+    console.log('✅ U1 bumped to its L1 region tile (North America · West & Central)');
 
     await afterAction();
-    await expectStatusBar(page1, 'Near San Diego', 'U1 stable after action');
+    await expectStatusBar(page1, 'North America · West & Central', 'U1 stable after action');
 
     // Save storage states before closing
     await context1.storageState({ path: path.join(storageDir, 'cap-user1.json') });
@@ -199,7 +200,7 @@ test.describe('Capacity and eviction', () => {
     attachE2eBrowserTabLabel(page4, 'U4 re-enter');
 
     await afterSync();
-    await expectStatusBar(page1, 'Near San Diego', 'U1 persistence check');
+    await expectStatusBar(page1, 'North America · West & Central', 'U1 persistence check');
     await expectStatusBar(page2, 'Global', 'U2 persistence check');
     await expectStatusBar(page3, 'Global', 'U3 persistence check');
     await expectStatusBar(page4, 'Global', 'U4 persistence check');

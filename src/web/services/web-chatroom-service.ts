@@ -1,8 +1,9 @@
 import { GPSCoordinate } from '../../shared/types';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
-import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { ChatroomCapacityController } from './chatroom-capacity-controller';
+import type { EvictionRecord, RoutingAnchor } from '../../shared/room-routing';
+import { parseTileId, tileIdAt, TILE_BOTTOM_LAYER } from '../../shared/room-tiles';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_GLOBAL_ROOM_ID, techSupportRosterMember } from '../../shared/techsupport';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import {
@@ -73,6 +74,31 @@ export function chatroomCapacityTestOverride(
   return Number.isSafeInteger(configured) && configured > 0 && configured !== releaseDefault ? configured : null;
 }
 
+const EVICTION_HISTORY_KEY = 'iinpublic_room_eviction_history';
+const ROOM_ARRIVAL_KEY = 'iinpublic_room_arrival';
+
+function readJson<T>(key: string): T | null {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readJsonArray<T>(key: string): T[] {
+  const value = readJson<unknown>(key);
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function writeJson(key: string, value: unknown): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage unavailable: routing still works, only the cooldown/arrival memory is lost */
+  }
+}
+
 export class WebChatroomService {
   private currentChatroomId?: string;
   private activeMembersUnsubscribe?: () => void;
@@ -111,6 +137,8 @@ export class WebChatroomService {
   private membershipStageNameResolver: (() => string) | null = null;
   /** Set by the app so every join/heartbeat publishes the current room's travel status. */
   private membershipTravelerResolver: ((chatroomId: string) => boolean) | null = null;
+  private homeTileResolver: (() => string | undefined) | null = null;
+  private promotionStatusListener: ((status: { target: string; blockedUntil: number } | null) => void) | null = null;
 
   /**
    * Every room change (manual switch or eviction) runs through this one queue, so two moves can
@@ -134,7 +162,13 @@ export class WebChatroomService {
         ?? this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
         ?? CONFIG.CHATROOM_MAX_CAPACITY,
       getCurrentRoom: () => this.currentChatroomId,
-      getLocation: (userId) => this.userLocations.get(userId),
+      getAnchor: (userId) => this.routingAnchor(userId),
+      canAutoPromote: (roomId) => !this.arrivedManually(roomId),
+      countActiveMembers: async (roomId) =>
+        (await this.getActiveMembers(roomId)).filter((id) => id !== TECHSUPPORT_ROOT_USER_ID).length,
+      readEvictionHistory: () => readJsonArray<EvictionRecord>(EVICTION_HISTORY_KEY),
+      writeEvictionHistory: (history) => writeJson(EVICTION_HISTORY_KEY, history),
+      onPromotionStatus: (status) => this.promotionStatusListener?.(status),
       getStageName: (userId) => this.membershipStageNameResolver?.() || this.membershipHeartbeatStageName || userId,
       moveForEviction: (from, userId, child, stageName, onMoved) =>
         this.moveForEviction(from, userId, child, stageName, onMoved),
@@ -143,6 +177,33 @@ export class WebChatroomService {
 
   setMembershipStageNameResolver(resolver: () => string): void {
     this.membershipStageNameResolver = resolver;
+  }
+
+  /** Home tile for routing when the user has no confirmed GPS (docs/design/room-tree-routing.md §5). */
+  setHomeTileResolver(resolver: () => string | undefined): void {
+    this.homeTileResolver = resolver;
+  }
+
+  setPromotionStatusListener(listener: (status: { target: string; blockedUntil: number } | null) => void): void {
+    this.promotionStatusListener = listener;
+  }
+
+  private routingAnchor(userId: string): RoutingAnchor {
+    const location = this.userLocations.get(userId);
+    if (location) return { kind: 'position', latitude: location.latitude, longitude: location.longitude };
+    const home = this.homeTileResolver?.();
+    if (home && parseTileId(home)) return { kind: 'home-tile', tileId: home };
+    return { kind: 'none' };
+  }
+
+  /** A room the user chose by hand (switch/travel) is never left automatically for a bigger one. */
+  private arrivedManually(roomId: string): boolean {
+    const record = readJson<{ room?: string; kind?: string }>(ROOM_ARRIVAL_KEY);
+    return record?.room === roomId && record.kind === 'manual';
+  }
+
+  private recordArrival(roomId: string, kind: 'manual' | 'auto'): void {
+    writeJson(ROOM_ARRIVAL_KEY, { room: roomId, kind });
   }
 
   setMembershipTravelerResolver(resolver: (chatroomId: string) => boolean): void {
@@ -222,10 +283,10 @@ export class WebChatroomService {
     return members?.map((member) => member.userId) ?? [];
   }
 
+  /** The user's own bottom-layer area room (~78 km tile) for an explicit "use my location". */
   async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
-    const chatroomPath = getLocationChatroomPath(location);
-    const chatroomId = getAutomaticLocationChatroomId(location);
-    console.log(`🔍 Finding hierarchical chatroom: ${chatroomPath.join(' → ')} -> ${chatroomId}`);
+    const chatroomId = tileIdAt(TILE_BOTTOM_LAYER, location.latitude, location.longitude);
+    console.log(`🔍 Area room for location: ${chatroomId}`);
     return chatroomId;
   }
 
@@ -718,6 +779,7 @@ export class WebChatroomService {
         const moveMembership = async () => {
           if (from) await this.leaveChatroom(from, userId);
           this.currentChatroomId = newChatroomId;
+          this.recordArrival(newChatroomId, 'manual');
           await this.joinChatroom(newChatroomId, userId, stageName);
         };
         if (this.activeExchangeRoomController && this.activeRoomInput) {
@@ -750,6 +812,7 @@ export class WebChatroomService {
       if (this.manualMovesPending > 0 || this.currentChatroomId !== from) return false;
       await this.leaveChatroom(from, userId);
       this.currentChatroomId = child;
+      this.recordArrival(child, 'auto');
       const gun = this.gunService.getGun();
       gun.get('chatrooms').get(from).get('users').get(userId).put({ movedTo: child });
       gun.get('chatrooms').get(from).get('locations').get(userId).put(null);

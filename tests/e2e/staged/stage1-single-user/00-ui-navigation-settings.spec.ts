@@ -9,7 +9,7 @@ import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { version as APP_VERSION } from '../../../../package.json';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { GRID_PLACES, gridRoomIdAt, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, areaRoomIdAt, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('UI navigation and settings shell', () => {
   test.describe.configure({ retries: 0 });
@@ -85,7 +85,7 @@ test.describe('UI navigation and settings shell', () => {
         });
       })
       .toEqual({ compact: true, sameRow: true });
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
     await expect
@@ -99,7 +99,7 @@ test.describe('UI navigation and settings shell', () => {
         });
       })
       .toEqual({ active: false, background: 'rgb(255, 255, 255)' });
-    await expect(p.locator(`.chatroom-item.current-room[data-chatroom-id="${gridRoomIdAt(GRID_PLACES.tokyo)}"]`)).toBeVisible();
+    await expect(p.locator(`.chatroom-item.current-room[data-chatroom-id="${areaRoomIdAt(AREA_PLACES.tokyo)}"]`)).toBeVisible();
 
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
@@ -802,9 +802,9 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#settings-max-distance').blur();
     await expect(p.locator('#settings-min-distance')).not.toHaveValue('51');
 
-    // Home choices are Global + the user's own GPS grid room — no continent/country/state rooms.
+    // Home choices are Global, region tiles and the user's own area tile — no country/state rooms.
     await expect(p.locator('#settings-home-room option[value="california"]')).toHaveCount(0);
-    const gridHome = await p.locator('#settings-home-room option[value^="region_"]').first().getAttribute('value');
+    const gridHome = await p.locator('#settings-home-room option[value^="tile_4_"]').first().getAttribute('value');
     expect(gridHome).toBeTruthy();
     await p.locator('#settings-home-room').selectOption(gridHome!);
     await expect
@@ -818,7 +818,7 @@ test.describe('UI navigation and settings shell', () => {
       .toBe('global');
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     await expect(p.locator('#return-home-btn')).toBeEnabled();
   });
 

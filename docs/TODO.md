@@ -971,6 +971,23 @@ review capacity is available and the issue is promoted after the website/Android
   compositor at ~38 % of a core (≈7.5 %/h battery in an idle 10-min window). Stop it after a few
   loops, when the page is hidden, and under `prefers-reduced-motion`.
 
+- [x] **OPEN-46 — Room tree without national borders; two-way routing (done 2026-10-07; product
+  owner decisions in `docs/design/room-tree-routing.md`).** Rooms are a geometric tile tree —
+  Global → L1 45° tiles labeled by continent → L2 → L3 → L4 ~78 km — instead of
+  continent/country/state/city rooms (FR-CR-3, FR-CR-4a). A full room moves its oldest member one
+  layer down toward their GPS position or chosen home tile (GPS-less desktops may pick any tile of
+  any layer, and are evicted like everyone else); a thin room promotes members back up when the
+  room above has 10% headroom, with an eviction cooldown (15 min doubling, cap 4 h) as the
+  evict/promote loop guard. Found and fixed on the way: Gun `off()` leaks late callbacks from the
+  previous room into the capacity controller's member list (an evictee saw the old room's members
+  as company). Tests: unit `room-routing`, `chatroom-capacity` (incl. leaky-off regression),
+  `chatroom-browse-list`; e2e stage4/07 (cooldown + desktop home tile), stage1/54 (tree + map),
+  stage5/00k (one layer at a time).
+  - [ ] **Follow-up:** re-home the OPEN-40 arena micro-rooms under an L4 tile's `_part_N` family —
+    no automatic route reaches a `region_*` room any more, so that code is dormant.
+  - [ ] **Follow-up:** custom/business rooms per `docs/design/local-business-rooms.md` (anchored to
+    one 1 km cell, one per person/device, signed descriptors, family cap) — still a proposal.
+
 - [x] **OPEN-45 (filed as OPEN-40 before a numbering clash with the arena micro-room item) — Routing-only Talk edits never reach receivers (found 2026-10-07; done 2026-10-07, product owner: update in place — spec REQ-LEDGER-11a; `talk-revision.ts`, per-peer revision record, receivers refresh their answered copy silently; e2e stage3/05b).** A Talk's
   content identity hashes type, language, question and answer texts only, so an author's edit
   that changes just the title or which answer matches/ignores is "unchanged" to the broadcast

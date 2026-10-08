@@ -8,7 +8,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { GRID_PLACES, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('AppBar actions', () => {
   let context: BrowserContext | undefined;
@@ -59,7 +59,7 @@ test.describe('AppBar actions', () => {
 
   test('📣 broadcast keeps its guard behavior with an empty OUT list', async () => {
     const p = page!;
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     await p.locator('#broadcast-talk-btn').click();
     // Empty OUT list → guard toast, same handler as the old text button.
     await expect(p.locator('.notification', { hasText: /no talks to broadcast/i })).toBeVisible({ timeout: 10_000 });
@@ -67,7 +67,7 @@ test.describe('AppBar actions', () => {
 
   test('🏠 return-home enable state carries over and back icon pops one level', async () => {
     const p = page!;
-    await openGridRoomAt(p, GRID_PLACES.tokyo);
+    await openAreaRoomAt(p, AREA_PLACES.tokyo);
     // Away from home → enabled.
     await expect(p.locator('#return-home-btn')).toBeEnabled();
 

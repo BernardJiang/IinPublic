@@ -40,7 +40,7 @@ import { applySettingsSectionView as applySettingsSectionViewImpl } from './sett
 import { parseIpfsSharePayload as parseIpfsSharePayloadImpl } from './attachment-metadata';
 import { type QAPair } from '../../shared/flattened-answer-keys';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
-import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
+import { tileIdAt } from '../../shared/room-tiles';
 import { LocationPrivacy } from '../../shared/location';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
@@ -263,6 +263,7 @@ export class UIManager extends EventEmitter {
   private apiBase: string = '';
   private currentUserIdValue: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
+  private locationConfirmed = true;
   private publicProfileFoundationReader: PublicProfileFoundationReader | undefined;
   private handshakeDiagnosticsReader: HandshakeDiagnosticsReader | undefined;
   private contactPreRenderSync: ContactPreRenderSync | undefined;
@@ -451,8 +452,10 @@ export class UIManager extends EventEmitter {
     this.apiBase = base;
   }
 
-  setCurrentLocation(location: GPSCoordinate | undefined): void {
+  /** `confirmed` is false for the boot placeholder of a device with no GPS fix yet. */
+  setCurrentLocation(location: GPSCoordinate | undefined, confirmed = true): void {
     this.currentLocation = location;
+    this.locationConfirmed = confirmed;
     this.syncReturnHomeButton();
     if (this.currentUser) this.renderSettingsView(this.currentUser);
   }
@@ -515,12 +518,19 @@ export class UIManager extends EventEmitter {
     return LocationPrivacy.calculateDistance(this.currentLocation, peerLoc) / 1609.34;
   }
 
+  /** Mirrors app.ts `returnHomeFromTravel`: travel home, else own L4 tile (GPS), else chosen home. */
   private getHomeChatroomId(): string {
     if (this.travelModeActive && this.travelHomeChatroomId) return this.travelHomeChatroomId;
-    if (this.currentLocation) {
-      return getAutomaticLocationChatroomId(this.currentLocation);
-    }
-    return 'global';
+    const ownTile = this.ownBottomTileId();
+    if (ownTile) return ownTile;
+    return this.travelHomeChatroomId || 'global';
+  }
+
+  /** The user's own bottom-layer tile (~78 km), only with a confirmed GPS fix. */
+  private ownBottomTileId(): string | undefined {
+    return this.currentLocation && this.locationConfirmed
+      ? tileIdAt(4, this.currentLocation.latitude, this.currentLocation.longitude)
+      : undefined;
   }
 
   private syncReturnHomeButton(): void {
@@ -1371,6 +1381,8 @@ export class UIManager extends EventEmitter {
     const support = this.supportSettings();
     renderSettingsViewImpl(user, {
       currentLocation: this.currentLocation,
+      ownTileId: this.ownBottomTileId(),
+      currentChatroomId: this.currentChatroom,
       incomingTalkClusters: this.incomingTalkClusters,
       customChatrooms: this.customChatrooms,
       getHomeChatroomId: () => this.getHomeChatroomId(),
@@ -1896,6 +1908,10 @@ export class UIManager extends EventEmitter {
 
   public formatTravelHomeSet(name: string): string {
     return this.tf('travelHomeSet', { name });
+  }
+
+  public formatRoomPromotionWaiting(name: string, minutes: number): string {
+    return this.tf('roomPromotionWaiting', { name, minutes });
   }
 
   public formatTravelLocationHeld(): string {

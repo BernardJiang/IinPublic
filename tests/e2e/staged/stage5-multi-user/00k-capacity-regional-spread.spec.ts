@@ -1,8 +1,9 @@
 /**
- * Capacity spread under the Global-first routing rules (FR-CR-1/FR-CR-2, 2026-10-07): every new
- * identity enters Global; when Global is full the longest-staying member moves straight to their
- * coarse coordinate cell — never through continent/country/state rooms — and a full cell room
- * overflows within its own family (`<cell>_part_2`). Capacity 3, FIFO, 9 contexts.
+ * Capacity spread over the tile tree (docs/design/room-tree-routing.md §3): every new identity
+ * enters Global; when Global is full its oldest member moves ONE layer down to the L1 region tile
+ * at their position, a full L1 tile pushes its oldest one layer further (L2), and so on — never
+ * through continent/country/state rooms and never straight to a 1 km cell. Capacity 3, FIFO,
+ * 9 contexts (6 in San Francisco, then 3 in Toronto).
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -12,6 +13,7 @@ import { afterLoad, afterSync } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { getAutomaticLocationChatroomId } from '../../../../src/shared/location-to-chatroom';
+import { tileIdAt } from '../../../../src/shared/room-tiles';
 
 const E2E_URL = '/?e2e_capacity=3&e2e_fifo=true';
 
@@ -20,6 +22,7 @@ const TORONTO = { latitude: 43.6532, longitude: -79.3832 };
 // The six oldest are in San Francisco; the three newest (Toronto) are the ones Global keeps.
 const LOCATIONS = [...Array.from({ length: 6 }, () => SF), ...Array.from({ length: 3 }, () => TORONTO)];
 const SF_CELL = getAutomaticLocationChatroomId({ ...SF, accuracy: 25, timestamp: new Date() });
+const SF_TILE = (layer: number) => tileIdAt(layer, SF.latitude, SF.longitude);
 const RETIRED_HIERARCHY_ROOMS = ['north-america', 'usa', 'california', 'canada'];
 
 test.describe('Capacity regional spread', () => {
@@ -34,7 +37,7 @@ test.describe('Capacity regional spread', () => {
     await clearGunForStage5Spec();
   });
 
-  test('Global keeps the newest; evictees go to their coarse cell, which overflows within its family', async ({ browser, request }) => {
+  test('Global keeps the newest; evictees cascade one tile layer at a time (L1, then L2)', async ({ browser, request }) => {
     test.setTimeout(600_000);
     await clearGunForStage5Spec();
 
@@ -68,20 +71,23 @@ test.describe('Capacity regional spread', () => {
     await expect
       .poll(async () => {
         const global = await countMembers('global');
+        const l1 = await countMembers(SF_TILE(1));
+        const l2 = await countMembers(SF_TILE(2));
         const cell = await countMembers(SF_CELL);
-        const cellPart2 = await countMembers(`${SF_CELL}_part_2`);
         const hierarchy = await Promise.all(RETIRED_HIERARCHY_ROOMS.map(countMembers));
         return {
           globalAtCapacity: global === 3,
-          cellUsed: cell > 0 && cell <= 3,
-          cellOverflowedInFamily: cellPart2 > 0,
+          l1RegionFull: l1 === 3,
+          l2HoldsTheOldest: l2 === 3,
+          noJumpToOneKmCell: cell === 0,
           noHierarchyRouting: hierarchy.every((n) => n === 0),
         };
       }, { timeout: 280_000, intervals: [2000] })
       .toEqual({
         globalAtCapacity: true,
-        cellUsed: true,
-        cellOverflowedInFamily: true,
+        l1RegionFull: true,
+        l2HoldsTheOldest: true,
+        noJumpToOneKmCell: true,
         noHierarchyRouting: true,
       });
   });

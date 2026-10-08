@@ -6,16 +6,16 @@ import { afterSync, delay, headless } from '../../helpers/timing';
 import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { GRID_PLACES, ensureChatroomList, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, ensureChatroomList, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 /**
  * Rooms are Global → L1 region tiles (labeled by continent) → GPS grid cells — no country/state rooms.
- * A remote grid room is opened the way a map tap does it (`openGridRoomAt`).
+ * A remote grid room is opened the way a map tap does it (`openAreaRoomAt`).
  */
 async function openGrid(page: Page, place: { latitude: number; longitude: number }): Promise<string> {
   await ensureChatroomList(page);
   await afterSync();
-  const roomId = await openGridRoomAt(page, place);
+  const roomId = await openAreaRoomAt(page, place);
   await afterSync();
   return roomId;
 }
@@ -90,18 +90,18 @@ test.describe('GPS grid room navigation and room-scoped broadcast', () => {
     const pageTom = tom.page;
     const pageJerry = jerry.page;
     try {
-      const room = await openGrid(pageTom, GRID_PLACES.london);
-      await expect(pageTom.locator('#current-chatroom-title')).toContainText('Near London', { timeout: 20_000 });
+      const room = await openGrid(pageTom, AREA_PLACES.london);
+      await expect(pageTom.locator('#current-chatroom-title')).toContainText('Around London', { timeout: 20_000 });
 
-      await openGrid(pageJerry, GRID_PLACES.london);
-      await expect(pageJerry.locator('#current-chatroom-title')).toContainText('Near London', { timeout: 20_000 });
+      await openGrid(pageJerry, AREA_PLACES.london);
+      await expect(pageJerry.locator('#current-chatroom-title')).toContainText('Around London', { timeout: 20_000 });
 
       await waitForGunPeerCountInRoom(pageTom, room, 1);
       await waitForGunPeerCountInRoom(pageJerry, room, 1);
 
       await createSimpleFlowTalk(pageTom, 'Grid room broadcast');
 
-      await openGrid(pageTom, GRID_PLACES.london);
+      await openGrid(pageTom, AREA_PLACES.london);
       const delivery = await pageTom.evaluate(async () => {
         const app = (window as any).__iinpublic_app?.getApp?.();
         if (!app?.deliverPendingBroadcastTalksForE2e) throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
@@ -131,17 +131,17 @@ test.describe('GPS grid room navigation and room-scoped broadcast', () => {
     const pageTom = tom.page;
     const pageJerry = jerry.page;
     try {
-      await openGrid(pageTom, GRID_PLACES.london);
-      await expect(pageTom.locator('#current-chatroom-title')).toContainText('Near London', { timeout: 20_000 });
+      await openGrid(pageTom, AREA_PLACES.london);
+      await expect(pageTom.locator('#current-chatroom-title')).toContainText('Around London', { timeout: 20_000 });
 
-      await openGrid(pageJerry, GRID_PLACES.tokyo);
-      await expect(pageJerry.locator('#current-chatroom-title')).toContainText('°N', { timeout: 20_000 });
+      await openGrid(pageJerry, AREA_PLACES.tokyo);
+      await expect(pageJerry.locator('#current-chatroom-title')).toContainText('Around Tokyo', { timeout: 20_000 });
 
       await createSimpleFlowTalk(pageTom, 'Grid-room-only isolation');
 
       // Re-enter the room explicitly, then use the E2E delivery path directly — the click-based
       // broadcast helper re-clicks the Chatrooms tab and can fall back to Global.
-      await openGrid(pageTom, GRID_PLACES.london);
+      await openGrid(pageTom, AREA_PLACES.london);
       const delivery = await pageTom.evaluate(async () => {
         const app = (window as any).__iinpublic_app?.getApp?.();
         return app.deliverPendingBroadcastTalksForE2e(0, { skipDeliveryAcks: true });
@@ -181,7 +181,7 @@ test.describe('GPS grid room navigation and room-scoped broadcast', () => {
     }
   });
 
-  test('Room tree shows continent-labeled region tiles but no country rooms; a grid room opens by coordinates', async () => {
+  test('Room tree shows continent-labeled region tiles but no country rooms; an area room opens by coordinates', async () => {
     const tom = await bootstrapUser(browserTom, 'TomGrid', 'Tom');
     const pageTom = tom.page;
     try {
@@ -196,8 +196,8 @@ test.describe('GPS grid room navigation and room-scoped broadcast', () => {
       for (const named of ['usa', 'california', 'germany', 'japan']) {
         await expect(pageTom.locator(`.chatroom-item[data-chatroom-id="${named}"]`)).toHaveCount(0);
       }
-      await openGrid(pageTom, GRID_PLACES.tokyo);
-      await expect(pageTom.locator('#current-chatroom-title')).toContainText(/📍 35\.\d°N 139\.\d°E/, { timeout: 20_000 });
+      await openGrid(pageTom, AREA_PLACES.tokyo);
+      await expect(pageTom.locator('#current-chatroom-title')).toContainText('📍 Around Tokyo', { timeout: 20_000 });
       await expect(pageTom.locator('#current-chatroom-status')).toBeVisible();
     } finally {
       await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});

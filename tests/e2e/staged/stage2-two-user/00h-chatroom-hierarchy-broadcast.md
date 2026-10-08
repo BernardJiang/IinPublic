@@ -4,7 +4,7 @@ covers: SPEC-3.3, SPEC-3.6, SPEC-3.4, FR-CR-1, FR-CR-2, FR-CR-10
 
 Rooms are **Global → L1 region tiles (labeled by continent) → coarse GPS grid cells** — no country/state/city rooms in
 routing or in the UI (no national borders). A remote grid room is opened the way a map tap opens
-it (`openGridRoomAt` in `tests/e2e/helpers/chatroom-nav.ts`). The file name is kept for history.
+it (`openAreaRoomAt` in `tests/e2e/helpers/chatroom-nav.ts`). The file name is kept for history.
 
 ## Coverage
 

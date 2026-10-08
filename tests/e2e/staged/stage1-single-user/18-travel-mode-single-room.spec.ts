@@ -7,7 +7,7 @@ import { afterLoad, afterSync, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { GRID_PLACES, gridRoomIdAt, openGridRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, areaRoomIdAt, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('Chatrooms — hierarchy travel and return home', () => {
   let browser: Browser;
@@ -44,7 +44,7 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
         await page.click('.chatroom-item[data-chatroom-id="global"]');
         await afterSync();
       } else {
-        await openGridRoomAt(page, place);
+        await openAreaRoomAt(page, place);
       }
       await expect(page.locator('#status-bar-text')).toContainText(statusText, { timeout: 45_000 });
       await expect(page.locator('#back-to-chatrooms')).toBeVisible({ timeout: 45_000 });
@@ -64,10 +64,10 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
     await expect(page.locator('#return-home-btn')).toBeEnabled({ timeout: 45_000 });
 
     await travelTo('global', 'Global');
-    await travelTo(GRID_PLACES.london, 'Near London');
+    await travelTo(AREA_PLACES.london, 'Around London');
     // One travel room at a time: the London grid room is the current row, and only it.
-    await expect(page.locator(`.chatroom-item.current-room[data-chatroom-id="${gridRoomIdAt(GRID_PLACES.london)}"]`)).toBeVisible();
-    await travelTo(GRID_PLACES.tokyo, '°N');
+    await expect(page.locator(`.chatroom-item.current-room[data-chatroom-id="${areaRoomIdAt(AREA_PLACES.london)}"]`)).toBeVisible();
+    await travelTo(AREA_PLACES.tokyo, 'Around Tokyo');
     await travelTo('global', 'Global');
 
     await page.click('#return-home-btn');
