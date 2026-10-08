@@ -375,7 +375,10 @@ test.describe('Find similar people', () => {
           const checkbox = page.locator('#tag-match-checkbox');
           await checkbox.waitFor({ state: 'visible', timeout: 10_000 });
           if (await checkbox.isChecked()) await checkbox.uncheck();
-          await page.click('#tag-submit-response');
+          // dispatchEvent: same click handler, without Playwright's post-click "scheduled
+          // navigations" wait, which timed out under this six-browser spec's load even though the
+          // click had landed (OPEN-43-style load flake). The modal-closed wait below still proves it.
+          await page.locator('#tag-submit-response').dispatchEvent('click');
           await waitForResponseModalClosed(page);
           await page.evaluate(() =>
             Promise.race([
