@@ -198,24 +198,63 @@ export function browsePath(roomId: string): string[] {
   return path;
 }
 
+let cityTileEdgesCache: Map<string, string[]> | null = null;
+
 /**
- * Global → L1 tiles → … → the given rooms. Each room in `roomIds` (normally the current room) is
- * shown with its whole path under its L1 tile; an ocean/Antarctica tile appears only when used.
+ * Tile → child tiles that contain a named city (from the built-in city map locations), at every
+ * layer down to L4. This is what expanding a region tile browses; empty/ocean sub-tiles are skipped
+ * (any point is still reachable by tapping the map).
+ */
+function cityTileEdges(): Map<string, string[]> {
+  if (cityTileEdgesCache) return cityTileEdgesCache;
+  const edges = new Map<string, string[]>();
+  for (const node of getFlatChatroomList()) {
+    if (node.hasChildren) continue;
+    const at = getChatroomMapLocation(node.id);
+    if (!at) continue;
+    const lineage = tileLineage(tileIdAt(TILE_BOTTOM_LAYER, at.latitude, at.longitude));
+    for (let i = 1; i < lineage.length; i++) {
+      const list = edges.get(lineage[i - 1]) ?? [];
+      if (!list.includes(lineage[i])) list.push(lineage[i]);
+      edges.set(lineage[i - 1], list);
+    }
+  }
+  cityTileEdgesCache = edges;
+  return edges;
+}
+
+/** North → south, then west → east for tiles; other rooms (grid cells, `_part_N`) after them. */
+function compareBrowseChildren(a: string, b: string): number {
+  const ta = parseTileId(a);
+  const tb = parseTileId(b);
+  if (ta && tb) return tb.row - ta.row || ta.col - tb.col;
+  if (ta) return -1;
+  if (tb) return 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Global → L1 tiles → … Every tile can be expanded to its sub-tiles that contain a named city, and
+ * each room in `roomIds` (normally the current room) is shown with its whole path under its L1
+ * tile; an ocean/Antarctica tile appears only when it holds one of those rooms.
  */
 export function buildBrowseTree(roomIds: readonly string[]): FlatChatroomNode[] {
   const [root, ...landTiles] = getBrowsableBuiltInChatrooms();
   const children = new Map<string, string[]>();
+  const addEdge = (parent: string, child: string): void => {
+    const list = children.get(parent) ?? [];
+    if (!list.includes(child)) list.push(child);
+    children.set(parent, list);
+  };
+  for (const [parent, list] of cityTileEdges()) for (const child of list) addEdge(parent, child);
   const usedL1 = new Set<string>();
   for (const id of new Set(roomIds)) {
     const path = browsePath(id);
     if (!path.length) continue;
     usedL1.add(path[0]);
-    for (let i = 1; i < path.length; i++) {
-      const list = children.get(path[i - 1]) ?? [];
-      if (!list.includes(path[i])) list.push(path[i]);
-      children.set(path[i - 1], list);
-    }
+    for (let i = 1; i < path.length; i++) addEdge(path[i - 1], path[i]);
   }
+  for (const list of children.values()) list.sort(compareBrowseChildren);
   const listed = new Set(landTiles.map((tile) => tile.id));
   const out: FlatChatroomNode[] = [root];
   const addDescendants = (parentId: string, level: number): void => {

@@ -109,8 +109,11 @@ test.describe('Chatroom tree and map views', () => {
     const path = tileLineage(homeArea);
     expect(path[0]).toBe(SD_TILE);
     const rows = await treeRows();
-    const at = rows.findIndex((r) => r.id === SD_TILE);
-    expect(rows.slice(at, at + 4)).toEqual(path.map((id, i) => ({ id, level: i + 1 })));
+    const levels = path.map((id) => rows.find((r) => r.id === id)?.level);
+    expect(levels).toEqual([1, 2, 3, 4]);
+    // Depth-first order: each step of the path comes after its parent.
+    const order = path.map((id) => rows.findIndex((r) => r.id === id));
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
     await expect(row(path[1])).toContainText('Large region around San Diego');
     await expect(row(path[2])).toContainText('Region around San Diego');
     await expect(row(homeArea)).toHaveClass(/current-room/);
@@ -125,6 +128,17 @@ test.describe('Chatroom tree and map views', () => {
     await row(SD_TILE).locator('.chatroom-expand-icon').click();
     await afterSync();
     await expect(row(homeArea)).toBeVisible();
+
+    // Any region can be browsed: expanding Asia · Pacific shows its city sub-tiles down to Tokyo.
+    const tokyoPath = tileLineage(areaRoomIdAt(AREA_PLACES.tokyo));
+    await expect(row(tokyoPath[1])).toHaveCount(0);
+    for (const id of tokyoPath.slice(0, -1)) {
+      await row(id).locator('.chatroom-expand-icon').click();
+      await afterSync();
+    }
+    await expect(row(tokyoPath[3])).toContainText('Around Tokyo');
+    await expect(row(tokyoPath[3])).toHaveAttribute('data-level', '4');
+    await snap('2b-tree-browse-asia');
   });
 
   test('map: region-tile pins plus my area room pin; tapping my pin opens it', async () => {
@@ -162,8 +176,7 @@ test.describe('Chatroom tree and map views', () => {
     const path = tileLineage(london);
     expect(path[0]).toBe(LONDON_TILE);
     const rows = await treeRows();
-    const at = rows.findIndex((r) => r.id === LONDON_TILE);
-    expect(rows.slice(at, at + 4)).toEqual(path.map((id, i) => ({ id, level: i + 1 })));
+    expect(path.map((id) => rows.find((r) => r.id === id)?.level)).toEqual([1, 2, 3, 4]);
     await expect(row(london)).toHaveClass(/current-room/);
     for (const named of NEVER_LISTED) await expect(row(named)).toHaveCount(0);
     await snap('5-tree-london');

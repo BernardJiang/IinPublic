@@ -55,13 +55,13 @@ describe('room browse tree', () => {
     const path = browsePath(area);
     expect(path).toEqual(tileLineage(area));
     const tree = buildBrowseTree([area]);
-    const i = tree.findIndex((room) => room.id === 'tile_1_2_1');
-    expect(tree.slice(i, i + 4).map((room) => [room.id, room.level, room.hasChildren])).toEqual([
-      [path[0], 1, true], [path[1], 2, true], [path[2], 3, true], [area, 4, false],
-    ]);
-    expect(tree[i + 1].name).toBe('Large region around San Diego');
-    expect(tree[i + 2].name).toBe('Region around San Diego');
-    expect(tree[i + 3]).toMatchObject({ name: 'Around San Diego', icon: '📍', parentId: path[2] });
+    const node = (id: string) => tree.find((room) => room.id === id)!;
+    path.forEach((id, i) => expect(node(id)).toMatchObject({ level: i + 1, ...(i > 0 ? { parentId: path[i - 1] } : {}) }));
+    expect(node(path[1]).name).toBe('Large region around San Diego');
+    expect(node(path[2]).name).toBe('Region around San Diego');
+    expect(node(area)).toMatchObject({ name: 'Around San Diego', icon: '📍', hasChildren: false });
+    // Children follow their parent in the flat order (depth-first).
+    expect(tree.indexOf(node(area))).toBeGreaterThan(tree.indexOf(node(path[2])));
   });
 
   it('hangs a legacy 1 km grid room and a numbered overflow room under their base', () => {
@@ -78,6 +78,15 @@ describe('room browse tree', () => {
     const i = tree.findIndex((room) => room.id === 'tile_1_2_0');
     expect(tree[i]).toMatchObject({ name: 'North Pacific', hasChildren: true });
     expect(tree.find((room) => room.id === HONOLULU_GRID)).toMatchObject({ level: 5 });
+  });
+
+  it('lets every region tile expand to sub-tiles that contain a named city, down to L4', () => {
+    const tree = buildBrowseTree([]);
+    const london = tree.filter((room) => room.level > 1 && tileLineage(tileIdAt(4, 51.5074, -0.1278)).includes(room.id));
+    expect(london.map((room) => room.level)).toEqual([2, 3, 4]);
+    expect(london[2].name).toBe('Around London');
+    // An empty ocean sub-tile is not offered.
+    expect(tree.some((room) => room.id === tileIdAt(2, 30, -40))).toBe(false);
   });
 
   it('titles tile rooms by their label', () => {
