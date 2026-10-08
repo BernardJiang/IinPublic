@@ -280,8 +280,10 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     for (const id of browsePath(deps.currentChatroom).slice(0, -1)) deps.expandedChatrooms.add(id);
   }
 
-  // Rooms outside the tree (custom, Global overflow, a legacy named room) stay reachable at the top.
-  if (deps.currentChatroom && !allChatrooms.find((room) => room.id === deps.currentChatroom)) {
+  // Rooms outside the tree (Global overflow, a legacy named room) stay reachable at the top. Custom
+  // rooms are not repeated here: they always have their own row right under Global.
+  const currentIsCustom = deps.customChatrooms.some((c) => c.id === deps.currentChatroom);
+  if (deps.currentChatroom && !currentIsCustom && !allChatrooms.find((room) => room.id === deps.currentChatroom)) {
     const customFallback = deps.customChatrooms.find((c) => c.id === deps.currentChatroom);
     const isGlobalOverflow = splitBaseId(deps.currentChatroom) === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID;
     const title = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
@@ -319,7 +321,12 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       hasChildren: false as const,
     }));
 
-  const rows = [...visibleChatrooms, ...customNodes];
+  // Custom/business rooms go right under Global, ahead of the ~25 region tiles: listed last they
+  // fell below the fold on phones and looked lost.
+  const globalIndex = visibleChatrooms.findIndex((room) => room.id === CONFIG.GLOBAL_CHATROOM_ID);
+  const rows = globalIndex >= 0
+    ? [...visibleChatrooms.slice(0, globalIndex + 1), ...customNodes, ...visibleChatrooms.slice(globalIndex + 1)]
+    : [...customNodes, ...visibleChatrooms];
 
   const chatroomList = document.getElementById('chatroom-list');
   if (!chatroomList) return;
