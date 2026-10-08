@@ -8,6 +8,7 @@ import { wait, afterLoad, afterSync, afterNav, afterAction, delay, headless } fr
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { GRID_PLACES, gridRoomIdAt, openGridRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('Login — two users headcount', () => {
   let browser: Browser;
@@ -43,8 +44,9 @@ test.describe('Login — two users headcount', () => {
     const supportOffset = 1;
     const globalHeadcount = (targetPage: Page) =>
       targetPage.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
-    const northAmericaHeadcount = (targetPage: Page) =>
-      targetPage.locator('.chatroom-item[data-chatroom-id="north-america"] .chatroom-headcount');
+    // Room navigation goes to a coarse GPS grid room (map tap); border rooms are not listed.
+    const londonGridHeadcount = (targetPage: Page) =>
+      targetPage.locator(`.chatroom-item[data-chatroom-id="${gridRoomIdAt(GRID_PLACES.london)}"] .chatroom-headcount`);
 
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
@@ -85,13 +87,13 @@ test.describe('Login — two users headcount', () => {
     await expect(globalHeadcount(page)).toContainText(String(2 + supportOffset), { timeout: 20000 });
     await expect(globalHeadcount(page2)).toContainText(String(2 + supportOffset), { timeout: 20000 });
 
-    await page2.click('.chatroom-item[data-chatroom-id="north-america"]');
+    await openGridRoomAt(page2, GRID_PLACES.london);
     await afterSync();
     await expect(globalHeadcount(page)).toContainText(String(1 + supportOffset), { timeout: 20000 });
-    await expect(northAmericaHeadcount(page)).toContainText('1', { timeout: 20000 });
     await page2.locator('#back-to-chatrooms').waitFor({ state: 'visible', timeout: 15000 });
     await page2.click('#back-to-chatrooms');
     await afterAction();
+    await expect(londonGridHeadcount(page2)).toContainText('1', { timeout: 20000 });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await page2.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());

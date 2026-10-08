@@ -5,7 +5,8 @@ import {
   type User,
 } from '../../shared/types';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
-import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
+import { getBrowsableBuiltInChatrooms, resolveChatroomTitle } from './chatrooms-view';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
 import { renderSettingsSection } from './settings-section-template';
@@ -232,10 +233,11 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
       ? [...DEFAULT_DIRTY_WORDS]
       : normalizeDirtyWords(talkFilters.dirtyWords);
   const homeOptions = [
-    ...getFlatChatroomList().map((room) => ({
-      id: room.id,
-      label: `${'-- '.repeat(room.level)}${room.icon} ${room.name}`,
-    })),
+    // Global plus the user's own coarse GPS grid room — never continent/country/state rooms.
+    ...getBrowsableBuiltInChatrooms().map((room) => ({ id: room.id, label: `${room.icon} ${room.name}` })),
+    ...(deps.currentLocation
+      ? [getAutomaticLocationChatroomId(deps.currentLocation)].map((id) => ({ id, label: resolveChatroomTitle(id, deps.customChatrooms) }))
+      : []),
     ...deps.customChatrooms.map((room) => ({
       id: room.id,
       label: `${room.type === 'business' ? '🏪' : '💬'} ${room.name}`,

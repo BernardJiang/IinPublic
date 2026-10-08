@@ -8,16 +8,18 @@ covers: SPEC-3.3  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **User starts in Global** and sees Global headcount `1`.
-2. **Travel mode is enabled** and a "Return Home" control appears.
-3. **User travels to North America** by selecting that chatroom.
-4. **Current room check:** Chatroom list marks North America as current room.
-5. **User clicks Return Home** to go back to Global.
-6. **Status bar check:** Stable status text confirms the user is back in Global.
+1. **User starts in Global**; the room tree is Global → L1 region tiles (45° squares labeled by continent) → GPS grid rooms — no
+   country/state/city rooms.
+2. **Return Home** is visible and enabled.
+3. **User travels by GPS grid**: Global → the London grid room ("📍 Near London") → the Tokyo grid
+   room (titled by coordinates, no nearby named city) → Global. Remote grid rooms are opened the
+   way a map tap opens them.
+4. **One travel room at a time:** the London grid room is the only current row while there.
+5. **User clicks Return Home** and lands back in their own grid room ("Near San Diego").
 
 ## Verifications:
 
-- ✅ Travel mode can be enabled from the chatroom UI.
-- ✅ Room context changes to destination while traveling.
+- ✅ No country/state rooms are offered; travel targets are coarse GPS grid cells.
+- ✅ Room context changes to the destination while traveling.
 - ✅ Home room is remembered and restored by Return Home.
 - ✅ Status bar reflects authoritative current-room state.

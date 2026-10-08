@@ -101,9 +101,11 @@ test.describe('Mobile chatroom hierarchy navigation', () => {
     await expect(page.locator('.chatroom-item[data-chatroom-id="global"]')).toBeVisible({ timeout: 20000 });
     await expectBottomNavInsideViewport();
 
-    await enterRoomAndReturn('europe', 'Europe');
-    await enterRoomAndReturn('uk', 'United Kingdom');
-    await enterRoomAndReturn('london', 'London');
+    // Region rooms are L1 tiles labeled by continent (no country/state/city rooms). The last one
+    // sits at the bottom of the list, proving rows scroll clear of the bottom nav.
+    await enterRoomAndReturn('tile_1_3_3', 'Europe · North Atlantic');
+    await enterRoomAndReturn('tile_1_2_6', 'Asia · East & Southeast');
+    await enterRoomAndReturn('tile_1_1_7', 'Oceania · East');
 
     // Bottom nav still works after hierarchy traversal: switch to Me tab and back.
     await page.click('.nav-btn[data-view="me"]');

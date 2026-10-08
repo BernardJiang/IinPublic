@@ -28,7 +28,7 @@ Room-detail navigation contract (gui-redesign-plan §3, test plan T3):
 
 Covers TODO item **F** (catalog Part 5 option matrix).
 
-Expand/collapse hierarchy nodes, confirm every row shows a headcount, enter a room and back (C1/C2).
+Room tree Global → L1 region tiles (labeled by continent) → grid rooms (no country/state/city rooms), every row shows a headcount, enter a room and back (C1/C2). The map shows the current grid room's marker, and tapping open map opens the GPS grid room at that point.
 
 ---
 

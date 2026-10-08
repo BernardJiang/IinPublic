@@ -26,6 +26,8 @@ type ChatroomMapOptions = {
   rooms: ReadonlyArray<ChatroomMapRoom>;
   currentChatroom: string;
   openChatroom: (chatroomId: string) => void;
+  /** Tap on empty map: open the coarse GPS grid room covering that point (travel there). */
+  openLocation?: (latitude: number, longitude: number) => void;
   mapLoadFailedText: string;
   membersText: (count: number) => string;
   visitsText: (count: number) => string;
@@ -202,9 +204,17 @@ function clearMarkers(state: MapState): void {
   state.markers = [];
 }
 
+/**
+ * The current room never joins a cluster: a nearby region pin (e.g. "Asia · Pacific" beside a
+ * Tokyo grid room) would otherwise swallow it. It is always drawn as its own marker below.
+ */
+function clusteredRooms(options: ChatroomMapOptions): ChatroomMapRoom[] {
+  return options.rooms.filter((room) => room.id !== options.currentChatroom);
+}
+
 function addCurrentHierarchyMarker(maplibre: MapLibre, state: MapState): void {
   const currentRoom = state.options.rooms.find((room) => room.id === state.options.currentChatroom);
-  if (!currentRoom || directRoomLocation(currentRoom)) return;
+  if (!currentRoom) return;
   const focus = roomLocation(currentRoom, state.options.rooms);
   if (!focus) return;
   const marker = new maplibre.Marker({ element: roomMarkerElement(state.options, currentRoom) })
@@ -266,7 +276,7 @@ function rebuildHtmlMarkers(maplibre: MapLibre, state: MapState): number {
 function updateSource(state: MapState): void {
   if (!state.loaded) return;
   const source = state.map.getSource(SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
-  source?.setData(chatroomsToGeoJson(state.options.rooms, state.options.currentChatroom));
+  source?.setData(chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom));
 }
 
 function focusCurrentRoom(state: MapState): void {
@@ -318,6 +328,10 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     if (!state.loaded) rejectReady(event.error || new Error('MapLibre style failed to load'));
   };
   map.once('error', failBeforeLoad);
+  map.on('click', (event) => {
+    // Room/cluster markers stop propagation, so this only fires on open map.
+    state.options.openLocation?.(event.lngLat.lat, event.lngLat.lng);
+  });
   map.once('load', () => {
     state.loaded = true;
     map.off('error', failBeforeLoad);
@@ -345,7 +359,7 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     map.on('sourcedata', refreshMarkers);
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
-    const initialData = chatroomsToGeoJson(state.options.rooms, state.options.currentChatroom);
+    const initialData = chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom);
     state.options.container.dataset.mapGeojsonFeatureCount = String(initialData.features.length);
     map.addSource(SOURCE_ID, {
       type: 'geojson',

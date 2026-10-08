@@ -22,6 +22,7 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { GRID_PLACES, openGridRoomAt } from '../../helpers/chatroom-nav';
 
 async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
   return page.evaluate((needle) => {
@@ -134,7 +135,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
       timeout: 30_000,
     });
 
-    await pageTom.click('.chatroom-item:has-text("North America")');
+    await openGridRoomAt(pageTom, GRID_PLACES.london);
     await afterSync();
     await pageTom.click('#back-to-chatrooms');
     await afterSync();
@@ -142,7 +143,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
       timeout: 30_000,
     });
 
-    await pageTom.click('.chatroom-item:has-text("North America")');
+    await openGridRoomAt(pageTom, GRID_PLACES.london);
     await afterSync();
     await pageTom.click('#return-home-btn');
     await afterSync();

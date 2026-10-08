@@ -1,4 +1,4 @@
-import { getActiveChatroomHierarchy, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import { getActiveChatroomHierarchy, getFlatChatroomList, type FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { splitBaseId, splitIndex } from '../../shared/chatroom-split';
 import { CONFIG } from '../../shared/config';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
@@ -7,7 +7,8 @@ import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
-import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileCenter, tileIdAt, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
 
@@ -156,19 +157,82 @@ function renderCustomRoomMetadata(deps: ChatroomsViewDeps, custom: CustomChatroo
   `;
 }
 
-export function renderChatroomList(deps: ChatroomsViewDeps): void {
-  const allChatrooms = getFlatChatroomList();
+/**
+ * Built-in rooms the browse list, map and home picker offer: Global and its L1 tiles (45° squares,
+ * labeled by the continent at the tile — docs/design/room-tree-routing.md). Countries, states and
+ * cities are never rooms (FR-CR-4a). Ocean/Antarctica tiles are listed only when in use
+ * (`buildBrowseTree`). The named hierarchy survives only as the city-label source for grid rooms.
+ */
+export function getBrowsableBuiltInChatrooms(): FlatChatroomNode[] {
+  const global = getFlatChatroomList().find((room) => room.id === CONFIG.GLOBAL_CHATROOM_ID);
+  const root: FlatChatroomNode = global
+    ? { ...global, level: 0, hasChildren: true }
+    : { id: CONFIG.GLOBAL_CHATROOM_ID, name: 'Global', icon: '🌍', description: '', level: 0, hasChildren: true };
+  return [root, ...getL1Tiles().filter(isLandL1Tile).map((tile) => l1TileNode(tile, root.id))];
+}
 
+function l1TileNode(tile: L1TileInfo, parentId: string): FlatChatroomNode {
+  return { id: tile.id, name: tile.name, icon: tile.icon, description: 'Region', level: 1, parentId, hasChildren: false };
+}
+
+/** The L1 tile a grid room's cell falls in. */
+export function l1TileForGridRoom(chatroomId: string): string | undefined {
+  const cell = COARSE_CELL_ID.exec(splitBaseId(chatroomId));
+  return cell ? tileIdAt(1, Number(cell[1]), Number(cell[2])) : undefined;
+}
+
+/**
+ * Global → L1 tiles → grid rooms. `gridRoomIds` (the current room, plus any other grid room the
+ * caller knows) nest under their L1 tile; an ocean/Antarctica tile appears only when it holds one.
+ */
+export function buildBrowseTree(gridRoomIds: readonly string[]): FlatChatroomNode[] {
+  const [root, ...landTiles] = getBrowsableBuiltInChatrooms();
+  const grids = [...new Set(gridRoomIds)].filter((id) => COARSE_CELL_ID.test(splitBaseId(id)));
+  const listed = new Set(landTiles.map((tile) => tile.id));
+  const usedTiles = new Set(grids.map((id) => l1TileForGridRoom(id)!));
+  const out: FlatChatroomNode[] = [root];
+  for (const tile of getL1Tiles()) {
+    if (!listed.has(tile.id) && !usedTiles.has(tile.id)) continue;
+    const children = grids.filter((id) => l1TileForGridRoom(id) === tile.id);
+    out.push({ ...l1TileNode(tile, root.id), hasChildren: children.length > 0 });
+    for (const id of children) out.push(gridRoomNode(id, tile.id, 2));
+  }
+  return out;
+}
+
+function gridRoomNode(id: string, parentId: string, level: number): FlatChatroomNode {
+  const title = splitTitleIcon(resolveChatroomTitle(id, []));
+  return { id, name: title.name, icon: title.icon, description: 'GPS grid room', level, parentId, hasChildren: false };
+}
+
+/** Split a resolved title ("📍 Near San Diego") into its leading icon and the name. */
+function splitTitleIcon(title: string): { icon: string; name: string } {
+  const match = /^(\S+)\s+(.+)$/u.exec(title);
+  if (match && !/[\p{L}\p{N}]/u.test(match[1])) return { icon: match[1], name: match[2] };
+  return { icon: '📍', name: title };
+}
+
+/** Auto-expand the current room's continent once per room change (the user can still collapse it). */
+let autoExpandedFor = '';
+
+export function renderChatroomList(deps: ChatroomsViewDeps): void {
+  const allChatrooms = buildBrowseTree(deps.currentChatroom ? [deps.currentChatroom] : []);
+  const currentTile = l1TileForGridRoom(deps.currentChatroom);
+  if (deps.currentChatroom !== autoExpandedFor) {
+    autoExpandedFor = deps.currentChatroom;
+    deps.expandedChatrooms.add(CONFIG.GLOBAL_CHATROOM_ID);
+    if (currentTile) deps.expandedChatrooms.add(currentTile);
+  }
+
+  // Rooms outside the tree (custom, Global overflow, a legacy named room) stay reachable at the top.
   if (deps.currentChatroom && !allChatrooms.find((room) => room.id === deps.currentChatroom)) {
     const customFallback = deps.customChatrooms.find((c) => c.id === deps.currentChatroom);
     const isGlobalOverflow = splitBaseId(deps.currentChatroom) === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID;
-    const globalOverflowGroup = deps.currentChatroom === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID
-      ? 2
-      : splitIndex(deps.currentChatroom) + 1;
+    const title = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
     allChatrooms.unshift({
       id: deps.currentChatroom,
-      name: customFallback?.name || (isGlobalOverflow ? `Global · Group ${globalOverflowGroup}` : 'My Location'),
-      icon: customFallback ? customRoomIcon(customFallback.type) : isGlobalOverflow ? '🌍' : '📍',
+      name: customFallback?.name || title.name,
+      icon: customFallback ? customRoomIcon(customFallback.type) : title.icon,
       level: 0,
       description: customFallback?.description || (isGlobalOverflow
         ? 'Non-geographic room for members without a confirmed location'
@@ -284,7 +348,11 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   if (isMap) {
     const builtInMapRooms: ChatroomMapRoom[] = allChatrooms.map((room) => {
       const visits = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
-      const location = getChatroomMapLocation(room.id);
+      const tile = parseTileId(room.id);
+      const location = getChatroomMapLocation(room.id)
+        ?? coarseCellLocation(room.id)
+        ?? getL1TileInfo(room.id)?.pin
+        ?? (tile ? tileCenter(tile) : undefined);
       return {
         ...room,
         ...(location ? { location } : {}),
@@ -321,6 +389,10 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       rooms: mapRooms,
       currentChatroom: deps.currentChatroom,
       openChatroom: (chatroomId) => showChatroomDetail(deps, chatroomId),
+      openLocation: (latitude, longitude) => showChatroomDetail(
+        deps,
+        getAutomaticLocationChatroomId({ latitude, longitude, accuracy: 0, timestamp: new Date() }),
+      ),
       mapLoadFailedText: deps.text('chatroomMapLoadFailed'),
       membersText: (count) => deps.text(count === 1 ? 'chatroomMemberOne' : 'chatroomMembers').replace('{count}', String(count)),
       visitsText: (count) => deps.text(count === 1 ? 'chatroomVisitOne' : 'chatroomVisits').replace('{count}', String(count)),
@@ -349,13 +421,9 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   deps.onChatroomDetailOpened?.(chatroomId);
 
   const custom = deps.customChatrooms.find((c) => c.id === chatroomId);
-  const allChatrooms = getFlatChatroomList();
-  const room = allChatrooms.find((entry) => entry.id === chatroomId);
   const roomName = custom
     ? `${customRoomIcon(custom.type)} ${custom.name}`
-    : room
-      ? `${room.icon} ${room.name}`
-      : chatroomId;
+    : resolveChatroomTitle(chatroomId, deps.customChatrooms);
 
   // Room name already appears in #status-bar-text (persistent) and #current-chatroom-title
   // (this view's own heading) — leave #header-title blank here too, same as showChatroomList().
@@ -624,13 +692,25 @@ async function loadMemberStats(
  * in the named hierarchy; title them by the most specific named place covering the cell —
  * "📍 Near San Diego" — instead of the raw id. Later lanes add "· Group N".
  */
+const COARSE_CELL_ID = /^region_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)(?:_room_(\d+))?$/;
+
+/** Map pin for a coarse grid room: the cell's own (already blurred) coordinate from its id. */
+function coarseCellLocation(chatroomId: string): ChatroomMapLocation | undefined {
+  const cell = COARSE_CELL_ID.exec(splitBaseId(chatroomId));
+  return cell ? { latitude: Number(cell[1]), longitude: Number(cell[2]) } : undefined;
+}
+
 function coarseCellTitle(chatroomId: string): string | null {
-  const cell = /^region_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)(?:_room_(\d+))?$/.exec(chatroomId);
+  const cell = COARSE_CELL_ID.exec(chatroomId);
   if (!cell) return null;
-  const path = getLocationChatroomPath({ latitude: Number(cell[1]), longitude: Number(cell[2]), accuracy: 0, timestamp: new Date() });
-  const names = new Map(getFlatChatroomList().map((node) => [node.id, node.name] as const));
-  const place = [...path].reverse().map((id) => names.get(id)).find(Boolean);
-  const label = place ? `📍 Near ${place}` : '📍 Nearby';
+  const latitude = Number(cell[1]);
+  const longitude = Number(cell[2]);
+  const path = getLocationChatroomPath({ latitude, longitude, accuracy: 0, timestamp: new Date() });
+  // City names only: never label a grid cell by its continent/country/state (no borders in the UI).
+  const cities = new Map(getFlatChatroomList().filter((node) => !node.hasChildren).map((node) => [node.id, node.name] as const));
+  const place = [...path].reverse().map((id) => cities.get(id)).find(Boolean);
+  const coords = `${Math.abs(latitude).toFixed(1)}°${latitude >= 0 ? 'N' : 'S'} ${Math.abs(longitude).toFixed(1)}°${longitude >= 0 ? 'E' : 'W'}`;
+  const label = place ? `📍 Near ${place}` : `📍 ${coords}`;
   const lane = Number(cell[3] || 0);
   return lane > 0 ? `${label} · Group ${lane + 1}` : label;
 }
@@ -643,6 +723,8 @@ export function resolveChatroomTitle(chatroomId: string, customChatrooms: readon
     return `🌍 Global · Group ${groupNumber}`;
   }
   if (baseId !== chatroomId) return `${resolveChatroomTitle(baseId, customChatrooms)} (${splitIndex(chatroomId)})`;
+  const tile = getL1TileInfo(chatroomId);
+  if (tile) return `${tile.icon} ${tile.name}`;
   const custom = customChatrooms.find((c) => c.id === chatroomId);
   if (custom) {
     const icon = custom.type === 'business' ? '🏪' : '💬';

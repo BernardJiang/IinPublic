@@ -7,6 +7,7 @@ import { afterLoad, afterSync, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { GRID_PLACES, gridRoomIdAt, openGridRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('Chatrooms — hierarchy travel and return home', () => {
   let browser: Browser;
@@ -27,7 +28,7 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
     await clearGunForStage1Spec();
   });
 
-  test('user can travel Global to San Diego, London back to Global, then return home to San Diego', async () => {
+  test('user can travel Global → London grid → Tokyo grid → Global, then return home to the San Diego grid', async () => {
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
     await injectIdbClear(page);
@@ -37,52 +38,37 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
     attachE2eBrowserTabLabel(page, 'travel');
     await afterSync();
 
-    const waitForRoomVisible = async (roomId: string): Promise<void> => {
-      await expect(page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`)).toBeVisible({ timeout: 45_000 });
-    };
-
-    const roomLabelById: Record<string, string> = {
-      global: 'Global',
-      'north-america': 'North America',
-      usa: 'United States',
-      california: 'California',
-      'san-diego': 'San Diego',
-      london: 'London',
-      uk: 'United Kingdom',
-      europe: 'Europe',
-    };
-
-    const openRoomAndReturn = async (roomId: string): Promise<void> => {
-      const expectedStatusText = roomLabelById[roomId] || roomId;
-      await waitForRoomVisible(roomId);
-      await page.click(`.chatroom-item[data-chatroom-id="${roomId}"]`);
-      await afterSync();
-      await expect(page.locator('#status-bar-text')).toContainText(expectedStatusText, { timeout: 45_000 });
+    // Travel targets are coarse GPS grid rooms (map tap), not continent/country/state rooms.
+    const travelTo = async (place: { latitude: number; longitude: number } | 'global', statusText: string): Promise<void> => {
+      if (place === 'global') {
+        await page.click('.chatroom-item[data-chatroom-id="global"]');
+        await afterSync();
+      } else {
+        await openGridRoomAt(page, place);
+      }
+      await expect(page.locator('#status-bar-text')).toContainText(statusText, { timeout: 45_000 });
       await expect(page.locator('#back-to-chatrooms')).toBeVisible({ timeout: 45_000 });
       await page.click('#back-to-chatrooms');
       await afterSync();
     };
 
-    // Start in Global with the default San Diego hierarchy visible.
+    // Start in Global; the tree is Global → continents → grid rooms — no country/state rooms.
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', {
       timeout: 45_000,
     });
-    await waitForRoomVisible('north-america');
-    await waitForRoomVisible('usa');
-    await waitForRoomVisible('california');
-    await waitForRoomVisible('san-diego');
+    // Region rooms are L1 tiles labeled by continent; no country/state rooms.
+    await expect(page.locator('.chatroom-item[data-chatroom-id="tile_1_2_1"]')).toContainText('North America');
+    await expect(page.locator('.chatroom-item[data-chatroom-id="usa"]')).toHaveCount(0);
 
     await expect(page.locator('#return-home-btn')).toBeVisible({ timeout: 45_000 });
     await expect(page.locator('#return-home-btn')).toBeEnabled({ timeout: 45_000 });
 
-    for (const roomId of ['global', 'north-america', 'usa', 'california', 'san-diego']) {
-      await openRoomAndReturn(roomId);
-    }
-
-    await waitForRoomVisible('london');
-    for (const roomId of ['london', 'uk', 'europe', 'global']) {
-      await openRoomAndReturn(roomId);
-    }
+    await travelTo('global', 'Global');
+    await travelTo(GRID_PLACES.london, 'Near London');
+    // One travel room at a time: the London grid room is the current row, and only it.
+    await expect(page.locator(`.chatroom-item.current-room[data-chatroom-id="${gridRoomIdAt(GRID_PLACES.london)}"]`)).toBeVisible();
+    await travelTo(GRID_PLACES.tokyo, '°N');
+    await travelTo('global', 'Global');
 
     await page.click('#return-home-btn');
     await afterSync();

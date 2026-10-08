@@ -107,7 +107,7 @@ test.describe('M5 full-layout screenshot tour', () => {
       await page.locator('.nav-btn[data-view="chatrooms"]').click();
       await waitForTabActive(page, 'chatrooms');
       await afterSync();
-      await shot(page, 'Chatrooms', 'chatrooms-list', 'Room list — Global plus the regional hierarchy, default view on login.');
+      await shot(page, 'Chatrooms', 'chatrooms-list', 'Room list — Global plus your GPS grid room and custom rooms (no border rooms), default view on login.');
 
       const expandIcon = page.locator('.chatroom-expand-icon').first();
       if (await expandIcon.count().then((c) => c > 0)) {

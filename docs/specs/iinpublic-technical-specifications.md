@@ -264,6 +264,15 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   - From Global without a confirmed fix, move that member to the bounded non-geographic Global
     overflow family. From any other full room, preserve the selected room family when splitting.
 - **FR-CR-4**: The system SHALL automatically create pure location-based chatrooms; users SHALL NOT be able to delete these automatic rooms.
+- **FR-CR-4a (No National Borders in the UI)**: The room list (tree), room map, and home-room
+  picker SHALL show the hierarchy as **Global → L1 region tiles → coarse GPS grid rooms**, and SHALL
+  NOT offer country, state, or city rooms. L1 tiles are 45° latitude/longitude squares
+  (`tile_1_<row>_<col>`, `src/shared/room-tiles.ts`), labeled by the continent covering most of
+  their land ("🌎 North America · West & Central"); ocean and Antarctica tiles are listed only when
+  in use. A grid room nests under its L1 tile and is reached by tapping its point on the map. A
+  grid room MAY be labeled by the nearest **city** name ("📍 Near San Diego"), and otherwise by its
+  coarse coordinates, never by a state or country name. The full tile tree and two-way routing
+  are specified in `docs/design/room-tree-routing.md`.
 - **FR-CR-5**: Any user SHALL be able to publish a **user-defined chatroom** descriptor (including a business chatroom). Creation makes that user the first ordinary participant; it grants no ownership, moderation, reserved seat, rename, deletion, or admission power.
 - **FR-CR-6**: Each **business chatroom** descriptor MAY include a display name, address, GPS coordinates, and description. The creator MAY sign the descriptor as its originator, but that signature SHALL NOT confer room authority or prove a trademark/business claim. The protocol SHALL permit duplicate display names and distinguish rooms by cryptographic ID.
 - **FR-CR-7**: When a chatroom is full and a new user enters, the system SHALL identify the longest-staying user, notify that user, and remove that user to maintain capacity (FIFO eviction). The room creator SHALL be evicted on exactly the same basis as every other participant.

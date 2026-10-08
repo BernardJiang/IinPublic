@@ -61,15 +61,24 @@ describe('resolveChatroomTitle', () => {
     expect(resolveChatroomTitle('global-unknown_part_2', [])).toBe('🌍 Global · Group 3');
   });
 
-  it('titles coarse coordinate cell rooms by the nearest named place, not the raw id', () => {
+  it('titles coarse coordinate cell rooms by the nearest city, not the raw id', () => {
     hierarchy.getFlatChatroomList.mockReturnValue([
-      { id: 'california', name: 'California', icon: '🌉' },
-      { id: 'san-diego', name: 'San Diego', icon: '🌴' },
+      { id: 'california', name: 'California', icon: '🌉', hasChildren: true },
+      { id: 'san-diego', name: 'San Diego', icon: '🌴', hasChildren: false },
     ]);
     expect(resolveChatroomTitle('region_32.71_-117.17_room_0', [])).toBe('📍 Near San Diego');
     expect(resolveChatroomTitle('region_32.71_-117.17_room_2', [])).toBe('📍 Near San Diego · Group 3');
     expect(resolveChatroomTitle('region_32.71_-117.17_room_0_part_2', [])).toBe('📍 Near San Diego (2)');
     hierarchy.getFlatChatroomList.mockReturnValue([]);
-    expect(resolveChatroomTitle('region_-80.00_10.00_room_0', [])).toBe('📍 Nearby');
+    expect(resolveChatroomTitle('region_-80.00_10.00_room_0', [])).toBe('📍 80.0°S 10.0°E');
+  });
+
+  it('never labels a grid cell by its state/country — falls back to coordinates', () => {
+    // Inland California cell: no city box matches, only the state would.
+    hierarchy.getFlatChatroomList.mockReturnValue([
+      { id: 'usa', name: 'United States', icon: '🇺🇸', hasChildren: true },
+      { id: 'california', name: 'California', icon: '🌉', hasChildren: true },
+    ]);
+    expect(resolveChatroomTitle('region_36.70_-119.80_room_0', [])).toBe('📍 36.7°N 119.8°W');
   });
 });

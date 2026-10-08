@@ -6,37 +6,18 @@ import { afterSync, delay, headless } from '../../helpers/timing';
 import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
-
-/** Expand parent only when collapsed (▶). Default UI already expands NA/Europe — blind toggle hides children. */
-async function ensureHierarchyParentExpanded(page: Page, parentId: string): Promise<void> {
-  const icon = page.locator(`.chatroom-item[data-chatroom-id="${parentId}"] .chatroom-expand-icon`);
-  const label = ((await icon.textContent()) ?? '').trim();
-  if (label.includes('▶')) {
-    await icon.click();
-    await afterSync();
-  }
-}
+import { GRID_PLACES, ensureChatroomList, openGridRoomAt } from '../../helpers/chatroom-nav';
 
 /**
- * Chatroom list → expand parent row → open a hierarchy leaf (e.g. United States under North America).
+ * Rooms are Global → L1 region tiles (labeled by continent) → GPS grid cells — no country/state rooms.
+ * A remote grid room is opened the way a map tap does it (`openGridRoomAt`).
  */
-async function openHierarchyLeafRoom(page: Page, parentId: string, roomId: string): Promise<void> {
+async function openGrid(page: Page, place: { latitude: number; longitude: number }): Promise<string> {
   await ensureChatroomList(page);
   await afterSync();
-  await ensureHierarchyParentExpanded(page, parentId);
-  const leaf = page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`);
-  await expect(leaf).toBeVisible({ timeout: 20_000 });
-  await leaf.click();
+  const roomId = await openGridRoomAt(page, place);
   await afterSync();
-}
-
-/** Open detail for an internal node (continent) from the list. */
-async function openHierarchyNodeRoom(page: Page, roomId: string): Promise<void> {
-  await ensureChatroomList(page);
-  await afterSync();
-  await page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`).click();
-  await afterSync();
+  return roomId;
 }
 
 /** Wait until Gun lists exactly `peerCount` other active members in `chatroomId` (excludes self). */
@@ -66,7 +47,7 @@ async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await page.fill('#talk-title', title);
   await selectTalkEditorType(page, 'flow');
   const q = page.locator('.question-item').first();
-  await q.locator('.question-text').fill('Hierarchy broadcast smoke?');
+  await q.locator('.question-text').fill('Grid room broadcast smoke?');
   await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
@@ -75,7 +56,7 @@ async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await afterSync();
 }
 
-test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
+test.describe('GPS grid room navigation and room-scoped broadcast', () => {
   let browserTom: Browser;
   let browserJerry: Browser;
 
@@ -103,28 +84,24 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
     await clearGunForStage2Spec();
   });
 
-  test('Global → North America → United States; broadcast in country room reaches peer', async () => {
+  test('Both peers in the same remote grid room; broadcast there reaches the peer', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     const pageTom = tom.page;
     const pageJerry = jerry.page;
     try {
-      await openHierarchyLeafRoom(pageTom, 'north-america', 'usa');
-      await expect(pageTom.locator('#current-chatroom-title')).toContainText('United States', {
-        timeout: 20_000,
-      });
+      const room = await openGrid(pageTom, GRID_PLACES.london);
+      await expect(pageTom.locator('#current-chatroom-title')).toContainText('Near London', { timeout: 20_000 });
 
-      await openHierarchyLeafRoom(pageJerry, 'north-america', 'usa');
-      await expect(pageJerry.locator('#current-chatroom-title')).toContainText('United States', {
-        timeout: 20_000,
-      });
+      await openGrid(pageJerry, GRID_PLACES.london);
+      await expect(pageJerry.locator('#current-chatroom-title')).toContainText('Near London', { timeout: 20_000 });
 
-      await waitForGunPeerCountInRoom(pageTom, 'usa', 1);
-      await waitForGunPeerCountInRoom(pageJerry, 'usa', 1);
+      await waitForGunPeerCountInRoom(pageTom, room, 1);
+      await waitForGunPeerCountInRoom(pageJerry, room, 1);
 
-      await createSimpleFlowTalk(pageTom, 'USA room hierarchy broadcast');
+      await createSimpleFlowTalk(pageTom, 'Grid room broadcast');
 
-      await openHierarchyLeafRoom(pageTom, 'north-america', 'usa');
+      await openGrid(pageTom, GRID_PLACES.london);
       const delivery = await pageTom.evaluate(async () => {
         const app = (window as any).__iinpublic_app?.getApp?.();
         if (!app?.deliverPendingBroadcastTalksForE2e) throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
@@ -137,7 +114,7 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await afterSync();
       await expect(
         pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({
-          hasText: 'USA room hierarchy broadcast',
+          hasText: 'Grid room broadcast',
         }),
       ).toBeVisible({ timeout: 60_000 });
     } finally {
@@ -148,39 +125,28 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
     }
   });
 
-  test('Broadcaster on North America does not register inbox for peer joined only under United States', async () => {
-    const tom = await bootstrapUser(browserTom, 'TomNA', 'Tom');
-    const jerry = await bootstrapUser(browserJerry, 'JerryUSA', 'Jerry');
+  test('Broadcaster in one grid room does not reach a peer in a different grid room', async () => {
+    const tom = await bootstrapUser(browserTom, 'TomLDN', 'Tom');
+    const jerry = await bootstrapUser(browserJerry, 'JerryTYO', 'Jerry');
     const pageTom = tom.page;
     const pageJerry = jerry.page;
     try {
-      await openHierarchyNodeRoom(pageTom, 'north-america');
-      await expect(pageTom.locator('#current-chatroom-title')).toContainText('North America', {
-        timeout: 20_000,
-      });
+      await openGrid(pageTom, GRID_PLACES.london);
+      await expect(pageTom.locator('#current-chatroom-title')).toContainText('Near London', { timeout: 20_000 });
 
-      await openHierarchyLeafRoom(pageJerry, 'north-america', 'usa');
-      await expect(pageJerry.locator('#current-chatroom-title')).toContainText('United States', {
-        timeout: 20_000,
-      });
+      await openGrid(pageJerry, GRID_PLACES.tokyo);
+      await expect(pageJerry.locator('#current-chatroom-title')).toContainText('°N', { timeout: 20_000 });
 
-      await createSimpleFlowTalk(pageTom, 'Parent-room-only isolation');
+      await createSimpleFlowTalk(pageTom, 'Grid-room-only isolation');
 
-      // TODO §T root cause #2: clickBroadcastUntilBulkAck (like the generic hierarchy-navigation
-      // helpers) always re-clicks the "chatrooms" nav tab internally, which resets to the
-      // top-level room list — an existing, widely-relied-upon convention for those flows, not
-      // itself a bug. Its own "not in detail -> click Global" fallback then takes over and
-      // silently re-enters Global, discarding the 'north-america' room Tom actually wants to
-      // broadcast from — no amount of re-entering north-america beforehand survives the helper's
-      // own internal reset. Re-enter north-america, then call the E2E delivery path directly
-      // (same app.deliverPendingBroadcastTalksForE2e used throughout the rest of this suite),
-      // bypassing the click-based helper's room-selection dance entirely.
-      await openHierarchyNodeRoom(pageTom, 'north-america');
+      // Re-enter the room explicitly, then use the E2E delivery path directly — the click-based
+      // broadcast helper re-clicks the Chatrooms tab and can fall back to Global.
+      await openGrid(pageTom, GRID_PLACES.london);
       const delivery = await pageTom.evaluate(async () => {
         const app = (window as any).__iinpublic_app?.getApp?.();
         return app.deliverPendingBroadcastTalksForE2e(0, { skipDeliveryAcks: true });
       });
-      // Tom is the only Gun member under `north-america`; Jerry is under `usa` only (FR-BM-7).
+      // Tom is the only Gun member in the London grid room; Jerry is in the Tokyo one (FR-BM-7).
       expect(delivery).toMatchObject({ receivers: 0 });
       await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 0 });
 
@@ -197,13 +163,13 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await expect
         .poll(
           async () =>
-            (await incomingClustersIncludeTitleForUser(pageJerry, jerryId, 'Parent-room-only isolation'))
+            (await incomingClustersIncludeTitleForUser(pageJerry, jerryId, 'Grid-room-only isolation'))
               ? 'found'
               : 'absent',
           {
             timeout: 25_000,
             intervals: [500],
-            message: 'USA-only peer must not get IN registration from North America parent broadcast',
+            message: 'peer in another grid room must not get IN registration from this broadcast',
           },
         )
         .toBe('absent');
@@ -215,12 +181,23 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
     }
   });
 
-  test('Navigate Europe region and open Germany (hierarchy smoke)', async () => {
-    const tom = await bootstrapUser(browserTom, 'TomEU', 'Tom');
+  test('Room tree shows continent-labeled region tiles but no country rooms; a grid room opens by coordinates', async () => {
+    const tom = await bootstrapUser(browserTom, 'TomGrid', 'Tom');
     const pageTom = tom.page;
     try {
-      await openHierarchyLeafRoom(pageTom, 'europe', 'germany');
-      await expect(pageTom.locator('#current-chatroom-title')).toContainText('Germany', { timeout: 20_000 });
+      await ensureChatroomList(pageTom);
+      // Continents stay as the visible hierarchy; no country/state/city rows.
+      for (const [tile, label] of [['tile_1_2_1', 'North America'], ['tile_1_3_3', 'Europe'], ['tile_1_2_6', 'Asia']]) {
+        await expect(pageTom.locator(`.chatroom-item[data-chatroom-id="${tile}"][data-level="1"]`)).toContainText(label);
+      }
+      for (const continentRoom of ['north-america', 'europe', 'asia']) {
+        await expect(pageTom.locator(`.chatroom-item[data-chatroom-id="${continentRoom}"]`)).toHaveCount(0);
+      }
+      for (const named of ['usa', 'california', 'germany', 'japan']) {
+        await expect(pageTom.locator(`.chatroom-item[data-chatroom-id="${named}"]`)).toHaveCount(0);
+      }
+      await openGrid(pageTom, GRID_PLACES.tokyo);
+      await expect(pageTom.locator('#current-chatroom-title')).toContainText(/📍 35\.\d°N 139\.\d°E/, { timeout: 20_000 });
       await expect(pageTom.locator('#current-chatroom-status')).toBeVisible();
     } finally {
       await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});

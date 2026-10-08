@@ -14,6 +14,7 @@ import {
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import type { Talk } from '../../../../src/shared/types';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { GRID_PLACES, openGridRoomAt } from '../../helpers/chatroom-nav';
 
 function talkSet(owner: string, runId: number): Talk[] {
   return [
@@ -127,6 +128,7 @@ async function openFreshPage(context: BrowserContext): Promise<Page> {
   return page;
 }
 
+/** `homeRoom: 'own-grid'` picks the user's own coarse GPS grid room (the only non-Global built-in home). */
 async function configureFirstUser(page: Page, name: string, homeRoom: string): Promise<void> {
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
@@ -150,7 +152,10 @@ async function configureFirstUser(page: Page, name: string, homeRoom: string): P
   await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
   await page.fill('#settings-min-distance', '0');
   await page.fill('#settings-max-distance', '50');
-  await page.selectOption('#settings-home-room', homeRoom);
+  const homeValue = homeRoom === 'own-grid'
+    ? await page.locator('#settings-home-room option[value^="region_"]').first().getAttribute('value')
+    : homeRoom;
+  await page.selectOption('#settings-home-room', homeValue || 'global');
   await backToSettingsMenu(page);
 
   await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
@@ -179,7 +184,7 @@ test.describe('Stage zero N2N smoke', () => {
     const page = await openFreshPage(context);
     const runId = Date.now();
 
-    await configureFirstUser(page, 'Adam', 'san-diego');
+    await configureFirstUser(page, 'Adam', 'own-grid');
 
     await openSettingsSection(page, SETTINGS_SECTION.profile);
     await expect(page.locator('#settings-stage-name-input')).toHaveValue('Adam');
@@ -257,9 +262,11 @@ test.describe('Stage zero N2N smoke', () => {
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');
     await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText('2');
-    for (const roomId of ['north-america', 'usa', 'california', 'san-diego']) {
-      await page.click(`.chatroom-item[data-chatroom-id="${roomId}"]`);
-      await afterNav();
+    // Tree is Global → L1 region tiles → GPS grid rooms; travel targets are grid rooms (map tap).
+    await expect(page.locator('.chatroom-item[data-chatroom-id="tile_1_2_1"]')).toContainText('North America');
+    await expect(page.locator('.chatroom-item[data-chatroom-id="usa"]')).toHaveCount(0);
+    for (const place of [GRID_PLACES.london, GRID_PLACES.tokyo]) {
+      const roomId = await openGridRoomAt(page, place);
       await expect
         .poll(
           () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''),
@@ -274,7 +281,9 @@ test.describe('Stage zero N2N smoke', () => {
       });
       await afterSync();
     }
-    await expect(page.locator('.chatroom-item.current-room[data-chatroom-id="san-diego"]')).toBeVisible();
+    await page.click('#return-home-btn');
+    await afterNav();
+    await expect(page.locator('.chatroom-item.current-room')).toContainText('Near San Diego', { timeout: 45_000 });
 
     await page.reload();
     await page.waitForLoadState('load');

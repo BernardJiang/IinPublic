@@ -44,7 +44,8 @@ import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
 import { getAutomaticLocationChatroomId, getLocationChatroomPath } from '../../shared/location-to-chatroom';
-import { applyPublicChatroomHierarchy, getAllChatroomIds, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
+import { getBrowsableBuiltInChatrooms } from '../ui/chatrooms-view';
 import {
   isRenderableSystemAnnouncement,
   isVerifiedTechSupportIdentity,
@@ -1590,17 +1591,11 @@ export class IinPublicApp {
     // counts) at startup. Older Android WebViews visibly stalled while replaying those 94 room
     // graphs. Keep high-level discovery live and add the current room's full ancestor path;
     // deep rooms outside that path refresh when entered instead of consuming background CPU.
-    const flatRooms = getFlatChatroomList();
-    const byId = new Map(flatRooms.map((room) => [room.id, room]));
-    const chatroomIds = flatRooms.filter((room) => room.level <= 2).map((room) => room.id);
-
-    // Also include the current chatroom ID (location-based) if it's not in the list
+    // Only the browsable rooms: Global, the current (grid/overflow/custom) room, and custom
+    // rooms. Continent/country/state rooms are no longer shown, so they need no listeners.
+    const chatroomIds = getBrowsableBuiltInChatrooms().map((room) => room.id);
     const currentChatroomId = this.chatroomService.getCurrentChatroomId();
-    let pathRoomId = currentChatroomId;
-    while (pathRoomId) {
-      if (!chatroomIds.includes(pathRoomId)) chatroomIds.push(pathRoomId);
-      pathRoomId = byId.get(pathRoomId)?.parentId;
-    }
+    if (currentChatroomId && !chatroomIds.includes(currentChatroomId)) chatroomIds.push(currentChatroomId);
     if (currentChatroomId) {
       console.log(`📍 Including current chatroom path in live counts: ${currentChatroomId}`);
     }
