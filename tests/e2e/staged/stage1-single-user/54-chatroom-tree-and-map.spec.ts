@@ -147,7 +147,18 @@ test.describe('Chatroom tree and map views', () => {
     await showMap();
     const map = p.locator('[data-testid="chatroom-map"]');
     await expect(map.locator('.chatroom-map-marker.current-room')).toBeVisible();
+    // At my area room's zoom the ~78 km grid is drawn and my tile is shaded.
+    await expect(map).toHaveAttribute('data-grid-layer', '4');
     await snap('3-map-current-area-room');
+
+    // Tap a neighbouring square: it highlights and offers to enter, named by its nearest city.
+    const box = (await map.boundingBox())!;
+    await p.mouse.click(box.x + box.width / 2 + 120, box.y + box.height / 2 + 60);
+    await expect(map).toHaveAttribute('data-selected-tile', /^tile_4_/);
+    await expect(map.locator('[data-testid="map-tile-card"]')).toBeVisible();
+    await p.waitForTimeout(800);
+    await snap('3b-map-tap-selects-tile');
+    await p.keyboard.press('Escape');
 
     await map.locator('.chatroom-map-marker.current-room').click();
     await afterNav();
@@ -157,11 +168,13 @@ test.describe('Chatroom tree and map views', () => {
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
     await expect(map).toBeVisible();
-    for (let step = 0; step < 6; step++) {
+    for (let step = 0; step < 8; step++) {
       await map.locator('.maplibregl-ctrl-zoom-out').click();
       await p.waitForTimeout(300);
     }
     await expect(map.locator('.chatroom-map-marker, .chatroom-map-cluster')).not.toHaveCount(0);
+    // Zoomed out to the world, the grid is the 45° region squares.
+    await expect(map).toHaveAttribute('data-grid-layer', '1');
     await p.waitForTimeout(1_500);
     await snap('4-map-world-regions');
   });

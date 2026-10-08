@@ -176,6 +176,12 @@ function l1TileNode(tile: L1TileInfo, parentId: string): FlatChatroomNode {
 }
 
 /** The L1 tile a grid room's cell falls in. */
+/** The tile to shade on the map for the current room: its own tile, or a grid cell's L4 tile. */
+function currentMapTile(roomId: string): string | undefined {
+  const path = browsePath(roomId).filter((id) => parseTileId(id));
+  return path[path.length - 1];
+}
+
 export function l1TileForGridRoom(chatroomId: string): string | undefined {
   const cell = COARSE_CELL_ID.exec(splitBaseId(chatroomId));
   return cell ? tileIdAt(1, Number(cell[1]), Number(cell[2])) : undefined;
@@ -450,7 +456,11 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   mapButton.onclick = () => activateBrowseMode('map');
 
   if (isMap) {
-    const builtInMapRooms: ChatroomMapRoom[] = allChatrooms.map((room) => {
+    // Pins: Global's region tiles, the current room's path, and rooms outside the tree. The deeper
+    // city sub-tiles are browsable in the tree and visible as the map's grid, not as ~100 pins.
+    const onCurrentPath = new Set(browsePath(deps.currentChatroom));
+    const pinnedRooms = allChatrooms.filter((room) => room.level <= 1 || onCurrentPath.has(room.id) || !parseTileId(splitBaseId(room.id)));
+    const builtInMapRooms: ChatroomMapRoom[] = pinnedRooms.map((room) => {
       const visits = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
       const tile = parseTileId(room.id);
       const location = getChatroomMapLocation(room.id)
@@ -493,8 +503,11 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       rooms: mapRooms,
       currentChatroom: deps.currentChatroom,
       openChatroom: (chatroomId) => showChatroomDetail(deps, chatroomId),
-      // A tap opens the bottom-layer tile (~78 km) there: the room the tree routes people to.
-      openLocation: (latitude, longitude) => showChatroomDetail(deps, tileIdAt(TILE_BOTTOM_LAYER, latitude, longitude)),
+      // A tap selects the tile of the grid layer drawn at that zoom; its Enter button opens it.
+      openTile: (tileId) => showChatroomDetail(deps, tileId),
+      tileTitle: (tileId) => resolveChatroomTitle(tileId, deps.customChatrooms),
+      ...(currentMapTile(deps.currentChatroom) ? { currentTileId: currentMapTile(deps.currentChatroom)! } : {}),
+      enterTileText: deps.text('chatroomMapEnterTile'),
       mapLoadFailedText: deps.text('chatroomMapLoadFailed'),
       membersText: (count) => deps.text(count === 1 ? 'chatroomMemberOne' : 'chatroomMembers').replace('{count}', String(count)),
       visitsText: (count) => deps.text(count === 1 ? 'chatroomVisitOne' : 'chatroomVisits').replace('{count}', String(count)),

@@ -180,9 +180,17 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
     await expect(map).toBeVisible();
-    // Tapping open map (not a marker) opens the area room (bottom-layer tile) covering that point.
+    // The tile grid of the layer that fits the zoom is drawn (area zoom → bottom layer, ~78 km).
+    await expect(map).toHaveAttribute('data-grid-layer', '4');
+    await expect(map).toHaveAttribute('data-grid-line-count', /[1-9]\d*/);
+    // Tapping open map (not a marker) selects that tile and offers to enter it.
     const box = (await map.boundingBox())!;
     await p.mouse.click(box.x + 30, box.y + box.height / 2);
+    await expect(map).toHaveAttribute('data-selected-tile', /^tile_4_/);
+    const card = map.locator('[data-testid="map-tile-card"]');
+    await expect(card).toBeVisible();
+    await expect(card).toContainText('📍');
+    await card.locator('[data-testid="map-tile-enter"]').click();
     await afterNav();
     await expect(p.locator('#chatroom-detail-container')).toBeVisible();
     await expect

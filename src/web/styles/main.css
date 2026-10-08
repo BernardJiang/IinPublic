@@ -1084,6 +1084,42 @@ button:focus:not(:focus-visible) {
   pointer-events: none;
 }
 
+/* Tapped tile on the room map: its name and an Enter button, pinned at the tap point. */
+.chatroom-map-tile-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  margin-bottom: 6px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--text-primary, #111827);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 22%);
+  font-size: 0.9em;
+}
+
+.chatroom-map-tile-card > strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatroom-map-tile-enter {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent, #2563eb);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .chatroom-map-marker:hover .chatroom-map-tooltip,
 .chatroom-map-marker:focus-visible .chatroom-map-tooltip {
   display: grid;

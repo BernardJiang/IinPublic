@@ -1,3 +1,5 @@
+import { gridLayerForZoom, tileAtTap, tileGridLines, tileSquares } from '../../shared/room-tile-grid';
+import { parseTileId } from '../../shared/room-tiles';
 import type { FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { CONFIG } from '../../shared/config';
 import {
@@ -26,8 +28,16 @@ type ChatroomMapOptions = {
   rooms: ReadonlyArray<ChatroomMapRoom>;
   currentChatroom: string;
   openChatroom: (chatroomId: string) => void;
-  /** Tap on empty map: open the coarse GPS grid room covering that point (travel there). */
-  openLocation?: (latitude: number, longitude: number) => void;
+  /**
+   * Tap on open map: select the tile (of the grid layer drawn at this zoom) under the tap; its
+   * "Enter" button opens that room. Without it, taps do nothing.
+   */
+  openTile?: (tileId: string) => void;
+  /** Display title for a tile room ("📍 Around San Diego"). */
+  tileTitle?: (tileId: string) => string;
+  /** Tile to shade as "you are here" (the current room's tile), if any. */
+  currentTileId?: string;
+  enterTileText?: string;
   mapLoadFailedText: string;
   membersText: (count: number) => string;
   visitsText: (count: number) => string;
@@ -36,6 +46,8 @@ type ChatroomMapOptions = {
 type MapState = {
   map: MapLibreMap;
   markers: MapLibreMarker[];
+  selectedTile?: string | undefined;
+  selectionMarker?: MapLibreMarker | undefined;
   focusedChatroom: string;
   loaded: boolean;
   options: ChatroomMapOptions;
@@ -45,6 +57,9 @@ type MapState = {
 const SOURCE_ID = 'iinpublic-chatrooms';
 const CLUSTER_LAYER_ID = 'iinpublic-chatroom-clusters';
 const ROOM_LAYER_ID = 'iinpublic-chatroom-points';
+const GRID_SOURCE_ID = 'iinpublic-tile-grid';
+const CURRENT_TILE_SOURCE_ID = 'iinpublic-tile-current';
+const SELECTED_TILE_SOURCE_ID = 'iinpublic-tile-selected';
 const stateByContainer = new WeakMap<HTMLElement, MapState>();
 let mapLibrePromise: Promise<MapLibre> | undefined;
 
@@ -136,9 +151,66 @@ function roomLocation(
   };
 }
 
+/** Focus zoom per tree level, chosen so the grid drawn there is the room's own tile layer. */
 function zoomForRoom(room: FlatChatroomNode | undefined): number {
   if (!room) return 2;
-  return [2, 3, 4, 6, 10][Math.min(room.level, 4)] || 10;
+  return [2, 2.5, 4, 6, 9][Math.min(room.level, 4)] || 9;
+}
+
+/** Redraw the grid lines of the layer that fits the current zoom, over the visible area. */
+function updateTileGrid(state: MapState): void {
+  const source = state.map.getSource(GRID_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
+  if (!source) return;
+  const layer = gridLayerForZoom(state.map.getZoom());
+  const b = state.map.getBounds();
+  const lines = tileGridLines(layer, { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
+  source.setData(lines as never);
+  state.options.container.dataset.gridLayer = String(layer);
+  state.options.container.dataset.gridLineCount = String(lines.features.length);
+}
+
+function updateCurrentTile(state: MapState): void {
+  const source = state.map.getSource(CURRENT_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
+  source?.setData(tileSquares(state.options.currentTileId ? [state.options.currentTileId] : []) as never);
+}
+
+function clearTileSelection(state: MapState): void {
+  state.selectionMarker?.remove();
+  state.selectionMarker = undefined;
+  state.selectedTile = undefined;
+  delete state.options.container.dataset.selectedTile;
+  const source = state.map.getSource(SELECTED_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
+  source?.setData(tileSquares([]) as never);
+}
+
+/** Highlight the tapped tile and offer to enter it (a label with an Enter button at the tap). */
+function selectTile(maplibre: MapLibre, state: MapState, tileId: string, at: [number, number]): void {
+  clearTileSelection(state);
+  state.selectedTile = tileId;
+  state.options.container.dataset.selectedTile = tileId;
+  const source = state.map.getSource(SELECTED_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
+  source?.setData(tileSquares([tileId]) as never);
+
+  const card = document.createElement('div');
+  card.className = 'chatroom-map-tile-card';
+  card.dataset.testid = 'map-tile-card';
+  card.setAttribute('data-testid', 'map-tile-card');
+  const name = document.createElement('strong');
+  name.textContent = state.options.tileTitle?.(tileId) ?? tileId;
+  const enter = document.createElement('button');
+  enter.type = 'button';
+  enter.className = 'chatroom-map-tile-enter';
+  enter.setAttribute('data-testid', 'map-tile-enter');
+  enter.textContent = state.options.enterTileText ?? 'Enter ›';
+  enter.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const id = state.selectedTile;
+    clearTileSelection(state);
+    if (id) state.options.openTile?.(id);
+  });
+  card.addEventListener('click', (event) => event.stopPropagation());
+  card.append(name, enter);
+  state.selectionMarker = new maplibre.Marker({ element: card, anchor: 'bottom' }).setLngLat(at).addTo(state.map);
 }
 
 function tooltipElement(options: ChatroomMapOptions, room: ChatroomMapRoom): HTMLElement {
@@ -330,7 +402,8 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
   map.once('error', failBeforeLoad);
   map.on('click', (event) => {
     // Room/cluster markers stop propagation, so this only fires on open map.
-    state.options.openLocation?.(event.lngLat.lat, event.lngLat.lng);
+    if (!state.options.openTile) return;
+    selectTile(maplibre, state, tileAtTap(event.lngLat.lat, event.lngLat.lng, map.getZoom()), [event.lngLat.lng, event.lngLat.lat]);
   });
   map.once('load', () => {
     state.loaded = true;
@@ -359,6 +432,22 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     map.on('sourcedata', refreshMarkers);
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
+    // Tile grid of the layer that fits the zoom, the current room's tile, and the tapped tile —
+    // all below the room pins.
+    map.addSource(GRID_SOURCE_ID, { type: 'geojson', data: tileGridLines(1, { west: -180, south: -85, east: 180, north: 85 }) as never });
+    map.addSource(CURRENT_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
+    map.addSource(SELECTED_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
+    map.addLayer({ id: 'iinpublic-tile-current-fill', type: 'fill', source: CURRENT_TILE_SOURCE_ID, paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.12 } });
+    map.addLayer({ id: 'iinpublic-tile-current-line', type: 'line', source: CURRENT_TILE_SOURCE_ID, paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.7 } });
+    map.addLayer({ id: 'iinpublic-tile-selected-fill', type: 'fill', source: SELECTED_TILE_SOURCE_ID, paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.14 } });
+    map.addLayer({ id: 'iinpublic-tile-selected-line', type: 'line', source: SELECTED_TILE_SOURCE_ID, paint: { 'line-color': '#2563eb', 'line-width': 2 } });
+    map.addLayer({ id: 'iinpublic-tile-grid-line', type: 'line', source: GRID_SOURCE_ID, paint: { 'line-color': '#475569', 'line-width': 1, 'line-opacity': 0.35 } });
+    map.on('moveend', () => updateTileGrid(state));
+    // A zoom change moves to another layer, so an earlier selection no longer matches the grid.
+    map.on('zoomend', () => {
+      if (state.selectedTile && parseTileId(state.selectedTile)?.layer !== gridLayerForZoom(map.getZoom())) clearTileSelection(state);
+    });
+
     const initialData = chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom);
     state.options.container.dataset.mapGeojsonFeatureCount = String(initialData.features.length);
     map.addSource(SOURCE_ID, {
@@ -395,6 +484,8 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     });
     refreshMarkers();
     focusCurrentRoom(state);
+    updateCurrentTile(state);
+    updateTileGrid(state);
     resolveReady();
   });
 
@@ -421,7 +512,9 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
     }
     await state.ready;
     updateSource(state);
+    updateCurrentTile(state);
     focusCurrentRoom(state);
+    updateTileGrid(state);
     requestAnimationFrame(() => state.map.resize());
   } catch {
     const state = stateByContainer.get(options.container);
