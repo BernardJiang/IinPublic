@@ -1,4 +1,8 @@
-# Room tree and routing — design proposal (draft, 2026-10-07)
+# Room tree and routing — superseded design (2026-10-07)
+
+> **Superseded 2026-10-08 by `nearby-and-place-chatrooms.md`.** The Global-first L1-L4 cascade is
+> retained here only as implementation/migration history. It is no longer the accepted product
+> model and must not guide new UI or routing work.
 
 Status: **implemented 2026-10-07** (two-way routing, desktop home tile, tile tree UI); custom-room
 rules in `local-business-rooms.md` are still a proposal. Supersedes the "Global → coarse 1 km cell" jump in

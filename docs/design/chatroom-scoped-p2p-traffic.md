@@ -1,8 +1,13 @@
 # Chatroom-Scoped P2P Traffic and Nearby Connectivity
 
-Status: authoritative design decision, 2026-10-04
+Status: **partially superseded 2026-10-08** by `nearby-and-place-chatrooms.md`
 Tracking: `OPEN-37`
 Related: Technical Specification §3.3 and §23; `OPEN-36`; `docs/protocol/connectivity-v1.md`
+
+> The one-active-room, global `C`, local `K`, safe-switch, and same-room authorization decisions
+> remain authoritative. Global/tree navigation, FIFO geographic overflow, room-wide gossip, and
+> forwarding enabled by default do not; the replacement uses Nearby geographic subdivision, map
+> Places, and direct encrypted author-to-receiver Talk delivery.
 
 ## Decision
 

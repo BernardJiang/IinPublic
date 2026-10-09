@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-07.
+Last reconciled: 2026-10-08.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -19,93 +19,67 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-- [ ] **OPEN-40 — Make blurred-location micro-rooms safe at arena scale (10,000 people in one
-  place).** Every first-time user enters the bounded Global room so a small population can find one
-  another and GPS-less desktops remain useful. When Global is full, its oldest ordinary member
-  moves to a coarse coordinate-grid room if that device has a confirmed local fix, or to a bounded
-  non-geographic Global overflow family otherwise. Country/state borders are never automatic
-  routing inputs. When one coarse grid fills at an arena, ownerless deterministic micro-rooms must
-  be selected before active presence, nearby advertisement, or Talk exchange. Wi-Fi Direct remains
-  only a transport inside the selected active room. Exact global FIFO across all micro-rooms is not
-  implementable together with coordinator-free bounded pre-admission; retain creator-neutral FIFO
-  only within a room unless a future protocol explicitly introduces consensus/admission authority.
-  - [x] **P0 privacy:** separate local exact GPS from public `BlurredLocation`; never publish
-    `trueLocation`, exact latitude/longitude, accuracy, or GPS timestamps under user, room,
-    presence, discovery, or Gun paths. Tombstone legacy per-room exact-location rows encountered
-    by the current user. Keep distance features on blurred grid coordinates and add regression
-    tests proving public records contain no exact GPS.
-  - [x] **P0 Global-first overflow routing:** first entry is Global. A confirmed fix is retained
-    locally for a later capacity move but never forces a user out of Global. A full Global moves
-    the oldest confirmed-location member directly to their coarse coordinate cell, without a
-    political hierarchy; an unknown/untrusted-location member moves to `global-unknown`, then the
-    same fixed-capacity numbered overflow family. These rooms have no fake coordinates and do not
-    appear as geographic points on the map. Manual travel remains in the selected room family.
-  - [x] **P0 traveler visibility:** travel-mode membership publishes an `isTraveler` flag through
-    Gun presence, the REST presence index, the embedded-node relay, and durable presence; other
-    room members see a Traveler badge. Returning home clears it immediately.
-  - [ ] **P0 bounded pre-admission:** replace reactive subscribe-to-everyone-then-evict behavior
-    with a bounded grid control plane and deterministic lane assignment before active presence.
-    For 10,000 users at `C=498`, create at least 21 lanes and normally leave headroom (for example
-    25–32 lanes) so uneven decentralized assignment cannot overflow immediately. A room ID must be
-    a pure function of version, blurred grid, split generation, and lane; first signed presence
-    materializes it and grants no ownership.
-    - [x] Added the pure v1 allocator: no split through `C`, power-of-two lane generations with
-      25% target headroom after overflow, stable public-identity hashing, and coordinate-free room
-      IDs. At 10,000 users and `C=498` it deterministically selects 32 lanes. It is deliberately
-      not driven by a claimed headcount; live assignment advances only from verified overflow
-      certificates.
-    - [x] Wire Internet pre-admission before the public room join: a separate control-only signed
-      presence registry retains at most `C+1` witnesses per lane, serializes concurrent certificate
-      formation, and returns only the missing/current certificate suffix. Clients verify and cache
-      the monotone chain, derive their lane before joining/advertising Talks, refresh every 15s,
-      and republish missing history after an ephemeral relay restart. The relay transports evidence
-      but has no admission authority. LAN/BLE transport for the same records is still open.
-    - [ ] Route Global capacity moves into the same verified pre-admission path before joining a
-      coarse grid. The current verified path covers deliberate/re-entry grid admission; Global's
-      self-eviction currently derives the correct grid but still joins it before the certificate
-      control plane can choose a bounded arena lane.
-  - [ ] **P0 authority hardening:** eviction/frontier messages are untrusted hints, never commands.
-    A receiver moves only after independently validating its signed current-room view and local
-    overflow status. Authenticate all split-control records, reject unreasonable jumps/rollback,
-    and prevent forged `joinedAt` or an arbitrary writer from isolating another user.
-    - [x] A notice now moves a user only when its author/key/capacity match the receiver's current
-      view and the receiver independently computes itself in the monotone overflow set; active
-      overflow members self-correct without waiting for a notice.
-    - [x] Reject far-future, unsafe-integer, and extreme frontier records; cap one hinted jump to
-      64 lanes. The old numbered-room frontier remains only a legacy fallback; automatic blurred
-      grids now use the signed certificate control plane above.
-    - [x] Define bounded ownerless overflow certificates: advancing one generation requires
-      exactly `C+1` distinct, authentic signed presences that were simultaneously live in one
-      lane under the receiver's locally verified protocol checkpoint. Certificates form a
-      monotone contiguous chain, remain historically verifiable, reject tampering/cross-lane
-      witnesses/future timestamps, and expose only a coordinate-free control-scope ID. This
-      closes the control-record format and verification primitive; live discovery/transport
-      wiring remains under bounded pre-admission.
-  - [ ] **P0 non-cooperating/offline members:** capacity safety must not require the displaced
-    phone to be online and perform its own move. Every client independently derives the eligible
-    set; a returning excluded user derives a valid lane before advertising or exchanging.
-    - [x] On the Internet path, an overflow entrant advances before active membership while the
-      existing lane remains at no more than `C`; foreground peers poll forward, and a returning
-      peer uses its durable generation as a no-rollback floor before active presence. Fully
-      offline LAN/BLE convergence still needs the control-evidence transport below.
-  - [ ] **P1 convergence/churn:** define split-generation convergence under Internet/LAN/BLE
-    partitions, stale occupancy, simultaneous arrivals, GPS drift, and grid-boundary neighbors.
-    Add hysteresis and preserve one-active-room stop-before-start behavior.
-  - [ ] **P1 compaction:** expire empty lanes and deterministically compact/merge underfilled lanes
-    after a stability window without silently rebroadcasting old Talks or creating an owner.
-  - [ ] **P1 UI:** display one blurred place plus a simple internal group label and occupancy; do
-    not expose raw `_part_N` or coordinate-bearing IDs. Explain that Nearby exchange reveals an
-    approximate grid, especially at home/work, and retain Contacts-only/Off controls.
-  - [ ] **Verification:** add a deterministic 10,000-identity simulation plus partition, reconnect,
-    churn, malicious-control-record, stale-presence, and boundary tests. Assert ≤498 candidates,
-    ≤configured neighbor limit, no full parent roster subscription, stable lane derivation, safe
-    compaction, no exact GPS publication, and same-room-only Talk exchange. The existing topology
-    formula test and small FIFO tests are insufficient; close the current SPEC-5 coverage gap.
-    - [x] Pure 10,000-identity assignment simulation verifies all identities are assigned across
-      32 non-empty lanes and the deterministic fixture's maximum occupancy remains below 498.
-    - [x] Certificate/control tests cover `C+1`, distinct-key enforcement, tampering, cross-lane
-      witnesses, future records, historical verification, contiguous advancement, no rollback,
-      local offline reuse, and the relay HTTP formation/read path.
+- [ ] **OPEN-40 — Replace the Global/L1-L4 cascade with Nearby + map Places.** Accepted design:
+  `docs/design/nearby-and-place-chatrooms.md`. A location-enabled phone enters a small automatic
+  Nearby cell immediately. When it exceeds the global experimental capacity `C`, verified overflow
+  evidence activates a finer geographic cell so closer people stay together. Users see one Nearby
+  experience and intentional Place pins—not Global, a hierarchy, `_part_N`, or capacity shards.
+  Wi-Fi Direct/BLE are routes and proximity signals, not the definition of room membership.
+  - [x] **Reusable foundations:** exact GPS is local-only; signed expiring room presence, one-active-
+    room stop-before-start transitions, traveler propagation, global versioned `C`, neighbor bound
+    `K`, verified `C+1` overflow certificates, monotone protocol manifests, and 10,000-identity
+    allocator/control tests already exist. Reuse their verification and storage primitives without
+    preserving the rejected Global/FIFO/tree product behavior.
+  - [ ] **P0 room protocol:** define versioned Nearby IDs from spatial index, precision, protocol
+    epoch, and split generation. Replace identity-first lane allocation with geographic subdivision;
+    retain deterministic identity lanes only as final load shedding when GPS accuracy cannot split a
+    dense venue. Add boundary and GPS-drift hysteresis. No active presence or radio advertisement may
+    begin before the applicable control chain is verified.
+  - [ ] **P0 Gun boundary:** introduce the `places`, `room-presence`, `nearby-control`, and manifest
+    schema from the accepted design. Audit every Talk/Me repository: owner-private records must use
+    SEA encryption; room-visible Gun carries metadata/control only. Decide and implement the stronger
+    split between local-only encrypted Gun and peered control Gun, or explicitly accept ciphertext
+    replication as an interim migration step. Remove plaintext generic `talkJson` and auto-answer
+    visibility leaks.
+  - [ ] **P0 direct Talk baseline:** disable third-person device forwarding and room-body gossip by
+    default. Implement a durable author-to-receiver scheduler that rotates through at most `K`
+    simultaneous direct peers, negotiates compact inventories, transfers signed bodies over an
+    encrypted stranger session, records end-recipient ACKs, and retries locally. Ordinary delivery
+    must not require another phone or a server mailbox to forward the body. Preserve forwarding code
+    only behind an experimental opt-in flag.
+  - [ ] **P0 encrypted stranger handshake:** automatically exchange signed public identity plus
+    ephemeral session keys for Unknown peers; bind WebRTC/DataChannel identity to that handshake.
+    Becoming a Contact pins stable identity and durable pair state rather than enabling encryption
+    for the first time. Add passive-listener, MITM, replay, key-change, and downgrade tests.
+  - [ ] **P0 Nearby UI:** replace tree/list hierarchy with current Nearby distance/count, a shaded
+    map area, Place pins, and Return to Nearby. Add Contacts-only, Radio nearby, Neighborhood,
+    Close nearby, and Location-off settings with explicit home/work exposure text. Never imply that
+    hashing a cell hides its approximate location.
+  - [ ] **P0 Places:** publish signed content-addressed Community-created descriptors indexed by map
+    cell; creation grants no authority or trademark claim. A deliberate precise business address
+    requires confirmation; community pins snap to the public cell. Joining is an atomic active-room
+    switch; traveler means the Place is outside the current GPS home zone. Full Places offer the
+    Nearby room around that point and never expose `_part_N` rooms.
+  - [ ] **P0 TechSupport Contacts-only migration:** keep the pinned verified Contact and support
+    channel, but delete relay/client Global seeding, synthetic roster floors, headcount contribution,
+    map presence, capacity exemption, and room tests. TechSupport remains ineligible for Talks.
+  - [ ] **P1 sparse-area behavior:** widen Nearby search under a deterministic hysteresis rule while
+    displaying the actual approximate reach. Do not silently activate overlapping room levels or
+    subscribe to unbounded parent rosters.
+  - [ ] **P1 legacy migration:** stop old-room discovery before moving saved Global/tile/grid/custom
+    memberships into Nearby or content-addressed Places. Preserve contacts, private data, Talk queues,
+    receipts, and traveler intent without rebroadcasting old Talks. Retire obsolete capacity
+    eviction notices, `_part_N` frontier state, tree UI, and stale specifications/tests.
+  - [ ] **Capacity experiment:** treat `C=498`, initial Nearby scales, and `K` as release-wide
+    experimental defaults. Simulate 32/64/128/256/498 capacities and dense/sparse populations; then
+    use three phones across Internet, LAN, BLE, and Wi-Fi Direct to measure discovery time, p50/p95
+    delivery, duplicate bytes, connection failures, background survival, battery drain, and radio
+    churn before selecting production values.
+  - [ ] **Verification:** deterministic 10,000-person arena, grid-boundary, partition/reconnect,
+    simultaneous-arrival, stale-presence, forged-control, offline certificate transport, sparse-area,
+    map Place, Contacts-only, TechSupport absence, no-exact-GPS, no-plaintext-private-data, direct-only
+    delivery, and mixed-release manifest tests. Assert each client sees at most `C` candidates and
+    opens at most `K` direct links.
 
 - [x] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
   "no deobfuscation file associated with this App Bundle"). Done 2026-10-05.**
@@ -971,8 +945,9 @@ review capacity is available and the issue is promoted after the website/Android
   compositor at ~38 % of a core (≈7.5 %/h battery in an idle 10-min window). Stop it after a few
   loops, when the page is hidden, and under `prefers-reduced-motion`.
 
-- [x] **OPEN-46 — Room tree without national borders; two-way routing (done 2026-10-07; product
-  owner decisions in `docs/design/room-tree-routing.md`).** Rooms are a geometric tile tree —
+- [x] **OPEN-46 — Room tree without national borders; two-way routing (done 2026-10-07; superseded
+  as product design on 2026-10-08 by OPEN-40 Nearby + Places).** This remains implementation history:
+  rooms were changed to a geometric tile tree —
   Global → L1 45° tiles labeled by continent → L2 → L3 → L4 ~78 km — instead of
   continent/country/state/city rooms (FR-CR-3, FR-CR-4a). A full room moves its oldest member one
   layer down toward their GPS position or chosen home tile (GPS-less desktops may pick any tile of
@@ -983,10 +958,8 @@ review capacity is available and the issue is promoted after the website/Android
   as company). Tests: unit `room-routing`, `chatroom-capacity` (incl. leaky-off regression),
   `chatroom-browse-list`; e2e stage4/07 (cooldown + desktop home tile), stage1/54 (tree + map),
   stage5/00k (one layer at a time).
-  - [ ] **Follow-up:** re-home the OPEN-40 arena micro-rooms under an L4 tile's `_part_N` family —
-    no automatic route reaches a `region_*` room any more, so that code is dormant.
-  - [ ] **Follow-up:** custom/business rooms per `docs/design/local-business-rooms.md` (anchored to
-    one 1 km cell, one per person/device, signed descriptors, family cap) — still a proposal.
+  Do not complete the former L4/`_part_N` follow-ups; OPEN-40 replaces them with geographic Nearby
+  subdivision and content-addressed map Places.
 
 - [x] **OPEN-45 (filed as OPEN-40 before a numbering clash with the arena micro-room item) — Routing-only Talk edits never reach receivers (found 2026-10-07; done 2026-10-07, product owner: update in place — spec REQ-LEDGER-11a; `talk-revision.ts`, per-peer revision record, receivers refresh their answered copy silently; e2e stage3/05b).** A Talk's
   content identity hashes type, language, question and answer texts only, so an author's edit

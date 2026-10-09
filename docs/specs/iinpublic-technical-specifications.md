@@ -1,9 +1,16 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.8 — Chatrooms are the authoritative P2P traffic partitions; one active exchange room and a sparse neighbor bound prevent global pairwise discovery (§3.3, §23)
-> **Date:** 2026-10-04
+> **Version:** 4.9 — Nearby + map Places replace the visible Global/L1-L4 cascade; direct encrypted
+> stranger exchange is the baseline (§3.3, §6.1, `docs/design/nearby-and-place-chatrooms.md`)
+> **Date:** 2026-10-08
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
+
+> **2026-10-08 precedence note:** FR-CR-1–29 and `docs/design/nearby-and-place-chatrooms.md`
+> supersede every remaining Global-first, hierarchy-tree, `_part_N`, TechSupport-in-room,
+> stranger-plaintext, and forwarding-enabled-default example in this document. Remaining references
+> describe current implementation or historical test inventory and are migration work, not product
+> requirements.
 
 ---
 
@@ -159,7 +166,8 @@ IinPublic is:
 
 - A **decentralized**, Gun.js-backed application. No central server stores user data.
 - Web-first (browser + embedded Node.js peer), followed by Android, with iOS TBD.
-- A real-time system using hierarchical, location-based chatrooms to manage scale.
+- A real-time system using one automatic **Nearby** room plus user-selected map **Places** to manage
+  stranger discovery and scale without exposing an implementation hierarchy.
 
 The product is not a traditional group chat: chatrooms are for **discovery and routing only**; all conversations remain one-on-one with optional chatbot participation. A device participates in exactly one active Talk-exchange room at a time. Other memberships remain navigable but create no live discovery, radio advertisement, room gossip, or automatic peer links until the user manually switches to that room.
 
@@ -250,52 +258,59 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 ### 3.3 Chatroom Management
 
-- **FR-CR-1**: Every first-time user SHALL enter the bounded **Global** active room, maximizing the
-  chance of meeting another user while the network is small and supporting desktop/GPS-less users.
-  Global SHALL obey the same capacity as every other room and SHALL NOT become unbounded.
-- **FR-CR-2**: A confirmed exact GPS fix SHALL remain local and provide only a coarse coordinate
-  cell for capacity routing. Receiving a first fix SHALL NOT automatically pull an active user out
-  of Global. A neutral, missing, or untrusted location SHALL NOT select a false geographic room.
-- **FR-CR-3**: Every chatroom SHALL use the same global capacity threshold (current production
-  value 498 active users; no per-room override). When a chatroom exceeds that threshold, the
-  system SHALL:
-  - Move the longest-staying ordinary member **one layer down** the geometric tile tree (Global →
-    L1 45° → L2 → L3 → L4 ~78 km tiles) toward their confirmed position, or toward their chosen
-    home tile when they have no fix; never route through continent/country/state rooms.
-  - From Global with neither a fix nor a home tile, move that member to the bounded
-    non-geographic Global overflow family. A room with no child for that member (L4, the home
-    tile, custom, numbered, Global overflow) splits within its own family (`_part_N`).
-  - Move a member **up** one step when their room has had fewer than 2 other members for the
-    dwell time and the room above holds at most `C − 10%`, unless they were evicted from that room
-    or one below it within the eviction cooldown (15 min, doubling per repeat, cap 4 h, 24 h
-    memory). Never move a member up out of a room they chose by hand.
-    (Details: `docs/design/room-tree-routing.md`.)
-- **FR-CR-4**: The system SHALL automatically create pure location-based chatrooms; users SHALL NOT be able to delete these automatic rooms.
-- **FR-CR-4a (No National Borders in the UI)**: The room list (tree), room map, and home-room
-  picker SHALL show the hierarchy as **Global → L1 region tiles → coarse GPS grid rooms**, and SHALL
-  NOT offer country, state, or city rooms. L1 tiles are 45° latitude/longitude squares
-  (`tile_1_<row>_<col>`, `src/shared/room-tiles.ts`), labeled by the continent covering most of
-  their land ("🌎 North America · West & Central"); ocean and Antarctica tiles are listed only when
-  in use. A grid room nests under its L1 tile and is reached by tapping its point on the map. A
-  grid room MAY be labeled by the nearest **city** name ("📍 Near San Diego"), and otherwise by its
-  coarse coordinates, never by a state or country name. The full tile tree and two-way routing
-  are specified in `docs/design/room-tree-routing.md`.
-- **FR-CR-5**: Any user SHALL be able to publish a **user-defined chatroom** descriptor (including a business chatroom). Creation makes that user the first ordinary participant; it grants no ownership, moderation, reserved seat, rename, deletion, or admission power.
-- **FR-CR-6**: Each **business chatroom** descriptor MAY include a display name, address, GPS coordinates, and description. The creator MAY sign the descriptor as its originator, but that signature SHALL NOT confer room authority or prove a trademark/business claim. The protocol SHALL permit duplicate display names and distinguish rooms by cryptographic ID.
-- **FR-CR-7**: When a chatroom is full and a new user enters, the system SHALL identify the longest-staying user, notify that user, and remove that user to maintain capacity (FIFO eviction). The room creator SHALL be evicted on exactly the same basis as every other participant.
-- **FR-CR-8**: The system SHALL keep **true location** only in local process/device storage and use
-  a blurred region for every public, peer, relay, room, presence, discovery, and Gun operation.
-  Public records SHALL NOT contain exact latitude/longitude, GPS accuracy, timestamps, or a nested
-  `trueLocation` field.
-- **FR-CR-9**: A user MAY belong to multiple chatrooms that include their true location.
-- **FR-CR-10**: A user MAY actively "travel" to exactly one remote chatroom at a time and SHALL
-  publish a **traveler** membership marker visible to that room. Returning home SHALL clear it.
+> Accepted replacement design: `docs/design/nearby-and-place-chatrooms.md` (2026-10-08). It
+> supersedes the Global-first L1-L4 cascade, visible hierarchy, and numbered overflow rooms.
+
+- **FR-CR-1 (Nearby first)**: A location-enabled device SHALL start in one automatic **Nearby**
+  active room derived locally from current GPS and the user's selected public precision. Global
+  SHALL NOT be the default or a user-facing room. A device without an eligible location mode SHALL
+  remain Contacts-only or enter a deliberately selected Place; it SHALL NOT invent a location.
+- **FR-CR-2 (Location boundary)**: Exact GPS, accuracy, and fix timestamps SHALL remain local. A
+  public Nearby scope necessarily reveals its approximate cell; hashing a predictable cell SHALL
+  NOT be represented as secrecy. Settings SHALL distinguish Contacts-only, Radio nearby,
+  Neighborhood, Close nearby, and Location-off behavior and warn about home/work exposure.
+- **FR-CR-3 (Geographic capacity subdivision)**: Every room SHALL use the same signed global
+  capacity `C` (currently experimental `498`; no per-room override). A Nearby overflow SHALL be
+  proven by ownerless signed control evidence and subdivided by finer location so closer people
+  remain together. FIFO age and `_part_N` SHALL NOT partition Nearby users. Deterministic identity
+  lanes MAY be used only when available location accuracy cannot further separate a dense crowd.
+- **FR-CR-4 (Simple room UI)**: The room UI SHALL show the current Nearby area, user-created Place
+  pins, and Return to Nearby. It SHALL NOT expose Global, L1-L4, country/state rooms, raw coordinate
+  IDs, internal shards, or numbered overflow rooms. The map SHALL show one shaded Nearby area and
+  meaningful Place pins rather than a hierarchy tree.
+- **FR-CR-5 (Map Places)**: Any user MAY publish a signed, immutable, content-addressed **Place**
+  descriptor for a restaurant, event, club, or community at a public map point. Creation makes the
+  user the first ordinary participant and grants no ownership, moderation, reserved seat, rename,
+  deletion, or admission power.
+- **FR-CR-6 (Place provenance)**: A Place descriptor MAY contain a display name, type, description,
+  public point/address, creator public key, and creation time. Its signature proves provenance, not
+  a trademark or business claim. Duplicate names are allowed; the UI SHALL label the room
+  Community-created and distinguish it by cryptographic ID. Exact GPS SHALL never be copied into a
+  Place silently; a precise business address requires explicit public-location confirmation.
+- **FR-CR-7 (Full Place)**: Place rooms use the same `C` but SHALL NOT subdivide visitors by their
+  physical locations or expose `_part_N` rooms. When full, the UI SHALL keep the entrant out and
+  offer the Nearby room around that point. The creator receives no priority.
+- **FR-CR-8**: Public room, presence, discovery, radio, relay, and Gun records SHALL contain only the
+  selected approximate scope or a deliberately public Place point, never a nested `trueLocation`.
+- **FR-CR-9**: A user MAY remember multiple Places and Contacts, but only one stranger-exchange room
+  is active. Remembered inactive destinations create no discovery or Talk traffic.
+- **FR-CR-10**: The GPS-derived Nearby cell is the home zone. Selecting a Place outside that zone
+  SHALL publish a visible **traveler** marker. Return to Nearby recomputes the cell from current GPS
+  and clears traveler state.
 - **FR-CR-11 (Content-Addressed Community Identity)**: Each chatroom/community SHALL have a stable, globally unique identifier derived from its immutable root descriptor: `CommunityID = CIDv1(CommunityRootObject)`. The descriptor MAY contain the creator's public key to distinguish otherwise identical roots, but the key is provenance rather than authority. A community address alone SHALL be sufficient to join, discover peers, and synchronize content; no centralized name or trademark registry is required.
 - **FR-CR-12 (No Community Roles)**: User-defined chatrooms SHALL NOT have an owner, moderator, privileged member, guest role, creator-reserved seat, or creator-controlled admission. Every active participant follows the same room rules. A participant may locally leave, hide, block, or distrust a room or peer, but no participant can rename or delete the shared room for everyone.
-- **FR-CR-13 (One Active Exchange Room)**: A device SHALL have at most one active exchange room. A user MAY retain several memberships, but inactive rooms SHALL NOT create roster subscriptions, peer discovery, radio advertisements, Talk gossip, or automatic peer connections. Reaching another room's population requires an explicit user switch.
-- **FR-CR-14 (Room as Traffic Partition)**: Every room presence record, discovery candidate, signaling attempt, automatic peer link, Talk announcement, inventory exchange, and gossip frame SHALL be authorized for the same active room. Missing, expired, mismatched, or unauthorized room scope SHALL fail closed before connection establishment.
-- **FR-CR-15 (Capacity and Sparse Overlay)**: One global capacity `C` SHALL bound the active candidate population in every room (current production `C = 498`), and a separately configurable global neighbor limit `K` SHALL bound each device's automatic room-peer links (initial target `K = 8–16`). Implementations SHALL NOT create a full pairwise mesh inside a room.
-- **FR-CR-16 (Bounded Parent Rooms)**: Global and over-capacity parent location rooms SHALL become navigation/discovery directories rather than unbounded live meshes. The system SHALL provide bounded eligible child-room choices without publishing the complete parent roster.
+- **FR-CR-13 (One Active Exchange Room)**: A device SHALL have at most one active stranger-exchange
+  room. Inactive Places SHALL NOT create roster subscriptions, peer discovery, radio advertisements,
+  Talk inventory, or automatic peer links. Direct Contacts are independent and reconnect on demand.
+- **FR-CR-14 (Room as Traffic Partition)**: Every stranger presence, candidate, signaling attempt,
+  automatic link, inventory exchange, and Talk delivery SHALL be authorized for the same active
+  room. Missing, expired, mismatched, or unauthorized room scope SHALL fail closed.
+- **FR-CR-15 (Capacity and connection bounds)**: Global parameters `C` and `K` SHALL independently
+  bound eligible room candidates and simultaneous direct links. `498` and the initial `K` range are
+  experimental values requiring simulation and hardware measurement, not proven constants.
+- **FR-CR-16 (No visible parent overlay)**: Geographic parent cells and capacity shards are control
+  scopes, not active user-facing rooms. A client SHALL obtain bounded subdivision evidence without
+  subscribing to an unbounded parent roster.
 - **FR-CR-17 (Safe Room Switching)**: The client SHALL stop old-room discovery, subscriptions, advertisements, and room-only links before starting the new room. Switching SHALL preserve durable Talk queues, receipts, deduplication state, contacts, and pair-private conversations, and SHALL NOT rebroadcast old-room Talks into the new room.
 - **FR-CR-18 (No Per-Room Capacity Policy)**: Capacity SHALL NOT be a creator-, business-, custom-room-, or transport-configurable room attribute. A future capacity change SHALL be a versioned global protocol transition applied uniformly to every room. Clients unable to implement the active protocol epoch SHALL fail closed for new room exchange rather than enforce a conflicting capacity in the same overlay.
 - **FR-CR-19 (Decentralized Capacity Limit)**: Without a coordinator or consensus protocol, `C` SHALL be a hard per-client candidate/active-set bound and an eventual deterministic convergence rule, not a claim of one instantaneous global FIFO roster during a network partition. `K` SHALL remain a hard local neighbor bound regardless of convergence state.
@@ -305,6 +320,21 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-CR-23 (Historical Manifest Relay)**: A release SHALL bundle the signed public manifest chain needed to reach it from the oldest supported trust checkpoint; it SHALL NOT bundle historical private keys. A receiver MAY skip installing intermediate applications but SHALL validate every intermediate manifest. A sender SHALL provide the complete requested suffix and SHALL NOT omit an incompatible intermediate manifest or construct a receiver-specific downgrade.
 - **FR-CR-24 (Future Compatibility Contract)**: Release 1 SHALL distinguish parameter-only changes, optional capabilities, mandatory capabilities, minimum room-protocol versions, critical unknown fields, and explicit retirement. An unsupported mandatory change SHALL retire only network participation: the manifest control plane, local data, Settings, export, identity recovery, and application update SHALL remain available.
 - **FR-CR-25 (Offline Retirement Limit)**: A client cannot respond to a future release it has never learned about. Unless release 1 deliberately adopts an expiring, P2P-renewable protocol lease, an isolated old cohort MAY continue its legacy overlay until it encounters a valid retirement manifest. The product SHALL choose and document perpetual legacy availability or renewable expiry before the first production release.
+- **FR-CR-26 (TechSupport is a Contact)**: TechSupport SHALL be a pinned, verified Contact only. It
+  SHALL have no room presence, map pin, headcount contribution, capacity exemption, or stranger
+  Talk eligibility.
+- **FR-CR-27 (Gun data boundary)**: Network-visible Gun SHALL carry signed room/place control data,
+  presence, signaling, and optional metadata pointers, not full room-public Talk bodies, answers,
+  or conversations. Owner-private Talk and Me records SHALL be SEA-encrypted. Implementations SHALL
+  distinguish authenticated write ownership, encryption, and ciphertext replication.
+- **FR-CR-28 (Encrypted stranger sessions)**: Strangers SHALL automatically exchange signed public
+  identity and ephemeral session keys and use an encrypted connection before any Talk transfer.
+  This does not create a Contact or confer trust. Becoming a Contact pins stable identity and enables
+  durable pair state; it does not turn transport encryption on for the first time.
+- **FR-CR-29 (Direct-delivery baseline)**: Ordinary Talk bodies SHALL move directly between their
+  author and intended receiver in the baseline protocol. Each device SHALL rotate through at most
+  `K` concurrent direct peers and retain unreachable work locally. Third-person device forwarding
+  is deferred and optional, disabled by default, and SHALL NOT be required for baseline delivery.
 
 ### 3.4 Question-Answer System
 
@@ -684,34 +714,30 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 ```
 /chatrooms
-├── global (global capacity: 498)
-├── global-unknown[/_part_N]       (non-geographic GPS-less overflow)
-├── /gps-grid/{coarse-cell}        (automatic coordinate routing)
-│   └── /micro-room/{version-generation-lane}
-└── /user-defined/{chatroomId}     (manual/custom/business destinations)
+├── /nearby/{version-resolution-cell-generation}  (automatic home audience)
+└── /places/{content-addressed-place-id}           (manual map destinations)
 ```
 
 **Implementation Details:**
-- Every new identity enters Global first; later GPS acquisition only prepares a possible capacity
-  move and does not silently change the active audience.
-- Automatic geographic routing uses coarse coordinate cells only. Political and administrative
-  boundaries may be navigation labels, but are never authoritative automatic routing inputs.
-- A GPS-less/untrusted-location Global eviction uses the non-geographic Global overflow family.
-  It has no fake Ocean/North-Pole coordinate and is therefore omitted from geographic map points.
-- Automatic room splitting uses FIFO eviction of the longest-staying ordinary user per FR-CR-7.
-- A manual remote-room visit remains in that destination's split family and publishes the traveler
-  marker; it is not silently rerouted to the user's physical location.
-- Business chatrooms (FR-CR-6) stored as user-defined nodes alongside the automatic hierarchy
+- A confirmed GPS fix selects one small Nearby cell at the user's chosen public precision. Exact
+  GPS remains local. Without an eligible location mode the app stays Contacts-only or uses a Place
+  selected deliberately; it never assigns a false location.
+- A verified overflow activates a finer geographic resolution before presence and Talk discovery.
+  The UI continues to show one Nearby experience and never exposes internal shards.
+- A map Place is an immutable signed descriptor. Selecting it stops Nearby exchange, enters the
+  Place, and marks the user as a traveler only when it is outside the current home zone.
+- Returning home recomputes Nearby from current GPS. Political boundaries are never routing input.
+- TechSupport is a Contact and never appears in this graph.
 
-**GPS Grid ID derivation:** The `{grid-hash}` node key is produced by rounding the device's geo coordinates to the grid precision, then hashing the rounded value together with the app ID. This ensures that two users at nearby coordinates produce the same hash (and land in the same chatroom node) without exposing exact GPS positions in the graph path.
+**Nearby cell derivation:** The device applies the signed protocol manifest's spatial index and
+resolution to local GPS. A cell identifier reveals that approximate area even if hashed; hashing
+is not a privacy guarantee. Presence publishes no exact coordinates, accuracy, or fix timestamp.
 
 ```typescript
 // src-shared/location/gridHash.ts
-export function deriveGridHash(lat: number, lng: number, appId: string, precision = 3): string {
-  // Round to `precision` decimal places (~111 m per 0.001°)
-  const roundedLat = Math.round(lat * 10 ** precision) / 10 ** precision;
-  const roundedLng = Math.round(lng * 10 ** precision) / 10 ** precision;
-  return hashFn(`${roundedLat}:${roundedLng}:${appId}`);
+export function deriveNearbyRoom(localGps: GPS, policy: NearbyPolicy): RoomId {
+  const cell = policy.spatialIndex.cellAt(localGps, policy.resolution);
+  return roomId(policy.protocolEpoch, policy.resolution, cell, policy.splitGeneration);
 }
 ```
 
@@ -1102,9 +1128,12 @@ const enc = await gun.user().get('answers').get('private').get(questionId).once(
 const value = await SEA.decrypt(enc, userPair);
 ```
 
-**Encrypted:** all `private/manual` answers, all messages to known persons, location data beyond the blurred public value.
+**Encrypted:** all owner-private Me answers and preferences, all direct message bodies, Talk bodies
+in transit, and location data beyond the selected public cell.
 
-**Intentionally public:** stage name, public/auto answers, public chatroom messages.
+**Intentionally public:** stage name, explicitly public profile answers, signed room/place control
+metadata, and Talk metadata deliberately announced to an eligible room. “Auto” controls answer
+reuse and SHALL NOT by itself make an answer public.
 
 **Key storage:** Keys are in Gun's `user` space backed by browser IndexedDB or Android Keystore. Keys never leave the device unless the user explicitly exports them.
 
@@ -1114,7 +1143,9 @@ const value = await SEA.decrypt(enc, userPair);
 
 **Default state — Stranger:**
 - Every user starts as a stranger to every other user.
-- All stranger communications are sent in plaintext over the Gun graph.
+- A signed first-contact handshake automatically exchanges public identity and ephemeral session
+  keys. Stranger Talks travel over an encrypted endpoint-to-endpoint session even though neither
+  user has granted durable trust. Public keys are not secrets and key exchange is not friendship.
 - The chatbot may answer talks on the user's behalf using public/auto answers.
 - Users who do not want stranger Talk exchange can enable **Only exchange Talks with contacts** in
   Settings → Content Filters. The gate applies to outgoing broadcasts/direct delivery, incoming
@@ -1129,7 +1160,8 @@ When User A marks User B as a known person:
    ```
    ~<userA_pub>/knownPersons/<userB_id>/  →  { pub: userB_pub, label: 'friend' }
    ```
-2. All messages from A to B are henceforth encrypted using B's public key.
+2. A pins B's stable identity key. Future pair sessions can detect unexpected key changes and keep
+   durable encrypted state; transport was already encrypted while B was Unknown.
 3. A assigns a relationship label: `friend | relative | coworker | acquaintance | partner | <custom>`.
 4. The marking is **unilateral** — B cannot see that A has labelled them.
 
@@ -1149,9 +1181,9 @@ All messages carry a `channel` field:
 
 | `channel` | Meaning | Encryption |
 |---|---|---|
-| `"public"` | Stranger or open chatroom | None — plaintext |
-| `"known"` | A → B, A has marked B (unilateral) | Encrypted with B's public key |
-| `"mutual"` | Both A and B have marked each other | ECDH shared secret from both key pairs |
+| `"public"` | Talk intentionally readable by eligible room members | Encrypted transport; signed author payload |
+| `"known"` | A → B, A has marked B (unilateral) | Encrypted session with B's pinned identity |
+| `"mutual"` | Both A and B have marked each other | Durable pair state over encrypted sessions |
 
 **Mutual encryption:**
 ```typescript
@@ -1168,7 +1200,8 @@ const envelope = {
 };
 ```
 
-**UI display:** globe icon (public) / single-lock (known) / double-lock (mutual). The chatbot only touches `"public"` channel messages.
+**UI display:** public/room, Contact, and mutual-trust badges describe audience and trust—not whether
+the transport has basic encryption. The chatbot only handles Talk payloads allowed by intake policy.
 
 ---
 
@@ -1392,25 +1425,24 @@ users/
       private/        ← SEA-encrypted private answers
       history/        ← immutable append-only log
 
-chatrooms/
-  global/
-  global-unknown[/_part_N]/          ← non-geographic fixed-capacity overflow
-  region_<coarse-lat>_<coarse-lng>/  ← automatic coarse coordinate cells
-  micro/<version-generation-lane>/   ← coordinate-free arena overflow lanes
-  user-defined/<chatroomId>/    ← user and business chatrooms
+room-presence/
+  nearby_<version-resolution-cell-generation>/<userPubHash>/
+  place_<content-addressed-id>/<userPubHash>/
 
-talks/
-  <talkId>/
-    meta/             ← creator, tags, language, location filter, survey flag
-    questions/        ← question nodes (DAG)
-    editLock/         ← set while creator is editing
-    answers/
-      v<N>/           ← versioned answer bucket (§8.2)
+places/
+  by-id/<placeCID>/              ← immutable signed descriptor
+  by-map-cell/<mapCell>/<placeCID>/
 
-messages/
-  public/<chatroomId>/<msgId>/          ← plaintext public
-  known/<userA_id>_<userB_id>/<msgId>/  ← one-way encrypted
-  mutual/<userA_id>_<userB_id>/<msgId>/ ← ECDH mutually encrypted
+nearby-control/
+  <baseCell>/<generation>/       ← verified overflow certificate
+
+users/<ownerPub>/private/
+  talks/<talkId>/                 ← SEA-encrypted owner copy
+  receivedTalks/<author>/<talkId>/← SEA-encrypted receiver copy
+  meQa/<questionCid>/             ← SEA-encrypted Me data
+
+pairs/<pairId>/
+  conversations/<conversationId>/messages/<msgId>/ ← pair-encrypted
 ```
 
 #### Data Access Layer Interface
@@ -2428,10 +2460,10 @@ describe('Write Pipeline Security', () => {
     const publicNode = await gun.get('users').get(userId).get('answers').get('public').get('q1').once();
     expect(publicNode).toBeNull();
   });
-  test('mutual messages are ciphertext, stranger messages are plaintext', async () => {
+  test('both stranger and Contact direct messages are encrypted', async () => {
     const publicMsg = await messageRepo.sendPublic('room1', 'hi');
     expect(publicMsg.channel).toBe('public');
-    expect(publicMsg.payload).toBe('hi');
+    expect(publicMsg.payload).not.toBe('hi');
     const mutualMsg = await messageRepo.sendMutual('b', 'hi');
     expect(mutualMsg.channel).toBe('mutual');
     expect(mutualMsg.payload).not.toBe('hi');
@@ -2500,9 +2532,13 @@ The following items are known open questions or planned post-MVP work:
 ## 17. Key Technical Decisions
 
 - **Decentralized-first**: No central server stores user data. Gun.js P2P is the only data layer.
-- **Hybrid chatroom hierarchy**: Gun.js spatial queries + custom geographical nodes for multi-scale location coverage.
-- **Stranger-first trust**: All users start as strangers; encryption and known-person labelling are opt-in per relationship.
-- **Three-tier message channels**: public / known (one-way encrypted) / mutual (ECDH) with distinct UI badges.
+- **Nearby + Places, no visible hierarchy**: one automatic small Nearby area plus manually selected,
+  content-addressed map Places; geographic subdivision is an invisible capacity mechanism.
+- **Stranger-first trust with encrypted transport**: all users start Unknown, but the first signed
+  handshake still establishes an ephemeral encrypted session. Contact status pins identity and
+  durable pair state rather than enabling encryption for the first time.
+- **Direct Talk baseline**: Talk bodies move author-to-receiver; third-person phone forwarding is
+  optional future work and disabled by default.
 - **Data ownership boundary**: Three visibility zones — **room (discovery)**, **user-private**, **pair-private** — govern Gun sync and hub persistence ([§19.14](#1914-data-ownership-and-visibility-zones)). Local-first private data can be wiped per device; server-held export/delete requests are metadata-only; relay-only paths have short TTLs. Star-mode global paths such as `talks/<id>/responses` are **not** the production model.
 - **Telemetry-free transport diagnostics**: Users can see whether a message path used direct P2P, relay fallback, or star-server mode without analytics upload.
 - **Public/private answer visibility**: Per-answer `auto` vs `manual` flag; chatbot only repeats `auto` answers.
@@ -2779,15 +2815,12 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
 ##### Invariants
 
 - The canonical root id is `iinpublic-root-techsupport`; the canonical stage name is `TechSupport`.
-- **TechSupport is built into the client, not resident in the server (K1, 2026-07-25 revision).**
-  Identity is compiled into every client bundle (`TECHSUPPORT_ROOT_USER_ID` + trust-anchor keys in
-  `src/shared/techsupport.ts`); presence is peer-provided. The relay seeds the signed
-  `public/techsupport-identity` record and one Global member row on boot and after every E2E
-  reset (`ChatroomManager.seedTechSupportGlobalMembership`, called from
-  `IinPublicServer.publishPublicBootstrap`) — bytes, not a database. The client also synthesizes
-  TechSupport as a built-in Global roster/count entry directly from the compiled constants
-  (`techSupportRosterMember()`), so headcount 1 on an empty network never depends on any Gun row
-  existing yet, nor on a browser having bootstrapped anything.
+- **TechSupport is built into Contacts, not resident in any room (2026-10-08 revision).** Identity
+  and trust anchors are compiled into every client bundle. Every ordinary user sees one pinned,
+  verified TechSupport Contact and support channel, but TechSupport publishes no room membership,
+  contributes to no room headcount, consumes no room capacity, appears on no map, and is never a
+  stranger Talk recipient. Relay seeding and client-side synthetic Global roster floors are legacy
+  implementation debt to remove during the Nearby/Place migration.
 - In dev, `npm run dev` / `dev:stage-zero` starts a clean database and boots an **ordinary** user;
   the built-in TechSupport member is provided by the relay boot seed and the client's
   compiled-constant floor (K1), so headcount is **2** (dev user + TechSupport). A developer acts
@@ -2829,18 +2862,17 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   (every message attributed to TechSupport is signed by the TechSupport key and verified by the
   receiving client) — the browser no longer fabricates an unsigned message in TechSupport's name.
 - Support-channel messages are durable through the support transport. Ordinary user-to-user messages remain separate from support channels.
-- **Headcounts count TechSupport as exactly 1 in all cases** — status bar, chatroom list badges, and any user-facing room total. It is never excluded and never double-counted. **Liveness is a separate signal** (online/away, sourced from real peer presence via `P2PPresenceClient`) and is never reflected in the count — TechSupport renders as present whether or not its device is currently reachable (K1-2).
-- User-facing lists that show TechSupport must label it as built-in/bootstrap support, not as a normal peer.
-- TechSupport is **never evicted** from Global by presence-staleness pruning, in either the
-  Gun-persisted path (`ChatroomManager.pruneStaleRoomMemberships`) or the in-memory fast path
-  (`ChatroomManager.getFastActiveMembers`) — both check `isTechSupportId` before applying the TTL (K1-3).
+- **Room headcounts never include TechSupport.** Its online/away support status is a Contact signal,
+  not room presence. User-facing Contact lists label it as built-in support, not a normal peer.
 - **TechSupport never receives or answers talks (K5).** It is not a valid talk recipient and never
   produces a response, match, or ignore. This is enforced as a hard rule on the canonical root id
   in the delivery/fanout path — deliberately *not* a `TalkIntakeFilters` entry, since that is
-  user-editable and would let TechSupport be filtered back in by mistake. TechSupport still counts
-  as 1 in every headcount regardless (invariant above, unchanged).
+  user-editable and would let TechSupport be filtered back in by mistake.
 
-##### Current Enforcement
+##### Current enforcement before Nearby/Place migration
+
+The following Global-room mechanisms describe the code that must be removed; they are not the
+accepted product contract above.
 
 - `src/shared/techsupport.ts` reserves the TechSupport name and root id, and exports
   `techSupportRosterMember()` / `TECHSUPPORT_GLOBAL_ROOM_ID` for the client-side floor.
@@ -3172,8 +3204,8 @@ interface LocalPeerTrust {
 
 | Level | Default? | Capabilities | Restrictions |
 |---|---|---|---|
-| **Unknown** | Yes | Connect, introduce, request communication | No broad broadcasts; no privileged actions |
-| **Friend** | User-approved | Exchange talks; normal encrypted/plain communication per [§7.9](#79-stranger-model--known-person-trust) | — |
+| **Unknown** | Yes | Signed handshake and encrypted room-scoped Talk exchange | No durable trust or privileged actions |
+| **Friend** | User-approved | Pinned identity, durable encrypted pair state, future reconnection | — |
 | **Verified** | Long-term user approval | Advanced features; shared reputation participation; future moderation hooks | — |
 | **Blocked** | User action | None | All communication ignored; excluded from neighbor scoring ([§19.8](#198-neighborhood-management-and-super-peers)) |
 
@@ -6534,17 +6566,21 @@ stability, privacy class and existing connection state.
 
 ### 29.7 Peer forwarding
 
-Basic sparse-mesh forwarding remains enabled by default.
+Third-person device forwarding is **deferred and disabled by default**. Direct author-to-receiver
+delivery, with at most `K` concurrent links and local retry state, is the baseline. Gun/bootstrap
+metadata relay and TURN transport between two endpoints are not third-person Talk forwarding.
 
 - **REQ-FWD-01:** A forwarding peer SHALL preserve the original SEA author and signed payload.
-- **REQ-FWD-02:** Users SHALL be able to disable third-party forwarding without disabling their
-  own outgoing/received Talks, ACKs, responses or permitted discovery gossip.
-- **REQ-FWD-03:** Defaults: forwarding enabled; unmetered Wi-Fi enabled; cellular forwarding
-  disabled; low-battery pause enabled; cellular forwarding budget zero until the user opts in.
+- **REQ-FWD-02:** Experimental forwarding SHALL remain independently disableable without disabling
+  the user's own outgoing/received Talks, ACKs, responses, or direct discovery.
+- **REQ-FWD-03:** Defaults: third-party forwarding disabled on Wi-Fi and cellular. A future opt-in
+  experiment MAY enable unmetered Wi-Fi forwarding while cellular remains separately opt-in and
+  low-battery pause remains mandatory.
 - **REQ-FWD-04:** Policy SHALL be checked before choosing an intermediate peer and immediately
   before transmitting a third-party frame or Gun delta.
 - **REQ-FWD-05:** Forwarding SHALL enforce hop, size, rate, byte-budget, dedup and abuse limits.
-- **REQ-FWD-06:** Advanced incentives, guarantees and relay accounting are V2 scope.
+- **REQ-FWD-06:** Delivery SHALL remain correct without forwarding. Advanced incentives,
+  guarantees, peer relaying, and relay accounting are later-version scope.
 
 ### 29.8 Chatbot participation
 
