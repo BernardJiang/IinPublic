@@ -122,6 +122,11 @@ its ID.
     map Place, Contacts-only, TechSupport absence, no-exact-GPS, no-plaintext-private-data, direct-only
     delivery, and mixed-release manifest tests. Assert each client sees at most `C` candidates and
     opens at most `K` direct links.
+    - [x] Promoted the two-browser hub wire audit from an expected failure to a release gate:
+      a real direct Talk create/announce/receive/answer exchange exposed zero plaintext title,
+      question, or answer markers across 232 Gun WebSocket and HTTP boundary events. The direct-
+      delivery scenario also asserts the local encrypted cluster exists while its retired public
+      envelope and indexes remain empty.
 
 - [x] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
   "no deobfuscation file associated with this App Bundle"). Done 2026-10-05.**

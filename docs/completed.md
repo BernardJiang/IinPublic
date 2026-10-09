@@ -13,7 +13,9 @@ Last updated: 2026-10-09
   and made pruning update the authoritative private envelope.
 - Verified first-user boot/reload and the complete two-user Talk copy flow in Chromium. The run
   exposed and fixed the worker's previously dormant double-JSON-parse bug when SEA returns an
-  object. Pair-message and ledger graph migration remains tracked under OPEN-40.
+  object. Promoted the former expected-failure hub wire audit into a passing release gate: 232
+  captured Gun/HTTP boundary events contained zero plaintext title, question, or answer markers.
+  Pair-message and ledger graph migration remains tracked under OPEN-40.
 
 ## 2026-10-09 — TechSupport is Contacts-only in runtime and staged room tests (OPEN-40)
 

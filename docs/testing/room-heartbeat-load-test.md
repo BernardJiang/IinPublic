@@ -66,12 +66,13 @@ frame/request for unique markers in the talk text.
 - **Mesh:** announce + body are delivered over the WebRTC mesh (`iinpublic-dm` data channel, signed frames, ttl-8 gossip).
 - **Server HTTP:** only ciphertext — the signaling relay (`/api/p2p/signaling-relay/...`) and the encrypted mailbox
   (`/api/mailbox/...`). No plaintext marker in any `/api` request or response.
-- **Gun wire to the hub: plaintext talk content DOES cross it**, sent by the author and by the receiver, and relayed by the hub
-  to the other client: `users/<pub>/talks/<id>`, `users/<pub>/receivedTalks/<author>/<id>`, `users/<pub>/incomingTalkClusters`.
-  Cause: `GunTalkRepository` and the incoming-talk mirror write with plain `gun.put`, and the browser's Gun instance has the
-  hub as a peer, so Gun replicates every write upstream. The hub does not store it (memory-only) but does flood it.
-- Consequence for this document's numbers: these writes add relay traffic on top of heartbeats, and they are readable by
-  anyone connected to the hub.
+- **Gun wire to the hub:** no plaintext Talk marker crosses it. Since 2026-10-09,
+  `GunTalkRepository` and the incoming-Talk cluster envelope use the encrypted peerless worker Gun;
+  the main-thread peered Gun carries control metadata, not these bodies. The wire-audit E2E is a
+  passing release gate for title, question, and answer markers.
+- Consequence for this document's numbers: Talk repository/envelope writes no longer add body
+  traffic to the relay heartbeat totals. Pair-message and ledger compatibility traffic is tracked
+  separately under OPEN-40.
 
 ## Heartbeat change (2026-09-21)
 

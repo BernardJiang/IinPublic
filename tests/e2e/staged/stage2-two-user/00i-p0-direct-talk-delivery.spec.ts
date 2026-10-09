@@ -56,13 +56,13 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         .poll(() => pageJerry.evaluate(() => !!window.__iinpublic_app?.getApp?.()?.isMeshTalkDeliveryEnabled?.()))
         .toBe(true);
 
-      await pageTom.click('.chatroom-item:has-text("Global")');
-      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
+      await pageJerry.click('.chatroom-item.current-room');
       await afterSync();
 
       await createSimpleFlowTalk(pageTom, title, 'Yes', 'No', { sendToChatroom: false });
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
       await afterSync();
       await clickBroadcastUntilBulkAck(pageTom);
 
@@ -81,7 +81,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
           return {
             offerCount: 0,
             offersWithBody: 0,
-            ownerEnvelopeCount: 0,
+            localOwnerEnvelopeCount: 0,
+            publicOwnerEnvelopeCount: 0,
             legacyOwnerIndexCount: 0,
             legacyIndexCount: 0,
             announcementCount: 0,
@@ -106,15 +107,23 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
           });
         const offers = await collect(gun.get('peerTalkOffers').get(receiverId));
         const ownerPub = String(app?.gunService?.getStoredPair?.()?.pub || receiverId);
-        const ownerEnvelope = await new Promise<any>((resolve) => {
+        const localOwnerEnvelope = await app?.gunService?.getPrivate?.('incomingTalkClusters');
+        const publicOwnerEnvelope = await new Promise<any>((resolve) => {
           gun.get(`users/${encodeURIComponent(ownerPub)}/incomingTalkClusters`).once((raw: unknown) => resolve(raw));
         });
-        let ownerEnvelopeCount = 0;
+        const envelopeCount = (value: any) => {
+          try {
+            const rows = JSON.parse(String(value?.clustersJson || '[]'));
+            return Array.isArray(rows) ? rows.length : 0;
+          } catch {
+            return 0;
+          }
+        };
+        let localOwnerEnvelopeCount = 0;
         try {
-          const rows = JSON.parse(String(ownerEnvelope?.clustersJson || '[]'));
-          ownerEnvelopeCount = Array.isArray(rows) ? rows.length : 0;
+          localOwnerEnvelopeCount = envelopeCount(localOwnerEnvelope);
         } catch {
-          ownerEnvelopeCount = 0;
+          localOwnerEnvelopeCount = 0;
         }
         const legacyOwnerIndex = await collect(gun.get('ownerIncomingTalkIndex').get(receiverId));
         const legacyIndex = await collect(gun.get('incomingTalksByUser').get(receiverId));
@@ -123,7 +132,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         return {
           offerCount: offers.length,
           offersWithBody: offers.filter((offer) => !!offer?.talkData).length,
-          ownerEnvelopeCount,
+          localOwnerEnvelopeCount,
+          publicOwnerEnvelopeCount: envelopeCount(publicOwnerEnvelope),
           legacyOwnerIndexCount: legacyOwnerIndex.length,
           legacyIndexCount: legacyIndex.length,
           announcementCount: announcements.length,
@@ -139,7 +149,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         expect(directDeliveryGraph.offersWithBody).toBe(0);
         expect(directDeliveryGraph.announcementCount).toBeGreaterThan(0);
       }
-      expect(directDeliveryGraph.ownerEnvelopeCount).toBeGreaterThan(0);
+      expect(directDeliveryGraph.localOwnerEnvelopeCount).toBeGreaterThan(0);
+      expect(directDeliveryGraph.publicOwnerEnvelopeCount).toBe(0);
       expect(directDeliveryGraph.legacyOwnerIndexCount).toBe(0);
       expect(directDeliveryGraph.legacyIndexCount).toBe(0);
       expect(directDeliveryGraph.legacyRoomTalkCount).toBe(0);
