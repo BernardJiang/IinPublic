@@ -87,9 +87,13 @@ its ID.
       expire, embedded phones cannot swallow a hub rejection, the legacy join/heartbeat paths cannot
       bypass admission, and a rejected browser keeps its current room. Saved full Places fall back
       to Nearby on startup.
+    - [x] A full Place with a public pin now offers (never forces) Nearby around that point. Accepting
+      derives and verifies the geographic Nearby path from the already-public pin, keeps the user's
+      actual GPS home separate, publishes the visitor marker, survives restart, follows capacity
+      refinements, and returns home through the existing Return to Nearby action.
     - [ ] Enforce the final full-Place admission/fairness rule against global `C`.
       Remaining gap: reconcile conflicting admissions after an index/network partition with
-      portable ownerless evidence, then test the wording and the optional Nearby-at-the-pin offer.
+      portable ownerless evidence, then user-test the full-room and fallback wording.
   - [ ] **P0 TechSupport Contacts-only migration:** keep the pinned verified Contact and support
     channel, but delete relay/client Global seeding, synthetic roster floors, headcount contribution,
     map presence, capacity exemption, and room tests. TechSupport remains ineligible for Talks.

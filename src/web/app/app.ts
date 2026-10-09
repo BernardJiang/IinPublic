@@ -52,6 +52,7 @@ import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
 import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
 import {
   CONTACTS_ONLY_SCOPE_ID,
+  deriveNearbyRoomAssignment,
   isLocalOnlyRoomScope,
   isNearbyRoomId,
   type NearbyRoomAssignment,
@@ -304,6 +305,18 @@ export class IinPublicApp {
   private travelModeActive: boolean = false;
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
+  private travelNearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
+  private pendingNearbyTravel: {
+    rootAssignment: NearbyRoomAssignment;
+    location: GPSCoordinate;
+    placeId: string;
+    placeName: string;
+    targetRoomId?: string;
+    previousAssignment?: NearbyRoomAssignment;
+    previousControlRoot?: NearbyRoomAssignment;
+    previousControlLocation?: GPSCoordinate;
+  } | undefined;
+  private suppressNearbyTravelerMarker = false;
   private supportBootstrapChecked = false;
   /** `${roomId}|${peerId}` → last automatic catch-up send (see catchUpPeerInActiveRoom). */
   private readonly roomCatchupSentAt = new Map<string, number>();
@@ -317,6 +330,7 @@ export class IinPublicApp {
   private microRoomRefreshInFlight = false;
   private nearbyPreAdmissionClient: NearbyPreAdmissionClient | null = null;
   private nearbyControlRootAssignment: NearbyRoomAssignment | null = null;
+  private nearbyControlRoutingLocation: GPSCoordinate | null = null;
   private nearbyControlRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private nearbyControlRefreshInFlight = false;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
@@ -1055,6 +1069,10 @@ export class IinPublicApp {
     // Travel is room-membership metadata, not a private UI decoration: peers in the room must
     // agree that a user deliberately visiting away from their saved home is a traveler.
     this.chatroomService.setMembershipTravelerResolver((chatroomId) => {
+      if (isNearbyRoomId(chatroomId)) {
+        return !this.suppressNearbyTravelerMarker && (this.pendingNearbyTravel != null
+          || (this.travelModeActive && this.travelChatroomId === chatroomId));
+      }
       if (!isPlaceRoomId(chatroomId)) return false;
       const place = this.uiManager.getCustomChatroomMeta(chatroomId)?.location;
       if (!place || !this.currentLocation || !this.locationConfirmed) return true;
@@ -1984,6 +2002,7 @@ export class IinPublicApp {
     // write never landed within a 15s window. joinChatroom's own local Gun put still lands
     // synchronously on this user's own client the instant it's called, so this await's cost is
     // only the network's ack/retry/propagation-delay budget, not a duplicate of the write itself.
+    this.suppressNearbyTravelerMarker = this.travelModeActive && this.travelNearbyPoint != null;
     try {
       await this.chatroomService.joinChatroom(
         chatroomId,
@@ -2016,6 +2035,8 @@ export class IinPublicApp {
       } else {
         console.warn('Chatroom join encountered an error (non-fatal):', error);
       }
+    } finally {
+      this.suppressNearbyTravelerMarker = false;
     }
 
     // Store current chatroom in localStorage for next time
@@ -2064,6 +2085,28 @@ export class IinPublicApp {
 
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
+
+    // A saved Nearby-at-a-pin visit is recomputed from its deliberately public Place point. Never
+    // trust a saved opaque room id after protocol/capacity state may have changed.
+    if (this.travelModeActive && this.travelNearbyPoint && this.currentUser) {
+      const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
+      const mode = configuredMode === 'close-nearby' ? 'close-nearby' : 'neighborhood';
+      const rootAssignment = deriveNearbyRoomAssignment({
+        location: this.travelNearbyPoint,
+        mode,
+        identity: this.currentUser.id,
+      });
+      this.travelChatroomId = await this.resolveNearbyBeforeAdmission(
+        rootAssignment,
+        this.travelNearbyPoint,
+      );
+      if (this.travelChatroomId === chatroomId) {
+        this.travelModeActive = false;
+        this.travelChatroomId = undefined;
+        this.travelNearbyPoint = undefined;
+      }
+      this.persistTravelModeStateToStorage();
+    }
 
     // If travel mode is active, switch once to the selected travel chatroom (single-room presence).
     if (this.travelModeActive && this.travelChatroomId && this.travelChatroomId !== chatroomId) {
@@ -2409,17 +2452,23 @@ export class IinPublicApp {
     }
   }
 
-  /** Resolve the signed capacity path while exact GPS remains only on this device. */
+  /**
+   * Resolve the signed capacity path from either device-local GPS or a deliberately public Place
+   * pin. The routing coordinate is consumed locally and is never added to room presence records.
+   */
   private async resolveNearbyBeforeAdmission(
     rootAssignment: NearbyRoomAssignment,
+    routingLocation: GPSCoordinate = this.currentLocation!,
   ): Promise<string> {
     this.uiManager.setNearbyMapAssignment(rootAssignment);
+    this.chatroomService.setNearbyRoomAssignment(rootAssignment);
+    this.nearbyControlRootAssignment = rootAssignment;
+    this.nearbyControlRoutingLocation = routingLocation;
     const user = this.currentUser;
-    const location = this.currentLocation;
+    const location = routingLocation;
     const pair = this.gunService.getStoredPair();
-    const mode = loadConnectivitySettings().nearbyPrivacyMode;
-    if (!user?.id || !location || !pair?.pub || !pair.priv
-      || (mode !== 'neighborhood' && mode !== 'close-nearby')) return rootAssignment.roomId;
+    const mode = rootAssignment.mode;
+    if (!user?.id || !location || !pair?.pub || !pair.priv) return rootAssignment.roomId;
     try {
       const manifestController = await this.ensureProtocolManifestController();
       const checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
@@ -2435,7 +2484,6 @@ export class IinPublicApp {
         rootAssignment,
         checkpoint,
       });
-      this.nearbyControlRootAssignment = rootAssignment;
       this.chatroomService.setNearbyRoomAssignment(result.assignment);
       this.uiManager.setNearbyMapAssignment(result.assignment);
       this.startNearbyControlHeartbeat();
@@ -2461,14 +2509,33 @@ export class IinPublicApp {
       if (this.nearbyControlRefreshTimer) clearInterval(this.nearbyControlRefreshTimer);
       this.nearbyControlRefreshTimer = null;
       this.nearbyControlRootAssignment = null;
+      this.nearbyControlRoutingLocation = null;
       return;
     }
     this.nearbyControlRefreshInFlight = true;
     try {
-      const resolved = await this.resolveNearbyBeforeAdmission(rootAssignment);
+      const previousAssignment = this.chatroomService.getNearbyRoomAssignment();
+      const previousControlRoot = this.nearbyControlRootAssignment || undefined;
+      const previousControlLocation = this.nearbyControlRoutingLocation || undefined;
+      const resolved = await this.resolveNearbyBeforeAdmission(
+        rootAssignment,
+        this.nearbyControlRoutingLocation || this.currentLocation!,
+      );
       if (resolved !== currentRoomId
         && this.currentChatroomId === currentRoomId
         && isNearbyRoomId(resolved)) {
+        if (this.travelModeActive && this.travelNearbyPoint) {
+          this.pendingNearbyTravel = {
+            rootAssignment,
+            location: this.travelNearbyPoint,
+            placeId: this.travelNearbyPoint.placeId,
+            placeName: this.travelNearbyPoint.placeName,
+            targetRoomId: resolved,
+            ...(previousAssignment ? { previousAssignment } : {}),
+            ...(previousControlRoot ? { previousControlRoot } : {}),
+            ...(previousControlLocation ? { previousControlLocation } : {}),
+          };
+        }
         this.uiManager.emit('chatroomChanged', resolved);
       }
     } finally {
@@ -2625,13 +2692,34 @@ export class IinPublicApp {
       setTalkIntakeFiltersOwner(this.currentUser.id);
       this.currentUser.talkFilters = filters;
     }
-    let selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
-      this.currentLocation,
-      this.currentUser.id,
-      this.currentChatroomId,
-      this.locationConfirmed,
-      settings.nearbyPrivacyMode,
-    );
+    const publicNearbyMode = settings.nearbyPrivacyMode === 'close-nearby'
+      || settings.nearbyPrivacyMode === 'neighborhood';
+    let selectedRoomId: string;
+    if (this.travelModeActive && this.travelNearbyPoint && publicNearbyMode) {
+      const rootAssignment = deriveNearbyRoomAssignment({
+        location: this.travelNearbyPoint,
+        mode: settings.nearbyPrivacyMode as 'close-nearby' | 'neighborhood',
+        identity: this.currentUser.id,
+      });
+      selectedRoomId = await this.resolveNearbyBeforeAdmission(rootAssignment, this.travelNearbyPoint);
+      this.travelChatroomId = selectedRoomId;
+      this.persistTravelModeStateToStorage();
+    } else {
+      if (this.travelNearbyPoint && !publicNearbyMode) {
+        this.travelModeActive = false;
+        this.travelChatroomId = undefined;
+        this.travelNearbyPoint = undefined;
+        this.persistTravelModeStateToStorage();
+        this.uiManager.setTravelModeState({ active: false });
+      }
+      selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
+        this.currentLocation,
+        this.currentUser.id,
+        this.currentChatroomId,
+        this.locationConfirmed,
+        settings.nearbyPrivacyMode,
+      );
+    }
     const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
     if (nearbyRoot && nearbyRoot.roomId === selectedRoomId && isNearbyRoomId(selectedRoomId)) {
       selectedRoomId = await this.resolveNearbyBeforeAdmission(nearbyRoot);
@@ -2684,6 +2772,47 @@ export class IinPublicApp {
     return nearbyRoot && nearbyRoot.roomId === selectedRoomId && isNearbyRoomId(selectedRoomId)
       ? this.resolveNearbyBeforeAdmission(nearbyRoot)
       : selectedRoomId;
+  }
+
+  /** Offer, but never automatically enter, the real Nearby cell around a full public Place pin. */
+  private offerNearbyAroundFullPlace(placeId: string): void {
+    if (!this.currentUser) return;
+    const place = this.uiManager.getCustomChatroomMeta(placeId);
+    const latitude = Number(place?.location?.latitude);
+    const longitude = Number(place?.location?.longitude);
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
+      || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
+    const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
+    const mode = configuredMode === 'close-nearby' ? 'close-nearby' : 'neighborhood';
+    const location: GPSCoordinate = {
+      latitude,
+      longitude,
+      accuracy: 0,
+      timestamp: new Date(),
+    };
+    const rootAssignment = deriveNearbyRoomAssignment({
+      location,
+      mode,
+      identity: this.currentUser.id,
+    });
+    const placeName = String(place?.name || this.getChatroomDisplayName(placeId));
+    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
+    const label = uiText(language, 'chatroomNearbyAroundPlace').replace('{place}', placeName);
+    this.uiManager.showLocationRoomSuggestion(label, () => {
+      const previousAssignment = this.chatroomService.getNearbyRoomAssignment();
+      const previousControlRoot = this.nearbyControlRootAssignment || undefined;
+      const previousControlLocation = this.nearbyControlRoutingLocation || undefined;
+      this.pendingNearbyTravel = {
+        rootAssignment,
+        location,
+        placeId,
+        placeName,
+        ...(previousAssignment ? { previousAssignment } : {}),
+        ...(previousControlRoot ? { previousControlRoot } : {}),
+        ...(previousControlLocation ? { previousControlLocation } : {}),
+      };
+      this.uiManager.emit('chatroomChanged', rootAssignment.roomId);
+    });
   }
 
   /**
@@ -5375,11 +5504,37 @@ export class IinPublicApp {
 
   private loadTravelModeStateFromStorage(): void {
     const travel = localStorage.getItem('iinpublic_travel_room') || undefined;
-    // Legacy releases allowed arbitrary rooms to become a saved "home". Only an intentional
-    // Place visit survives now; automatic home is recomputed from current Nearby settings.
-    this.travelModeActive = !!travel && isPlaceRoomId(travel);
+    let nearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
+    try {
+      const raw = JSON.parse(localStorage.getItem('iinpublic_travel_nearby_point') || 'null') as any;
+      const latitude = Number(raw?.latitude);
+      const longitude = Number(raw?.longitude);
+      if (Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+        && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
+        && typeof raw?.placeId === 'string' && raw.placeId) {
+        nearbyPoint = {
+          latitude,
+          longitude,
+          accuracy: 0,
+          timestamp: new Date(),
+          placeId: raw.placeId,
+          placeName: String(raw.placeName || 'Place'),
+        };
+      }
+    } catch {
+      // Invalid legacy/session storage is ignored; automatic Nearby remains the safe home.
+    }
+    // A Place visit or a deliberate Nearby-at-a-pin visit survives restart. Arbitrary legacy
+    // Nearby IDs do not: the public point is required to recompute and verify the travel scope.
+    this.travelModeActive = !!travel && (
+      isPlaceRoomId(travel)
+      || (isNearbyRoomId(travel) && nearbyPoint != null)
+    );
     this.travelHomeChatroomId = undefined;
     this.travelChatroomId = this.travelModeActive ? travel : undefined;
+    this.travelNearbyPoint = this.travelModeActive && isNearbyRoomId(String(travel || ''))
+      ? nearbyPoint
+      : undefined;
     this.uiManager.setTravelModeState({
       active: this.travelModeActive,
       ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
@@ -5392,6 +5547,16 @@ export class IinPublicApp {
     else localStorage.removeItem('iinpublic_travel_home');
     if (this.travelChatroomId) localStorage.setItem('iinpublic_travel_room', this.travelChatroomId);
     else localStorage.removeItem('iinpublic_travel_room');
+    if (this.travelNearbyPoint) {
+      localStorage.setItem('iinpublic_travel_nearby_point', JSON.stringify({
+        latitude: this.travelNearbyPoint.latitude,
+        longitude: this.travelNearbyPoint.longitude,
+        placeId: this.travelNearbyPoint.placeId,
+        placeName: this.travelNearbyPoint.placeName,
+      }));
+    } else {
+      localStorage.removeItem('iinpublic_travel_nearby_point');
+    }
   }
 
   /**
@@ -8530,6 +8695,8 @@ export class IinPublicApp {
       const home = await this.resolveAutomaticNearbyRoom();
       this.travelModeActive = false;
       this.travelChatroomId = undefined;
+      this.travelNearbyPoint = undefined;
+      this.pendingNearbyTravel = undefined;
       this.travelHomeChatroomId = home;
       this.persistTravelModeStateToStorage();
       this.uiManager.setTravelModeState({ active: false });
@@ -8660,14 +8827,36 @@ export class IinPublicApp {
       if (!this.currentUser) {
         return;
       }
+      const nearbyTravelRequest = this.pendingNearbyTravel
+        && (this.pendingNearbyTravel.rootAssignment.roomId === requestedChatroomId
+          || this.pendingNearbyTravel.targetRoomId === requestedChatroomId)
+        ? this.pendingNearbyTravel
+        : undefined;
       const automaticBaseGrid = this.currentLocation && this.locationConfirmed
         ? getAutomaticLocationChatroomId(this.currentLocation)
         : null;
-      const chatroomId = automaticBaseGrid && requestedChatroomId === automaticBaseGrid
-        ? await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, requestedChatroomId)
-        : requestedChatroomId;
+      const chatroomId = nearbyTravelRequest
+        ? await this.resolveNearbyBeforeAdmission(
+          nearbyTravelRequest.rootAssignment,
+          nearbyTravelRequest.location,
+        )
+        : automaticBaseGrid && requestedChatroomId === automaticBaseGrid
+          ? await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, requestedChatroomId)
+          : requestedChatroomId;
       const previousChatroomId = this.currentChatroomId;
       const isSameRoom = previousChatroomId === chatroomId;
+      if (isSameRoom && nearbyTravelRequest) {
+        if (nearbyTravelRequest.previousAssignment) {
+          this.chatroomService.setNearbyRoomAssignment(nearbyTravelRequest.previousAssignment);
+          this.uiManager.setNearbyMapAssignment(nearbyTravelRequest.previousAssignment);
+        }
+        this.nearbyControlRootAssignment = nearbyTravelRequest.previousControlRoot || null;
+        this.nearbyControlRoutingLocation = nearbyTravelRequest.previousControlLocation || null;
+        this.pendingNearbyTravel = undefined;
+        const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
+        this.uiManager.showNotification(uiText(language, 'chatroomAlreadyNearbyAroundPlace'), 'info');
+        return;
+      }
 
       if (!isSameRoom) {
         try {
@@ -8705,6 +8894,16 @@ export class IinPublicApp {
               ? uiText(language, 'chatroomPlaceAdmissionUnavailable')
               : uiText(language, 'chatroomSwitchFailed');
           this.uiManager.showNotification(message, 'warning');
+          if (error instanceof PlaceRoomFullError) this.offerNearbyAroundFullPlace(chatroomId);
+          if (nearbyTravelRequest) {
+            this.pendingNearbyTravel = undefined;
+            if (nearbyTravelRequest.previousAssignment) {
+              this.chatroomService.setNearbyRoomAssignment(nearbyTravelRequest.previousAssignment);
+              this.uiManager.setNearbyMapAssignment(nearbyTravelRequest.previousAssignment);
+            }
+            this.nearbyControlRootAssignment = nearbyTravelRequest.previousControlRoot || null;
+            this.nearbyControlRoutingLocation = nearbyTravelRequest.previousControlLocation || null;
+          }
           console.warn(`Chatroom switch to ${chatroomId} was rejected:`, error);
           return;
         }
@@ -8722,19 +8921,40 @@ export class IinPublicApp {
       }
 
       this.uiManager.setCurrentChatroomId(chatroomId);
-      // A deliberate Place selection is travel. Nearby/local scopes are automatic home; there is
-      // no separate mode switch or manually assigned home room. Commit this state only after the
-      // room switch succeeds, so a full Place cannot leave the navigation pointing at a false room.
-      if (isPlaceRoomId(chatroomId)) {
-        if (previousChatroomId && !isPlaceRoomId(previousChatroomId)) {
+      // A deliberate Place or Nearby-at-a-pin selection is travel. Other Nearby/local scopes are
+      // automatic home. Commit only after the switch succeeds, so a rejected destination cannot
+      // leave navigation or the Return-to-Nearby target pointing at a false room.
+      const continuingNearbyTravel = this.travelModeActive
+        && this.travelNearbyPoint != null
+        && isNearbyRoomId(String(previousChatroomId || ''))
+        && isNearbyRoomId(chatroomId)
+        && chatroomId !== this.travelHomeChatroomId;
+      if (nearbyTravelRequest || continuingNearbyTravel) {
+        if (!this.travelModeActive && previousChatroomId) {
           this.travelHomeChatroomId = previousChatroomId;
         }
         this.travelModeActive = true;
         this.travelChatroomId = chatroomId;
+        if (nearbyTravelRequest) {
+          this.travelNearbyPoint = {
+            ...nearbyTravelRequest.location,
+            placeId: nearbyTravelRequest.placeId,
+            placeName: nearbyTravelRequest.placeName,
+          };
+        }
+        this.pendingNearbyTravel = undefined;
+      } else if (isPlaceRoomId(chatroomId)) {
+        if (!this.travelModeActive && previousChatroomId && !isPlaceRoomId(previousChatroomId)) {
+          this.travelHomeChatroomId = previousChatroomId;
+        }
+        this.travelModeActive = true;
+        this.travelChatroomId = chatroomId;
+        this.travelNearbyPoint = undefined;
       } else {
         this.travelModeActive = false;
         this.travelHomeChatroomId = chatroomId;
         this.travelChatroomId = undefined;
+        this.travelNearbyPoint = undefined;
       }
       this.persistTravelModeStateToStorage();
       this.uiManager.setTravelModeState({

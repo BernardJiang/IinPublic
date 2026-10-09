@@ -289,14 +289,16 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   Place silently; a precise business address requires explicit public-location confirmation.
 - **FR-CR-7 (Full Place)**: Place rooms use the same `C` but SHALL NOT subdivide visitors by their
   physical locations or expose `_part_N` rooms. When full, the UI SHALL keep the entrant out and
-  offer the Nearby room around that point. The creator receives no priority.
+  offer the Nearby room around that point. Accepting this offer SHALL retain the GPS-derived home,
+  mark the remote Nearby membership as a traveler visit, and derive the destination only from the
+  Place's deliberately public point. The creator receives no priority.
 - **FR-CR-8**: Public room, presence, discovery, radio, relay, and Gun records SHALL contain only the
   selected approximate scope or a deliberately public Place point, never a nested `trueLocation`.
 - **FR-CR-9**: A user MAY remember multiple Places and Contacts, but only one stranger-exchange room
   is active. Remembered inactive destinations create no discovery or Talk traffic.
 - **FR-CR-10**: The GPS-derived Nearby cell is the home zone. Selecting a Place outside that zone
-  SHALL publish a visible **traveler** marker. Return to Nearby recomputes the cell from current GPS
-  and clears traveler state.
+  or deliberately accepting Nearby around a remote Place SHALL publish a visible **traveler**
+  marker. Return to Nearby recomputes the cell from current GPS and clears traveler state.
 - **FR-CR-11 (Content-Addressed Community Identity)**: Each chatroom/community SHALL have a stable, globally unique identifier derived from its immutable root descriptor: `CommunityID = CIDv1(CommunityRootObject)`. The descriptor MAY contain the creator's public key to distinguish otherwise identical roots, but the key is provenance rather than authority. A community address alone SHALL be sufficient to join, discover peers, and synchronize content; no centralized name or trademark registry is required.
 - **FR-CR-12 (No Community Roles)**: User-defined chatrooms SHALL NOT have an owner, moderator, privileged member, guest role, creator-reserved seat, or creator-controlled admission. Every active participant follows the same room rules. A participant may locally leave, hide, block, or distrust a room or peer, but no participant can rename or delete the shared room for everyone.
 - **FR-CR-13 (One Active Exchange Room)**: A device SHALL have at most one active stranger-exchange

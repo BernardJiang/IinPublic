@@ -122,6 +122,14 @@ fairness/reconciliation rule needs portable signed admission evidence (or anothe
 ownerless protocol), partition/reconnect tests, and user testing of the full-room wording before
 release. Until that exists, no client may describe the first `C` rule as globally instantaneous.
 
+When a full Place has a public pin, the UI offers **Nearby around _Place name_** as a separate,
+deliberate action. It derives the ordinary verified Nearby path from that already-public point; it
+does not use or publish the visitor's GPS as the destination. The visit retains the user's real
+GPS-derived home, carries a traveler marker, survives restart by recomputing from the public point,
+and follows later capacity refinements. Return to Nearby always recomputes the real home and clears
+the visit. If the pin's Nearby cell is already the active home cell, the app stays home rather than
+manufacturing a traveler state.
+
 Map UI shows one shaded Nearby area plus meaningful Place pins. It does not show internal shards,
 raw coordinate IDs, Global, TechSupport, or a geographic hierarchy.
 
