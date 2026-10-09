@@ -44,7 +44,6 @@ export type ChatroomShellControllerDeps = {
   upsertCustomChatroomFromServer: (row: CustomChatroomRow) => void;
   showNotification: (message: string, type: 'success' | 'error') => void;
   emit: (eventName: string, payload: unknown) => void;
-  isTechSupportOnline: () => boolean;
   isUserOnline: (userId: string) => boolean;
   getCachedHeadshot?: (userId: string) => string | null;
   resolvePeerHeadshot?: (userId: string) => Promise<string | null>;
@@ -86,7 +85,6 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     apiBase: deps.getApiBase(),
     text: deps.t,
     formatDate: deps.formatDate,
-    isTechSupportOnline: deps.isTechSupportOnline,
     isUserOnline: deps.isUserOnline,
     ...(deps.getCachedHeadshot ? { getCachedHeadshot: deps.getCachedHeadshot } : {}),
     ...(deps.resolvePeerHeadshot ? { resolvePeerHeadshot: deps.resolvePeerHeadshot } : {}),

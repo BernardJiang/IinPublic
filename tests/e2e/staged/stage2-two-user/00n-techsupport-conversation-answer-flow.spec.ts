@@ -11,8 +11,8 @@
  * 00l-techsupport-faq-cross-user.spec.ts exercise — both of those have the operator answer via
  * the dedicated Support Inbox panel (.support-inbox-item / handleAnswerSupportQuestion), which
  * never calls findOrCreateDirectConversation and would not have caught this regression. Here
- * TechSupport instead finds the asker the same way any two ordinary peers find each other — the
- * shared Global chatroom's member list — and replies from the ordinary conversation overlay.
+ * TechSupport instead takes the support inbox's durable conversation id and replies from the
+ * ordinary conversation overlay. TechSupport remains Contacts-only and has no room roster path.
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -80,7 +80,7 @@ test.describe('TechSupport conversation UI: operator answers multiple questions 
     await clearGunForStage2Spec();
   });
 
-  test('user asks several questions in the DM thread; TechSupport opens the same thread from the chatroom member list and answers each one', async () => {
+  test('user asks several questions; TechSupport opens the inbox conversation in the ordinary DM overlay', async () => {
     // Any "server persist failed" / "Not a TechSupport conversation id" console line is exactly
     // the regression this spec exists to catch (the 400 toast from the wrong-id bug) — collected
     // from both sides and asserted empty at the end, on top of the functional message checks.
@@ -134,9 +134,9 @@ test.describe('TechSupport conversation UI: operator answers multiple questions 
       await expect(userPage.locator('#conversation-messages')).toContainText(question);
     }
 
-    // 3. TechSupport boots (K3 mode) and reaches this exact conversation the same way any two
-    // ordinary peers reach each other — the shared Global chatroom's member list — NOT the
-    // Support Inbox. This is the click that used to mint a disconnected conv_pair_ conversation.
+    // 3. TechSupport boots Contacts-only. The inbox is the discovery surface; its durable
+    // conversation id opens the ordinary conversation overlay that used to mint a disconnected
+    // conv_pair_ id when entered through generic peer UI.
     ({ context: techSupportContext, page: techSupportPage } = await bootstrapTechSupportMode(browser));
     techSupportPage.on('console', (m) => {
       const text = m.text();
@@ -144,13 +144,15 @@ test.describe('TechSupport conversation UI: operator answers multiple questions 
     });
     await expectCurrentUserIsTechSupportRoot(techSupportPage);
 
-    await techSupportPage.click('.nav-btn[data-view="chatrooms"]');
+    await techSupportPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await techSupportPage.click('.chatroom-item[data-chatroom-id="global"]');
-    await afterSync();
-    const userMember = techSupportPage.locator(`.chatroom-member-item[data-user-id="${userId}"]`);
-    await expect(userMember).toBeVisible({ timeout: 20_000 });
-    await userMember.click();
+    const inboxItem = techSupportPage.locator('.support-inbox-item').filter({ hasText: questions[0]!.slice(0, 20) });
+    await expect(inboxItem).toBeVisible({ timeout: 20_000 });
+    const conversationId = await inboxItem.getAttribute('data-conversation-id');
+    expect(conversationId).toBeTruthy();
+    await techSupportPage.evaluate((id) => {
+      (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showConversationDetail?.(id);
+    }, conversationId);
     await expect(techSupportPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
 
     // All three questions (and their auto-acks) are visible from the operator's side — proof

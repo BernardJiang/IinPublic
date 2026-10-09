@@ -917,7 +917,6 @@ export class UIManager extends EventEmitter {
         upsertCustomChatroomFromServer: (row) => this.upsertCustomChatroomFromServer(row),
         showNotification: (message, type) => this.showNotification(message, type),
         emit: (eventName, payload) => this.emit(eventName, payload),
-        isTechSupportOnline: () => this.isTechSupportOnline(),
         isUserOnline: (userId) => this.isUserOnline(userId),
         getCachedHeadshot: (userId) => this.peerHeadshots.get(userId),
         resolvePeerHeadshot: (userId) => this.resolvePeerHeadshot(userId),
@@ -2877,7 +2876,6 @@ export class UIManager extends EventEmitter {
 
   private getKnownPerson(userId: string): KnownPerson | undefined { return this.peer().getKnownPerson(userId); }
   private hasSupportContact(): boolean { return this.peer().hasSupportContact(); }
-  private isTechSupportOnline(): boolean { return this.peer().isTechSupportOnline(); }
 
   public setTechSupportOnlineStatus(online: boolean): void {
     this.peer().setTechSupportOnlineStatus(online);

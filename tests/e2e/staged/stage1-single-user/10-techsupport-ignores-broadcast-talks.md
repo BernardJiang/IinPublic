@@ -11,11 +11,9 @@ covers: docs/TODO.md K5 invariant 1 ("TechSupport ignores all talks")
 
 ## What this test does (in plain English):
 
-1. TechSupport boots in K3 mode and joins the Global room as a real client, not just the
-   client-side headcount floor.
-2. Alice (one ordinary user) joins Global too. Headcount reads 2 (Alice + built-in TechSupport)
-   before any talk exists.
-3. Alice creates and broadcasts a **tag** talk, then a **flow** talk, to Global. Broadcasting is
+1. TechSupport boots in K3 mode and remains in the local Contacts-only scope.
+2. Alice occupies Nearby alone. Headcount reads 1 before any Talk exists.
+3. Alice creates and broadcasts a **tag** talk, then a **flow** talk, to Nearby. Broadcasting is
    done with `minGunPeers: 0` / `minSent: 0` — `clickBroadcastUntilBulkAck`'s default peer-count
    wait uses a helper that deliberately excludes `TECHSUPPORT_ROOT_USER_ID` from its receiver
    count (TechSupport is never a valid talk receiver by design), so with only TechSupport in the
@@ -27,8 +25,7 @@ covers: docs/TODO.md K5 invariant 1 ("TechSupport ignores all talks")
    addressed to it. `acceptsIncomingTalks()` in `shouldAcceptIncomingTalkAsync` (the originally
    documented receiver-side check) is a backstop this test doesn't get to exercise directly, since
    the sender-side exclusion means the offer never arrives in the first place.
-5. Global headcount is still 2 on both Alice's and TechSupport's own view after both broadcasts —
-   confirming the exclusion doesn't disturb room membership.
+5. Alice's Nearby headcount remains 1 and TechSupport remains Contacts-only.
 
 > **Honest scope note:** only tag and flow are exercised, not all four talk types (survey/route
 > untested here). `acceptsIncomingTalks(userId)` takes only a user id — no talk-type parameter at
@@ -41,6 +38,4 @@ covers: docs/TODO.md K5 invariant 1 ("TechSupport ignores all talks")
 
 **Helpers used:** `clearGunForStage1Spec`, `bootstrapUser`, `selectTalkEditorType`,
 `submitTalkEditorAndWaitForOut`, `clickBroadcastUntilBulkAck`, `incomingClustersIncludeTitleForUser`,
-`expectCurrentUserIsTechSupportRoot`. TechSupport mode boot mirrors stage1 specs 05/07/09, but uses
-`webAppURLStableChatroom()` (mesh-enabled URL) instead of the bare base URL, and explicitly joins
-Global, since this spec needs TechSupport to be a live mesh peer.
+`expectCurrentUserIsTechSupportRoot`. The TechSupport browser never joins stranger discovery.

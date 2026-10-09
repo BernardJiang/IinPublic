@@ -1,6 +1,18 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-06
+Last updated: 2026-10-09
+
+## 2026-10-09 — TechSupport is Contacts-only in runtime and staged room tests (OPEN-40)
+
+- Removed relay/client room seeding, synthetic headcount floors, map presence, capacity exemption,
+  and the final legacy pinned-room-row renderer. TechSupport is forced into local Contacts-only;
+  stale support membership rows are filtered before room count, detail state, or rendering.
+- Converted the staged baseline from “TechSupport + Adam” to ordinary users Tom + Adam; stage 3
+  adds Eve. Generic copy/edit, Ignore, survey, and 20-Talk scenarios now use an ordinary Alice
+  fixture instead of the support root.
+- Kept the verified pinned Contact, away/online Contact indicator, durable support conversation,
+  inbox/operator flow, and notification mute controls. Added regression coverage proving a legacy
+  room row cannot resurrect TechSupport or inflate headcount.
 
 ## 2026-10-06 — Contacts-only Talk exchange
 

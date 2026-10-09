@@ -58,9 +58,7 @@ type ChatroomsViewDeps = {
   apiBase: string;
   text: (key: UiTranslationKey) => string;
   formatDate: (date: Date) => string;
-  /** Liveness, never headcount (K1-2, docs/TODO.md) — see ui-manager.ts `setTechSupportOnlineStatus`. */
-  isTechSupportOnline: () => boolean;
-  /** Same real-presence signal as isTechSupportOnline, generalized to any member. */
+  /** Live peer presence is display-only and never changes room headcount. */
   isUserOnline: (userId: string) => boolean;
   /** A peer's profile photo already in the session cache (sync, never fetches), or null. */
   getCachedHeadshot?: (userId: string) => string | null;
@@ -559,8 +557,11 @@ export function updateChatroomMembers(
 ): void {
   const chatroomMembersList = document.getElementById('chatroom-members-list');
   const chatroomStatus = document.getElementById('current-chatroom-status');
-  const otherMembers = members.filter((member) => member.userId !== currentUserId);
-  const memberCount = members.length;
+  // TechSupport is a built-in Contact only. Filter legacy rows before count, detail state, and
+  // rendering so stale relay/Gun data cannot resurrect a support room presence.
+  const roomMembers = members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID);
+  const otherMembers = roomMembers.filter((member) => member.userId !== currentUserId);
+  const memberCount = roomMembers.length;
 
   deps.chatroomMemberCounts.set(deps.currentChatroom, memberCount);
   deps.renderChatroomList();
@@ -603,7 +604,6 @@ function hydrateMemberHeadshots(container: HTMLElement, members: ChatroomMember[
   const resolve = deps.resolvePeerHeadshot;
   if (!resolve) return;
   for (const member of members) {
-    if (member.userId === TECHSUPPORT_ROOT_USER_ID) continue;
     void resolve(member.userId)
       .then((headshot) => {
         const escapeId = window.CSS?.escape ?? ((value: string) => value);
@@ -618,23 +618,6 @@ function hydrateMemberHeadshots(container: HTMLElement, members: ChatroomMember[
       })
       .catch(() => undefined);
   }
-}
-
-/**
- * TechSupport gets a fixed, compact pinned row above the sorted roster — same treatment
- * Contacts tab already gives it (contacts-view.ts's supportRow): a single line, not the
- * two-line avatar+status block ordinary members get, and never reordered by relationship/
- * recency sort as the room's membership changes.
- */
-function renderSupportMemberRow(member: ChatroomMember, deps: ChatroomsViewDeps): string {
-  const supportOnline = deps.isTechSupportOnline();
-  const presenceIndicator = `<span class="techsupport-presence-indicator ${supportOnline ? 'online' : 'away'}" data-techsupport-online="${supportOnline}" aria-label="${deps.text(supportOnline ? 'contactsSupportOnline' : 'contactsSupportAway')}"></span>`;
-  return `
-    <div class="chatroom-member-item member-support chatroom-member-support-pinned" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}" data-support-contact="true">
-      <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}<span class="chatroom-member-support-badge">${deps.text('contactsSupportPinned')}</span>${presenceIndicator}</div>
-      <div class="chatroom-member-arrow">›</div>
-    </div>
-  `;
 }
 
 function renderOrdinaryMemberRow(member: ChatroomMember, deps: ChatroomsViewDeps, statsMap?: Map<string, PeerRelationshipStats>): string {
@@ -671,15 +654,11 @@ function renderMemberList(
   deps: ChatroomsViewDeps,
   statsMap?: Map<string, PeerRelationshipStats>,
 ): void {
-  const supportMember = members.find((member) => member.userId === TECHSUPPORT_ROOT_USER_ID);
-  const otherMembers = members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID);
   const sorted = statsMap
-    ? sortMembersByRelationship(otherMembers, statsMap)
-    : sortMembersByRecency(otherMembers);
+    ? sortMembersByRelationship(members, statsMap)
+    : sortMembersByRecency(members);
 
-  container.innerHTML =
-    (supportMember ? renderSupportMemberRow(supportMember, deps) : '')
-    + sorted.map((member) => renderOrdinaryMemberRow(member, deps, statsMap)).join('');
+  container.innerHTML = sorted.map((member) => renderOrdinaryMemberRow(member, deps, statsMap)).join('');
 
   container.querySelectorAll('.chatroom-member-item').forEach((item) => {
     item.addEventListener('click', () => {

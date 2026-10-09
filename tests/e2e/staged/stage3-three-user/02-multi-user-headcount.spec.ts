@@ -6,8 +6,7 @@ import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
-import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from '../../helpers/ports';
-import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
+import { webBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -23,9 +22,9 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
   let page2: Page;
   let page3: Page;
 
-  async function expectHeadcount(page: Page, expected: number, userName: string, chatroomName = 'Global'): Promise<void> {
-    const headcount = page.locator(`.chatroom-item:has-text("${chatroomName}") .chatroom-headcount`);
-    await expect(headcount, `${userName} should see headcount ${expected} in ${chatroomName}`).toContainText(
+  async function expectHeadcount(page: Page, expected: number, userName: string): Promise<void> {
+    const headcount = page.locator('.chatroom-item.current-room .chatroom-headcount');
+    await expect(headcount, `${userName} should see Nearby headcount ${expected}`).toContainText(
       expected.toString(),
       { timeout: 20000 },
     );
@@ -37,43 +36,6 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     console.log(`✅ ${userName} cleanup called`);
   }
 
-  /**
-   * Drain ghost members from Global before the test launches browsers.
-   *
-   * The preceding 3-user spec's closed Gun peers can flush a final membership write
-   * several seconds after teardown — landing mid-test and inflating Global (e.g. 3 → 6).
-   * Those entries have no live peer, so they never decrement. A single pre-test clear
-   * cannot catch a write that has not happened yet, so instead we poll the members
-   * endpoint until Global is *stably* clean (no non-TechSupport member across several
-   * consecutive reads), re-clearing whenever a stray appears. This only clears/waits
-   * before any browser launches, so it cannot perturb the test's own headcount logic.
-   */
-  async function drainGlobalGhosts(): Promise<void> {
-    const url = `${gunBaseURL()}/api/chatrooms/global/members`;
-    const requiredCleanReads = 4;
-    const maxReads = 20;
-    let cleanStreak = 0;
-    for (let i = 0; i < maxReads && cleanStreak < requiredCleanReads; i++) {
-      let strays = -1;
-      try {
-        const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
-        if (res.ok) {
-          const rows = (await res.json()) as Array<{ userId?: string }>;
-          strays = rows.filter((row) => row.userId && row.userId !== TECHSUPPORT_ROOT_USER_ID).length;
-        }
-      } catch {
-        strays = -1; // endpoint not ready yet — treat as not-clean and retry
-      }
-      if (strays === 0) {
-        cleanStreak += 1;
-      } else {
-        cleanStreak = 0;
-        if (strays > 0) await clearGunForStage3Spec();
-      }
-      await wait(1500, 1500);
-    }
-  }
-
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     // A preceding spec's closed Gun peers can still flush a final write for a few
     // seconds. Drain those writes, then reseed immediately before this spec opens
@@ -81,8 +43,6 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await clearGunForStage3Spec();
     await wait(3500, 3500);
     await clearGunForStage3Spec();
-    // Absorb any late membership flush from the previous spec's closed peers before launching.
-    await drainGlobalGhosts();
     browser1 = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
@@ -131,7 +91,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page1, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page1, 'User1');
-    await expectHeadcount(page1, 2, 'User 1');
+    await expectHeadcount(page1, 1, 'User 1');
 
     context2 = await newContext(browser2);
     page2 = await context2.newPage();
@@ -142,8 +102,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page2, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2');
-    await expectHeadcount(page1, 3, 'User 1');
-    await expectHeadcount(page2, 3, 'User 2');
+    await expectHeadcount(page1, 2, 'User 1');
+    await expectHeadcount(page2, 2, 'User 2');
 
     context3 = await newContext(browser3);
     page3 = await context3.newPage();
@@ -154,17 +114,17 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page3, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page3, 'User3');
-    await expectHeadcount(page1, 4, 'User 1');
-    await expectHeadcount(page2, 4, 'User 2');
-    await expectHeadcount(page3, 4, 'User 3');
+    await expectHeadcount(page1, 3, 'User 1');
+    await expectHeadcount(page2, 3, 'User 2');
+    await expectHeadcount(page3, 3, 'User 3');
 
     await cleanupUser(page1, 'User 1');
     await context1.storageState({ path: storage1Path });
     await page1.close();
     await context1.close();
     await afterSync();
-    await expectHeadcount(page2, 3, 'User 2');
-    await expectHeadcount(page3, 3, 'User 3');
+    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page3, 2, 'User 3');
 
     await cleanupUser(page2, 'User 2');
     await context2.storageState({ path: storage2Path });
@@ -172,7 +132,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await context2.close();
     await afterSync();
     await wait(2000, 5000);
-    await expectHeadcount(page3, 2, 'User 3');
+    await expectHeadcount(page3, 1, 'User 3');
 
     await cleanupUser(page3, 'User 3');
     await context3.storageState({ path: storage3Path });
@@ -192,7 +152,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2 re-enter');
-    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page2, 1, 'User 2');
 
     context3 = await browser3.newContext({
       viewport: { width: 640, height: 800 },
@@ -206,8 +166,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page3, 'User3 re-enter');
-    await expectHeadcount(page2, 3, 'User 2');
-    await expectHeadcount(page3, 3, 'User 3');
+    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page3, 2, 'User 3');
 
     context1 = await browser1.newContext({
       viewport: { width: 640, height: 800 },
@@ -221,9 +181,9 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page1, 'User1 re-enter');
-    await expectHeadcount(page1, 4, 'User 1');
-    await expectHeadcount(page2, 4, 'User 2');
-    await expectHeadcount(page3, 4, 'User 3');
+    await expectHeadcount(page1, 3, 'User 1');
+    await expectHeadcount(page2, 3, 'User 2');
+    await expectHeadcount(page3, 3, 'User 3');
 
     await cleanupUser(page1, 'User 1');
     await cleanupUser(page2, 'User 2');

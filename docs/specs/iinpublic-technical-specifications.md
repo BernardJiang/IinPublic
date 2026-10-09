@@ -5314,27 +5314,31 @@ Add focused specs so shell refactors don't silently break single-spec screens:
 
 Part 3 (T1–T10) covers the *redesign mechanics*. Part 4 is the *functional* suite, organized by how many users are present. **Stage number = total concurrent users**, matching the `tests/e2e/staged/stageN-*` directories one-to-one (labels previously counted peers and were off by one; corrected 2026-07-13 — former Stages 2 and 3 were both three-user stages and are merged into the new Stage 3). Each stage builds on the saved state of the prior one (matching the repo's `zzz-save-stageN` pattern). The rule for every stage: **use the Traversal contract from Part 1B** — visit every tree page reachable with the users present, and exercise every function that becomes possible at that user count. The redesign overlay (T1–T10, especially the narrow-viewport `⋯` overflow) is asserted on the relevant screens within each stage rather than only in isolation.
 
-##### Stage 1 — TechSupport only (1 user): exhaustive single-user clickability + baseline
+##### Stage 1 — TechSupport only (0 stranger-room users): support baseline and single-user clickability
 
 TechSupport must click through **every** reachable item and establish the empty-world baseline.
 
 - **Identity:** boot as TechSupport; assert stage name is exactly `TechSupport`.
-- **Chatrooms:** traverse the full default hierarchy **one room at a time** (Global ▸ each Region ▸ each City); expand/collapse every node; enter each room and **verify headcount** (the room(s) TechSupport occupies show 1; all others show 0); use Return Home; create a custom room, then rename it; confirm Broadcast with an empty OUT list shows the proper guard (no crash).
+- **Chatrooms:** assert the root remains in **Contacts only**, with no Global/Nearby/Place presence,
+  headcount, map pin, or roster row. Room discovery and Broadcast are unavailable to this identity.
 - **Contacts:** open Contacts → assert **zero contacts** (empty state); exercise the name/relation filters and every sort option on the empty list (no error).
 - **Talks:** create **3 talks of each type** — tag, flow, survey, route (**12 total**) — using the editor's per-type structure (checkbox items / branching flow / survey questions / route DAG); confirm all appear in OUT; exercise the sort control and every filter (type, status, outcome, date range, text query).
 - **Me:** open Me → assert the flattened **Q&A reflects the 12 created talks** (each talk's questions/answers appear); exercise Q&A sort + type/state filters; **create one new talk from the Me tab** (Me ▸ Talk Editor, one type) and assert it appears in **both** Me and Talks (shared-editor edge).
 - **Settings — walk every page:** Profile shows stage name `TechSupport` + headshot control; open **Edit Stage Name** (open→close), **Headshot** → Camera capture + Photo preview (open→close). Then open each itemized page and back out: profile languages, incoming-language filter, distance min/max, **Grammar filter page (toggle open→close)**, **Dirty-word filter page (toggle open→close)**, cutoff/sent-after, location refresh, travel mode, age verification, feature toggles. Open **Credit/Reputation** and assert it is **read-only**. Open **Development settings**. Assert each page opens, its control responds, and back returns to the Settings root.
 - **Notifications:** any toast raised during the run auto-dismisses (T4).
 
-##### Stage 2 — + Adam (2 users): full two-party talk lifecycle, all types, varied answers
+##### Stage 2 — Tom + Adam (2 ordinary room users): full two-party Talk lifecycle
 
-- **Onboard:** Adam boots, sets stage name + profile, lands in Global; **headcount = 2**.
-- **Adam answers all of TechSupport's talks.** For each **same-type triple**, Adam gives **three different answers** (e.g. match / mismatch / ignore, or three distinct branch paths), across all four types.
+- **Onboard:** Tom and Adam boot in the same Nearby cell; **headcount = 2**. TechSupport remains a
+  pinned Contact and contributes zero.
+- **Adam answers Tom's Talks.** For each same-type triple, Adam gives varied answers across all four types.
 - **Verify on Adam's side:** each talk's outcome is recorded (match vs mismatch/ignore); a conversation is created on match and **not** on mismatch/ignore.
-- **Verify on TechSupport's side:** the Creator "Replies To My Talks" triage shows Adam's reply per talk with the correct outcome; matched talks create the conversation.
-- **Messaging + shared destinations (conversation-first):** Adam clicks TechSupport **in the room** and lands **directly on the Conversation**; sends a message; TechSupport gets the new-message toast + badge **without** opening it, then opens and replies; both sides show ordered history. Adam presses back → **User layout** (thread list visible), opens a **matched-talk Thread**, replies in it, back → User layout, back → room detail. Then click TechSupport **from Contacts** (now a contact) and assert it lands on the **same Conversation/thread** (shared-edge + N2a back-chain check).
+- **Verify on Tom's side:** Creator reply triage shows Adam's reply per Talk with the correct outcome; matched Talks create the conversation.
+- **Messaging + shared destinations (conversation-first):** Adam and Tom exercise room → User →
+  Conversation/Thread navigation. TechSupport conversation behavior is tested separately through
+  its pinned Contact and support inbox, never through a room member row.
 
-##### Stage 3 — + Eve (3 users: TechSupport + Adam + Eve): peer↔peer core + network effects
+##### Stage 3 — + Eve (3 ordinary room users: Tom + Adam + Eve): peer↔peer core + network effects
 
 Merged from the former Stages 2 and 3 (both were three-user stages). Where a function already has a two-user variant in `stage2-two-user` (blocking 15b, reputation 21a–c, messaging 29–31), Stage 3 extends it across the Adam↔Eve pair rather than re-testing it.
 

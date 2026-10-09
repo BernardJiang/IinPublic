@@ -17,14 +17,13 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
 
     await assertStatusChecks(page, [
       { kind: 'headerStageName', name: 'TechSupport' },
-      { kind: 'statusBarRoom', substring: 'Global' },
-      { kind: 'chatroomHeadcount', roomId: 'global', count: 1 },
+      { kind: 'statusBarRoom', substring: 'Contacts only' },
     ]);
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await expect(page.locator('#chatroom-list')).toContainText('Global');
-    await expect(page.locator('.chatroom-headcount').first()).toBeVisible();
+    await expect(page.locator('#chatroom-list')).toContainText('Contacts only');
+    await expect(page.locator('.chatroom-item[data-chatroom-id="global"]')).toHaveCount(0);
 
     await page.click('.nav-btn[data-view="contacts"]');
     await afterNav();

@@ -53,7 +53,7 @@ test.describe('Login — single user headcount', () => {
     await clearGunForStage1Spec();
   });
 
-  test('Single user: login, headcount persists with TechSupport baseline', async () => {
+  test('Single user: Nearby headcount persists while TechSupport stays Contacts-only', async () => {
     const screenshotDir = e2eTestScreenshotsDir('01-login');
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
 
@@ -79,8 +79,8 @@ test.describe('Login — single user headcount', () => {
     // Greeting text/signature correctness is 03-support-greeting-signed.spec.ts's job (K2,
     // docs/TODO.md) — this spec only proves the contact exists and headcount holds.
 
-    const expectedHeadcount = '2';
-    const headcount = page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
+    const expectedHeadcount = '1';
+    const headcount = page.locator('.chatroom-item.current-room .chatroom-headcount');
     await headcount.waitFor({ state: 'visible', timeout: 15000 });
     await expect(headcount).toContainText(expectedHeadcount, { timeout: 20000 });
     await page.screenshot({ path: path.join(screenshotDir, '01-first-login.png'), fullPage: true });
@@ -102,7 +102,7 @@ test.describe('Login — single user headcount', () => {
     const reloginState = await readFirstUserSupportState(page);
     expect(reloginState.currentUserId).toBe(firstLoginState.currentUserId);
     expect(reloginState.supportConversationCount).toBe(1);
-    await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText(
+    await expect(page.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText(
       expectedHeadcount,
       { timeout: 20000 },
     );

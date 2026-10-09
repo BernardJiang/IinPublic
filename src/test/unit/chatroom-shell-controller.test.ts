@@ -42,7 +42,6 @@ function makeDeps(overrides: Partial<ChatroomShellControllerDeps> = {}): Chatroo
     upsertCustomChatroomFromServer: jest.fn(),
     showNotification: jest.fn(),
     emit: jest.fn(),
-    isTechSupportOnline: () => false,
     isUserOnline: () => false,
     formatDate: () => 'date',
     t: (key) => String(key),

@@ -63,8 +63,8 @@ export async function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot
   const expectedStableUsers: Partial<Record<E2eStageName, string[]>> = {
     stage0: [TECHSUPPORT_STAGE_NAME],
     stage1: [TECHSUPPORT_STAGE_NAME],
-    stage2: ['Adam', TECHSUPPORT_STAGE_NAME],
-    stage3: ['Adam', 'Eve', TECHSUPPORT_STAGE_NAME],
+    stage2: ['Adam', 'Tom', TECHSUPPORT_STAGE_NAME],
+    stage3: ['Adam', 'Eve', 'Tom', TECHSUPPORT_STAGE_NAME],
   };
   const expected = expectedStableUsers[stage]?.slice().sort();
   if (expected && JSON.stringify(userRoots) !== JSON.stringify(expected)) {
@@ -159,14 +159,14 @@ async function loadStage2AdamJoinBaseline(): Promise<void> {
   await postSnapshot(body);
 }
 
-/** Stage2 snapshot should remain TechSupport + Adam (per staged/README.md). */
+/** Stage2 snapshot should remain contacts-only TechSupport + ordinary Tom and Adam. */
 export async function saveStage2SnapshotFromAdamJoinBaseline(): Promise<void> {
   await loadStage2AdamJoinBaseline();
   await saveStageSnapshot('stage2');
 }
 
 /**
- * Stage-3 specs expect a predictable TechSupport + Adam + Eve baseline (docs/TODO.md K4).
+ * Stage-3 specs expect contacts-only TechSupport plus ordinary Tom, Adam, and Eve.
  * In the staged pipeline, start from the stage2 snapshot (`saveStageSnapshot('stage2')`,
  * written by stage2's own `zzz-save-stage2.spec.ts`) rather than a bare clear.
  */

@@ -4,7 +4,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, afterLoad, delay, headless } from '../../helpers/timing';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import {
-  TECH_SUPPORT_NAME,
+  ALICE_NAME,
   TOM_NAME,
   bootstrapSuperUser,
 } from '../../helpers/super-user-techsupport-shared';
@@ -70,16 +70,16 @@ test.describe('Survey: Ignore on a non-last question does not end the response e
   test('a mid-survey Ignore advances instead of completing; only the last question ends it', async () => {
     test.setTimeout(300_000);
 
-    const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
+    const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice survey author', ALICE_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item:has-text("Global")');
+    await pageTechSupport.click('.chatroom-item.current-room');
     await afterLoad();
 
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterLoad();
 
     const surveyTitle = `IgnoreMidSurvey ${Date.now()}`;

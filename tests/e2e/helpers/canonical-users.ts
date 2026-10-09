@@ -1,5 +1,6 @@
 /** Canonical stage names for the E2E stage pipeline (see tests/e2e/staged/README.md). */
 export const TECHSUPPORT = 'TechSupport';
+export const TOM = 'Tom';
 export const ADAM = 'Adam';
 export const EVE = 'Eve';
 
@@ -9,4 +10,4 @@ export const LEGACY_JERRY = 'Jerry';
 export const LEGACY_BOB = 'Bob';
 export const LEGACY_ALICE = 'Alice';
 
-export type CanonicalUser = typeof TECHSUPPORT | typeof ADAM | typeof EVE;
+export type CanonicalUser = typeof TECHSUPPORT | typeof TOM | typeof ADAM | typeof EVE;

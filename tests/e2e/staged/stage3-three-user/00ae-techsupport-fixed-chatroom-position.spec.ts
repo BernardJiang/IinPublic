@@ -1,14 +1,6 @@
 /**
- * TechSupport in a chatroom's member list gets a fixed, compact pinned row — never sorted
- * in among ordinary members by recency/relationship, and visually smaller (single line,
- * no avatar/status block) than an ordinary member row. Same treatment the Contacts tab
- * already gives its own pinned TechSupport row (contacts-view.ts).
- *
- * Flow: Tom joins Global first, then Jerry, then Bob (recency order: Bob, Jerry newest-
- * first among ordinary members). From Tom's roster:
- *  - TechSupport is always the FIRST row in the DOM, regardless of when Jerry/Bob joined.
- *  - TechSupport's row carries the compact pinned class and no avatar/status elements.
- *  - Jerry and Bob (ordinary members) still sort by recency beneath it, as before.
+ * OPEN-40 Contacts-only migration. TechSupport keeps its pinned Contacts row but never enters a
+ * Nearby roster. Three ordinary users in one Nearby cell see only one another in room details.
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -20,7 +12,7 @@ import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 
 test.describe.configure({ timeout: 120_000 });
 
-test.describe('TechSupport gets a fixed, compact chatroom roster position', () => {
+test.describe('TechSupport stays out of Nearby room rosters', () => {
   let browserTom: Browser;
   let browserJerry: Browser;
   let browserBob: Browser;
@@ -51,7 +43,7 @@ test.describe('TechSupport gets a fixed, compact chatroom roster position', () =
     await clearGunForStage3Spec();
   });
 
-  test('TechSupport row stays first and compact regardless of ordinary-member join order', async () => {
+  test('room details contain only ordinary Nearby participants', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
@@ -62,36 +54,22 @@ test.describe('TechSupport gets a fixed, compact chatroom roster position', () =
     contextBob = bob.context;
     pageBob = bob.page;
 
-    await pageTom.click('.chatroom-item:has-text("Global")');
-    await afterSync();
-    await pageJerry.click('.chatroom-item:has-text("Global")');
-    await afterSync();
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageTom.locator('.chatroom-item.current-room').click();
     await afterSync();
 
-    // TechSupport + 2 ordinary members (Jerry, Bob) visible in Tom's roster.
-    await expect(pageTom.locator('.chatroom-member-item')).toHaveCount(3, { timeout: 15_000 });
+    // Tom is the current viewer, so only the other two ordinary members appear.
+    await expect(pageTom.locator('.chatroom-member-item')).toHaveCount(2, { timeout: 15_000 });
+    await expect(pageTom.locator(
+      `.chatroom-member-item[data-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`,
+    )).toHaveCount(0);
 
     const rows = pageTom.locator('.chatroom-member-item');
-    const firstRow = rows.first();
-    await expect(firstRow).toHaveAttribute('data-support-contact', 'true');
-    await expect(firstRow).toHaveAttribute('data-user-id', TECHSUPPORT_ROOT_USER_ID);
-    await expect(firstRow).toHaveClass(/chatroom-member-support-pinned/);
-
-    // Compact single-line treatment — no avatar circle, no separate status line.
-    await expect(firstRow.locator('.chatroom-member-avatar')).toHaveCount(0);
-    await expect(firstRow.locator('.chatroom-member-status')).toHaveCount(0);
-    await expect(firstRow.locator('.chatroom-member-support-badge')).toContainText('Built-in');
-
-    // Ordinary members (Jerry, Bob) keep the normal 2-line row and sort beneath TechSupport.
-    const secondRow = rows.nth(1);
-    const thirdRow = rows.nth(2);
-    await expect(secondRow.locator('.chatroom-member-avatar')).toBeVisible();
-    await expect(thirdRow.locator('.chatroom-member-avatar')).toBeVisible();
-    const secondId = await secondRow.getAttribute('data-user-id');
-    const thirdId = await thirdRow.getAttribute('data-user-id');
+    await expect(rows.nth(0).locator('.chatroom-member-avatar')).toBeVisible();
+    await expect(rows.nth(1).locator('.chatroom-member-avatar')).toBeVisible();
+    const firstId = await rows.nth(0).getAttribute('data-user-id');
+    const secondId = await rows.nth(1).getAttribute('data-user-id');
+    expect(firstId).not.toBe(TECHSUPPORT_ROOT_USER_ID);
     expect(secondId).not.toBe(TECHSUPPORT_ROOT_USER_ID);
-    expect(thirdId).not.toBe(TECHSUPPORT_ROOT_USER_ID);
-    expect(new Set([secondId, thirdId]).size).toBe(2);
+    expect(new Set([firstId, secondId]).size).toBe(2);
   });
 });

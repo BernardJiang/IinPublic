@@ -94,14 +94,6 @@ its ID.
     - [ ] Enforce the final full-Place admission/fairness rule against global `C`.
       Remaining gap: reconcile conflicting admissions after an index/network partition with
       portable ownerless evidence, then user-test the full-room and fallback wording.
-  - [ ] **P0 TechSupport Contacts-only migration:** keep the pinned verified Contact and support
-    channel, but delete relay/client Global seeding, synthetic roster floors, headcount contribution,
-    map presence, capacity exemption, and room tests. TechSupport remains ineligible for Talks.
-    - [x] Runtime migration complete: no relay seed or client roster floor; TechSupport is forced to
-      local Contacts-only, server/client rosters reject legacy active rows, and baseline graph/tests
-      require identity/contact metadata with no room presence.
-    - [ ] Convert remaining staged E2E scenarios that used TechSupport as a convenient Global-room
-      test participant to ordinary fixture users.
   - [ ] **P1 sparse-area behavior:** widen Nearby search under a deterministic hysteresis rule while
     displaying the actual approximate reach. Do not silently activate overlapping room levels or
     subscribe to unbounded parent rosters.

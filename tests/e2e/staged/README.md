@@ -1,15 +1,17 @@
 # Staged E2E pipeline
 
-Sequential network stages build on each other. **TechSupport** is always the bootstrap root presence on an empty database; ordinary-user stages run alongside that root instead of treating it as an interchangeable user fixture.
+Sequential network stages build on each other. **TechSupport** is always the built-in Contacts-only
+identity on an empty database. It is never a room participant or an interchangeable Talk fixture;
+ordinary users provide every staged room headcount and exchange.
 
 | Stage | After | Network shape | Folder |
 |-------|--------|---------------|--------|
-| **stage0** | Empty DB + TechSupport bootstrap login | TechSupport root only | `stage0-bootstrap/` |
-| **stage1** | Ordinary single-user tests | TechSupport root + one ordinary user per isolated spec | `stage1-single-user/` |
-| **stage2** | Adam joins + 2-user tests | TechSupport root + two ordinary users | `stage2-two-user/` |
-| **stage3** | Eve joins + 3-user tests | TechSupport root + three ordinary users | `stage3-three-user/` |
-| **stage4** | Four-user tests | TechSupport root + four ordinary users | `stage4-four-user/` |
-| **stage5** | Multi-user (5+) tests | TechSupport root + 5+ ordinary users | `stage5-multi-user/` |
+| **stage0** | Empty DB + TechSupport bootstrap login | Contacts-only TechSupport; zero room members | `stage0-bootstrap/` |
+| **stage1** | Ordinary single-user tests | Contacts-only TechSupport + one ordinary user per isolated spec | `stage1-single-user/` |
+| **stage2** | Tom + Adam baseline | Contacts-only TechSupport + two ordinary users | `stage2-two-user/` |
+| **stage3** | Eve joins + 3-user tests | Contacts-only TechSupport + three ordinary users | `stage3-three-user/` |
+| **stage4** | Four-user tests | Contacts-only TechSupport + four ordinary users | `stage4-four-user/` |
+| **stage5** | Multi-user (5+) tests | Contacts-only TechSupport + 5+ ordinary users | `stage5-multi-user/` |
 
 ## Commands
 
@@ -22,7 +24,8 @@ npm run test:e2e:staged
 ```
 
 Snapshots: `tests/e2e/staged/snapshots/worker-{N}/stage{N}.json`  
-User storage: `stage{N}-techsupport.storage.json`, `stage{N}-adam.storage.json`, etc.
+User storage: stage 0 keeps `stage0-techsupport.storage.json`; room stages use ordinary-user files
+such as `stage2-tom.storage.json` and `stage2-adam.storage.json`.
 
 ## Pair-Direct Model
 
