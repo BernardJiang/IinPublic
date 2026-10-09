@@ -50,6 +50,22 @@ export const MEMBERSHIP_KEY_REFRESH_BEATS = 10;
  */
 export const SERVER_MEMBERS_POLL_MS = 5_000;
 
+export class PlaceRoomFullError extends Error {
+  readonly code = 'PLACE_FULL';
+
+  constructor(readonly capacity: number) {
+    super(`Place is full (${capacity} active people)`);
+    this.name = 'PlaceRoomFullError';
+  }
+}
+
+export class PlaceAdmissionUnavailableError extends Error {
+  constructor(message = 'Place admission could not be verified') {
+    super(message);
+    this.name = 'PlaceAdmissionUnavailableError';
+  }
+}
+
 type ChatroomMember = {
   userId: string;
   stageName: string;
@@ -372,9 +388,10 @@ export class WebChatroomService {
     userId: string,
     stageName?: string,
     onMoved?: (newChatroomId: string) => void,
+    placeReservationToken?: string,
   ): Promise<void> {
-    this.currentChatroomId = chatroomId;
     if (isLocalOnlyRoomScope(chatroomId)) {
+      this.currentChatroomId = chatroomId;
       this.stopMembershipHeartbeat();
       this.recordArrival(chatroomId, 'auto');
       return;
@@ -388,6 +405,25 @@ export class WebChatroomService {
       stageName: stageName || userId, // Use stageName if provided, otherwise fall back to userId
       isTraveler: this.membershipTravelerResolver?.(chatroomId) === true,
     };
+
+    // A Place is admitted by the shared room index before any public Gun presence is written.
+    // switchChatroom reserves before stopping the old room and passes the reservation through.
+    if (isPlaceRoomId(chatroomId)) {
+      const reservationToken = placeReservationToken || await this.reservePlaceAdmission(
+        chatroomId,
+        userId,
+        userData.stageName,
+        userData.isTraveler,
+      );
+      await this.commitPlaceAdmission(
+        chatroomId,
+        userId,
+        userData.stageName,
+        userData.isTraveler,
+        reservationToken,
+      );
+    }
+    this.currentChatroomId = chatroomId;
 
     console.log(`👥 Joining chatroom: ${chatroomId} as user: ${userId}`);
     console.log(`📝 User data:`, userData);
@@ -638,6 +674,78 @@ export class WebChatroomService {
     }
   }
 
+  /**
+   * Reserve a Place seat before leaving the current room. Capacity uncertainty fails closed: an
+   * offline client can keep using its current room but cannot safely claim a new Place seat.
+   */
+  private async reservePlaceAdmission(
+    chatroomId: string,
+    userId: string,
+    stageName: string,
+    isTraveler: boolean,
+  ): Promise<string> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4_000);
+    try {
+      const response = await fetch(
+        `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, stageName, isTraveler, reserveOnly: true }),
+          signal: controller.signal,
+        },
+      );
+      if (response.status === 409) {
+        const body = await response.json().catch(() => ({})) as { capacity?: unknown };
+        const capacity = Number(body.capacity);
+        throw new PlaceRoomFullError(Number.isSafeInteger(capacity) && capacity > 0
+          ? capacity
+          : CONFIG.CHATROOM_MAX_CAPACITY);
+      }
+      if (!response.ok) {
+        throw new Error(`Place admission unavailable (${response.status})`);
+      }
+      const body = await response.json() as { reservationToken?: unknown };
+      const reservationToken = String(body.reservationToken || '');
+      if (!reservationToken) throw new Error('Place admission returned no reservation token');
+      return reservationToken;
+    } catch (error) {
+      if (error instanceof PlaceRoomFullError) throw error;
+      throw new PlaceAdmissionUnavailableError(
+        `Place admission could not be verified: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /** Activate a reserved Place seat after the old room has stopped. */
+  private async commitPlaceAdmission(
+    chatroomId: string,
+    userId: string,
+    stageName: string,
+    isTraveler: boolean,
+    reservationToken: string,
+  ): Promise<void> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4_000);
+    try {
+      const response = await fetch(
+        `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, stageName, isTraveler, reservationToken }),
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) throw new Error(`Place admission commit failed (${response.status})`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   /** Remove the server/relay fast-index row as well as the peer's Gun record. */
   private async syncLeaveWithServer(chatroomId: string, userId: string): Promise<void> {
     const controller = new AbortController();
@@ -805,9 +913,9 @@ export class WebChatroomService {
 
   /**
    * Manual room switch. Atomic with respect to every other move: it waits for any move already
-   * running and always wins over an eviction that has not started. The old room is stopped before
-   * the new room starts. If the new join fails, the client remains disconnected; silently restoring
-   * the old room would broaden traffic behind the user's back and violate the one-active-room rule.
+   * running and always wins over an eviction that has not started. A Place seat is reserved before
+   * the old room stops, so a full-room rejection leaves the active room untouched. After admission,
+   * the old room is stopped before the new room starts.
    */
   async switchChatroom(userId: string, newChatroomId: string, stageName?: string): Promise<void> {
     this.manualMovesPending += 1;
@@ -818,22 +926,37 @@ export class WebChatroomService {
         // fast path re-records a visit unconditionally (needed for the page-reload case,
         // where a fresh service instance has no currentChatroomId to compare against).
         if (from === newChatroomId) return;
+        const placeReservationToken = isPlaceRoomId(newChatroomId)
+          ? await this.reservePlaceAdmission(
+            newChatroomId,
+            userId,
+            stageName || userId,
+            this.membershipTravelerResolver?.(newChatroomId) === true,
+          )
+          : undefined;
         const moveMembership = async () => {
           if (from) await this.leaveChatroom(from, userId);
           this.currentChatroomId = newChatroomId;
           this.recordArrival(newChatroomId, 'manual');
-          await this.joinChatroom(newChatroomId, userId, stageName);
+          await this.joinChatroom(newChatroomId, userId, stageName, undefined, placeReservationToken);
         };
-        if (newChatroomId === CONTACTS_ONLY_SCOPE_ID && this.activeExchangeRoomController) {
-          await this.activeExchangeRoomController.leave();
-          await moveMembership();
-        } else if (this.activeExchangeRoomController && this.activeRoomInput) {
-          await this.activeExchangeRoomController.transitionTo(
-            this.activeRoomInput(newChatroomId),
-            moveMembership,
-          );
-        } else {
-          await moveMembership();
+        try {
+          if (newChatroomId === CONTACTS_ONLY_SCOPE_ID && this.activeExchangeRoomController) {
+            await this.activeExchangeRoomController.leave();
+            await moveMembership();
+          } else if (this.activeExchangeRoomController && this.activeRoomInput) {
+            await this.activeExchangeRoomController.transitionTo(
+              this.activeRoomInput(newChatroomId),
+              moveMembership,
+            );
+          } else {
+            await moveMembership();
+          }
+        } catch (error) {
+          // A pre-admission is a live server seat. Release it if the actual transition fails so a
+          // failed client cannot occupy Place capacity until the normal presence TTL expires.
+          if (placeReservationToken) await this.syncLeaveWithServer(newChatroomId, userId);
+          throw error;
         }
       });
     } finally {

@@ -9,6 +9,22 @@ export type RelayRoomMember = {
   isTraveler?: boolean;
 };
 
+export type PlaceAdmissionReservation = {
+  reservationToken: string;
+  expiresAt: string;
+};
+
+export class EmbeddedHubRelayRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly responseBody: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'EmbeddedHubRelayRequestError';
+  }
+}
+
 export type SignalingRelayFrame = {
   conversationId: string;
   kind: string;
@@ -39,7 +55,19 @@ export type RelayTurnCredentials = {
 
 export interface EmbeddedHubRelayClientLike {
   listMembers(chatroomId: string): Promise<RelayRoomMember[]>;
-  addMember(chatroomId: string, userId: string, stageName?: string, isTraveler?: boolean): Promise<void>;
+  addMember(
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+    isTraveler?: boolean,
+    reservationToken?: string,
+  ): Promise<void>;
+  reservePlaceMember?(
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+    isTraveler?: boolean,
+  ): Promise<PlaceAdmissionReservation>;
   touchMember(chatroomId: string, userId: string, options?: TouchMemberOptions): Promise<void>;
   removeMember(chatroomId: string, userId: string): Promise<void>;
   listSignalingFrames(conversationId: string, recipientPub?: string): Promise<SignalingRelayFrame[]>;
@@ -175,13 +203,39 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     userId: string,
     stageName?: string,
     isTraveler = false,
+    reservationToken?: string,
   ): Promise<void> {
     assertRelayMetadataPath(['chatrooms', chatroomId, 'users', userId]);
     await this.request(`/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, stageName: stageName || userId, isTraveler }),
+      body: JSON.stringify({
+        userId,
+        stageName: stageName || userId,
+        isTraveler,
+        ...(reservationToken ? { reservationToken } : {}),
+      }),
     });
+  }
+
+  async reservePlaceMember(
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+    isTraveler = false,
+  ): Promise<PlaceAdmissionReservation> {
+    assertRelayMetadataPath(['chatrooms', chatroomId, 'users', userId]);
+    const response = await this.request(`/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        stageName: stageName || userId,
+        isTraveler,
+        reserveOnly: true,
+      }),
+    });
+    return response.json() as Promise<PlaceAdmissionReservation>;
   }
 
   async touchMember(
@@ -437,7 +491,9 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       });
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(
+        throw new EmbeddedHubRelayRequestError(
+          response.status,
+          text,
           `embedded hub relay ${init.method || 'GET'} ${path} failed with ${response.status}: ${text.slice(0, 200)}`,
         );
       }

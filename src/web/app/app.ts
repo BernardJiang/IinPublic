@@ -22,7 +22,11 @@ import { OFFICIAL_APPLICATION_ID, OFFICIAL_SIGNING_IDENTITY_HASH } from '../../s
 import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
-import { WebChatroomService } from '../services/web-chatroom-service';
+import {
+  PlaceAdmissionUnavailableError,
+  PlaceRoomFullError,
+  WebChatroomService,
+} from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
@@ -1990,7 +1994,28 @@ export class IinPublicApp {
         },
       );
     } catch (error) {
-      console.warn('Chatroom join encountered an error (non-fatal):', error);
+      if (isPlaceRoomId(chatroomId)) {
+        const rejectedPlace = chatroomId;
+        chatroomId = await this.resolveAutomaticNearbyRoom();
+        this.currentChatroomId = chatroomId;
+        this.travelModeActive = false;
+        this.travelChatroomId = undefined;
+        this.travelHomeChatroomId = chatroomId;
+        this.persistTravelModeStateToStorage();
+        await this.chatroomService.joinChatroom(
+          chatroomId,
+          this.currentUser.id,
+          this.currentUser.stageName,
+        );
+        const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
+        const message = error instanceof PlaceRoomFullError
+          ? uiText(language, 'chatroomPlaceStartupFull').replace('{capacity}', String(error.capacity))
+          : uiText(language, 'chatroomPlaceStartupUnavailable');
+        this.uiManager.showNotification(message, 'warning');
+        console.warn(`Saved Place ${rejectedPlace} could not be entered; opened ${chatroomId}:`, error);
+      } else {
+        console.warn('Chatroom join encountered an error (non-fatal):', error);
+      }
     }
 
     // Store current chatroom in localStorage for next time
@@ -8642,10 +8667,64 @@ export class IinPublicApp {
         ? await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, requestedChatroomId)
         : requestedChatroomId;
       const previousChatroomId = this.currentChatroomId;
-      this.uiManager.setCurrentChatroomId(chatroomId);
+      const isSameRoom = previousChatroomId === chatroomId;
 
+      if (!isSameRoom) {
+        try {
+          if (this.currentChatroomId) {
+            console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
+
+            await this.chatroomService.switchChatroom(
+              this.currentUser.id,
+              chatroomId,
+              this.currentUser.stageName,
+            );
+          } else {
+            // App lost track of room (race / fresh UI) while user opened a room — align service with UI.
+            const svcId = this.chatroomService.getCurrentChatroomId();
+            if (svcId && svcId !== chatroomId) {
+              await this.chatroomService.switchChatroom(
+                this.currentUser.id,
+                chatroomId,
+                this.currentUser.stageName,
+              );
+            } else if (!svcId) {
+              await this.chatroomService.joinChatroom(
+                chatroomId,
+                this.currentUser.id,
+                this.currentUser.stageName,
+              );
+            }
+          }
+        } catch (error) {
+          if (previousChatroomId) this.uiManager.setCurrentChatroomId(previousChatroomId);
+          const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
+          const message = error instanceof PlaceRoomFullError
+            ? uiText(language, 'chatroomPlaceFull').replace('{capacity}', String(error.capacity))
+            : error instanceof PlaceAdmissionUnavailableError
+              ? uiText(language, 'chatroomPlaceAdmissionUnavailable')
+              : uiText(language, 'chatroomSwitchFailed');
+          this.uiManager.showNotification(message, 'warning');
+          console.warn(`Chatroom switch to ${chatroomId} was rejected:`, error);
+          return;
+        }
+
+        this.currentChatroomId = chatroomId;
+        localStorage.setItem('iinpublic_last_chatroom', chatroomId);
+
+        this.subscribeToMessages(chatroomId);
+            console.log(`✅ Switched to ${chatroomId}`);
+        // Switching rooms changes the audience only. Existing Talks never follow the user or
+        // auto-send to newcomers; broadcasting in the new room is always a deliberate action.
+      } else {
+        // Same room: ensure app id matches (e.g. first time opening detail after join)
+        this.currentChatroomId = chatroomId;
+      }
+
+      this.uiManager.setCurrentChatroomId(chatroomId);
       // A deliberate Place selection is travel. Nearby/local scopes are automatic home; there is
-      // no separate mode switch or manually assigned home room.
+      // no separate mode switch or manually assigned home room. Commit this state only after the
+      // room switch succeeds, so a full Place cannot leave the navigation pointing at a false room.
       if (isPlaceRoomId(chatroomId)) {
         if (previousChatroomId && !isPlaceRoomId(previousChatroomId)) {
           this.travelHomeChatroomId = previousChatroomId;
@@ -8662,47 +8741,6 @@ export class IinPublicApp {
         active: this.travelModeActive,
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
-
-      const isSameRoom = previousChatroomId === chatroomId;
-
-      if (!isSameRoom) {
-        if (this.currentChatroomId) {
-          console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
-
-          await this.chatroomService.switchChatroom(
-            this.currentUser.id,
-            chatroomId,
-            this.currentUser.stageName,
-          );
-        } else {
-          // App lost track of room (race / fresh UI) while user opened a room — align service with UI.
-          const svcId = this.chatroomService.getCurrentChatroomId();
-          if (svcId && svcId !== chatroomId) {
-            await this.chatroomService.switchChatroom(
-              this.currentUser.id,
-              chatroomId,
-              this.currentUser.stageName,
-            );
-          } else if (!svcId) {
-            await this.chatroomService.joinChatroom(
-              chatroomId,
-              this.currentUser.id,
-              this.currentUser.stageName,
-            );
-          }
-        }
-
-        this.currentChatroomId = chatroomId;
-        localStorage.setItem('iinpublic_last_chatroom', chatroomId);
-
-        this.subscribeToMessages(chatroomId);
-            console.log(`✅ Switched to ${chatroomId}`);
-        // Switching rooms changes the audience only. Existing Talks never follow the user or
-        // auto-send to newcomers; broadcasting in the new room is always a deliberate action.
-      } else {
-        // Same room: ensure app id matches (e.g. first time opening detail after join)
-        this.currentChatroomId = chatroomId;
-      }
 
       // subscribeToMembers reuses the Gun listener when chatroomId is unchanged (see WebChatroomService)
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {

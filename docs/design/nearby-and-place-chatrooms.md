@@ -103,7 +103,24 @@ Place rooms also use `C`. They do not subdivide by the visitors' physical locati
 visitors deliberately chose the same destination. The initial simple rule is: when a Place is full,
 do not create visible `_part_N` rooms; keep the entrant in their current room and offer the Nearby
 room around that point.
-The final full-room admission wording and fairness rule must be tested before release.
+
+The implemented single-index admission rule is deliberately ownerless and easy to explain:
+
+1. The first `C` live admissions observed by the room index hold active seats.
+2. The creator is an ordinary participant and receives no priority or reserved seat.
+3. A current member may refresh the same seat; leaving or expiry releases it.
+4. Requests for one Place are serialized, so simultaneous `C+1` arrivals cannot all pass the same
+   capacity check.
+5. Admission uses a short-lived two-phase token. A reservation consumes one pending seat but is not
+   room presence and starts no discovery, radio, or Talk exchange. The client reserves first, stops
+   its old room, and only then commits active membership. A full-room rejection therefore leaves
+   the current room, discovery, and Talk audience unchanged without briefly joining two rooms.
+
+This is a safe first implementation, not a claim of decentralized consensus. During a network
+partition, independent indexes may temporarily admit conflicting sets. The final multi-index
+fairness/reconciliation rule needs portable signed admission evidence (or another deterministic
+ownerless protocol), partition/reconnect tests, and user testing of the full-room wording before
+release. Until that exists, no client may describe the first `C` rule as globally instantaneous.
 
 Map UI shows one shaded Nearby area plus meaningful Place pins. It does not show internal shards,
 raw coordinate IDs, Global, TechSupport, or a geographic hierarchy.

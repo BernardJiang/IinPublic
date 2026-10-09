@@ -81,7 +81,15 @@ its ID.
     Nearby room around that point and never expose `_part_N` rooms.
     - [x] New Places are immutable signed CIDv1 descriptors; the relay verifies signature, CID, and
       map-cell consistency before indexing them. Creation grants no owner/moderator capability.
+    - [x] Added the first safe capacity gate: one room index serializes short-lived two-phase Place
+      reservations against the release-wide `C`; a reservation is not active room presence, so the
+      old room stops before the Place token commits. Existing seats refresh idempotently, stale seats
+      expire, embedded phones cannot swallow a hub rejection, the legacy join/heartbeat paths cannot
+      bypass admission, and a rejected browser keeps its current room. Saved full Places fall back
+      to Nearby on startup.
     - [ ] Enforce the final full-Place admission/fairness rule against global `C`.
+      Remaining gap: reconcile conflicting admissions after an index/network partition with
+      portable ownerless evidence, then test the wording and the optional Nearby-at-the-pin offer.
   - [ ] **P0 TechSupport Contacts-only migration:** keep the pinned verified Contact and support
     channel, but delete relay/client Global seeding, synthetic roster floors, headcount contribution,
     map presence, capacity exemption, and room tests. TechSupport remains ineligible for Talks.
