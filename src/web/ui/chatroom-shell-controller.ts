@@ -24,6 +24,7 @@ export type ChatroomShellControllerDeps = {
   getExpandedChatrooms: () => Set<string>;
   getMatchedUserIds: () => Set<string>;
   getCustomChatrooms: () => CustomChatroomRow[];
+  getNearbyMapArea?: () => ChatroomsViewDeps['nearbyMapArea'];
   setSessionUser: (user: User) => void;
   setCurrentUserId: (userId: string) => void;
   setChatroomBrowseMode: (mode: ChatroomsViewDeps['chatroomBrowseMode']) => void;
@@ -60,14 +61,17 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     showChatroomDetail: (chatroomId: string) => void;
   };
 
-  const viewDeps = (): ChatroomsViewDeps => ({
-    currentChatroom: deps.getCurrentChatroom(),
+  const viewDeps = (): ChatroomsViewDeps => {
+    const nearbyMapArea = deps.getNearbyMapArea?.();
+    return {
+      currentChatroom: deps.getCurrentChatroom(),
     chatroomMemberCounts: deps.getChatroomMemberCounts(),
     chatroomVisitCounts: deps.getChatroomVisitCounts(),
     chatroomBrowseMode: deps.getChatroomBrowseMode(),
     expandedChatrooms: deps.getExpandedChatrooms(),
     matchedUserIds: deps.getMatchedUserIds(),
     customChatrooms: deps.getCustomChatrooms(),
+      ...(nearbyMapArea ? { nearbyMapArea } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
       deps.setCurrentChatroom(chatroomId);
@@ -86,8 +90,9 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     isUserOnline: deps.isUserOnline,
     ...(deps.getCachedHeadshot ? { getCachedHeadshot: deps.getCachedHeadshot } : {}),
     ...(deps.resolvePeerHeadshot ? { resolvePeerHeadshot: deps.resolvePeerHeadshot } : {}),
-    onChatroomDetailOpened: (chatroomId) => deps.setChatroomsDetailRoomId(chatroomId),
-  });
+      onChatroomDetailOpened: (chatroomId) => deps.setChatroomsDetailRoomId(chatroomId),
+    };
+  };
 
   const renderChatroomList = (): void => {
     renderChatrooms(viewDeps());

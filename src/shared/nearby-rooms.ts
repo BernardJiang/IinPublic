@@ -55,6 +55,15 @@ export type NearbyRoomAssignment = {
 
 export type NearbyPublicScope = Omit<NearbyRoomAssignment, 'localCell'>;
 
+export type NearbyMapArea = {
+  /** Device-local display geometry. Never include it in room presence or discovery metadata. */
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+  approximateDiameterMeters: number;
+};
+
 function assertCoordinate(location: Pick<GPSCoordinate, 'latitude' | 'longitude'>): void {
   if (!Number.isFinite(location.latitude) || location.latitude < -90 || location.latitude > 90) {
     throw new Error('nearby latitude is invalid');
@@ -86,6 +95,36 @@ export function projectNearbyCoordinate(
   return {
     x: EARTH_RADIUS_METERS * longitudeRadians,
     y: EARTH_RADIUS_METERS * Math.log(Math.tan(Math.PI / 4 + latitudeRadians / 2)),
+  };
+}
+
+function unprojectNearbyCoordinate(point: { x: number; y: number }): {
+  latitude: number;
+  longitude: number;
+} {
+  return {
+    longitude: point.x / EARTH_RADIUS_METERS * 180 / Math.PI,
+    latitude: (2 * Math.atan(Math.exp(point.y / EARTH_RADIUS_METERS)) - Math.PI / 2)
+      * 180 / Math.PI,
+  };
+}
+
+/** Convert the local-only projected cell into map bounds without changing its publishable scope. */
+export function nearbyMapArea(assignment: NearbyRoomAssignment): NearbyMapArea {
+  const southwest = unprojectNearbyCoordinate({
+    x: assignment.localCell.minX,
+    y: assignment.localCell.minY,
+  });
+  const northeast = unprojectNearbyCoordinate({
+    x: assignment.localCell.maxX,
+    y: assignment.localCell.maxY,
+  });
+  return {
+    west: Math.max(-180, southwest.longitude),
+    south: Math.max(-MAX_MERCATOR_LATITUDE, southwest.latitude),
+    east: Math.min(180, northeast.longitude),
+    north: Math.min(MAX_MERCATOR_LATITUDE, northeast.latitude),
+    approximateDiameterMeters: assignment.approximateDiameterMeters,
   };
 }
 

@@ -2,6 +2,7 @@ import { gridLayerForZoom, tileAtTap, tileGridLines, tileSquares } from '../../s
 import { parseTileId } from '../../shared/room-tiles';
 import type { FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { CONFIG } from '../../shared/config';
+import { isNearbyRoomId, type NearbyMapArea } from '../../shared/nearby-rooms';
 import {
   chatroomsToGeoJson,
   type ChatroomMapFeatureProperties,
@@ -37,6 +38,8 @@ type ChatroomMapOptions = {
   tileTitle?: (tileId: string) => string;
   /** Tile to shade as "you are here" (the current room's tile), if any. */
   currentTileId?: string;
+  /** Device-local Nearby cell geometry. This value is rendered only and is never published. */
+  nearbyMapArea?: NearbyMapArea;
   enterTileText?: string;
   mapLoadFailedText: string;
   membersText: (count: number) => string;
@@ -60,6 +63,7 @@ const ROOM_LAYER_ID = 'iinpublic-chatroom-points';
 const GRID_SOURCE_ID = 'iinpublic-tile-grid';
 const CURRENT_TILE_SOURCE_ID = 'iinpublic-tile-current';
 const SELECTED_TILE_SOURCE_ID = 'iinpublic-tile-selected';
+const NEARBY_AREA_SOURCE_ID = 'iinpublic-nearby-area';
 const stateByContainer = new WeakMap<HTMLElement, MapState>();
 let mapLibrePromise: Promise<MapLibre> | undefined;
 
@@ -172,6 +176,32 @@ function updateTileGrid(state: MapState): void {
 function updateCurrentTile(state: MapState): void {
   const source = state.map.getSource(CURRENT_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
   source?.setData(tileSquares(state.options.currentTileId ? [state.options.currentTileId] : []) as never);
+}
+
+function nearbyAreaGeoJson(area: NearbyMapArea | undefined) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: area ? [{
+      type: 'Feature' as const,
+      properties: { kind: 'nearby-area' },
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [[
+          [area.west, area.south],
+          [area.east, area.south],
+          [area.east, area.north],
+          [area.west, area.north],
+          [area.west, area.south],
+        ]],
+      },
+    }] : [],
+  };
+}
+
+function updateNearbyArea(state: MapState): void {
+  const source = state.map.getSource(NEARBY_AREA_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
+  source?.setData(nearbyAreaGeoJson(state.options.nearbyMapArea) as never);
+  state.options.container.dataset.nearbyAreaVisible = String(!!state.options.nearbyMapArea);
 }
 
 function clearTileSelection(state: MapState): void {
@@ -356,9 +386,16 @@ function focusCurrentRoom(state: MapState): void {
   state.focusedChatroom = state.options.currentChatroom;
   const currentRoom = state.options.rooms.find((room) => room.id === state.options.currentChatroom);
   const focus = currentRoom ? roomLocation(currentRoom, state.options.rooms) : undefined;
+  const nearby = isNearbyRoomId(state.options.currentChatroom) ? state.options.nearbyMapArea : undefined;
+  const nearbyCenter = nearby
+    ? [(nearby.west + nearby.east) / 2, (nearby.south + nearby.north) / 2] as [number, number]
+    : undefined;
+  const nearbyZoom = nearby
+    ? Math.max(2, Math.min(18, Math.log2(40_075_016 / Math.max(1, nearby.approximateDiameterMeters * 2))))
+    : undefined;
   state.map.jumpTo({
-    center: focus ? [focus.longitude, focus.latitude] : [0, 20],
-    zoom: zoomForRoom(currentRoom),
+    center: focus ? [focus.longitude, focus.latitude] : nearbyCenter ?? [0, 20],
+    zoom: nearbyZoom ?? zoomForRoom(currentRoom),
   });
 }
 
@@ -432,6 +469,22 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     map.on('sourcedata', refreshMarkers);
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
+    map.addSource(NEARBY_AREA_SOURCE_ID, {
+      type: 'geojson',
+      data: nearbyAreaGeoJson(state.options.nearbyMapArea) as never,
+    });
+    map.addLayer({
+      id: 'iinpublic-nearby-area-fill',
+      type: 'fill',
+      source: NEARBY_AREA_SOURCE_ID,
+      paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.14 },
+    });
+    map.addLayer({
+      id: 'iinpublic-nearby-area-line',
+      type: 'line',
+      source: NEARBY_AREA_SOURCE_ID,
+      paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.8 },
+    });
     if (state.options.openTile || state.options.currentTileId) {
       // Compatibility path for legacy callers. The Nearby + Places UI omits `openTile`, so its
       // map contains meaningful Place pins without exposing the retired geographic room tree.
@@ -486,6 +539,7 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     refreshMarkers();
     focusCurrentRoom(state);
     updateCurrentTile(state);
+    updateNearbyArea(state);
     updateTileGrid(state);
     resolveReady();
   });
@@ -514,6 +568,7 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
     await state.ready;
     updateSource(state);
     updateCurrentTile(state);
+    updateNearbyArea(state);
     focusCurrentRoom(state);
     updateTileGrid(state);
     requestAnimationFrame(() => state.map.resize());

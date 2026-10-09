@@ -43,7 +43,7 @@ import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { tileIdAt } from '../../shared/room-tiles';
 import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId } from '../../shared/place-rooms';
-import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId } from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId, nearbyMapArea, type NearbyMapArea, type NearbyRoomAssignment } from '../../shared/nearby-rooms';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import type { RecoveryAnchorRecord } from '../../shared/techsupport-recovery';
@@ -307,6 +307,7 @@ export class UIManager extends EventEmitter {
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
   private chatroomBrowseMode: 'tree' | 'map' = 'tree';
+  private nearbyMapArea: NearbyMapArea | undefined;
   private expandedChatrooms = new Set<string>();
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
@@ -894,6 +895,7 @@ export class UIManager extends EventEmitter {
         getExpandedChatrooms: () => this.expandedChatrooms,
         getMatchedUserIds: () => this.matchedUserIds,
         getCustomChatrooms: () => this.customChatrooms,
+        getNearbyMapArea: () => this.nearbyMapArea,
         setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
         setCurrentUserId: (userId) => { this.currentUserId = userId; },
         setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
@@ -1109,7 +1111,6 @@ export class UIManager extends EventEmitter {
   public handleCreateCustomChatroomClick(): Promise<void> {
     return this.chatroomShell().handleCreateCustomChatroomClick();
   }
-
   showCreateCustomChatroomDialog(): Promise<CustomChatroomDraft | null> {
     return openCreateCustomChatroomDialog({
       text: (key) => this.t(key),
@@ -1119,11 +1120,9 @@ export class UIManager extends EventEmitter {
   private renderChatroomList(): void {
     this.chatroomShell().renderChatroomList();
   }
-
   showChatroomDetail(chatroomId: string): void {
     this.chatroomShell().showChatroomDetail(chatroomId);
   }
-
   setCurrentChatroomId(chatroomId: string): void {
     setCurrentChatroomIdImpl(chatroomId, {
       setCurrentChatroom: (id) => { this.currentChatroom = id; },
@@ -1132,6 +1131,11 @@ export class UIManager extends EventEmitter {
       t: (key) => this.t(key),
       syncReturnHomeButton: () => this.syncReturnHomeButton(),
     });
+  }
+
+  setNearbyMapAssignment(assignment: NearbyRoomAssignment | null): void {
+    this.nearbyMapArea = assignment ? nearbyMapArea(assignment) : undefined;
+    if (this.chatroomBrowseMode === 'map') this.renderChatroomList();
   }
 
   displayTalksList(): void {

@@ -2,6 +2,7 @@ import {
   deriveNearbyRoomAssignment,
   isNearbyRoomId,
   maximumGeographicSplitGeneration,
+  nearbyMapArea,
   nearbyPublicScope,
   projectNearbyCoordinate,
 } from '../../shared/nearby-rooms';
@@ -90,5 +91,27 @@ describe('Nearby geographic room placement', () => {
     expect(scope.localCell).toBeUndefined();
     expect(JSON.stringify(scope)).not.toContain('32.7157');
     expect(JSON.stringify(scope)).not.toContain('-117.1611');
+  });
+
+  test('map area contains the local point and shrinks with geographic subdivision', () => {
+    const location = point(32.7157, -117.1611, 5);
+    const root = deriveNearbyRoomAssignment({
+      location,
+      mode: 'neighborhood',
+      identity: 'alice',
+    });
+    const child = deriveNearbyRoomAssignment({
+      location,
+      mode: 'neighborhood',
+      identity: 'alice',
+      requestedSplitGeneration: 2,
+    });
+    const rootArea = nearbyMapArea(root);
+    const childArea = nearbyMapArea(child);
+    expect(rootArea.west).toBeLessThanOrEqual(location.longitude);
+    expect(rootArea.east).toBeGreaterThan(location.longitude);
+    expect(rootArea.south).toBeLessThanOrEqual(location.latitude);
+    expect(rootArea.north).toBeGreaterThan(location.latitude);
+    expect(childArea.approximateDiameterMeters).toBeLessThan(rootArea.approximateDiameterMeters);
   });
 });

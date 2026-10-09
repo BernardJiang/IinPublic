@@ -65,13 +65,15 @@ its ID.
     ephemeral session keys for Unknown peers; bind WebRTC/DataChannel identity to that handshake.
     Becoming a Contact pins stable identity and durable pair state rather than enabling encryption
     for the first time. Add passive-listener, MITM, replay, key-change, and downgrade tests.
-  - [ ] **P0 Nearby UI:** replace tree/list hierarchy with current Nearby distance/count, a shaded
+  - [x] **P0 Nearby UI:** replace tree/list hierarchy with current Nearby distance/count, a shaded
     map area, Place pins, and Return to Nearby. Add Contacts-only, Radio nearby, Neighborhood,
     Close nearby, and Location-off settings with explicit home/work exposure text. Never imply that
     hashing a cell hides its approximate location.
     - [x] Replaced the rendered hierarchy with one flat active scope plus Community-created Places;
       added all five privacy modes and the home/work disclosure warning.
-    - [ ] Shade the locally derived Nearby boundary on the map and finish Return-to-Nearby polish.
+    - [x] The map shades and focuses the locally derived active Nearby cell, reports its actual
+      approximate diameter, and keeps Place pins separate. Return to Nearby recomputes the current
+      geographic/certificate path and clears traveler state; no cell bounds leave the device.
   - [ ] **P0 Places:** publish signed content-addressed Community-created descriptors indexed by map
     cell; creation grants no authority or trademark claim. A deliberate precise business address
     requires confirmation; community pins snap to the public cell. Joining is an atomic active-room
@@ -97,6 +99,8 @@ its ID.
     eviction notices, `_part_N` frontier state, tree UI, and stale specifications/tests.
     - [x] Saved Global/tile/grid assignments migrate to Nearby; a selected Place persists; new room
       rendering and map interaction no longer expose the old tree or numbered parts.
+    - [x] Converted the dedicated stage1 tree/map scenario to assert flat Nearby, local shaded
+      bounds, no Global/L1-L4/`_part_N` rows, and no map-tap travel into retired grid rooms.
     - [ ] Remove the mixed-release legacy FIFO controller and obsolete hierarchy fixtures after the
       compatibility window.
   - [ ] **Capacity experiment:** treat `C=498`, initial Nearby scales, and `K` as release-wide

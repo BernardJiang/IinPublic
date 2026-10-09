@@ -1,22 +1,13 @@
-# Test: Chatroom hierarchy in tree and map views
+# Test: Nearby and Places list/map views
 
-covers: SPEC-3.3, FR-CR-2, FR-CR-4a, FR-CR-10
+covers: SPEC-3.3, OPEN-40 Nearby UI and location privacy
 
-**File:** 54-chatroom-tree-and-map.spec.ts
+**File:** `54-chatroom-tree-and-map.spec.ts`
 
-## What this test does (in plain English)
+One location-enabled user verifies that:
 
-One user located in San Diego.
-
-1. **Tree:** Global ▼ → the land region tiles, grouped by continent (level 1);
-   "North America · West & Central" ▼ → "📍 Near San Diego" (level 2, Current), directly under it.
-   No ocean/Antarctica tiles and no `north-america`/`europe`… continent rooms. No `usa` / `california` / `san-diego` /
-   `uk` / `london` / `japan` / `germany` rows exist.
-2. **Collapse/expand:** collapsing North America hides the grid room; expanding shows it again.
-3. **Map:** the current grid room has a highlighted pin; tapping it opens "Near San Diego".
-   Zoomed out to the world, the region tiles appear as pins on their own land; the current room
-   always keeps its own pin (never clustered).
-4. **Travel to London's grid room:** the tree shows "Europe · North Atlantic" ▼ → "📍 Near London" (Current);
-   the map shows the London pin as current.
-
-Screenshots of every step are attached to the Playwright report (`1-tree-…` to `6-map-…`).
+1. The list contains the current flat Nearby audience, not Global, L1-L4 tiles, or `_part_N` rooms.
+2. Map view shades and focuses the locally derived Nearby cell and reports its approximate size.
+3. Cell bounds stay UI-local; the browser exposes only a render-state flag for the test.
+4. Tapping open map no longer offers retired grid-room travel. Meaningful travel uses Place pins.
+5. Return to Nearby is disabled while already home.

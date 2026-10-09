@@ -2388,6 +2388,7 @@ export class IinPublicApp {
   private async resolveNearbyBeforeAdmission(
     rootAssignment: NearbyRoomAssignment,
   ): Promise<string> {
+    this.uiManager.setNearbyMapAssignment(rootAssignment);
     const user = this.currentUser;
     const location = this.currentLocation;
     const pair = this.gunService.getStoredPair();
@@ -2411,6 +2412,7 @@ export class IinPublicApp {
       });
       this.nearbyControlRootAssignment = rootAssignment;
       this.chatroomService.setNearbyRoomAssignment(result.assignment);
+      this.uiManager.setNearbyMapAssignment(result.assignment);
       this.startNearbyControlHeartbeat();
       return result.assignment.roomId;
     } catch (error) {
@@ -2610,6 +2612,11 @@ export class IinPublicApp {
       selectedRoomId = await this.resolveNearbyBeforeAdmission(nearbyRoot);
     }
     const nextRoomId = isTechSupportUser(this.currentUser) ? CONTACTS_ONLY_SCOPE_ID : selectedRoomId;
+    if (!isNearbyRoomId(nextRoomId)
+      && settings.nearbyPrivacyMode !== 'neighborhood'
+      && settings.nearbyPrivacyMode !== 'close-nearby') {
+      this.uiManager.setNearbyMapAssignment(null);
+    }
     if (nextRoomId === this.currentChatroomId) return;
     await this.chatroomService.switchChatroom(
       this.currentUser.id,

@@ -9,7 +9,12 @@ import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId, placeRoomTile } from '../../shared/place-rooms';
-import { CONTACTS_ONLY_SCOPE_ID, RADIO_NEARBY_SCOPE_ID, isNearbyRoomId } from '../../shared/nearby-rooms';
+import {
+  CONTACTS_ONLY_SCOPE_ID,
+  RADIO_NEARBY_SCOPE_ID,
+  isNearbyRoomId,
+  type NearbyMapArea,
+} from '../../shared/nearby-rooms';
 import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
@@ -41,6 +46,7 @@ type ChatroomsViewDeps = {
   expandedChatrooms: Set<string>;
   matchedUserIds: Set<string>;
   customChatrooms: ReadonlyArray<CustomChatroomRow>;
+  nearbyMapArea?: NearbyMapArea;
   setChatroomBrowseMode: (mode: 'tree' | 'map') => void;
   setCurrentChatroom: (chatroomId: string) => void;
   setCurrentChatroomMembers: (members: ChatroomMember[]) => void;
@@ -468,7 +474,17 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     const customNote = unmappedCustomCount > 0
       ? ` ${deps.text('chatroomMapCustomRoomsNote').replace('{count}', String(unmappedCustomCount))}`
       : '';
-    mapStatus.textContent = `${deps.text('chatroomMapSummary').replace('{count}', String(mappedCount))}${customNote}`;
+    const nearbyDistance = deps.nearbyMapArea
+      ? deps.nearbyMapArea.approximateDiameterMeters >= 1_000
+        ? `${(deps.nearbyMapArea.approximateDiameterMeters / 1_000).toFixed(1)} km`
+        : `${deps.nearbyMapArea.approximateDiameterMeters} m`
+      : '';
+    const summary = deps.nearbyMapArea
+      ? deps.text('chatroomMapNearbySummary')
+        .replace('{distance}', nearbyDistance)
+        .replace('{count}', String(mappedCount))
+      : deps.text('chatroomMapSummary').replace('{count}', String(mappedCount));
+    mapStatus.textContent = `${summary}${customNote}`;
     if (!mapContainer.classList.contains('maplibregl-map')) {
       mapContainer.textContent = deps.text('chatroomMapLoading');
     }
@@ -476,6 +492,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       container: mapContainer,
       rooms: mapRooms,
       currentChatroom: deps.currentChatroom,
+      ...(deps.nearbyMapArea ? { nearbyMapArea: deps.nearbyMapArea } : {}),
       openChatroom: (chatroomId) => showChatroomDetail(deps, chatroomId),
       mapLoadFailedText: deps.text('chatroomMapLoadFailed'),
       membersText: (count) => deps.text(count === 1 ? 'chatroomMemberOne' : 'chatroomMembers').replace('{count}', String(count)),
