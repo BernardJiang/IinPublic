@@ -111,7 +111,8 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   };
 
   const handleCreateCustomChatroomClick = async (): Promise<void> => {
-    // A custom room is a local place under its L4 tile: no confirmed location, no room.
+    // The app layer owns signing and publication because the UI controller must never receive
+    // the user's private key. A confirmed location is still required for the public map point.
     const anchorCell = deps.getAnchorCell?.() ?? null;
     if (!anchorCell) {
       deps.showNotification(deps.t('chatroomCreateNeedsLocation'), 'error');
@@ -119,50 +120,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     }
     const payload = await deps.showCreateCustomChatroomDialog();
     if (!payload) return;
-    const creatorId = deps.getCurrentUserId()
-      || deps.getCurrentUser()?.id
-      || localStorage.getItem('iinpublic_user_id')
-      || 'local-user';
-    try {
-      const response = await fetch(`${deps.getApiBase()}/api/chatrooms`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: payload.name,
-          type: payload.type,
-          createdBy: creatorId,
-          anchorCell,
-          ...(payload.description != null ? { description: payload.description } : {}),
-          ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
-        }),
-      });
-      const text = await response.text();
-      if (!response.ok) {
-        deps.showNotification(text || deps.t('chatroomCreateFailed'), 'error');
-        return;
-      }
-      const created = text ? JSON.parse(text) as Partial<CustomChatroomRow> : null;
-      const createdId = String(created?.id || '').trim();
-      if (createdId) {
-        deps.upsertCustomChatroomFromServer({
-          id: createdId,
-          name: String(created?.name || payload.name),
-          type: created?.type === 'business' ? 'business' : 'custom',
-          description: String(created?.description || payload.description || ''),
-          createdBy: String(created?.createdBy || creatorId),
-          ...(created?.createdAt != null ? { createdAt: created.createdAt } : {}),
-          ...(created?.businessInfo != null || payload.businessInfo != null
-            ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
-            : {}),
-        });
-        showChatroomDetail(createdId);
-      }
-      deps.showNotification(deps.tf('chatroomCreated', { name: created?.name || payload.name }), 'success');
-    } catch (error) {
-      deps.showNotification(deps.tf('chatroomCreateFailedWithReason', {
-        reason: (error as Error).message,
-      }), 'error');
-    }
+    deps.emit('createCustomChatroom', { ...payload, anchorCell });
   };
 
   const showChatroomList = (): void => {

@@ -1,12 +1,21 @@
 import type { Talk } from '../../shared/types';
 
+/** Generic graph store retained for non-private delivery metadata repositories. */
 export type GunKeyValueStore = {
   put: (key: string, value: unknown) => Promise<void>;
   get: (key: string) => Promise<unknown>;
 };
 
+export type GunPrivateKeyValueStore = {
+  putPrivate: (key: string, value: unknown) => Promise<void>;
+  getPrivate: (key: string) => Promise<unknown>;
+  /** Optional legacy graph access, used only to migrate and erase release-123 plaintext rows. */
+  put?: (key: string, value: unknown) => Promise<void>;
+  get?: (key: string) => Promise<unknown>;
+};
+
 export type GunTalkRecord = {
-  version: 1;
+  version: 2;
   role: 'authored' | 'received';
   ownerSeaPub: string;
   authorKey: string;
@@ -16,11 +25,13 @@ export type GunTalkRecord = {
 };
 
 export class GunTalkRepository {
-  constructor(private readonly gun: GunKeyValueStore) {}
+  private indexWrite: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly gun: GunPrivateKeyValueStore) {}
 
   async putAuthored(ownerSeaPub: string, talk: Talk): Promise<void> {
     await this.putAndVerify(this.authoredSoul(ownerSeaPub, talk.id), {
-      version: 1, role: 'authored', ownerSeaPub, authorKey: ownerSeaPub,
+      version: 2, role: 'authored', ownerSeaPub, authorKey: ownerSeaPub,
       talkId: talk.id, talkJson: JSON.stringify(talk), committedAt: new Date().toISOString(),
     });
   }
@@ -28,21 +39,10 @@ export class GunTalkRepository {
   async putReceived(ownerSeaPub: string, authorKey: string, talk: Talk): Promise<void> {
     const soul = this.receivedSoul(ownerSeaPub, authorKey, talk.id);
     await this.putAndVerify(soul, {
-      version: 1, role: 'received', ownerSeaPub, authorKey,
+      version: 2, role: 'received', ownerSeaPub, authorKey,
       talkId: talk.id, talkJson: JSON.stringify(talk), committedAt: new Date().toISOString(),
     });
-    const indexSoul = this.receivedIndexSoul(ownerSeaPub, talk.id);
-    await this.gun.put(indexSoul, { version: 1, talkId: talk.id, authorKey, soul });
-    // Same reasoning as putAndVerify above: the write already committed locally. Don't let an
-    // unreadable/slow read-back turn a successful incoming-talk commit into a delivery failure.
-    try {
-      const index = await this.gun.get(indexSoul) as { talkId?: string; authorKey?: string } | null;
-      if (index?.talkId !== talk.id || index.authorKey !== authorKey) {
-        console.warn(`Gun received Talk index read-back inconclusive (continuing — write already committed locally): ${indexSoul}`);
-      }
-    } catch (error) {
-      console.warn(`Gun received Talk index read-back timed out (continuing — write already committed locally): ${indexSoul}`, error);
-    }
+    await this.updateReceivedIndex(ownerSeaPub, talk.id, authorKey, soul);
   }
 
   async getAuthored(ownerSeaPub: string, talkId: string): Promise<Talk | null> {
@@ -55,9 +55,9 @@ export class GunTalkRepository {
 
   async getReceivedById(ownerSeaPub: string, talkId: string): Promise<Talk | null> {
     try {
-      const index = await this.gun.get(this.receivedIndexSoul(ownerSeaPub, talkId)) as { version?: number; authorKey?: string } | null;
-      if (index?.version !== 1 || !index.authorKey) return null;
-      return this.getReceived(ownerSeaPub, index.authorKey, talkId);
+      const index = await this.readReceivedIndex(ownerSeaPub);
+      const row = index[talkId];
+      return row?.authorKey ? this.getReceived(ownerSeaPub, row.authorKey, talkId) : null;
     } catch {
       return null;
     }
@@ -65,8 +65,7 @@ export class GunTalkRepository {
 
   async listReceived(ownerSeaPub: string): Promise<Talk[]> {
     try {
-      const raw = await this.gun.get(`users/${encodeURIComponent(ownerSeaPub)}/receivedTalkIndex`) as Record<string, unknown> | null;
-      if (!raw || typeof raw !== 'object') return [];
+      const raw = await this.readReceivedIndex(ownerSeaPub);
       const talks: Talk[] = [];
       for (const talkId of Object.keys(raw).filter((key) => key !== '_' && !key.startsWith('_')).sort()) {
         const talk = await this.getReceivedById(ownerSeaPub, talkId);
@@ -77,15 +76,18 @@ export class GunTalkRepository {
   }
 
   authoredSoul(ownerSeaPub: string, talkId: string): string {
-    return `users/${encodeURIComponent(ownerSeaPub)}/talks/${encodeURIComponent(talkId)}`;
+    void ownerSeaPub;
+    return `talks/${encodeURIComponent(talkId)}`;
   }
 
   receivedSoul(ownerSeaPub: string, authorKey: string, talkId: string): string {
-    return `users/${encodeURIComponent(ownerSeaPub)}/receivedTalks/${encodeURIComponent(authorKey)}/${encodeURIComponent(talkId)}`;
+    void ownerSeaPub;
+    return `receivedTalks/${encodeURIComponent(authorKey)}/${encodeURIComponent(talkId)}`;
   }
 
-  receivedIndexSoul(ownerSeaPub: string, talkId: string): string {
-    return `users/${encodeURIComponent(ownerSeaPub)}/receivedTalkIndex/${encodeURIComponent(talkId)}`;
+  receivedIndexSoul(ownerSeaPub: string, _talkId?: string): string {
+    void ownerSeaPub;
+    return 'receivedTalkIndex';
   }
 
   private async putAndVerify(soul: string, record: GunTalkRecord): Promise<void> {
@@ -96,7 +98,7 @@ export class GunTalkRepository {
     let committed = false;
     for (let attempt = 1; attempt <= 3 && !committed; attempt += 1) {
       try {
-        await this.gun.put(soul, record);
+        await this.gun.putPrivate(soul, record);
         committed = true;
       } catch (error) {
         lastPutError = error;
@@ -113,10 +115,10 @@ export class GunTalkRepository {
     // once to confirm; if it can't be confirmed, log and continue — the write already happened
     // regardless of whether this read can see it.
     try {
-      const readBack = await this.gun.get(soul) as GunTalkRecord | null;
+      const readBack = await this.gun.getPrivate(soul) as GunTalkRecord | null;
       if (
         !readBack
-        || readBack.version !== 1
+        || readBack.version !== 2
         || readBack.talkId !== record.talkId
         || readBack.talkJson !== record.talkJson
       ) {
@@ -129,12 +131,38 @@ export class GunTalkRepository {
 
   private async readTalk(soul: string, expectedTalkId: string): Promise<Talk | null> {
     try {
-      const record = await this.gun.get(soul) as GunTalkRecord | null;
-      if (!record || record.version !== 1 || record.talkId !== expectedTalkId || !record.talkJson) return null;
+      const record = await this.gun.getPrivate(soul) as GunTalkRecord | null;
+      if (!record || record.version !== 2 || record.talkId !== expectedTalkId || !record.talkJson) return null;
       const talk = JSON.parse(record.talkJson) as Talk;
       return talk?.id === expectedTalkId ? talk : null;
     } catch {
       return null;
     }
+  }
+
+  private async readReceivedIndex(
+    ownerSeaPub: string,
+  ): Promise<Record<string, { version: 2; talkId: string; authorKey: string; soul: string }>> {
+    void ownerSeaPub;
+    const value = await this.gun.getPrivate(this.receivedIndexSoul(ownerSeaPub));
+    if (!value || typeof value !== 'object') return {};
+    return value as Record<string, { version: 2; talkId: string; authorKey: string; soul: string }>;
+  }
+
+  private updateReceivedIndex(
+    ownerSeaPub: string,
+    talkId: string,
+    authorKey: string,
+    soul: string,
+  ): Promise<void> {
+    const run = this.indexWrite.catch(() => undefined).then(async () => {
+      const current = await this.readReceivedIndex(ownerSeaPub);
+      await this.gun.putPrivate(this.receivedIndexSoul(ownerSeaPub), {
+        ...current,
+        [talkId]: { version: 2, talkId, authorKey, soul },
+      });
+    });
+    this.indexWrite = run;
+    return run;
   }
 }

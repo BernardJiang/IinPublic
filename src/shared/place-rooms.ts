@@ -11,6 +11,7 @@ import { tileIdAt, TILE_BOTTOM_LAYER } from './room-tiles';
 
 const NUM = '-?\\d{1,3}(?:\\.\\d{1,2})?';
 const PLACE_ID = new RegExp(`^place_(${NUM})_(${NUM})_([0-9a-f]{12,40})$`);
+const CONTENT_ADDRESSED_PLACE_ID = /^place_b[a-z2-7]{50,}$/;
 const CELL_ID = new RegExp(`^region_(${NUM})_(${NUM})(?:_room_\\d+)?$`);
 
 export type PlaceAnchor = { latitude: number; longitude: number; cellId: string };
@@ -36,7 +37,7 @@ export function placeRoomAnchor(roomId: string): PlaceAnchor | null {
 }
 
 export function isPlaceRoomId(roomId: string): boolean {
-  return placeRoomAnchor(roomId) !== null;
+  return CONTENT_ADDRESSED_PLACE_ID.test(String(roomId || '')) || placeRoomAnchor(roomId) !== null;
 }
 
 /** The L4 (~78 km) tile a place room lives under in the tree. */

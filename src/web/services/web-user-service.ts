@@ -9,7 +9,6 @@ import {
   type Tag,
 } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
-import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
 import { generateRandomStageName, normalizeQuestionKey } from '../../shared/user-utils';
@@ -646,14 +645,6 @@ export class WebUserService {
       `users/${userId}/location`,
       LocationPrivacy.sanitizeBlurredLocation(blurredLocation),
     );
-    const chatroomPath = getLocationChatroomPath(location);
-    const chatroomId = chatroomPath[chatroomPath.length - 1] || 'global';
-    // Public affinity is a room identifier/path only — never publish raw GPS.
-    await this.gunService.put(`user-public-profile/${userId}/chatroomAffinity`, {
-      chatroomId,
-      chatroomPath,
-      updatedAt: new Date().toISOString(),
-    });
   }
 
   async setUserStatus(userId: string, status: 'online' | 'away' | 'offline'): Promise<void> {
@@ -698,36 +689,23 @@ export class WebUserService {
     return nextUser;
   }
 
-  /**
-   * Persist a single profile answer: auto → user graph `answers/auto`, manual → encrypted `answers/private`.
-   */
+  /** Persist every reusable answer as owner-private ciphertext; Auto is behavior, not visibility. */
   async persistQuestionAnswer(_userId: string, qa: QuestionAnswer, pair: GunPair): Promise<void> {
     const SEA = getSEA();
     const gun = this.gunService.getGun();
-    if (qa.isAuto) {
-      await new Promise<void>((resolve, reject) => {
-        gun
-          .user()
-          .get('answers')
-          .get('auto')
-          .get(qa.id)
-          .put(JSON.stringify(qa), (ack: any) => (ack?.err ? reject(new Error(String(ack.err))) : resolve()));
-      });
-    } else {
-      const encrypted = await SEA.encrypt(JSON.stringify(qa), pair);
-      await new Promise<void>((resolve, reject) => {
-        gun
-          .user()
-          .get('answers')
-          .get('private')
-          .get(qa.id)
-          .put(encrypted, (ack: any) => (ack?.err ? reject(new Error(String(ack.err))) : resolve()));
-      });
-    }
+    const encrypted = await SEA.encrypt(JSON.stringify(qa), pair);
+    await new Promise<void>((resolve, reject) => {
+      gun
+        .user()
+        .get('answers')
+        .get('private')
+        .get(qa.id)
+        .put(encrypted, (ack: any) => (ack?.err ? reject(new Error(String(ack.err))) : resolve()));
+    });
   }
 
   /**
-   * After a talk completes, mirror answers into Gun `answers/auto` vs encrypted `answers/private` from preference modes.
+   * After a Talk completes, encrypt answer memory; the stored `isAuto` flag controls reuse.
    */
   async syncQuestionAnswersFromTalkCompletion(
     talkData: { questions?: Array<{ id: string; text?: string }> },

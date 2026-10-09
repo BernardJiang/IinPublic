@@ -37,7 +37,7 @@
           "updatedAt": 1785114375012
         }
       },
-      "count": 1,
+      "count": 0,
       "updatedAt": "2026-07-27T01:06:15.012Z"
     },
     "public/techsupport-identity": {
@@ -418,7 +418,7 @@
           "pub": 1785114375116.001
         }
       },
-      "isActive": true,
+      "isActive": false,
       "joinedAt": "2026-07-27T01:06:15.011Z",
       "lastSeen": "2026-07-27T01:06:15.116Z",
       "stageName": "TechSupport",
@@ -459,7 +459,7 @@
           "userId": 1785114377222.001
         }
       },
-      "isActive": true,
+      "isActive": false,
       "joinedAt": "2026-07-27T01:06:15.011Z",
       "lastSeen": "2026-07-27T01:06:15.116Z",
       "stageName": "TechSupport",

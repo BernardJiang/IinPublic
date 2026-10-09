@@ -43,10 +43,11 @@ import { WebLedgerService } from '../services/web-ledger-service';
 import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
+import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
+import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
 import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
-import { parseTileId, tileIdAt } from '../../shared/room-tiles';
+import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope } from '../../shared/nearby-rooms';
 import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
-import { getBrowsableBuiltInChatrooms } from '../ui/chatrooms-view';
 import {
   isRenderableSystemAnnouncement,
   isVerifiedTechSupportIdentity,
@@ -547,11 +548,7 @@ export class IinPublicApp {
     });
   }
 
-  /**
-   * Room headcount for the status bar and any user-facing totals. TechSupport is the
-   * built-in first user and counts as exactly 1, like any other member — never 0,
-   * never more (see docs/design/techsupport-bootstrap-contract.md).
-   */
+  /** Room headcount for the status bar; TechSupport is a Contact and never a room member. */
   private countRoomMembers(members: Array<{ userId: string }>): number {
     return new Set(members.map((member) => member.userId)).size;
   }
@@ -1027,9 +1024,6 @@ export class IinPublicApp {
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
     // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
     this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
-    // A GPS-less device routes by its chosen home tile, any layer (docs/design/room-tree-routing.md §5).
-    this.chatroomService.setHomeTileResolver(() =>
-      this.travelHomeChatroomId && parseTileId(this.travelHomeChatroomId) ? this.travelHomeChatroomId : undefined);
     this.chatroomService.setPromotionStatusListener((status) => {
       if (!status || status.blockedUntil <= 0) {
         this.lastPromotionNoticeKey = '';
@@ -1046,10 +1040,13 @@ export class IinPublicApp {
     });
     // Travel is room-membership metadata, not a private UI decoration: peers in the room must
     // agree that a user deliberately visiting away from their saved home is a traveler.
-    this.chatroomService.setMembershipTravelerResolver((chatroomId) =>
-      this.travelModeActive &&
-      (!this.travelHomeChatroomId || chatroomId !== this.travelHomeChatroomId),
-    );
+    this.chatroomService.setMembershipTravelerResolver((chatroomId) => {
+      if (!isPlaceRoomId(chatroomId)) return false;
+      const place = this.uiManager.getCustomChatroomMeta(chatroomId)?.location;
+      if (!place || !this.currentLocation || !this.locationConfirmed) return true;
+      return LocationPrivacy.blurLocation(this.currentLocation).region
+        !== LocationPrivacy.blurLocation({ ...this.currentLocation, ...place }).region;
+    });
     this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase(), {
       meshLocalFirst: usesMeshTalkDelivery(this.p2pRuntimeFlags),
     });
@@ -1207,7 +1204,7 @@ export class IinPublicApp {
     this.currentLocation = location;
     this.locationConfirmed = options.locationConfirmed ?? true;
 
-    // Paint Global/the cached hierarchy immediately. Identity, presence and counts hydrate below.
+    // Paint the cached shell immediately. Nearby identity, presence and counts hydrate below.
     this.uiManager.initialize();
     this.uiManager.setCurrentLocation(location, this.locationConfirmed);
     this.uiManager.showStartupInterface();
@@ -1498,6 +1495,9 @@ export class IinPublicApp {
       this.startStageZeroHeadcountWatchdog();
     }
     this.initialized = true;
+    if (this.locationConfirmed) {
+      void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch(() => {});
+    }
     markStartupPhase('initialSyncComplete');
   }
 
@@ -1564,6 +1564,11 @@ export class IinPublicApp {
     this.uiManager.setCurrentLocation(location);
     if (this.currentUser) {
       void this.userService.updateUserLocation(this.currentUser.id, location).catch(() => {});
+      if (this.initialized) {
+        void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch((error) => {
+          console.warn('Nearby room refresh after location update failed:', error);
+        });
+      }
     }
   }
 
@@ -1606,13 +1611,9 @@ export class IinPublicApp {
   }
 
   private subscribeToAllChatroomMemberCounts(): void {
-    // Live-subscribing every leaf room created 188 permanent Gun listeners (member + visit
-    // counts) at startup. Older Android WebViews visibly stalled while replaying those 94 room
-    // graphs. Keep high-level discovery live and add the current room's full ancestor path;
-    // deep rooms outside that path refresh when entered instead of consuming background CPU.
-    // Only the browsable rooms: Global, the current (grid/overflow/custom) room, and custom
-    // rooms. Continent/country/state rooms are no longer shown, so they need no listeners.
-    const chatroomIds = getBrowsableBuiltInChatrooms().map((room) => room.id);
+    // Subscribe only to the active scope and visible Places. The retired Global/tree catalog must
+    // not create background Gun listeners or discovery traffic.
+    const chatroomIds: string[] = [];
     const currentChatroomId = this.chatroomService.getCurrentChatroomId();
     if (currentChatroomId && !chatroomIds.includes(currentChatroomId)) chatroomIds.push(currentChatroomId);
     if (currentChatroomId) {
@@ -1732,8 +1733,8 @@ export class IinPublicApp {
         }
       }
     } else {
-      // K1 (docs/TODO.md): TechSupport is guaranteed by the relay (server boot seed) and
-      // rendered/counted locally from compiled constants — browsers no longer mint the root.
+      // The built-in TechSupport Contact is verified from compiled trust anchors. Browsers
+      // never mint the root identity or create a room presence for it.
       this.currentUser = await this.createNewUser();
       isNewUser = true;
     }
@@ -1882,7 +1883,9 @@ export class IinPublicApp {
       this.currentUser.id,
       lastChatroomId,
       this.locationConfirmed,
+      loadConnectivitySettings().nearbyPrivacyMode,
     );
+    if (isTechSupportUser(this.currentUser)) chatroomId = CONTACTS_ONLY_SCOPE_ID;
 
     const automaticBaseGrid = this.locationConfirmed
       ? getAutomaticLocationChatroomId(this.currentLocation)
@@ -2009,8 +2012,8 @@ export class IinPublicApp {
       });
     }
 
-    // Subscribe to chatroom messages
-    this.subscribeToMessages(chatroomId);
+    // Contacts-only has no public room graph.
+    if (!isLocalOnlyRoomScope(chatroomId)) this.subscribeToMessages(chatroomId);
 
     // Subscribe to chatroom talks
 
@@ -2246,7 +2249,7 @@ export class IinPublicApp {
     const me = this.currentUser;
     const mesh = this.ensurePeerMeshService();
     if (!me?.id || !peerId || !mesh) return false;
-    const chatroomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || 'global';
+    const chatroomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || CONTACTS_ONLY_SCOPE_ID;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
         const activeIds = await this.chatroomService.getActiveMembers(chatroomId);
@@ -2478,7 +2481,7 @@ export class IinPublicApp {
   }
 
   private async activateRoomExchange(roomId: string): Promise<void> {
-    if (!roomId || !this.currentUser || isTechSupportUser(this.currentUser)) return;
+    if (!roomId || isLocalOnlyRoomScope(roomId) || !this.currentUser || isTechSupportUser(this.currentUser)) return;
     let checkpoint: RoomProtocolCheckpoint;
     try {
       const manifestController = await this.ensureProtocolManifestController();
@@ -2505,6 +2508,63 @@ export class IinPublicApp {
       roomId,
       ...checkpoint,
     });
+  }
+
+  /** Apply a saved audience choice immediately; no new OS prompt is raised mid-exchange. */
+  private async applyNearbyPrivacyMode(settings: ConnectivitySettings): Promise<void> {
+    if (!this.currentUser || !this.currentLocation) return;
+    if (settings.nearbyPrivacyMode === 'contacts-only') {
+      const filters = { ...getTalkIntakeFilters(), contactsOnlyTalks: true };
+      setTalkIntakeFilters(filters);
+      setTalkIntakeFiltersOwner(this.currentUser.id);
+      this.currentUser.talkFilters = filters;
+    }
+    const selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
+      this.currentLocation,
+      this.currentUser.id,
+      this.currentChatroomId,
+      this.locationConfirmed,
+      settings.nearbyPrivacyMode,
+    );
+    const nextRoomId = isTechSupportUser(this.currentUser) ? CONTACTS_ONLY_SCOPE_ID : selectedRoomId;
+    if (nextRoomId === this.currentChatroomId) return;
+    await this.chatroomService.switchChatroom(
+      this.currentUser.id,
+      nextRoomId,
+      this.currentUser.stageName,
+    );
+    this.currentChatroomId = nextRoomId;
+    localStorage.setItem('iinpublic_last_chatroom', nextRoomId);
+    this.uiManager.setCurrentChatroomId(nextRoomId);
+    this.chatroomService.subscribeToMembers(nextRoomId, (members) => {
+      this.harvestRosterEpubs(members);
+      this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+      this.syncPeerMeshRoom(nextRoomId, members);
+      this.uiManager.updateStatusBar(
+        this.currentUser!.stageName,
+        this.getChatroomDisplayName(nextRoomId),
+        this.countRoomMembers(members),
+        this.uiManager.getTotalMatches(),
+      );
+    });
+    if (!isLocalOnlyRoomScope(nextRoomId)) {
+      this.subscribeToMessages(nextRoomId);
+      await this.activateRoomExchange(nextRoomId);
+    }
+  }
+
+  /** Recompute the automatic home scope; a selected Place is never treated as home. */
+  private async resolveAutomaticNearbyRoom(): Promise<string> {
+    if (!this.currentUser || !this.currentLocation || isTechSupportUser(this.currentUser)) {
+      return CONTACTS_ONLY_SCOPE_ID;
+    }
+    return this.chatroomService.findOptimalChatroomHierarchical(
+      this.currentLocation,
+      this.currentUser.id,
+      undefined,
+      this.locationConfirmed,
+      loadConnectivitySettings().nearbyPrivacyMode,
+    );
   }
 
   /**
@@ -2845,6 +2905,10 @@ export class IinPublicApp {
     chatroomId: string,
     members: Array<{ userId: string; stageName?: string; pub?: string }>,
   ): void {
+    if (isLocalOnlyRoomScope(chatroomId)) {
+      this.peerMeshService?.leaveRoom();
+      return;
+    }
     const mesh = this.ensurePeerMeshService();
     if (!mesh || !this.currentUser?.id || !chatroomId) return;
     const withSelf = members.some((member) => member.userId === this.currentUser!.id)
@@ -5191,12 +5255,12 @@ export class IinPublicApp {
   }
 
   private loadTravelModeStateFromStorage(): void {
-    const active = localStorage.getItem('iinpublic_travel_mode') === '1';
-    const home = localStorage.getItem('iinpublic_travel_home') || undefined;
     const travel = localStorage.getItem('iinpublic_travel_room') || undefined;
-    this.travelModeActive = active;
-    this.travelHomeChatroomId = home;
-    this.travelChatroomId = travel;
+    // Legacy releases allowed arbitrary rooms to become a saved "home". Only an intentional
+    // Place visit survives now; automatic home is recomputed from current Nearby settings.
+    this.travelModeActive = !!travel && isPlaceRoomId(travel);
+    this.travelHomeChatroomId = undefined;
+    this.travelChatroomId = this.travelModeActive ? travel : undefined;
     this.uiManager.setTravelModeState({
       active: this.travelModeActive,
       ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
@@ -5496,7 +5560,7 @@ export class IinPublicApp {
       .filter((entry) => entry.talkId && entry.talkData);
     if (createdTalks.length === 0) return;
 
-    const chatroomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || 'global';
+    const chatroomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || CONTACTS_ONLY_SCOPE_ID;
     let peerIds: string[] = [];
     try {
       peerIds = (await this.chatroomService.getActiveMembers(chatroomId))
@@ -7299,6 +7363,9 @@ export class IinPublicApp {
         const pub = this.gunService.getStoredPair()?.pub;
         if (pub) this.initNearbyOffline(String(pub));
       }
+      void this.applyNearbyPrivacyMode(settings).catch((error) => {
+        this.uiManager.showNotification(`Could not change nearby audience: ${(error as Error).message}`, 'error');
+      });
     });
 
     this.uiManager.on('conversationAdded', (data: { conversationId: string }) => {
@@ -8339,59 +8406,9 @@ export class IinPublicApp {
       await this.updateLocationAndMaybeSwitch();
     });
 
-    this.uiManager.on('toggleTravelMode', async () => {
-      if (!this.currentUser) return;
-      this.travelModeActive = !this.travelModeActive;
-      if (this.travelModeActive) {
-        // Enter travel mode: lock in current room as home (if not set).
-        this.travelHomeChatroomId = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || undefined;
-        this.uiManager.setTravelModeState({
-          active: true,
-          ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
-        });
-        this.persistTravelModeStateToStorage();
-        this.uiManager.showNotification(this.uiManager.formatTravelEnabled(), 'info');
-      } else {
-        // Exit travel mode: return to home room if known.
-        const home = this.travelHomeChatroomId;
-        this.travelChatroomId = undefined;
-        this.persistTravelModeStateToStorage();
-        this.uiManager.setTravelModeState({ active: false });
-        if (home && this.currentChatroomId !== home) {
-          await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
-          this.currentChatroomId = home;
-          localStorage.setItem('iinpublic_last_chatroom', home);
-          this.subscribeToMessages(home);
-          this.uiManager.setCurrentChatroomId(home);
-        this.chatroomService.subscribeToMembers(home, (members) => {
-          this.harvestRosterEpubs(members);
-          this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
-          const chatroomName = this.getChatroomDisplayName(home);
-          this.uiManager.updateStatusBar(
-            this.currentUser!.stageName,
-            chatroomName,
-            this.countRoomMembers(members),
-            this.uiManager.getTotalMatches(),
-          );
-        });
-        }
-        this.uiManager.showNotification(this.uiManager.formatTravelReturnedHomeRoom(), 'success');
-      }
-      this.chatroomService.announceMembershipNow();
-    });
-
     this.uiManager.on('returnHomeFromTravel', async () => {
       if (!this.currentUser) return;
-      // With a confirmed fix, home is the user's own bottom-layer tile (~78 km), the room the tree
-      // routes them to (docs/design/room-tree-routing.md); the 1 km cell is only a business anchor.
-      const automaticHome = this.currentLocation && this.locationConfirmed
-        ? tileIdAt(4, this.currentLocation.latitude, this.currentLocation.longitude)
-        : undefined;
-      const home =
-        (!this.travelModeActive && automaticHome) ||
-        this.travelHomeChatroomId ||
-        automaticHome ||
-        'global';
+      const home = await this.resolveAutomaticNearbyRoom();
       this.travelModeActive = false;
       this.travelChatroomId = undefined;
       this.travelHomeChatroomId = home;
@@ -8401,7 +8418,7 @@ export class IinPublicApp {
         await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
         this.currentChatroomId = home;
         localStorage.setItem('iinpublic_last_chatroom', home);
-        this.subscribeToMessages(home);
+        if (!isLocalOnlyRoomScope(home)) this.subscribeToMessages(home);
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
           this.harvestRosterEpubs(members);
@@ -8414,25 +8431,10 @@ export class IinPublicApp {
             this.uiManager.getTotalMatches(),
           );
         });
+        if (!isLocalOnlyRoomScope(home)) await this.activateRoomExchange(home);
       }
       this.uiManager.showNotification(this.uiManager.formatTravelReturnedHome(), 'success');
       this.chatroomService.announceMembershipNow();
-    });
-
-    this.uiManager.on('setHomeChatroom', async (data: { chatroomId: string }) => {
-      if (!this.currentUser) return;
-      const chatroomId = String(data.chatroomId || '').trim() || 'global';
-      this.travelHomeChatroomId = chatroomId;
-      if (this.travelChatroomId === chatroomId) {
-        this.travelChatroomId = undefined;
-      }
-      this.persistTravelModeStateToStorage();
-      this.uiManager.setTravelModeState({
-        active: this.travelModeActive,
-        homeChatroomId: this.travelHomeChatroomId,
-      });
-      this.chatroomService.announceMembershipNow();
-      this.uiManager.showNotification(this.uiManager.formatTravelHomeSet(this.getChatroomDisplayName(chatroomId)), 'success');
     });
 
     this.uiManager.on(
@@ -8450,8 +8452,21 @@ export class IinPublicApp {
           return;
         }
         const anchorCell = LocationPrivacy.blurLocation(this.currentLocation).region;
+        const anchor = parseAnchorCell(anchorCell);
+        const pair = this.gunService.getStoredPair();
+        if (!anchor || !pair?.pub || !pair?.priv) {
+          this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed('signing identity unavailable'), 'error');
+          return;
+        }
         const base = this.getBackendApiBase();
         try {
+          const descriptor = await createSignedPlaceDescriptor({
+            name: payload.name,
+            placeType: payload.type,
+            ...(payload.description != null ? { description: payload.description } : {}),
+            location: { latitude: anchor.latitude, longitude: anchor.longitude },
+            pair,
+          });
           const res = await fetch(`${base}/api/chatrooms`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -8460,6 +8475,7 @@ export class IinPublicApp {
               type: payload.type,
               createdBy: this.currentUser.id,
               anchorCell,
+              descriptor,
               ...(payload.description != null ? { description: payload.description } : {}),
               ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
             }),
@@ -8534,24 +8550,24 @@ export class IinPublicApp {
       const previousChatroomId = this.currentChatroomId;
       this.uiManager.setCurrentChatroomId(chatroomId);
 
-      // In travel mode, every room switch becomes “the” travel destination (single remote room at a time).
-      if (this.travelModeActive) {
-        if (!this.travelHomeChatroomId) {
-          this.travelHomeChatroomId = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || undefined;
+      // A deliberate Place selection is travel. Nearby/local scopes are automatic home; there is
+      // no separate mode switch or manually assigned home room.
+      if (isPlaceRoomId(chatroomId)) {
+        if (previousChatroomId && !isPlaceRoomId(previousChatroomId)) {
+          this.travelHomeChatroomId = previousChatroomId;
         }
-        if (chatroomId !== this.travelHomeChatroomId) {
-          this.travelChatroomId = chatroomId;
-        }
-        this.persistTravelModeStateToStorage();
-        this.uiManager.setTravelModeState({
-          active: true,
-          ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
-        });
+        this.travelModeActive = true;
+        this.travelChatroomId = chatroomId;
       } else {
-        // Not travelling: treat switches as normal.
+        this.travelModeActive = false;
+        this.travelHomeChatroomId = chatroomId;
         this.travelChatroomId = undefined;
-        this.persistTravelModeStateToStorage();
       }
+      this.persistTravelModeStateToStorage();
+      this.uiManager.setTravelModeState({
+        active: this.travelModeActive,
+        ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
+      });
 
       const isSameRoom = previousChatroomId === chatroomId;
 
@@ -8717,6 +8733,7 @@ export class IinPublicApp {
     try {
       const newLocation = nextLocation || (await LocationPrivacy.getCurrentLocation());
       this.currentLocation = newLocation;
+      this.locationConfirmed = true;
 
       if (this.currentUser) {
         this.chatroomService.updateLocalUserLocation(this.currentUser.id, newLocation);
@@ -8727,7 +8744,7 @@ export class IinPublicApp {
           return;
         }
 
-        const newChatroomId = await this.chatroomService.findOptimalChatroom(newLocation);
+        const newChatroomId = await this.resolveAutomaticNearbyRoom();
         const currentChatroomId = this.chatroomService.getCurrentChatroomId();
 
         if (newChatroomId !== currentChatroomId) {

@@ -4,7 +4,6 @@ import { gunBaseURL } from '../../helpers/ports';
 import {
   TECHSUPPORT_NETWORK_ROLE,
   TECHSUPPORT_ROOT_USER_ID,
-  TECHSUPPORT_STAGE_NAME,
 } from '../../../../src/shared/techsupport';
 
 type GunGraph = Record<string, any>;
@@ -16,15 +15,12 @@ async function exportSnapshotGraph(): Promise<GunGraph> {
   return body.gunGraph || {};
 }
 
-test.describe('Stage 0 — relay-only TechSupport presence, no browser (docs/TODO.md K1 item 6)', () => {
+test.describe('Stage 0 — relay-only contacts-only TechSupport, no browser', () => {
   test.skip(!isStagePipeline(), 'only for E2E_STAGE_PIPELINE=1');
 
-  test('a bare relay reset produces the identity record + one member row, and no support DB', async () => {
-    // No browser is ever created in this test — the point is that the server's own boot/reset
-    // seed (K1 item 2, ChatroomManager.seedTechSupportGlobalMembership) is what makes TechSupport
-    // present, not a browser having bootstrapped it. seedTechSupportRoot:false also skips the test
-    // harness's own full-profile baseline seed, so nothing but the server's minimal seed can be
-    // the source of what this test finds.
+  test('a bare relay reset publishes the verified identity but no room presence or support DB', async () => {
+    // No browser is created: the keyless relay may publish signed identity metadata, but it must
+    // never turn the built-in Contact into a room participant.
     await resetToStage0Empty();
 
     // 1. Signed identity record present (relay republishes it on boot/reset). Chain-written
@@ -40,18 +36,16 @@ test.describe('Stage 0 — relay-only TechSupport presence, no browser (docs/TOD
       signature: expect.any(String),
     });
 
-    // 2. Exactly one Global member row, active. Read through the real members API rather than
-    // the raw export-snapshot graph: Gun's chain-based `.get().get()...put()` (what
-    // `seedTechSupportGlobalMembership` uses, same as ordinary `addMemberFast` joins) does not
-    // reliably surface as a literal `chatrooms/global/users/<id>` key in a shallow `_.graph`
-    // dump the way pre-built import-snapshot graphs do — but the same data is fully readable
-    // through Gun's own `.map()`/`.once()` traversal, which is what this endpoint uses and what
-    // every real client relies on. Reading it any other way would test the export dump's
-    // idiosyncrasies instead of the actual presence guarantee.
+    // 2. Global has no synthetic TechSupport participant.
     const membersRes = await fetch(`${gunBaseURL()}/api/chatrooms/global/members`);
     expect(membersRes.ok).toBe(true);
     const members = (await membersRes.json()) as Array<{ userId: string; stageName: string }>;
-    expect(members).toEqual([{ userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME }]);
+    expect(members).toEqual([]);
+    expect(Object.entries(graph).some(([soul, value]) =>
+      soul.startsWith('chatrooms/')
+        && soul.endsWith(`/users/${TECHSUPPORT_ROOT_USER_ID}`)
+        && value?.isActive === true,
+    )).toBe(false);
 
     // 3. No support DB: the relay must not have minted a full user record for TechSupport — that
     // comes from client compiled constants (item 1) and a signed template (K2), never from
@@ -65,13 +59,5 @@ test.describe('Stage 0 — relay-only TechSupport presence, no browser (docs/TOD
     const greetingSouls = Object.keys(graph).filter((soul) => soul.includes('support_welcome_'));
     expect(greetingSouls).toEqual([]);
 
-    // 4. The public member-count aggregate reads 1. This publish is fire-and-forget on the
-    // server, so poll briefly rather than requiring it in the same tick as the reset response.
-    await expect
-      .poll(async () => {
-        const latest = await exportSnapshotGraph();
-        return latest['public/room-member-counts/global']?.count;
-      }, { timeout: 5_000 })
-      .toBe(1);
   });
 });

@@ -893,12 +893,13 @@ describe('PeerMeshService', () => {
         alicePongs.push({ originUserId, msgId: (frame.payload as { msgId?: string }).msgId ?? '' });
       },
     });
-    // Bob: default K; relay between Alice and Carol.
+    // Bob: forwarding is an explicit opt-in; this test exercises that relay path.
     const bob = new PeerMeshService(mockGunService(bobPair, users), {
       apiBase: 'http://127.0.0.1:8080',
       localUserId: 'bob',
       localStageName: 'Bob',
       createSession: network.createSession,
+      forwardingSettings: { enabled: true, wifiForwarding: true },
     });
     // Carol: default K; connects to both Alice and Bob bidirectionally.
     // Using default K ensures carol↔bob channel exists so Bob can forward to Carol.
@@ -1417,6 +1418,7 @@ describe('PeerMeshService', () => {
       localUserId: 'bob',
       localStageName: 'Bob',
       createSession: network.createSession,
+      forwardingSettings: { enabled: true, wifiForwarding: true },
     });
     const carol = new PeerMeshService(mockGunService(carolPair, users), {
       apiBase: 'http://127.0.0.1:8080',

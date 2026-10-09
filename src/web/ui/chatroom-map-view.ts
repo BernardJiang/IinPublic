@@ -432,21 +432,22 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     map.on('sourcedata', refreshMarkers);
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
-    // Tile grid of the layer that fits the zoom, the current room's tile, and the tapped tile —
-    // all below the room pins.
-    map.addSource(GRID_SOURCE_ID, { type: 'geojson', data: tileGridLines(1, { west: -180, south: -85, east: 180, north: 85 }) as never });
-    map.addSource(CURRENT_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
-    map.addSource(SELECTED_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
-    map.addLayer({ id: 'iinpublic-tile-current-fill', type: 'fill', source: CURRENT_TILE_SOURCE_ID, paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.12 } });
-    map.addLayer({ id: 'iinpublic-tile-current-line', type: 'line', source: CURRENT_TILE_SOURCE_ID, paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.7 } });
-    map.addLayer({ id: 'iinpublic-tile-selected-fill', type: 'fill', source: SELECTED_TILE_SOURCE_ID, paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.14 } });
-    map.addLayer({ id: 'iinpublic-tile-selected-line', type: 'line', source: SELECTED_TILE_SOURCE_ID, paint: { 'line-color': '#2563eb', 'line-width': 2 } });
-    map.addLayer({ id: 'iinpublic-tile-grid-line', type: 'line', source: GRID_SOURCE_ID, paint: { 'line-color': '#475569', 'line-width': 1, 'line-opacity': 0.35 } });
-    map.on('moveend', () => updateTileGrid(state));
-    // A zoom change moves to another layer, so an earlier selection no longer matches the grid.
-    map.on('zoomend', () => {
-      if (state.selectedTile && parseTileId(state.selectedTile)?.layer !== gridLayerForZoom(map.getZoom())) clearTileSelection(state);
-    });
+    if (state.options.openTile || state.options.currentTileId) {
+      // Compatibility path for legacy callers. The Nearby + Places UI omits `openTile`, so its
+      // map contains meaningful Place pins without exposing the retired geographic room tree.
+      map.addSource(GRID_SOURCE_ID, { type: 'geojson', data: tileGridLines(1, { west: -180, south: -85, east: 180, north: 85 }) as never });
+      map.addSource(CURRENT_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
+      map.addSource(SELECTED_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
+      map.addLayer({ id: 'iinpublic-tile-current-fill', type: 'fill', source: CURRENT_TILE_SOURCE_ID, paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.12 } });
+      map.addLayer({ id: 'iinpublic-tile-current-line', type: 'line', source: CURRENT_TILE_SOURCE_ID, paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.7 } });
+      map.addLayer({ id: 'iinpublic-tile-selected-fill', type: 'fill', source: SELECTED_TILE_SOURCE_ID, paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.14 } });
+      map.addLayer({ id: 'iinpublic-tile-selected-line', type: 'line', source: SELECTED_TILE_SOURCE_ID, paint: { 'line-color': '#2563eb', 'line-width': 2 } });
+      map.addLayer({ id: 'iinpublic-tile-grid-line', type: 'line', source: GRID_SOURCE_ID, paint: { 'line-color': '#475569', 'line-width': 1, 'line-opacity': 0.35 } });
+      map.on('moveend', () => updateTileGrid(state));
+      map.on('zoomend', () => {
+        if (state.selectedTile && parseTileId(state.selectedTile)?.layer !== gridLayerForZoom(map.getZoom())) clearTileSelection(state);
+      });
+    }
 
     const initialData = chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom);
     state.options.container.dataset.mapGeojsonFeatureCount = String(initialData.features.length);

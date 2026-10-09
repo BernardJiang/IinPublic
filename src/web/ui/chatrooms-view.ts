@@ -9,6 +9,7 @@ import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId, placeRoomTile } from '../../shared/place-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, RADIO_NEARBY_SCOPE_ID, isNearbyRoomId } from '../../shared/nearby-rooms';
 import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
@@ -172,13 +173,6 @@ function l1TileNode(tile: L1TileInfo, parentId: string): FlatChatroomNode {
   return { id: tile.id, name: tile.name, icon: tile.icon, description: 'Region', level: 1, parentId, hasChildren: false };
 }
 
-/** The L1 tile a grid room's cell falls in. */
-/** The tile to shade on the map for the current room: its own tile, or a grid cell's L4 tile. */
-function currentMapTile(roomId: string): string | undefined {
-  const path = browsePath(roomId).filter((id) => parseTileId(id));
-  return path[path.length - 1];
-}
-
 export function l1TileForGridRoom(chatroomId: string): string | undefined {
   const cell = COARSE_CELL_ID.exec(splitBaseId(chatroomId));
   return cell ? tileIdAt(1, Number(cell[1]), Number(cell[2])) : undefined;
@@ -322,47 +316,10 @@ function splitTitleIcon(title: string): { icon: string; name: string } {
   return { icon: '📍', name: title };
 }
 
-/** Auto-expand the current room's path once per room change (the user can still collapse it). */
-let autoExpandedFor = '';
-
 export function renderChatroomList(deps: ChatroomsViewDeps): void {
-  const allChatrooms = buildBrowseTree(deps.currentChatroom ? [deps.currentChatroom] : [], deps.customChatrooms);
-  if (deps.currentChatroom !== autoExpandedFor) {
-    autoExpandedFor = deps.currentChatroom;
-    deps.expandedChatrooms.add(CONFIG.GLOBAL_CHATROOM_ID);
-    // Open every room on the path down to the current one.
-    for (const id of browsePath(deps.currentChatroom).slice(0, -1)) deps.expandedChatrooms.add(id);
-  }
-
-  // Rooms outside the tree (Global overflow, a legacy named room, a legacy unanchored custom room)
-  // stay reachable at the top while you are in them.
-  if (deps.currentChatroom && !allChatrooms.find((room) => room.id === deps.currentChatroom)) {
-    const customFallback = deps.customChatrooms.find((c) => c.id === deps.currentChatroom);
-    const isGlobalOverflow = splitBaseId(deps.currentChatroom) === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID;
-    const title = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
-    allChatrooms.unshift({
-      id: deps.currentChatroom,
-      name: customFallback?.name || title.name,
-      icon: customFallback ? customRoomIcon(customFallback.type) : title.icon,
-      level: 0,
-      description: customFallback?.description || (isGlobalOverflow
-        ? 'Non-geographic room for members without a confirmed location'
-        : 'Your current location chatroom'),
-      hasChildren: false,
-    });
-  }
-
-  // A row shows only when EVERY ancestor is expanded: collapsing a region tile hides its whole
-  // subtree, not just its direct children.
-  const parentOf = new Map(allChatrooms.map((room) => [room.id, room.parentId] as const));
-  const visibleChatrooms = allChatrooms.filter((room) => {
-    for (let parent = room.parentId, guard = 0; parent && guard < 16; parent = parentOf.get(parent), guard++) {
-      if (!deps.expandedChatrooms.has(parent)) return false;
-    }
-    return true;
-  });
-
-  // Local custom rooms are in the tree under their L4 tile; this list only feeds their map pins.
+  // The product model is intentionally flat: one current Nearby scope plus meaningful Place
+  // destinations. Geographic subdivision and capacity shards are protocol details, never rooms
+  // a person has to understand or expand in a tree.
   const customNodes = deps.customChatrooms
     .filter((c) => isPlaceRoomId(c.id))
     .map((c) => ({
@@ -373,8 +330,22 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       description: c.description || '',
       hasChildren: false as const,
     }));
-
-  const rows = visibleChatrooms;
+  const currentCustom = deps.customChatrooms.find((room) => room.id === deps.currentChatroom);
+  const currentTitle = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
+  const currentNode: FlatChatroomNode | null = deps.currentChatroom
+    ? {
+        id: deps.currentChatroom,
+        name: currentCustom?.name || currentTitle.name,
+        icon: currentCustom ? customRoomIcon(currentCustom.type) : currentTitle.icon,
+        level: 0,
+        description: currentCustom?.description || 'Your active Nearby audience',
+        hasChildren: false,
+      }
+    : null;
+  const rows = Array.from(new Map(
+    [...(currentNode ? [currentNode] : []), ...customNodes].map((room) => [room.id, room]),
+  ).values());
+  const allChatrooms = rows;
 
   const chatroomList = document.getElementById('chatroom-list');
   if (!chatroomList) return;
@@ -506,11 +477,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       rooms: mapRooms,
       currentChatroom: deps.currentChatroom,
       openChatroom: (chatroomId) => showChatroomDetail(deps, chatroomId),
-      // A tap selects the tile of the grid layer drawn at that zoom; its Enter button opens it.
-      openTile: (tileId) => showChatroomDetail(deps, tileId),
-      tileTitle: (tileId) => resolveChatroomTitle(tileId, deps.customChatrooms),
-      ...(currentMapTile(deps.currentChatroom) ? { currentTileId: currentMapTile(deps.currentChatroom)! } : {}),
-      enterTileText: deps.text('chatroomMapEnterTile'),
       mapLoadFailedText: deps.text('chatroomMapLoadFailed'),
       membersText: (count) => deps.text(count === 1 ? 'chatroomMemberOne' : 'chatroomMembers').replace('{count}', String(count)),
       visitsText: (count) => deps.text(count === 1 ? 'chatroomVisitOne' : 'chatroomVisits').replace('{count}', String(count)),
@@ -834,6 +800,9 @@ function coarseCellTitle(chatroomId: string): string | null {
 }
 
 export function resolveChatroomTitle(chatroomId: string, customChatrooms: readonly CustomChatroomRow[]): string {
+  if (chatroomId === CONTACTS_ONLY_SCOPE_ID) return '👥 Contacts only';
+  if (chatroomId === RADIO_NEARBY_SCOPE_ID) return '📡 Radio nearby';
+  if (isNearbyRoomId(chatroomId)) return '📍 Nearby';
   // A numbered overflow room (`x_part_3`) is shown as its base room plus the number: "Arena (3)".
   const baseId = splitBaseId(chatroomId);
   if (baseId === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID) {

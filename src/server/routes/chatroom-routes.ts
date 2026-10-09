@@ -153,7 +153,7 @@ export function registerChatroomRoutes(
 
   app.post('/api/chatrooms', async (req, res) => {
     try {
-      const { name, type, createdBy, description, businessInfo, location, anchorCell } = req.body as {
+      const { name, type, createdBy, description, businessInfo, location, anchorCell, descriptor } = req.body as {
         name: string;
         type: 'business' | 'custom';
         createdBy: string;
@@ -161,6 +161,7 @@ export function registerChatroomRoutes(
         description?: string;
         businessInfo?: unknown;
         location?: unknown;
+        descriptor?: unknown;
       };
       if (!name || !type || !createdBy) {
         res.status(400).json({ error: 'name, type, and createdBy are required' });
@@ -197,10 +198,12 @@ export function registerChatroomRoutes(
         description?: string;
         businessInfo?: unknown;
         location?: ChatroomMapLocation;
+        descriptor?: unknown;
       } = { name, type, createdBy, anchorCell: String(anchorCell) };
       if (description != null) createPayload.description = description;
       if (businessInfo != null) createPayload.businessInfo = businessInfo;
       if (location != null) createPayload.location = location;
+      if (descriptor != null) createPayload.descriptor = descriptor;
       const created = await chatroomManager.createChatroom(createPayload);
       res.status(201).json(created);
     } catch (error) {

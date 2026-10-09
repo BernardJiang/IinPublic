@@ -6,10 +6,10 @@ import {
 } from './techsupport';
 
 /**
- * Single source of truth for the built-in TechSupport baseline graph (docs/TODO.md K1 item 5).
+ * Single source of truth for the built-in contacts-only TechSupport baseline graph.
  * Consumed by `tests/e2e/helpers/clear-database.ts` (TS, direct import) and
  * `scripts/dev-techsupport-bootstrap.js` (plain Node, requires the compiled `dist/shared` output)
- * so the member-row/user-record shape has exactly one definition instead of three drifting copies.
+ * It contains identity/contact metadata only and deliberately has no room membership.
  */
 export function techSupportBaselineGraph(now: Date = new Date()): Record<string, unknown> {
   const nowIso = now.toISOString();
@@ -100,74 +100,5 @@ export function techSupportBaselineGraph(now: Date = new Date()): Record<string,
       networkRole: TECHSUPPORT_NETWORK_ROLE,
       createdAt: nowIso,
     }),
-    chatrooms: node('chatrooms', {
-      global: { '#': 'chatrooms/global' },
-    }),
-    'chatrooms/global': node('chatrooms/global', {
-      users: { '#': 'chatrooms/global/users' },
-      locations: { '#': 'chatrooms/global/locations' },
-      visits: { '#': 'chatrooms/global/visits' },
-      uniqueVisitors: { '#': 'chatrooms/global/uniqueVisitors' },
-      visitCount: 1,
-      uniqueVisitorCount: 1,
-    }),
-    'chatrooms/global/users': node('chatrooms/global/users', {
-      [TECHSUPPORT_ROOT_USER_ID]: { '#': `chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}` },
-    }),
-    [`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`]: techSupportGlobalMemberRow(nowIso),
-    'chatrooms/global/locations': node('chatrooms/global/locations', {}),
-    'chatrooms/global/visits': node('chatrooms/global/visits', {
-      [TECHSUPPORT_ROOT_USER_ID]: { '#': `chatrooms/global/visits/${TECHSUPPORT_ROOT_USER_ID}` },
-    }),
-    [`chatrooms/global/visits/${TECHSUPPORT_ROOT_USER_ID}`]: node(
-      `chatrooms/global/visits/${TECHSUPPORT_ROOT_USER_ID}`,
-      {
-        userId: TECHSUPPORT_ROOT_USER_ID,
-        stageName: TECHSUPPORT_STAGE_NAME,
-        enteredAt: nowIso,
-      },
-    ),
-    'chatrooms/global/uniqueVisitors': node('chatrooms/global/uniqueVisitors', {
-      [TECHSUPPORT_ROOT_USER_ID]: true,
-    }),
-  };
-}
-
-/**
- * Just the `chatrooms/global/users/<id>` member-row *fields* (no Gun `_` meta wrapper) — the
- * shape `GunService.putPath()` / `gun.get(...).put()` expects, used by the server boot seed
- * (K1 item 2, `ChatroomManager.seedTechSupportGlobalMembership`) so that write matches the
- * member-row shape the import-snapshot baseline graph uses below, instead of a second
- * hand-rolled row.
- */
-export function techSupportGlobalMemberFields(nowIso: string = new Date().toISOString()): {
-  userId: string;
-  stageName: string;
-  joinedAt: string;
-  lastSeen: string;
-  isActive: true;
-} {
-  return {
-    userId: TECHSUPPORT_ROOT_USER_ID,
-    stageName: TECHSUPPORT_STAGE_NAME,
-    joinedAt: nowIso,
-    lastSeen: nowIso,
-    isActive: true,
-  };
-}
-
-/**
- * Same member row, but as a raw Gun graph node (with `_` meta) — the shape the `import-snapshot`
- * endpoint expects when injecting a whole graph directly, used by `techSupportBaselineGraph`.
- */
-export function techSupportGlobalMemberRow(nowIso: string = new Date().toISOString()): Record<string, unknown> {
-  const soul = `chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`;
-  const fields = techSupportGlobalMemberFields(nowIso);
-  return {
-    _: {
-      '#': soul,
-      '>': Object.fromEntries(Object.keys(fields).map((key) => [key, new Date(nowIso).getTime()])),
-    },
-    ...fields,
   };
 }

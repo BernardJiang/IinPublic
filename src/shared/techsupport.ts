@@ -141,24 +141,6 @@ export function assertTechSupportDmPair(pair: unknown): asserts pair is TechSupp
 export const TECHSUPPORT_NETWORK_ROLE = 'root-techsupport';
 export const TECHSUPPORT_HEADSHOT = 'TS';
 
-/**
- * The synthetic Global-room roster entry the client injects from compiled constants (docs/TODO.md
- * K1 item 1) — "no round-trip, no dependence on a browser having bootstrapped it." Only ever used
- * as a floor when no real `TECHSUPPORT_ROOT_USER_ID` roster entry is already present; callers must
- * dedup by this id so a real seeded row (K1 item 2) is never double-counted.
- */
-export interface TechSupportRosterMember {
-  userId: string;
-  stageName: string;
-}
-
-export function techSupportRosterMember(): TechSupportRosterMember {
-  return { userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME };
-}
-
-/** Only Global carries the built-in TechSupport floor (K1) — never sub-rooms. */
-export const TECHSUPPORT_GLOBAL_ROOM_ID = 'global';
-
 export const RESERVED_STAGE_NAMES = [
   TECHSUPPORT_STAGE_NAME,
   'admin',

@@ -1,13 +1,12 @@
 import { parseAnchorCell, placeRoomId } from '../../shared/place-rooms';
-import type { GPSCoordinate } from '../../shared/types';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { randomBytes } from 'crypto';
 import { portableSha256Hex } from '../../shared/portable-sha256';
+import { verifySignedPlaceDescriptor, type SignedPlaceDescriptor } from '../../shared/place-descriptor';
+import { isTechSupportId } from '../../shared/techsupport';
 import { GunService } from './gun-service';
 import { PresenceDurableStore, type PresenceMember } from './presence-durable-store';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
-import { isTechSupportId, TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
-import { techSupportGlobalMemberFields } from '../../shared/techsupport-graph';
 import {
   foldSlotsIntoPrunedAggregate,
   incrementVisitSlot,
@@ -131,6 +130,7 @@ export class ChatroomManager {
     const members = await this.presenceStore.getActiveMembers(chatroomId);
     await Promise.all(
       members.map((durable) => {
+        if (isTechSupportId(durable.userId)) return Promise.resolve();
         // The in-process roster is authoritative for anyone it currently knows: a durable read can
         // legitimately return an OLDER version of a record that was overwritten moments ago (radisk
         // serves the on-disk copy after newer in-memory writes), and re-asserting that into the graph
@@ -224,6 +224,7 @@ export class ChatroomManager {
     lastSeen?: string,
     opts: { bypassResetFence?: boolean; isTraveler?: boolean } = {},
   ): void {
+    if (isTechSupportId(userId)) return;
     // E2E reset fence: replayed member records from before a clear-database must never
     // re-enter the map. Exception: an explicit PATCH that deliberately backdates lastSeen
     // (the stale-membership prune specs inject staleness that way) bypasses the fence.
@@ -252,11 +253,7 @@ export class ChatroomManager {
     const members: RoomMemberSummary[] = [];
     let pruned = false;
     for (const [userId, member] of room) {
-      // TechSupport is never evicted from a room (decision K1-3, docs/TODO.md), including here —
-      // this in-memory fast path has its own independent staleness check from
-      // pruneStaleRoomMemberships's Gun-persisted path, so the immunity guard has to be repeated
-      // or a TechSupport device that never heartbeats would silently age out after the TTL.
-      if (!isTechSupportId(userId) && this.roomMembershipIsStale({ isActive: true, lastSeen: member.lastSeen }, now)) {
+      if (this.roomMembershipIsStale({ isActive: true, lastSeen: member.lastSeen }, now)) {
         room.delete(userId);
         const prunedInRoom = this.stalePrunedAt.get(chatroomId) ?? new Map<string, number>();
         prunedInRoom.set(userId, now.getTime());
@@ -377,6 +374,7 @@ export class ChatroomManager {
     description?: string;
     businessInfo?: any;
     location?: ChatroomMapLocation;
+    descriptor?: unknown;
   }): Promise<any> {
     // Room identity is stable and independent of the publisher. Publishing the descriptor makes
     // its author the first ordinary participant, not an owner or a permanent authority.
@@ -387,7 +385,25 @@ export class ChatroomManager {
     if (!requestedTestId && !anchor) {
       throw new Error('a local room needs the creator\'s blurred location cell (anchorCell)');
     }
-    const id = requestedTestId || placeRoomId(anchor!, portableSha256Hex([
+    const descriptorVerification = params.descriptor
+      ? await verifySignedPlaceDescriptor(params.descriptor)
+      : null;
+    if (params.descriptor && !descriptorVerification?.ok) {
+      throw new Error(descriptorVerification?.reason || 'invalid signed place descriptor');
+    }
+    if (!descriptorVerification?.ok && process.env.NODE_ENV !== 'test') {
+      throw new Error('a signed content-addressed place descriptor is required');
+    }
+    const signedDescriptor: SignedPlaceDescriptor | null = descriptorVerification?.ok
+      ? descriptorVerification.descriptor
+      : null;
+    if (signedDescriptor && anchor) {
+      const descriptorCell = `region_${Math.floor(signedDescriptor.location.latitude * 100) / 100}_${Math.floor(signedDescriptor.location.longitude * 100) / 100}`;
+      if (descriptorCell !== anchor.cellId) {
+        throw new Error('signed place location must lie inside the room\'s anchor cell');
+      }
+    }
+    const id = requestedTestId || signedDescriptor?.id || placeRoomId(anchor!, portableSha256Hex([
       'iinpublic:room-id:v2',
       anchor!.cellId,
       randomBytes(32).toString('hex'),
@@ -395,17 +411,20 @@ export class ChatroomManager {
     ].join(':')));
     const room = {
       id,
-      name: String(params.name || '').trim(),
-      type: params.type,
-      description: String(params.description || '').trim(),
+      name: signedDescriptor?.name || String(params.name || '').trim(),
+      type: signedDescriptor?.placeType || params.type,
+      description: signedDescriptor?.description || String(params.description || '').trim(),
       createdBy: params.createdBy,
+      ...(signedDescriptor ? { creatorPub: signedDescriptor.creatorPub, descriptor: signedDescriptor } : {}),
       businessInfo: params.businessInfo,
       ...(anchor ? { anchorCell: anchor.cellId } : {}),
       // Public map pin: the (already blurred) anchor cell, unless a business pin was supplied.
-      ...(params.location
+      ...(signedDescriptor
+        ? { location: signedDescriptor.location }
+        : params.location
         ? { location: params.location }
         : anchor ? { location: { latitude: anchor.latitude, longitude: anchor.longitude } } : {}),
-      createdAt: new Date().toISOString(),
+      createdAt: signedDescriptor?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isActive: true,
     };
@@ -415,6 +434,16 @@ export class ChatroomManager {
     this.roomMetaCache.set(id, room);
     await this.gunService.putPath(['chatrooms', id, 'meta'], room);
     await this.gunService.putPath(['chatroomMeta', id], room);
+    if (signedDescriptor && anchor) {
+      await Promise.all([
+        this.gunService.putPath(['places', 'by-id', id, 'descriptor'], signedDescriptor),
+        this.gunService.putPath(['places', 'by-map-cell', anchor.cellId, id, 'reference'], {
+          id,
+          descriptorCid: id.slice('place_'.length),
+          createdAt: signedDescriptor.createdAt,
+        }),
+      ]);
+    }
 
     return room;
   }
@@ -457,7 +486,7 @@ export class ChatroomManager {
     }
     const members: RoomMemberSummary[] = [];
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
-      if (!userId || userId.startsWith('_')) continue;
+      if (!userId || userId.startsWith('_') || isTechSupportId(userId)) continue;
       if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
       if (this.predatesReset(data)) continue;
       members.push({
@@ -539,10 +568,6 @@ export class ChatroomManager {
     ]);
     for (const records of recordGroups) {
       for (const record of records) {
-        // TechSupport is never evicted from a room (decision K1-3, docs/TODO.md). Checked here,
-        // at the single point where staleness becomes an eviction, so every caller of the prune
-        // is covered by one string comparison rather than a guard per call site.
-        if (isTechSupportId(record.userId)) continue;
         if (this.roomMembershipIsStale(record.data, now)) stale.add(record.userId);
       }
     }
@@ -571,7 +596,7 @@ export class ChatroomManager {
     if (!users || typeof users !== 'object') return [];
     const members: RoomMemberSummary[] = [];
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
-      if (!userId || userId.startsWith('_')) continue;
+      if (!userId || userId.startsWith('_') || isTechSupportId(userId)) continue;
       if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
       if (this.predatesReset(data)) continue;
       members.push({
@@ -609,7 +634,7 @@ export class ChatroomManager {
       };
       const timer = setTimeout(finish, observeMs);
       mapRef.on((data: unknown, key: string) => {
-        if (!key || key.startsWith('_')) return;
+        if (!key || key.startsWith('_') || isTechSupportId(key)) return;
         if (!data || typeof data !== 'object' || (data as { isActive?: boolean }).isActive !== true) return;
         if (this.predatesReset(data)) return;
         if (seen.has(key)) return;
@@ -627,6 +652,7 @@ export class ChatroomManager {
   }
 
   async joinChatroom(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+    if (isTechSupportId(userId)) return;
     const existingMember = await this.gunService.getPath(['chatroomMembers', chatroomId, userId]).catch(() => null);
     if (existingMember?.isActive === true) return;
     const memberData = {
@@ -654,6 +680,7 @@ export class ChatroomManager {
     stageName?: string,
     isTraveler = false,
   ): Promise<void> {
+    if (isTechSupportId(userId)) return;
     const requestStartedAt = Date.now();
     const nowIso = new Date().toISOString();
     const memberData = {
@@ -698,44 +725,12 @@ export class ChatroomManager {
     });
   }
 
-  /**
-   * Relay-light presence (docs/TODO.md K1 item 2): seed the one TechSupport Global member row
-   * on boot and after every E2E reset, so a bare relay with no browser ever having bootstrapped
-   * still reports TechSupport present. "Bytes, not a database" — this writes exactly the member
-   * row, nothing else (no user record, reputation, or filters; those come from the client's
-   * compiled constants + the signed identity record, not a server-side user).
-   *
-   * Idempotent and safe to call repeatedly: re-stamps `lastSeen`/`joinedAt` fresh each call so
-   * the row never reads as stale even though eviction already skips it (K1-3) — a fresh stamp
-   * also means a boot seed run after an E2E reset is never mistaken for a pre-reset ghost.
-   */
-  async seedTechSupportGlobalMembership(chatroomId = 'global'): Promise<void> {
-    const nowIso = new Date().toISOString();
-    const fields = techSupportGlobalMemberFields(nowIso);
-    this.upsertFastMember(chatroomId, TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME, nowIso, {
-      bypassResetFence: true,
-    });
-    await Promise.all([
-      this.gunService.putPath(['chatrooms', chatroomId, 'users', TECHSUPPORT_ROOT_USER_ID], fields),
-      this.gunService.putPath(['chatroomMembers', chatroomId, TECHSUPPORT_ROOT_USER_ID], fields),
-    ]);
-    this.durableUpsertMember(chatroomId, {
-      userId: TECHSUPPORT_ROOT_USER_ID,
-      stageName: TECHSUPPORT_STAGE_NAME,
-      isActive: true,
-      joinedAt: nowIso,
-      lastSeen: nowIso,
-    });
-    void this.publishRoomMemberCount(chatroomId).catch(() => {
-      /* best-effort public badge; a missing publish does not drop the member row itself */
-    });
-  }
-
   async touchMemberFast(
     chatroomId: string,
     userId: string,
     options: { stageName?: string; lastSeen?: string; isTraveler?: boolean } = {},
   ): Promise<void> {
+    if (isTechSupportId(userId)) return;
     const now = new Date().toISOString();
     // This is the read behind the membership-heartbeat PATCH every connected client sends every
     // ~10-30s (web-chatroom-service.ts's startMembershipHeartbeat) — getPath's 2000ms/3000ms
@@ -960,8 +955,4 @@ export class ChatroomManager {
     await this.joinChatroom(newChatroomId, userId);
   }
 
-  async findOptimalChatroom(_location: GPSCoordinate): Promise<string> {
-    // Server-side optimal chatroom logic
-    return 'global';
-  }
 }

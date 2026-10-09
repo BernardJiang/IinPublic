@@ -5,8 +5,6 @@ import {
   type User,
 } from '../../shared/types';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
-import { parseTileId } from '../../shared/room-tiles';
-import { getBrowsableBuiltInChatrooms, resolveChatroomTitle } from './chatrooms-view';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
 import { renderSettingsSection } from './settings-section-template';
@@ -192,7 +190,6 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   const dislikedCount = reputation.dislikedCount ?? 0;
   const ageVerified = reputation.ageVerified === true;
   const isCreditVisible = reputation.isHidden !== true;
-  const home = deps.getHomeChatroomId();
   const headshot = String(user.headshot || '').trim();
   const interestNames = Array.isArray(user.interests)
     ? user.interests.map((t: Tag) => String(t?.name || '').trim()).filter(Boolean)
@@ -235,18 +232,6 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
     talkFilters.dirtyWords === undefined
       ? [...DEFAULT_DIRTY_WORDS]
       : normalizeDirtyWords(talkFilters.dirtyWords);
-  const homeOptions = [
-    // Global, the region tiles, the user's own tile, and any tile (any layer) they are in or chose
-    // — e.g. a GPS-less desktop that tapped its area on the map. Never country/state rooms.
-    ...[...new Set([
-      ...getBrowsableBuiltInChatrooms().map((room) => room.id),
-      ...[deps.ownTileId, deps.currentChatroomId, home].filter((id): id is string => !!id && !!parseTileId(id)),
-    ])].map((id) => ({ id, label: resolveChatroomTitle(id, deps.customChatrooms) })),
-    ...deps.customChatrooms.map((room) => ({
-      id: room.id,
-      label: `${room.type === 'business' ? '🏪' : '💬'} ${room.name}`,
-    })),
-  ];
   const uiLanguage = deps.getUiLanguage();
   const defaultTalkLanguage = getDefaultTalkLanguagePreference(uiLanguage);
   const languageOptions = LANGUAGE_OPTIONS.map((language) => ({
@@ -511,18 +496,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
               <input type="number" class="form-input" id="settings-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}">
             </label>
           </div>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>${deps.t('settingsHomeRoom')}</span>
-            <select class="form-input" id="settings-home-room">
-              ${homeOptions
-                .map(
-                  (room) => `
-                  <option value="${escapeHtml(room.id)}" ${room.id === home ? 'selected' : ''}>${escapeHtml(room.label)}</option>
-                `,
-                )
-                .join('')}
-            </select>
-          </label>
+          <div style="margin-top:10px;font-size:0.84em;color:var(--text-tertiary);">Home is your automatic Nearby area. Selecting a map Place is a visible visit; Return to Nearby recomputes home from your current location and privacy setting.</div>
           <div style="margin-top:4px;font-size:0.82em;color:var(--text-tertiary);">${deps.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>${deps.t('settingsSentAfter')}</span>
@@ -647,6 +621,16 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: 'Choose routes automatically or tune data, battery, and forwarding policy.',
           },
           `<div style="display:grid;gap:12px;">
+            <label>Who can discover me nearby
+              <select id="settings-nearby-privacy-mode" class="form-input" data-testid="settings-nearby-privacy-mode">
+                <option value="contacts-only" ${connectivity.nearbyPrivacyMode === 'contacts-only' ? 'selected' : ''}>Contacts only — no stranger room</option>
+                <option value="radio-nearby" ${connectivity.nearbyPrivacyMode === 'radio-nearby' ? 'selected' : ''}>Radio nearby — phones within BLE range</option>
+                <option value="neighborhood" ${connectivity.nearbyPrivacyMode === 'neighborhood' ? 'selected' : ''}>Neighborhood — reveal an approximate 1 km area</option>
+                <option value="close-nearby" ${connectivity.nearbyPrivacyMode === 'close-nearby' ? 'selected' : ''}>Close nearby — reveal an approximate 200–500 m area</option>
+                <option value="location-off" ${connectivity.nearbyPrivacyMode === 'location-off' ? 'selected' : ''}>Location off — Contacts and selected Places only</option>
+              </select>
+              <small>Close nearby can reveal your home or workplace. Cell identifiers are predictable; hashing does not hide the approximate area.</small>
+            </label>
             <label>Preset
               <select id="settings-connectivity-preset" class="form-input" data-testid="settings-connectivity-preset">
                 ${(['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'] as ConnectivityPreset[]).map((preset) => `<option value="${preset}" ${connectivity.preset === preset ? 'selected' : ''}>${preset.replace('-', ' ')}</option>`).join('')}

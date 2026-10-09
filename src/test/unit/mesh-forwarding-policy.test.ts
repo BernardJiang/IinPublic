@@ -9,13 +9,13 @@ describe('configurable mesh forwarding policy', () => {
   const wifi = { routeId: 'wifi-carol', interface: 'wifi' as const, lowBattery: false };
   const cellular = { routeId: 'cell-carol', interface: 'cellular' as const, lowBattery: false };
 
-  test('defaults are enabled on Wi-Fi and disabled/budget-zero on cellular', () => {
-    expect(DEFAULT_FORWARDING_SETTINGS).toMatchObject({ enabled: true, wifiForwarding: true, cellularForwarding: false, lowBatteryPause: true, cellularByteBudget: 0 });
+  test('defaults disable third-person forwarding on every route', () => {
+    expect(DEFAULT_FORWARDING_SETTINGS).toMatchObject({ enabled: false, wifiForwarding: false, cellularForwarding: false, lowBatteryPause: true, cellularByteBudget: 0 });
   });
 
-  test('Alice→Carol→Bob is permitted on Wi-Fi by default', () => {
+  test('Alice→Carol→Bob is blocked on Wi-Fi by default', () => {
     const policy = new MeshForwardingPolicy();
-    expect(policy.evaluate(frame(), 'carol', wifi, 100).allowed).toBe(true);
+    expect(policy.evaluate(frame(), 'carol', wifi, 100).allowed).toBe(false);
   });
 
   test('disabling Carol forwarding blocks the third-party path', () => {
@@ -24,7 +24,7 @@ describe('configurable mesh forwarding policy', () => {
   });
 
   test('low battery and cellular independently stop only forwarded traffic', () => {
-    const low = new MeshForwardingPolicy();
+    const low = new MeshForwardingPolicy({ enabled: true, wifiForwarding: true });
     expect(low.evaluate(frame(), 'carol', { ...wifi, lowBattery: true }, 100).allowed).toBe(false);
     expect(low.evaluate(frame({ originUserId: 'carol' }), 'carol', { ...wifi, lowBattery: true }, 100).allowed).toBe(true);
     const cell = new MeshForwardingPolicy();
@@ -33,7 +33,7 @@ describe('configurable mesh forwarding policy', () => {
   });
 
   test('enforces per-route bytes and records diagnostics', () => {
-    const policy = new MeshForwardingPolicy({ routeByteBudget: 150 });
+    const policy = new MeshForwardingPolicy({ enabled: true, wifiForwarding: true, routeByteBudget: 150 });
     expect(policy.evaluate(frame(), 'carol', wifi, 100).allowed).toBe(true);
     policy.recordForwarded(wifi.routeId, 100);
     expect(policy.evaluate(frame(), 'carol', wifi, 60).allowed).toBe(false);
@@ -41,7 +41,7 @@ describe('configurable mesh forwarding policy', () => {
   });
 
   test('rate-limits abusive third-party forwarding per route', () => {
-    const policy = new MeshForwardingPolicy({ maxFramesPerRoutePerMinute: 1 });
+    const policy = new MeshForwardingPolicy({ enabled: true, wifiForwarding: true, maxFramesPerRoutePerMinute: 1 });
     expect(policy.evaluate(frame(), 'carol', wifi, 1).allowed).toBe(true);
     policy.recordForwarded(wifi.routeId, 1);
     expect(policy.evaluate(frame({ msgId: 'm2' }), 'carol', wifi, 1).allowed).toBe(false);

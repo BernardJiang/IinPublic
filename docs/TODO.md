@@ -35,18 +35,29 @@ its ID.
     retain deterministic identity lanes only as final load shedding when GPS accuracy cannot split a
     dense venue. Add boundary and GPS-drift hysteresis. No active presence or radio advertisement may
     begin before the applicable control chain is verified.
+    - [x] Implemented the local allocator: Web-Mercator metric cells, version/epoch/precision/split
+      IDs, GPS-accuracy split cap, 15% boundary hysteresis, and identity lanes only after geographic
+      precision is exhausted (`nearby-rooms.ts`). Cell coordinates remain device-local.
+    - [ ] Wire verified overflow certificates into live split-generation selection before presence.
   - [ ] **P0 Gun boundary:** introduce the `places`, `room-presence`, `nearby-control`, and manifest
     schema from the accepted design. Audit every Talk/Me repository: owner-private records must use
     SEA encryption; room-visible Gun carries metadata/control only. Decide and implement the stronger
     split between local-only encrypted Gun and peered control Gun, or explicitly accept ciphertext
     replication as an interim migration step. Remove plaintext generic `talkJson` and auto-answer
     visibility leaks.
+    - [x] Authored/received Talks, received indexes, and both Auto/Manual Me answers now use the
+      SEA-private repository. Ciphertext replication is the explicit interim migration boundary.
+    - [x] Added content-addressed `places/by-id` descriptors and `places/by-map-cell` references.
+    - [ ] Split the local private-body Gun from the peered public-control Gun and migrate remaining
+      compatibility caches.
   - [ ] **P0 direct Talk baseline:** disable third-person device forwarding and room-body gossip by
     default. Implement a durable author-to-receiver scheduler that rotates through at most `K`
     simultaneous direct peers, negotiates compact inventories, transfers signed bodies over an
     encrypted stranger session, records end-recipient ACKs, and retries locally. Ordinary delivery
     must not require another phone or a server mailbox to forward the body. Preserve forwarding code
     only behind an experimental opt-in flag.
+    - [x] Third-person mesh/Wi-Fi forwarding is disabled by default and remains an explicit opt-in.
+    - [ ] Make the direct scheduler/inventory/end-recipient-ACK path authoritative.
   - [ ] **P0 encrypted stranger handshake:** automatically exchange signed public identity plus
     ephemeral session keys for Unknown peers; bind WebRTC/DataChannel identity to that handshake.
     Becoming a Contact pins stable identity and durable pair state rather than enabling encryption
@@ -55,14 +66,25 @@ its ID.
     map area, Place pins, and Return to Nearby. Add Contacts-only, Radio nearby, Neighborhood,
     Close nearby, and Location-off settings with explicit home/work exposure text. Never imply that
     hashing a cell hides its approximate location.
+    - [x] Replaced the rendered hierarchy with one flat active scope plus Community-created Places;
+      added all five privacy modes and the home/work disclosure warning.
+    - [ ] Shade the locally derived Nearby boundary on the map and finish Return-to-Nearby polish.
   - [ ] **P0 Places:** publish signed content-addressed Community-created descriptors indexed by map
     cell; creation grants no authority or trademark claim. A deliberate precise business address
     requires confirmation; community pins snap to the public cell. Joining is an atomic active-room
     switch; traveler means the Place is outside the current GPS home zone. Full Places offer the
     Nearby room around that point and never expose `_part_N` rooms.
+    - [x] New Places are immutable signed CIDv1 descriptors; the relay verifies signature, CID, and
+      map-cell consistency before indexing them. Creation grants no owner/moderator capability.
+    - [ ] Enforce the final full-Place admission/fairness rule against global `C`.
   - [ ] **P0 TechSupport Contacts-only migration:** keep the pinned verified Contact and support
     channel, but delete relay/client Global seeding, synthetic roster floors, headcount contribution,
     map presence, capacity exemption, and room tests. TechSupport remains ineligible for Talks.
+    - [x] Runtime migration complete: no relay seed or client roster floor; TechSupport is forced to
+      local Contacts-only, server/client rosters reject legacy active rows, and baseline graph/tests
+      require identity/contact metadata with no room presence.
+    - [ ] Convert remaining staged E2E scenarios that used TechSupport as a convenient Global-room
+      test participant to ordinary fixture users.
   - [ ] **P1 sparse-area behavior:** widen Nearby search under a deterministic hysteresis rule while
     displaying the actual approximate reach. Do not silently activate overlapping room levels or
     subscribe to unbounded parent rosters.
@@ -70,6 +92,10 @@ its ID.
     memberships into Nearby or content-addressed Places. Preserve contacts, private data, Talk queues,
     receipts, and traveler intent without rebroadcasting old Talks. Retire obsolete capacity
     eviction notices, `_part_N` frontier state, tree UI, and stale specifications/tests.
+    - [x] Saved Global/tile/grid assignments migrate to Nearby; a selected Place persists; new room
+      rendering and map interaction no longer expose the old tree or numbered parts.
+    - [ ] Remove the mixed-release legacy FIFO controller and obsolete hierarchy fixtures after the
+      compatibility window.
   - [ ] **Capacity experiment:** treat `C=498`, initial Nearby scales, and `K` as release-wide
     experimental defaults. Simulate 32/64/128/256/498 capacities and dense/sparse populations; then
     use three phones across Internet, LAN, BLE, and Wi-Fi Direct to measure discovery time, p50/p95

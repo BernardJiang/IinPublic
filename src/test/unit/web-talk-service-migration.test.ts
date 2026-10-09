@@ -6,6 +6,8 @@ function service(graph: Map<string, unknown>, repository: boolean): WebTalkServi
     getStoredPair: () => ({ pub: 'alice-sea', epub: 'alice-epub' }),
     put: async (key: string, value: unknown) => { graph.set(key, value); },
     get: async (key: string) => graph.get(key) ?? null,
+    putPrivate: async (key: string, value: unknown) => { graph.set(`private/${key}`, value); },
+    getPrivate: async (key: string) => graph.get(`private/${key}`) ?? null,
   } as unknown as WebGunService;
   return new WebTalkService(gun, undefined, { gunTalkRepository: repository });
 }
@@ -35,6 +37,8 @@ describe('WebTalkService Gun migration and rollback', () => {
       getStoredPair: () => ({ pub: 'alice-sea', epub: 'alice-epub' }),
       put: async () => { throw new Error('repository unavailable'); },
       get: async () => null,
+      putPrivate: async () => { throw new Error('repository unavailable'); },
+      getPrivate: async () => null,
     } as unknown as WebGunService;
     const svc = new WebTalkService(gun, undefined, { gunTalkRepository: true });
 
