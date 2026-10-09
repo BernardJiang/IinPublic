@@ -23,8 +23,9 @@ type OwnerIncomingTalkEnvelope = {
 };
 
 const ownerEnvelopeWriteQueues = new WeakMap<WebGunService, Promise<void>>();
+const OWNER_INCOMING_TALK_PRIVATE_KEY = 'incomingTalkClusters';
 
-function ownerEnvelopeSoul(gunService: WebGunService, receiverUserId: string): string {
+function legacyOwnerEnvelopeSoul(gunService: WebGunService, receiverUserId: string): string {
   const ownerSeaPub = String(gunService.getStoredPair()?.pub || receiverUserId);
   return `users/${encodeURIComponent(ownerSeaPub)}/incomingTalkClusters`;
 }
@@ -35,11 +36,24 @@ async function readOwnerEnvelopeClusters(
 ): Promise<IncomingTalkClusterWire[]> {
   let raw: OwnerIncomingTalkEnvelope | null;
   try {
-    raw = await gunService.get(ownerEnvelopeSoul(gunService, receiverUserId)) as OwnerIncomingTalkEnvelope | null;
+    raw = await gunService.getPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY) as OwnerIncomingTalkEnvelope | null;
   } catch {
-    // First delivery on a device has no owner envelope yet. WebGunService.get distinguishes
-    // "missing" by rejecting; for an append/upsert store that is the normal empty state.
-    return [];
+    raw = null;
+  }
+  if (!raw) {
+    try {
+      // Release-123 and older wrote this envelope as plaintext on the peered graph. Import it
+      // once into the encrypted local-only store; never update the legacy path again.
+      raw = await gunService.get(
+        legacyOwnerEnvelopeSoul(gunService, receiverUserId),
+      ) as OwnerIncomingTalkEnvelope | null;
+      if (raw?.version === 1 && typeof raw.clustersJson === 'string') {
+        await gunService.putPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, raw);
+      }
+    } catch {
+      // First delivery on a device has no owner envelope yet; that is the normal empty state.
+      return [];
+    }
   }
   if (!raw || raw.version !== 1 || typeof raw.clustersJson !== 'string') return [];
   try {
@@ -131,15 +145,16 @@ function persistIncomingTalkClustersToLocalGun(
         clustersJson: JSON.stringify([...byIdentity.values()].map(serializeCluster)),
         updatedAt: new Date().toISOString(),
       };
-      const soul = ownerEnvelopeSoul(gunService, receiverUserId);
-      await gunService.put(soul, envelope);
-      // put() already applied this envelope to the local Gun graph synchronously — the read-back
+      await gunService.putPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, envelope);
+      // putPrivate() already applied this envelope to the local Gun graph — the read-back
       // below is a paranoid double-check, not the real commit. In this deployment (relay-only
-      // hub, no local persistence) get() on a freshly-written soul can hang for its full
+      // hub, no local persistence) an older store on a freshly-written key could hang for its full
       // multi-second timeout and reject even though the write succeeded, which used to turn a
       // successful incoming-talk mirror into a reported delivery failure. Log and continue.
       try {
-        const verified = await gunService.get(soul) as OwnerIncomingTalkEnvelope | null;
+        const verified = await gunService.getPrivate(
+          OWNER_INCOMING_TALK_PRIVATE_KEY,
+        ) as OwnerIncomingTalkEnvelope | null;
         if (verified?.version !== 1 || verified.clustersJson !== envelope.clustersJson) {
           console.warn(`incoming talk envelope read-back inconclusive (continuing — write already committed locally): ${clusters.map((c) => c.identityKey).join(',')}`);
         }
@@ -230,6 +245,16 @@ export async function pruneIncomingTalkClustersIfNeeded(
   const clusters = await collectLocalIncomingTalkClusters(gunService, receiverUserId, flags);
   const plan = planIncomingTalkClusterPrune(clusters);
   if (plan.clustersToPrune.length === 0) return;
+  const prunedKeys = new Set(plan.clustersToPrune.map((cluster) => cluster.identityKey));
+  const remaining = clusters.filter((cluster) => !prunedKeys.has(cluster.identityKey));
+  await gunService.putPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, {
+    version: 1,
+    clustersJson: JSON.stringify(remaining.map(serializeCluster)),
+    updatedAt: new Date().toISOString(),
+  } satisfies OwnerIncomingTalkEnvelope);
+
+  // Remove only release-123's compatibility rows from the old plaintext index. The encrypted
+  // owner envelope above is authoritative and remains entirely inside the local worker Gun.
   const gun = gunService.getGun();
   const ownerRef = gun.get(OWNER_INCOMING_TALK_INDEX_ROOT).get(receiverUserId);
   for (const cluster of plan.clustersToPrune) {
@@ -274,7 +299,6 @@ export function subscribeLocalIncomingTalkClusters(
   _flags: P2PRuntimeFlags,
   handler: (cluster: IncomingTalkClusterWire, id: string) => void,
 ): () => void {
-  const ownerRef = gunService.getGun().get(ownerEnvelopeSoul(gunService, receiverUserId));
   const onOwnerEnvelope = (raw: OwnerIncomingTalkEnvelope | null | undefined) => {
     if (!raw || raw.version !== 1 || typeof raw.clustersJson !== 'string') return;
     try {
@@ -287,7 +311,13 @@ export function subscribeLocalIncomingTalkClusters(
       // Ignore a corrupt/incomplete replication frame; the next valid envelope update retries.
     }
   };
-  ownerRef.on(onOwnerEnvelope);
+  const offPrivate = gunService.subscribePrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, onOwnerEnvelope);
+  // Mixed-release compatibility only: old clients may still publish the plaintext envelope.
+  // Listen long enough to render it, but never write back to this path.
+  const legacyOwnerRef = gunService.getGun().get(
+    legacyOwnerEnvelopeSoul(gunService, receiverUserId),
+  );
+  legacyOwnerRef.on(onOwnerEnvelope);
   const ref = gunService.getGun().get(OWNER_INCOMING_TALK_INDEX_ROOT).get(receiverUserId).map();
   ref.on((raw: unknown, key: string) => {
     if (!raw || !key || key.startsWith('_')) return;
@@ -295,8 +325,9 @@ export function subscribeLocalIncomingTalkClusters(
     if (cluster?.identityKey) handler(cluster, key);
   });
   return () => {
+    offPrivate();
     try {
-      ownerRef.off();
+      legacyOwnerRef.off();
     } catch {
       /* ignore */
     }

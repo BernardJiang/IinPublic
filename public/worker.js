@@ -239,7 +239,32 @@ self.onmessage = async function (event) {
         const raw = await gunGet(`users/${currentUser.pair.pub}/private/${privKey}`);
         if (!raw) { reply(id, null, null); break; }
         const decrypted = await SEA.decrypt(raw, currentUser.pair);
-        reply(id, null, JSON.parse(decrypted));
+        if (!decrypted) { reply(id, null, null); break; }
+        reply(id, null, typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted);
+        break;
+      }
+
+      /* ── SUBSCRIBE PRIVATE (AES-decrypted, local worker graph only) ── */
+      case 'subscribePrivate': {
+        if (!currentUser) { reply(id, 'Not logged in', null); break; }
+        const { subId, key: privKey } = payload;
+        const ref = pathRef(`users/${currentUser.pair.pub}/private/${privKey}`);
+        const handler = ref.on(async (raw) => {
+          if (!raw) return;
+          try {
+            const decrypted = await SEA.decrypt(raw, currentUser.pair);
+            if (!decrypted) return;
+            self.postMessage({
+              type: 'subscription',
+              subId,
+              data: typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted,
+            });
+          } catch (_error) {
+            // Ignore a corrupt local record; a later valid update remains subscribed.
+          }
+        });
+        subscriptions.set(subId, handler);
+        reply(id, null, { ok: true });
         break;
       }
 

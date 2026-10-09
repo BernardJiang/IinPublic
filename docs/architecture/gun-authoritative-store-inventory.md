@@ -17,7 +17,7 @@
 |---|---|---|---|
 | Authored Talk | room-public offer; author-owned body | `myAuthoredTalks` localStorage; legacy `talks/<id>` relay graph | `users/<authorSeaPub>/talks/<talkId>` |
 | Received/accepted Talk | user-private | `myReceivedTalks` localStorage; PeerMeshService memory body cache | `users/<ownerSeaPub>/receivedTalks/<authorSeaPub>/<talkId>` |
-| Incoming Talk cluster | user-private | local Gun `ownerIncomingTalkIndex/<userId>/<identityKey>` | `users/<ownerSeaPub>/incomingTalkClusters/<identityKey>` |
+| Incoming Talk cluster | user-private | encrypted local-only worker Gun envelope; legacy plaintext owner/index rows are read-only migration inputs | `users/<ownerSeaPub>/private/incomingTalkClusters` |
 | Me Q&A | user-private; separately publishable projection later | localStorage answer history/preferences | `users/<ownerSeaPub>/meQa/<questionCid>` |
 | Chatbot memory/provenance | user-private | `exactChatbotMemory`, typed preferences, and templates in localStorage | `users/<ownerSeaPub>/chatbotMemory/<questionCid>/<contextHash>` |
 | Pair response | pair-private, SEA-encrypted | local Gun response records; encrypted mailbox compatibility envelope | `pairs/<pairId>/talkResponses/<talkId>/<responseId>` |
@@ -27,6 +27,12 @@
 | Talk outcome ledger | user-private | `talkLedger` localStorage | `users/<ownerSeaPub>/talkLedger/<entryKind>/<entryId>` |
 
 The table describes current debt, not permission to add more browser-only authority. Exact current file/key references are enforced conceptually by the shared manifest and will be migrated repository by repository.
+
+`WebGunService.putPrivate/getPrivate/subscribePrivate` are the current hard boundary: they use the
+worker's peerless IndexedDB Gun. The main-thread Gun is the peered public-control graph. An upgrade
+may read and import an old SEA-ciphertext private node or the release-123 plaintext incoming-cluster
+envelope once, but no new private update is written back to those peered paths. Historical replicas
+cannot be recalled; removing the compatibility reader is a later mixed-release exit gate.
 
 ## Transfer-path inventory
 
@@ -65,4 +71,3 @@ Mixed versions advertise capabilities. A new receiver accepts and persists an ol
 - `src/web/services/web-talk-ledger-store.ts`: `talkLedger` is browser-only.
 - `src/web/ui/answer-preferences-storage.ts` and `answer-history-storage.ts`: Me Q&A/chatbot memory is browser-only.
 - `src/web/ui/ui-manager.ts`: `myConversations` remains a browser compatibility index and must be rebuildable from Gun.
-

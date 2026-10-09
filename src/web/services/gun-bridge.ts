@@ -159,6 +159,17 @@ export class GunBridge {
     return this.send('getPrivate', { key });
   }
 
+  /** Subscribe to decrypted updates in the current user's local private namespace. */
+  subscribePrivate(key: string, callback: (data: any) => void): () => void {
+    const subId = `sub_${this.nextSubId++}`;
+    this.subscriptions.set(subId, callback);
+    this.send('subscribePrivate', { subId, key });
+    return () => {
+      this.subscriptions.delete(subId);
+      this.send('unsubscribe', { subId });
+    };
+  }
+
   /* ── Flexible Graph schema ────────────────────────────────────── */
 
   /** Create a named node in the shared graph. */

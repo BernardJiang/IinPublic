@@ -160,10 +160,13 @@ pairs/<pairId>/...
 ```
 
 Ownership, encryption, and replication are distinct. A SEA-authenticated namespace limits writers;
-it does not encrypt plaintext automatically. Owner-private records must be SEA-encrypted. A first
-migration may allow that ciphertext to replicate through Gun; the stronger target uses a local-only
-encrypted Gun instance for private bodies and a separately peered Gun instance for public control
-metadata. Room-public paths never contain full Talk bodies, answers, or conversations.
+it does not encrypt plaintext automatically. Owner-private records must be SEA-encrypted. The web
+runtime now routes its private repository API to a local-only, IndexedDB-backed worker Gun and keeps
+the main-thread peered Gun for public control. On upgrade, an existing SEA-encrypted private record
+is imported locally on first read; subsequent updates are local-only. The former plaintext incoming-
+Talk cluster envelope follows the same rule. Pair-conversation/message and ledger compatibility
+graphs still need migration before the split is complete. Room-public paths never contain full Talk
+bodies, answers, or conversations.
 
 The Nearby control relay stores only bounded signed presence evidence and certificates. A control
 presence identifies an opaque generation-zero root room, the participant's current opaque room,

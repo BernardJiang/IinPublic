@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-09
 
+## 2026-10-09 — Local private Gun boundary established (OPEN-40 slice)
+
+- Routed the shared `putPrivate`/`getPrivate` API to the peerless, IndexedDB-backed worker Gun;
+  the peered main-thread Gun now receives no new owner-private writes through that API. Existing
+  SEA ciphertext is imported locally on first read, while an unavailable private store fails
+  closed instead of silently returning to replication.
+- Moved incoming-Talk cluster bodies off their predictable plaintext peered path into an encrypted
+  local envelope, added decrypted local subscriptions, retained read-only mixed-release import,
+  and made pruning update the authoritative private envelope.
+- Verified first-user boot/reload and the complete two-user Talk copy flow in Chromium. The run
+  exposed and fixed the worker's previously dormant double-JSON-parse bug when SEA returns an
+  object. Pair-message and ledger graph migration remains tracked under OPEN-40.
+
 ## 2026-10-09 — TechSupport is Contacts-only in runtime and staged room tests (OPEN-40)
 
 - Removed relay/client room seeding, synthetic headcount floors, map presence, capacity exemption,

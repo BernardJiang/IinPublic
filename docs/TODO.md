@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-08.
+Last reconciled: 2026-10-09.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -51,8 +51,13 @@ its ID.
     - [x] Authored/received Talks, received indexes, and both Auto/Manual Me answers now use the
       SEA-private repository. Ciphertext replication is the explicit interim migration boundary.
     - [x] Added content-addressed `places/by-id` descriptors and `places/by-map-cell` references.
-    - [ ] Split the local private-body Gun from the peered public-control Gun and migrate remaining
-      compatibility caches.
+    - [x] Route `putPrivate`/`getPrivate` through the worker's local-only IndexedDB Gun rather than
+      the peered control Gun. Existing SEA ciphertext is imported on first read; new updates never
+      return to the peered namespace, and an unavailable local store fails closed. Moved the
+      plaintext incoming-Talk cluster envelope behind this boundary with live decrypted local
+      subscriptions and one-time legacy import.
+    - [ ] Migrate the remaining pair-conversation/message and ledger compatibility graphs off the
+      peered Gun, then remove the legacy private-ciphertext read path after the mixed-release window.
   - [ ] **P0 direct Talk baseline:** disable third-person device forwarding and room-body gossip by
     default. Implement a durable author-to-receiver scheduler that rotates through at most `K`
     simultaneous direct peers, negotiates compact inventories, transfers signed bodies over an

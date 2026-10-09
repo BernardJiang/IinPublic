@@ -32,12 +32,12 @@ describe('client incoming talk mirror', () => {
     };
     const gunService = {
       getStoredPair: jest.fn(() => ({ pub: 'receiver-sea-pub' })),
-      get: jest.fn().mockResolvedValue({
+      getPrivate: jest.fn().mockResolvedValue({
         version: 1,
         clustersJson: JSON.stringify([stored]),
         updatedAt: '2026-08-13T22:00:01.000Z',
       }),
-      put: jest.fn().mockResolvedValue(undefined),
+      putPrivate: jest.fn().mockResolvedValue(undefined),
     };
 
     mirrorIncomingTalkClustersToLocalGun(
@@ -48,7 +48,7 @@ describe('client incoming talk mirror', () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(gunService.put).not.toHaveBeenCalled();
+    expect(gunService.putPrivate).not.toHaveBeenCalled();
   });
 
   it('persists a batch of incoming talks with one owner-envelope write', async () => {
@@ -56,8 +56,9 @@ describe('client incoming talk mirror', () => {
     const emptyMap = { map: () => ({ once: () => undefined, off: () => undefined }) };
     const gunService = {
       getStoredPair: jest.fn(() => ({ pub: 'receiver-sea-pub' })),
-      get: jest.fn(async () => envelope),
-      put: jest.fn(async (_soul: string, value: unknown) => { envelope = value; }),
+      get: jest.fn().mockRejectedValue(new Error('missing legacy envelope')),
+      getPrivate: jest.fn(async () => envelope),
+      putPrivate: jest.fn(async (_key: string, value: unknown) => { envelope = value; }),
       getGun: jest.fn(() => ({ get: () => ({ get: () => emptyMap }) })),
     };
 
@@ -74,7 +75,33 @@ describe('client incoming talk mirror', () => {
     );
 
     expect(clusters).toHaveLength(2);
-    expect(gunService.put).toHaveBeenCalledTimes(1);
+    expect(gunService.putPrivate).toHaveBeenCalledTimes(1);
     expect(JSON.parse(envelope.clustersJson)).toHaveLength(2);
+  });
+
+  it('imports the old plaintext owner envelope into private local Gun without rewriting it publicly', async () => {
+    const legacyEnvelope = {
+      version: 1,
+      clustersJson: JSON.stringify([]),
+      updatedAt: '2026-08-13T22:00:01.000Z',
+    };
+    const gunService = {
+      getStoredPair: jest.fn(() => ({ pub: 'receiver-sea-pub' })),
+      getPrivate: jest.fn().mockResolvedValue(null),
+      get: jest.fn().mockResolvedValue(legacyEnvelope),
+      putPrivate: jest.fn().mockResolvedValue(undefined),
+      put: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await upsertLocalIncomingTalkClusters(
+      gunService as any,
+      'receiver-id',
+      [],
+      { p2pClientTalkMirror: true } as any,
+    );
+
+    expect(gunService.get).toHaveBeenCalledWith('users/receiver-sea-pub/incomingTalkClusters');
+    expect(gunService.putPrivate).toHaveBeenCalledWith('incomingTalkClusters', legacyEnvelope);
+    expect(gunService.put).not.toHaveBeenCalled();
   });
 });
