@@ -119,7 +119,7 @@ Network-visible records:
 places/by-id/<placeCID>/descriptor
 places/by-map-cell/<mapCell>/<placeCID>/reference
 room-presence/<roomId>/<userPubHash>/signed-expiring-presence
-nearby-control/<baseCell>/<generation>/overflow-certificate
+nearby-control/<opaque-root-scope>/<requested-generation>/<opaque-room-id>/overflow-certificate
 public/protocol-manifests/<sequence>/signed-manifest
 ```
 
@@ -139,6 +139,17 @@ it does not encrypt plaintext automatically. Owner-private records must be SEA-e
 migration may allow that ciphertext to replicate through Gun; the stronger target uses a local-only
 encrypted Gun instance for private bodies and a separately peered Gun instance for public control
 metadata. Room-public paths never contain full Talk bodies, answers, or conversations.
+
+The Nearby control relay stores only bounded signed presence evidence and certificates. A control
+presence identifies an opaque generation-zero root room, the participant's current opaque room,
+the requested split generation, a signed protocol checkpoint, and a short expiry. At exactly
+`C+1` distinct live public keys in that room, the relay bundles those signed claims into a portable
+certificate. The relay does not learn or validate the underlying grid coordinates. Each phone
+verifies every witness and derives the next geographic child from its own exact location before it
+publishes normal room presence or advertises radio availability. Certificates form a branching
+path by room ID rather than one global generation chain, so only an overflowing geographic child
+subdivides. This proves signed occupancy claims, not physical location or Sybil resistance; BLE
+proximity and future abuse controls may strengthen evidence without making coordinates public.
 
 Public profile fields are deliberate visibility-filtered mirrors. Private Me answers remain
 encrypted. When an author sends a Talk, the receiver obtains the selected body from the author and

@@ -46,7 +46,12 @@ import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
 import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
 import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
-import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope } from '../../shared/nearby-rooms';
+import {
+  CONTACTS_ONLY_SCOPE_ID,
+  isLocalOnlyRoomScope,
+  isNearbyRoomId,
+  type NearbyRoomAssignment,
+} from '../../shared/nearby-rooms';
 import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import {
   isRenderableSystemAnnouncement,
@@ -139,6 +144,7 @@ import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { MicroRoomPreAdmissionClient } from '../services/micro-room-pre-admission-client';
+import { NearbyPreAdmissionClient } from '../services/nearby-pre-admission-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
@@ -305,6 +311,10 @@ export class IinPublicApp {
   private microRoomBaseGridRoomId: string | null = null;
   private microRoomRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private microRoomRefreshInFlight = false;
+  private nearbyPreAdmissionClient: NearbyPreAdmissionClient | null = null;
+  private nearbyControlRootAssignment: NearbyRoomAssignment | null = null;
+  private nearbyControlRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  private nearbyControlRefreshInFlight = false;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
@@ -1893,6 +1903,10 @@ export class IinPublicApp {
     if (automaticBaseGrid && microRoomBelongsToBase(chatroomId, automaticBaseGrid)) {
       chatroomId = await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, chatroomId);
     }
+    const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
+    if (nearbyRoot && nearbyRoot.roomId === chatroomId && isNearbyRoomId(chatroomId)) {
+      chatroomId = await this.resolveNearbyBeforeAdmission(nearbyRoot);
+    }
 
     this.currentChatroomId = chatroomId; // Track current chatroom
 
@@ -2370,6 +2384,71 @@ export class IinPublicApp {
     }
   }
 
+  /** Resolve the signed capacity path while exact GPS remains only on this device. */
+  private async resolveNearbyBeforeAdmission(
+    rootAssignment: NearbyRoomAssignment,
+  ): Promise<string> {
+    const user = this.currentUser;
+    const location = this.currentLocation;
+    const pair = this.gunService.getStoredPair();
+    const mode = loadConnectivitySettings().nearbyPrivacyMode;
+    if (!user?.id || !location || !pair?.pub || !pair.priv
+      || (mode !== 'neighborhood' && mode !== 'close-nearby')) return rootAssignment.roomId;
+    try {
+      const manifestController = await this.ensureProtocolManifestController();
+      const checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
+      this.nearbyPreAdmissionClient ??= new NearbyPreAdmissionClient({
+        apiBase: this.getBackendApiBase(),
+        storage: localStorage,
+      });
+      const result = await this.nearbyPreAdmissionClient.resolve({
+        userId: user.id,
+        pair,
+        location,
+        mode,
+        rootAssignment,
+        checkpoint,
+      });
+      this.nearbyControlRootAssignment = rootAssignment;
+      this.chatroomService.setNearbyRoomAssignment(result.assignment);
+      this.startNearbyControlHeartbeat();
+      return result.assignment.roomId;
+    } catch (error) {
+      console.warn('Nearby pre-admission resolution failed; retaining the last safe room:', error);
+      return rootAssignment.roomId;
+    }
+  }
+
+  private startNearbyControlHeartbeat(): void {
+    if (this.nearbyControlRefreshTimer) return;
+    this.nearbyControlRefreshTimer = setInterval(() => {
+      void this.refreshNearbyControl();
+    }, 15_000);
+  }
+
+  private async refreshNearbyControl(): Promise<void> {
+    if (this.nearbyControlRefreshInFlight) return;
+    const rootAssignment = this.nearbyControlRootAssignment;
+    const currentRoomId = this.currentChatroomId;
+    if (!rootAssignment || !currentRoomId || !isNearbyRoomId(currentRoomId)) {
+      if (this.nearbyControlRefreshTimer) clearInterval(this.nearbyControlRefreshTimer);
+      this.nearbyControlRefreshTimer = null;
+      this.nearbyControlRootAssignment = null;
+      return;
+    }
+    this.nearbyControlRefreshInFlight = true;
+    try {
+      const resolved = await this.resolveNearbyBeforeAdmission(rootAssignment);
+      if (resolved !== currentRoomId
+        && this.currentChatroomId === currentRoomId
+        && isNearbyRoomId(resolved)) {
+        this.uiManager.emit('chatroomChanged', resolved);
+      }
+    } finally {
+      this.nearbyControlRefreshInFlight = false;
+    }
+  }
+
   private async initP2PPresenceAndBridge(): Promise<void> {
     if (!this.currentUser?.id || isTechSupportUser(this.currentUser)) return;
     const pair = this.gunService.getStoredPair();
@@ -2519,13 +2598,17 @@ export class IinPublicApp {
       setTalkIntakeFiltersOwner(this.currentUser.id);
       this.currentUser.talkFilters = filters;
     }
-    const selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
+    let selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
       this.currentLocation,
       this.currentUser.id,
       this.currentChatroomId,
       this.locationConfirmed,
       settings.nearbyPrivacyMode,
     );
+    const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
+    if (nearbyRoot && nearbyRoot.roomId === selectedRoomId && isNearbyRoomId(selectedRoomId)) {
+      selectedRoomId = await this.resolveNearbyBeforeAdmission(nearbyRoot);
+    }
     const nextRoomId = isTechSupportUser(this.currentUser) ? CONTACTS_ONLY_SCOPE_ID : selectedRoomId;
     if (nextRoomId === this.currentChatroomId) return;
     await this.chatroomService.switchChatroom(
@@ -2558,13 +2641,17 @@ export class IinPublicApp {
     if (!this.currentUser || !this.currentLocation || isTechSupportUser(this.currentUser)) {
       return CONTACTS_ONLY_SCOPE_ID;
     }
-    return this.chatroomService.findOptimalChatroomHierarchical(
+    const selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
       this.currentLocation,
       this.currentUser.id,
       undefined,
       this.locationConfirmed,
       loadConnectivitySettings().nearbyPrivacyMode,
     );
+    const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
+    return nearbyRoot && nearbyRoot.roomId === selectedRoomId && isNearbyRoomId(selectedRoomId)
+      ? this.resolveNearbyBeforeAdmission(nearbyRoot)
+      : selectedRoomId;
   }
 
   /**

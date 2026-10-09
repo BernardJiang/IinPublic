@@ -150,6 +150,8 @@ export class WebChatroomService {
   private homeTileResolver: (() => string | undefined) | null = null;
   /** Exact grid indices stay in memory for map shading and drift hysteresis only. */
   private nearbyAssignment: NearbyRoomAssignment | undefined;
+  /** Generation-zero cell stays separate after overflow advances `nearbyAssignment`. */
+  private nearbyRootAssignment: NearbyRoomAssignment | undefined;
   private promotionStatusListener: ((status: { target: string; blockedUntil: number } | null) => void) | null = null;
 
   /**
@@ -296,18 +298,33 @@ export class WebChatroomService {
 
   /** The user's automatic Neighborhood room for an explicit "use my location". */
   async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
-    this.nearbyAssignment = deriveNearbyRoomAssignment({
+    this.nearbyRootAssignment = deriveNearbyRoomAssignment({
       location,
       mode: 'neighborhood',
       identity: 'local-location-preview',
-      ...(this.nearbyAssignment ? { previous: this.nearbyAssignment } : {}),
+      ...(this.nearbyRootAssignment ? { previous: this.nearbyRootAssignment } : {}),
     });
+    this.nearbyAssignment = this.nearbyRootAssignment;
     return this.nearbyAssignment.roomId;
   }
 
   /** Exact GPS is retained only in this process for local room routing; it is never published. */
   updateLocalUserLocation(userId: string, location: GPSCoordinate): void {
     this.userLocations.set(userId, location);
+  }
+
+  /** Local-only routing state used by the signed pre-admission capacity controller. */
+  getNearbyRoomAssignment(): NearbyRoomAssignment | undefined {
+    return this.nearbyAssignment;
+  }
+
+  getNearbyRootAssignment(): NearbyRoomAssignment | undefined {
+    return this.nearbyRootAssignment;
+  }
+
+  /** Accept a locally derived, certificate-verified subdivision before room presence begins. */
+  setNearbyRoomAssignment(assignment: NearbyRoomAssignment): void {
+    this.nearbyAssignment = assignment;
   }
 
   /** Select a manual Place or derive the automatic Nearby scope; legacy rooms migrate away. */
@@ -339,12 +356,13 @@ export class WebChatroomService {
     if (lastChatroomId && isPlaceRoomId(lastChatroomId)) return lastChatroomId;
     if (!locationConfirmed) return CONTACTS_ONLY_SCOPE_ID;
 
-    this.nearbyAssignment = deriveNearbyRoomAssignment({
+    this.nearbyRootAssignment = deriveNearbyRoomAssignment({
       location,
       mode: nearbyPrivacyMode,
       identity: userId,
-      ...(this.nearbyAssignment ? { previous: this.nearbyAssignment } : {}),
+      ...(this.nearbyRootAssignment ? { previous: this.nearbyRootAssignment } : {}),
     });
+    this.nearbyAssignment = this.nearbyRootAssignment;
     console.log(`  → Automatic Nearby room: ${this.nearbyAssignment.roomId}`);
     return this.nearbyAssignment.roomId;
   }

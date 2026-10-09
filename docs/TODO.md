@@ -30,7 +30,7 @@ its ID.
     `K`, verified `C+1` overflow certificates, monotone protocol manifests, and 10,000-identity
     allocator/control tests already exist. Reuse their verification and storage primitives without
     preserving the rejected Global/FIFO/tree product behavior.
-  - [ ] **P0 room protocol:** define versioned Nearby IDs from spatial index, precision, protocol
+  - [x] **P0 room protocol:** define versioned Nearby IDs from spatial index, precision, protocol
     epoch, and split generation. Replace identity-first lane allocation with geographic subdivision;
     retain deterministic identity lanes only as final load shedding when GPS accuracy cannot split a
     dense venue. Add boundary and GPS-drift hysteresis. No active presence or radio advertisement may
@@ -38,7 +38,10 @@ its ID.
     - [x] Implemented the local allocator: Web-Mercator metric cells, version/epoch/precision/split
       IDs, GPS-accuracy split cap, 15% boundary hysteresis, and identity lanes only after geographic
       precision is exhausted (`nearby-rooms.ts`). Cell coordinates remain device-local.
-    - [ ] Wire verified overflow certificates into live split-generation selection before presence.
+    - [x] Wired signed, expiring C+1 occupancy evidence into pre-admission selection and a 15-second
+      control heartbeat. Certificates are keyed by opaque root/room IDs and requested generation;
+      each phone follows only its locally derived geographic child, then uses deterministic identity
+      lanes only after its GPS-accuracy split limit. Exact coordinates never enter control records.
   - [ ] **P0 Gun boundary:** introduce the `places`, `room-presence`, `nearby-control`, and manifest
     schema from the accepted design. Audit every Talk/Me repository: owner-private records must use
     SEA encryption; room-visible Gun carries metadata/control only. Decide and implement the stronger
