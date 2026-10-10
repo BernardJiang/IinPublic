@@ -31,6 +31,7 @@ import type {
   ActivateRoomInput,
   ActiveExchangeRoomController,
 } from '../../shared/active-exchange-room';
+import { createPlaceAdmissionClaim, type PlaceAdmissionClaim } from '../../shared/place-admission-evidence';
 
 /**
  * Membership heartbeat cadence. Every member re-publishes its roster record this often and every
@@ -102,6 +103,9 @@ export function chatroomCapacityTestOverride(
 
 const EVICTION_HISTORY_KEY = 'iinpublic_room_eviction_history';
 const ROOM_ARRIVAL_KEY = 'iinpublic_room_arrival';
+const PLACE_ADMISSION_STAYS_KEY = 'iinpublic_place_admission_stays_v1';
+
+type PersistedPlaceAdmissionStay = { enteredAt: string; lastObservedAt: string };
 
 function readJson<T>(key: string): T | null {
   try {
@@ -169,6 +173,9 @@ export class WebChatroomService {
   /** Generation-zero cell stays separate after overflow advances `nearbyAssignment`. */
   private nearbyRootAssignment: NearbyRoomAssignment | undefined;
   private promotionStatusListener: ((status: { target: string; blockedUntil: number } | null) => void) | null = null;
+  private placeAdmissionLostListener: ((placeId: string, capacity: number) => void | Promise<void>) | null = null;
+  private readonly placeAdmissionStays = new Map<string, PersistedPlaceAdmissionStay>();
+  private placeAdmissionReconciliationRunning = false;
 
   /**
    * Every room change (manual switch or eviction) runs through this one queue, so two moves can
@@ -215,6 +222,10 @@ export class WebChatroomService {
 
   setPromotionStatusListener(listener: (status: { target: string; blockedUntil: number } | null) => void): void {
     this.promotionStatusListener = listener;
+  }
+
+  setPlaceAdmissionLostListener(listener: (placeId: string, capacity: number) => void | Promise<void>): void {
+    this.placeAdmissionLostListener = listener;
   }
 
   private routingAnchor(userId: string): RoutingAnchor {
@@ -624,15 +635,41 @@ export class WebChatroomService {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
-      await fetch(
+      const admissionClaim = isPlaceRoomId(chatroomId)
+        ? await this.createPlaceAdmissionClaim(chatroomId, userId)
+        : undefined;
+      const response = await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members/${encodeURIComponent(userId)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stageName, lastSeen, isTraveler }),
+          body: JSON.stringify({ stageName, lastSeen, isTraveler, ...(admissionClaim ? { admissionClaim } : {}) }),
           signal: controller.signal,
         },
       );
+      const responseBody = response.status === 409
+        ? await response.json().catch(() => ({})) as { code?: unknown }
+        : {};
+      if (response.status === 409
+        && responseBody.code === 'PLACE_RECONCILED_OUT'
+        && isPlaceRoomId(chatroomId)
+        && !this.placeAdmissionReconciliationRunning) {
+        this.placeAdmissionReconciliationRunning = true;
+        try {
+          await this.leaveChatroom(chatroomId, userId);
+          this.currentChatroomId = CONTACTS_ONLY_SCOPE_ID;
+          await this.joinChatroom(CONTACTS_ONLY_SCOPE_ID, userId, stageName);
+          const reportedCapacity = Number((responseBody as { capacity?: unknown }).capacity);
+          await this.placeAdmissionLostListener?.(
+            chatroomId,
+            Number.isSafeInteger(reportedCapacity) && reportedCapacity > 0
+              ? reportedCapacity
+              : this.getGlobalChatroomCapacity(),
+          );
+        } finally {
+          this.placeAdmissionReconciliationRunning = false;
+        }
+      }
     } catch (error) {
       console.warn('syncMembershipHeartbeatWithServer failed (non-fatal):', error);
     } finally {
@@ -687,12 +724,13 @@ export class WebChatroomService {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
+      const admissionClaim = await this.createPlaceAdmissionClaim(chatroomId, userId);
       const response = await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, stageName, isTraveler, reserveOnly: true }),
+          body: JSON.stringify({ userId, stageName, isTraveler, reserveOnly: true, admissionClaim }),
           signal: controller.signal,
         },
       );
@@ -701,7 +739,7 @@ export class WebChatroomService {
         const capacity = Number(body.capacity);
         throw new PlaceRoomFullError(Number.isSafeInteger(capacity) && capacity > 0
           ? capacity
-          : CONFIG.CHATROOM_MAX_CAPACITY);
+          : this.getGlobalChatroomCapacity());
       }
       if (!response.ok) {
         throw new Error(`Place admission unavailable (${response.status})`);
@@ -711,6 +749,7 @@ export class WebChatroomService {
       if (!reservationToken) throw new Error('Place admission returned no reservation token');
       return reservationToken;
     } catch (error) {
+      this.clearPlaceAdmissionStay(chatroomId, userId);
       if (error instanceof PlaceRoomFullError) throw error;
       throw new PlaceAdmissionUnavailableError(
         `Place admission could not be verified: ${error instanceof Error ? error.message : String(error)}`,
@@ -718,6 +757,54 @@ export class WebChatroomService {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private async createPlaceAdmissionClaim(chatroomId: string, userId: string): Promise<PlaceAdmissionClaim> {
+    const pair = this.gunService.getStoredPair?.();
+    if (!pair?.pub || !pair.priv) throw new PlaceAdmissionUnavailableError('Place admission requires a signing identity');
+    const key = `${chatroomId}:${userId}`;
+    const now = new Date();
+    let stay = this.placeAdmissionStays.get(key);
+    if (!stay) {
+      const persisted = readJson<Record<string, PersistedPlaceAdmissionStay>>(PLACE_ADMISSION_STAYS_KEY)?.[key];
+      const observedAtMs = Date.parse(String(persisted?.lastObservedAt || ''));
+      const enteredAtMs = Date.parse(String(persisted?.enteredAt || ''));
+      if (Number.isFinite(observedAtMs)
+        && Number.isFinite(enteredAtMs)
+        && observedAtMs >= now.getTime() - ROOM_MEMBERSHIP_TTL_SECONDS * 1000
+        && enteredAtMs <= observedAtMs) {
+        stay = persisted;
+      }
+    }
+    stay = { enteredAt: stay?.enteredAt ?? now.toISOString(), lastObservedAt: now.toISOString() };
+    this.placeAdmissionStays.set(key, stay);
+    const stays = readJson<Record<string, PersistedPlaceAdmissionStay>>(PLACE_ADMISSION_STAYS_KEY) ?? {};
+    stays[key] = stay;
+    writeJson(PLACE_ADMISSION_STAYS_KEY, stays);
+    return createPlaceAdmissionClaim({
+      roomId: chatroomId,
+      userId,
+      pair,
+      capacity: this.getGlobalChatroomCapacity(),
+      enteredAt: stay.enteredAt,
+      now,
+    });
+  }
+
+  private clearPlaceAdmissionStay(chatroomId: string, userId: string): void {
+    const key = `${chatroomId}:${userId}`;
+    this.placeAdmissionStays.delete(key);
+    const stays = readJson<Record<string, PersistedPlaceAdmissionStay>>(PLACE_ADMISSION_STAYS_KEY);
+    if (!stays || !(key in stays)) return;
+    delete stays[key];
+    writeJson(PLACE_ADMISSION_STAYS_KEY, stays);
+  }
+
+  /** Capacity is release-wide, but an authenticated active-room checkpoint may supersede config. */
+  private getGlobalChatroomCapacity(): number {
+    return chatroomCapacityTestOverride()
+      ?? this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
+      ?? CONFIG.CHATROOM_MAX_CAPACITY;
   }
 
   /** Activate a reserved Place seat after the old room has stopped. */
@@ -761,6 +848,7 @@ export class WebChatroomService {
       console.warn('syncLeaveWithServer failed (non-fatal):', error);
     } finally {
       clearTimeout(timeoutId);
+      if (isPlaceRoomId(chatroomId)) this.clearPlaceAdmissionStay(chatroomId, userId);
     }
   }
 

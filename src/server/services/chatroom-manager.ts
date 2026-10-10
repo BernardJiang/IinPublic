@@ -3,6 +3,7 @@ import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { randomBytes } from 'crypto';
 import { portableSha256Hex } from '../../shared/portable-sha256';
 import { verifySignedPlaceDescriptor, type SignedPlaceDescriptor } from '../../shared/place-descriptor';
+import type { PlaceAdmissionClaim } from '../../shared/place-admission-evidence';
 import { isTechSupportId } from '../../shared/techsupport';
 import { GunService } from './gun-service';
 import { PresenceDurableStore, type PresenceMember } from './presence-durable-store';
@@ -56,6 +57,35 @@ export class ChatroomManager {
   private roomMetaCache = new Map<string, any>();
   /** E2E reset fence — see resetForTesting()/predatesReset(). 0 in production (no filtering). */
   private membersResetAt = 0;
+
+  /** Publish signed, expiring ownerless admission evidence so partitioned indexes can converge. */
+  async publishPlaceAdmissionClaim(claim: PlaceAdmissionClaim): Promise<void> {
+    const roomKey = portableSha256Hex(claim.roomId).slice(0, 32);
+    const identityKey = portableSha256Hex(claim.pub).slice(0, 32);
+    await this.gunService.putPath(
+      ['place-admission-claims', roomKey, identityKey],
+      { claimJson: JSON.stringify(claim), expiresAt: claim.expiresAt },
+    );
+  }
+
+  async listPlaceAdmissionClaims(roomId: string): Promise<PlaceAdmissionClaim[]> {
+    const roomKey = portableSha256Hex(roomId).slice(0, 32);
+    const rows = await this.gunService.listPathChildren(['place-admission-claims', roomKey]);
+    return rows.flatMap((row) => {
+      try {
+        const claim = JSON.parse(String(row.claimJson || '')) as PlaceAdmissionClaim;
+        return claim.roomId === roomId ? [claim] : [];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  async removePlaceAdmissionClaim(roomId: string, pub: string): Promise<void> {
+    const roomKey = portableSha256Hex(roomId).slice(0, 32);
+    const identityKey = portableSha256Hex(pub).slice(0, 32);
+    await this.gunService.putPath(['place-admission-claims', roomKey, identityKey], null);
+  }
 
   private staleMemberCountSweepTimer: ReturnType<typeof setInterval> | null = null;
 

@@ -1,9 +1,9 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.10 — Nearby + map Places replace the visible Global/L1-L4 cascade; direct encrypted
+> **Version:** 4.11 — Nearby + map Places replace the visible Global/L1-L4 cascade; direct encrypted
 > stranger exchange is the baseline (§3.3, §6.1, `docs/design/nearby-and-place-chatrooms.md`)
-> **Date:** 2026-10-08
+> **Date:** 2026-10-10
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 > **2026-10-08 precedence note:** FR-CR-1–29 and `docs/design/nearby-and-place-chatrooms.md`
@@ -338,6 +338,16 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   author and intended receiver in the baseline protocol. Each device SHALL rotate through at most
   `K` concurrent direct peers and retain unreachable work locally. Third-person device forwarding
   is deferred and optional, disabled by default, and SHALL NOT be required for baseline delivery.
+- **FR-CR-30 (Ownerless Place admission convergence)**: A Place reservation and active heartbeat
+  SHALL carry a signed, expiring claim binding the Place, stable public identity, active global `C`,
+  stable stay-entry time, observation time, and expiry. One stable identity SHALL occupy at most one
+  seat. After partitioned indexes merge, clients SHALL deterministically retain the earliest `C`
+  verified stay claims, using a room/public-key hash only as the equal-time tie-breaker. A losing
+  client SHALL leave the Place, fall back to Contacts-only, receive an explicit explanation, and MAY
+  deliberately choose Nearby around the public Place point. Invalid or unavailable evidence SHALL
+  fail closed without being misreported as a reconciliation loss. This rule provides eventual
+  convergence for signed claims, not consensus, trustworthy clocks, physical-presence proof, or
+  Sybil resistance.
 
 ### 3.4 Question-Answer System
 

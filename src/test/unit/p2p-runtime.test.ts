@@ -111,6 +111,7 @@ describe('p2p runtime flags', () => {
     expect(STAR_GUN_PATH_CLASSIFICATIONS).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: 'chatrooms/{chatroomId}', category: 'durable-public' }),
+        expect.objectContaining({ path: 'place-admission-claims/{roomHash}/{identityHash}', category: 'relay-only' }),
         expect.objectContaining({ path: 'incomingTalksByUser/{userId}', category: 'relay-only' }),
         expect.objectContaining({ path: 'ownerIncomingTalkIndex/{userId}', category: 'encrypted-user-owned' }),
         expect.objectContaining({ path: 'conversations/{conversationId}', category: 'removable-legacy' }),
@@ -121,6 +122,13 @@ describe('p2p runtime flags', () => {
 
   it('classifies P1 server connector paths as metadata-only or owner/pair-owned', () => {
     expect(classifyServerConnectorPath(['chatrooms', 'room1', 'members'])).toEqual(
+      expect.objectContaining({
+        kind: 'relay-metadata',
+        serverCanPersistBody: false,
+        deprecatedPublicPath: false,
+      }),
+    );
+    expect(classifyServerConnectorPath(['place-admission-claims', 'room-hash', 'pub-hash'])).toEqual(
       expect.objectContaining({
         kind: 'relay-metadata',
         serverCanPersistBody: false,

@@ -1,6 +1,8 @@
 import express from 'express';
 import request from 'supertest';
+import SEA from 'gun/sea';
 import { registerChatroomRoutes } from '../../server/routes/chatroom-routes';
+import { createPlaceAdmissionClaim, type PlaceAdmissionClaim } from '../../shared/place-admission-evidence';
 import {
   EmbeddedHubRelayRequestError,
   type EmbeddedHubRelayClientLike,
@@ -9,6 +11,7 @@ import {
 function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike; chatroomCapacity?: number } = {}) {
   const app = express();
   app.use(express.json());
+  const admissionClaims: PlaceAdmissionClaim[] = [];
   const manager = {
     getAllChatrooms: jest.fn().mockResolvedValue([]),
     joinChatroom: jest.fn().mockResolvedValue(undefined),
@@ -20,6 +23,16 @@ function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike; chatro
     updateChatroom: jest.fn().mockResolvedValue({ id: 'room_1', name: 'Renamed', type: 'custom' }),
     deleteChatroom: jest.fn().mockResolvedValue(undefined),
     getActiveMembersWithStageName: jest.fn().mockResolvedValue([]),
+    publishPlaceAdmissionClaim: jest.fn(async (claim: PlaceAdmissionClaim) => {
+      const prior = admissionClaims.findIndex((candidate) => candidate.pub === claim.pub);
+      if (prior >= 0) admissionClaims.splice(prior, 1, claim);
+      else admissionClaims.push(claim);
+    }),
+    listPlaceAdmissionClaims: jest.fn(async () => [...admissionClaims]),
+    removePlaceAdmissionClaim: jest.fn(async (_roomId: string, pub: string) => {
+      const prior = admissionClaims.findIndex((candidate) => candidate.pub === pub);
+      if (prior >= 0) admissionClaims.splice(prior, 1);
+    }),
   } as any;
   registerChatroomRoutes(app, {
     chatroomManager: manager,
@@ -27,6 +40,18 @@ function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike; chatro
     ...(options.chatroomCapacity != null ? { chatroomCapacity: options.chatroomCapacity } : {}),
   });
   return { app, manager };
+}
+
+const placeRoomId = 'place_32.71_-117.17_abcdefabcdef';
+
+async function admissionClaim(userId: string, capacity: number, enteredAt?: string) {
+  return createPlaceAdmissionClaim({
+    roomId: placeRoomId,
+    userId,
+    pair: await SEA.pair(),
+    capacity,
+    ...(enteredAt ? { enteredAt } : {}),
+  });
 }
 
 describe('chatroom routes', () => {
@@ -143,8 +168,11 @@ describe('chatroom routes', () => {
     ]);
 
     const response = await request(app)
-      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
-      .send({ userId: 'u3', stageName: 'Three', reserveOnly: true });
+      .post(`/api/chatrooms/${placeRoomId}/members`)
+      .send({
+        userId: 'u3', stageName: 'Three', reserveOnly: true,
+        admissionClaim: await admissionClaim('u3', 2),
+      });
 
     expect(response.status).toBe(409);
     expect(response.body).toEqual({ error: 'Place is full', code: 'PLACE_FULL', capacity: 2 });
@@ -193,9 +221,14 @@ describe('chatroom routes', () => {
     });
 
     const reservations = await Promise.all(
-      ['u1', 'u2', 'u3'].map((userId) => request(app)
-        .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
-        .send({ userId, stageName: userId.toUpperCase(), reserveOnly: true })),
+      ['u1', 'u2', 'u3'].map(async (userId) => request(app)
+        .post(`/api/chatrooms/${placeRoomId}/members`)
+        .send({
+          userId,
+          stageName: userId.toUpperCase(),
+          reserveOnly: true,
+          admissionClaim: await admissionClaim(userId, 2),
+        })),
     );
 
     expect(reservations.map((response) => response.status).sort()).toEqual([200, 200, 409]);
@@ -215,10 +248,14 @@ describe('chatroom routes', () => {
 
   it('releases an uncommitted Place reservation and rejects heartbeat admission bypasses', async () => {
     const { app, manager } = buildApp({ chatroomCapacity: 1 });
-    const roomPath = '/api/chatrooms/place_32.71_-117.17_abcdefabcdef';
-    const first = await request(app).post(`${roomPath}/members`).send({ userId: 'u1', reserveOnly: true });
+    const roomPath = `/api/chatrooms/${placeRoomId}`;
+    const first = await request(app).post(`${roomPath}/members`).send({
+      userId: 'u1', reserveOnly: true, admissionClaim: await admissionClaim('u1', 1),
+    });
     expect(first.status).toBe(200);
-    expect(await request(app).post(`${roomPath}/members`).send({ userId: 'u2', reserveOnly: true }))
+    expect(await request(app).post(`${roomPath}/members`).send({
+      userId: 'u2', reserveOnly: true, admissionClaim: await admissionClaim('u2', 1),
+    }))
       .toMatchObject({ status: 409 });
 
     const heartbeat = await request(app).patch(`${roomPath}/members/u2`).send({ stageName: 'Two' });
@@ -227,7 +264,9 @@ describe('chatroom routes', () => {
     expect(manager.touchMemberFast).not.toHaveBeenCalled();
 
     expect(await request(app).delete(`${roomPath}/members/u1`)).toMatchObject({ status: 200 });
-    expect(await request(app).post(`${roomPath}/members`).send({ userId: 'u2', reserveOnly: true }))
+    expect(await request(app).post(`${roomPath}/members`).send({
+      userId: 'u2', reserveOnly: true, admissionClaim: await admissionClaim('u2', 1),
+    }))
       .toMatchObject({ status: 200 });
   });
 
@@ -244,8 +283,11 @@ describe('chatroom routes', () => {
     const { app, manager } = buildApp({ hubRelayClient, chatroomCapacity: 2 });
 
     const response = await request(app)
-      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
-      .send({ userId: 'u3', stageName: 'Three', reserveOnly: true });
+      .post(`/api/chatrooms/${placeRoomId}/members`)
+      .send({
+        userId: 'u3', stageName: 'Three', reserveOnly: true,
+        admissionClaim: await admissionClaim('u3', 2),
+      });
 
     expect(response.status).toBe(409);
     expect(response.body.code).toBe('PLACE_FULL');
@@ -260,13 +302,38 @@ describe('chatroom routes', () => {
     const { app, manager } = buildApp({ hubRelayClient, chatroomCapacity: 2 });
 
     const response = await request(app)
-      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
-      .send({ userId: 'u3', stageName: 'Three', reserveOnly: true });
+      .post(`/api/chatrooms/${placeRoomId}/members`)
+      .send({
+        userId: 'u3', stageName: 'Three', reserveOnly: true,
+        admissionClaim: await admissionClaim('u3', 2),
+      });
 
     expect(response.status).toBe(503);
     expect(response.body.code).toBe('PLACE_ADMISSION_UNAVAILABLE');
     expect(hubRelayClient.addMember).not.toHaveBeenCalled();
     expect(manager.addMemberFast).not.toHaveBeenCalled();
+  });
+
+  it('propagates a hub partition-reconciliation loss to an embedded Place member', async () => {
+    const claim = await admissionClaim('u1', 2);
+    const hubRelayClient = {
+      listMembers: jest.fn().mockResolvedValue([{ userId: 'u1', stageName: 'One' }]),
+      touchMember: jest.fn().mockRejectedValue(new EmbeddedHubRelayRequestError(
+        409,
+        JSON.stringify({ code: 'PLACE_RECONCILED_OUT', capacity: 2 }),
+        'upstream Place reconciled out',
+      )),
+    } as any;
+    const { app, manager } = buildApp({ hubRelayClient, chatroomCapacity: 2 });
+    manager.getActiveMembersWithStageName.mockResolvedValue([{ userId: 'u1', stageName: 'One' }]);
+
+    const response = await request(app)
+      .patch(`/api/chatrooms/${placeRoomId}/members/u1`)
+      .send({ stageName: 'One', admissionClaim: claim });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual(expect.objectContaining({ code: 'PLACE_RECONCILED_OUT', capacity: 2 }));
+    expect(manager.touchMemberFast).not.toHaveBeenCalledWith(placeRoomId, 'u1', expect.anything());
   });
 
   it('mirrors local membership writes to the explicit hub relay', async () => {

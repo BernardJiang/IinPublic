@@ -1,6 +1,22 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-09
+Last updated: 2026-10-10
+
+## 2026-10-10 — Ownerless Place admission converges after partitions (OPEN-40 slice)
+
+- Added signed, expiring Place seat claims binding room, stable public identity, release-wide `C`,
+  stable stay-entry time, liveness observation, and expiry. Network-visible Gun stores only this
+  capacity-control evidence under hashed room/identity keys; it contains no Talk or answer bodies.
+- Partitioned indexes deterministically retain the earliest `C` verified stays with a stable
+  cryptographic tie-breaker. One signing identity consumes at most one seat, claims expire with room
+  presence, creators receive no priority, and forged/scope/capacity-mismatched claims fail closed.
+- A confirmed loser leaves the Place for Contacts-only and sees explicit wording plus the existing
+  optional Nearby-at-the-pin action. Generic admission or connectivity failures do not falsely eject
+  the user. Embedded phones propagate hub reconciliation results rather than swallowing a 409.
+- Verified typecheck, lint, the complete 3,009-test Jest suite (2,994 passed, 15 skipped), production
+  web/server builds, and focused evidence, route, relay, client fallback, path-classification, and
+  translation gates. The rule is eventual convergence for honest signed claims, not consensus,
+  trusted-clock proof, physical-presence proof, or Sybil resistance.
 
 ## 2026-10-09 — Stranger sessions encrypted before Talk exchange (OPEN-40 slice)
 

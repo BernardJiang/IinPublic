@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-09.
+Last reconciled: 2026-10-10.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -100,7 +100,7 @@ its ID.
     - [x] The map shades and focuses the locally derived active Nearby cell, reports its actual
       approximate diameter, and keeps Place pins separate. Return to Nearby recomputes the current
       geographic/certificate path and clears traveler state; no cell bounds leave the device.
-  - [ ] **P0 Places:** publish signed content-addressed Community-created descriptors indexed by map
+  - [x] **P0 Places:** publish signed content-addressed Community-created descriptors indexed by map
     cell; creation grants no authority or trademark claim. A deliberate precise business address
     requires confirmation; community pins snap to the public cell. Joining is an atomic active-room
     switch; traveler means the Place is outside the current GPS home zone. Full Places offer the
@@ -117,9 +117,12 @@ its ID.
       derives and verifies the geographic Nearby path from the already-public pin, keeps the user's
       actual GPS home separate, publishes the visitor marker, survives restart, follows capacity
       refinements, and returns home through the existing Return to Nearby action.
-    - [ ] Enforce the final full-Place admission/fairness rule against global `C`.
-      Remaining gap: reconcile conflicting admissions after an index/network partition with
-      portable ownerless evidence, then user-test the full-room and fallback wording.
+    - [x] Enforced the final full-Place admission/fairness rule against global `C`: signed expiring
+      claims merge deterministically after an index/network partition; one public identity consumes
+      one seat; the earliest `C` verified stays win with a stable cryptographic tie-breaker. A losing
+      browser or embedded phone leaves to Contacts-only with explicit wording and the existing
+      optional Nearby-at-the-pin action. Automated partition-order, forgery, expiry, alias, relay,
+      and client-fallback gates pass; empirical wording feedback remains part of Verification.
   - [ ] **P1 sparse-area behavior:** widen Nearby search under a deterministic hysteresis rule while
     displaying the actual approximate reach. Do not silently activate overlapping room levels or
     subscribe to unbounded parent rosters.

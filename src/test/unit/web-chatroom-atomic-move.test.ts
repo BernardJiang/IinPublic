@@ -1,10 +1,13 @@
 /** @jest-environment jsdom */
 
+import { TextEncoder } from 'node:util';
 import {
   PlaceAdmissionUnavailableError,
   PlaceRoomFullError,
   WebChatroomService,
 } from '../../web/services/web-chatroom-service';
+
+Object.defineProperty(globalThis, 'TextEncoder', { value: TextEncoder, configurable: true });
 
 function gunChain(): any {
   const chain: any = {
@@ -29,6 +32,18 @@ describe('WebChatroomService atomic room moves', () => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     service = new WebChatroomService({ getGun: () => gunChain() } as any);
+    service.createPlaceAdmissionClaim = jest.fn(async (roomId: string, userId: string) => ({
+      version: 1,
+      kind: 'place-admission-claim',
+      roomId,
+      userId,
+      pub: 'pub-u',
+      capacity: 2,
+      enteredAt: new Date().toISOString(),
+      observedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      proof: {},
+    }));
     service.currentChatroomId = 'A';
     order = [];
     leaveDelayMs = 0;
@@ -158,6 +173,40 @@ describe('WebChatroomService atomic room moves', () => {
 
     expect(order).toEqual(['reserve', 'leave:A', 'join:place_32.71_-117.17_abcdefabcdef']);
   });
+
+  it('falls back to Contacts-only only after an explicit Place reconciliation loss', async () => {
+    const listener = jest.fn();
+    service.setPlaceAdmissionLostListener(listener);
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ code: 'PLACE_RECONCILED_OUT', capacity: 2 }),
+    }) as jest.Mock;
+    const place = 'place_32.71_-117.17_abcdefabcdef';
+
+    await service.syncMembershipHeartbeatWithServer(place, 'u', 'User', new Date().toISOString(), true);
+
+    expect(order).toEqual([`leave:${place}`, 'join:local_contacts_only_v1']);
+    expect(listener).toHaveBeenCalledWith(place, 2);
+  });
+
+  it('does not leave a Place for a generic admission error', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ code: 'PLACE_ADMISSION_REQUIRED' }),
+    }) as jest.Mock;
+
+    await service.syncMembershipHeartbeatWithServer(
+      'place_32.71_-117.17_abcdefabcdef',
+      'u',
+      'User',
+      new Date().toISOString(),
+      true,
+    );
+
+    expect(order).toEqual([]);
+  });
 });
 
 describe('returning user is a newcomer', () => {
@@ -167,5 +216,31 @@ describe('returning user is a newcomer', () => {
     const recent = new Date().toISOString();
     expect(service.isFreshActiveMember({ isActive: true, joinedAt: old, lastSeen: old })).toBe(false);
     expect(service.isFreshActiveMember({ isActive: true, joinedAt: old, lastSeen: recent })).toBe(true);
+  });
+});
+
+describe('Place admission stay continuity', () => {
+  it('keeps entry order across a quick reload but starts a new stay after the presence TTL', async () => {
+    localStorage.clear();
+    const pair = {
+      pub: 'TOxzZAuuHo8uWtcfmKRXPxu4lSjkk5G9cQXUcDmGeLQ.I7BGtO_MNsZnjPb1DaGqnwsspaReh-jAgaFPB8ecSOU',
+      priv: 'CMFrnIim8J1buMvlCJ8zS6ubJzoJ-Q9iMqHTZi_L91Y',
+    };
+    const gunService = { getGun: () => gunChain(), getStoredPair: () => pair } as any;
+    const room = 'place_32.71_-117.17_abcdefabcdef';
+    const firstService: any = new WebChatroomService(gunService);
+    const first = await firstService.createPlaceAdmissionClaim(room, 'u');
+    const reloadedService: any = new WebChatroomService(gunService);
+    const reloaded = await reloadedService.createPlaceAdmissionClaim(room, 'u');
+    expect(reloaded.enteredAt).toBe(first.enteredAt);
+
+    const stays = JSON.parse(localStorage.getItem('iinpublic_place_admission_stays_v1') || '{}');
+    const lapsedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    stays[`${room}:u`] = { enteredAt: lapsedAt, lastObservedAt: lapsedAt };
+    localStorage.setItem('iinpublic_place_admission_stays_v1', JSON.stringify(stays));
+    const lapsedService: any = new WebChatroomService(gunService);
+    const lapsed = await lapsedService.createPlaceAdmissionClaim(room, 'u');
+    expect(Date.parse(lapsed.enteredAt)).toBeGreaterThan(Date.parse(lapsedAt));
+    localStorage.clear();
   });
 });

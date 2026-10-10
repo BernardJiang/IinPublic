@@ -220,6 +220,22 @@ export class GunService {
     });
   }
 
+  /** Collect bounded direct children of a control-plane path (never recurse into application data). */
+  public async listPathChildren(path: string[], waitMs = 350, limit = 16_384): Promise<any[]> {
+    if (path.length === 0) return [];
+    const items: any[] = [];
+    let ref: any = this.gun;
+    for (const segment of path) ref = ref.get(segment);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(items), waitMs);
+      timer.unref?.();
+      ref.map().once((data: any, key: string) => {
+        if (!data || !key || key.startsWith('_') || items.length >= limit) return;
+        items.push({ ...this.deserializeDates(data), _key: key });
+      });
+    });
+  }
+
   /**
    * Put data at a nested path (same graph shape as client).
    */

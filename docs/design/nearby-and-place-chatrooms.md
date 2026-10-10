@@ -104,7 +104,7 @@ visitors deliberately chose the same destination. The initial simple rule is: wh
 do not create visible `_part_N` rooms; keep the entrant in their current room and offer the Nearby
 room around that point.
 
-The implemented single-index admission rule is deliberately ownerless and easy to explain:
+The implemented admission rule is deliberately ownerless and easy to explain:
 
 1. The first `C` live admissions observed by the room index hold active seats.
 2. The creator is an ordinary participant and receives no priority or reserved seat.
@@ -116,11 +116,24 @@ The implemented single-index admission rule is deliberately ownerless and easy t
    its old room, and only then commits active membership. A full-room rejection therefore leaves
    the current room, discovery, and Talk audience unchanged without briefly joining two rooms.
 
-This is a safe first implementation, not a claim of decentralized consensus. During a network
-partition, independent indexes may temporarily admit conflicting sets. The final multi-index
-fairness/reconciliation rule needs portable signed admission evidence (or another deterministic
-ownerless protocol), partition/reconnect tests, and user testing of the full-room wording before
-release. Until that exists, no client may describe the first `C` rule as globally instantaneous.
+Every reservation and active heartbeat also carries a signed, expiring seat claim binding the
+Place, stable public identity, global `C`, stable stay-entry time, current observation, and expiry.
+Claims are public control metadata under
+`place-admission-claims/<roomHash>/<identityHash>`; they contain no Talk or answer bodies. A stable
+identity occupies at most one seat even if it presents several user handles. After indexes reconnect,
+each verifies the portable claims, keeps the earliest `C` stay-entry times (room/public-key hash is
+the deterministic tie-breaker), and reaches the same winner set independent of merge order.
+
+During a network partition, independent indexes may still temporarily admit conflicting sets; this
+is eventual deterministic convergence, not consensus or an instantaneous worldwide roster. A claim
+outside the winning `C` is removed from the Place on its next heartbeat, falls back to Contacts-only,
+and receives an explicit explanation plus the existing optional **Nearby around _Place name_**
+action. Missing, malformed, or temporarily unverifiable evidence fails closed but does not falsely
+eject the client as a reconciliation loser. Embedded phones forward the signed claim to the hub and
+must propagate the hub's reconciliation loss instead of hiding it behind best-effort relay behavior.
+Signing prevents forgery and one-key alias duplication; it does not prove honest clocks, physical
+presence, or Sybil resistance. Those limitations remain explicit inputs to abuse controls and the
+capacity experiment.
 
 When a full Place has a public pin, the UI offers **Nearby around _Place name_** as a separate,
 deliberate action. It derives the ordinary verified Nearby path from that already-public point; it
@@ -144,6 +157,7 @@ Network-visible records:
 places/by-id/<placeCID>/descriptor
 places/by-map-cell/<mapCell>/<placeCID>/reference
 room-presence/<roomId>/<userPubHash>/signed-expiring-presence
+place-admission-claims/<roomHash>/<identityHash>/signed-expiring-seat-claim
 nearby-control/<opaque-root-scope>/<requested-generation>/<opaque-room-id>/overflow-certificate
 public/protocol-manifests/<sequence>/signed-manifest
 ```

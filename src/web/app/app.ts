@@ -1030,6 +1030,26 @@ export class IinPublicApp {
         'info',
       );
     });
+    this.chatroomService.setPlaceAdmissionLostListener((placeId, capacity) => {
+      this.travelModeActive = false;
+      this.travelChatroomId = undefined;
+      this.travelNearbyPoint = undefined;
+      this.pendingNearbyTravel = undefined;
+      this.persistTravelModeStateToStorage();
+      this.uiManager.setTravelModeState({
+        active: false,
+        ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
+      });
+      this.currentChatroomId = CONTACTS_ONLY_SCOPE_ID;
+      localStorage.setItem('iinpublic_last_chatroom', CONTACTS_ONLY_SCOPE_ID);
+      this.uiManager.setCurrentChatroomId(CONTACTS_ONLY_SCOPE_ID);
+      const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
+      this.uiManager.showNotification(
+        uiText(language, 'chatroomPlaceReconciled').replace('{capacity}', String(capacity)),
+        'warning',
+      );
+      this.offerNearbyAroundFullPlace(placeId);
+    });
     // Travel is room-membership metadata, not a private UI decoration: peers in the room must
     // agree that a user deliberately visiting away from their saved home is a traveler.
     this.chatroomService.setMembershipTravelerResolver((chatroomId) => {
