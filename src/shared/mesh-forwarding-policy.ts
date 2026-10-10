@@ -11,8 +11,10 @@ export type ForwardingSettings = {
 };
 
 export const DEFAULT_FORWARDING_SETTINGS: Readonly<ForwardingSettings> = {
-  enabled: true,
-  wifiForwarding: true,
+  // Baseline delivery is author → receiver. Third-person forwarding remains available only
+  // after an explicit experimental opt-in; it is never required for ordinary Talk delivery.
+  enabled: false,
+  wifiForwarding: false,
   cellularForwarding: false,
   lowBatteryPause: true,
   routeByteBudget: 50 * 1024 * 1024,

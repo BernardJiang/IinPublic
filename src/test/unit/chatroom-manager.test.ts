@@ -1,7 +1,8 @@
 import { ChatroomManager } from '../../server/services/chatroom-manager';
 import type { GunService } from '../../server/services/gun-service';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
-import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
+import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
+import SEA from 'gun/sea';
 import {
   DEFAULT_VISIT_COUNTER_MAX_SLOTS,
   prunedVisitAggregatePath,
@@ -201,6 +202,41 @@ describe('ChatroomManager visit accounting', () => {
     expect(room).toMatchObject({ anchorCell: 'region_32.71_-117.17', location: { latitude: 32.71, longitude: -117.17 } });
   });
 
+  it('indexes a signed content-addressed Place only in its matching public map cell', async () => {
+    const manager = buildManager();
+    const gunService = (manager as any).gunService as MemoryGunService;
+    const pair = await SEA.pair();
+    const descriptor = await createSignedPlaceDescriptor({
+      name: 'Bean There Café',
+      placeType: 'business',
+      location: { latitude: 32.71, longitude: -117.17 },
+      pair,
+      createdAt: '2026-10-08T12:00:00.000Z',
+    });
+
+    const room = await manager.createChatroom({
+      name: descriptor.name,
+      type: descriptor.placeType,
+      createdBy: 'creator',
+      anchorCell: 'region_32.71_-117.17',
+      descriptor,
+    });
+    expect(room.id).toBe(descriptor.id);
+    await expect(gunService.getPath(['places', 'by-id', descriptor.id, 'descriptor']))
+      .resolves.toEqual(descriptor);
+    await expect(gunService.getPath([
+      'places', 'by-map-cell', 'region_32.71_-117.17', descriptor.id, 'reference',
+    ])).resolves.toMatchObject({ id: descriptor.id });
+
+    await expect(manager.createChatroom({
+      name: descriptor.name,
+      type: descriptor.placeType,
+      createdBy: 'creator',
+      anchorCell: 'region_32.72_-117.17',
+      descriptor,
+    })).rejects.toThrow('anchor cell');
+  });
+
   it('retains visitor history because participants cannot delete an immutable room', async () => {
     const manager = buildManager();
     await manager.createChatroom({ id: 'room_2', name: 'Retired Room', type: 'custom', createdBy: 'owner' });
@@ -216,54 +252,34 @@ describe('ChatroomManager visit accounting', () => {
   });
 });
 
-describe('ChatroomManager TechSupport built-in presence (docs/TODO.md K1)', () => {
+describe('ChatroomManager has no TechSupport room authority', () => {
   function buildManager(): ChatroomManager {
     return new ChatroomManager(new MemoryGunService() as unknown as GunService);
   }
 
-  it('seedTechSupportGlobalMembership writes one active member row and publishes the count', async () => {
+  it('does not expose a TechSupport room-seeding operation', () => {
     const manager = buildManager();
-    const gunService = (manager as any).gunService as MemoryGunService;
-
-    await manager.seedTechSupportGlobalMembership();
-
-    expect(await gunService.getPath(['chatrooms', 'global', 'users', TECHSUPPORT_ROOT_USER_ID]))
-      .toMatchObject({ userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME, isActive: true });
-    expect(await gunService.getPath(['chatroomMembers', 'global', TECHSUPPORT_ROOT_USER_ID]))
-      .toMatchObject({ userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME, isActive: true });
-    expect(await manager.getActiveMembersWithStageName('global')).toEqual([
-      { userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME },
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 0)); // let the fire-and-forget count publish settle
-    expect(await gunService.getPath(['public', 'room-member-counts', 'global'])).toMatchObject({ count: 1 });
+    expect((manager as any).seedTechSupportGlobalMembership).toBeUndefined();
   });
 
-  it('never evicts TechSupport from the fast in-memory path even long past the TTL (K1-3)', async () => {
+  it('refuses new TechSupport membership and hides an active legacy row', async () => {
     const manager = buildManager();
-    await manager.seedTechSupportGlobalMembership();
-
-    // Simulate a TechSupport device that seeded once and never heartbeat again — backdate its
-    // fast-path lastSeen the same way a stale ordinary member would look after the TTL.
-    const old = new Date(Date.now() - (ROOM_MEMBERSHIP_TTL_SECONDS + 5) * 1000).toISOString();
-    (manager as any).fastActiveMembers.get('global').set(TECHSUPPORT_ROOT_USER_ID, {
-      userId: TECHSUPPORT_ROOT_USER_ID,
-      stageName: TECHSUPPORT_STAGE_NAME,
-      lastSeen: old,
-    });
-
-    expect(await manager.getActiveMembersWithStageName('global')).toEqual([
-      { userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME },
-    ]);
-  });
-
-  it('headcount is exactly 2 once an ordinary user joins alongside the seeded TechSupport row', async () => {
-    const manager = buildManager();
-    await manager.seedTechSupportGlobalMembership();
-    await manager.addMemberFast('global', 'user_1', 'Alice');
-
-    const members = await manager.getActiveMembersWithStageName('global');
-    expect(members).toHaveLength(2);
-    expect(members.map((m) => m.userId).sort()).toEqual([TECHSUPPORT_ROOT_USER_ID, 'user_1'].sort());
+    await manager.addMemberFast('legacy-global', 'iinpublic-root-techsupport', 'TechSupport');
+    expect((manager as any).fastActiveMembers.get('legacy-global')).toBeUndefined();
+    const gun = (manager as any).gunService as MemoryGunService;
+    for (const path of [
+      ['chatrooms', 'legacy-global', 'users', 'iinpublic-root-techsupport'],
+      ['chatroomMembers', 'legacy-global', 'iinpublic-root-techsupport'],
+    ]) {
+      await gun.putPath(path, {
+        userId: 'iinpublic-root-techsupport',
+        stageName: 'TechSupport',
+        isActive: true,
+        joinedAt: new Date().toISOString(),
+        lastSeen: new Date().toISOString(),
+      });
+    }
+    expect(await manager.getActiveMembersWithStageName('legacy-global')).toEqual([]);
   });
 
   it('publishes and clears traveler membership through the fast presence roster', async () => {
@@ -280,18 +296,6 @@ describe('ChatroomManager TechSupport built-in presence (docs/TODO.md K1)', () =
     expect(await manager.getActiveMembersWithStageName('remote-room')).toEqual([
       { userId: 'visitor', stageName: 'Visitor', isTraveler: false },
     ]);
-  });
-
-  it('re-seeding refreshes lastSeen so a boot seed after reset never reads as stale', async () => {
-    const manager = buildManager();
-    await manager.seedTechSupportGlobalMembership();
-    const first = await (manager as any).gunService.getPath(['chatrooms', 'global', 'users', TECHSUPPORT_ROOT_USER_ID]);
-
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await manager.seedTechSupportGlobalMembership();
-    const second = await (manager as any).gunService.getPath(['chatrooms', 'global', 'users', TECHSUPPORT_ROOT_USER_ID]);
-
-    expect(Date.parse(second.lastSeen)).toBeGreaterThanOrEqual(Date.parse(first.lastSeen));
   });
 });
 

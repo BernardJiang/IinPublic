@@ -9,7 +9,7 @@ covers: SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Setup:** Two browsers — Tom and Jerry — both log in and join "Global" chatroom. Test timeout is 420 seconds (7 minutes) due to long Gun sync waits.
+1. **Setup:** Two browsers — Tom and Jerry — both log in and join the same automatic Nearby room.
 
 2. **Tom creates and broadcasts a talk** titled "Tennis Partner": "Want a tennis partner?" with match answer "Yes, lets play." and ignore answer "No thanks." Tom uses `clickBroadcastUntilBulkAck` helper to broadcast, then polls server to confirm Jerry received the incoming talk.
 
@@ -20,6 +20,8 @@ covers: SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
 5. **Jerry opens conversation with Tom** and sees Tom's message arrive (polls until visible).
 
 6. **Jerry replies** with "Sounds great! Meet at the courts at 9am?" — Jerry sees the reply, and Tom (still on his conversation overlay) also sees Jerry's reply arrive.
+
+7. **Storage boundary:** Tom's endpoint has encrypted message wires in its peerless local Gun envelope, while the exported hub graph has no current or legacy message-body souls and contains neither plaintext message.
 
 > **Why this matters:** Verifies the complete messaging flow: match → conversation created → bidirectional real-time messaging works with correct message delivery in both directions.
 

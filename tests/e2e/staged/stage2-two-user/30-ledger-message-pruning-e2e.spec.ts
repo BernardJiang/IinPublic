@@ -16,6 +16,7 @@ import {
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { prepareDirectP2PConversation } from '../../helpers/p2p-transport-e2e';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 import {
   LEDGER_CHECKPOINT_INTERVAL,
   LEDGER_RETENTION_WINDOW,
@@ -121,21 +122,6 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
     );
   }
 
-  /**
-   * `WebLedgerService.getState()` keys a feed by `userId` for events this device authors
-   * itself (`appendEvent`) but by `event.pubkey` for events ingested from a remote peer
-   * (`ingestRemoteEvent`) — the only identifier available for a feed that isn't "us" (see
-   * `writeEventToGun`'s own doc comment in web-ledger-service.ts). A peer checking whether
-   * it's caught up on *someone else's* feed must therefore key by that other user's
-   * pubkey, not their userId.
-   */
-  async function currentUserPub(page: Page): Promise<string> {
-    return page.evaluate(
-      () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { pub?: string } } } })
-        .__iinpublic_app?.getApp?.()?.currentUser?.pub || '',
-    );
-  }
-
   test('ledger and message pruning fire for real, and a lagging peer still catches up via delta-sync', async () => {
     test.skip(
       LEDGER_CHECKPOINT_INTERVAL !== 5 ||
@@ -151,14 +137,12 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
     contextTom = tom.context;
     pageTom = tom.page;
     const tomUserId = await currentUserId(pageTom);
-    await pageTom.click('.chatroom-item:has-text("Global")');
-    await afterSync();
+    await openCurrentChatroom(pageTom);
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
-    await afterSync();
+    await openCurrentChatroom(pageJerry);
 
     // ── Match Tom and Jerry so a real conversation + ledger MATCH_CREATED event exist ──
     await pageTom.click('#create-talk-btn');
@@ -176,7 +160,7 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterAction();
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await openCurrentChatroom(pageTom);
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);
@@ -256,40 +240,31 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
 
     // ── Requirement 3: Jerry never received Tom's bulk ledger fill (no proactive re-sync
     // happens between two already-connected peers absent a reconnect event) — Jerry is
-    // the "lagging/offline" peer. Tom now actively delta-syncs to Jerry (pushing into
-    // Jerry's Gun inbox), and Jerry must end up caught up to Tom's real head, proving the
+    // the "lagging/offline" peer. Tom now requests Jerry's state over the direct channel
+    // and returns the missing delta; Jerry must end up caught up to Tom's real head, proving the
     // pruned range was substituted with its covering checkpoint rather than silently
     // dropped (the regression Item 3 exists to prevent — before it, syncWithPeer's
     // `if (!event) continue;` skipped pruned seqs).
     //
-    // Jerry's own peerState keys Tom's feed by Tom's *pubkey*, not userId — the only
-    // identifier ingestRemoteEvent has for a feed that isn't its own (see
-    // currentUserPub's own doc comment above). ──
-    const tomPub = await currentUserPub(pageTom);
     const jerryStateBefore = await pageJerry.evaluate(
       () => (window as any).__iinpublic_app.getApp().getLedgerStateForE2e(),
     );
-    expect(jerryStateBefore[tomPub] ?? 0).toBeLessThan(tomFinalSeq);
+    expect(jerryStateBefore[tomUserId] ?? 0).toBeLessThan(tomFinalSeq);
 
     await pageTom.evaluate(
       (peerId) => (window as any).__iinpublic_app.getApp().pushLedgerSyncToPeerForE2e(peerId),
       jerryUserId,
     );
 
-    // Jerry's own inbox subscription (subscribeToInbox, established once at app init and
-    // never torn down) is a live Gun .map().on() watch — it picks up Tom's newly-pushed
-    // entries on its own, no reload/reconnect needed to "arm" it. (An earlier version of
-    // this test reloaded Jerry's page here to model "peer reconnects" more literally, but
-    // that tore down the direct-p2p WebRTC session prepareDirectP2PConversation had
-    // already established, which the message-sending section below depends on — and the
-    // reload wasn't actually required for the subscription to work.)
+    // The ordered DataChannel carries the request, state, and signed event batches. No
+    // reload is needed, and reloading would tear down the matched conversation session.
     await expect
       .poll(
         async () => {
           const state = await pageJerry.evaluate(
             () => (window as any).__iinpublic_app.getApp().getLedgerStateForE2e(),
           );
-          return state[tomPub] ?? 0;
+          return state[tomUserId] ?? 0;
         },
         { message: 'Jerry should catch up to Tom\'s ledger head via delta-sync', timeout: 60_000 },
       )
@@ -304,68 +279,49 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
         (window as any).__iinpublic_app.getApp().sendConversationMessagesForE2e(cid, otherId, count, 'e2e-fill'),
       { cid: conversationId, otherId: jerryUserId, count: messageFillCount },
     );
-    // Let the last send's fire-and-forget checkpoint pass (and its Gun writes) settle
-    // before reading the snapshot below.
-    await pageTom.waitForTimeout(10_000);
+    // All appends, checkpoints, and pruning complete before sendMessage resolves.
 
-    // ── Requirement 2 (messages): the oldest message's Gun node is gone from the
-    // durable graph (not just absent from an in-memory view). ──
+    // ── Requirement 2 (messages): the peerless encrypted local envelope contains a
+    // bounded retained tail plus checkpoints, while the relay has no message bodies. ──
+    const localEnvelope = await pageTom.evaluate(async (cid) => {
+      const app = (window as any).__iinpublic_app.getApp();
+      return app.gunService.getPrivate(`conversations/${encodeURIComponent(cid)}/history`);
+    }, conversationId) as {
+      messagesJson: string;
+      checkpointsJson: string;
+      totalCount: number;
+      lastCheckpointedCount: number;
+      prunedThroughCount: number;
+    };
+    const retainedMessages = JSON.parse(localEnvelope.messagesJson) as Array<{
+      id: string;
+      text: string;
+      encryption?: string;
+    }>;
+    const messageCheckpoints = JSON.parse(localEnvelope.checkpointsJson) as unknown[];
+    expect(messageCheckpoints.length).toBeGreaterThan(0);
+    expect(localEnvelope.totalCount).toBeGreaterThanOrEqual(messageFillCount);
+    expect(localEnvelope.lastCheckpointedCount).toBeGreaterThan(0);
+    expect(localEnvelope.prunedThroughCount).toBeGreaterThan(0);
+    expect(retainedMessages.length).toBeLessThanOrEqual(MESSAGE_RETENTION_WINDOW);
+    expect(retainedMessages.some((message) => message.id === 'e2e-fill-0')).toBe(false);
+    const lastMessage = retainedMessages.find(
+      (message) => message.id === `e2e-fill-${messageFillCount - 1}`,
+    );
+    expect(lastMessage?.encryption).toBe('sea-ecdh-v1');
+    expect(typeof lastMessage?.text).toBe('string');
+
     const snapshotRes = await pageTom.request.get(`${gunBaseURL()}/api/test/export-snapshot`);
     expect(snapshotRes.ok()).toBeTruthy();
     const snapshot = (await snapshotRes.json()) as { gunGraph?: Record<string, unknown> };
     const graph = snapshot.gunGraph ?? {};
-    const messageKeyFor = (idSuffix: string) =>
-      Object.keys(graph).find(
-        (key) =>
-          key.startsWith('pairConversations/') &&
-          key.includes(`/${conversationId}/messages/`) &&
-          key.endsWith(`e2e-fill-${idSuffix}`),
-      );
-
-    const firstMessageKey = Object.keys(graph).find(
+    const publicMessageSouls = Object.keys(graph).filter(
       (key) =>
-        key.startsWith('pairConversations/') &&
-        key.includes(`/${conversationId}/messages/`) &&
-        !key.endsWith('/messages'),
+        (key.startsWith('pairConversations/') && key.includes(`/${conversationId}/messages/`)) ||
+        key.startsWith(`conversations/${conversationId}/messages/`),
     );
-    // Every retained message node must carry real ciphertext; the earliest ones must be
-    // gone. Rather than assume an exact boundary (pruning lags checkpoint cadence, same
-    // as the ledger — see design note's Item 2/4 "Done" notes), assert the qualitative
-    // shape: the checkpoint node exists, and a message from well within the retained tail
-    // still has real content while an early one is gone.
-    expect(firstMessageKey).toBeTruthy();
-
-    const checkpointKey = Object.keys(graph).find(
-      (key) => key.startsWith('pairConversations/') && key.includes(`/${conversationId}/checkpoints/`),
-    );
-    expect(checkpointKey).toBeTruthy();
-
-    // The checkpoint pass is serialized and coalesces messages arriving while it is in
-    // flight. Deletes are acknowledged before prunedThroughCount advances, so this checks
-    // the durable graph rather than trusting the in-memory bookkeeping counter.
-    //
-    // TODO §S1 bugfix: a pruned message's *soul key* is never actually absent from this
-    // dump — Gun's graph is append-only (confirmed against the server's own raw
-    // `gun._.graph`, which `/api/test/export-snapshot` returns unfiltered): once a soul is
-    // created, it is a permanent key forever, and no write can remove it, only clear its
-    // fields. `deleteMessageRecord` (gun-message-store.ts) was fixed to null the message's
-    // own content fields (mirroring the ledger's field-nulling fix for the identical class
-    // of bug) rather than asserting a key can vanish outright — matching how the ledger's
-    // own analogous check (`isLedgerRawEventPresentForE2e`/`getEventBySeq`) already checks
-    // content presence, not raw key presence. "Pruned" therefore means: the key is still
-    // here, but its ciphertext is gone.
-    const prunedKey = messageKeyFor('0');
-    expect(prunedKey).toBeTruthy();
-    const prunedRaw = graph[prunedKey as string] as any;
-    expect(prunedRaw?.text).toBeFalsy();
-
-    // The very last fill message is always within the retained tail — must survive with
-    // real ciphertext.
-    const lastKey = messageKeyFor(String(messageFillCount - 1));
-    expect(lastKey).toBeTruthy();
-    const lastRaw = graph[lastKey as string] as any;
-    expect(lastRaw?.encryption).toBe('sea-ecdh-v1');
-    expect(typeof lastRaw?.text).toBe('string');
+    expect(publicMessageSouls).toHaveLength(0);
+    expect(Object.keys(graph).filter((key) => key.startsWith('ledger/'))).toHaveLength(0);
 
     // ── Requirement 4: message history still renders correctly (the retained tail) in
     // the live UI after heavy pruning activity — the app doesn't break. ──

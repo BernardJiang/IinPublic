@@ -5,7 +5,7 @@ import { afterSync, afterLoad, delay, headless } from '../../helpers/timing';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
 import {
-  TECH_SUPPORT_NAME,
+  ALICE_NAME,
   TOM_NAME,
   bootstrapSuperUser,
 } from '../../helpers/super-user-techsupport-shared';
@@ -73,16 +73,16 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
   test('flow and survey: dedicated Ignore ends the response and the sender receives nothing', async () => {
     test.setTimeout(300_000);
 
-    const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
+    const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice sender', ALICE_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item:has-text("Global")');
+    await pageTechSupport.click('.chatroom-item.current-room');
     await afterLoad();
 
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterLoad();
 
     // ── Part 1: flow — dedicated Ignore on the only question ──────────────────────────
@@ -132,7 +132,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     await pageTom.locator('#talks-filter-completion').selectOption('all');
     await afterSync();
 
-    // TechSupport (the sender) must receive nothing at all — no local record of any kind,
+    // Alice (the sender) must receive nothing at all — no local record of any kind,
     // held for a few seconds to make sure a delayed mesh delivery isn't just slow to land.
     await pageTechSupport.waitForTimeout(4000);
     const techSupportFlowReceived = await pageTechSupport.evaluate((title) => {

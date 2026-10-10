@@ -16,6 +16,7 @@ import {
 import { openSettingsSection } from './settings-nav';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
+export const ALICE_NAME = 'Alice';
 export const TOM_NAME = 'Tom';
 
 export const TAG_NAMES = [

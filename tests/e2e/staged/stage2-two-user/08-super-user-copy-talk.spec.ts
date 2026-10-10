@@ -7,7 +7,7 @@ import { dragTalkRow } from '../../helpers/talks-matching-flow';
 import {
   MATCH_ANSWER,
   IGNORE_ANSWER,
-  TECH_SUPPORT_NAME,
+  ALICE_NAME,
   TOM_NAME,
   bootstrapSuperUser,
   waitForTabActive,
@@ -75,10 +75,10 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
 
     console.log('\n📍 Add-to-My-Talks test: answer first, recover from Answered, add, toggle broadcast, delete');
     // clearGunForStage2Spec() is already called in beforeAll; no need to repeat here.
-    const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
+    const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice sender', ALICE_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item:has-text("Global")');
+    await pageTechSupport.click('.chatroom-item.current-room');
     await afterLoad();
 
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
@@ -87,7 +87,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     // Prove that adding is optional before answering: keep this received talk out of OUT until
     // Tom explicitly retrieves it from the Answered filter afterward.
     await pageTom.evaluate(() => localStorage.setItem('copyTalkAutoSave', 'false'));
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterLoad();
 
     const copyTalkTitle = 'CopyTestTalk';
@@ -155,7 +155,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await expect(copyTalkRow.locator('.talk-broadcast-toggle-checkbox')).not.toBeChecked({ timeout: 10000 });
 
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterNav();
     await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
     const disabledSend = await deliverBroadcastViaAppPath(pageTom, { minReceivers: 0 });
@@ -178,7 +178,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await afterNav();
 
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterAction();
     await clickBroadcastUntilBulkAck(pageTom, { minGunPeers: 0 });
     await afterAction();

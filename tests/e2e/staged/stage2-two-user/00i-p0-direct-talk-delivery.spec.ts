@@ -13,7 +13,7 @@ import {
   completeTalkInAppByAnswerIds,
   findIncomingTalkIdByTitle,
 } from '../../helpers/talk-demo-ui';
-import { isMeshTalkDeliveryE2e } from '../../helpers/ports';
+import { gunBaseURL, isMeshTalkDeliveryE2e } from '../../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Pair-direct talk delivery over Gun mesh', () => {
@@ -56,13 +56,13 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         .poll(() => pageJerry.evaluate(() => !!window.__iinpublic_app?.getApp?.()?.isMeshTalkDeliveryEnabled?.()))
         .toBe(true);
 
-      await pageTom.click('.chatroom-item:has-text("Global")');
-      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
+      await pageJerry.click('.chatroom-item.current-room');
       await afterSync();
 
       await createSimpleFlowTalk(pageTom, title, 'Yes', 'No', { sendToChatroom: false });
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
       await afterSync();
       await clickBroadcastUntilBulkAck(pageTom);
 
@@ -72,6 +72,30 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
       expect(jerryId).toBeTruthy();
 
       await waitForIncomingTalkClusterOnLocalGun(pageJerry, title, { timeout: 60_000, polling: 500 });
+      const talkId = await findIncomingTalkIdByTitle(pageJerry, title);
+
+      // The receiver's durable write ACK clears the author's encrypted local outbox. Ordinary
+      // Talk bodies never enter the hub mailbox, and each endpoint remains within K=12 links.
+      await expect.poll(() => pageTom.evaluate(async (tid) => {
+        const app = window.__iinpublic_app?.getApp?.();
+        const envelope = await app?.gunService?.getPrivate?.('directTalkDeliveryOutbox');
+        try {
+          const entries = JSON.parse(String(envelope?.entriesJson || '[]'));
+          return Array.isArray(entries) && entries.some((entry: any) => entry?.talkId === tid);
+        } catch {
+          return true;
+        }
+      }, talkId), { timeout: 15_000, message: 'author outbox should clear only after receiver persistence' })
+        .toBe(false);
+      const mailboxDiagnostics = await pageTom.request.get(`${gunBaseURL()}/api/mailbox-diagnostics`);
+      expect(mailboxDiagnostics.ok()).toBe(true);
+      const mailboxState = await mailboxDiagnostics.json() as { queueSizes?: Record<string, number> };
+      expect(mailboxState.queueSizes?.[jerryId] ?? 0).toBe(0);
+      for (const page of [pageTom, pageJerry]) {
+        expect(await page.evaluate(() =>
+          Number(window.__iinpublic_app?.getApp?.()?.peerMeshService?.getDiagnostics?.()?.neighborCount || 0),
+        )).toBeLessThanOrEqual(12);
+      }
 
       const meshMode = isMeshTalkDeliveryE2e();
       const directDeliveryGraph = await pageJerry.evaluate(async (receiverId) => {
@@ -81,7 +105,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
           return {
             offerCount: 0,
             offersWithBody: 0,
-            ownerEnvelopeCount: 0,
+            localOwnerEnvelopeCount: 0,
+            publicOwnerEnvelopeCount: 0,
             legacyOwnerIndexCount: 0,
             legacyIndexCount: 0,
             announcementCount: 0,
@@ -106,15 +131,23 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
           });
         const offers = await collect(gun.get('peerTalkOffers').get(receiverId));
         const ownerPub = String(app?.gunService?.getStoredPair?.()?.pub || receiverId);
-        const ownerEnvelope = await new Promise<any>((resolve) => {
+        const localOwnerEnvelope = await app?.gunService?.getPrivate?.('incomingTalkClusters');
+        const publicOwnerEnvelope = await new Promise<any>((resolve) => {
           gun.get(`users/${encodeURIComponent(ownerPub)}/incomingTalkClusters`).once((raw: unknown) => resolve(raw));
         });
-        let ownerEnvelopeCount = 0;
+        const envelopeCount = (value: any) => {
+          try {
+            const rows = JSON.parse(String(value?.clustersJson || '[]'));
+            return Array.isArray(rows) ? rows.length : 0;
+          } catch {
+            return 0;
+          }
+        };
+        let localOwnerEnvelopeCount = 0;
         try {
-          const rows = JSON.parse(String(ownerEnvelope?.clustersJson || '[]'));
-          ownerEnvelopeCount = Array.isArray(rows) ? rows.length : 0;
+          localOwnerEnvelopeCount = envelopeCount(localOwnerEnvelope);
         } catch {
-          ownerEnvelopeCount = 0;
+          localOwnerEnvelopeCount = 0;
         }
         const legacyOwnerIndex = await collect(gun.get('ownerIncomingTalkIndex').get(receiverId));
         const legacyIndex = await collect(gun.get('incomingTalksByUser').get(receiverId));
@@ -123,7 +156,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         return {
           offerCount: offers.length,
           offersWithBody: offers.filter((offer) => !!offer?.talkData).length,
-          ownerEnvelopeCount,
+          localOwnerEnvelopeCount,
+          publicOwnerEnvelopeCount: envelopeCount(publicOwnerEnvelope),
           legacyOwnerIndexCount: legacyOwnerIndex.length,
           legacyIndexCount: legacyIndex.length,
           announcementCount: announcements.length,
@@ -139,7 +173,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         expect(directDeliveryGraph.offersWithBody).toBe(0);
         expect(directDeliveryGraph.announcementCount).toBeGreaterThan(0);
       }
-      expect(directDeliveryGraph.ownerEnvelopeCount).toBeGreaterThan(0);
+      expect(directDeliveryGraph.localOwnerEnvelopeCount).toBeGreaterThan(0);
+      expect(directDeliveryGraph.publicOwnerEnvelopeCount).toBe(0);
       expect(directDeliveryGraph.legacyOwnerIndexCount).toBe(0);
       expect(directDeliveryGraph.legacyIndexCount).toBe(0);
       expect(directDeliveryGraph.legacyRoomTalkCount).toBe(0);
@@ -151,7 +186,6 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         timeout: 15_000,
       });
 
-      const talkId = await findIncomingTalkIdByTitle(pageJerry, title);
       const talkData = await pageJerry.evaluate(async (id) => {
         const app = window.__iinpublic_app?.getApp?.();
         return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }) ?? null;

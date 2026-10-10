@@ -45,7 +45,7 @@ export function renderAppShell(
               <span class="app-bar-btn-icon">💬</span>
             </button>
             <span class="app-bar-actions" id="app-bar-actions">
-              <button type="button" class="header-btn app-bar-action-btn chatroom-view-mode-btn" id="chatroom-tree-view-btn" data-testid="chatroom-tree-view-btn" data-appbar-view="chatrooms" data-appbar-priority="0" aria-pressed="true" title="${text('chatroomTreeView')}"><span class="app-bar-btn-icon" aria-hidden="true">🌳</span><span class="app-bar-btn-label">${text('chatroomTreeView')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn chatroom-view-mode-btn" id="chatroom-tree-view-btn" data-testid="chatroom-tree-view-btn" data-appbar-view="chatrooms" data-appbar-priority="0" aria-pressed="true" title="${text('chatroomTreeView')}"><span class="app-bar-btn-icon" aria-hidden="true">☰</span><span class="app-bar-btn-label">${text('chatroomTreeView')}</span></button>
               <button type="button" class="header-btn app-bar-action-btn chatroom-view-mode-btn" id="chatroom-map-view-btn" data-testid="chatroom-map-view-btn" data-appbar-view="chatrooms" data-appbar-priority="1" aria-pressed="false" title="${text('chatroomMapView')}"><span class="app-bar-btn-icon" aria-hidden="true">🗺️</span><span class="app-bar-btn-label">${text('chatroomMapView')}</span></button>
               <button class="header-btn app-bar-action-btn" id="create-talk-btn" data-testid="create-talk-btn" data-appbar-view="chatrooms talks" data-appbar-priority="2" title="Create talk"><span class="app-bar-btn-icon">➕</span><span class="app-bar-btn-label">Create talk</span></button>
               <button type="button" class="header-btn app-bar-action-btn status-broadcast-btn" id="broadcast-talk-btn" data-testid="broadcast-talk-btn" data-appbar-view="chatrooms" data-appbar-priority="3" title="Send every talk in your OUT list to everyone in this chatroom"><span class="app-bar-btn-icon">📣</span><span class="app-bar-btn-label">Broadcast</span></button>
@@ -78,7 +78,7 @@ export function renderAppShell(
             <div class="chatroom-detail-container" id="chatroom-detail-container" style="display: none;">
               <div class="chatroom-detail-header">
                 <div class="chatroom-detail-info" id="chatroom-detail-info">
-                  <div class="chatroom-detail-title" id="current-chatroom-title">Global Chatroom</div>
+                  <div class="chatroom-detail-title" id="current-chatroom-title">Nearby</div>
                   <div class="chatroom-detail-status" id="current-chatroom-status">Loading...</div>
                 </div>
               </div>

@@ -6,13 +6,12 @@ import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../..
 import {
   MATCH_ANSWER,
   IGNORE_ANSWER,
-  TECH_SUPPORT_NAME,
+  ALICE_NAME,
   TOM_NAME,
   bootstrapSuperUser,
 } from '../../helpers/super-user-techsupport-shared';
 import { dragTalkRow } from '../../helpers/talks-matching-flow';
 import { getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
-import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 /**
@@ -71,16 +70,17 @@ test.describe('Copy then edit transfers authorship', () => {
   test('copy keeps original author; editing mints a new talk owned by the editor', async () => {
     test.setTimeout(300_000);
 
-    const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
+    const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice author', ALICE_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item:has-text("Global")');
+    await pageTechSupport.click('.chatroom-item.current-room');
     await afterLoad();
+    const originalAuthorId = await getCurrentUserId(pageTechSupport);
 
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterLoad();
     const tomId = await getCurrentUserId(pageTom);
 
@@ -142,7 +142,7 @@ test.describe('Copy then edit transfers authorship', () => {
       const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
       return myTalks[tid as string]?.fullTalk;
     }, copiedTalkId);
-    expect(copiedFullTalk.authorId).toBe(TECHSUPPORT_ROOT_USER_ID);
+    expect(copiedFullTalk.authorId).toBe(originalAuthorId);
     expect(copiedFullTalk.authorId).not.toBe(tomId);
 
     // ── Open the copied row's editor (row click, not the broadcast-toggle button) ──

@@ -11,7 +11,7 @@ const pair: GunPair = {
 };
 
 describe('WebUserService', () => {
-  it('publishes only a hierarchical room affinity when location changes', async () => {
+  it('publishes only the blurred location and leaves room selection to the Nearby service', async () => {
     const gunService = { put: jest.fn().mockResolvedValue(undefined) };
     const service = new WebUserService(gunService as any);
 
@@ -19,15 +19,13 @@ describe('WebUserService', () => {
       latitude: 32.7157, longitude: -117.1611, accuracy: 10, timestamp: new Date(),
     });
 
-    expect(gunService.put).toHaveBeenCalledWith('user-public-profile/user-1/chatroomAffinity', expect.objectContaining({
-      chatroomId: 'san-diego',
-      chatroomPath: ['global', 'north-america', 'usa', 'california', 'san-diego'],
-    }));
-    const affinity = gunService.put.mock.calls[1][1];
+    expect(gunService.put).toHaveBeenCalledTimes(1);
+    expect(gunService.put).not.toHaveBeenCalledWith(
+      'user-public-profile/user-1/chatroomAffinity',
+      expect.anything(),
+    );
     const publicLocation = gunService.put.mock.calls[0][1];
     expect(publicLocation).toEqual({ region: 'region_32.71_-117.17', chatrooms: [] });
-    expect(JSON.stringify(affinity)).not.toContain('latitude');
-    expect(JSON.stringify(affinity)).not.toContain('longitude');
     expect(JSON.stringify(publicLocation)).not.toContain('latitude');
     expect(JSON.stringify(publicLocation)).not.toContain('longitude');
   });

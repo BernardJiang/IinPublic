@@ -934,51 +934,27 @@ export class WebGunService extends EventEmitter {
   }
 
   private async putPrivateOnce(key: string, data: any): Promise<void> {
-    const pair = this.seaPair;
-    if (!pair) {
+    if (!this.seaPair) {
       throw new Error('SEA keypair not authenticated');
     }
-    const SEA = getSEA();
-    const encrypted = await SEA.encrypt(JSON.stringify(this.serializeDates(data)), pair);
-    const parts = key.split('/').filter(Boolean);
-    let ref = this.gun.user().get('private');
-    for (const part of parts) {
-      ref = ref.get(part);
+    if (!this.bridgeReady) {
+      throw new Error('Local private Gun store is unavailable');
     }
-    await new Promise<void>((resolve, reject) => {
-      const longerBudget = isDevStageZero() || this.isE2ERelaxedMode();
-      let settled = false;
-      const done = (err?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (err) reject(err);
-        else resolve();
-      };
-      // Same reasoning as the public put() above: a bare ack timeout on this chained
-      // gun.user().get('private')... write is not proof of failure, just proof the relay
-      // didn't answer in time. Continue optimistically in every environment, on the same
-      // short budget (production is a relay-only hub with no real ack to wait for).
-      const timeout = setTimeout(() => {
-        console.warn(`Gun private put ack timed out, continuing optimistically: ${key}`);
-        done();
-      }, longerBudget ? 2000 : 800);
-      ref.put(encrypted, (ack: any) => {
-        if (ack?.err) {
-          done(new Error(String(ack.err)));
-        } else {
-          done();
-        }
-      });
-    });
+
+    // Private owner data belongs in the worker's local-only, IndexedDB-backed Gun instance.
+    // The main-thread Gun is peered for public control/discovery and must never receive new
+    // private bodies, even as ciphertext: Gun peers may replicate any node they can see.
+    await this.bridge.putPrivate(key, this.serializeDates(data));
   }
 
-  /** Read and decrypt from the current user's private namespace. */
-  async getPrivate(key: string): Promise<any> {
+  /**
+   * Read one record from the pre-split private namespace on the peered Gun graph. This path is
+   * migration-only: new writes go exclusively to the local worker store above. A successful
+   * read is copied locally by getPrivate(), after which future reads no longer touch the peer.
+   */
+  private async getLegacyReplicatedPrivate(key: string): Promise<any> {
     const pair = this.seaPair;
-    if (!pair) {
-      throw new Error('SEA keypair not authenticated');
-    }
+    if (!pair) return null;
     const SEA = getSEA();
     const parts = key.split('/').filter(Boolean);
     let ref = this.gun.user().get('private');
@@ -987,20 +963,44 @@ export class WebGunService extends EventEmitter {
     }
     const raw = await new Promise<any>((resolve) => {
       const timeout = setTimeout(() => resolve(null), 4000);
-      ref.once((data: any) => {
+      ref.once((value: any) => {
         clearTimeout(timeout);
-        resolve(data ?? null);
+        resolve(value ?? null);
       });
     });
-    if (!raw) {
-      return null;
-    }
+    if (!raw) return null;
     const decrypted = await SEA.decrypt(raw as string, pair);
-    if (!decrypted) {
-      return null;
-    }
+    if (!decrypted) return null;
     const parsed = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
     return this.deserializeDates(parsed);
+  }
+
+  /** Read and decrypt from the current user's private namespace. */
+  async getPrivate(key: string): Promise<any> {
+    if (!this.seaPair) {
+      throw new Error('SEA keypair not authenticated');
+    }
+    if (!this.bridgeReady) {
+      throw new Error('Local private Gun store is unavailable');
+    }
+
+    const local = await this.bridge.getPrivate(key);
+    if (local !== null && local !== undefined) return this.deserializeDates(local);
+
+    // Upgrade compatibility: import the former peered ciphertext once. Historical remote
+    // replicas cannot be recalled, but this device stops reading the peer after the local copy
+    // exists and never publishes subsequent updates there.
+    const legacy = await this.getLegacyReplicatedPrivate(key);
+    if (legacy === null || legacy === undefined) return null;
+    await this.bridge.putPrivate(key, this.serializeDates(legacy));
+    return legacy;
+  }
+
+  /** Subscribe to decrypted owner-private data in the local-only worker Gun. */
+  subscribePrivate(key: string, callback: (data: any) => void): () => void {
+    if (!this.seaPair) throw new Error('SEA keypair not authenticated');
+    if (!this.bridgeReady) throw new Error('Local private Gun store is unavailable');
+    return this.bridge.subscribePrivate(key, (data) => callback(this.deserializeDates(data)));
   }
 
   /* ── Flexible Graph schema ─────────────────────────────────────── */

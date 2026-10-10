@@ -254,11 +254,9 @@ test.describe('Wire audit — talk content vs the hub', () => {
     }
     console.log('=== END WIRE AUDIT ===\n');
 
-    // Expected behaviour: talk content travels over the mesh (WebRTC) and, at most, as ciphertext through
-    // the server — never as plaintext on the relay's Gun wire. KNOWN DEFECT (see the .md): talk records
-    // are written to the Gun graph, which syncs to the hub. `test.fail` keeps this a guard: once the
-    // defect is fixed this starts "passing unexpectedly" and the marker below must be removed.
-    test.fail(true, 'Known: plaintext talk records (talks / receivedTalks / incomingTalkClusters) replicate through the hub Gun wire');
+    // Talk content travels over the direct mesh and, at most, as ciphertext through a server
+    // fallback. Owner Talk repositories and the incoming cluster envelope live in the peerless
+    // private worker Gun, so none of the unique plaintext may appear on the hub boundary.
     expect(leaks, 'plaintext talk content reached the hub').toEqual([]);
   });
 });

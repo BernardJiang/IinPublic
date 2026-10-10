@@ -78,6 +78,7 @@ import {
 } from '../../shared/techsupport-delegate-invite';
 import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
 import { MicroRoomControlStore } from '../services/micro-room-control-store';
+import { NearbyControlStore } from '../services/nearby-control-store';
 import {
   FAQ_ENTRIES_ROOT,
   faqEntryRecordPath,
@@ -188,6 +189,7 @@ export function registerSystemRoutes(
   const signalingByConversation = new Map<string, SignalingRelayFrame[]>();
   const presenceByUserId = new Map<string, PresenceRecord>();
   const microRoomControlStore = new MicroRoomControlStore();
+  const nearbyControlStore = new NearbyControlStore();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
@@ -385,6 +387,53 @@ export function registerSystemRoutes(
         baseGridRoomId,
         req.body?.presence,
       );
+      res.json(registration);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/nearby-control/:controlScopeId/certificates', (req, res) => {
+    const controlScopeId = String(req.params.controlScopeId || '');
+    if (!/^nearby_[a-f0-9]{24}_control_v1$/.test(controlScopeId)) {
+      res.status(400).json({ error: 'invalid Nearby control scope' });
+      return;
+    }
+    const roomId = String(req.query.roomId || '');
+    const requestedSplitGeneration = Number(req.query.requestedSplitGeneration);
+    if (!roomId || roomId.length > 256
+      || !Number.isSafeInteger(requestedSplitGeneration)
+      || requestedSplitGeneration < 0
+      || requestedSplitGeneration > 20) {
+      res.status(400).json({ error: 'Nearby room and requested split generation are required' });
+      return;
+    }
+    res.json({
+      certificates: nearbyControlStore.listForRoom(
+        controlScopeId,
+        roomId,
+        requestedSplitGeneration,
+      ),
+    });
+  });
+
+  app.post('/api/nearby-control/certificates', async (req, res) => {
+    try {
+      const certificates = await nearbyControlStore.publishCertificates(
+        Array.isArray(req.body?.certificates) ? req.body.certificates : [],
+      );
+      res.json({ certificates });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.post('/api/nearby-control/presence', async (req, res) => {
+    try {
+      if (Array.isArray(req.body?.certificates)) {
+        await nearbyControlStore.publishCertificates(req.body.certificates);
+      }
+      const registration = await nearbyControlStore.register(req.body?.presence);
       res.json(registration);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

@@ -7,7 +7,7 @@ import { afterLoad, afterNav, afterSync } from './timing';
 import { webAppURLStableChatroom } from './ports';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { isStagePipeline, stageStoragePath, type E2eStageName } from './e2e-stage-pipeline';
-import { TECHSUPPORT, ADAM, EVE } from './canonical-users';
+import { TECHSUPPORT, TOM, ADAM, EVE } from './canonical-users';
 import { assertStatusChecks } from './e2e-status-checks';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
 import { TECHSUPPORT_ONBOARDING_TIPS_TEMPLATES } from '../../../src/shared/techsupport-greeting';
@@ -128,6 +128,14 @@ export async function bootstrapTechSupport(browser: Browser, label = 'TechSuppor
 export async function bootstrapAdam(browser: Browser, label = 'Adam'): Promise<{ context: BrowserContext; page: Page }> {
   const storage = isStagePipeline() ? stageStoragePath('stage2', 'adam') : undefined;
   return bootstrapCanonicalUser(browser, label, ADAM, {
+    storageStatePath: storage,
+    skipIdbClear: !!storage,
+  });
+}
+
+export async function bootstrapTom(browser: Browser, label = 'Tom'): Promise<{ context: BrowserContext; page: Page }> {
+  const storage = isStagePipeline() ? stageStoragePath('stage2', 'tom') : undefined;
+  return bootstrapCanonicalUser(browser, label, TOM, {
     storageStatePath: storage,
     skipIdbClear: !!storage,
   });

@@ -76,6 +76,7 @@ class FakeGunNode {
 
 class FakeGunStore {
   private root = new FakeGunNode();
+  private privateValues = new Map<string, any>();
   constructor(private pair: GunPair) {}
   async put(key: string, value: any): Promise<void> {
     this.root.get(key).put(value);
@@ -86,6 +87,12 @@ class FakeGunStore {
       result = data;
     });
     return result ?? null;
+  }
+  async putPrivate(key: string, value: any): Promise<void> {
+    this.privateValues.set(key, value);
+  }
+  async getPrivate(key: string): Promise<any> {
+    return this.privateValues.get(key) ?? null;
   }
   subscribe(_key: string, _callback: (data: any) => void): () => void {
     return () => {};
@@ -116,6 +123,16 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
     return new WebLedgerService(store as unknown as WebGunService, userId, pair.pub);
   }
 
+  it('keys local indexes by user id rather than the distinct signing pubkey', async () => {
+    const service = makeService();
+    const event = await service.appendEvent(InteractionKind.TALK_CREATED, {
+      talkId: 'indexed-talk', title: 'Indexed', type: 'flow', language: 'en',
+    });
+
+    await expect(service.getEventsByTalkId('indexed-talk')).resolves.toEqual([event.id]);
+    await expect(store.getPrivate(`ledger/${pair.pub}/index/talkId/indexed-talk`)).resolves.toBeNull();
+  });
+
   it('writes no checkpoint before the interval is reached', async () => {
     const service = makeService();
     for (let i = 0; i < LEDGER_CHECKPOINT_INTERVAL - 1; i += 1) {
@@ -124,7 +141,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
       });
     }
     // No checkpoint event should exist at seq 100 (the interval) or seq 100's checkpoint index.
-    const checkpointIndex = await store.get(`ledger/${userId}/checkpoints/seq_${LEDGER_CHECKPOINT_INTERVAL}`);
+    const checkpointIndex = await store.getPrivate(`ledger/${userId}/checkpoints/seq_${LEDGER_CHECKPOINT_INTERVAL}`);
     expect(checkpointIndex).toBeNull();
   });
 
@@ -137,7 +154,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
     }
 
     // The checkpoint event lands at seq 101 (the next seq after the 100-event window).
-    const checkpointEventRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
+    const checkpointEventRaw = await store.getPrivate(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
     expect(checkpointEventRaw).toBeTruthy();
     expect(checkpointEventRaw.kind).toBe(InteractionKind.CHECKPOINT_CREATED);
 
@@ -167,7 +184,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
     await expect(service.verifyEvent(checkpointEvent)).resolves.toBe(true);
 
     // The fast-lookup index (SRS §9.3 step 1) points at the event holding the content.
-    const checkpointIndex = await store.get(`ledger/${userId}/checkpoints/seq_${LEDGER_CHECKPOINT_INTERVAL}`);
+    const checkpointIndex = await store.getPrivate(`ledger/${userId}/checkpoints/seq_${LEDGER_CHECKPOINT_INTERVAL}`);
     expect(checkpointIndex).toEqual({
       eventSeq: LEDGER_CHECKPOINT_INTERVAL + 1,
       rangeStart: 1,
@@ -175,7 +192,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
     });
 
     // The head node carries the new checkpoint watermark for a future reload to find.
-    const head = await store.get(`ledger/${userId}/head`);
+    const head = await store.getPrivate(`ledger/${userId}/head`);
     expect(head.lastCheckpointSeq).toBe(LEDGER_CHECKPOINT_INTERVAL);
   });
 
@@ -186,7 +203,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
         talkId: `talk-${i}`, title: `T${i}`, type: 'flow', language: 'en',
       });
     }
-    const raw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
+    const raw = await store.getPrivate(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
     const tamperedContent: CheckpointCreatedContent = {
       ...JSON.parse(raw.contentJson),
       merkleRoot: 'tampered-root-value',
@@ -217,7 +234,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
       talkId: 'talk-final', title: 'Final', type: 'flow', language: 'en',
     });
 
-    const checkpointRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
+    const checkpointRaw = await store.getPrivate(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
     expect(checkpointRaw).toBeTruthy();
     expect(checkpointRaw.kind).toBe(InteractionKind.CHECKPOINT_CREATED);
     const content: CheckpointCreatedContent = JSON.parse(checkpointRaw.contentJson);
@@ -244,9 +261,9 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
       // nothing should be deletable yet even though checkpoints exist.
       await appendN(service, LEDGER_CHECKPOINT_INTERVAL * 3, 'talk');
 
-      const firstEventRaw = await store.get(`ledger/${userId}/events/1`);
+      const firstEventRaw = await store.getPrivate(`ledger/${userId}/events/1`);
       expect(firstEventRaw).toBeTruthy();
-      const firstCheckpointRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
+      const firstCheckpointRaw = await store.getPrivate(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
       expect(firstCheckpointRaw).toBeTruthy();
     }, 20_000);
 
@@ -259,7 +276,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
       // First window: capture checkpoint #1's id before it's eventually pruned by a
       // later checkpoint's prune pass.
       await appendN(service, LEDGER_CHECKPOINT_INTERVAL, 'talk');
-      const checkpoint1Raw = await store.get(`ledger/${userId}/events/${checkpointSeq(1)}`);
+      const checkpoint1Raw = await store.getPrivate(`ledger/${userId}/events/${checkpointSeq(1)}`);
       const checkpoint1Id: string = checkpoint1Raw.id;
 
       // 5 more windows (6 checkpoints total) crosses the retention window: head lands at
@@ -274,23 +291,23 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
       // operation the way `web-chatroom-service.ts`'s nested-chain `.put(null)` is. Assert
       // the same thing getEventBySeq itself checks (`!raw.contentJson`) rather than the
       // raw shape, so this stays correct regardless of which representation is used.
-      const prunedEventRaw = await store.get(`ledger/${userId}/events/1`);
+      const prunedEventRaw = await store.getPrivate(`ledger/${userId}/events/1`);
       expect(prunedEventRaw?.contentJson).toBeFalsy();
-      const stillPrunedRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL}`);
+      const stillPrunedRaw = await store.getPrivate(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL}`);
       expect(stillPrunedRaw?.contentJson).toBeFalsy();
 
       // Checkpoint #1 itself (seq 101) is an ordinary chain event, covered by checkpoint
       // #2's range (101-200, since checkpoint #1's own id counts toward the next
       // window) — so it is *also* deletable once it falls behind the retention window,
       // same as any other event. It must be gone here, not specially preserved.
-      const checkpoint1AfterPruneRaw = await store.get(`ledger/${userId}/events/${checkpointSeq(1)}`);
+      const checkpoint1AfterPruneRaw = await store.getPrivate(`ledger/${userId}/events/${checkpointSeq(1)}`);
       expect(checkpoint1AfterPruneRaw?.contentJson).toBeFalsy();
 
       // Checkpoint #2 (seq 201, covering 101-200) is recent enough to survive, and its
       // retained leafIds include checkpoint #1's own event id — proving checkpoint #1's
       // existence remains provable even after checkpoint #1's own raw node is pruned
       // (Item 3's dependency on this chain-of-custody property).
-      const checkpoint2Raw = await store.get(`ledger/${userId}/events/${checkpointSeq(2)}`);
+      const checkpoint2Raw = await store.getPrivate(`ledger/${userId}/events/${checkpointSeq(2)}`);
       expect(checkpoint2Raw).toBeTruthy();
       expect(checkpoint2Raw.kind).toBe(InteractionKind.CHECKPOINT_CREATED);
       const checkpoint2Content: CheckpointCreatedContent = JSON.parse(checkpoint2Raw.contentJson);
@@ -298,7 +315,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
       expect(checkpoint2Content.leafIds).toContain(checkpoint1Id);
 
       // Recent events (within the retention window of the current head) must survive.
-      const recentEventRaw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL * 6}`);
+      const recentEventRaw = await store.getPrivate(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL * 6}`);
       expect(recentEventRaw).toBeTruthy();
 
       // Precise boundary: pruning only re-evaluates each time a *new* checkpoint fires,
@@ -312,9 +329,9 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
         LEDGER_CHECKPOINT_INTERVAL * 6,
         checkpointSeq(6) - LEDGER_RETENTION_WINDOW,
       );
-      const lastDeletedRaw = await store.get(`ledger/${userId}/events/${deletableThrough}`);
+      const lastDeletedRaw = await store.getPrivate(`ledger/${userId}/events/${deletableThrough}`);
       expect(lastDeletedRaw?.contentJson).toBeFalsy();
-      const firstSurvivingRaw = await store.get(`ledger/${userId}/events/${deletableThrough + 1}`);
+      const firstSurvivingRaw = await store.getPrivate(`ledger/${userId}/events/${deletableThrough + 1}`);
       expect(firstSurvivingRaw).toBeTruthy();
     }, 20_000);
 
@@ -322,7 +339,7 @@ describe('WebLedgerService checkpoint creation (TODO §S Item 1)', () => {
       const service = makeService();
       await appendN(service, LEDGER_CHECKPOINT_INTERVAL * 6, 'talk');
 
-      const head = await store.get(`ledger/${userId}/head`);
+      const head = await store.getPrivate(`ledger/${userId}/head`);
       expect(head.prunedThroughSeq).toBeGreaterThan(0);
 
       // A fresh instance over the same store picks up the watermark without re-scanning.
@@ -370,7 +387,7 @@ describe('WebLedgerService delta-sync via checkpoint proof (TODO §S Item 3)', (
     // One full window (100 plain events + checkpoint #1 at seq 101) — no pruning yet,
     // since 101 events is nowhere near LEDGER_RETENTION_WINDOW (500).
     await appendN(service, LEDGER_CHECKPOINT_INTERVAL, 'talk');
-    const checkpoint1Raw = await store.get(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
+    const checkpoint1Raw = await store.getPrivate(`ledger/${userId}/events/${LEDGER_CHECKPOINT_INTERVAL + 1}`);
     const checkpoint1Id: string = checkpoint1Raw.id;
 
     // Directly simulate "seqs 1-100 have since been pruned" (Item 2 proves this actually
@@ -380,7 +397,7 @@ describe('WebLedgerService delta-sync via checkpoint proof (TODO §S Item 3)', (
     // checkpoint #1 itself before this test could exercise "the covering checkpoint is
     // still present and gets delivered."
     for (let seq = 1; seq <= LEDGER_CHECKPOINT_INTERVAL; seq += 1) {
-      await store.put(`ledger/${userId}/events/${seq}`, null);
+      await store.putPrivate(`ledger/${userId}/events/${seq}`, null);
     }
 
     // A handful of recent, unpruned plain events after the checkpoint.
@@ -392,44 +409,30 @@ describe('WebLedgerService delta-sync via checkpoint proof (TODO §S Item 3)', (
       tailEventIds.push(event!.id);
     }
 
-    // Peer declares it has nothing at all for this feed.
-    await service.syncWithPeer(peerId, {});
+    // Peer declares it has nothing at all for this feed. The result is returned to the
+    // authenticated DataChannel caller; no shared Gun inbox is written.
+    const delta = await service.buildDeltaForPeer({});
 
     // The pruned range (seqs 1-100) is substituted with checkpoint #1 itself — a normal,
-    // already-signed InteractionEvent delivered through the same inbox shape as any
-    // other event, not a bespoke proof payload. Read via the real nested
-    // ledger/<peerId>/inbox/<id> chain putLedgerInboxEntry actually writes through — a
-    // flat-string lookup would miss it entirely (see putLedgerInboxEntry's own doc
-    // comment on why a flat key is not the same Gun node as a nested chain).
-    let checkpointInboxEntry: any;
-    store.getGun().get('ledger').get(peerId).get('inbox').get(checkpoint1Id).once((data: any) => {
-      checkpointInboxEntry = data;
-    });
-    expect(checkpointInboxEntry).toBeTruthy();
-    const deliveredCheckpoint = JSON.parse(checkpointInboxEntry.eventJson);
-    expect(deliveredCheckpoint.kind).toBe(InteractionKind.CHECKPOINT_CREATED);
-    expect(deliveredCheckpoint.id).toBe(checkpoint1Id);
+    // already-signed InteractionEvent in the returned direct-channel delta.
+    const deliveredCheckpoint = delta.find((event) => event.id === checkpoint1Id);
+    expect(deliveredCheckpoint).toBeTruthy();
+    expect(deliveredCheckpoint!.kind).toBe(InteractionKind.CHECKPOINT_CREATED);
+    expect(deliveredCheckpoint!.id).toBe(checkpoint1Id);
 
     // The retained tail (seqs 102-106) is delivered as ordinary individual raw events.
     for (const eventId of tailEventIds) {
-      let inboxEntry: any;
-      store.getGun().get('ledger').get(peerId).get('inbox').get(eventId).once((data: any) => {
-        inboxEntry = data;
-      });
-      expect(inboxEntry).toBeTruthy();
-      expect(JSON.parse(inboxEntry.eventJson).id).toBe(eventId);
+      expect(delta.some((event) => event.id === eventId)).toBe(true);
     }
+    expect(await store.get(`ledger/${peerId}/inbox/${checkpoint1Id}`)).toBeNull();
 
     // The receiving peer's own ledger service accepts the delivered checkpoint (signature
     // valid, and the new merkleRoot-vs-leafIds self-consistency check passes) and can
     // advance past the pruned range without ever holding seqs 1-100 individually.
     const peerPair: GunPair = await SEA.pair();
     const peerService = new WebLedgerService(store as unknown as WebGunService, peerId, peerPair.pub);
-    await expect(peerService.ingestRemoteEvent(deliveredCheckpoint)).resolves.toBe(true);
-    // ingestRemoteEvent keys peerState by the event's pubkey (the sender's signing key,
-    // pair.pub here) — not by userId, which is a separate identifier the receiver has no
-    // other way to learn (see writeEventToGun's doc comment on this same distinction).
-    expect(peerService.getState()[pair.pub]).toBe(LEDGER_CHECKPOINT_INTERVAL + 1);
+    await expect(peerService.ingestRemoteEvents(userId, [deliveredCheckpoint!])).resolves.toBeUndefined();
+    expect(peerService.getState()[userId]).toBe(LEDGER_CHECKPOINT_INTERVAL + 1);
   }, 20_000);
 
   it('rejects a checkpoint whose signed content is internally inconsistent (merkleRoot does not match its own leafIds)', async () => {

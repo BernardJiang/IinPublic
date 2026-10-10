@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { updateChatroomMembers } from '../../web/ui/chatrooms-view';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
 const PHOTO =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
@@ -25,7 +26,6 @@ function buildDeps(overrides: Record<string, unknown> = {}): any {
     apiBase: '', // skips the relationship-stats fetch
     text: (key: string) => key,
     formatDate: () => '',
-    isTechSupportOnline: () => false,
     isUserOnline: () => false,
     ...overrides,
   };
@@ -64,7 +64,7 @@ describe('chatroom roster shows peers\' profile photos', () => {
     await flush();
     expect(avatar('honor').querySelector('img.profile-avatar-image')?.getAttribute('src')).toBe(PHOTO);
     expect(avatar('plain').textContent).toBe('P');
-    // The signed-in user is not resolved, and TechSupport's pinned row is never asked for a photo.
+    // The signed-in user is not resolved.
     expect(resolvePeerHeadshot).not.toHaveBeenCalledWith('me');
   });
 
@@ -122,5 +122,24 @@ describe('chatroom roster shows peers\' profile photos', () => {
     expect(visitor.querySelector('.chatroom-member-traveler-badge')?.textContent).toContain('chatroomTraveler');
     expect(local.dataset.traveler).toBe('false');
     expect(local.querySelector('.chatroom-member-traveler-badge')).toBeNull();
+  });
+
+  it('filters a legacy TechSupport room record before headcount, detail state, and rendering', () => {
+    const deps = buildDeps();
+    updateChatroomMembers(
+      deps,
+      [
+        { userId: 'me', stageName: 'Me' },
+        { userId: 'peer', stageName: 'Peer' },
+        { userId: TECHSUPPORT_ROOT_USER_ID, stageName: 'TechSupport' },
+      ],
+      'me',
+    );
+
+    expect(deps.chatroomMemberCounts.get('global')).toBe(2);
+    expect(deps.setCurrentChatroomMembers).toHaveBeenCalledWith([
+      { userId: 'peer', stageName: 'Peer' },
+    ]);
+    expect(document.querySelector(`[data-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`)).toBeNull();
   });
 });

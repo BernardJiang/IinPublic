@@ -4,11 +4,10 @@ import * as fs from 'fs';
 import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
-import { wait, afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
+import { wait, afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { AREA_PLACES, areaRoomIdAt, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('Login — two users headcount', () => {
   let browser: Browser;
@@ -38,15 +37,11 @@ test.describe('Login — two users headcount', () => {
     await clearGunForStage2Spec();
   });
 
-  test('Two users: headcount accounts for TechSupport baseline and one room navigation', async () => {
+  test('Two users: Nearby headcount excludes TechSupport across leave and rejoin', async () => {
     const screenshotDir = e2eTestScreenshotsDir('01-login');
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
-    const supportOffset = 1;
-    const globalHeadcount = (targetPage: Page) =>
-      targetPage.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
-    // Room navigation goes to a coarse GPS grid room (map tap); border rooms are not listed.
-    const londonGridHeadcount = (targetPage: Page) =>
-      targetPage.locator(`.chatroom-item[data-chatroom-id="${areaRoomIdAt(AREA_PLACES.london)}"] .chatroom-headcount`);
+    const activeHeadcount = (targetPage: Page) =>
+      targetPage.locator('.chatroom-item.current-room .chatroom-headcount');
 
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
@@ -56,7 +51,7 @@ test.describe('Login — two users headcount', () => {
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1');
-    await expect(globalHeadcount(page)).toContainText(String(1 + supportOffset), { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('1', { timeout: 20000 });
 
     context2 = await browser2.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page2 = await context2.newPage();
@@ -67,15 +62,15 @@ test.describe('Login — two users headcount', () => {
     await ensureWindowFitsViewport(page2, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2');
-    await expect(globalHeadcount(page)).toContainText(String(2 + supportOffset), { timeout: 20000 });
-    await expect(globalHeadcount(page2)).toContainText(String(2 + supportOffset), { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('2', { timeout: 20000 });
+    await expect(activeHeadcount(page2)).toContainText('2', { timeout: 20000 });
 
     await page2.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await wait(1000, 3000);
     await page2.close();
     await afterSync();
 
-    await expect(globalHeadcount(page)).toContainText(String(1 + supportOffset), { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('1', { timeout: 20000 });
 
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
@@ -84,16 +79,8 @@ test.describe('Login — two users headcount', () => {
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2 re-login');
-    await expect(globalHeadcount(page)).toContainText(String(2 + supportOffset), { timeout: 20000 });
-    await expect(globalHeadcount(page2)).toContainText(String(2 + supportOffset), { timeout: 20000 });
-
-    await openAreaRoomAt(page2, AREA_PLACES.london);
-    await afterSync();
-    await expect(globalHeadcount(page)).toContainText(String(1 + supportOffset), { timeout: 20000 });
-    await page2.locator('#back-to-chatrooms').waitFor({ state: 'visible', timeout: 15000 });
-    await page2.click('#back-to-chatrooms');
-    await afterAction();
-    await expect(londonGridHeadcount(page2)).toContainText('1', { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('2', { timeout: 20000 });
+    await expect(activeHeadcount(page2)).toContainText('2', { timeout: 20000 });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await page2.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());

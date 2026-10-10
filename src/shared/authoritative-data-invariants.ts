@@ -15,6 +15,8 @@ export type DurableDataClass =
   | 'me-qa'
   | 'chatbot-memory'
   | 'talk-response'
+  | 'talk-delivery-outbox'
+  | 'conversation-metadata'
   | 'conversation-message'
   | 'chatroom'
   | 'reputation-input'
@@ -43,6 +45,8 @@ export const AUTHORITATIVE_DATA_INVARIANTS: readonly DataInvariant[] = [
   { dataClass: 'me-qa', visibility: 'user-private', targetSoul: 'users/<ownerSeaPub>/meQa/<questionCid>', targetAuthoritativeStore: 'local-gun', currentStores: ['local-storage'], temporaryOnlyStores: ['local-storage'] },
   { dataClass: 'chatbot-memory', visibility: 'user-private', targetSoul: 'users/<ownerSeaPub>/chatbotMemory/<questionCid>/<contextHash>', targetAuthoritativeStore: 'local-gun', currentStores: ['local-storage'], temporaryOnlyStores: ['local-storage'] },
   { dataClass: 'talk-response', visibility: 'pair-private', targetSoul: 'pairs/<pairId>/talkResponses/<talkId>/<responseId>', targetAuthoritativeStore: 'local-gun', currentStores: ['local-gun', 'encrypted-mailbox'], temporaryOnlyStores: ['encrypted-mailbox'] },
+  { dataClass: 'talk-delivery-outbox', visibility: 'user-private', targetSoul: 'users/<ownerSeaPub>/directTalkDeliveryOutbox/<roomId>/<receiver>/<talkRevision>', targetAuthoritativeStore: 'local-gun', currentStores: ['local-gun'], temporaryOnlyStores: [] },
+  { dataClass: 'conversation-metadata', visibility: 'pair-private', targetSoul: 'users/<ownerSeaPub>/conversationMetadata/<conversationId>', targetAuthoritativeStore: 'local-gun', currentStores: ['local-gun', 'encrypted-mailbox'], temporaryOnlyStores: ['encrypted-mailbox'] },
   { dataClass: 'conversation-message', visibility: 'pair-private', targetSoul: 'pairs/<pairId>/conversations/<conversationId>/messages/<messageId>', targetAuthoritativeStore: 'local-gun', currentStores: ['local-gun', 'local-storage', 'encrypted-mailbox'], temporaryOnlyStores: ['local-storage', 'encrypted-mailbox'] },
   { dataClass: 'chatroom', visibility: 'room-public', targetSoul: 'rooms/<roomId>', targetAuthoritativeStore: 'local-gun', currentStores: ['local-gun', 'remote-gun-relay'], temporaryOnlyStores: ['remote-gun-relay'] },
   { dataClass: 'reputation-input', visibility: 'user-private', targetSoul: 'users/<ownerSeaPub>/reputationInputs/<eventId>', targetAuthoritativeStore: 'local-gun', currentStores: ['local-storage'], temporaryOnlyStores: ['local-storage'] },
@@ -51,6 +55,5 @@ export const AUTHORITATIVE_DATA_INVARIANTS: readonly DataInvariant[] = [
 
 export const DURABLE_DATA_CLASSES: readonly DurableDataClass[] = [
   'authored-talk', 'received-talk', 'incoming-cluster', 'me-qa', 'chatbot-memory',
-  'talk-response', 'conversation-message', 'chatroom', 'reputation-input', 'talk-ledger',
+  'talk-response', 'talk-delivery-outbox', 'conversation-metadata', 'conversation-message', 'chatroom', 'reputation-input', 'talk-ledger',
 ] as const;
-

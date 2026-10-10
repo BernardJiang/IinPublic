@@ -6,15 +6,24 @@ import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 describe('connectivity UI settings', () => {
   beforeEach(() => localStorage.clear());
   test('supports all presets and safe forwarding defaults', () => {
-    expect(defaultConnectivitySettings().forwarding).toMatchObject({ enabled: true, wifiForwarding: true, cellularForwarding: false, lowBatteryPause: true, cellularByteBudget: 0 });
+    expect(defaultConnectivitySettings()).toMatchObject({ nearbyPrivacyMode: 'neighborhood', forwarding: { enabled: false, wifiForwarding: false, cellularForwarding: false, lowBatteryPause: true, cellularByteBudget: 0 } });
     expect(applyConnectivityPreset('data-saver')).toMatchObject({ meteredPermission: 'wait-for-free' });
     expect(applyConnectivityPreset('private').forwarding.enabled).toBe(false);
+    expect(applyConnectivityPreset('private').nearbyPrivacyMode).toBe('contacts-only');
     for (const preset of ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'] as const) expect(applyConnectivityPreset(preset).preset).toBe(preset);
   });
   test('persists policy without transport identities', () => {
     const value = applyConnectivityPreset('advanced'); value.forwarding.cellularForwarding = true; value.forwarding.cellularByteBudget = 1024;
     saveConnectivitySettings(value); expect(loadConnectivitySettings()).toEqual(value);
     expect(localStorage.getItem('iinpublic_connectivity_settings_v1')).not.toMatch(/peerId|radioId|12D3/);
+  });
+  test('migrates missing or invalid nearby privacy values to Neighborhood', () => {
+    localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({
+      ...defaultConnectivitySettings(), nearbyPrivacyMode: 'exact-home-location',
+    }));
+    expect(loadConnectivitySettings().nearbyPrivacyMode).toBe('neighborhood');
+    localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({ preset: 'automatic' }));
+    expect(loadConnectivitySettings().nearbyPrivacyMode).toBe('neighborhood');
   });
   test('formats compact active status', () => {
     expect(connectivityStatusText({ directness: 'direct', interface: 'wifi', metered: false })).toBe('direct; wifi; free');

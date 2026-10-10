@@ -12,7 +12,7 @@ import {
 /**
  * Shared TechSupport-baseline checks (docs/TODO.md K4).
  *
- * One definition of "this graph has a valid built-in TechSupport", used by BOTH
+ * One definition of "this graph has a valid contacts-only TechSupport", used by BOTH
  * `e2e-stage-pipeline.ts` (snapshot save/load integrity) and `clear-database.ts`
  * (post-reset guard). Previously the stage pipeline was the only thing asserting it,
  * so a reset path that quietly stopped producing a root went unnoticed until a
@@ -46,13 +46,13 @@ export function techSupportBaselineProblem(graph: GunGraph | undefined): string 
     return 'missing the canonical TechSupport network marker (network-root-techsupport)';
   }
 
-  const globalMember = graph[`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`];
-  if (
-    globalMember?.userId !== TECHSUPPORT_ROOT_USER_ID ||
-    globalMember?.stageName !== TECHSUPPORT_STAGE_NAME ||
-    globalMember?.isActive !== true
-  ) {
-    return 'does not keep TechSupport active in Global';
+  const activeRoomSoul = Object.entries(graph).find(([soul, value]) =>
+    soul.startsWith('chatrooms/')
+      && soul.endsWith(`/users/${TECHSUPPORT_ROOT_USER_ID}`)
+      && value?.isActive === true,
+  )?.[0];
+  if (activeRoomSoul) {
+    return `incorrectly exposes TechSupport as an active room member (${activeRoomSoul})`;
   }
 
   return null;
@@ -106,7 +106,7 @@ export function assertTechSupportBaseline(graph: GunGraph | undefined, context: 
     throw new Error(
       `[techsupport-baseline] ${context}: ${problem}. ` +
         'Every E2E baseline except the deliberate stage0 empty reset must contain the built-in ' +
-        'TechSupport root — see docs/TODO.md K4 and docs/design/techsupport-bootstrap-contract.md.',
+        'TechSupport Contact without room presence — see docs/TODO.md OPEN-40.',
     );
   }
 }

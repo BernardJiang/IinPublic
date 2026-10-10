@@ -1142,14 +1142,16 @@ export function saveKnownPerson(
 ): void {
   const currentUser = deps.getCurrentUser();
   if (!currentUser) return;
+  const existing = (currentUser.knownPeople || []).find((entry) => entry.userId === userId);
   const nextEntry: KnownPerson = {
     userId,
+    ...(existing?.identityPub ? { identityPub: existing.identityPub } : {}), ...(existing?.identityEpub ? { identityEpub: existing.identityEpub } : {}), ...(existing?.identityPinnedAt ? { identityPinnedAt: existing.identityPinnedAt } : {}),
     labels: details.labels,
     ...(details.nickname ? { nickname: details.nickname } : {}),
     ...(details.customLabel ? { customLabel: details.customLabel } : {}),
     ...(typeof details.rating === 'number' ? { rating: details.rating } : {}),
     ...(details.notes ? { notes: details.notes } : {}),
-    addedAt: new Date(),
+    addedAt: existing?.addedAt ?? new Date(),
   };
   const knownPeople = [
     ...(currentUser.knownPeople || []).filter((entry) => entry.userId !== userId),

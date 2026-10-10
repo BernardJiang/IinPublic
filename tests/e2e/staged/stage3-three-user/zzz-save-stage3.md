@@ -3,7 +3,7 @@
 covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
 
 **File:** zzz-save-stage3.spec.ts  
-**Features tested:** None — this is a deliberately empty placeholder. The stage 3 snapshot was already saved by `00-aaa-stage3-eve-joins.spec.ts` immediately after Eve joined, and subsequent specs intentionally reset to that TechSupport baseline. Saving again here would overwrite the canonical state mid-suite.
+**Features tested:** None — this is a deliberately empty placeholder. The stage 3 snapshot was already saved by `00-aaa-stage3-eve-joins.spec.ts` immediately after Eve joined, and subsequent specs intentionally reset to that Tom + Adam + Eve baseline (with TechSupport Contacts-only). Saving again here would overwrite the canonical state mid-suite.
 
 ---
 

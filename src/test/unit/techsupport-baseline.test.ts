@@ -13,8 +13,8 @@ import { signGreeting } from '../../shared/techsupport-greeting';
 import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
 
 /**
- * Guard for docs/TODO.md K4: every E2E baseline except the deliberate stage0 empty
- * reset must contain the built-in TechSupport root.
+ * Every E2E baseline except the deliberate stage0 empty reset must contain the built-in
+ * TechSupport Contact, but TechSupport must never be a room member.
  */
 
 function validGraph(): Record<string, any> {
@@ -29,16 +29,11 @@ function validGraph(): Record<string, any> {
       stageName: TECHSUPPORT_STAGE_NAME,
       networkRole: TECHSUPPORT_NETWORK_ROLE,
     },
-    [`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`]: {
-      userId: TECHSUPPORT_ROOT_USER_ID,
-      stageName: TECHSUPPORT_STAGE_NAME,
-      isActive: true,
-    },
   };
 }
 
 describe('techSupportBaselineProblem', () => {
-  it('accepts a graph with the canonical root, network marker, and active Global membership', () => {
+  it('accepts a graph with the canonical root and network marker but no room membership', () => {
     expect(techSupportBaselineProblem(validGraph())).toBeNull();
   });
 
@@ -59,16 +54,24 @@ describe('techSupportBaselineProblem', () => {
     expect(techSupportBaselineProblem(graph)).toMatch(/network marker/);
   });
 
-  it('rejects TechSupport being inactive in Global', () => {
+  it('allows an inactive legacy Global row while it ages out', () => {
     const graph = validGraph();
-    graph[`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`].isActive = false;
-    expect(techSupportBaselineProblem(graph)).toMatch(/active in Global/);
+    graph[`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`] = {
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      isActive: false,
+    };
+    expect(techSupportBaselineProblem(graph)).toBeNull();
   });
 
-  it('rejects TechSupport missing from Global entirely', () => {
+  it('rejects TechSupport being active in any room', () => {
     const graph = validGraph();
-    delete graph[`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`];
-    expect(techSupportBaselineProblem(graph)).toMatch(/active in Global/);
+    graph[`chatrooms/nearby/users/${TECHSUPPORT_ROOT_USER_ID}`] = {
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      isActive: true,
+    };
+    expect(techSupportBaselineProblem(graph)).toMatch(/active room member/);
   });
 });
 
@@ -81,7 +84,7 @@ describe('assertTechSupportBaseline', () => {
     expect(() => assertTechSupportBaseline({}, 'after clearGunDatabases')).toThrow(
       /after clearGunDatabases/,
     );
-    expect(() => assertTechSupportBaseline({}, 'unit')).toThrow(/techsupport-bootstrap-contract/);
+    expect(() => assertTechSupportBaseline({}, 'unit')).toThrow(/OPEN-40/);
   });
 });
 

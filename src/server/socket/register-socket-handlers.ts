@@ -149,12 +149,9 @@ export function registerSocketHandlers(io: Server, deps: SocketDeps): void {
 
     authedSocket.on('update_location', async (data) => {
       try {
+        // The server stores only the blurred profile location. Automatic Nearby selection is
+        // derived on-device; the relay must not revive the retired Global-room suggestion.
         await userService.updateUserLocation(authedSocket.data.userId as string, data.location);
-
-        const newChatroom = await chatroomManager.findOptimalChatroom(data.location);
-        if (newChatroom) {
-          authedSocket.emit('chatroom_suggestion', { chatroomId: newChatroom });
-        }
       } catch (error) {
         authedSocket.emit('error', { error: (error as Error).message });
       }

@@ -75,6 +75,32 @@ describe('EmbeddedHubRelayClient', () => {
     );
   });
 
+  it('reserves and commits a Place admission through the hub route', async () => {
+    const reservation = {
+      reservationToken: 'reservation-1',
+      expiresAt: '2026-10-09T12:00:15.000Z',
+    };
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => reservation })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const client = new EmbeddedHubRelayClient({
+      upstreamHubBaseUrl: 'http://127.0.0.1:8080',
+      requestTimeoutMs: 500,
+    });
+    const roomId = 'place_32.71_-117.17_abcdefabcdef';
+
+    await expect(client.reservePlaceMember(roomId, 'alice', 'Alice', true)).resolves.toEqual(reservation);
+    await client.addMember(roomId, 'alice', 'Alice', true, reservation.reservationToken);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      userId: 'alice', stageName: 'Alice', isTraveler: true, reserveOnly: true,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      userId: 'alice', stageName: 'Alice', isTraveler: true, reservationToken: 'reservation-1',
+    });
+  });
+
   it('fetches and normalizes hub TechSupport messages', async () => {
     const message = {
       id: 'support_1',

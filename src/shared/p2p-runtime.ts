@@ -1364,6 +1364,11 @@ export const STAR_GUN_PATH_CLASSIFICATIONS = [
     purpose: 'Star-mode matched chat records retained for compatibility until direct transport replaces them.',
   },
   {
+    path: 'conversation-wakeups/{recipientUserId}/{conversationId}',
+    category: 'relay-only',
+    purpose: 'Short-lived signed, recipient-bound first-contact wake-up; full conversation metadata crosses the direct authenticated channel.',
+  },
+  {
     path: 'talkAnswerTemplateByUser/{userId}',
     category: 'encrypted-user-owned',
     purpose: 'Chatbot answer templates and exact memory records owned by the responder.',

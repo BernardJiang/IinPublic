@@ -21,12 +21,9 @@ process.env.GUN_PEERS = 'http://localhost:8765/gun';
 // gets the real derived cap.
 process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW = '500';
 process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW = '200';
-// listLocalWires's enumeration window was raised from 500ms to 1.5s/3s in production (real
-// devices undercounted often enough at 500ms to risk pruning real messages — see
-// gun-message-store.ts's own doc comments). The fake Gun these unit tests use has no real
-// network latency to wait out, so keep tests fast at the old, already-sufficient value.
+// The former peered-history import uses a settle window because Gun map enumeration has no
+// completion signal. Unit tests use in-memory doubles, so a short value is sufficient.
 process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS = '20';
-process.env.IINPUBLIC_E2E_MESSAGE_PRUNE_ENUMERATE_WAIT_MS = '20';
 
 // Newer Node releases may expose a partial localStorage global unless they are
 // given --localstorage-file. Tests need the complete browser Storage contract.

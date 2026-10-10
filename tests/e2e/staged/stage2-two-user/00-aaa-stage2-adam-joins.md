@@ -1,4 +1,4 @@
-# Stage 2 — Adam Joins TechSupport
+# Stage 2 — Adam Joins Tom
 
 covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
 
@@ -9,18 +9,19 @@ covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Pipeline-only spec: transitions from single-user stage1 to two-user stage2 by loading the stage1 database snapshot, bootstrapping a fresh Adam alongside existing TechSupport, broadcasting a talk and completing a match, then saving all state for downstream tests.
+Pipeline-only spec: transitions from stage1 to a two-ordinary-user stage2 by bootstrapping Tom and
+Adam. TechSupport remains in the graph as a Contacts-only identity and is not used for the Talk.
 
 1. **Pipeline guard:** Skips if `E2E_STAGE_PIPELINE ≠ 1`.
 2. **Load stage1 snapshot** (`loadStageSnapshot('stage1')`).
-3. **Bootstrap both users in one browser:** TechSupport restored from canonical bootstrap; Adam created fresh (not restored from stale storage). Both join "Global" chatroom.
-4. **Talk exchange:** TechSupport creates and broadcasts `"Stage2 Adam Hello"` → Adam receives it on server → opens modal → answers "Yes" with match branch → modal closes after sync.
+3. **Bootstrap both ordinary users:** Tom and Adam are created fresh and share the same Nearby room.
+4. **Talk exchange:** Tom creates and broadcasts `"Stage2 Adam Hello"` → Adam receives it → opens the modal → answers "Yes" with the match branch → modal closes after sync.
 5. **Verification:** `#current-chatroom-status` confirms headcount updates; Adam's profile loaded from user graph. Status bar shows match count updated (≥1).
-6. **Save artifacts:** Persists user storage for both Adam & TechSupport (`stage2-techsupport.storage.json`, `stage2-adam.storage.json`). Saves server Gun graph diff as stage2 baseline snapshot.
+6. **Save artifacts:** Persists `stage2-tom.storage.json` and `stage2-adam.storage.json`, then saves the stage2 graph snapshot.
 
 ## Verifications:
 
-- ✅ Both users authenticated and synced in Global chatroom
+- ✅ Both ordinary users authenticated and synced in Nearby
 - ✅ Talk delivered, matched, and headcount updated
 - ✅ Status bar shows ≥1 match after exchange
 - ✅ Storage state files written for both canonical users
@@ -30,4 +31,4 @@ Pipeline-only spec: transitions from single-user stage1 to two-user stage2 by lo
 
 ---
 
-**Helpers used:** `isStagePipeline`, `loadStageSnapshot`, `saveStageSnapshot`, `bootstrapTechSupport`, `bootstrapCanonicalUser`, `saveUserStorageState`, `createSimpleFlowTalkAndBroadcast`, `waitForIncomingTalkClusterOnServer`, `openIncomingTalkModal`, `waitForResponseModalClosed`
+**Helpers used:** `isStagePipeline`, `loadStageSnapshot`, `saveStageSnapshot`, `bootstrapCanonicalUser`, `saveUserStorageState`, `createSimpleFlowTalkAndBroadcast`, `waitForIncomingTalkClusterOnServer`, `openIncomingTalkModal`, `waitForResponseModalClosed`

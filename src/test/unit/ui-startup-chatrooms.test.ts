@@ -9,12 +9,12 @@ describe('startup chatroom first paint', () => {
     localStorage.clear();
   });
 
-  it('renders Global before identity or live member counts are available', () => {
+  it('renders a safe local scope before identity or live member counts are available', () => {
     const ui = new UIManager();
     ui.initialize();
     ui.showStartupInterface();
 
-    expect(document.querySelector('#chatroom-list')?.textContent).toContain('Global');
+    expect(document.querySelector('#chatroom-list')?.textContent).toContain('Contacts only');
     expect(document.querySelector('#status-bar-text')?.textContent).toBe('Connecting...');
     expect(document.querySelector('#chatroom-tree-view-btn')?.getAttribute('aria-pressed')).toBe('true');
     expect(document.querySelector('#chatroom-map-view-btn')?.getAttribute('aria-pressed')).toBe('false');
@@ -27,7 +27,7 @@ describe('startup chatroom first paint', () => {
     const ui = new UIManager();
     ui.initialize();
     ui.showStartupInterface();
-    const firstPaintGlobalRow = document.querySelector('#chatroom-list .chatroom-item');
+    const firstPaintScopeRow = document.querySelector('#chatroom-list .chatroom-item');
 
     ui.showMainInterface({
       id: 'startup-user',
@@ -42,8 +42,8 @@ describe('startup chatroom first paint', () => {
       knownPeople: [],
     } as User);
 
-    expect(document.querySelector('#chatroom-list .chatroom-item')).toBe(firstPaintGlobalRow);
-    expect(document.querySelector('#chatroom-list')?.textContent).toContain('Global');
+    expect(document.querySelector('#chatroom-list .chatroom-item')).toBe(firstPaintScopeRow);
+    expect(document.querySelector('#chatroom-list')?.textContent).toContain('Contacts only');
   });
 
   it('renders the stable application shell before feature views hydrate', () => {
@@ -103,9 +103,9 @@ describe('startup chatroom first paint', () => {
     contactsToggle?.setAttribute('aria-expanded', 'true');
     (ui as unknown as { applyShellTranslations(): void }).applyShellTranslations();
     expect(contactsToggle?.textContent).toBe('筛选 ▴');
-    expect(document.querySelector('#chatroom-tree-view-btn .app-bar-btn-label')?.textContent).toBe('树状');
+    expect(document.querySelector('#chatroom-tree-view-btn .app-bar-btn-label')?.textContent).toBe('列表');
     expect(document.querySelector('#chatroom-map-view-btn .app-bar-btn-label')?.textContent).toBe('地图');
-    expect(document.querySelector('#chatroom-tree-view-btn')?.getAttribute('aria-label')).toBe('树状');
+    expect(document.querySelector('#chatroom-tree-view-btn')?.getAttribute('aria-label')).toBe('列表');
     expect(document.querySelector('#chatroom-map-view-btn')?.getAttribute('aria-label')).toBe('地图');
   });
 });

@@ -15,10 +15,9 @@ covers: docs/testing/room-heartbeat-load-test.md (wire-audit finding)
    recorded, then scanned for the markers. The report (console + `wire-report` attachment) lists which Gun records
    carried plaintext and which server calls carried only ciphertext (signaling relay, mailbox).
 
-## Expected vs actual
+## Expected and current result
 
-Expected: no plaintext marker on the hub wire. **Actual (2026-09-21): the test currently fails as expected** —
-`users/<pub>/talks/<id>`, `users/<pub>/receivedTalks/<author>/<id>` and `users/<pub>/incomingTalkClusters` are
-written to the Gun graph, which syncs to the hub, and the hub relays them to the other connected client.
-HTTP calls carry no plaintext. The test is marked `test.fail` so it documents the defect; when the defect is fixed
-it will "pass unexpectedly" — remove the `test.fail` line then.
+No plaintext marker may cross the hub boundary. Since 2026-10-09, authored/received Talk records and
+the receiver's incoming-cluster envelope are SEA-encrypted inside the peerless worker Gun. Direct
+mesh delivery carries the body endpoint-to-endpoint; server fallbacks may carry ciphertext only.
+This is now a passing release gate rather than an expected-failure defect record.

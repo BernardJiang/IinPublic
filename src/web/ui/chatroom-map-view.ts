@@ -2,6 +2,7 @@ import { gridLayerForZoom, tileAtTap, tileGridLines, tileSquares } from '../../s
 import { parseTileId } from '../../shared/room-tiles';
 import type { FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { CONFIG } from '../../shared/config';
+import { isNearbyRoomId, type NearbyMapArea } from '../../shared/nearby-rooms';
 import {
   chatroomsToGeoJson,
   type ChatroomMapFeatureProperties,
@@ -37,6 +38,8 @@ type ChatroomMapOptions = {
   tileTitle?: (tileId: string) => string;
   /** Tile to shade as "you are here" (the current room's tile), if any. */
   currentTileId?: string;
+  /** Device-local Nearby cell geometry. This value is rendered only and is never published. */
+  nearbyMapArea?: NearbyMapArea;
   enterTileText?: string;
   mapLoadFailedText: string;
   membersText: (count: number) => string;
@@ -60,6 +63,7 @@ const ROOM_LAYER_ID = 'iinpublic-chatroom-points';
 const GRID_SOURCE_ID = 'iinpublic-tile-grid';
 const CURRENT_TILE_SOURCE_ID = 'iinpublic-tile-current';
 const SELECTED_TILE_SOURCE_ID = 'iinpublic-tile-selected';
+const NEARBY_AREA_SOURCE_ID = 'iinpublic-nearby-area';
 const stateByContainer = new WeakMap<HTMLElement, MapState>();
 let mapLibrePromise: Promise<MapLibre> | undefined;
 
@@ -172,6 +176,32 @@ function updateTileGrid(state: MapState): void {
 function updateCurrentTile(state: MapState): void {
   const source = state.map.getSource(CURRENT_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
   source?.setData(tileSquares(state.options.currentTileId ? [state.options.currentTileId] : []) as never);
+}
+
+function nearbyAreaGeoJson(area: NearbyMapArea | undefined) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: area ? [{
+      type: 'Feature' as const,
+      properties: { kind: 'nearby-area' },
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [[
+          [area.west, area.south],
+          [area.east, area.south],
+          [area.east, area.north],
+          [area.west, area.north],
+          [area.west, area.south],
+        ]],
+      },
+    }] : [],
+  };
+}
+
+function updateNearbyArea(state: MapState): void {
+  const source = state.map.getSource(NEARBY_AREA_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
+  source?.setData(nearbyAreaGeoJson(state.options.nearbyMapArea) as never);
+  state.options.container.dataset.nearbyAreaVisible = String(!!state.options.nearbyMapArea);
 }
 
 function clearTileSelection(state: MapState): void {
@@ -356,9 +386,16 @@ function focusCurrentRoom(state: MapState): void {
   state.focusedChatroom = state.options.currentChatroom;
   const currentRoom = state.options.rooms.find((room) => room.id === state.options.currentChatroom);
   const focus = currentRoom ? roomLocation(currentRoom, state.options.rooms) : undefined;
+  const nearby = isNearbyRoomId(state.options.currentChatroom) ? state.options.nearbyMapArea : undefined;
+  const nearbyCenter = nearby
+    ? [(nearby.west + nearby.east) / 2, (nearby.south + nearby.north) / 2] as [number, number]
+    : undefined;
+  const nearbyZoom = nearby
+    ? Math.max(2, Math.min(18, Math.log2(40_075_016 / Math.max(1, nearby.approximateDiameterMeters * 2))))
+    : undefined;
   state.map.jumpTo({
-    center: focus ? [focus.longitude, focus.latitude] : [0, 20],
-    zoom: zoomForRoom(currentRoom),
+    center: focus ? [focus.longitude, focus.latitude] : nearbyCenter ?? [0, 20],
+    zoom: nearbyZoom ?? zoomForRoom(currentRoom),
   });
 }
 
@@ -432,21 +469,38 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     map.on('sourcedata', refreshMarkers);
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
-    // Tile grid of the layer that fits the zoom, the current room's tile, and the tapped tile —
-    // all below the room pins.
-    map.addSource(GRID_SOURCE_ID, { type: 'geojson', data: tileGridLines(1, { west: -180, south: -85, east: 180, north: 85 }) as never });
-    map.addSource(CURRENT_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
-    map.addSource(SELECTED_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
-    map.addLayer({ id: 'iinpublic-tile-current-fill', type: 'fill', source: CURRENT_TILE_SOURCE_ID, paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.12 } });
-    map.addLayer({ id: 'iinpublic-tile-current-line', type: 'line', source: CURRENT_TILE_SOURCE_ID, paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.7 } });
-    map.addLayer({ id: 'iinpublic-tile-selected-fill', type: 'fill', source: SELECTED_TILE_SOURCE_ID, paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.14 } });
-    map.addLayer({ id: 'iinpublic-tile-selected-line', type: 'line', source: SELECTED_TILE_SOURCE_ID, paint: { 'line-color': '#2563eb', 'line-width': 2 } });
-    map.addLayer({ id: 'iinpublic-tile-grid-line', type: 'line', source: GRID_SOURCE_ID, paint: { 'line-color': '#475569', 'line-width': 1, 'line-opacity': 0.35 } });
-    map.on('moveend', () => updateTileGrid(state));
-    // A zoom change moves to another layer, so an earlier selection no longer matches the grid.
-    map.on('zoomend', () => {
-      if (state.selectedTile && parseTileId(state.selectedTile)?.layer !== gridLayerForZoom(map.getZoom())) clearTileSelection(state);
+    map.addSource(NEARBY_AREA_SOURCE_ID, {
+      type: 'geojson',
+      data: nearbyAreaGeoJson(state.options.nearbyMapArea) as never,
     });
+    map.addLayer({
+      id: 'iinpublic-nearby-area-fill',
+      type: 'fill',
+      source: NEARBY_AREA_SOURCE_ID,
+      paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.14 },
+    });
+    map.addLayer({
+      id: 'iinpublic-nearby-area-line',
+      type: 'line',
+      source: NEARBY_AREA_SOURCE_ID,
+      paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.8 },
+    });
+    if (state.options.openTile || state.options.currentTileId) {
+      // Compatibility path for legacy callers. The Nearby + Places UI omits `openTile`, so its
+      // map contains meaningful Place pins without exposing the retired geographic room tree.
+      map.addSource(GRID_SOURCE_ID, { type: 'geojson', data: tileGridLines(1, { west: -180, south: -85, east: 180, north: 85 }) as never });
+      map.addSource(CURRENT_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
+      map.addSource(SELECTED_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
+      map.addLayer({ id: 'iinpublic-tile-current-fill', type: 'fill', source: CURRENT_TILE_SOURCE_ID, paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.12 } });
+      map.addLayer({ id: 'iinpublic-tile-current-line', type: 'line', source: CURRENT_TILE_SOURCE_ID, paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.7 } });
+      map.addLayer({ id: 'iinpublic-tile-selected-fill', type: 'fill', source: SELECTED_TILE_SOURCE_ID, paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.14 } });
+      map.addLayer({ id: 'iinpublic-tile-selected-line', type: 'line', source: SELECTED_TILE_SOURCE_ID, paint: { 'line-color': '#2563eb', 'line-width': 2 } });
+      map.addLayer({ id: 'iinpublic-tile-grid-line', type: 'line', source: GRID_SOURCE_ID, paint: { 'line-color': '#475569', 'line-width': 1, 'line-opacity': 0.35 } });
+      map.on('moveend', () => updateTileGrid(state));
+      map.on('zoomend', () => {
+        if (state.selectedTile && parseTileId(state.selectedTile)?.layer !== gridLayerForZoom(map.getZoom())) clearTileSelection(state);
+      });
+    }
 
     const initialData = chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom);
     state.options.container.dataset.mapGeojsonFeatureCount = String(initialData.features.length);
@@ -485,6 +539,7 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     refreshMarkers();
     focusCurrentRoom(state);
     updateCurrentTile(state);
+    updateNearbyArea(state);
     updateTileGrid(state);
     resolveReady();
   });
@@ -513,6 +568,7 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
     await state.ready;
     updateSource(state);
     updateCurrentTile(state);
+    updateNearbyArea(state);
     focusCurrentRoom(state);
     updateTileGrid(state);
     requestAnimationFrame(() => state.map.resize());

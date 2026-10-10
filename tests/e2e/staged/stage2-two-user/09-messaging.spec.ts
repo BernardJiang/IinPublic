@@ -15,9 +15,9 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import {
-  assertGunStoredMessageBodies,
+  assertLocalPrivateMessageBodies,
   prepareDirectP2PConversation,
 } from '../../helpers/p2p-transport-e2e';
 
@@ -113,14 +113,12 @@ test.describe('Direct messaging between matched users', () => {
     const tomUserId = await pageTom.evaluate(
       () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
     );
-    await pageTom.click('.chatroom-item:has-text("Global")');
-    await afterSync();
+    await openCurrentChatroom(pageTom);
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
-    await afterSync();
+    await openCurrentChatroom(pageJerry);
 
     // ── Tom creates and broadcasts the talk ──────────────────────────────────
     await pageTom.click('#create-talk-btn');
@@ -137,7 +135,7 @@ test.describe('Direct messaging between matched users', () => {
     await afterSync();
 
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await openCurrentChatroom(pageTom);
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);
@@ -226,6 +224,29 @@ test.describe('Direct messaging between matched users', () => {
       )
       .toBe(true);
 
-    await assertGunStoredMessageBodies(pageTom, conversationId, 1, [TOM_MESSAGE, JERRY_REPLY]);
+    await assertLocalPrivateMessageBodies(pageTom, conversationId, 1, [TOM_MESSAGE, JERRY_REPLY]);
+
+    // Generic conversation metadata is endpoint-private too. The hub may hold the bounded
+    // first-contact wake-up, but never the conversation row, per-user row, Talk title, deal
+    // state, or message bodies.
+    let graph: Record<string, unknown> = {};
+    await expect.poll(async () => {
+      const snapshotRes = await pageTom.request.get(`${gunBaseURL()}/api/test/export-snapshot`);
+      if (!snapshotRes.ok()) return 0;
+      const snapshot = (await snapshotRes.json()) as { gunGraph?: Record<string, unknown> };
+      graph = snapshot.gunGraph ?? {};
+      return Object.keys(graph).filter((key) => key.startsWith('conversation-wakeups/')).length;
+    }, { timeout: 15_000, message: 'short-lived conversation wake-up should reach the control hub' })
+      .toBeGreaterThan(0);
+    expect(Object.keys(graph).some((key) => key === `conversations/${conversationId}`)).toBe(false);
+    expect(Object.keys(graph).some((key) =>
+      key.includes(`/conversations/${conversationId}`)
+      && (key.startsWith(`users/${tomUserId}`) || key.startsWith(`users/${jerryUserId}`)),
+    )).toBe(false);
+    const wakeups = Object.entries(graph).filter(([key]) => key.startsWith('conversation-wakeups/'));
+    const wakeupJson = JSON.stringify(wakeups);
+    for (const forbidden of [talkTitle, TOM_MESSAGE, JERRY_REPLY, 'dealEligible', 'matchScore']) {
+      expect(wakeupJson.includes(forbidden)).toBe(false);
+    }
   });
 });

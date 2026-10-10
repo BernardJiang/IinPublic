@@ -22,8 +22,9 @@ import {
   findIncomingTalkIdByTitle,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
-import { prepareDirectP2PConversation, assertGunStoredMessageBodies } from '../../helpers/p2p-transport-e2e';
+import { prepareDirectP2PConversation, assertLocalPrivateMessageBodies } from '../../helpers/p2p-transport-e2e';
 import { gunBaseURL, isMeshTalkDeliveryE2e } from '../../helpers/ports';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 type UserIdentity = { id: string; stageName: string; epub?: string };
 
@@ -228,17 +229,17 @@ test.describe('Pair-private graph isolation', () => {
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob P1');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await openCurrentChatroom(pageBob);
 
     const alice = await bootstrapUser(browserAlice, 'Alice', 'Alice P1');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await openCurrentChatroom(pageAlice);
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom P1');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const bobUser = await currentUser(pageBob);
@@ -254,7 +255,7 @@ test.describe('Pair-private graph isolation', () => {
 
     await createSimpleFlowTalk(pageBob, title, aliceAnswerText, 'No', { sendToChatroom: false });
     await goToChatrooms(pageBob);
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await openCurrentChatroom(pageBob);
     await waitForDistinctGunPeersExcludingSelf(pageBob, 2, 120_000);
     await clickBroadcastUntilBulkAck(pageBob, { minGunPeers: 2, minSent: 1 });
 
@@ -323,7 +324,7 @@ test.describe('Pair-private graph isolation', () => {
       { cid: conversationId, text: dmText },
     );
 
-    await assertGunStoredMessageBodies(pageBob, conversationId, 1, [dmText]);
+    await assertLocalPrivateMessageBodies(pageBob, conversationId, 1, [dmText]);
     if (isMeshTalkDeliveryE2e()) {
       await assertNoLegacyTalkDeliveryGraph(pageBob, bobUser.id, talkId, [aliceUser.id, tomUser.id]);
     } else {
@@ -338,11 +339,8 @@ test.describe('Pair-private graph isolation', () => {
     const pairConversationRaw = Object.entries(graph)
       .filter(([soul]) => soul.startsWith(`pairConversations/${bobAlicePairId}/${conversationId}/messages/`))
       .map(([, raw]) => raw);
-    expect(pairConversationRaw.length).toBeGreaterThanOrEqual(1);
-    for (const raw of pairConversationRaw) {
-      expect((raw as any)?.encryption).toBe('sea-ecdh-v1');
-      expect(JSON.stringify(raw).includes(dmText)).toBe(false);
-    }
+    expect(pairConversationRaw).toHaveLength(0);
+    expect(JSON.stringify(graph).includes(dmText)).toBe(false);
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(pageTom, 'talks');

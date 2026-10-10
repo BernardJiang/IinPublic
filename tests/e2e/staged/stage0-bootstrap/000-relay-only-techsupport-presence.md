@@ -1,18 +1,16 @@
-# Test: Stage 0 — Relay-Only TechSupport Presence, No Browser
+# Test: Stage 0 — Relay-Only Contacts-Only TechSupport, No Browser
 
-covers: docs/TODO.md K1 item 6
+covers: docs/TODO.md OPEN-40 TechSupport Contacts-only migration
 
 **File:** 000-relay-only-techsupport-presence.spec.ts
-**Features tested:** the server's own boot/reset seed (`ChatroomManager.seedTechSupportGlobalMembership`, called from `publishPublicBootstrap`) is sufficient, on its own, to produce a valid built-in TechSupport presence — with no browser ever created and no test-harness baseline seed involved.
+**Features tested:** relay boot/reset publishes the signed TechSupport identity while creating no
+room member, headcount, conversation, greeting, or full support-user database.
 
 ---
 
 ## What this test does (in plain English):
 
-Runs first in the stage0-bootstrap pipeline (filename sorts before `aaa-...`), before any browser
-mints a TechSupport user. It resets the Gun database with `seedTechSupportRoot: false`, which
-skips the test harness's own full-profile seed (`seedTechSupportRootBaseline`) — so anything found
-afterward can only have come from the relay's own boot/reset code path.
+Runs before any browser opens and inspects only the keyless relay's boot/reset output.
 
 1. **Reset:** `resetToStage0Empty()` clears the Gun graph and explicitly opts out of the harness's
    baseline seed.
@@ -20,19 +18,14 @@ afterward can only have come from the relay's own boot/reset code path.
    (`GET /api/test/export-snapshot`) — there is no `IinPublicApp`, no login, no page.
 3. **Identity check:** `public/techsupport-identity` is present and signed (`pub`, `epub`,
    `signature` all populated).
-4. **Presence check:** exactly one `chatrooms/global/users/<TECHSUPPORT_ROOT_USER_ID>` row exists,
-   active and stamped with the canonical stage name.
+4. **Absence check:** Global's members API is empty and the graph contains no active TechSupport
+   row under any room.
 5. **"Bytes, not a database":** there is no `users/<TECHSUPPORT_ROOT_USER_ID>` full user record, no
    `conversations/*` souls, and no `support_welcome_*` greeting — the relay carries only the
-   identity record and one member row, nothing else.
-6. **Aggregate check:** `public/room-member-counts/global` eventually reads `{ count: 1 }` (polled,
-   since the publish is a fire-and-forget best-effort write on the server).
+   signed identity record, nothing else.
 
-> **Why this matters:** this is the test that actually exercises K1's central claim — "built-in"
-> means built into the client and the relay's own boot sequence, not something a browser has to
-> create. If a future change reintroduces a dependency on a browser bootstrap, this test fails
-> before any stage1+ spec would even notice (they all load a baseline that already contains
-> TechSupport, which would mask the regression).
+> **Why this matters:** “built-in Contact” must not silently become “permanent room participant.”
+> This catches any future relay seed or roster-floor regression before normal users start.
 
 ---
 

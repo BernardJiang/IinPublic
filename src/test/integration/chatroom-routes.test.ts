@@ -1,9 +1,12 @@
 import express from 'express';
 import request from 'supertest';
 import { registerChatroomRoutes } from '../../server/routes/chatroom-routes';
-import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
+import {
+  EmbeddedHubRelayRequestError,
+  type EmbeddedHubRelayClientLike,
+} from '../../node-app/embedded-hub-relay-client';
 
-function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike } = {}) {
+function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike; chatroomCapacity?: number } = {}) {
   const app = express();
   app.use(express.json());
   const manager = {
@@ -21,6 +24,7 @@ function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike } = {})
   registerChatroomRoutes(app, {
     chatroomManager: manager,
     ...(options.hubRelayClient ? { hubRelayClient: options.hubRelayClient } : {}),
+    ...(options.chatroomCapacity != null ? { chatroomCapacity: options.chatroomCapacity } : {}),
   });
   return { app, manager };
 }
@@ -129,6 +133,140 @@ describe('chatroom routes', () => {
     const removeRes = await request(app).delete('/api/chatrooms/room_1/members/u2');
     expect(removeRes.status).toBe(200);
     expect(manager.leaveChatroom).toHaveBeenCalledWith('room_1', 'u2');
+  });
+
+  it('rejects a new member when a Place has reached the global capacity', async () => {
+    const { app, manager } = buildApp({ chatroomCapacity: 2 });
+    manager.getActiveMembersWithStageName.mockResolvedValue([
+      { userId: 'u1', stageName: 'One' },
+      { userId: 'u2', stageName: 'Two' },
+    ]);
+
+    const response = await request(app)
+      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
+      .send({ userId: 'u3', stageName: 'Three', reserveOnly: true });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: 'Place is full', code: 'PLACE_FULL', capacity: 2 });
+    expect(manager.addMemberFast).not.toHaveBeenCalled();
+  });
+
+  it('does not let the legacy join endpoint bypass Place admission', async () => {
+    const { app, manager } = buildApp({ chatroomCapacity: 2 });
+
+    const response = await request(app)
+      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/join')
+      .send({ userId: 'u3' });
+
+    expect(response.status).toBe(410);
+    expect(response.body.code).toBe('PLACE_ADMISSION_REQUIRED');
+    expect(manager.joinChatroom).not.toHaveBeenCalled();
+  });
+
+  it('allows an admitted Place member to refresh a seat after the Place becomes full', async () => {
+    const { app, manager } = buildApp({ chatroomCapacity: 2 });
+    manager.getActiveMembersWithStageName.mockResolvedValue([
+      { userId: 'u1', stageName: 'One' },
+      { userId: 'u2', stageName: 'Two' },
+    ]);
+
+    const response = await request(app)
+      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
+      .send({ userId: 'u2', stageName: 'Two refreshed', isTraveler: true });
+
+    expect(response.status).toBe(200);
+    expect(manager.addMemberFast).toHaveBeenCalledWith(
+      'place_32.71_-117.17_abcdefabcdef',
+      'u2',
+      'Two refreshed',
+      true,
+    );
+  });
+
+  it('serializes simultaneous Place admissions so no more than C are accepted', async () => {
+    const { app, manager } = buildApp({ chatroomCapacity: 2 });
+    const active: Array<{ userId: string; stageName: string }> = [];
+    manager.getActiveMembersWithStageName.mockImplementation(async () => [...active]);
+    manager.addMemberFast.mockImplementation(async (_roomId: string, userId: string, stageName: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active.push({ userId, stageName });
+    });
+
+    const reservations = await Promise.all(
+      ['u1', 'u2', 'u3'].map((userId) => request(app)
+        .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
+        .send({ userId, stageName: userId.toUpperCase(), reserveOnly: true })),
+    );
+
+    expect(reservations.map((response) => response.status).sort()).toEqual([200, 200, 409]);
+    expect(active).toHaveLength(0);
+    const admitted = reservations.filter((response) => response.status === 200);
+    const commits = await Promise.all(admitted.map((reservation, index) => request(app)
+      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
+      .send({
+        userId: `u${index + 1}`,
+        stageName: `U${index + 1}`,
+        reservationToken: reservation.body.reservationToken,
+      })));
+    expect(commits.map((response) => response.status)).toEqual([200, 200]);
+    expect(active).toHaveLength(2);
+    expect(manager.addMemberFast).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases an uncommitted Place reservation and rejects heartbeat admission bypasses', async () => {
+    const { app, manager } = buildApp({ chatroomCapacity: 1 });
+    const roomPath = '/api/chatrooms/place_32.71_-117.17_abcdefabcdef';
+    const first = await request(app).post(`${roomPath}/members`).send({ userId: 'u1', reserveOnly: true });
+    expect(first.status).toBe(200);
+    expect(await request(app).post(`${roomPath}/members`).send({ userId: 'u2', reserveOnly: true }))
+      .toMatchObject({ status: 409 });
+
+    const heartbeat = await request(app).patch(`${roomPath}/members/u2`).send({ stageName: 'Two' });
+    expect(heartbeat.status).toBe(409);
+    expect(heartbeat.body.code).toBe('PLACE_ADMISSION_REQUIRED');
+    expect(manager.touchMemberFast).not.toHaveBeenCalled();
+
+    expect(await request(app).delete(`${roomPath}/members/u1`)).toMatchObject({ status: 200 });
+    expect(await request(app).post(`${roomPath}/members`).send({ userId: 'u2', reserveOnly: true }))
+      .toMatchObject({ status: 200 });
+  });
+
+  it('honors the upstream hub rejection before writing embedded Place presence locally', async () => {
+    const hubRelayClient = {
+      listMembers: jest.fn().mockResolvedValue([]),
+      reservePlaceMember: jest.fn().mockRejectedValue(new EmbeddedHubRelayRequestError(
+        409,
+        '{"code":"PLACE_FULL"}',
+        'upstream Place is full',
+      )),
+      addMember: jest.fn(),
+    } as any;
+    const { app, manager } = buildApp({ hubRelayClient, chatroomCapacity: 2 });
+
+    const response = await request(app)
+      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
+      .send({ userId: 'u3', stageName: 'Three', reserveOnly: true });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('PLACE_FULL');
+    expect(manager.addMemberFast).not.toHaveBeenCalled();
+  });
+
+  it('fails a distributed Place admission closed when the hub roster is unavailable', async () => {
+    const hubRelayClient = {
+      listMembers: jest.fn().mockRejectedValue(new Error('offline')),
+      addMember: jest.fn(),
+    } as any;
+    const { app, manager } = buildApp({ hubRelayClient, chatroomCapacity: 2 });
+
+    const response = await request(app)
+      .post('/api/chatrooms/place_32.71_-117.17_abcdefabcdef/members')
+      .send({ userId: 'u3', stageName: 'Three', reserveOnly: true });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('PLACE_ADMISSION_UNAVAILABLE');
+    expect(hubRelayClient.addMember).not.toHaveBeenCalled();
+    expect(manager.addMemberFast).not.toHaveBeenCalled();
   });
 
   it('mirrors local membership writes to the explicit hub relay', async () => {

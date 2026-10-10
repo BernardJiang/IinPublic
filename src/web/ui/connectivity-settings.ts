@@ -3,6 +3,7 @@ import type { MeteredPermission } from '../../shared/connection-manager';
 import type { RoutePreferences } from '../../shared/connection-manager';
 import type { PathInfo } from '../../shared/connection-manager';
 import type { PeerDiscoveryProviderStatus } from '../../shared/peer-discovery-provider';
+import type { NearbyPrivacyMode } from '../../shared/nearby-rooms';
 
 export type ConnectivityPreset = 'automatic' | 'data-saver' | 'fastest' | 'local-event' | 'private' | 'advanced';
 export type NearbyExchangeMode = 'off' | 'while-open' | 'always';
@@ -10,6 +11,8 @@ export type ConnectivitySettings = {
   version: 2;
   preset: ConnectivityPreset;
   nearbyMode: NearbyExchangeMode;
+  /** Who the automatic room may expose this device to. Exact GPS is never stored here. */
+  nearbyPrivacyMode: NearbyPrivacyMode;
   activeRoomSelection: 'manual';
   wifiOnlyForwarding: boolean;
   identityReveal: 'matches-only' | 'room-presence';
@@ -31,17 +34,20 @@ export type ConnectivityDiagnostics = {
   abuseDrops?: number;
 };
 const KEY = 'iinpublic_connectivity_settings_v1';
+const NEARBY_PRIVACY_MODES: readonly NearbyPrivacyMode[] = [
+  'contacts-only', 'radio-nearby', 'neighborhood', 'close-nearby', 'location-off',
+];
 
 export function defaultConnectivitySettings(): ConnectivitySettings {
-  return { version: 2, preset: 'automatic', nearbyMode: 'while-open', activeRoomSelection: 'manual', wifiOnlyForwarding: true, identityReveal: 'matches-only', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { ...DEFAULT_FORWARDING_SETTINGS } };
+  return { version: 2, preset: 'automatic', nearbyMode: 'while-open', nearbyPrivacyMode: 'neighborhood', activeRoomSelection: 'manual', wifiOnlyForwarding: true, identityReveal: 'matches-only', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { ...DEFAULT_FORWARDING_SETTINGS } };
 }
 
 export function applyConnectivityPreset(preset: ConnectivityPreset): ConnectivitySettings {
   const base = defaultConnectivitySettings();
   if (preset === 'data-saver') return { ...base, preset, meteredPermission: 'wait-for-free', forwarding: { ...base.forwarding, cellularForwarding: false, cellularByteBudget: 0 } };
   if (preset === 'fastest') return { ...base, preset, meteredPermission: 'ask', batteryAware: false };
-  if (preset === 'local-event') return { ...base, preset, forwarding: { ...base.forwarding, enabled: true, wifiForwarding: true } };
-  if (preset === 'private') return { ...base, preset, forwarding: { ...base.forwarding, enabled: false } };
+  if (preset === 'local-event') return { ...base, preset, nearbyPrivacyMode: 'close-nearby' };
+  if (preset === 'private') return { ...base, preset, nearbyPrivacyMode: 'contacts-only', forwarding: { ...base.forwarding, enabled: false } };
   return { ...base, preset };
 }
 
@@ -50,7 +56,10 @@ export function loadConnectivitySettings(): ConnectivitySettings {
     const raw = localStorage.getItem(KEY); if (!raw) return defaultConnectivitySettings();
     const value = JSON.parse(raw) as Partial<ConnectivitySettings>;
     const valid = ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'].includes(String(value.preset));
-    return valid ? { ...defaultConnectivitySettings(), ...value, version: 2, activeRoomSelection: 'manual', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, ...(value.forwarding ?? {}) } } as ConnectivitySettings : defaultConnectivitySettings();
+    const nearbyPrivacyMode = NEARBY_PRIVACY_MODES.includes(value.nearbyPrivacyMode as NearbyPrivacyMode)
+      ? value.nearbyPrivacyMode as NearbyPrivacyMode
+      : 'neighborhood';
+    return valid ? { ...defaultConnectivitySettings(), ...value, nearbyPrivacyMode, version: 2, activeRoomSelection: 'manual', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, ...(value.forwarding ?? {}) } } as ConnectivitySettings : defaultConnectivitySettings();
   } catch { return defaultConnectivitySettings(); }
 }
 

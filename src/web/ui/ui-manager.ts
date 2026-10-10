@@ -42,6 +42,8 @@ import { type QAPair } from '../../shared/flattened-answer-keys';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { tileIdAt } from '../../shared/room-tiles';
 import { LocationPrivacy } from '../../shared/location';
+import { isPlaceRoomId } from '../../shared/place-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId, nearbyMapArea, type NearbyMapArea, type NearbyRoomAssignment } from '../../shared/nearby-rooms';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import type { RecoveryAnchorRecord } from '../../shared/techsupport-recovery';
@@ -238,7 +240,7 @@ type HandshakeDiagnosticsReader = (
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
   private currentUser?: User;
-  private currentChatroom: string = 'global';
+  private currentChatroom: string = CONTACTS_ONLY_SCOPE_ID;
   /**
    * Which chatroom's detail panel the user last drilled into (Tree row, Map marker, or any other
    * path — all of them funnel through chatrooms-view.ts's showChatroomDetail, whose
@@ -305,15 +307,8 @@ export class UIManager extends EventEmitter {
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
   private chatroomBrowseMode: 'tree' | 'map' = 'tree';
-  private expandedChatrooms: Set<string> = new Set([
-    'global',
-    'north-america',
-    'usa',
-    'california',
-    'europe',
-    'uk',
-    'england',
-  ]); // Track which chatrooms are expanded by default so first-run home/travel paths are visible.
+  private nearbyMapArea: NearbyMapArea | undefined;
+  private expandedChatrooms = new Set<string>();
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
@@ -518,12 +513,11 @@ export class UIManager extends EventEmitter {
     return LocationPrivacy.calculateDistance(this.currentLocation, peerLoc) / 1609.34;
   }
 
-  /** Mirrors app.ts `returnHomeFromTravel`: travel home, else own L4 tile (GPS), else chosen home. */
+  /** Automatic home is the latest non-Place Nearby/local scope. */
   private getHomeChatroomId(): string {
     if (this.travelModeActive && this.travelHomeChatroomId) return this.travelHomeChatroomId;
-    const ownTile = this.ownBottomTileId();
-    if (ownTile) return ownTile;
-    return this.travelHomeChatroomId || 'global';
+    if (!isPlaceRoomId(this.currentChatroom)) return this.currentChatroom;
+    return this.travelHomeChatroomId || CONTACTS_ONLY_SCOPE_ID;
   }
 
   /** The user's own bottom-layer tile (~78 km), only with a confirmed GPS fix. */
@@ -610,11 +604,14 @@ export class UIManager extends EventEmitter {
     document.body.classList.toggle('iinpublic-debug', this.isDebugModeEnabled());
   }
 
-  /** First paint: render the deterministic room hierarchy before identity/network hydration. */
+  /** First paint: restore only a current-model scope before identity/network hydration. */
   showStartupInterface(): void {
     const headerStatus = document.getElementById('header-status');
     if (headerStatus) headerStatus.style.display = 'flex';
-    this.currentChatroom = localStorage.getItem('iinpublic_last_chatroom') || 'global';
+    const saved = localStorage.getItem('iinpublic_last_chatroom');
+    this.currentChatroom = saved && (isNearbyRoomId(saved) || isPlaceRoomId(saved) || isLocalOnlyRoomScope(saved))
+      ? saved
+      : CONTACTS_ONLY_SCOPE_ID;
     this.showChatroomList();
   }
 
@@ -898,6 +895,7 @@ export class UIManager extends EventEmitter {
         getExpandedChatrooms: () => this.expandedChatrooms,
         getMatchedUserIds: () => this.matchedUserIds,
         getCustomChatrooms: () => this.customChatrooms,
+        getNearbyMapArea: () => this.nearbyMapArea,
         setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
         setCurrentUserId: (userId) => { this.currentUserId = userId; },
         setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
@@ -919,7 +917,6 @@ export class UIManager extends EventEmitter {
         upsertCustomChatroomFromServer: (row) => this.upsertCustomChatroomFromServer(row),
         showNotification: (message, type) => this.showNotification(message, type),
         emit: (eventName, payload) => this.emit(eventName, payload),
-        isTechSupportOnline: () => this.isTechSupportOnline(),
         isUserOnline: (userId) => this.isUserOnline(userId),
         getCachedHeadshot: (userId) => this.peerHeadshots.get(userId),
         resolvePeerHeadshot: (userId) => this.resolvePeerHeadshot(userId),
@@ -1113,7 +1110,6 @@ export class UIManager extends EventEmitter {
   public handleCreateCustomChatroomClick(): Promise<void> {
     return this.chatroomShell().handleCreateCustomChatroomClick();
   }
-
   showCreateCustomChatroomDialog(): Promise<CustomChatroomDraft | null> {
     return openCreateCustomChatroomDialog({
       text: (key) => this.t(key),
@@ -1123,11 +1119,9 @@ export class UIManager extends EventEmitter {
   private renderChatroomList(): void {
     this.chatroomShell().renderChatroomList();
   }
-
   showChatroomDetail(chatroomId: string): void {
     this.chatroomShell().showChatroomDetail(chatroomId);
   }
-
   setCurrentChatroomId(chatroomId: string): void {
     setCurrentChatroomIdImpl(chatroomId, {
       setCurrentChatroom: (id) => { this.currentChatroom = id; },
@@ -1136,6 +1130,11 @@ export class UIManager extends EventEmitter {
       t: (key) => this.t(key),
       syncReturnHomeButton: () => this.syncReturnHomeButton(),
     });
+  }
+
+  setNearbyMapAssignment(assignment: NearbyRoomAssignment | null): void {
+    this.nearbyMapArea = assignment ? nearbyMapArea(assignment) : undefined;
+    if (this.chatroomBrowseMode === 'map') this.renderChatroomList();
   }
 
   displayTalksList(): void {
@@ -2877,7 +2876,6 @@ export class UIManager extends EventEmitter {
 
   private getKnownPerson(userId: string): KnownPerson | undefined { return this.peer().getKnownPerson(userId); }
   private hasSupportContact(): boolean { return this.peer().hasSupportContact(); }
-  private isTechSupportOnline(): boolean { return this.peer().isTechSupportOnline(); }
 
   public setTechSupportOnlineStatus(online: boolean): void {
     this.peer().setTechSupportOnlineStatus(online);
@@ -3076,7 +3074,6 @@ export class UIManager extends EventEmitter {
   markOtherDealConversationsEnded(talkId: string, keepOtherUserId: string, changedAt: string): void {
     markOtherDealConversationsEndedImpl(talkId, keepOtherUserId, changedAt, this.conversationRecordUpdateDeps());
   }
-
   /**
    * Cross-talkId case of the same gap: two DIFFERENT authors' talks (e.g. two drivers) both
    * matched my own request. app.ts's `maybeFinalizeConfirmedDeal` identifies which of my other
@@ -3085,7 +3082,6 @@ export class UIManager extends EventEmitter {
   markConversationsSupersededByIds(conversationIds: string[], changedAt: string): void {
     markConversationsSupersededByIdsImpl(conversationIds, changedAt, this.conversationRecordUpdateDeps());
   }
-
   updateConversationMessage(conversationId: string, message: string, timestamp: string): void {
     updateConversationMessageImpl(conversationId, message, timestamp, this.conversationListUpdatesDeps());
   }

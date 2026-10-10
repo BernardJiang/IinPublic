@@ -3,7 +3,7 @@ import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
 import { delay, headless, afterNav, afterLoad } from '../../helpers/timing';
-import { gunBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
+import { e2eTestScreenshotsDir } from '../../helpers/ports';
 import {
   completeTalksInAppByAnswerIds,
   createTalksFromCompanyPage,
@@ -13,7 +13,7 @@ import {
   TALK_TITLES,
   MATCH_ANSWER,
   IGNORE_ANSWER,
-  TECH_SUPPORT_NAME,
+  ALICE_NAME,
   TOM_NAME,
   bootstrapSuperUser,
   waitForTabActive,
@@ -61,7 +61,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
       slowMo: headless ? 0 : delay(50, 120),
       args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
-    console.log('🚀 Launched 2 Chrome browsers: TechSupport, Tom');
+    console.log('🚀 Launched 2 Chrome browsers: Alice, Tom');
   });
 
   test.afterEach(async () => {
@@ -98,21 +98,21 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     console.log('✅ Cleanup complete');
   });
 
-  test('TechSupport creates 10 tags + 10 talks; Tom completes each through the app path; both verify 20 at end', async () => {
+  test('Alice creates 10 tags + 10 talks; Tom completes each through the app path; both verify 20 at end', async () => {
     test.setTimeout(360_000);
 
-    console.log('\n📍 STEP 1: TechSupport enters Global');
-    const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME, 30_000);
+    console.log('\n📍 STEP 1: Alice enters Nearby');
+    const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice', ALICE_NAME, 30_000);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item:has-text("Global")');
+    await pageTechSupport.click('.chatroom-item.current-room');
     await afterLoad();
 
     await ensureChatroomList(pageTechSupport);
-    await pageTechSupport.click('.chatroom-item:has-text("Global")');
+    await pageTechSupport.click('.chatroom-item.current-room');
     await afterNav();
 
-    console.log('\n📍 STEP 2–3: TechSupport creates 10 tags + 10 talks');
+    console.log('\n📍 STEP 2–3: Alice creates 10 tags + 10 talks');
     const tagPayloads = TAG_NAMES.map((title) => ({
       title,
       type: 'tag',
@@ -152,15 +152,15 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     }));
     const createdTalks = await createTalksFromCompanyPage(pageTechSupport, [...tagPayloads, ...flowPayloads]);
 
-    console.log('\n📍 STEP 4: TechSupport has 20 created (10 tags + 10 talks)');
+    console.log('\n📍 STEP 4: Alice has 20 created (10 tags + 10 talks)');
 
-    console.log('\n📍 STEP 5: Tom joins Global');
-    // Brief pause after heavy TechSupport session + prior spec teardown reduces flaky net::ERR_ABORTED on Tom's first goto.
+    console.log('\n📍 STEP 5: Tom joins Nearby');
+    // Brief pause after the heavy author session + prior spec teardown reduces flaky net::ERR_ABORTED on Tom's first goto.
     await new Promise((r) => setTimeout(r, 2000));
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME, 30_000);
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterLoad();
 
     const tomUserId = await pageTom.evaluate(() =>
@@ -188,7 +188,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
       })),
     );
 
-    console.log('\n📍 STEP 8: End verification — TechSupport and Tom both confirm 20 completed (no earlier batch wait)');
+    console.log('\n📍 STEP 8: End verification — Alice and Tom both confirm 20 completed (no earlier batch wait)');
     await afterLoad();
     await pageTechSupport.click('.nav-btn[data-view="talks"]');
     await afterLoad();
@@ -204,7 +204,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
             .count();
           return { totalRows, matchedRows };
         },
-        { message: 'TechSupport OUT should retain all created talks and show creator-facing match state', timeout: 60_000 },
+        { message: 'Alice OUT should retain all created talks and show creator-facing match state', timeout: 60_000 },
       )
       .toMatchObject({ totalRows: 20 });
     // `.first()` on a multi-match locator isn't guaranteed to land on a *visible* match — under
@@ -255,6 +255,6 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     // attribute now, no popup content to match against.
     await expect(answersContent.locator('.answer-talk-item[data-outcome="match"]').first()).toBeVisible({ timeout: 3000 });
 
-    console.log('✅ Super user test complete: TechSupport created 20, Tom completed 20, both verified 20 at end.');
+    console.log('✅ Super user test complete: Alice created 20, Tom completed 20, both verified 20 at end.');
   });
 });

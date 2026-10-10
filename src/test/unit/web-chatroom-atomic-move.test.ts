@@ -1,6 +1,10 @@
 /** @jest-environment jsdom */
 
-import { WebChatroomService } from '../../web/services/web-chatroom-service';
+import {
+  PlaceAdmissionUnavailableError,
+  PlaceRoomFullError,
+  WebChatroomService,
+} from '../../web/services/web-chatroom-service';
 
 function gunChain(): any {
   const chain: any = {
@@ -19,6 +23,7 @@ describe('WebChatroomService atomic room moves', () => {
   let service: any;
   let order: string[];
   let leaveDelayMs: number;
+  const originalFetch = global.fetch;
 
   beforeEach(() => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -37,7 +42,10 @@ describe('WebChatroomService atomic room moves', () => {
     });
   });
 
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
 
   it('a manual switch requested first beats an eviction that has not started', async () => {
     const manual = service.switchChatroom('u', 'B', 'u');
@@ -105,6 +113,50 @@ describe('WebChatroomService atomic room moves', () => {
     });
     expect(await service.moveForEviction('A', 'u', 'A-child', 'u')).toBe(false);
     expect(order).toEqual(['leave:A', 'join:A-child']);
+  });
+
+  it('keeps the current room active when a Place rejects admission at capacity', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ code: 'PLACE_FULL', capacity: 2 }),
+    }) as jest.Mock;
+
+    const target = 'place_32.71_-117.17_abcdefabcdef';
+    await expect(service.switchChatroom('u', target, 'User')).rejects.toEqual(
+      expect.objectContaining<Partial<PlaceRoomFullError>>({ code: 'PLACE_FULL', capacity: 2 }),
+    );
+
+    expect(order).toEqual([]);
+    expect(service.currentChatroomId).toBe('A');
+  });
+
+  it('keeps the current room active when a Place reservation cannot be verified', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503 }) as jest.Mock;
+
+    await expect(service.switchChatroom(
+      'u',
+      'place_32.71_-117.17_abcdefabcdef',
+      'User',
+    )).rejects.toBeInstanceOf(PlaceAdmissionUnavailableError);
+
+    expect(order).toEqual([]);
+    expect(service.currentChatroomId).toBe('A');
+  });
+
+  it('reserves a Place seat before leaving the current room', async () => {
+    global.fetch = jest.fn(async () => {
+      order.push('reserve');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ reservationToken: 'reservation-1' }),
+      } as Response;
+    }) as jest.Mock;
+
+    await service.switchChatroom('u', 'place_32.71_-117.17_abcdefabcdef', 'User');
+
+    expect(order).toEqual(['reserve', 'leave:A', 'join:place_32.71_-117.17_abcdefabcdef']);
   });
 });
 

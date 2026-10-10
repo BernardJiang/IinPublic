@@ -13,6 +13,7 @@ import { expectCurrentUserIsTechSupportRoot } from '../../helpers/techsupport-co
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { loadRealTechSupportPair } from '../../helpers/techsupport-real-pair';
+import { CONTACTS_ONLY_SCOPE_ID } from '../../../../src/shared/nearby-rooms';
 
 // Rotated 2026-09-16: the real TechSupport signing key lives only in this machine's own
 // `.env.local` (never committed — see techsupport.ts's TECHSUPPORT_PUB doc comment), loaded at
@@ -22,11 +23,10 @@ const REAL_PAIR = loadRealTechSupportPair();
 const DEV_PAIR = REAL_PAIR as NonNullable<typeof REAL_PAIR>;
 
 /**
- * Boots a browser in K3 TechSupport mode and joins Global — mirrors spec 05/07/09's helper, but
- * uses the mesh-enabled stable-chatroom URL (not the bare base URL) since this spec needs
- * TechSupport to be a real mesh participant, not just a settings-tab visitor.
+ * Boots a browser in K3 TechSupport mode. The root stays Contacts-only and never joins the
+ * stranger mesh; that is now the primary sender-side guarantee behind Talk exclusion.
  */
-async function bootstrapTechSupportModeInGlobal(browser: Browser): Promise<{ context: BrowserContext; page: Page }> {
+async function bootstrapTechSupportMode(browser: Browser): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ viewport: { width: 720, height: 960 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   page.on('console', (m) => console.log('[TechSupport]:', m.text()));
@@ -42,8 +42,6 @@ async function bootstrapTechSupportModeInGlobal(browser: Browser): Promise<{ con
   await ensureWindowFitsViewport(page, 720, 960);
   await afterLoad();
   attachE2eBrowserTabLabel(page, 'TechSupport');
-  await page.click('.chatroom-item:has-text("Global")');
-  await afterSync();
   return { context, page };
 }
 
@@ -71,22 +69,19 @@ test.describe('TechSupport ignores broadcast talks entirely (docs/TODO.md K5, in
     await clearGunForStage1Spec();
   });
 
-  test('flow and tag broadcasts to Global never land in TechSupport\'s IN index; headcount stays 2 throughout', async () => {
-    // TechSupport joins Global first so it is a live mesh participant for the whole broadcast,
-    // not merely the client-side headcount floor (K1) — this is what makes the exclusion check
-    // meaningful rather than trivially true.
-    ({ context: techSupportContext, page: techSupportPage } = await bootstrapTechSupportModeInGlobal(browser));
+  test('Nearby broadcasts never target the Contacts-only TechSupport root', async () => {
+    ({ context: techSupportContext, page: techSupportPage } = await bootstrapTechSupportMode(browser));
     await expectCurrentUserIsTechSupportRoot(techSupportPage);
+    await expect.poll(() => techSupportPage.evaluate(() =>
+      (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || '')).toBe(CONTACTS_ONLY_SCOPE_ID);
 
     const alice = await bootstrapUser(browser, 'Alice TalkExclusion', 'Alice');
     aliceContext = alice.context;
     alicePage = alice.page;
-    await alicePage.click('.chatroom-item:has-text("Global")');
-    await afterSync();
 
-    // Headcount is Alice + built-in TechSupport = 2, before any talk exists.
-    const headcountOnAlice = alicePage.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
-    await expect(headcountOnAlice).toContainText('2', { timeout: 20_000 });
+    // Only Alice occupies this Nearby room. TechSupport has no room presence or headcount floor.
+    const headcountOnAlice = alicePage.locator('.chatroom-item.current-room .chatroom-headcount');
+    await expect(headcountOnAlice).toContainText('1', { timeout: 20_000 });
 
     // `waitForChatroomMemberCountViaApi` (used internally by clickBroadcastUntilBulkAck's default
     // peer-count wait) deliberately excludes TECHSUPPORT_ROOT_USER_ID from its receiver count,
@@ -136,10 +131,10 @@ test.describe('TechSupport ignores broadcast talks entirely (docs/TODO.md K5, in
     expect(await incomingClustersIncludeTitleForUser(techSupportPage, TECHSUPPORT_ROOT_USER_ID, tagTitle)).toBe(false);
     expect(await incomingClustersIncludeTitleForUser(techSupportPage, TECHSUPPORT_ROOT_USER_ID, flowTitle)).toBe(false);
 
-    // Headcount is unaffected by the broadcasts, on both sides.
-    await expect(headcountOnAlice).toContainText('2', { timeout: 10_000 });
-    const headcountOnTechSupport = techSupportPage.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
-    await expect(headcountOnTechSupport).toContainText('2', { timeout: 10_000 });
+    // Headcount is unaffected by the broadcasts and the root remains Contacts-only.
+    await expect(headcountOnAlice).toContainText('1', { timeout: 10_000 });
+    await expect.poll(() => techSupportPage.evaluate(() =>
+      (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || '')).toBe(CONTACTS_ONLY_SCOPE_ID);
 
     await techSupportPage.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await alicePage.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());

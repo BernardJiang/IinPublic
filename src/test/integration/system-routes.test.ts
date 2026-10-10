@@ -11,6 +11,8 @@ import {
 import { peerAckSigningPayload } from '../../shared/p2p-presence';
 import { createMicroRoomControlPresence } from '../../shared/micro-room-control-presence';
 import { microRoomControlScopeId } from '../../shared/micro-room-assignment';
+import { createNearbyControlPresence, nearbyControlScopeId } from '../../shared/nearby-control-presence';
+import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
 import type { RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 import { signFaqEntry } from '../../shared/techsupport-faq-entry';
@@ -552,6 +554,53 @@ describe('system routes', () => {
         presence: { ...lastResponse?.body.record, laneIndex: 1 },
       });
     expect(tampered.status).toBe(400);
+  });
+
+  it('forms and serves a geographic Nearby overflow certificate at C+1', async () => {
+    const { app } = buildApp('test');
+    const now = new Date();
+    const checkpoint: RoomProtocolCheckpoint = {
+      networkId: 'iinpublic-test',
+      protocolEpoch: 1,
+      manifestSequence: 1,
+      manifestHash: '9'.repeat(64),
+      chatroomCapacity: 2,
+    };
+    const root = deriveNearbyRoomAssignment({
+      location: { latitude: 32.7157, longitude: -117.1611, accuracy: 5, timestamp: now },
+      mode: 'neighborhood',
+      identity: 'root',
+    });
+    let lastResponse: Response | null = null;
+    for (let index = 0; index < 3; index += 1) {
+      const pair = await SEA.pair() as SeaSigningPair;
+      const presence = await createNearbyControlPresence({
+        userId: `nearby-user-${index}`,
+        pair,
+        rootRoomId: root.roomId,
+        assignment: root,
+        checkpoint,
+      });
+      lastResponse = await request(app)
+        .post('/api/nearby-control/presence')
+        .send({ presence });
+      expect(lastResponse.status).toBe(200);
+      expect(lastResponse.body.roomWitnessCount).toBe(index + 1);
+    }
+    expect(lastResponse?.body.certificates).toHaveLength(1);
+
+    const list = await request(app).get(
+      `/api/nearby-control/${nearbyControlScopeId(root.roomId)}/certificates`
+        + `?roomId=${encodeURIComponent(root.roomId)}&requestedSplitGeneration=0`,
+    );
+    expect(list.status).toBe(200);
+    expect(list.body.certificates).toEqual([
+      expect.objectContaining({
+        fromRoomId: root.roomId,
+        fromRequestedSplitGeneration: 0,
+        toRequestedSplitGeneration: 1,
+      }),
+    ]);
   });
 
   it('serializes simultaneous overflow formation so no more than C entrants receive generation zero', async () => {

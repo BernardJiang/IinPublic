@@ -110,6 +110,9 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     value.nearbyMode = ((
       document.getElementById('settings-nearby-mode') as HTMLSelectElement | null
     )?.value || 'while-open') as typeof value.nearbyMode;
+    value.nearbyPrivacyMode = ((
+      document.getElementById('settings-nearby-privacy-mode') as HTMLSelectElement | null
+    )?.value || 'neighborhood') as typeof value.nearbyPrivacyMode;
     value.wifiOnlyForwarding = !!(
       document.getElementById('settings-connectivity-wifi-forwarding') as HTMLInputElement | null
     )?.checked;
@@ -143,7 +146,7 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     deps.emit('connectivitySettingsChanged', value);
   };
   document
-    .querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select, #settings-nearby-mode')
+    .querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select, #settings-nearby-mode, #settings-nearby-privacy-mode')
     .forEach((element) => {
       element.addEventListener('change', persistConnectivity);
     });
@@ -309,11 +312,6 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
   document
     .getElementById('settings-start-guide-btn')
     ?.addEventListener('click', () => deps.showActionableGuide());
-  document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
-    deps.emit('setHomeChatroom', {
-      chatroomId: (event.currentTarget as HTMLSelectElement).value,
-    });
-  });
   document.getElementById('settings-copy-talk-autosave')?.addEventListener('change', (event) => {
     setCopyTalkAutoSave((event.currentTarget as HTMLInputElement).checked);
   });

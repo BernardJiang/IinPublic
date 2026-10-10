@@ -1,4 +1,7 @@
-# Local business rooms — design proposal (draft, 2026-10-07)
+# Local business rooms — superseded proposal (2026-10-07)
+
+> **Superseded 2026-10-08 by `nearby-and-place-chatrooms.md`.** Signed, content-addressed map Places
+> remain part of the replacement design, but they no longer live under an L4 tree.
 
 Status: **proposal, not implemented.** Replaces today's "custom chatroom" (FR-CR-5/6) for the
 room tree. Decisions marked **[decide]** need the product owner. The room tree itself (Global +

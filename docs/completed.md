@@ -1,6 +1,64 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-06
+Last updated: 2026-10-09
+
+## 2026-10-09 — Stranger sessions encrypted before Talk exchange (OPEN-40 slice)
+
+- Replaced plaintext signed DataChannel application frames with `iinpublic-p2p-v2`: a SEA-signed
+  stable identity and fresh P-256 ECDH offer derive a transcript-bound AES-256-GCM session key.
+  Mutual encrypted confirmation now gates Talk, answer, mesh, ledger, conversation-control,
+  attachment, and DM frames; ciphertext wrappers remain signed and replay checked.
+- Plaintext application frames and v1 downgrade offers fail closed. Fresh nonces/ephemeral keys make
+  captured-session replay unusable; GCM rejects substitution/tampering. Unknown peers get encryption
+  automatically, without being promoted to Contacts.
+- Contact creation pins the observed stable SEA identity in the owner's encrypted known-person
+  record; later edits preserve it and a changed live key is rejected until the Contact is removed
+  and deliberately re-verified.
+- Verified typecheck, lint, focused passive-listener/MITM/replay/key-change/downgrade unit gates, and
+  the live two-browser P0 direct-Talk delivery test.
+
+## 2026-10-09 — Direct Talk scheduler is authoritative (OPEN-40 slice)
+
+- Replaced fixed-first-K/flood/mailbox Talk-body delivery with a symmetric circle-method schedule.
+  A stable N-person room covers every author/receiver pair within `ceil((N-1)/K)` 30-second windows
+  while every endpoint holds at most `K` direct sessions.
+- Added an encrypted local author outbox keyed by room, receiver, Talk, and revision. Direct compact
+  inventory offers trigger receiver body pulls; the receiver ACKs only after its private incoming
+  cluster is durable, and that end-recipient ACK clears only the matching queued revision. Lost ACKs
+  recover when a later offer is ACKed as already held.
+- Recipient-addressed frames now use only their direct edge in authoritative mode. The app no longer
+  installs the Talk-body mailbox fallback; mixed-release mailbox ingest and pair-private DM/response
+  uses remain intact.
+- Verified typecheck, lint, 61 focused unit tests (including symmetric/complete 100-user scheduling,
+  durable rotation, ACK clearing, and zero mailbox fallback), plus the live two-browser P0 direct
+  Talk delivery gate.
+
+## 2026-10-09 — Local private Gun boundary established (OPEN-40 slice)
+
+- Routed the shared `putPrivate`/`getPrivate` API to the peerless, IndexedDB-backed worker Gun;
+  the peered main-thread Gun now receives no new owner-private writes through that API. Existing
+  SEA ciphertext is imported locally on first read, while an unavailable private store fails
+  closed instead of silently returning to replication.
+- Moved incoming-Talk cluster bodies off their predictable plaintext peered path into an encrypted
+  local envelope, added decrypted local subscriptions, retained read-only mixed-release import,
+  and made pruning update the authoritative private envelope.
+- Verified first-user boot/reload and the complete two-user Talk copy flow in Chromium. The run
+  exposed and fixed the worker's previously dormant double-JSON-parse bug when SEA returns an
+  object. Promoted the former expected-failure hub wire audit into a passing release gate: 232
+  captured Gun/HTTP boundary events contained zero plaintext title, question, or answer markers.
+  Pair-message and ledger graph migration remains tracked under OPEN-40.
+
+## 2026-10-09 — TechSupport is Contacts-only in runtime and staged room tests (OPEN-40)
+
+- Removed relay/client room seeding, synthetic headcount floors, map presence, capacity exemption,
+  and the final legacy pinned-room-row renderer. TechSupport is forced into local Contacts-only;
+  stale support membership rows are filtered before room count, detail state, or rendering.
+- Converted the staged baseline from “TechSupport + Adam” to ordinary users Tom + Adam; stage 3
+  adds Eve. Generic copy/edit, Ignore, survey, and 20-Talk scenarios now use an ordinary Alice
+  fixture instead of the support root.
+- Kept the verified pinned Contact, away/online Contact indicator, durable support conversation,
+  inbox/operator flow, and notification mute controls. Added regression coverage proving a legacy
+  room row cannot resurrect TechSupport or inflate headcount.
 
 ## 2026-10-06 — Contacts-only Talk exchange
 

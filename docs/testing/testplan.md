@@ -138,8 +138,8 @@ Specs live under `tests/e2e/staged/`, sorted by **maximum concurrent users**. Th
 |------:|--------|------:|---------------|---------------|-----------------|
 | 0 | `stage0-bootstrap/` | 1 | _(empty DB)_ | `stage0` | TechSupport bootstrapped |
 | 1 | `stage1-single-user/` | 1 | `stage0` | `stage1` | TechSupport runs singles |
-| 2 | `stage2-two-user/` | 2 | `stage1` | `stage2` | + **Adam** (talk exchange seed in `aaa-stage2-adam-joins`) |
-| 3 | `stage3-three-user/` | 3 | `stage2` | `stage3` | + **Eve** (`aaa-stage3-eve-joins`) |
+| 2 | `stage2-two-user/` | 2 | `stage1` | `stage2` | ordinary **Tom + Adam** Talk exchange; TechSupport stays Contacts-only |
+| 3 | `stage3-three-user/` | 3 | `stage2` | `stage3` | + ordinary **Eve** (`aaa-stage3-eve-joins`) |
 | 4 | `stage4-four-user/` | 4 | `stage3` | `stage4` | capacity / eviction |
 | 5 | `stage5-multi-user/` | 5+ | `stage4` | `stage5` | 25-context spread, 8-context scroll, super-user 20 |
 

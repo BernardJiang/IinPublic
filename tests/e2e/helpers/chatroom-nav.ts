@@ -27,6 +27,19 @@ export async function ensureChatroomList(page: Page): Promise<void> {
   await expect(list).toBeVisible();
 }
 
+/** Open the user's already-assigned automatic Nearby room without relying on its label. */
+export async function openCurrentChatroom(page: Page): Promise<string> {
+  const roomId = await page.evaluate(() =>
+    (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || '',
+  );
+  if (!roomId) throw new Error('User has no current chatroom');
+  await page.evaluate((id) =>
+    (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showChatroomDetail(id), roomId,
+  );
+  await expect(page.locator('#chatroom-detail-container')).toBeVisible();
+  return roomId;
+}
+
 /** Remote spots used to "travel" to an area room (named country/city rooms are not offered). */
 export const AREA_PLACES = {
   london: { latitude: 51.5074, longitude: -0.1278 },
