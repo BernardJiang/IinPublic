@@ -348,6 +348,14 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   fail closed without being misreported as a reconciliation loss. This rule provides eventual
   convergence for signed claims, not consensus, trustworthy clocks, physical-presence proof, or
   Sybil resistance.
+- **FR-CR-31 (Sparse Nearby hysteresis)**: A client MAY replace its one active generation-zero
+  Nearby cell with one deterministic coarser cell after a continuous sparse dwell. It SHALL observe
+  only the active roster, SHALL NOT keep overlapping parent/child memberships or subscriptions, and
+  SHALL ignore capacity-split child headcounts as sparse evidence. Narrowing SHALL use a distinct
+  dense threshold and dwell so a dead band prevents oscillation. Every transition SHALL use the
+  safe one-active-room switch, keep exact coordinates and dwell state local, and update the map and
+  reach label to the actual active-cell diameter. Widening thresholds, dwell times, and maximum
+  level are release-wide experimental policy, never per-room or creator-controlled attributes.
 
 ### 3.4 Question-Answer System
 
@@ -740,6 +748,9 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
   selected deliberately; it never assigns a false location.
 - A verified overflow activates a finer geographic resolution before presence and Talk discovery.
   The UI continues to show one Nearby experience and never exposes internal shards.
+- A sustained sparse generation-zero cell may replace that one active scope with a deterministic
+  coarser grid cell. The app never watches multiple levels concurrently and displays the coarser
+  cell's actual map footprint and approximate diameter.
 - A map Place is an immutable signed descriptor. Selecting it stops Nearby exchange, enters the
   Place, and marks the user as a traveler only when it is outside the current home zone.
 - Returning home recomputes Nearby from current GPS. Political boundaries are never routing input.

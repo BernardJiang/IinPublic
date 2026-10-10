@@ -8,6 +8,8 @@ export const NEARBY_NEIGHBORHOOD_METERS = 1_000;
 export const NEARBY_CLOSE_METERS = 400;
 export const NEARBY_BOUNDARY_HYSTERESIS_RATIO = 0.15;
 export const NEARBY_MAX_SPLIT_GENERATION = 20;
+/** Experimental sparse-area ceiling: one active cell may grow to 8x the selected base reach. */
+export const NEARBY_MAX_WIDENING_LEVEL = 3;
 export const NEARBY_MAX_IDENTITY_LANES = 1_048_576;
 /** Local exchange scopes. They must never be published as Internet/Gun room memberships. */
 export const CONTACTS_ONLY_SCOPE_ID = 'local_contacts_only_v1';
@@ -43,6 +45,9 @@ export type NearbyRoomAssignment = {
   mode: NearbyPublicMode;
   protocolEpoch: number;
   basePrecisionMeters: number;
+  /** Zero preserves the original base grid; each level doubles the one active cell's width. */
+  wideningLevel: number;
+  widenedPrecisionMeters: number;
   splitGeneration: number;
   requestedSplitGeneration: number;
   cellSizeMeters: number;
@@ -78,6 +83,13 @@ function assertGeneration(generation: number): number {
     throw new Error('nearby split generation is out of range');
   }
   return generation;
+}
+
+function assertWideningLevel(level: number): number {
+  if (!Number.isSafeInteger(level) || level < 0 || level > NEARBY_MAX_WIDENING_LEVEL) {
+    throw new Error('nearby widening level is out of range');
+  }
+  return level;
 }
 
 export function nearbyBasePrecisionMeters(mode: NearbyPublicMode): number {
@@ -146,6 +158,7 @@ function canKeepPreviousCell(
   input: {
     mode: NearbyPublicMode;
     protocolEpoch: number;
+    wideningLevel: number;
     splitGeneration: number;
     projected: { x: number; y: number };
   },
@@ -153,6 +166,7 @@ function canKeepPreviousCell(
   if (!previous
     || previous.mode !== input.mode
     || previous.protocolEpoch !== input.protocolEpoch
+    || previous.wideningLevel !== input.wideningLevel
     || previous.splitGeneration !== input.splitGeneration
     || previous.identityLaneCount !== 1) return false;
   const margin = previous.cellSizeMeters * NEARBY_BOUNDARY_HYSTERESIS_RATIO;
@@ -188,22 +202,29 @@ function roomIdFor(input: {
   protocolEpoch: number;
   mode: NearbyPublicMode;
   basePrecisionMeters: number;
+  wideningLevel: number;
   splitGeneration: number;
   cell: NearbyLocalCell;
   laneCount: number;
   laneIndex: number;
 }): string {
-  const cellDigest = portableSha256Hex([
+  const digestParts: Array<string | number> = [
     ROOM_DOMAIN,
     input.protocolEpoch,
     input.mode,
     input.basePrecisionMeters,
+  ];
+  if (input.wideningLevel > 0) digestParts.push(input.wideningLevel);
+  digestParts.push(
     input.splitGeneration,
     input.cell.x,
     input.cell.y,
-  ].join(':')).slice(0, 24);
+  );
+  const cellDigest = portableSha256Hex(digestParts.join(':')).slice(0, 24);
   const lane = input.laneCount > 1 ? `_l${input.laneIndex + 1}of${input.laneCount}` : '';
-  return `nearby_v${NEARBY_ROOM_VERSION}_e${input.protocolEpoch}_p${input.basePrecisionMeters}_g${input.splitGeneration}_${cellDigest}${lane}`;
+  // Keep level-zero IDs byte-for-byte compatible with releases that predate sparse widening.
+  const widening = input.wideningLevel > 0 ? `_w${input.wideningLevel}` : '';
+  return `nearby_v${NEARBY_ROOM_VERSION}_e${input.protocolEpoch}_p${input.basePrecisionMeters}${widening}_g${input.splitGeneration}_${cellDigest}${lane}`;
 }
 
 /**
@@ -215,10 +236,12 @@ export function deriveNearbyRoomAssignment(input: {
   mode: NearbyPublicMode;
   identity: string;
   requestedSplitGeneration?: number;
+  wideningLevel?: number;
   protocolEpoch?: number;
   previous?: NearbyRoomAssignment;
 }): NearbyRoomAssignment {
   const requestedSplitGeneration = assertGeneration(input.requestedSplitGeneration ?? 0);
+  const wideningLevel = assertWideningLevel(input.wideningLevel ?? 0);
   const protocolEpoch = input.protocolEpoch ?? NEARBY_PROTOCOL_EPOCH;
   if (!Number.isSafeInteger(protocolEpoch) || protocolEpoch < 1) {
     throw new Error('nearby protocol epoch is invalid');
@@ -226,28 +249,31 @@ export function deriveNearbyRoomAssignment(input: {
   const identity = String(input.identity || '').trim();
   if (!identity) throw new Error('nearby identity is required');
   const basePrecisionMeters = nearbyBasePrecisionMeters(input.mode);
+  const widenedPrecisionMeters = basePrecisionMeters * 2 ** wideningLevel;
   const geographicLimit = maximumGeographicSplitGeneration(
-    basePrecisionMeters,
+    widenedPrecisionMeters,
     input.location.accuracy,
   );
   const splitGeneration = Math.min(requestedSplitGeneration, geographicLimit);
   const fallbackGenerations = requestedSplitGeneration - splitGeneration;
   const identityLaneCount = Math.min(NEARBY_MAX_IDENTITY_LANES, 2 ** fallbackGenerations);
-  const cellSizeMeters = basePrecisionMeters / 2 ** splitGeneration;
+  const cellSizeMeters = widenedPrecisionMeters / 2 ** splitGeneration;
   const projected = projectNearbyCoordinate(input.location);
   const calculatedCell = cellAt(projected, cellSizeMeters);
   const localCell = canKeepPreviousCell(input.previous, {
     mode: input.mode,
     protocolEpoch,
+    wideningLevel,
     splitGeneration,
     projected,
   }) ? input.previous.localCell : calculatedCell;
-  const roomSeed = [protocolEpoch, input.mode, basePrecisionMeters, splitGeneration, localCell.x, localCell.y].join(':');
+  const roomSeed = [protocolEpoch, input.mode, basePrecisionMeters, wideningLevel, splitGeneration, localCell.x, localCell.y].join(':');
   const identityLaneIndex = identityLane(identity, roomSeed, identityLaneCount);
   const roomId = roomIdFor({
     protocolEpoch,
     mode: input.mode,
     basePrecisionMeters,
+    wideningLevel,
     splitGeneration,
     cell: localCell,
     laneCount: identityLaneCount,
@@ -260,6 +286,8 @@ export function deriveNearbyRoomAssignment(input: {
     mode: input.mode,
     protocolEpoch,
     basePrecisionMeters,
+    wideningLevel,
+    widenedPrecisionMeters,
     splitGeneration,
     requestedSplitGeneration,
     cellSizeMeters,
@@ -277,7 +305,7 @@ export function nearbyPublicScope(assignment: NearbyRoomAssignment): NearbyPubli
 }
 
 export function isNearbyRoomId(value: string | null | undefined): boolean {
-  return /^nearby_v1_e\d+_p(?:400|1000)_g\d+_[a-f0-9]{24}(?:_l\d+of\d+)?$/.test(String(value || ''));
+  return /^nearby_v1_e\d+_p(?:400|1000)(?:_w[1-3])?_g\d+_[a-f0-9]{24}(?:_l\d+of\d+)?$/.test(String(value || ''));
 }
 
 export function isLocalOnlyRoomScope(value: string | null | undefined): boolean {

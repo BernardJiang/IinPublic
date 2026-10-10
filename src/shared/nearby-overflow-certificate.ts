@@ -196,6 +196,7 @@ export async function applyNearbyOverflowCertificateChain(input: {
       location: input.location,
       mode: publicMode(input.mode),
       requestedSplitGeneration: assignment.requestedSplitGeneration + 1,
+      wideningLevel: input.rootAssignment.wideningLevel,
       protocolEpoch: input.rootAssignment.protocolEpoch,
       previous: assignment,
     });

@@ -114,4 +114,76 @@ describe('Nearby geographic room placement', () => {
     expect(rootArea.north).toBeGreaterThan(location.latitude);
     expect(childArea.approximateDiameterMeters).toBeLessThan(rootArea.approximateDiameterMeters);
   });
+
+  test('sparse widening converges adjacent base cells into one coarser active room', () => {
+    const west = deriveNearbyRoomAssignment({
+      location: point(0, 0.0044),
+      mode: 'neighborhood',
+      identity: 'alice',
+    });
+    const east = deriveNearbyRoomAssignment({
+      location: point(0, 0.0092),
+      mode: 'neighborhood',
+      identity: 'bob',
+    });
+    expect(west.roomId).not.toBe(east.roomId);
+
+    const widenedWest = deriveNearbyRoomAssignment({
+      location: point(0, 0.0044),
+      mode: 'neighborhood',
+      identity: 'alice',
+      wideningLevel: 1,
+    });
+    const widenedEast = deriveNearbyRoomAssignment({
+      location: point(0, 0.0092),
+      mode: 'neighborhood',
+      identity: 'bob',
+      wideningLevel: 1,
+    });
+    expect(widenedWest.roomId).toBe(widenedEast.roomId);
+    expect(widenedWest.wideningLevel).toBe(1);
+    expect(widenedWest.widenedPrecisionMeters).toBe(2_000);
+    expect(widenedWest.approximateDiameterMeters).toBe(2_828);
+    expect(widenedWest.roomId).toMatch(/_p1000_w1_g0_/);
+    expect(isNearbyRoomId(widenedWest.roomId)).toBe(true);
+  });
+
+  test('level-zero IDs remain compatible and widening level is part of public scope', () => {
+    const baseline = deriveNearbyRoomAssignment({
+      location: point(32.7157, -117.1611),
+      mode: 'neighborhood',
+      identity: 'alice',
+    });
+    const explicitZero = deriveNearbyRoomAssignment({
+      location: point(32.7157, -117.1611),
+      mode: 'neighborhood',
+      identity: 'alice',
+      wideningLevel: 0,
+    });
+    expect(explicitZero.roomId).toBe(baseline.roomId);
+    expect(explicitZero.roomId).not.toContain('_w0_');
+    expect(nearbyPublicScope(explicitZero).wideningLevel).toBe(0);
+  });
+
+  test('widening reports the real map reach and rejects levels outside the release policy', () => {
+    const baseline = deriveNearbyRoomAssignment({
+      location: point(32.7157, -117.1611),
+      mode: 'close-nearby',
+      identity: 'alice',
+    });
+    const widened = deriveNearbyRoomAssignment({
+      location: point(32.7157, -117.1611),
+      mode: 'close-nearby',
+      identity: 'alice',
+      wideningLevel: 2,
+    });
+    expect(nearbyMapArea(widened).approximateDiameterMeters)
+      .toBeCloseTo(nearbyMapArea(baseline).approximateDiameterMeters * 4, -1);
+    expect(() => deriveNearbyRoomAssignment({
+      location: point(32.7157, -117.1611),
+      mode: 'close-nearby',
+      identity: 'alice',
+      wideningLevel: 4,
+    })).toThrow('nearby widening level is out of range');
+  });
 });

@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-10
 
+## 2026-10-10 — Sparse Nearby areas widen without overlapping rooms (OPEN-40 slice)
+
+- Added a deterministic device-local hysteresis state machine: a generation-zero room containing
+  only the local participant for three continuous minutes widens one grid level; a widened room
+  with at least 12 participants for one minute narrows one. Counts from 2 through 11 reset both
+  dwell clocks, transitions reset the clocks, and capacity-split children cannot be mistaken for
+  sparse geography.
+- Wider scopes use the same local coordinate grid, double cell width per level, and stop at three
+  levels. Level-zero IDs remain compatible; wider opaque IDs explicitly carry `w1`-`w3`. Capacity
+  subdivision preserves the widening level.
+- The client observes only its one active roster and changes reach through the ordinary one-room
+  switch. It never joins or subscribes to overlapping parent/child scopes. Exact GPS and dwell state
+  remain local; the existing map shading and label consume the replacement assignment and therefore
+  show its actual approximate diameter.
+- Verified typecheck, lint, production web/server builds, focused browser-wiring and allocator/
+  hysteresis/overflow-chain gates, and the complete Jest suite (310 suites; 3,004 passed, 15 skipped).
+
 ## 2026-10-10 — Ownerless Place admission converges after partitions (OPEN-40 slice)
 
 - Added signed, expiring Place seat claims binding room, stable public identity, release-wide `C`,

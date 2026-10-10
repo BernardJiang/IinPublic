@@ -57,6 +57,11 @@ import {
   isNearbyRoomId,
   type NearbyRoomAssignment,
 } from '../../shared/nearby-rooms';
+import {
+  advanceNearbySparseState,
+  initialNearbySparseState,
+  type NearbySparseState,
+} from '../../shared/nearby-sparse-policy';
 import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import {
   isRenderableSystemAnnouncement,
@@ -334,6 +339,10 @@ export class IinPublicApp {
   private nearbyControlRoutingLocation: GPSCoordinate | null = null;
   private nearbyControlRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private nearbyControlRefreshInFlight = false;
+  /** Device-local sparse-area dwell state. It never becomes room metadata or a parent subscription. */
+  private nearbySparseState: NearbySparseState = initialNearbySparseState();
+  private nearbySparseAnchorRoomId: string | null = null;
+  private nearbySparseTransitionInFlight = false;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
@@ -543,6 +552,78 @@ export class IinPublicApp {
   /** Room headcount for the status bar; TechSupport is a Contact and never a room member. */
   private countRoomMembers(members: Array<{ userId: string }>): number {
     return new Set(members.map((member) => member.userId)).size;
+  }
+
+  /**
+   * Observe only the emitted roster for the one active Nearby room. A sustained one-person
+   * cell widens one deterministic grid level; a sustained dense cell narrows one. Capacity-split
+   * children never drive this policy, and no parent roster is subscribed in parallel.
+   */
+  private observeNearbyRoomRoster(roomId: string, members: Array<{ userId: string }>): void {
+    if (this.nearbySparseTransitionInFlight || roomId !== this.currentChatroomId || !isNearbyRoomId(roomId)) return;
+    const assignment = this.chatroomService.getNearbyRoomAssignment();
+    const root = this.nearbyControlRootAssignment;
+    const routingLocation = this.nearbyControlRoutingLocation;
+    const identity = this.currentUser?.id;
+    if (!assignment || assignment.roomId !== roomId || !root || !routingLocation || !identity) return;
+
+    const baseAnchor = deriveNearbyRoomAssignment({
+      location: routingLocation,
+      mode: assignment.mode,
+      identity,
+    }).roomId;
+    if (this.nearbySparseAnchorRoomId !== baseAnchor) {
+      this.nearbySparseAnchorRoomId = baseAnchor;
+      this.nearbySparseState = initialNearbySparseState(assignment.wideningLevel);
+    }
+    const previousState = this.nearbySparseState;
+    const decision = advanceNearbySparseState({
+      state: previousState,
+      activeMemberCount: this.countRoomMembers(members),
+      nowMs: Date.now(),
+      capacitySplitGeneration: assignment.requestedSplitGeneration,
+    });
+    this.nearbySparseState = decision.state;
+    if (decision.direction === 'hold') return;
+
+    this.nearbySparseTransitionInFlight = true;
+    const previousAssignment = assignment;
+    const previousRoot = root;
+    const nextRoot = deriveNearbyRoomAssignment({
+      location: routingLocation,
+      mode: assignment.mode,
+      identity,
+      wideningLevel: decision.state.wideningLevel,
+    });
+    this.chatroomService.setNearbyRootAssignment(nextRoot);
+    void this.resolveNearbyBeforeAdmission(nextRoot, routingLocation).then((targetRoomId) => {
+      if (targetRoomId === roomId) {
+        this.nearbySparseTransitionInFlight = false;
+        return;
+      }
+      this.uiManager.emit('chatroomChanged', targetRoomId);
+      setTimeout(() => {
+        if (this.currentChatroomId === targetRoomId) {
+          this.nearbySparseTransitionInFlight = false;
+          return;
+        }
+        // A rejected/failed switch must not strand local routing state on a room never entered.
+        this.nearbySparseState = previousState;
+        this.chatroomService.setNearbyRootAssignment(previousRoot);
+        this.chatroomService.setNearbyRoomAssignment(previousAssignment);
+        this.nearbyControlRootAssignment = previousRoot;
+        this.uiManager.setNearbyMapAssignment(previousAssignment);
+        this.nearbySparseTransitionInFlight = false;
+      }, 30_000);
+    }).catch((error) => {
+      console.warn('Nearby sparse-area transition failed:', error);
+      this.nearbySparseState = previousState;
+      this.chatroomService.setNearbyRootAssignment(previousRoot);
+      this.chatroomService.setNearbyRoomAssignment(previousAssignment);
+      this.nearbyControlRootAssignment = previousRoot;
+      this.uiManager.setNearbyMapAssignment(previousAssignment);
+      this.nearbySparseTransitionInFlight = false;
+    });
   }
 
   private loadAttachmentShareSentIds(): void {
@@ -1938,6 +2019,7 @@ export class IinPublicApp {
       this.chatroomService.subscribeToMembers(toChatroomId, (members) => {
         console.log('👥 Chatroom members updated:', members);
         this.harvestRosterEpubs(members);
+        this.observeNearbyRoomRoster(toChatroomId, members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(toChatroomId, members);
 
@@ -2047,6 +2129,7 @@ export class IinPublicApp {
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
         if (this.currentChatroomId !== chatroomId) return;
         this.harvestRosterEpubs(members);
+        this.observeNearbyRoomRoster(chatroomId, members);
         console.log('👥 Chatroom members updated:', members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(chatroomId, members);
@@ -2113,6 +2196,7 @@ export class IinPublicApp {
       this.uiManager.setCurrentChatroomId(this.currentChatroomId);
       this.chatroomService.subscribeToMembers(this.currentChatroomId, (members) => {
         this.harvestRosterEpubs(members);
+        if (this.currentChatroomId) this.observeNearbyRoomRoster(this.currentChatroomId, members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(this.currentChatroomId!, members);
         const chatroomName = this.getChatroomDisplayName(this.currentChatroomId!);
@@ -2731,6 +2815,7 @@ export class IinPublicApp {
     this.uiManager.setCurrentChatroomId(nextRoomId);
     this.chatroomService.subscribeToMembers(nextRoomId, (members) => {
       this.harvestRosterEpubs(members);
+      this.observeNearbyRoomRoster(nextRoomId, members);
       this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
       this.syncPeerMeshRoom(nextRoomId, members);
       this.uiManager.updateStatusBar(
@@ -8744,6 +8829,7 @@ export class IinPublicApp {
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
           this.harvestRosterEpubs(members);
+          this.observeNearbyRoomRoster(home, members);
           this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
           const chatroomName = this.getChatroomDisplayName(home);
           this.uiManager.updateStatusBar(
@@ -9001,6 +9087,7 @@ export class IinPublicApp {
       // subscribeToMembers reuses the Gun listener when chatroomId is unchanged (see WebChatroomService)
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
         this.harvestRosterEpubs(members);
+        this.observeNearbyRoomRoster(chatroomId, members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(chatroomId, members);
         const chatroomName = this.getChatroomDisplayName(chatroomId);

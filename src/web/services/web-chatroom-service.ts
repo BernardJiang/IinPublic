@@ -354,6 +354,12 @@ export class WebChatroomService {
     this.nearbyAssignment = assignment;
   }
 
+  /** Replace the locally derived control root when sparse-area hysteresis changes reach. */
+  setNearbyRootAssignment(assignment: NearbyRoomAssignment): void {
+    this.nearbyRootAssignment = assignment;
+    this.nearbyAssignment = assignment;
+  }
+
   /** Select a manual Place or derive the automatic Nearby scope; legacy rooms migrate away. */
   async findOptimalChatroomHierarchical(
     location: GPSCoordinate,

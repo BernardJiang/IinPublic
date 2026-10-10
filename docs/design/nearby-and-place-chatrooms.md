@@ -65,9 +65,32 @@ When a Nearby cell exceeds `C`:
 6. Only when available location accuracy cannot separate a dense crowd may deterministic identity
    lanes provide final load shedding.
 
-Subdivision is geographic, never FIFO-by-age: closer people remain together. Sparse cells may widen
-their search scale under a hysteresis rule, while the UI reports the current approximate distance.
-No hidden split is presented as a second chatroom.
+Subdivision is geographic, never FIFO-by-age: closer people remain together. Sparse cells widen
+through the same deterministic grid, while the UI reports the active cell's real approximate
+diameter. No hidden split is presented as a second chatroom.
+
+The initial sparse-area policy is deliberately conservative and release-wide:
+
+1. The client observes only roster snapshots for its one active generation-zero Nearby
+   room. It never subscribes to the parent and child at the same time.
+2. A room containing only the local participant for three continuous minutes widens by one level.
+   Each level doubles cell width, so adjacent sparse base cells deterministically converge on the
+   same coarser grid cell when they share that parent.
+3. A widened room holding at least 12 participants for one continuous minute narrows by one level.
+   Counts between 2 and 11 reset both dwell clocks; a transition also resets them. This dead band
+   and the unequal dwell times prevent rapid boundary oscillation.
+4. Widening stops after three levels (8x cell width): approximately 4.5 km diagonal in Close nearby
+   or 11.3 km in Neighborhood. These are experimental ceilings, not radio-range claims.
+5. A capacity-split child never drives sparse widening. A small child roster can be the result of a
+   proven dense parent and is not evidence that the area is sparse.
+6. A transition uses the ordinary stop-before-start active-room switch. The old room, discovery,
+   advertisements, and direct stranger links stop before the replacement scope begins.
+
+Level zero keeps the original Nearby room-ID format for compatibility. Wider IDs carry an explicit
+`w1`-`w3` level; their opaque digest still contains no coordinate. The device recomputes map bounds
+locally and immediately updates the shaded area and reach label. Sparse state and dwell timestamps
+remain device-local. The thresholds and ceiling must be revisited by the capacity experiment; they
+are global build policy, never creator-controlled room attributes.
 
 `C` bounds the candidate population but does not by itself prevent a full mesh. A separate global
 neighbor/concurrency limit `K` bounds simultaneous direct peer connections. Both `C` and `K` are

@@ -123,9 +123,15 @@ its ID.
       browser or embedded phone leaves to Contacts-only with explicit wording and the existing
       optional Nearby-at-the-pin action. Automated partition-order, forgery, expiry, alias, relay,
       and client-fallback gates pass; empirical wording feedback remains part of Verification.
-  - [ ] **P1 sparse-area behavior:** widen Nearby search under a deterministic hysteresis rule while
+  - [x] **P1 sparse-area behavior:** widen Nearby search under a deterministic hysteresis rule while
     displaying the actual approximate reach. Do not silently activate overlapping room levels or
     subscribe to unbounded parent rosters.
+    - [x] One-person generation-zero rosters widen one level after a continuous three-minute dwell;
+      12-person widened rosters narrow after one minute, with a 2-11 dead band and three-level cap.
+      Capacity-split child counts are ineligible. Only the active roster is observed.
+    - [x] Level zero preserves existing room IDs; wider opaque IDs encode `w1`-`w3`. The ordinary
+      stop-before-start switch replaces the room, and the existing local map assignment reports the
+      widened cell's real bounds/diameter without publishing coordinates or dwell state.
   - [ ] **P1 legacy migration:** stop old-room discovery before moving saved Global/tile/grid/custom
     memberships into Nearby or content-addressed Places. Preserve contacts, private data, Talk queues,
     receipts, and traveler intent without rebroadcasting old Talks. Retire obsolete capacity

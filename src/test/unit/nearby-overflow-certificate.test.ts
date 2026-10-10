@@ -146,4 +146,35 @@ describe('OPEN-40 geographic Nearby overflow certificates', () => {
     expect(result.assignment.roomId).toBe(localChild.roomId);
     expect(result.assignment.requestedSplitGeneration).toBe(1);
   });
+
+  it('keeps sparse widening while following a later capacity split', async () => {
+    const identity = 'widened-newcomer';
+    const rootAssignment = deriveNearbyRoomAssignment({
+      location,
+      mode: 'neighborhood',
+      identity,
+      wideningLevel: 2,
+    });
+    const certificate = createNearbyOverflowCertificate({
+      rootRoomId: rootAssignment.roomId,
+      fromRoomId: rootAssignment.roomId,
+      fromRequestedSplitGeneration: 0,
+      checkpoint,
+      witnesses: await witnesses(rootAssignment, rootAssignment),
+      createdAt: now.toISOString(),
+    });
+    const result = await applyNearbyOverflowCertificateChain({
+      identity,
+      location,
+      mode: 'neighborhood',
+      rootAssignment,
+      checkpoint,
+      certificates: [certificate],
+      now,
+    });
+    expect(result.assignment.wideningLevel).toBe(2);
+    expect(result.assignment.widenedPrecisionMeters).toBe(4_000);
+    expect(result.assignment.requestedSplitGeneration).toBe(1);
+    expect(result.assignment.roomId).toMatch(/_p1000_w2_g1_/);
+  });
 });
