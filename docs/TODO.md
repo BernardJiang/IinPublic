@@ -144,10 +144,14 @@ its ID.
     - [ ] Remove the mixed-release legacy FIFO controller and obsolete hierarchy fixtures after the
       compatibility window.
   - [ ] **Capacity experiment:** treat `C=498`, initial Nearby scales, and `K` as release-wide
-    experimental defaults. Simulate 32/64/128/256/498 capacities and dense/sparse populations; then
-    use three phones across Internet, LAN, BLE, and Wi-Fi Direct to measure discovery time, p50/p95
-    delivery, duplicate bytes, connection failures, background survival, battery drain, and radio
-    churn before selecting production values.
+    experimental defaults.
+    - [x] Simulate 32/64/128/256/498 capacities and dense/sparse populations. The current
+      10,000-person Nearby arena follows only over-capacity geographic branches, keeps every active
+      room at or below `C`, keeps one opaque assignment per user, and proves the direct schedule is
+      symmetric and at most `K=12`. Offset sparse arrivals converge through bounded widening.
+    - [ ] Use three phones across Internet, LAN, BLE, and Wi-Fi Direct to measure discovery time,
+      p50/p95 delivery, duplicate bytes, connection failures, background survival, battery drain,
+      and radio churn before selecting production values.
   - [ ] **Verification:** deterministic 10,000-person arena, grid-boundary, partition/reconnect,
     simultaneous-arrival, stale-presence, forged-control, offline certificate transport, sparse-area,
     map Place, Contacts-only, TechSupport absence, no-exact-GPS, no-plaintext-private-data, direct-only
@@ -158,6 +162,14 @@ its ID.
       question, or answer markers across 232 Gun WebSocket and HTTP boundary events. The direct-
       delivery scenario also asserts the local encrypted cluster exists while its retired public
       envelope and indexes remain empty.
+    - [x] Automated the current Nearby/Place verification matrix: adaptive 10,000-person arena and
+      `C`/`K` bounds; grid-boundary/drift behavior; Place partition-order convergence; simultaneous
+      Nearby C+1 arrivals; stale, duplicate, foreign, and post-signature-tampered control rejection;
+      cached certificate reuse offline; asynchronous sparse convergence; flat map Place/Return to
+      Nearby flows; Contacts-only and TechSupport room absence; no exact GPS in public scopes;
+      direct-only encrypted delivery; and mixed-release manifest validation.
+    - [ ] Run the three-phone transport/background/battery matrix above and collect empirical wording
+      feedback for full-Place reconciliation before calling OPEN-40 production-verified.
 
 - [x] **OPEN-35 — Enable Android R8 minification safely (found 2026-09-27, Play Console warning:
   "no deobfuscation file associated with this App Bundle"). Done 2026-10-05.**

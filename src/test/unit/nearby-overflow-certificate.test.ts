@@ -1,6 +1,9 @@
 import SEA from 'gun/sea';
 import type { RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
-import { createNearbyControlPresence } from '../../shared/nearby-control-presence';
+import {
+  createNearbyControlPresence,
+  NEARBY_CONTROL_PRESENCE_TTL_MS,
+} from '../../shared/nearby-control-presence';
 import {
   applyNearbyOverflowCertificateChain,
   createNearbyOverflowCertificate,
@@ -100,6 +103,42 @@ describe('OPEN-40 geographic Nearby overflow certificates', () => {
         ok: false,
         reason: 'overflow witness belongs to another Nearby room or generation',
       });
+  });
+
+  it('rejects expired and post-signature-tampered control witnesses', async () => {
+    const rootAssignment = root();
+    const valid = await witnesses(rootAssignment, rootAssignment);
+    const forged = createNearbyOverflowCertificate({
+      rootRoomId: rootAssignment.roomId,
+      fromRoomId: rootAssignment.roomId,
+      fromRequestedSplitGeneration: 0,
+      checkpoint,
+      witnesses: [
+        { ...valid[0]!, userId: 'forged-after-signing' },
+        valid[1]!,
+        valid[2]!,
+      ],
+      createdAt: now.toISOString(),
+    });
+    await expect(verifyNearbyOverflowCertificate(forged, { expectedCheckpoint: checkpoint, now }))
+      .resolves.toEqual(expect.objectContaining({ ok: false }));
+
+    const afterExpiry = new Date(now.getTime() + NEARBY_CONTROL_PRESENCE_TTL_MS + 1);
+    const expired = createNearbyOverflowCertificate({
+      rootRoomId: rootAssignment.roomId,
+      fromRoomId: rootAssignment.roomId,
+      fromRequestedSplitGeneration: 0,
+      checkpoint,
+      witnesses: valid,
+      createdAt: afterExpiry.toISOString(),
+    });
+    await expect(verifyNearbyOverflowCertificate(expired, {
+      expectedCheckpoint: checkpoint,
+      now: afterExpiry,
+    })).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      reason: expect.stringContaining('expired'),
+    }));
   });
 
   it('follows only the local geographic child and stops when that child has no certificate', async () => {

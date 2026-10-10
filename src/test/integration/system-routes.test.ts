@@ -603,6 +603,42 @@ describe('system routes', () => {
     ]);
   });
 
+  it('serializes simultaneous Nearby arrivals so only the first C remain on generation zero', async () => {
+    const { app } = buildApp('test');
+    const now = new Date();
+    const checkpoint: RoomProtocolCheckpoint = {
+      networkId: 'iinpublic-test',
+      protocolEpoch: 1,
+      manifestSequence: 1,
+      manifestHash: '8'.repeat(64),
+      chatroomCapacity: 1,
+    };
+    const root = deriveNearbyRoomAssignment({
+      location: { latitude: 40.7128, longitude: -74.006, accuracy: 5, timestamp: now },
+      mode: 'neighborhood',
+      identity: 'root',
+    });
+    const presences = await Promise.all(Array.from({ length: 5 }, async (_, index) => {
+      const pair = await SEA.pair() as SeaSigningPair;
+      return createNearbyControlPresence({
+        userId: `simultaneous-nearby-user-${index}`,
+        pair,
+        rootRoomId: root.roomId,
+        assignment: root,
+        checkpoint,
+      });
+    }));
+    const responses = await Promise.all(presences.map((presence) => request(app)
+      .post('/api/nearby-control/presence')
+      .send({ presence })));
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses.filter((response) => response.body.certificates.length === 0)).toHaveLength(1);
+    expect(responses.filter((response) => response.body.certificates.length === 1)).toHaveLength(4);
+    expect(responses.find((response) => response.body.certificates.length === 1)
+      ?.body.certificates[0].witnesses).toHaveLength(2);
+  });
+
   it('serializes simultaneous overflow formation so no more than C entrants receive generation zero', async () => {
     const { app } = buildApp('test');
     const baseGridRoomId = 'region_40.71_-74.00_room_0';

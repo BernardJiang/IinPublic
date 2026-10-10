@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-10
 
+## 2026-10-10 — Current Nearby capacity and verification simulations replace retired micro-rooms
+
+- Added a deterministic 10,000-person, 400 m × 250 m arena using the current opaque Nearby
+  allocator. For each experimental `C` value (32, 64, 128, 256, and 498), only over-capacity
+  geographic branches advance; every settled active room remains at or below `C` and every user has
+  exactly one assignment.
+- The settled-room proof also checks the circle-method direct schedule is symmetric and never opens
+  more than `K=12` links per endpoint. A separate offset-arrival simulation proves users in adjacent
+  sparse base cells eventually converge through bounded widening without overlapping subscriptions.
+- Added current Nearby gates for simultaneous C+1 arrival serialization and rejection of expired or
+  post-signature-tampered control witnesses. Existing focused gates cover boundary drift, Place
+  partition reconciliation, offline certificate reuse, map Places, Contacts-only/TechSupport
+  absence, GPS opacity, direct-only encrypted delivery, and mixed-release manifests.
+- Focused control/integration runs (40 passed, 2 intentionally skipped), typecheck, and lint pass.
+  Physical three-phone radio, background, battery, and wording measurements remain intentionally
+  open.
+
 ## 2026-10-10 — Sparse Nearby areas widen without overlapping rooms (OPEN-40 slice)
 
 - Added a deterministic device-local hysteresis state machine: a generation-zero room containing
