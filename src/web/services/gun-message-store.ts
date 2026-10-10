@@ -7,6 +7,10 @@ import type { SendMessageOptions } from './web-conversation-service';
 import { WebGunService } from './web-gun-service';
 import { computeMerkleRoot, sha256Hex } from '../../shared/merkle-checkpoint';
 import { deriveRetentionCap, representativePairConversationMessageBytes } from '../../shared/graph-size-report';
+import {
+  LocalPrivateConversationRepository,
+  type LocalConversationWire,
+} from './local-private-conversation-repository';
 
 /**
  * Safe env read for browser bundles: `IINPUBLIC_E2E_MESSAGE_*` are baked in by webpack
@@ -43,8 +47,6 @@ const readMessageRetentionWindowEnv = (): string | undefined =>
   process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || undefined;
 const readMessageEnumerateWaitMsEnv = (): string | undefined =>
   process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS || undefined;
-const readMessagePruneEnumerateWaitMsEnv = (): string | undefined =>
-  process.env.IINPUBLIC_E2E_MESSAGE_PRUNE_ENUMERATE_WAIT_MS || undefined;
 
 /**
  * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 4): every
@@ -80,9 +82,6 @@ export const MESSAGE_RETENTION_WINDOW =
  */
 export const MESSAGE_ENUMERATE_WAIT_MS =
   parseInt(readMessageEnumerateWaitMsEnv() || '', 10) || 1_500;
-/** Extra-generous variant for maybeCreateMessageCheckpoint's destructive read — see its call site. */
-export const MESSAGE_PRUNE_ENUMERATE_WAIT_MS =
-  parseInt(readMessagePruneEnumerateWaitMsEnv() || '', 10) || 3_000;
 
 /**
  * SRS §28.9.4: leaves commit to both ordering and ciphertext integrity without
@@ -100,27 +99,10 @@ export interface MessageCheckpointContent {
   createdAt: string;
 }
 
-interface MessageCheckpointLocalState {
-  /** Count of messages (in chronological order) already covered by a written checkpoint. */
-  lastCheckpointedCount: number;
-  /** Count of messages already pruned from Gun (always <= lastCheckpointedCount). */
-  prunedThroughCount: number;
-  /** Rebuilt from Gun once per conversation per instance lifetime (see getMessageCheckpointState). */
-  stateLoaded: boolean;
-  /** Guards against an overlapping pass if another send fires before this one finishes. */
-  checkpointInFlight: boolean;
-  /** Coalesces sends arriving during a pass into one follow-up scan of the latest graph. */
-  checkpointPending: boolean;
-}
-
 /**
- * TODO §S Item 4: pure decision logic, deliberately separated from all Gun read/write
- * calls — same "no DOM, no Gun, no WebRTC" philosophy as this file's sibling
- * `conversation-reconcile.ts` ("this module is the pure, single source of truth for
- * 'what to send / what to keep'... so the convergence logic is fully unit-tested").
- * `maybeCreateMessageCheckpoint`/`pruneMessages` below call these and only handle the
- * Gun wiring; keeping the window/root/retention math here lets it be unit-tested without
- * a real or mocked Gun graph.
+ * Legacy-compatible pure checkpoint decision logic. Current persistence performs this
+ * work inside LocalPrivateConversationRepository; these exports remain for policy tests
+ * and migration documentation without retaining any peered-Gun write machinery.
  */
 export async function planMessageCheckpoint(
   wires: ReadonlyArray<{ id: string; text: string }>,
@@ -219,16 +201,17 @@ export type ConversationMessageWire = {
 };
 
 /**
- * Gun-on-device message persistence — the durable source of truth for
- * `conversations/<id>/messages` (and pair-private `pairConversations/...`), per spec
- * §19.4. Builds/persists outbound messages, writes message records idempotently, and
- * subscribes to + decrypts the conversation graph.
+ * Encrypted peerless Gun-on-device message persistence, per spec §19.4. New message
+ * bodies/checkpoints live in a bounded private envelope. The former public
+ * `pairConversations/<pair>/<conversation>/messages` and legacy conversation-message
+ * paths are read only
+ * for one mixed-release import and never receive new writes.
  *
  * This is the store that `DirectP2PConversationTransport` writes through (WebRTC is
  * notify/sync only). It is intentionally NOT a `ConversationTransport`: the
  * `mode`/`sendMessage` "transport" facade lives in `StarGunConversationTransport`,
- * which extends this class. Splitting the two (P2P-messaging Phase 2) keeps the Gun
- * persistence role distinct from the star-fallback transport role.
+ * which extends this class. Splitting the two keeps endpoint persistence distinct from
+ * live delivery and reconciliation over the authenticated DataChannel.
  */
 export class GunMessageStore {
   /** Default transport label for records that don't carry their own (overridden by subclasses). */
@@ -240,40 +223,15 @@ export class GunMessageStore {
    * myUserId is provided; read by buildAndPersistMessage to populate prevSeen.
    */
   private lastSeenFromOther = new Map<string, string>();
-  private collectRetryCounts = new Map<string, number>();
-  private collectRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  /** TODO §S Item 4: per-conversation checkpoint/prune bookkeeping, keyed by conversationId. */
-  private messageCheckpointState = new Map<string, MessageCheckpointLocalState>();
-  /**
-   * Safety net for maybeCreateMessageCheckpoint's destructive prune decision (see its own doc
-   * comment): the highest total-message count ever observed per conversation this session.
-   * listLocalWires has no way to know it saw every message that truly exists on a single pass —
-   * Gun's .map() has no "done enumerating" signal, only a best-effort collection window — so an
-   * undercounted read here is possible on a slow/real device, and this bookkeeping *persists*
-   * across passes (writeCheckpointState). A single undercount would otherwise desync
-   * prunedThroughCount from reality and cascade into deleting messages that are still within
-   * the retention window on a later pass. The graph is append-only in the absence of pruning, so
-   * a real total can only grow or stay flat — any observed drop is evidence of an incomplete
-   * read, not of messages actually having disappeared.
-   */
-  private observedWireCountHighWaterMark = new Map<string, number>();
-  /**
-   * TODO §S Item 4: conversations currently mid-Phase-5-reconcile (digest build or
-   * backfill read) — the prune pass skips a conversation while its flag is set, so a
-   * delete can't interleave with `listLocalWires`'s own multi-hundred-ms collection
-   * window and hand a peer a torn read. Set/cleared by `setReconcileInFlight`, called
-   * from `DirectP2PConversationTransport` around its `getLocalMessageDigest`/
-   * `getMessagesForBackfill` hooks.
-   */
-  private reconcileInFlight = new Set<string>();
+  private readonly privateRepository: LocalPrivateConversationRepository;
 
-  constructor(protected gunService: WebGunService) {}
-
-  /** TODO §S Item 4: see reconcileInFlight's doc comment above. */
-  setReconcileInFlight(conversationId: string, inFlight: boolean): void {
-    if (inFlight) this.reconcileInFlight.add(conversationId);
-    else this.reconcileInFlight.delete(conversationId);
+  constructor(protected gunService: WebGunService) {
+    this.privateRepository = new LocalPrivateConversationRepository(
+      gunService,
+      MESSAGE_CHECKPOINT_INTERVAL,
+      MESSAGE_RETENTION_WINDOW,
+    );
   }
 
   /**
@@ -403,20 +361,6 @@ export class GunMessageStore {
     return getSEA().secret(epub, pair);
   }
 
-  private readMessageNode(root: any, messageId: string, timeoutMs = 150): Promise<any | null> {
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (value: any | null) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(value);
-      };
-      const timer = setTimeout(() => finish(null), timeoutMs);
-      root.get(messageId).once((data: any) => finish(data || null));
-    });
-  }
-
   /**
    * Build outbound wire + Gun record, persist locally, return wire for P2P notify (P2P-H).
    */
@@ -453,7 +397,7 @@ export class GunMessageStore {
       base.encryption = 'sea-ecdh-v1';
     }
 
-    this.putMessageRecord(
+    await this.putMessageRecord(
       conversationId,
       base,
       otherUserId ? { otherUserId } : {},
@@ -461,9 +405,12 @@ export class GunMessageStore {
     return base;
   }
 
-  /** Idempotent write of a message node to local Gun (and hub sync during migration). */
-  putMessageRecord(conversationId: string, wire: ConversationMessageWire, opts: { otherUserId?: string } = {}): void {
-    const gun = this.gunService.getGun();
+  /** Idempotent write to the encrypted, peerless worker Gun. */
+  async putMessageRecord(
+    conversationId: string,
+    wire: ConversationMessageWire,
+    _opts: { otherUserId?: string } = {},
+  ): Promise<void> {
     const record = {
       id: wire.id,
       senderId: wire.senderId,
@@ -491,304 +438,7 @@ export class GunMessageStore {
       ...(wire.tipSignature ? { tipSignature: wire.tipSignature } : {}),
       ...(wire.tipAuthorPub ? { tipAuthorPub: wire.tipAuthorPub } : {}),
     };
-    if (wire.transport === 'direct-p2p' && opts.otherUserId) {
-      gun
-        .get('pairConversations')
-        .get(this.pairIdForUsers(wire.senderId, opts.otherUserId))
-        .get(conversationId)
-        .get('messages')
-        .get(wire.id)
-        .put(record);
-      // No legacy-root mirror: direct-p2p DM bodies live ONLY in the pair-private path
-      // (spec §19.4; 09-messaging asserts the legacy root stays empty). The subscription
-      // races this used to paper over are handled by the retrying pair-root attach in
-      // subscribeToMessages and the canonical conv_pair_ id fallback in
-      // getOtherParticipantId.
-    } else {
-      gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
-    }
-
-    // TODO §S Item 4: fire-and-forget checkpoint/prune pass — matches this method's own
-    // fire-and-forget write style (no caller awaits putMessageRecord's Gun ack either).
-    void this.maybeCreateMessageCheckpoint(
-      conversationId,
-      wire.senderId,
-      opts.otherUserId,
-      wire.transport ?? this.mode,
-    ).catch((err) => console.warn('[GunMessageStore] message checkpoint pass failed (non-fatal)', err));
-  }
-
-  /**
-   * TODO §S Item 4: the Gun root for a conversation's non-message children (checkpoints,
-   * checkpointState) — mirrors putMessageRecord's own pair-vs-legacy path split so a
-   * conversation's checkpoint data lives alongside its messages.
-   */
-  private conversationRoot(
-    conversationId: string,
-    transport: string,
-    senderId: string,
-    otherUserId?: string,
-  ): any {
-    const gun = this.gunService.getGun();
-    if (transport === 'direct-p2p' && otherUserId) {
-      return gun.get('pairConversations').get(this.pairIdForUsers(senderId, otherUserId)).get(conversationId);
-    }
-    return gun.get(`conversations/${conversationId}`);
-  }
-
-  private readNodeOnce(root: any, timeoutMs = 200): Promise<any | null> {
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (value: any | null) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(value);
-      };
-      const timer = setTimeout(() => finish(null), timeoutMs);
-      root.once((data: any) => finish(data || null));
-    });
-  }
-
-  private async getMessageCheckpointState(
-    conversationId: string,
-    transport: string,
-    senderId: string,
-    otherUserId?: string,
-  ): Promise<MessageCheckpointLocalState> {
-    let state = this.messageCheckpointState.get(conversationId);
-    if (state?.stateLoaded) return state;
-    if (!state) {
-      state = {
-        lastCheckpointedCount: 0,
-        prunedThroughCount: 0,
-        stateLoaded: false,
-        checkpointInFlight: false,
-        checkpointPending: false,
-      };
-      // Publish the shared state before the async read so concurrent sends cannot create
-      // independent lock objects and run overlapping checkpoint passes.
-      this.messageCheckpointState.set(conversationId, state);
-    }
-    const raw = await this.readNodeOnce(
-      this.conversationRoot(conversationId, transport, senderId, otherUserId).get('checkpointState'),
-    );
-    if (raw && typeof raw === 'object') {
-      state.lastCheckpointedCount = typeof raw.lastCheckpointedCount === 'number' ? raw.lastCheckpointedCount : 0;
-      state.prunedThroughCount = typeof raw.prunedThroughCount === 'number' ? raw.prunedThroughCount : 0;
-    }
-    state.stateLoaded = true;
-    return state;
-  }
-
-  private writeCheckpointState(
-    conversationId: string,
-    transport: string,
-    senderId: string,
-    otherUserId: string | undefined,
-    state: MessageCheckpointLocalState,
-  ): Promise<void> {
-    return this.putWithAck(
-      this.conversationRoot(conversationId, transport, senderId, otherUserId).get('checkpointState'),
-      { lastCheckpointedCount: state.lastCheckpointedCount, prunedThroughCount: state.prunedThroughCount },
-    );
-  }
-
-  /** Resolve only when Gun acknowledges the mutation; never advance durable bookkeeping first. */
-  private putWithAck(root: any, value: Record<string, unknown> | null, timeoutMs = 12_000): Promise<void> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (err?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (err) reject(err);
-        else resolve();
-      };
-      const timer = setTimeout(
-        () => finish(new Error('Gun mutation acknowledgement timed out')),
-        timeoutMs,
-      );
-      root.put(value, (ack: any) => {
-        if (ack?.err) finish(new Error(String(ack.err)));
-        else finish();
-      });
-    });
-  }
-
-  /**
-   * TODO §S Item 4: every MESSAGE_CHECKPOINT_INTERVAL messages (chronological order,
-   * same timestamp+id tiebreak as collectAndDecryptMessages), write one checkpoint
-   * committing to that window's `msgId:SHA-256(ciphertext)` leaves, then prune anything
-   * older than MESSAGE_RETENTION_WINDOW behind the most recent checkpoint. Best-effort,
-   * fire-and-forget (called from the end of putMessageRecord, never awaited by callers).
-   */
-  private async maybeCreateMessageCheckpoint(
-    conversationId: string,
-    senderId: string,
-    otherUserId: string | undefined,
-    transport: string,
-  ): Promise<void> {
-    if (this.reconcileInFlight.has(conversationId)) return;
-    const state = await this.getMessageCheckpointState(conversationId, transport, senderId, otherUserId);
-    if (state.checkpointInFlight) {
-      state.checkpointPending = true;
-      return;
-    }
-    state.checkpointInFlight = true;
-
-    try {
-      // Full chronological read — bounded in practice by the retention policy itself (older
-      // messages get pruned, so this array never grows past ~MESSAGE_RETENTION_WINDOW plus
-      // one checkpoint interval's worth of headroom once the steady state is reached).
-      // Extra-generous window here specifically: this read's result feeds a destructive
-      // deletion decision below (pruneMessages), not just a reconciliation digest — worth
-      // paying more wall-clock time for a more complete read before that runs. The high-water-
-      // mark guard right below is the actual safety net either way; this just makes it need to
-      // fire less often.
-      const wires = await this.listLocalWires(conversationId, senderId, otherUserId, 0, MESSAGE_PRUNE_ENUMERATE_WAIT_MS);
-      const observedAbsoluteCount = state.prunedThroughCount + wires.length;
-      // Safety net (see observedWireCountHighWaterMark's doc comment): a real conversation's
-      // total message count cannot shrink between passes, so any drop means this pass's
-      // listLocalWires read was incomplete, not that messages actually vanished. Proceeding
-      // anyway would desync prunedThroughCount from reality and risk deleting real, recent
-      // messages on a future pass — skip this pass entirely and retry later instead.
-      const priorHighWaterMark = this.observedWireCountHighWaterMark.get(conversationId) ?? 0;
-      if (observedAbsoluteCount < priorHighWaterMark) {
-        console.warn(
-          `[GunMessageStore] checkpoint pass observed fewer messages (${observedAbsoluteCount}) than a prior pass (${priorHighWaterMark}) for ${conversationId} — likely an incomplete read, skipping this pass rather than risk pruning real messages`,
-        );
-        return;
-      }
-      this.observedWireCountHighWaterMark.set(conversationId, observedAbsoluteCount);
-      const plan = await planMessageCheckpoint(
-        wires,
-        state.lastCheckpointedCount,
-        MESSAGE_CHECKPOINT_INTERVAL,
-        state.prunedThroughCount,
-      );
-      if (!plan || this.reconcileInFlight.has(conversationId)) return;
-
-      await this.putWithAck(
-        this.conversationRoot(conversationId, transport, senderId, otherUserId)
-          .get('checkpoints')
-          .get(`count_${plan.newLastCheckpointedCount}`),
-        { contentJson: JSON.stringify(plan.content) },
-      );
-
-      state.lastCheckpointedCount = plan.newLastCheckpointedCount;
-      await this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
-
-      await this.pruneMessages(conversationId, transport, senderId, otherUserId, wires, state);
-      if (observedAbsoluteCount - state.lastCheckpointedCount >= MESSAGE_CHECKPOINT_INTERVAL) {
-        state.checkpointPending = true;
-      }
-    } finally {
-      state.checkpointInFlight = false;
-      if (state.checkpointPending) {
-        state.checkpointPending = false;
-        void this.maybeCreateMessageCheckpoint(conversationId, senderId, otherUserId, transport)
-          .catch((err) => console.warn('[GunMessageStore] queued checkpoint pass failed (non-fatal)', err));
-      }
-    }
-  }
-
-  /**
-   * TODO §S Item 4: delete every message more than MESSAGE_RETENTION_WINDOW behind the
-   * most recently written checkpoint — mirrors the ledger's Item 2 "checkpoint before
-   * delete" ordering (only ever called after this pass's own writeCheckpointState above
-   * has resolved). Each wire is deleted from *its own* recorded transport's path, not
-   * necessarily the current call's transport — a conversation's transport is fixed in
-   * practice, but this stays correct even if that ever changes.
-   */
-  private async pruneMessages(
-    conversationId: string,
-    transport: string,
-    senderId: string,
-    otherUserId: string | undefined,
-    wires: ReconcileMessage[],
-    state: MessageCheckpointLocalState,
-  ): Promise<void> {
-    if (this.reconcileInFlight.has(conversationId)) return;
-    const plan = planMessagePruning(
-      state.prunedThroughCount + wires.length,
-      state.lastCheckpointedCount,
-      state.prunedThroughCount,
-      MESSAGE_RETENTION_WINDOW,
-    );
-    if (!plan) return;
-
-    const deleteCount = plan.deletableThrough - state.prunedThroughCount;
-    await Promise.all(wires.slice(0, deleteCount).map((wire) =>
-      this.deleteMessageRecord(conversationId, wire.id, wire.transport || transport, senderId, otherUserId)));
-    state.prunedThroughCount = plan.deletableThrough;
-    await this.writeCheckpointState(conversationId, transport, senderId, otherUserId, state);
-  }
-
-  /**
-   * TODO §S Item 4/S1 bugfix (found via the real-browser 30-ledger-message-pruning-e2e
-   * spec — never caught by unit tests against fakes): this used to call `.get(wireId).put(null)`
-   * on the message's own nested edge chain, which only nulls the *parent* (`messages`) node's
-   * field pointing at the child — it does not touch the child soul's own content. Gun's graph
-   * is append-only; a soul, once materialized, is a permanent key in `gun._.graph` (confirmed
-   * against the server's own `/api/test/export-snapshot`, which dumps that raw graph
-   * unfiltered) — no write can make the key vanish, only clear its fields. Unlinking the
-   * parent edge is enough to make the record invisible to ordinary app traversal
-   * (`.map()`-based reads correctly stop yielding it, and `listLocalWires`'s own `!record.text`
-   * guard already treats a content-empty record as absent), but it leaves the *full plaintext/
-   * ciphertext* of every "pruned" message sitting in the durable graph forever — which defeats
-   * the entire point of retention (§S2's storage-budget derivation only means anything if
-   * deletion actually frees bytes). Fixed by nulling the child node's own fields directly
-   * (mirroring the ledger's `putRawGunFieldsNulled` fix for the identical class of bug,
-   * `pruneLedgerEvents`'s own doc comment) instead of nulling the parent's edge — this reaches
-   * the raw Gun API via `putWithAck`, bypassing `WebGunService.serializeDates`, which strips
-   * `null`-valued properties before handing data to Gun (an all-fields-null object would
-   * otherwise serialize to `{}`, a no-op merge — the same trap the ledger fix already
-   * documented).
-   */
-  private deleteMessageRecord(
-    conversationId: string,
-    wireId: string,
-    transport: string,
-    senderId: string,
-    otherUserId?: string,
-  ): Promise<void> {
-    const gun = this.gunService.getGun();
-    const nulledFields: Record<string, null> = {
-      id: null,
-      senderId: null,
-      text: null,
-      timestamp: null,
-      channel: null,
-      transport: null,
-      encryption: null,
-      prevSeen: null,
-      isFromChatbot: null,
-      talkId: null,
-      greetingLocale: null,
-      greetingSignature: null,
-      greetingAuthorPub: null,
-      faqQuestionKey: null,
-      faqAuthorPub: null,
-      faqSignature: null,
-      faqEntryJson: null,
-      ackLocale: null,
-      ackSignature: null,
-      ackAuthorPub: null,
-      tipIndex: null,
-      tipLocale: null,
-      tipSignature: null,
-      tipAuthorPub: null,
-    };
-    if (transport === 'direct-p2p' && otherUserId) {
-      return this.putWithAck(gun
-        .get('pairConversations')
-        .get(this.pairIdForUsers(senderId, otherUserId))
-        .get(conversationId)
-        .get('messages')
-        .get(wireId), nulledFields);
-    }
-    return this.putWithAck(gun.get(`conversations/${conversationId}`).get('messages').get(wireId), nulledFields);
+    await this.privateRepository.append(conversationId, record as LocalConversationWire);
   }
 
   /**
@@ -806,14 +456,17 @@ export class GunMessageStore {
     myUserId: string,
     otherUserId?: string,
     limit: number = DEFAULT_RECONCILE_WINDOW,
-    // 500ms was measured against local/fast conditions, not the real Gun read latency this
-    // whole session's fixes found on real devices (frequently 800ms-8000ms+ — see
-    // WebGunService's own doc comments). Gun's .map() has no "done enumerating" signal, so this
-    // is inherently a best-effort window either way, but 500ms was undercounting often enough
-    // in practice to matter for callers that make destructive decisions from the result (see
-    // maybeCreateMessageCheckpoint's high-water-mark guard, added for exactly this).
+    // Used only by one-time mixed-release import. The current encrypted local envelope
+    // has deterministic reads and does not need a settle window.
     enumerateWaitMs: number = MESSAGE_ENUMERATE_WAIT_MS,
   ): Promise<ReconcileMessage[]> {
+    const local = await this.privateRepository.list(conversationId);
+    if (local.length > 0) {
+      return boundRecentWires(local as ReconcileMessage[], limit);
+    }
+
+    // One mixed-release import from the former peered conversation graphs. This is the only
+    // remaining read of those paths; no local mutation is ever written back to them.
     const gun = this.gunService.getGun();
     const byId = new Map<string, ReconcileMessage>();
     const collect = (record: any, id: string) => {
@@ -831,15 +484,19 @@ export class GunMessageStore {
         ...(record.talkId ? { talkId: String(record.talkId) } : {}),
       });
     };
-    return new Promise((resolve) => {
+    const legacy = await new Promise<ReconcileMessage[]>((resolve) => {
       gun.get(`conversations/${conversationId}`).get('messages').map().once(collect);
       void this.getPairMessageRoot(conversationId, myUserId, otherUserId)
         .then((resolved) => {
           if (resolved) resolved.root.map().once(collect);
         })
         .catch(() => undefined);
-      setTimeout(() => resolve(boundRecentWires([...byId.values()], limit)), enumerateWaitMs);
+      setTimeout(() => resolve([...byId.values()]), enumerateWaitMs);
     });
+    if (legacy.length > 0) {
+      await this.privateRepository.importIfEmpty(conversationId, legacy as LocalConversationWire[]);
+    }
+    return boundRecentWires(legacy, limit);
   }
 
   subscribeToMessages(
@@ -848,126 +505,45 @@ export class GunMessageStore {
     myUserId?: string,
     otherUserId?: string,
   ): () => void {
-    const gun = this.gunService.getGun();
-    const processedMessages = new Set<string>();
-    let lastEmittedCount = 0;
-    const emitAppendOnly = (messages: Message[]) => {
-      if (messages.length < lastEmittedCount) return;
-      lastEmittedCount = messages.length;
-      callback(messages);
-    };
-    const collectSoon = () => {
-      setTimeout(() => {
-        void this.collectAndDecryptMessages(conversationId, processedMessages, emitAppendOnly, myUserId, otherUserId);
-      }, 300);
-    };
-    const ingestMessageId = (messageId: string): void => {
-      if (!messageId || messageId.startsWith('_')) return;
-      if (processedMessages.has(messageId)) return;
-      processedMessages.add(messageId);
-      collectSoon();
-    };
-
-    const subscribeRoot = (root: any) => root
-      .get(`conversations/${conversationId}`)
-      .get('messages')
-      .map()
-      .on((_messageData: any, messageId: string) => {
-        ingestMessageId(messageId);
-      });
-
-    subscribeRoot(gun);
-    if (myUserId) {
-      // The pair-root branch must not be one-shot: at overlay-open time the conversation
-      // record (and the caller's otherUserId) can lag replication. A failed attach here used
-      // to silently kill peer-message rendering for the whole subscription lifetime — the
-      // legacy-mirror write masked that until it was removed. Retry until the peer id
-      // resolves (canonical `conv_pair_` ids resolve synchronously and never retry).
-      const attachPairRoot = async (): Promise<boolean> => {
-        const resolved = await this.getPairMessageRoot(conversationId, myUserId, otherUserId).catch(() => null);
-        if (!resolved) return false;
-        const root = resolved.root;
-        const onChild = (_messageData: any, messageId: string) => {
-          ingestMessageId(messageId);
-        };
-        root.map().on(onChild);
-        // Bootstrap read: `.map().on()` is expected to replay already-present children on
-        // subscribe, but a subscription raced against a peer's write to a graph-linked path
-        // (`pairConversations/<pairId>/<conversationId>/messages`, reached via a Gun soul
-        // reference rather than a plain top-level key) can miss that replay — the listener
-        // attaches to a node the local graph still considers empty and the live "put" event
-        // from the relay arrives on a socket frame the listener wasn't registered in time
-        // for. A one-shot `.map().once()` right after `.on()` is a cheap, idempotent
-        // (dedup via `processedMessages`) safety net that guarantees any message already
-        // durable in Gun gets rendered even if the live event was missed.
-        root.map().once(onChild);
-        // Cold-start pull: after a reload the local graph is empty and history must be
-        // resolved from the hub through the 4-hop pair chain. A single `.once` can sit on
-        // Gun's slow resolution path for 10s+ (measured), starving the UI. Re-issuing the
-        // bootstrap read forces fresh asks and cuts the cold pull to a couple of seconds;
-        // it stops as soon as any message id lands (live `.on` covers the rest).
-        let bootstrapAttempts = 0;
-        const rebootstrap = () => {
-          if (processedMessages.size > 0 || bootstrapAttempts >= 12) return;
-          bootstrapAttempts += 1;
-          root.map().once(onChild);
-          setTimeout(rebootstrap, 1_000);
-        };
-        setTimeout(rebootstrap, 1_000);
-        return true;
-      };
-      const tryAttachPairRoot = (attempt: number): void => {
-        void attachPairRoot().then((attached) => {
-          if (!attached && attempt < 15) setTimeout(() => tryAttachPairRoot(attempt + 1), 1000);
-        });
-      };
-      tryAttachPairRoot(0);
-    }
-
-    if (myUserId) {
-      void this.listLocalWires(conversationId, myUserId, otherUserId)
-        .then((wires) => {
-          let added = false;
-          for (const wire of wires) {
-            const messageId = String(wire.id || '').trim();
-            if (!messageId || processedMessages.has(messageId)) continue;
-            processedMessages.add(messageId);
-            added = true;
-          }
-          if (added) collectSoon();
+    let disposed = false;
+    let lastSignature = '';
+    const emit = (wires: LocalConversationWire[]) => {
+      const signature = wires.map((wire) => wire.id).join('|');
+      if (disposed || signature === lastSignature) return;
+      lastSignature = signature;
+      void this.decryptLocalWires(conversationId, wires, myUserId, otherUserId)
+        .then((messages) => {
+          if (!disposed) callback(messages);
         })
         .catch(() => undefined);
-    }
+    };
+
+    const offPrivate = this.privateRepository.subscribe(conversationId, emit);
+    void this.listLocalWires(conversationId, myUserId || '', otherUserId, 0)
+      .then((wires) => emit(wires as LocalConversationWire[]))
+      .catch(() => {
+        if (!disposed) callback([]);
+      });
 
     return () => {
+      disposed = true;
+      offPrivate();
       console.log(`👋 Unsubscribed from user ${conversationId} messages (${this.mode})`);
     };
   }
 
-  private async collectAndDecryptMessages(
+  private async decryptLocalWires(
     conversationId: string,
-    processedMessages: Set<string>,
-    callback: (messages: Message[]) => void,
+    wires: LocalConversationWire[],
     myUserId?: string,
     otherUserId?: string,
-  ): Promise<void> {
-    const gun = this.gunService.getGun();
+  ): Promise<Message[]> {
     const pair = this.gunService.getStoredPair();
-    const ids = Array.from(processedMessages);
     const messagesArray: Message[] = [];
     const otherId = myUserId ? otherUserId || await this.getOtherParticipantId(conversationId, myUserId) : undefined;
-    const resolvedPairRoot = myUserId ? await this.getPairMessageRoot(conversationId, myUserId, otherId) : null;
-    const pairRoot = resolvedPairRoot ? resolvedPairRoot.root : null;
 
-    for (const msgId of ids) {
-      const pairMsg = pairRoot ? await this.readMessageNode(pairRoot, msgId) : null;
-      const msg = pairMsg?.text
-        ? pairMsg
-        : await this.readMessageNode(
-          gun.get(`conversations/${conversationId}`).get('messages'),
-          msgId,
-        );
-      if (!msg || !msg.text) continue;
+    for (const msg of wires) {
+      if (!msg?.id || !msg.text) continue;
 
       let text = String(msg.text);
       const ch = (msg.channel as Message['channel']) || 'public';
@@ -998,16 +574,16 @@ export class GunMessageStore {
       }
 
       messagesArray.push({
-        id: msg.id || msgId,
-        senderId: msg.senderId,
+        id: msg.id,
+        senderId: String(msg.senderId || ''),
         text,
         isFromChatbot: !!msg.isFromChatbot,
-        questionId: msg.questionId,
-        answerId: msg.answerId,
-        timestamp: new Date(msg.timestamp),
-        readBy: msg.readBy || [],
+        timestamp: new Date(String(msg.timestamp)),
+        readBy: Array.isArray(msg.readBy) ? msg.readBy as string[] : [],
         channel: ch,
-        prevSeen: msg.prevSeen ?? undefined,
+        ...(typeof msg.questionId === 'string' ? { questionId: msg.questionId } : {}),
+        ...(typeof msg.answerId === 'string' ? { answerId: msg.answerId } : {}),
+        ...(msg.prevSeen !== undefined ? { prevSeen: String(msg.prevSeen) } : {}),
         ...(msg.talkId ? { talkId: String(msg.talkId) } : {}),
       });
     }
@@ -1034,25 +610,6 @@ export class GunMessageStore {
       }
     }
 
-    callback(messagesArray);
-
-    const missingCount = ids.length - messagesArray.length;
-    const retryKey = `${conversationId}:${myUserId || ''}:${otherUserId || ''}`;
-    if (missingCount > 0) {
-      const nextRetryCount = (this.collectRetryCounts.get(retryKey) || 0) + 1;
-      this.collectRetryCounts.set(retryKey, nextRetryCount);
-      if (nextRetryCount <= 20 && !this.collectRetryTimers.has(retryKey)) {
-        const timer = setTimeout(() => {
-          this.collectRetryTimers.delete(retryKey);
-          void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId, otherUserId);
-        }, 500);
-        this.collectRetryTimers.set(retryKey, timer);
-      }
-    } else {
-      this.collectRetryCounts.delete(retryKey);
-      const timer = this.collectRetryTimers.get(retryKey);
-      if (timer) clearTimeout(timer);
-      this.collectRetryTimers.delete(retryKey);
-    }
+    return messagesArray;
   }
 }

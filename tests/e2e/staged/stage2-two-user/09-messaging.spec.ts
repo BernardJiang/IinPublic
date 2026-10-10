@@ -15,9 +15,9 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import {
-  assertGunStoredMessageBodies,
+  assertLocalPrivateMessageBodies,
   prepareDirectP2PConversation,
 } from '../../helpers/p2p-transport-e2e';
 
@@ -113,14 +113,12 @@ test.describe('Direct messaging between matched users', () => {
     const tomUserId = await pageTom.evaluate(
       () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
     );
-    await pageTom.click('.chatroom-item:has-text("Global")');
-    await afterSync();
+    await openCurrentChatroom(pageTom);
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
-    await afterSync();
+    await openCurrentChatroom(pageJerry);
 
     // ── Tom creates and broadcasts the talk ──────────────────────────────────
     await pageTom.click('#create-talk-btn');
@@ -137,7 +135,7 @@ test.describe('Direct messaging between matched users', () => {
     await afterSync();
 
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await openCurrentChatroom(pageTom);
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);
@@ -226,6 +224,6 @@ test.describe('Direct messaging between matched users', () => {
       )
       .toBe(true);
 
-    await assertGunStoredMessageBodies(pageTom, conversationId, 1, [TOM_MESSAGE, JERRY_REPLY]);
+    await assertLocalPrivateMessageBodies(pageTom, conversationId, 1, [TOM_MESSAGE, JERRY_REPLY]);
   });
 });

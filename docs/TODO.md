@@ -56,8 +56,14 @@ its ID.
       return to the peered namespace, and an unavailable local store fails closed. Moved the
       plaintext incoming-Talk cluster envelope behind this boundary with live decrypted local
       subscriptions and one-time legacy import.
-    - [ ] Migrate the remaining pair-conversation/message and ledger compatibility graphs off the
-      peered Gun, then remove the legacy private-ciphertext read path after the mixed-release window.
+    - [x] Moved ordinary pair-message bodies/checkpoints and signed ledger events/indexes/checkpoints
+      to encrypted peerless Gun. Message digest/backfill and bounded ledger deltas now cross only the
+      authenticated ordered DataChannel; ledger frames are author-bound and cannot relay a third
+      person's feed. Browser gates prove local persistence and zero `pairConversations/*/messages/*`
+      or `ledger/*` bodies on the hub graph.
+    - [ ] Migrate generic pair conversation discovery/deal-confirmation metadata after designing a
+      direct first-message wake-up path, then remove all one-time legacy ciphertext imports after the
+      mixed-release window.
   - [ ] **P0 direct Talk baseline:** disable third-person device forwarding and room-body gossip by
     default. Implement a durable author-to-receiver scheduler that rotates through at most `K`
     simultaneous direct peers, negotiates compact inventories, transfers signed bodies over an

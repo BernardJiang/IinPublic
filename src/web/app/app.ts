@@ -461,7 +461,6 @@ export class IinPublicApp {
       this.ledgerService = new WebLedgerService(this.gunService, userId, pubkey);
       void this.ledgerService.loadOwnFeedHead()
         .then(() => {
-          this.startLedgerDeltaSync();
           this.initLedgerTransportHooks();
         })
         .catch(() => {/* non-fatal */});
@@ -507,7 +506,8 @@ export class IinPublicApp {
     const ledger = this.ledgerService;
     this.conversationService.setLedgerHandshakeHooks({
       getLedgerState: () => ledger.getState(),
-      onRemoteLedgerState: (otherUserId, state) => ledger.syncWithPeer(otherUserId, state),
+      getLedgerDelta: (state) => ledger.buildDeltaForPeer(state),
+      onRemoteLedgerEvents: (otherUserId, events) => ledger.ingestRemoteEvents(otherUserId, events),
     });
     // P2P media (no server/gateway): serve our own shared-file bytes to a peer on request,
     // and store bytes a peer streams to us so the conversation card can render them.
@@ -525,43 +525,6 @@ export class IinPublicApp {
         this.uiManager.refreshOpenConversationForAttachment();
       },
     });
-  }
-
-  /**
-   * Phase F: Start LEDGER_STATE handshake + O(Δ) delta sync (REQ-LEDGER-06).
-   *
-   * Broadcasts our state so peers know what to send us, subscribes to our inbox
-   * for incoming delta events, and proactively pushes deltas to known contacts.
-   * Also wires the Gun 'hi' event so we re-broadcast whenever a new peer connects.
-   *
-   * All errors are swallowed — delta sync is best-effort and must not block the app.
-   */
-  private startLedgerDeltaSync(): void {
-    if (this.isLedgerDisabledForRun()) return;
-    if (!this.ledgerService) return;
-    const ledger = this.ledgerService;
-
-    // Lazy getter: returns known contact userIds from the current user's knownPeople list.
-    const getPeerIds = (): string[] => {
-      const known = this.currentUser?.knownPeople;
-      const list = Array.isArray(known) ? known : [];
-      return list.map((k) => k.userId).filter(Boolean);
-    };
-
-    // Start the inbox subscription + initial proactive sync (fire-and-forget)
-    void ledger.startDeltaSync(getPeerIds).catch((e) =>
-      console.warn('[Ledger] startDeltaSync failed (non-fatal):', e),
-    );
-
-    // Re-broadcast our state whenever a new Gun peer connects (REQ-LEDGER-06 handshake)
-    try {
-      const gun = this.gunService.getGun();
-      if (gun) {
-        gun.on('hi', () => {
-          void ledger.broadcastState().catch(() => {/* non-fatal */});
-        });
-      }
-    } catch {/* non-fatal */}
   }
 
   /**
@@ -873,7 +836,7 @@ export class IinPublicApp {
     // from, a blocked-either-way sender.
     if (await this.resolveBlockStatusEitherWay(payload.senderId)) return;
 
-    this.conversationService.upsertMessageRecord(
+    await this.conversationService.upsertMessageRecord(
       payload.conversationId,
       {
         id: messageId,
@@ -3430,7 +3393,7 @@ export class IinPublicApp {
   private async ingestConversationMessageFromMailbox(payload: MailboxConversationMessagePayload): Promise<void> {
     if (!this.currentUser?.id) return;
     if (payload.kind !== 'conversation-message-v1' || !payload.wire?.id) return;
-    this.conversationService.upsertMessageRecord(
+    await this.conversationService.upsertMessageRecord(
       payload.conversationId,
       payload.wire,
       { otherUserId: payload.recipientUserId || this.currentUser.id },
@@ -4702,7 +4665,7 @@ export class IinPublicApp {
     // transmitted. The greeting is authored by TechSupport, not "sent" by this device, so
     // this writes directly through the local-only primitive rather than sendMessage's
     // peer-notify path.
-    this.conversationService.upsertMessageRecord(
+    await this.conversationService.upsertMessageRecord(
       conversationId,
       {
         id: `support_welcome_${userId}`,
@@ -7196,8 +7159,10 @@ export class IinPublicApp {
   }
 
   public async pushLedgerSyncToPeerForE2e(peerId: string): Promise<void> {
-    if (!this.ledgerService) return;
-    await this.ledgerService.syncWithPeerById(peerId);
+    const session = listP2PSessions().find(
+      (candidate) => candidate.getOtherUserId() === peerId && candidate.hasLedgerHooks(),
+    );
+    session?.synchronizeLedger();
   }
 
   /**
@@ -7234,12 +7199,6 @@ export class IinPublicApp {
         otherUserId,
         messageId: `${textPrefix}-${i}`,
       });
-      // Each send's own checkpoint/prune pass (maybeCreateMessageCheckpoint) is
-      // fire-and-forget — sendMessage returns before it's done. A pass's own
-      // listLocalWires read alone takes >= 500ms; this gap reduces (but per the design
-      // note's Item 4 "Done" note, does not fully eliminate) overlap between passes.
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
   }
 

@@ -1,5 +1,5 @@
 import { WebGunService } from './web-gun-service';
-import { Message } from '../../shared/types';
+import { Message, type InteractionEvent } from '../../shared/types';
 import type { ConversationTransportMode, P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import type { LedgerState } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -21,6 +21,8 @@ type DirectCapableTransport = ConversationTransport & {
   setLedgerHandshakeHooks?(hooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+    getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
+    onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   }): void;
   setUndeliverableHandler?(
     handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
@@ -86,6 +88,8 @@ export class WebConversationService {
   private ledgerHooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+    getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
+    onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   } = {};
 
   constructor(private gunService: WebGunService, transport?: ConversationTransport) {
@@ -114,6 +118,8 @@ export class WebConversationService {
   setLedgerHandshakeHooks(hooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+    getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
+    onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   }): void {
     this.ledgerHooks = hooks;
     (this.transport as DirectCapableTransport).setLedgerHandshakeHooks?.(hooks);
@@ -429,8 +435,8 @@ export class WebConversationService {
     conversationId: string,
     wire: ConversationMessageWire,
     opts?: { otherUserId?: string },
-  ): void {
-    this.gunMessageStore.putMessageRecord(conversationId, wire, opts);
+  ): Promise<void> {
+    return this.gunMessageStore.putMessageRecord(conversationId, wire, opts);
   }
 
   /**

@@ -153,14 +153,42 @@ export async function prepareDirectP2PConversation(
 }
 
 /**
- * P1-7: direct-mode DM bodies persist under pair-private Gun paths as ciphertext.
+ * Direct-mode DM bodies persist in this endpoint's encrypted, peerless local Gun only.
+ * The shared relay graph must contain neither the current pair path nor the legacy path.
  */
-export async function assertGunStoredMessageBodies(
+export async function assertLocalPrivateMessageBodies(
   page: Page,
   conversationId: string,
   minMessageNodes = 1,
   forbiddenPlaintext: string[] = [],
 ): Promise<void> {
+  const readLocal = () => page.evaluate(async (cid) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const envelope = await app?.gunService?.getPrivate?.(
+      `conversations/${encodeURIComponent(cid)}/history`,
+    );
+    if (!envelope || typeof envelope.messagesJson !== 'string') return [];
+    try {
+      const parsed = JSON.parse(envelope.messagesJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, conversationId);
+  await expect.poll(async () => (await readLocal()).length, {
+    timeout: P2P_E2E_TIMEOUT_MS,
+    message: `Expected ${minMessageNodes} local private message(s) for ${conversationId}`,
+  }).toBeGreaterThanOrEqual(minMessageNodes);
+  const local = await readLocal();
+  for (const raw of local) {
+    expect(raw?.encryption).toBe('sea-ecdh-v1');
+    expect(typeof raw?.text).toBe('string');
+    const serialized = JSON.stringify(raw);
+    for (const snippet of forbiddenPlaintext) {
+      expect(serialized.includes(snippet)).toBe(false);
+    }
+  }
+
   const res = await page.request.get(`${gunBaseURL()}/api/test/export-snapshot`);
   expect(res.ok()).toBeTruthy();
   const payload = (await res.json()) as { gunGraph?: Record<string, unknown> };
@@ -176,18 +204,16 @@ export async function assertGunStoredMessageBodies(
   const legacyStored = Object.keys(graph).filter(
     (key) => key.startsWith(legacyMessagePrefix) && key !== `conversations/${conversationId}/messages`,
   );
-  expect(stored.length).toBeGreaterThanOrEqual(minMessageNodes);
+  expect(stored.length).toBe(0);
   expect(legacyStored.length).toBe(0);
-  for (const key of stored) {
-    const raw = graph[key] as any;
-    expect(raw?.encryption).toBe('sea-ecdh-v1');
-    expect(typeof raw?.text).toBe('string');
-    const serialized = JSON.stringify(raw);
-    for (const snippet of forbiddenPlaintext) {
-      expect(serialized.includes(snippet)).toBe(false);
-    }
+  const relaySerialized = JSON.stringify(graph);
+  for (const snippet of forbiddenPlaintext) {
+    expect(relaySerialized.includes(snippet)).toBe(false);
   }
 }
+
+/** @deprecated Use assertLocalPrivateMessageBodies. */
+export const assertGunStoredMessageBodies = assertLocalPrivateMessageBodies;
 
 /**
  * P2P-Y: Read the handshake diagnostics for a specific conversation/user from
@@ -220,10 +246,10 @@ export async function waitForHandshakeOk(
     .toMatchObject({ handshakeState: 'ok', selectedProtocol: 'iinpublic-p2p-v1' });
 }
 
-/** @deprecated Superseded by assertGunStoredMessageBodies (P2P-H, spec §19.4). */
+/** @deprecated Superseded by assertLocalPrivateMessageBodies. */
 export async function assertNoGunStoredMessageBodies(
   page: Page,
   conversationId: string,
 ): Promise<void> {
-  return assertGunStoredMessageBodies(page, conversationId, 0);
+  return assertLocalPrivateMessageBodies(page, conversationId, 0);
 }

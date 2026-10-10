@@ -1,5 +1,4 @@
-import type { Message } from '../../shared/types';
-import type { LedgerState } from '../../shared/types';
+import type { InteractionEvent, LedgerState, Message } from '../../shared/types';
 import {
   createSignedP2PEnvelopeProof,
   derivePeerIdFromPub,
@@ -83,6 +82,15 @@ type LedgerStateWirePayload = {
   feeds: LedgerState;
 };
 
+type LedgerSyncRequestWirePayload = {
+  type: 'ledger-sync-request';
+};
+
+type LedgerEventsWirePayload = {
+  type: 'ledger-events';
+  events: InteractionEvent[];
+};
+
 type MeshWirePayload = {
   type: 'mesh';
   frame: P2PMeshFrame;
@@ -122,6 +130,8 @@ type ChannelFramePayload =
   | LinkUpgradeWirePayload
   | DmWirePayload
   | LedgerStateWirePayload
+  | LedgerSyncRequestWirePayload
+  | LedgerEventsWirePayload
   | MeshWirePayload
   | SyncDigestWirePayload
   | AttachRequestWirePayload
@@ -304,9 +314,11 @@ export type P2PSessionConfig = {
   isInitiator: boolean;
   getLedgerState?: () => LedgerState;
   onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+  getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
+  onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   onRemoteMeshFrame?: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   /** REQ-P2P-01: persist inbound DMs to local Gun before UI notify. */
-  onRemoteDm?: (wire: DmWirePayload['message']) => void;
+  onRemoteDm?: (wire: DmWirePayload['message']) => void | Promise<void>;
   /**
    * Phase 5 peer↔peer reconciliation (spec §19.4): the local message-id digest for this
    * conversation, sent on connect so the peer can backfill gaps directly (no hub).
@@ -461,6 +473,20 @@ export class P2PConversationSession {
     return [...this.messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }
 
+  getOtherUserId(): string {
+    return this.config.otherUserId;
+  }
+
+  hasLedgerHooks(): boolean {
+    return typeof this.config.getLedgerState === 'function';
+  }
+
+  /** Ask an already-connected peer for its current state so we can return its missing delta. */
+  synchronizeLedger(): void {
+    void this.sendChannelFrame({ type: 'ledger-sync-request' } satisfies LedgerSyncRequestWirePayload)
+      .catch(() => undefined);
+  }
+
   subscribe(listener: (messages: Message[]) => void): () => void {
     this.listeners.add(listener);
     listener(this.getMessages());
@@ -477,6 +503,8 @@ export class P2PConversationSession {
   setLedgerHooks(hooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+    getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
+    onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   }): void {
     this.config = { ...this.config, ...hooks };
   }
@@ -573,7 +601,7 @@ export class P2PConversationSession {
     this.config.onAttachmentBytes(key, full);
   }
 
-  setOnRemoteDm(hook: (wire: DmWirePayload['message']) => void): void {
+  setOnRemoteDm(hook: (wire: DmWirePayload['message']) => void | Promise<void>): void {
     this.config.onRemoteDm = hook;
   }
 
@@ -613,6 +641,17 @@ export class P2PConversationSession {
 
   private async handleLedgerState(feeds: LedgerState): Promise<void> {
     this.ledgerRemoteReceived = true;
+    if (this.config.getLedgerDelta) {
+      const events = await this.config.getLedgerDelta(feeds);
+      // Keep frames comfortably below common DataChannel message limits. The channel is
+      // ordered, so the peer persists these batches before any later DM frame is handled.
+      for (let offset = 0; offset < events.length; offset += 32) {
+        await this.sendChannelFrame({
+          type: 'ledger-events',
+          events: events.slice(offset, offset + 32),
+        } satisfies LedgerEventsWirePayload);
+      }
+    }
     if (this.config.onRemoteLedgerState) {
       await this.config.onRemoteLedgerState(this.config.otherUserId, feeds);
     }
@@ -1024,6 +1063,21 @@ export class P2PConversationSession {
       await this.handleLedgerState(parsed.frame.feeds || {});
       return;
     }
+    if (parsed.frame.type === 'ledger-sync-request') {
+      this.sendLedgerState();
+      return;
+    }
+    if (parsed.frame.type === 'ledger-events') {
+      const events = Array.isArray(parsed.frame.events) ? parsed.frame.events : [];
+      // Do not become a third-party ledger relay: this authenticated channel may carry
+      // only events authored by the peer whose identity signed the outer frame.
+      if (events.some((event) => event?.pubkey !== this.config.otherPub)) return;
+      await this.config.onRemoteLedgerEvents?.(
+        this.config.otherUserId,
+        events,
+      );
+      return;
+    }
     if (parsed.frame.type === 'link-upgrade') {
       await this.onLinkUpgradeMessage?.(parsed.frame.message);
       return;
@@ -1046,16 +1100,19 @@ export class P2PConversationSession {
     }
     if (parsed.frame.type !== 'dm' || !('message' in parsed.frame) || !parsed.frame.message) return;
     if (!this.ledgerReady && this.config.getLedgerState) return;
-    this.ingestWireMessage(parsed.frame.message);
+    await this.ingestWireMessage(parsed.frame.message);
   }
 
-  private ingestWireMessage(wire: DmWirePayload['message'], options?: { skipRemotePersist?: boolean }): void {
+  private async ingestWireMessage(
+    wire: DmWirePayload['message'],
+    options?: { skipRemotePersist?: boolean },
+  ): Promise<void> {
     if (
       !options?.skipRemotePersist &&
       wire.senderId !== this.config.localUserId &&
       this.config.onRemoteDm
     ) {
-      this.config.onRemoteDm(wire);
+      await this.config.onRemoteDm(wire);
     }
 
     const msg: Message = {
@@ -1149,7 +1206,7 @@ export class P2PConversationSession {
         };
     const wire = { type: 'dm' as const, message };
     await this.sendChannelFrame(wire);
-    this.ingestWireMessage(wire.message, { skipRemotePersist: true });
+    void this.ingestWireMessage(wire.message, { skipRemotePersist: true });
   }
 
   async sendMeshFrame(frame: P2PMeshFrame): Promise<void> {

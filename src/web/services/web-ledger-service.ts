@@ -9,20 +9,17 @@
  *  - appendEvent(kind, content) — create + sign + persist a new ledger event
  *  - verifyEvent(event)         — verify CIDv1 id, prev chain, and SEA sig
  *  - getState()                 — return LedgerState (userId → highest seq)
- *  - Gun ledger paths:           ledger/<userId>/events/<seq>
- *  - Gun index paths:            ledger/<userId>/index/talkId/<id>
+ *  - Local encrypted paths:      ledger/<userId>/events/<seq>
+ *  - Local encrypted indexes:    ledger/<userId>/index/talkId/<id>
  *                                ledger/<userId>/index/responseId/<id>
  *                                ledger/<userId>/index/withdrawn/<talkId>
  *
- * REQ-LEDGER-10 (migration compat): legacy Gun paths continue to receive
- * writes in parallel during Phase E. Legacy writes are performed by the
- * existing services; this service only writes to the new ledger paths.
+ * REQ-LEDGER-10 (migration compat): legacy business records may still be written by
+ * existing services, but this ledger history itself is encrypted local state.
  *
- * Phase F — Delta Sync (REQ-LEDGER-06):
- *  - broadcastState()           — write LedgerState to ledger/<userId>/state
- *  - syncWithPeerById(peerId)   — read peer state, push events they're missing
- *  - subscribeToInbox()         — watch ledger/<userId>/inbox, ingest incoming deltas
- *  - startDeltaSync(getPeerIds) — orchestrate broadcast + inbox sub + proactive sync
+ * Phase F — Delta Sync (REQ-LEDGER-06): ledger state and signed event deltas travel only
+ * over the authenticated direct DataChannel. The peered Gun graph is control metadata,
+ * never a compatibility archive or third-party relay for ledger history.
  */
 
 import { canonicalSerialize, computeCIDv1 } from '../../shared/cid';
@@ -149,7 +146,7 @@ export class WebLedgerService {
    *  1. Build the event payload (without id + sig)
    *  2. Compute id = CIDv1 of canonical payload
    *  3. SEA-sign the canonical payload
-   *  4. Write to Gun: ledger/<userId>/events/<seq>
+   *  4. Write to encrypted local storage: ledger/<userId>/events/<seq>
    *  5. Write index paths as appropriate
    *  6. Advance ownFeed state
    */
@@ -187,9 +184,9 @@ export class WebLedgerService {
 
     const event: InteractionEvent = { id, sig, ...payload };
 
-    // Persist to Gun — own feed, keyed by userId (see writeEventToGun's doc comment).
+    // Persist to encrypted peerless Gun — own feed, keyed by userId.
     await this.writeEventToGun(event, this.userId);
-    await this.writeIndexes(event);
+    await this.writeIndexes(event, this.userId);
 
     // Advance feed pointer
     this.ownFeed = { seq, prevCid: id };
@@ -257,39 +254,9 @@ export class WebLedgerService {
   }
 
   /**
-   * TODO §S Item 2: delete any already-checkpointed event more than
-   * `LEDGER_RETENTION_WINDOW` behind the current head — SRS §8.3's "write and confirm
-   * the checkpoint before deleting" ordering, satisfied by only calling this after
-   * `writeCheckpointIndex` above resolves.
-   *
-   * TODO §S Item 7 — two real bugs found via E2E testing, neither caught by the
-   * FakeGunStore unit tests (a plain in-memory Map that doesn't enforce either of Gun's
-   * or WebGunService's own real semantics):
-   *
-   * 1. `gunService.put(path, null)` — replacing a *whole* node's value with a bare
-   *    `null` — is only valid for a node reached via a nested `.get().get()` edge chain
-   *    (e.g. `web-chatroom-service.ts`'s `.get('locations').get(userId).put(null)`),
-   *    because that deletes one *edge* of the parent node. `ledger/<userId>/events/<seq>`
-   *    is a flat, single string-keyed path (no parent edge in Gun's graph) — Gun rejects
-   *    a bare `null` there with "Data at root of graph must be a node (an object)".
-   * 2. The fix for (1) — nulling every field individually instead of the whole node
-   *    (Gun's own convention: setting a *field* to `null` deletes that field) — silently
-   *    did nothing when routed through `gunService.put()`: `WebGunService.serializeDates`
-   *    strips every `null`-valued property before handing data to Gun (`if (value !==
-   *    undefined && value !== null) { serialized[key] = value; }`), so an
-   *    all-fields-null object serializes to `{}` — an empty, no-op merge. Gun then never
-   *    fires an ack for a payload that changes nothing, so the write silently falls
-   *    through to the relaxed-mode 12s timeout and "succeeds" having deleted nothing.
-   *    Fixed by calling the raw Gun instance directly for this one write
-   *    (`gunService.getGun().get(path).put({...nulls})`), bypassing serializeDates so the
-   *    null fields actually reach Gun — the node itself stays a valid (now content-free)
-   *    object, and `getEventBySeq`'s own `!raw.contentJson` check already treats that as
-   *    "not present".
-   *
-   * Only ever deletes seqs the caller has *confirmed* are covered by a written
-   * checkpoint (`<= this.lastCheckpointSeq`) — with N=100/M=500 (the spec's own example
-   * values), nothing is actually deletable until at least 6 checkpoints exist, since the
-   * retention window is larger than one checkpoint interval.
+   * Delete already-checkpointed events that fall outside the retained local window.
+   * The checkpoint is persisted first, and each replacement tombstone stays inside the
+   * encrypted peerless store. The watermark advances only through confirmed writes.
    */
   private async pruneLedgerEvents(): Promise<void> {
     const deletableThrough = Math.min(this.lastCheckpointSeq, this.ownFeed.seq - LEDGER_RETENTION_WINDOW);
@@ -298,9 +265,10 @@ export class WebLedgerService {
     let prunedUpTo = this.prunedThroughSeq;
     for (let seq = this.prunedThroughSeq + 1; seq <= deletableThrough; seq += 1) {
       try {
-        await this.putRawGunFieldsNulled(`ledger/${this.userId}/events/${seq}`, [
-          'id', 'seq', 'prev', 'kind', 'pubkey', 'timestamp', 'contentJson', 'sig',
-        ]);
+        await this.gunService.putPrivate(`ledger/${this.userId}/events/${seq}`, {
+          pruned: true,
+          prunedAt: new Date().toISOString(),
+        });
         prunedUpTo = seq;
       } catch (err) {
         // Stop at the first failure rather than skip ahead — the next checkpoint's
@@ -317,7 +285,7 @@ export class WebLedgerService {
     // prunedThroughSeq for this call chain's own checkpoint event — persist the real
     // value now rather than waiting for some future append.
     try {
-      await this.gunService.put(`ledger/${this.userId}/head`, {
+      await this.gunService.putPrivate(`ledger/${this.userId}/head`, {
         seq: this.ownFeed.seq,
         prevCid: this.ownFeed.prevCid,
         lastCheckpointSeq: this.lastCheckpointSeq,
@@ -341,7 +309,7 @@ export class WebLedgerService {
     content: CheckpointCreatedContent,
   ): Promise<void> {
     try {
-      await this.gunService.put(`ledger/${this.userId}/checkpoints/seq_${content.rangeEnd}`, {
+      await this.gunService.putPrivate(`ledger/${this.userId}/checkpoints/seq_${content.rangeEnd}`, {
         eventSeq: checkpointEvent.seq,
         rangeStart: content.rangeStart,
         rangeEnd: content.rangeEnd,
@@ -403,13 +371,13 @@ export class WebLedgerService {
   }
 
   /**
-   * Load the existing feed head from Gun for the current user.
+   * Load the existing feed head from encrypted local Gun for the current user.
    * Call this once during service initialization before calling appendEvent.
    */
   async loadOwnFeedHead(): Promise<void> {
     try {
       const feedPath = `ledger/${this.userId}/head`;
-      const head = await this.gunService.get(feedPath);
+      const head = await this.gunService.getPrivate(feedPath);
       if (head && typeof head.seq === 'number') {
         this.ownFeed = { seq: head.seq as number, prevCid: (head.prevCid as string | null) ?? null };
         this.peerState[this.userId] = head.seq as number;
@@ -438,10 +406,10 @@ export class WebLedgerService {
   }
 
   /**
-   * Ingest a remote event (received via delta sync).
-   * Verifies it, updates peerState, and writes to Gun.
+   * Ingest a remote event received on an authenticated direct channel.
+   * Verifies it, updates peerState, and writes it to encrypted local Gun.
    */
-  async ingestRemoteEvent(event: InteractionEvent): Promise<boolean> {
+  async ingestRemoteEvent(event: InteractionEvent, feedKey = event.pubkey): Promise<boolean> {
     const valid = await this.verifyEvent(event);
     if (!valid) return false;
 
@@ -457,13 +425,13 @@ export class WebLedgerService {
       if (recomputed !== content.merkleRoot) return false;
     }
 
-    // Remote feed — keyed by the author's pubkey, the only identifier available here
-    // (see writeEventToGun's doc comment; peerState below uses the same pubkey key).
-    await this.writeEventToGun(event, event.pubkey);
-    await this.writeIndexes(event);
-    const existing: number = this.peerState[event.pubkey] ?? 0;
+    // Direct-session callers pass the authenticated peer's user id as feedKey. The
+    // pubkey fallback remains only for old callers that have no separate user id.
+    await this.writeEventToGun(event, feedKey);
+    await this.writeIndexes(event, feedKey);
+    const existing: number = this.peerState[feedKey] ?? 0;
     if (event.seq > existing) {
-      this.peerState[event.pubkey] = event.seq;
+      this.peerState[feedKey] = event.seq;
     }
     return true;
   }
@@ -474,7 +442,7 @@ export class WebLedgerService {
   async getEventsByTalkId(talkId: string): Promise<string[]> {
     try {
       const path = `ledger/${this.userId}/index/talkId/${talkId}`;
-      const entry = await this.gunService.get(path);
+      const entry = await this.gunService.getPrivate(path);
       if (!entry || !entry.eventIds) return [];
       return String(entry.eventIds).split(',').filter(Boolean);
     } catch {
@@ -486,14 +454,14 @@ export class WebLedgerService {
   async isTalkWithdrawn(talkId: string): Promise<boolean> {
     try {
       const path = `ledger/${this.userId}/index/withdrawn/${talkId}`;
-      const entry = await this.gunService.get(path);
+      const entry = await this.gunService.getPrivate(path);
       return !!(entry && entry.withdrawnAt);
     } catch {
       return false;
     }
   }
 
-  // ─── Private Gun write helpers ────────────────────────────────────────────
+  // ─── Encrypted local write helpers ───────────────────────────────────────
 
   /**
    * TODO §S Item 1 bugfix (pre-existing, found while wiring checkpoint creation): this
@@ -508,88 +476,14 @@ export class WebLedgerService {
    * restarted from seq 1 — overwriting the previous session's events at the same path.
    * Fixed by taking an explicit `feedKey` from the caller (mirroring `getEventBySeq`'s
    * already-correct parameterization) instead of inferring it from the event: `userId`
-   * for events this instance authors (`appendEvent`), the only identifier available —
-   * `event.pubkey` — for events ingested from a remote peer (`ingestRemoteEvent`, which
-   * has no separate userId for that peer).
+   * for events this instance authors (`appendEvent`) and the authenticated remote user id
+   * for events ingested from a direct session. `event.pubkey` is only a compatibility
+   * fallback for callers without that identity binding.
    */
-  /**
-   * TODO §S Item 7 bugfix: nulls every named field of a flat string-keyed Gun node via
-   * the raw Gun instance, bypassing `WebGunService.put()`'s `serializeDates`, which
-   * strips `null`-valued properties before handing data to Gun (making an
-   * all-fields-null object serialize to `{}`, an empty no-op merge — see
-   * `pruneLedgerEvents`'s own doc comment for the full story). Used only for this one
-   * "delete a flat-keyed node's content" case; every other write in this file goes
-   * through the normal `gunService.put()` path.
-   */
-  /**
-   * TODO §S Item 7 bugfix (found via real E2E testing — the FakeGunStore unit tests
-   * don't model this distinction at all, so it was invisible there): the inbox was
-   * written via `gunService.put('ledger/<peerId>/inbox/<eventId>', ...)` — a *flat*
-   * string key, meaning each entry is its own independent, unlinked top-level Gun soul.
-   * `subscribeToInbox`'s `.map()` call only ever discovers *actual nested-edge children*
-   * of the `ledger/<peerId>/inbox` node — since flat-keyed entries were never linked as
-   * children of that node at all, `.map()` had nothing to iterate, no matter how many
-   * "ledger/<peerId>/inbox/<id>" keys existed elsewhere in the graph. A direct `.get()`
-   * on that same flat key also came up empty for the same reason (nothing was ever
-   * written *to* that exact node). Every event ever pushed via `syncWithPeer` was
-   * therefore permanently undiscoverable by the receiving peer — delta-sync has never
-   * actually delivered anything since it was built. Fixed by writing (and reading) inbox
-   * entries through a real nested `.get('ledger').get(peerId).get('inbox').get(eventId)`
-   * chain instead, matching `gun-message-store.ts`'s own established convention for any
-   * Gun collection that needs to be *discovered* (as opposed to looked up by a known key,
-   * which is what every other flat-keyed ledger path — events, checkpoints, head — is
-   * used for, and where flat keys remain correct).
-   */
-  private putLedgerInboxEntry(peerId: string, eventId: string, data: Record<string, unknown>): Promise<void> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (err?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (err) reject(err);
-        else resolve();
-      };
-      const timer = setTimeout(() => finish(), 12_000);
-      this.gunService
-        .getGun()
-        .get('ledger')
-        .get(peerId)
-        .get('inbox')
-        .get(eventId)
-        .put(data, (ack: any) => {
-          if (ack?.err) finish(new Error(String(ack.err)));
-          else finish();
-        });
-    });
-  }
-
-  private putRawGunFieldsNulled(path: string, fields: string[]): Promise<void> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (err?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (err) reject(err);
-        else resolve();
-      };
-      // Mirrors WebGunService.put's own relaxed-mode fallback: don't hang forever if Gun
-      // never acks (an empty/no-op-looking diff can go un-acked even when it did apply).
-      const timer = setTimeout(() => finish(), 12_000);
-      const nulled: Record<string, null> = {};
-      for (const field of fields) nulled[field] = null;
-      this.gunService.getGun().get(path).put(nulled, (ack: any) => {
-        if (ack?.err) finish(new Error(String(ack.err)));
-        else finish();
-      });
-    });
-  }
-
   private async writeEventToGun(event: InteractionEvent, feedKey: string): Promise<void> {
     try {
       const path = `ledger/${feedKey}/events/${event.seq}`;
-      await this.gunService.put(path, {
+      await this.gunService.putPrivate(path, {
         id: event.id,
         seq: event.seq,
         prev: event.prev,
@@ -601,7 +495,7 @@ export class WebLedgerService {
       });
       // Also update the head pointer for this feed
       if (feedKey === this.userId) {
-        await this.gunService.put(`ledger/${this.userId}/head`, {
+        await this.gunService.putPrivate(`ledger/${this.userId}/head`, {
           seq: event.seq,
           prevCid: event.id,
           // TODO §S Item 1: persisted so a reload's loadOwnFeedHead knows where the
@@ -617,25 +511,25 @@ export class WebLedgerService {
     }
   }
 
-  private async writeIndexes(event: InteractionEvent): Promise<void> {
+  private async writeIndexes(event: InteractionEvent, feedKey: string): Promise<void> {
     try {
-      const base = `ledger/${event.pubkey}/index`;
+      const base = `ledger/${feedKey}/index`;
 
       // talkId index: covers events that reference a specific talk
       const talkId = this.extractTalkId(event);
       if (talkId) {
         const path = `${base}/talkId/${talkId}`;
-        const existing = await this.gunService.get(path).catch(() => null);
+        const existing = await this.gunService.getPrivate(path).catch(() => null);
         const existingIds: string = existing?.eventIds || '';
         const ids = existingIds ? `${existingIds},${event.id}` : event.id;
-        await this.gunService.put(path, { eventIds: ids, lastSeq: event.seq });
+        await this.gunService.putPrivate(path, { eventIds: ids, lastSeq: event.seq });
       }
 
       // responseId index
       if (event.kind === InteractionKind.TALK_ANSWERED) {
         const responseId = (event.content as TalkAnsweredContent).responseId;
         if (responseId) {
-          await this.gunService.put(`${base}/responseId/${responseId}`, {
+          await this.gunService.putPrivate(`${base}/responseId/${responseId}`, {
             eventId: event.id,
             seq: event.seq,
           });
@@ -645,7 +539,7 @@ export class WebLedgerService {
       // withdrawn index
       if (event.kind === InteractionKind.TALK_WITHDRAWN) {
         const content = event.content as TalkWithdrawnContent;
-        await this.gunService.put(`${base}/withdrawn/${content.talkId}`, {
+        await this.gunService.putPrivate(`${base}/withdrawn/${content.talkId}`, {
           withdrawnAt: event.timestamp,
           eventId: event.id,
           gracePeriodMs: content.gracePeriodMs,
@@ -666,20 +560,6 @@ export class WebLedgerService {
   // ─── Phase F: Delta Sync (REQ-LEDGER-06) ─────────────────────────────────────
 
   /**
-   * Broadcast our current LedgerState to a well-known Gun path so that peers
-   * can read it and compute which events to send us (O(Δ) handshake).
-   *
-   * Written as stateJson (JSON string) to avoid Gun nested-object flattening.
-   * Peers without ledger support simply ignore this path — no breakage.
-   */
-  async broadcastState(): Promise<void> {
-    await this.gunService.put(`ledger/${this.userId}/state`, {
-      stateJson: JSON.stringify(this.getState()),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  /**
    * Read a single ledger event by feed userId + seq number from Gun.
    * Returns null when the path is empty or data is malformed.
    *
@@ -696,7 +576,7 @@ export class WebLedgerService {
    */
   async getEventBySeq(feedUserId: string, seq: number): Promise<InteractionEvent | null> {
     try {
-      const raw = await this.gunService.get(`ledger/${feedUserId}/events/${seq}`);
+      const raw = await this.gunService.getPrivate(`ledger/${feedUserId}/events/${seq}`);
       if (!raw || typeof raw !== 'object' || !raw.contentJson) return null;
       const timestamp = raw.timestamp instanceof Date ? raw.timestamp.toISOString() : (raw.timestamp as string);
       return {
@@ -729,7 +609,7 @@ export class WebLedgerService {
   ): Promise<{ eventSeq: number; rangeStart: number; rangeEnd: number } | null> {
     const rangeEnd = Math.ceil(seq / LEDGER_CHECKPOINT_INTERVAL) * LEDGER_CHECKPOINT_INTERVAL;
     try {
-      const index = await this.gunService.get(`ledger/${feedKey}/checkpoints/seq_${rangeEnd}`);
+      const index = await this.gunService.getPrivate(`ledger/${feedKey}/checkpoints/seq_${rangeEnd}`);
       if (!index || typeof index.eventSeq !== 'number') return null;
       return {
         eventSeq: index.eventSeq as number,
@@ -742,19 +622,17 @@ export class WebLedgerService {
   }
 
   /**
-   * Push the events a peer is missing into their Gun inbox path.
+   * Build the signed events a directly connected peer is missing.
    *
    * For each feed in our peerState, compare against their declared seq:
-   * events with seq > theirSeq[feedUserId] are written to
-   * `ledger/<peerId>/inbox/<eventId>` so the peer can ingest them.
+   * Only this device owner's feed is eligible; remotely ingested feeds are never forwarded.
    *
    * TODO §S Item 3: a seq inside an already-pruned range (Item 2) has no raw event node
    * left to send — `getEventBySeq` returns null for it. Rather than silently skipping it
    * (leaving the peer permanently missing that history), find the checkpoint covering it
    * and push *that* — a `CHECKPOINT_CREATED` event is itself an ordinary, already-signed
-   * `InteractionEvent`, so it travels through the exact same inbox shape
-   * (`{eventJson, deliveredAt}`) and the exact same `ingestRemoteEvent` path as any other
-   * event, no new wire format needed. One checkpoint accounts for a whole
+   * `InteractionEvent`, so it travels through the same signed direct-channel event frame
+   * and the same `ingestRemoteEvent` path as any other event. One checkpoint accounts for a whole
    * `LEDGER_CHECKPOINT_INTERVAL`-sized range, so once we've sent it the loop jumps
    * straight to `rangeEnd + 1` instead of re-deriving the same checkpoint for every seq
    * in that range.
@@ -771,22 +649,23 @@ export class WebLedgerService {
    * claimed event id against a checkpoint someone else holds, without needing the whole
    * leaf array.)
    *
-   * This is a best-effort, fire-and-forget operation; missed events will be
-   * retried on the next peer connection or on next call to startDeltaSync.
+   * The caller splits the returned list into bounded authenticated DataChannel frames.
    */
-  async syncWithPeer(peerId: string, theirState: LedgerState): Promise<void> {
-    for (const [feedUserId, ourSeq] of Object.entries(this.peerState)) {
+  async buildDeltaForPeer(theirState: LedgerState): Promise<InteractionEvent[]> {
+    const delta: InteractionEvent[] = [];
+    const includedIds = new Set<string>();
+    const ownSeq = this.peerState[this.userId] ?? 0;
+    for (const [feedUserId, ourSeq] of [[this.userId, ownSeq]] as Array<[string, number]>) {
       const theirSeq: number = theirState[feedUserId] ?? 0;
       if (ourSeq <= theirSeq) continue; // peer already has everything we do for this feed
       let seq = theirSeq + 1;
       while (seq <= ourSeq) {
         const event = await this.getEventBySeq(feedUserId, seq);
         if (event) {
-          // Write to peer inbox — uses event.id as key to ensure idempotency
-          await this.putLedgerInboxEntry(peerId, event.id, {
-            eventJson: JSON.stringify(event),
-            deliveredAt: new Date().toISOString(),
-          });
+          if (!includedIds.has(event.id)) {
+            includedIds.add(event.id);
+            delta.push(event);
+          }
           seq += 1;
           continue;
         }
@@ -799,115 +678,21 @@ export class WebLedgerService {
           continue;
         }
         const checkpointEvent = await this.getEventBySeq(feedUserId, checkpoint.eventSeq);
-        if (checkpointEvent) {
-          await this.putLedgerInboxEntry(peerId, checkpointEvent.id, {
-            eventJson: JSON.stringify(checkpointEvent),
-            deliveredAt: new Date().toISOString(),
-          });
+        if (checkpointEvent && !includedIds.has(checkpointEvent.id)) {
+          includedIds.add(checkpointEvent.id);
+          delta.push(checkpointEvent);
         }
         seq = checkpoint.rangeEnd + 1; // one checkpoint accounts for its whole range
       }
     }
+    return delta;
   }
 
-  /**
-   * Read a peer's broadcasted LedgerState from Gun and push them the events
-   * they are missing from our local peerState.
-   *
-   * No-ops silently when the peer has no `state` path (pre-Phase-F client).
-   */
-  async syncWithPeerById(peerId: string): Promise<void> {
-    try {
-      const raw = await this.gunService.get(`ledger/${peerId}/state`);
-      if (!raw || typeof raw !== 'object' || !raw.stateJson) return;
-      const theirState: LedgerState = JSON.parse(raw.stateJson as string);
-      await this.syncWithPeer(peerId, theirState);
-    } catch {
-      // Non-fatal — peer may not support ledger sync yet
+  /** Verify and persist a signed direct-channel delta before later frames are processed. */
+  async ingestRemoteEvents(sourceUserId: string, events: InteractionEvent[]): Promise<void> {
+    for (const event of events) {
+      await this.ingestRemoteEvent(event, sourceUserId);
     }
   }
 
-  /**
-   * Subscribe to our own Gun inbox for incoming delta events from peers.
-   *
-   * Whenever a peer pushes an event to `ledger/<myUserId>/inbox/<eventId>`,
-   * this callback verifies and ingests it via `ingestRemoteEvent()`.
-   *
-   * Returns an unsubscribe function — call it to stop watching the inbox.
-   *
-   * TODO §S Item 7 — two compounding bugfixes found via real E2E testing (nothing in the
-   * unit tests exercises a live Gun subscription at all, so neither was visible there):
-   * 1. A plain `.on()` on the `inbox` *parent* node only ever delivers the parent's own
-   *    directly-set fields, not resolved child content — needs `.map().on()` (one
-   *    callback per *resolved* child), the same pattern `gun-message-store.ts`'s own
-   *    subscriptions already use.
-   * 2. Even with `.map().on()`, nothing was ever discovered, because the write side
-   *    (`putLedgerInboxEntry`) used to write via `gunService.put('ledger/<peerId>/inbox/
-   *    <eventId>', ...)` — a *flat* string key, making each entry its own independent,
-   *    unlinked top-level Gun soul with **no actual parent-child edge** to the `inbox`
-   *    node at all. `.map()` can only iterate *real* nested children; a flat key that
-   *    happens to share a string prefix isn't one. This meant every event ever pushed via
-   *    `syncWithPeer` was permanently undiscoverable by the receiving peer — delta-sync
-   *    has never actually delivered anything since it was built. Fixed by writing (and
-   *    now reading) inbox entries through a real nested `.get('ledger').get(peerId or
-   *    userId).get('inbox').get(eventId)` chain — see `putLedgerInboxEntry`'s own doc
-   *    comment for the full write-side story. Every *other* flat-keyed ledger path
-   *    (events, checkpoints, head) is looked up by an already-known key, not discovered
-   *    by iteration, so flat keys remain correct there.
-   */
-  subscribeToInbox(): () => void {
-    const node = this.gunService.getGun().get('ledger').get(this.userId).get('inbox');
-    node.map().on((entry: any, key: string) => {
-      if (!key || key === '_') return;
-      if (!entry || typeof entry !== 'object' || !entry.eventJson) return;
-      try {
-        const event: InteractionEvent = JSON.parse(entry.eventJson as string);
-        // Fire-and-forget: verify + ingest without blocking the Gun callback
-        void this.ingestRemoteEvent(event).catch((err) =>
-          console.warn('[LedgerService] ingestRemoteEvent failed for inbox event', err),
-        );
-      } catch {
-        // Ignore malformed inbox entries
-      }
-    });
-    return () => {
-      try {
-        node.off();
-      } catch {
-        /* best effort */
-      }
-    };
-  }
-
-  /**
-   * Start delta sync for this session:
-   *  1. Broadcast our LedgerState so peers know what to send us.
-   *  2. Subscribe to our inbox for incoming delta events.
-   *  3. Proactively push deltas to each known peer.
-   *
-   * Returns an unsubscribe function that tears down the inbox subscription.
-   * Call it when the user logs out or the app is torn down.
-   *
-   * @param getPeerIds - lazy getter for the current list of known peer userIds.
-   *   Called each time a sync pass runs, so newly added contacts are included.
-   */
-  async startDeltaSync(getPeerIds: () => string[]): Promise<() => void> {
-    // 1. Broadcast our state so peers can compute what to push us
-    await this.broadcastState().catch((e) =>
-      console.warn('[LedgerService] broadcastState failed', e),
-    );
-
-    // 2. Subscribe to inbox for delta events pushed by peers
-    const unsubInbox = this.subscribeToInbox();
-
-    // 3. Proactively sync with known peers (best-effort, non-fatal)
-    const peerIds = getPeerIds();
-    for (const peerId of peerIds) {
-      await this.syncWithPeerById(peerId).catch((e) =>
-        console.warn('[LedgerService] syncWithPeerById failed for', peerId, e),
-      );
-    }
-
-    return unsubInbox;
-  }
 }

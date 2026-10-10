@@ -164,9 +164,16 @@ it does not encrypt plaintext automatically. Owner-private records must be SEA-e
 runtime now routes its private repository API to a local-only, IndexedDB-backed worker Gun and keeps
 the main-thread peered Gun for public control. On upgrade, an existing SEA-encrypted private record
 is imported locally on first read; subsequent updates are local-only. The former plaintext incoming-
-Talk cluster envelope follows the same rule. Pair-conversation/message and ledger compatibility
-graphs still need migration before the split is complete. Room-public paths never contain full Talk
-bodies, answers, or conversations.
+Talk cluster envelope follows the same rule. Ordinary pair-message history now lives in one bounded,
+encrypted local envelope per conversation; authenticated DataChannels perform digest/backfill
+directly between the two endpoints. Signed interaction-ledger events, indexes, heads, and checkpoints
+also live only in the local encrypted store. Peers exchange bounded signed ledger deltas on that same
+ordered DataChannel, and a frame may contain only events authored by the identity that signed it, so
+a phone cannot become a third-party ledger relay. First read can import the former peered ciphertext
+during the mixed-release window; no new message or ledger body is written back there. Generic
+conversation discovery/control metadata remains a separate migration because first-message wake-up
+and two-party deal confirmation still depend on it. Room-public paths never contain full Talk bodies,
+answers, message bodies, or ledger histories.
 
 The Nearby control relay stores only bounded signed presence evidence and certificates. A control
 presence identifies an opaque generation-zero root room, the participant's current opaque room,
@@ -221,6 +228,7 @@ Migration order:
 
 1. Introduce versioned Nearby/Place room IDs and the Gun control schema.
 2. Move owner-private Talk/Me repositories behind the encrypted storage interface.
+   Pair-message history and signed ledgers use the same local boundary and direct endpoint sync.
 3. Implement Nearby-first placement and geographic overflow certificates.
 4. Replace tree/map UI with Nearby + Place pins + Return to Nearby.
 5. Remove Global and TechSupport room membership/floors.

@@ -82,10 +82,8 @@ test.describe('TechSupport — a brand-new question renders a signed ack (docs/T
     // messageId is generated client-side with Date.now()/random, not known in advance).
     // Two server-durable persists happen in quick succession for one question (the user's own
     // message, then this ack) — TechSupportDurableStore's own writes are individually bounded
-    // (~2s worst case per write, see its own put() doc comment), but back-to-back writes plus
-    // this store's fire-and-forget message-checkpoint pass (a ~3s enumeration window per put,
-    // see MESSAGE_PRUNE_ENUMERATE_WAIT_MS) can push the ack's round trip well past a short
-    // window under real (non-memory) load — this exact test's own prior history already
+    // (~2s worst case per write, see its own put() doc comment), but back-to-back writes can
+    // push the ack's round trip past a short window under real (non-memory) load. This test's prior history already
     // documents it ("06-support-new-question-ack's ack never rendering in a full test:all
     // run", see handleSupportQuestion's doc comment in app.ts). Poll generously rather than
     // assume a short timeout means the write never happened — confirmed live: an identical run

@@ -1,5 +1,4 @@
-import type { Message } from '../../shared/types';
-import type { LedgerState } from '../../shared/types';
+import type { InteractionEvent, LedgerState, Message } from '../../shared/types';
 import type { ConversationTransport, SendMessageOptions } from './web-conversation-service';
 import type { ConversationTransportMode } from '../../shared/p2p-runtime';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
@@ -33,6 +32,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
   private ledgerHooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+    getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
+    onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   } = {};
 
   /** P2P media providers: serve local attachment bytes, and receive streamed bytes. */
@@ -86,6 +87,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
   setLedgerHandshakeHooks(hooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+    getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
+    onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   }): void {
     this.ledgerHooks = hooks;
   }
@@ -276,41 +279,22 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       ...this.buildTrustHooks,
       // Phase 5: peer↔peer reconciliation — advertise our local digest on connect and
       // backfill whatever the peer is missing, straight over the DataChannel (no hub).
-      //
-      // TODO §S Item 4: setReconcileInFlight brackets each listLocalWires read here so the
-      // store's own checkpoint/prune pass (gun-message-store.ts) never deletes a message
-      // mid-read — the design note's own risk callout ("do not prune while a reconcile is
-      // mid-backfill").
-      getLocalMessageDigest: async () => {
-        this.gunStore.setReconcileInFlight(conversationId, true);
-        try {
-          return buildConversationDigest(
-            conversationId,
-            await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
-          ).messageIds;
-        } finally {
-          this.gunStore.setReconcileInFlight(conversationId, false);
-        }
-      },
-      getMessagesForBackfill: async (remoteMessageIds: string[]) => {
-        this.gunStore.setReconcileInFlight(conversationId, true);
-        try {
-          return computeMissingForPeer(
-            conversationId,
-            await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
-            { conversationId, messageIds: remoteMessageIds },
-          );
-        } finally {
-          this.gunStore.setReconcileInFlight(conversationId, false);
-        }
-      },
+      getLocalMessageDigest: async () => buildConversationDigest(
+        conversationId,
+        await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+      ).messageIds,
+      getMessagesForBackfill: async (remoteMessageIds: string[]) => computeMissingForPeer(
+        conversationId,
+        await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+        { conversationId, messageIds: remoteMessageIds },
+      ),
     });
     session.setLedgerHooks(this.ledgerHooks);
     session.setAttachmentHooks(this.attachmentHooks);
     session.setBuildTrustHooks(this.buildTrustHooks);
-    session.setOnRemoteDm((wire) => {
+    session.setOnRemoteDm(async (wire) => {
       if (wire.senderId === localUserId) return;
-      this.gunStore.putMessageRecord(conversationId, {
+      await this.gunStore.putMessageRecord(conversationId, {
         id: wire.id,
         senderId: wire.senderId,
         text: wire.text,
@@ -322,7 +306,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
         ...(wire.talkId ? { talkId: wire.talkId } : {}),
       }, { otherUserId: otherId });
-      void this.decryptWireText(wire, wire.senderId).then((text) => {
+      await this.decryptWireText(wire, wire.senderId).then((text) => {
         this.pushLiveMessage(conversationId, {
           id: wire.id,
           senderId: wire.senderId,
