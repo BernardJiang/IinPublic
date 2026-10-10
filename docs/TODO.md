@@ -61,9 +61,12 @@ its ID.
       authenticated ordered DataChannel; ledger frames are author-bound and cannot relay a third
       person's feed. Browser gates prove local persistence and zero `pairConversations/*/messages/*`
       or `ledger/*` bodies on the hub graph.
-    - [ ] Migrate generic pair conversation discovery/deal-confirmation metadata after designing a
-      direct first-message wake-up path, then remove all one-time legacy ciphertext imports after the
-      mixed-release window.
+    - [x] Moved generic pair conversation/deal-confirmation metadata into each endpoint's encrypted
+      peerless Gun. A signed, recipient-bound, 24-hour wake-up contains only routing identity plus an
+      encrypted conversation-id ping; full metadata and deal state synchronize over the authenticated
+      DataChannel. Encrypted mailbox delivery also materializes a minimal thread when the wake-up was
+      missed. New code no longer writes `conversations/<id>` or `users/<id>/conversations`.
+    - [ ] Remove all one-time legacy ciphertext/metadata imports after the mixed-release window.
   - [ ] **P0 direct Talk baseline:** disable third-person device forwarding and room-body gossip by
     default. Implement a durable author-to-receiver scheduler that rotates through at most `K`
     simultaneous direct peers, negotiates compact inventories, transfers signed bodies over an

@@ -128,7 +128,13 @@ test.describe('Messaging edge cases', () => {
   }
 
   async function enterGlobalChatroom(page: Page): Promise<void> {
-    await page.click('.chatroom-item:has-text("Global")');
+    // The flat Nearby design removed the old Global tree row. The stable-room test URL places
+    // both users in the same deterministic Nearby scope automatically; wait for that admission.
+    await expect.poll(() => page.evaluate(() => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      return String(app?.currentChatroomId || app?.chatroomService?.getCurrentChatroomId?.() || '')
+        .startsWith('nearby_');
+    }), { timeout: 20_000 }).toBe(true);
     await afterSync();
   }
 

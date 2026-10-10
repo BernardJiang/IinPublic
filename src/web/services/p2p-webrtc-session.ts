@@ -125,6 +125,12 @@ type LinkUpgradeWirePayload = {
   message: unknown;
 };
 
+/** Pair-private conversation/contact state. The signed DTLS channel is the only transport. */
+type ConversationControlWirePayload = {
+  type: 'conversation-control';
+  metadata: Record<string, unknown>;
+};
+
 type ChannelFramePayload =
   | HandshakeWirePayload
   | LinkUpgradeWirePayload
@@ -135,7 +141,8 @@ type ChannelFramePayload =
   | MeshWirePayload
   | SyncDigestWirePayload
   | AttachRequestWirePayload
-  | AttachChunkWirePayload;
+  | AttachChunkWirePayload
+  | ConversationControlWirePayload;
 
 type SignedChannelWirePayload = {
   type: 'signed-frame';
@@ -319,6 +326,11 @@ export type P2PSessionConfig = {
   onRemoteMeshFrame?: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   /** REQ-P2P-01: persist inbound DMs to local Gun before UI notify. */
   onRemoteDm?: (wire: DmWirePayload['message']) => void | Promise<void>;
+  getConversationControlSnapshot?: () => Promise<Record<string, unknown> | null>;
+  onRemoteConversationControl?: (
+    otherUserId: string,
+    metadata: Record<string, unknown>,
+  ) => void | Promise<void>;
   /**
    * Phase 5 peer↔peer reconciliation (spec §19.4): the local message-id digest for this
    * conversation, sent on connect so the peer can backfill gaps directly (no hub).
@@ -512,6 +524,13 @@ export class P2PConversationSession {
   setAttachmentHooks(hooks: {
     getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
     onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
+  }): void {
+    this.config = { ...this.config, ...hooks };
+  }
+
+  setConversationControlHooks(hooks: {
+    getConversationControlSnapshot?: () => Promise<Record<string, unknown> | null>;
+    onRemoteConversationControl?: (otherUserId: string, metadata: Record<string, unknown>) => void | Promise<void>;
   }): void {
     this.config = { ...this.config, ...hooks };
   }
@@ -947,6 +966,7 @@ export class P2PConversationSession {
       this.setState('connected');
       void this.sendHandshake()
         .then(() => this.sendLedgerState())
+        .then(() => this.sendConversationControlSnapshot())
         .then(() => this.sendSyncDigest());
     };
     channel.onmessage = (event) => {
@@ -983,6 +1003,16 @@ export class P2PConversationSession {
       });
     } catch (err) {
       console.warn(`P2P sync-digest send failed for ${this.config.conversationId}:`, err);
+    }
+  }
+
+  private async sendConversationControlSnapshot(): Promise<void> {
+    if (!this.config.getConversationControlSnapshot) return;
+    try {
+      const metadata = await this.config.getConversationControlSnapshot();
+      if (metadata) await this.sendChannelFrame({ type: 'conversation-control', metadata });
+    } catch (err) {
+      console.warn(`P2P conversation-control send failed for ${this.config.conversationId}:`, err);
     }
   }
 
@@ -1096,6 +1126,14 @@ export class P2PConversationSession {
     }
     if (parsed.frame.type === 'attach-chunk') {
       this.handleAttachChunk(parsed.frame);
+      return;
+    }
+    if (parsed.frame.type === 'conversation-control') {
+      if (!parsed.frame.metadata || typeof parsed.frame.metadata !== 'object') return;
+      await this.config.onRemoteConversationControl?.(
+        this.config.otherUserId,
+        parsed.frame.metadata,
+      );
       return;
     }
     if (parsed.frame.type !== 'dm' || !('message' in parsed.frame) || !parsed.frame.message) return;
@@ -1215,6 +1253,11 @@ export class P2PConversationSession {
       throw new Error('DataChannel not open');
     }
     await this.sendChannelFrame({ type: 'mesh', frame });
+  }
+
+  async sendConversationControl(metadata: Record<string, unknown>): Promise<void> {
+    await this.ensureConnected();
+    await this.sendChannelFrame({ type: 'conversation-control', metadata });
   }
 
   dispose(): void {

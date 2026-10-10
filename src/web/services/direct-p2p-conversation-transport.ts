@@ -35,6 +35,18 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
     onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   } = {};
+  private conversationControlHooks: {
+    getConversationControlSnapshot?: (
+      conversationId: string,
+      localUserId: string,
+      otherUserId: string,
+    ) => Promise<Record<string, unknown> | null>;
+    onRemoteConversationControl?: (
+      conversationId: string,
+      otherUserId: string,
+      metadata: Record<string, unknown>,
+    ) => void | Promise<void>;
+  } = {};
 
   /** P2P media providers: serve local attachment bytes, and receive streamed bytes. */
   private attachmentHooks: {
@@ -93,6 +105,21 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     this.ledgerHooks = hooks;
   }
 
+  setConversationControlHooks(hooks: {
+    getConversationControlSnapshot?: (
+      conversationId: string,
+      localUserId: string,
+      otherUserId: string,
+    ) => Promise<Record<string, unknown> | null>;
+    onRemoteConversationControl?: (
+      conversationId: string,
+      otherUserId: string,
+      metadata: Record<string, unknown>,
+    ) => void | Promise<void>;
+  }): void {
+    this.conversationControlHooks = hooks;
+  }
+
   /** Wire the offline-mailbox fallback (Phase 4); see `onUndeliverable`. */
   setUndeliverableHandler(
     handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
@@ -131,6 +158,16 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     await session.requestAttachment(cid);
   }
 
+  async syncConversationControl(
+    conversationId: string,
+    localUserId: string,
+    otherUserId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    const session = await this.sessionFor(conversationId, localUserId, otherUserId);
+    await session.sendConversationControl(metadata);
+  }
+
   async ensureSessionConnected(
     conversationId: string,
     localUserId: string,
@@ -155,6 +192,17 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     if (hint) return hint;
     const cached = this.participantCache.get(`${conversationId}:${myId}`);
     if (cached) return cached;
+    // Ordinary pair ids are self-describing. Prefer this local derivation now that generic
+    // conversation metadata no longer lives on the peered Gun graph.
+    if (conversationId.startsWith('conv_pair_')) {
+      const participants = conversationId.slice('conv_pair_'.length).split('_');
+      const other = participants.length === 2 ? participants.find((participant) => participant !== myId) : undefined;
+      if (other) {
+        this.participantCache.set(`${conversationId}:${myId}`, other);
+        return other;
+      }
+    }
+    // Mixed-release fallback only. New clients never write this public record.
     const gun = this.gunService.getGun();
     const otherId = await new Promise<string | undefined>((resolve) => {
       gun.get(`conversations/${conversationId}`).once((d: { data?: string }) => {
@@ -288,9 +336,35 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
         { conversationId, messageIds: remoteMessageIds },
       ),
+      getConversationControlSnapshot: () =>
+        this.conversationControlHooks.getConversationControlSnapshot?.(
+          conversationId,
+          localUserId,
+          otherId,
+        ) ?? Promise.resolve(null),
+      onRemoteConversationControl: (_peerId, metadata) =>
+        this.conversationControlHooks.onRemoteConversationControl?.(
+          conversationId,
+          otherId,
+          metadata,
+        ),
     });
     session.setLedgerHooks(this.ledgerHooks);
     session.setAttachmentHooks(this.attachmentHooks);
+    session.setConversationControlHooks({
+      getConversationControlSnapshot: () =>
+        this.conversationControlHooks.getConversationControlSnapshot?.(
+          conversationId,
+          localUserId,
+          otherId,
+        ) ?? Promise.resolve(null),
+      onRemoteConversationControl: (_peerId, metadata) =>
+        this.conversationControlHooks.onRemoteConversationControl?.(
+          conversationId,
+          otherId,
+          metadata,
+        ),
+    });
     session.setBuildTrustHooks(this.buildTrustHooks);
     session.setOnRemoteDm(async (wire) => {
       if (wire.senderId === localUserId) return;

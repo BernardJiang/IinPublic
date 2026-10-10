@@ -166,14 +166,18 @@ the main-thread peered Gun for public control. On upgrade, an existing SEA-encry
 is imported locally on first read; subsequent updates are local-only. The former plaintext incoming-
 Talk cluster envelope follows the same rule. Ordinary pair-message history now lives in one bounded,
 encrypted local envelope per conversation; authenticated DataChannels perform digest/backfill
-directly between the two endpoints. Signed interaction-ledger events, indexes, heads, and checkpoints
-also live only in the local encrypted store. Peers exchange bounded signed ledger deltas on that same
-ordered DataChannel, and a frame may contain only events authored by the identity that signed it, so
-a phone cannot become a third-party ledger relay. First read can import the former peered ciphertext
-during the mixed-release window; no new message or ledger body is written back there. Generic
-conversation discovery/control metadata remains a separate migration because first-message wake-up
-and two-party deal confirmation still depend on it. Room-public paths never contain full Talk bodies,
-answers, message bodies, or ledger histories.
+directly between the two endpoints. Pair conversation metadata and deal confirmations use the same
+endpoint-local rule. A first contact publishes a signed, recipient-bound, 24-hour wake-up containing
+only routing identity and an encrypted conversation-id ping; after that wake-up opens both endpoints'
+pair sessions, the complete metadata crosses their authenticated DataChannel. An encrypted offline
+mailbox message can materialize the same minimal local thread if that wake-up was missed. Signed
+interaction-ledger events, indexes, heads, and checkpoints also live only in the local encrypted
+store. Peers exchange bounded signed ledger deltas on that same ordered DataChannel, and a frame may
+contain only events authored by the identity that signed it, so a phone cannot become a third-party
+ledger relay. First read can import former peered ciphertext and metadata during the mixed-release
+window; no new message, ledger, or conversation-metadata body is written back there. Room-public
+paths never contain full Talk bodies, answers, message bodies, ledger histories, match scores, or
+deal state.
 
 The Nearby control relay stores only bounded signed presence evidence and certificates. A control
 presence identifies an opaque generation-zero root room, the participant's current opaque room,

@@ -15,6 +15,7 @@ import { selectTalkEditorType } from './talk-editor-e2e';
 import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
 import { deliverBroadcastViaAppPath, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 import { gunBaseURL, isDirectTalkDeliveryE2e, isMeshTalkDeliveryE2e } from './ports';
+import { openCurrentChatroom } from './chatroom-nav';
 
 async function dismissBroadcastPreambleIfOpen(page: Page): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
@@ -137,7 +138,7 @@ export async function broadcastFromGlobalChatroom(
   await waitForTabActive(page, 'chatrooms');
   const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
   if (!inDetail) {
-    await page.locator('.chatroom-item:has-text("Global")').first().click();
+    await openCurrentChatroom(page);
     await afterSync();
   }
   if (opts?.requirePreambleUi) {
@@ -175,7 +176,7 @@ export async function clickBroadcastUntilBulkAck(
     .then(() => true)
     .catch(() => false);
   if (!inDetail) {
-    await page.locator('.chatroom-item:has-text("Global")').first().click();
+    await openCurrentChatroom(page);
     await afterSync();
   }
   perfMark('nav-to-room');

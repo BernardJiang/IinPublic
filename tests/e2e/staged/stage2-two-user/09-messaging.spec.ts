@@ -225,5 +225,28 @@ test.describe('Direct messaging between matched users', () => {
       .toBe(true);
 
     await assertLocalPrivateMessageBodies(pageTom, conversationId, 1, [TOM_MESSAGE, JERRY_REPLY]);
+
+    // Generic conversation metadata is endpoint-private too. The hub may hold the bounded
+    // first-contact wake-up, but never the conversation row, per-user row, Talk title, deal
+    // state, or message bodies.
+    let graph: Record<string, unknown> = {};
+    await expect.poll(async () => {
+      const snapshotRes = await pageTom.request.get(`${gunBaseURL()}/api/test/export-snapshot`);
+      if (!snapshotRes.ok()) return 0;
+      const snapshot = (await snapshotRes.json()) as { gunGraph?: Record<string, unknown> };
+      graph = snapshot.gunGraph ?? {};
+      return Object.keys(graph).filter((key) => key.startsWith('conversation-wakeups/')).length;
+    }, { timeout: 15_000, message: 'short-lived conversation wake-up should reach the control hub' })
+      .toBeGreaterThan(0);
+    expect(Object.keys(graph).some((key) => key === `conversations/${conversationId}`)).toBe(false);
+    expect(Object.keys(graph).some((key) =>
+      key.includes(`/conversations/${conversationId}`)
+      && (key.startsWith(`users/${tomUserId}`) || key.startsWith(`users/${jerryUserId}`)),
+    )).toBe(false);
+    const wakeups = Object.entries(graph).filter(([key]) => key.startsWith('conversation-wakeups/'));
+    const wakeupJson = JSON.stringify(wakeups);
+    for (const forbidden of [talkTitle, TOM_MESSAGE, JERRY_REPLY, 'dealEligible', 'matchScore']) {
+      expect(wakeupJson.includes(forbidden)).toBe(false);
+    }
   });
 });

@@ -249,6 +249,7 @@ type MailboxConversationMessagePayload = {
   conversationId: string;
   senderId: string;
   recipientUserId: string;
+  senderName?: string;
   wire: import('../services/gun-message-store').ConversationMessageWire;
 };
 
@@ -1744,6 +1745,7 @@ export class IinPublicApp {
     // then paint from this identity right away instead of sitting blank for the full boot.
     this.uiManager.adoptSessionUser(this.currentUser);
     this.writeCachedUser(this.currentUser);
+    this.conversationService.setLocalUser(this.currentUser.id, this.currentUser.stageName);
 
     // Phase E: re-initialize ledger now that currentUser is known (userId was not available earlier)
     this.initLedger();
@@ -3367,6 +3369,7 @@ export class IinPublicApp {
         conversationId,
         senderId: wire.senderId,
         recipientUserId,
+        senderName: this.currentUser.stageName,
         wire,
       };
       const ciphertext = await mailbox.encryptForRecipient(recipientEpub, pair as import('../sea-gun').GunPair, payload);
@@ -3393,10 +3396,17 @@ export class IinPublicApp {
   private async ingestConversationMessageFromMailbox(payload: MailboxConversationMessagePayload): Promise<void> {
     if (!this.currentUser?.id) return;
     if (payload.kind !== 'conversation-message-v1' || !payload.wire?.id) return;
+    await this.conversationService.ensureIncomingConversation({
+      ownerUserId: this.currentUser.id,
+      conversationId: payload.conversationId,
+      senderUserId: payload.senderId,
+      ...(payload.senderName ? { senderUserName: payload.senderName } : {}),
+      createdAt: payload.wire.timestamp,
+    });
     await this.conversationService.upsertMessageRecord(
       payload.conversationId,
       payload.wire,
-      { otherUserId: payload.recipientUserId || this.currentUser.id },
+      { otherUserId: payload.senderId },
     );
     console.log('[Mailbox] Ingested offline DM', payload.wire.id, 'in', payload.conversationId);
   }
