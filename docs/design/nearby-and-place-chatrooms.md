@@ -202,6 +202,24 @@ peers, performs compact inventory negotiation, transfers selected bodies directl
 signed end-recipient acknowledgements. Unreachable delivery stays in the author's local queue for
 a later direct opportunity.
 
+The implemented scheduler uses the room's sorted identity set and a circle-method tournament.
+Every phone independently derives the same pairings for each 30-second window. A window includes at
+most `K` tournament rounds, so both endpoints choose each other, concurrent sessions remain bounded
+by `K`, and a stable N-person roster covers every pair within `ceil((N-1)/K)` windows. A Talk send is
+first committed to the author's encrypted peerless-Gun outbox per room, receiver, Talk id, and
+revision hash. The scheduled author sends only that receiver a bounded `talk-announce` inventory
+offer. If the receiver does not already hold the revision and its intake policy accepts the offer,
+it requests the body across the same authenticated DataChannel. The receiver ACKs the body only
+after its encrypted incoming-Talk cluster write completes. That end-recipient ACK removes exactly
+that outbox entry; a lost ACK is repaired when the receiver ACKs a later inventory offer for the
+revision it already has. Reload, a missed window, or a failed connection therefore leaves a local
+retry, not a third-phone or server-mailbox dependency.
+
+In authoritative mode, a recipient-addressed frame is sent only on the matching direct edge. The
+app does not register the old Talk-body mailbox fallback. The mailbox can still ingest envelopes
+from mixed releases and remains available to other pair-private features such as offline direct
+messages and responses; it is not part of ordinary Talk-body delivery.
+
 Third-person forwarding is deferred, not prohibited. Existing forwarding machinery may remain
 behind an experimental feature flag, disabled by default, and must never be required for baseline
 delivery. If enabled later it must preserve the original author signature, end-to-end encryption,

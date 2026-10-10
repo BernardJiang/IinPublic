@@ -18,6 +18,7 @@ import {
   type ProtocolManifestTrustState,
 } from '../../shared/protocol-manifest';
 import type { WebGunService } from '../../web/services/web-gun-service';
+import { selectDirectTalkPeers } from '../../shared/direct-talk-scheduler';
 
 type FakeSessionRecord = {
   localUserId: string;
@@ -68,6 +69,19 @@ function mockGunService(
   return {
     getStoredPair: () => pair,
     getPublicUser: async (userId: string) => users[userId],
+  } as unknown as WebGunService;
+}
+
+function mockPrivateGunService(
+  pair: SeaSigningPair,
+  users: Record<string, { pub: string }>,
+): WebGunService {
+  const privateValues = new Map<string, unknown>();
+  return {
+    getStoredPair: () => pair,
+    getPublicUser: async (userId: string) => users[userId],
+    getPrivate: async (key: string) => privateValues.get(key) ?? null,
+    putPrivate: async (key: string, value: unknown) => { privateValues.set(key, value); },
   } as unknown as WebGunService;
 }
 
@@ -124,6 +138,81 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2_000): Promise<v
 }
 
 describe('PeerMeshService', () => {
+  it('rotates a durable direct Talk outbox to the receiver and clears it only after durable ACK', async () => {
+    const [alicePair, bobPair, carolPair] = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const users = {
+      alice: { pub: alicePair.pub },
+      bob: { pub: bobPair.pub },
+      carol: { pub: carolPair.pub },
+    };
+    const memberIds = Object.keys(users);
+    const baseWindow = Math.floor(Date.now() / 1_000);
+    const firstWindow = [baseWindow, baseWindow + 1, baseWindow + 2].find((window) =>
+      !selectDirectTalkPeers(memberIds, 'alice', 1, window).includes('carol'))!;
+    const deliveryWindow = Array.from({ length: 3 }, (_, index) => firstWindow + 6 + index).find((window) =>
+      selectDirectTalkPeers(memberIds, 'alice', 1, window).includes('carol'))!;
+    let now = firstWindow * 1_000 + 1;
+    const network = createFakeNetwork();
+    const delivered: P2PMeshTalkBodyPayload[] = [];
+    const acknowledged: string[] = [];
+    const mailboxFallback = jest.fn();
+    const alice = new PeerMeshService(mockPrivateGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      maxNeighbors: 1,
+      ackTimeoutMs: 40,
+      directRotationIntervalMs: 1_000,
+      now: () => now,
+      authoritativeDirectTalkDelivery: true,
+      createSession: network.createSession,
+      onMailboxFallback: mailboxFallback,
+      onTalkDeliveryAck: (_payload, recipientUserId) => { acknowledged.push(recipientUserId); },
+    });
+    const carol = new PeerMeshService(mockPrivateGunService(carolPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'carol',
+      localStageName: 'Carol',
+      maxNeighbors: 1,
+      ackTimeoutMs: 40,
+      directRotationIntervalMs: 1_000,
+      now: () => now,
+      authoritativeDirectTalkDelivery: true,
+      createSession: network.createSession,
+      onTalkBody: (body) => { delivered.push(body); },
+    });
+    const members = memberIds.map((userId) => ({ userId, stageName: userId }));
+    await alice.joinRoom('nearby:test', members);
+    await carol.joinRoom('nearby:test', members);
+    expect([...(alice as any).neighbors.keys()]).not.toContain('carol');
+
+    const immediate = await alice.broadcastTalk({
+      id: 'durable-direct-talk',
+      authorId: 'alice',
+      title: 'Direct only',
+      type: 'tag',
+      questions: [],
+    }, { recipientUserIds: ['carol'], roomBroadcast: true });
+    expect(immediate.has('carol')).toBe(false);
+    expect(delivered).toHaveLength(0);
+    expect(mailboxFallback).not.toHaveBeenCalled();
+
+    now = deliveryWindow * 1_000 + 1;
+    const rotatedMembers = members.map((member) => ({ ...member, stageName: `${member.stageName}-rotated` }));
+    await alice.joinRoom('nearby:test', rotatedMembers);
+    await carol.joinRoom('nearby:test', rotatedMembers);
+    expect([...(alice as any).neighbors.keys()]).toEqual(['carol']);
+    expect([...(carol as any).neighbors.keys()]).toEqual(['alice']);
+    await (alice as unknown as { flushDirectTalkOutbox: () => Promise<Set<string>> }).flushDirectTalkOutbox();
+    await waitUntil(() => delivered.length === 1 && acknowledged.includes('carol'));
+
+    expect(delivered[0].talkId).toBe('durable-direct-talk');
+    expect(mailboxFallback).not.toHaveBeenCalled();
+    expect(await (alice as any).directTalkOutbox.list('nearby:test')).toEqual([]);
+    alice.leaveRoom();
+    carol.leaveRoom();
+  });
+
   it('synchronizes a complete authenticated manifest chain before exchanging room traffic', async () => {
     const [alicePair, bobPair, k2, k3, k4, recovery] = await Promise.all([
       SEA.pair(),

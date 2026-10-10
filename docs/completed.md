@@ -2,6 +2,22 @@
 
 Last updated: 2026-10-09
 
+## 2026-10-09 — Direct Talk scheduler is authoritative (OPEN-40 slice)
+
+- Replaced fixed-first-K/flood/mailbox Talk-body delivery with a symmetric circle-method schedule.
+  A stable N-person room covers every author/receiver pair within `ceil((N-1)/K)` 30-second windows
+  while every endpoint holds at most `K` direct sessions.
+- Added an encrypted local author outbox keyed by room, receiver, Talk, and revision. Direct compact
+  inventory offers trigger receiver body pulls; the receiver ACKs only after its private incoming
+  cluster is durable, and that end-recipient ACK clears only the matching queued revision. Lost ACKs
+  recover when a later offer is ACKed as already held.
+- Recipient-addressed frames now use only their direct edge in authoritative mode. The app no longer
+  installs the Talk-body mailbox fallback; mixed-release mailbox ingest and pair-private DM/response
+  uses remain intact.
+- Verified typecheck, lint, 61 focused unit tests (including symmetric/complete 100-user scheduling,
+  durable rotation, ACK clearing, and zero mailbox fallback), plus the live two-browser P0 direct
+  Talk delivery gate.
+
 ## 2026-10-09 — Local private Gun boundary established (OPEN-40 slice)
 
 - Routed the shared `putPrivate`/`getPrivate` API to the peerless, IndexedDB-backed worker Gun;

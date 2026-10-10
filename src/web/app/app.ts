@@ -2945,6 +2945,26 @@ export class IinPublicApp {
         : {}),
       getMaxRoomCandidates: () => this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
         ?? BASELINE_ROOM_PROTOCOL_CHECKPOINT.chatroomCapacity,
+      authoritativeDirectTalkDelivery: this.p2pRuntimeFlags.p2pDirectTalkDelivery,
+      onTalkDeliveryAck: (payload, recipientUserId) => {
+        const deliveredTalk = payload.talkData as unknown as Talk;
+        const wholeIdentityKey = buildTalkIdentityKey(deliveredTalk);
+        const deliveredIdentityKeys = buildTagIdentityKeys(deliveredTalk, wholeIdentityKey);
+        const sentAt = new Date().toISOString();
+        for (const identityKey of deliveredIdentityKeys) {
+          markTalkSentToPeer({
+            peerId: recipientUserId,
+            identityKey,
+            talkId: payload.talkId,
+            sentAt,
+          });
+        }
+        recordTalkRevisionSent(
+          recipientUserId,
+          payload.talkId,
+          computeTalkRevisionHash(deliveredTalk),
+        );
+      },
       onProtocolManifestCompatibility: async () => {
         await this.syncActiveRoomProtocolCheckpoint();
       },
@@ -3031,11 +3051,14 @@ export class IinPublicApp {
           ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
         });
       },
-      // R-a step 7: mailbox fallback — post talk-body payload per unreachable recipient
-      // when the DataChannel overlay cannot guarantee full coverage (below-wanted-degree
-      // or coverage-gap). Replaces the deleted Gun p2pMeshTalkBodies/* rendezvous write.
-      onMailboxFallback: (payload, recipientUserIds) =>
-        this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
+      // Mixed-release escape hatch only. The authoritative direct scheduler retains ordinary
+      // Talk bodies in the author's encrypted local outbox until the end receiver ACKs.
+      ...(!this.p2pRuntimeFlags.p2pDirectTalkDelivery
+        ? {
+            onMailboxFallback: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) =>
+              this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
+          }
+        : {}),
       // Step 10: responder side — handle incoming retraction flood frames.
       onTalkRetracted: (payload) => this.handleMeshTalkRetracted(payload),
     });

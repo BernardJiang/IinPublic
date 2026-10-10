@@ -13,7 +13,7 @@ import {
   completeTalkInAppByAnswerIds,
   findIncomingTalkIdByTitle,
 } from '../../helpers/talk-demo-ui';
-import { isMeshTalkDeliveryE2e } from '../../helpers/ports';
+import { gunBaseURL, isMeshTalkDeliveryE2e } from '../../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Pair-direct talk delivery over Gun mesh', () => {
@@ -72,6 +72,30 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
       expect(jerryId).toBeTruthy();
 
       await waitForIncomingTalkClusterOnLocalGun(pageJerry, title, { timeout: 60_000, polling: 500 });
+      const talkId = await findIncomingTalkIdByTitle(pageJerry, title);
+
+      // The receiver's durable write ACK clears the author's encrypted local outbox. Ordinary
+      // Talk bodies never enter the hub mailbox, and each endpoint remains within K=12 links.
+      await expect.poll(() => pageTom.evaluate(async (tid) => {
+        const app = window.__iinpublic_app?.getApp?.();
+        const envelope = await app?.gunService?.getPrivate?.('directTalkDeliveryOutbox');
+        try {
+          const entries = JSON.parse(String(envelope?.entriesJson || '[]'));
+          return Array.isArray(entries) && entries.some((entry: any) => entry?.talkId === tid);
+        } catch {
+          return true;
+        }
+      }, talkId), { timeout: 15_000, message: 'author outbox should clear only after receiver persistence' })
+        .toBe(false);
+      const mailboxDiagnostics = await pageTom.request.get(`${gunBaseURL()}/api/mailbox-diagnostics`);
+      expect(mailboxDiagnostics.ok()).toBe(true);
+      const mailboxState = await mailboxDiagnostics.json() as { queueSizes?: Record<string, number> };
+      expect(mailboxState.queueSizes?.[jerryId] ?? 0).toBe(0);
+      for (const page of [pageTom, pageJerry]) {
+        expect(await page.evaluate(() =>
+          Number(window.__iinpublic_app?.getApp?.()?.peerMeshService?.getDiagnostics?.()?.neighborCount || 0),
+        )).toBeLessThanOrEqual(12);
+      }
 
       const meshMode = isMeshTalkDeliveryE2e();
       const directDeliveryGraph = await pageJerry.evaluate(async (receiverId) => {
@@ -162,7 +186,6 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         timeout: 15_000,
       });
 
-      const talkId = await findIncomingTalkIdByTitle(pageJerry, title);
       const talkData = await pageJerry.evaluate(async (id) => {
         const app = window.__iinpublic_app?.getApp?.();
         return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }) ?? null;

@@ -67,14 +67,22 @@ its ID.
       DataChannel. Encrypted mailbox delivery also materializes a minimal thread when the wake-up was
       missed. New code no longer writes `conversations/<id>` or `users/<id>/conversations`.
     - [ ] Remove all one-time legacy ciphertext/metadata imports after the mixed-release window.
-  - [ ] **P0 direct Talk baseline:** disable third-person device forwarding and room-body gossip by
+  - [x] **P0 direct Talk baseline:** disable third-person device forwarding and room-body gossip by
     default. Implement a durable author-to-receiver scheduler that rotates through at most `K`
     simultaneous direct peers, negotiates compact inventories, transfers signed bodies over an
     encrypted stranger session, records end-recipient ACKs, and retries locally. Ordinary delivery
     must not require another phone or a server mailbox to forward the body. Preserve forwarding code
     only behind an experimental opt-in flag.
     - [x] Third-person mesh/Wi-Fi forwarding is disabled by default and remains an explicit opt-in.
-    - [ ] Make the direct scheduler/inventory/end-recipient-ACK path authoritative.
+    - [x] The authoritative path now uses a symmetric circle-method schedule: every endpoint opens
+      at most `K` direct room links and every pair meets within `ceil((N-1)/K)` 30-second windows.
+      Each compact, recipient-addressed offer contains metadata/hash but no body; the receiver asks
+      for a missing body, persists it to encrypted local Gun, and only then signs the ACK. The
+      author's encrypted local outbox survives reload and clears that receiver/revision only on the
+      ACK. Directed frames use the intended direct edge only, and ordinary Talk-body delivery no
+      longer installs the server-mailbox fallback. Unit coverage proves K-bounded symmetry, complete
+      100-user pair coverage, durable retry/ACK clearing, and no mailbox call; the live two-browser
+      P0 delivery gate passes without a server Talk inbox.
   - [ ] **P0 encrypted stranger handshake:** automatically exchange signed public identity plus
     ephemeral session keys for Unknown peers; bind WebRTC/DataChannel identity to that handshake.
     Becoming a Contact pins stable identity and durable pair state rather than enabling encryption

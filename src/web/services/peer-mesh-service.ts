@@ -36,6 +36,11 @@ import {
   type ForwardingSettings,
 } from '../../shared/mesh-forwarding-policy';
 import { configuredMeshSyncCapabilities } from '../../shared/mesh-frame-policy';
+import { selectDirectTalkPeers } from '../../shared/direct-talk-scheduler';
+import {
+  DirectTalkDeliveryOutbox,
+  type DirectTalkDeliveryEntry,
+} from './direct-talk-delivery-outbox';
 
 type RoomMember = {
   userId: string;
@@ -118,6 +123,12 @@ type PeerMeshServiceOptions = {
   ) => void | Promise<void>;
   /** A direct link to a room neighbor just came up (WebRTC over LAN, Wi-Fi Direct or relay). */
   onNeighborConnected?: (userId: string, roomId: string) => void;
+  /** OPEN-40 direct baseline: rotate bounded direct pairs and keep Talk bodies in a local outbox. */
+  authoritativeDirectTalkDelivery?: boolean;
+  directRotationIntervalMs?: number;
+  now?: () => number;
+  /** Fires only after the receiver durably accepted the Talk body (or proved it already had it). */
+  onTalkDeliveryAck?: (payload: P2PMeshTalkBodyPayload, recipientUserId: string) => void | Promise<void>;
 };
 
 type Neighbor = {
@@ -150,6 +161,8 @@ const DEFAULT_MESH_ACK_TIMEOUT_MS = 3_000;
  * whose DataChannel flapped during an earlier attempt.
  */
 const MESH_BROADCAST_FLOOD_ATTEMPTS = 3;
+const DEFAULT_DIRECT_ROTATION_INTERVAL_MS = 30_000;
+const DIRECT_DELIVERY_RETRY_INTERVAL_MS = 5_000;
 
 /**
  * R4: Bounded FIFO seen-set. Prevents unbounded memory growth in long sessions
@@ -262,6 +275,9 @@ export class PeerMeshService {
   private readonly manifestRejectedPeerIds = new Set<string>();
   private readonly forwardingPolicy: MeshForwardingPolicy;
   private protocolManifestController: ProtocolManifestController | undefined;
+  private readonly directTalkOutbox: DirectTalkDeliveryOutbox | null;
+  private directOutboxFlush: Promise<Set<string>> | null = null;
+  private readonly directOfferMsgIds = new Map<string, string>();
 
   constructor(
     private readonly gunService: WebGunService,
@@ -269,6 +285,9 @@ export class PeerMeshService {
   ) {
     this.forwardingPolicy = new MeshForwardingPolicy(opts.forwardingSettings);
     this.protocolManifestController = opts.protocolManifestController;
+    this.directTalkOutbox = opts.authoritativeDirectTalkDelivery
+      ? new DirectTalkDeliveryOutbox(gunService)
+      : null;
   }
 
   setProtocolManifestController(controller: ProtocolManifestController): void {
@@ -349,6 +368,19 @@ export class PeerMeshService {
    * For v1 keeps deterministic `localeCompare` sort (reproducible E2E).
    */
   private selectNeighbors(members: RoomMember[], K: number): RoomMember[] {
+    if (this.directTalkOutbox) {
+      const byId = new Map(members.map((member) => [member.userId, member]));
+      const windowIndex = Math.floor(
+        (this.opts.now?.() ?? Date.now())
+          / Math.max(1_000, this.opts.directRotationIntervalMs ?? DEFAULT_DIRECT_ROTATION_INTERVAL_MS),
+      );
+      return selectDirectTalkPeers(
+        [...byId.keys(), this.opts.localUserId],
+        this.opts.localUserId,
+        K,
+        windowIndex,
+      ).map((userId) => byId.get(userId)).filter((member): member is RoomMember => !!member);
+    }
     return members
       .filter((member) => member.userId && member.userId !== this.opts.localUserId && member.userId !== TECHSUPPORT_ROOT_USER_ID)
       .sort((a, b) => a.userId.localeCompare(b.userId))
@@ -469,7 +501,7 @@ export class PeerMeshService {
     }
     const rankedCandidates = this.selectNeighbors(
       [...mergedMembers.values()],
-      maxRoomCandidates,
+      this.directTalkOutbox ? maxNeighbors : maxRoomCandidates,
     );
     const presencePubs = await this.fetchPresencePubs();
     const resolvedByUserId = new Map<string, string>();
@@ -537,6 +569,7 @@ export class PeerMeshService {
       session.setOnRemoteMeshFrame((otherUserId, frame) => this.handleRemoteFrame(otherUserId, frame));
       this.connectNeighbor(neighbor);
     }));
+    if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
   }
 
   private notifyNeighborConnected(userId: string): void {
@@ -558,6 +591,7 @@ export class PeerMeshService {
         neighbor.connected = true;
         void this.sendProtocolManifestSummary(neighbor);
         if (newlyConnected) this.notifyNeighborConnected(neighbor.userId);
+        if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
       })
       .catch(() => {
         neighbor.connected = false;
@@ -593,6 +627,7 @@ export class PeerMeshService {
     this.bodyRequestWaiters.clear();
     this.acknowledgements.clear();
     this.acknowledgementWaiters.clear();
+    this.directOfferMsgIds.clear();
     this.manifestReadyPeerIds.clear();
     this.manifestRejectedPeerIds.clear();
   }
@@ -680,6 +715,17 @@ export class PeerMeshService {
       ...payload,
       talkData: talkRecord,
     };
+    if (this.directTalkOutbox && !opts.skipAcknowledgements) {
+      const recipients = [...new Set(
+        (opts.recipientUserIds?.length ? opts.recipientUserIds : [...this.currentRoomMemberIds])
+          .filter((userId) => !!userId && userId !== this.opts.localUserId),
+      )];
+      const queued = await Promise.all(recipients.map((recipientUserId) =>
+        this.directTalkOutbox!.enqueue(roomId, recipientUserId, bodyPayload)));
+      await this.flushDirectTalkOutbox();
+      const remaining = new Set((await this.directTalkOutbox.list(roomId)).map((entry) => entry.key));
+      return new Set(queued.filter((entry) => !remaining.has(entry.key)).map((entry) => entry.recipientUserId));
+    }
     if (opts.skipAcknowledgements) {
       const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
       const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
@@ -1071,12 +1117,13 @@ export class PeerMeshService {
       .filter((neighbor) => !this.protocolManifestController
         || isProtocolManifestControlKind(frame.kind)
         || this.manifestReadyPeerIds.has(neighbor.userId));
-    // A cached direct edge may be stale while a healthy relay path exists. Directed
-    // frames therefore remain gossip-routed: try the direct peer first, but also send
-    // through the rest of the bounded overlay. Seen-set dedup and TTL cap duplicates.
-    const candidateTargets = directTarget && directTarget.userId !== exceptUserId
-      ? [directTarget, ...available.filter((neighbor) => neighbor.userId !== directTarget.userId)]
-      : available;
+    // Authoritative Talk delivery never exposes a recipient-addressed frame to other room peers.
+    // The legacy/experimental mesh path retains its former direct-first fanout behavior.
+    const candidateTargets = this.directTalkOutbox && frame.recipientUserId
+      ? (directTarget && directTarget.userId !== exceptUserId ? [directTarget] : [])
+      : directTarget && directTarget.userId !== exceptUserId
+        ? [directTarget, ...available.filter((neighbor) => neighbor.userId !== directTarget.userId)]
+        : available;
     const estimatedBytes = new TextEncoder().encode(JSON.stringify(forwarded)).byteLength;
     const targets = candidateTargets.filter((neighbor) => {
       const context = this.forwardingContext(neighbor.userId);
@@ -1251,11 +1298,17 @@ export class PeerMeshService {
     if (frame.kind === 'talk-announce') {
       const payload = frame.payload as P2PMeshTalkAnnouncePayload;
       if (payload.authorId === this.opts.localUserId) return;
+      const offerKey = talkRevisionDeliveryKey(String(payload.talkId || ''), String(payload.authorId || ''), payload.contentHash);
+      if (this.deliveredTalkBodyIds.has(offerKey)) {
+        // This ACK is safe: the receiver already has a durable accepted copy. It lets an author
+        // recover when the earlier body ACK was lost before the local outbox could be cleared.
+        await this.acknowledge(frame);
+        return;
+      }
       // Step 2: fire announce callback before body pull so callers can record receipt
       // for durable diagnostics (e.g. E2E meshAnnounceDiagnostics) without waiting for
       // the talk-body-request/talk-body round-trip.
       const accepted = await this.opts.onTalkAnnounce?.(payload, frame);
-      const offerKey = talkRevisionDeliveryKey(String(payload.talkId || ''), String(payload.authorId || ''), payload.contentHash);
       if (accepted === false) {
         this.rejectedTalkOfferIds.add(offerKey);
         return;
@@ -1480,6 +1533,7 @@ export class PeerMeshService {
       broadcastAt: announce.broadcastAt,
       talkId: announce.talkId,
       authorId: announce.authorId,
+      ...(announce.contentHash ? { contentHash: announce.contentHash } : {}),
     };
     const frame = await this.buildFrame('talk-body-request', requestPayload, {
       recipientUserId: announce.authorId,
@@ -1507,6 +1561,26 @@ export class PeerMeshService {
     request: P2PMeshTalkBodyRequestPayload,
   ): Promise<void> {
     if (request.authorId !== this.opts.localUserId) return;
+    if (this.directTalkOutbox) {
+      const entry = (await this.directTalkOutbox.list(request.roomId)).find((candidate) =>
+        candidate.recipientUserId === requestFrame.originUserId
+        && candidate.talkId === request.talkId
+        && (!request.contentHash || candidate.contentHash === request.contentHash));
+      if (!entry) return;
+      const bodyPayload: P2PMeshTalkBodyPayload = {
+        ...entry.payload,
+        requestId: request.requestId,
+      };
+      const frame = await this.buildFrame('talk-body', bodyPayload, {
+        recipientUserId: requestFrame.originUserId,
+        ttlHops: 1,
+      });
+      const acknowledged = await this.sendAndWaitForAcks(frame, [requestFrame.originUserId]);
+      if (acknowledged.has(requestFrame.originUserId)) {
+        await this.completeDirectTalkDelivery(bodyPayload, requestFrame.originUserId);
+      }
+      return;
+    }
     // Serve the local user's OWN authored copy (talkId::localUserId). A remote author's
     // identical-content body must never be served here under our authorId.
     const talkData = this.getCachedTalkBody(request.talkId, this.opts.localUserId);
@@ -1531,5 +1605,74 @@ export class PeerMeshService {
       ttlHops: 8,
     });
     await this.rememberAndFanout(frame);
+  }
+
+  private async flushDirectTalkOutbox(): Promise<Set<string>> {
+    if (!this.directTalkOutbox || !this.currentRoomId) return new Set();
+    if (this.directOutboxFlush) return this.directOutboxFlush;
+    const run = this.flushDirectTalkOutboxNow();
+    this.directOutboxFlush = run;
+    try {
+      return await run;
+    } finally {
+      if (this.directOutboxFlush === run) this.directOutboxFlush = null;
+    }
+  }
+
+  private async flushDirectTalkOutboxNow(): Promise<Set<string>> {
+    const outbox = this.directTalkOutbox;
+    const roomId = this.currentRoomId;
+    if (!outbox || !roomId) return new Set();
+    const now = this.opts.now?.() ?? Date.now();
+    const entries = (await outbox.list(roomId)).filter((entry) => {
+      const neighbor = this.neighbors.get(entry.recipientUserId);
+      if (!neighbor || !isNeighborLive(neighbor)) return false;
+      if (this.protocolManifestController && !this.manifestReadyPeerIds.has(entry.recipientUserId)) return false;
+      const lastAttemptAt = Date.parse(String(entry.lastAttemptAt || ''));
+      return !Number.isFinite(lastAttemptAt) || now - lastAttemptAt >= DIRECT_DELIVERY_RETRY_INTERVAL_MS;
+    }).slice(0, Math.max(1, this.neighborLimit() * 4));
+    const acknowledged = new Set<string>();
+    await mapWithConcurrency(entries, this.neighborLimit(), async (entry) => {
+      try {
+        await outbox.markAttempt(entry.key);
+        const frame = await this.buildFrame('talk-announce', this.announceFromOutbox(entry), {
+          recipientUserId: entry.recipientUserId,
+          ttlHops: 1,
+        });
+        this.directOfferMsgIds.set(entry.key, frame.msgId);
+        const acks = await this.sendAndWaitForAcks(frame, [entry.recipientUserId]);
+        if (!acks.has(entry.recipientUserId)) return;
+        acknowledged.add(entry.recipientUserId);
+        await this.completeDirectTalkDelivery(entry.payload, entry.recipientUserId);
+      } catch (error) {
+        console.warn('[direct-talk] queued delivery attempt failed:', error);
+      } finally {
+        this.directOfferMsgIds.delete(entry.key);
+      }
+    });
+    return acknowledged;
+  }
+
+  private announceFromOutbox(entry: DirectTalkDeliveryEntry): P2PMeshTalkAnnouncePayload {
+    const { talkData: _talkData, requestId: _requestId, ...announce } = entry.payload;
+    return announce;
+  }
+
+  private async completeDirectTalkDelivery(
+    payload: P2PMeshTalkBodyPayload,
+    recipientUserId: string,
+  ): Promise<void> {
+    if (!this.directTalkOutbox) return;
+    const removed = await this.directTalkOutbox.acknowledge({
+      roomId: payload.roomId,
+      recipientUserId,
+      talkId: payload.talkId,
+      ...(payload.contentHash ? { contentHash: payload.contentHash } : {}),
+    });
+    for (const entry of removed) {
+      const offerMsgId = this.directOfferMsgIds.get(entry.key);
+      if (offerMsgId) this.recordAck(offerMsgId, recipientUserId);
+      await this.opts.onTalkDeliveryAck?.(entry.payload, recipientUserId);
+    }
   }
 }

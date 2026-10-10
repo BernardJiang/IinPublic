@@ -2539,8 +2539,11 @@ The following items are known open questions or planned post-MVP work:
 - **Stranger-first trust with encrypted transport**: all users start Unknown, but the first signed
   handshake still establishes an ephemeral encrypted session. Contact status pins identity and
   durable pair state rather than enabling encryption for the first time.
-- **Direct Talk baseline**: Talk bodies move author-to-receiver; third-person phone forwarding is
-  optional future work and disabled by default.
+- **Direct Talk baseline**: Talk bodies move author-to-receiver through a symmetric, `K`-bounded
+  rotating pair schedule. The author retains each receiver/revision in encrypted local outbox state;
+  a compact direct inventory triggers pull of a missing body, and only a durable end-receiver ACK
+  clears it. Third-person phone forwarding is optional future work and disabled by default; ordinary
+  Talk-body delivery does not use the server mailbox.
 - **Data ownership boundary**: Three visibility zones — **room (discovery)**, **user-private**, **pair-private** — govern Gun sync and hub persistence ([§19.14](#1914-data-ownership-and-visibility-zones)). Local-first private data can be wiped per device; server-held export/delete requests are metadata-only; relay-only paths have short TTLs. Star-mode global paths such as `talks/<id>/responses` are **not** the production model.
 - **Telemetry-free transport diagnostics**: Users can see whether a message path used direct P2P, relay fallback, or star-server mode without analytics upload.
 - **Public/private answer visibility**: Per-answer `auto` vs `manual` flag; chatbot only repeats `auto` answers.
@@ -4261,7 +4264,8 @@ Pipeline: `rankPeople(viewer, candidates, sortId, filters)` filters, then ranks 
 ## 23. Mesh Talk Delivery Design (PeerMeshService)
 
 > **Source:** `docs/p2p-mesh-talk-delivery-plan.md` (design sketch).
-> **Status:** Foundation shipped behind `P2P_MESH_TALKS` (see `docs/completed.md` 2026-06-07). Incremental rollout checklist: `docs/TODO.md` §"P0 — Mesh talk delivery". Test impact: `docs/testing/testplan.md`.
+> **Status:** Direct Talk delivery is authoritative as of 2026-10-09. Legacy room gossip remains
+> only as disabled-by-default experimental compatibility code. Test impact: `docs/testing/testplan.md`.
 > **Goal:** delete star-topology talk delivery. The Node server keeps only **rendezvous** (who/where peers are) and **signaling** (WebRTC handshake + STUN/TURN). No talk body, offer, response, incoming index, match, conversation, or talk-derived stat is created, relayed, or stored on the server.
 > **Room-partition decision:** `docs/design/chatroom-scoped-p2p-traffic.md` is the detailed decision record for capacity, one-active-room behavior, manual switching, nearby transports, and background operation.
 
@@ -4271,7 +4275,7 @@ Pipeline: `rankPeople(viewer, candidates, sortId, filters)` filters, then ranks 
 2. **Author-owned / pair-private data.** Talk bodies are owned by the author and sent over the mesh on demand; responses go pair-to-pair over a DataChannel.
 3. **Receiver-side policy.** Intake filtering (language, distance, content, adult, cutoff) is evaluated by the *receiver* on arrival, not by a server preview. This also removes the `broadcast-receiver-preview` HTTP round-trip.
 4. **Local-first derivation.** Contacts, matches, talk history, and stats are computed locally from what a peer has sent/received — no server peer endpoints.
-5. **Sparse overlay, not full mesh.** At N peers a full mesh is N² connections (1000 peers ≈ 500k channels). Peers connect to K neighbors and **gossip**; messages propagate epidemically.
+5. **Rotating direct pairs, not full mesh.** At N peers a full mesh is N² connections (1000 peers ≈ 500k channels). A symmetric schedule rotates each endpoint through at most K direct peers; a Talk body crosses only its author/receiver pair.
 6. **One active room, not parallel room overlays.** Capacity bounds the candidate set only when inactive memberships are silent. A user manually switches rooms to reach another population; the old room stops discovery and gossip before the new room starts.
 7. **Transport does not define audience.** Internet, LAN, BLE discovery, Wi-Fi Aware, and Wi-Fi Direct are replaceable paths beneath the room authorization boundary. Discovering a radio peer never expands room eligibility.
 
@@ -4300,20 +4304,26 @@ Reusable P2P substrate already present: `p2p-runtime.ts` (envelopes, signing, ne
             │  • Presence: nearby peers, pub keys, TTL         │
             │  • WebRTC signaling relay (encrypted, TTL)       │
             │  • STUN/TURN config (NAT traversal)              │
-            │  • Offline mailbox (encrypted, TTL) — fallback   │
+            │  • Offline mailbox for other pair-private flows  │
             └──────────────────────────────────────────────────┘
                      ▲ rendezvous + handshake only
-   peer A ──DataChannel── peer B ──DataChannel── peer C …  (sparse overlay)
-     │  gossip(talk-announce) ─────────────►  │  ────────►  │
-     │  ◄──── req/resp(talk-body) ──────────  │
-     │  ◄──── pair msg(talk-response) ───────  (direct A↔responder)
+   author A ─────────────── DataChannel ─────────────── receiver B
+     │  compact inventory(talk-announce) ─────────────► │
+     │  ◄────────────── request(talk-body) ───────────── │
+     │  ───────── body; durable receiver ACK ──────────► │
+     │  encrypted local outbox retries until ACK         │
 ```
 
-New client module: **`PeerMeshService`** (sits beside `WebGunService`, eventually replaces it for talk paths). Responsibilities: maintain DataChannels to K neighbors in the current room (re-establishing as membership changes); send typed, signed, framed messages (`talk-announce`, `talk-body-request`, `talk-body`, `talk-response`, `presence-gossip`, `ack`); gossip/forward with a seen-set (dedupe by message id + TTL hops); apply backpressure + flow control per channel, falling back to the server mailbox for offline targets.
+**`PeerMeshService`** maintains at most K scheduled DataChannels in the current room, persists the
+author's encrypted local delivery outbox, and sends typed, signed frames (`talk-announce`,
+`talk-body-request`, `talk-body`, `talk-response`, control, `ack`). Ordinary Talk offers and bodies
+are recipient-addressed and direct-only. Seen-set/TTL forwarding remains available only in the
+experimental legacy path; an offline receiver leaves the author outbox pending for a later direct
+window rather than receiving a server-mailbox copy.
 
 ### 23.4 Server: keep vs remove
 
-**Keep (minimum):** `chatroom-routes` trimmed to roster-only (discovery); presence endpoints (`P2PPresenceClient`: heartbeat, nearby, ack); signaling endpoints in `system-routes` (offer/answer/ICE relay, TTL'd, ciphertext-only); a tiny STUN/TURN config endpoint; an encrypted **offline mailbox** (new, TTL, metadata-only; bodies are ciphertext); optionally non-talk public data (public profile, reputation, techsupport) server-side for now.
+**Keep (minimum):** `chatroom-routes` trimmed to roster-only (discovery); presence endpoints (`P2PPresenceClient`: heartbeat, nearby, ack); signaling endpoints in `system-routes` (offer/answer/ICE relay, TTL'd, ciphertext-only); a tiny STUN/TURN config endpoint; an encrypted **offline mailbox** for pair-private messages/responses and mixed-release compatibility, never as the authoritative ordinary Talk-body path; optionally non-talk public data (public profile, reputation, techsupport) server-side for now.
 
 **Remove (star talk path):** `talk-delivery-routes` entirely (`/received`, `/register-receivers-for-broadcast`, `/response`) and the server `incomingTalksMap`, `talkResponsesMap`, `conversationsMap`; `POST /api/talks/broadcast-receiver-preview`; `peer-routes` (`/peers`, `/relationship`, `/talk-history`, `/replies`); `stats-routes` talk aggregation; Gun relay of `talks/*`, `peerTalkOffers/*`, `incomingTalksByUser/*`, `chatrooms/*/announcements`, `chatrooms/*/talks`, and conversation messages.
 
@@ -4323,9 +4333,9 @@ Reuse `createRelayEnvelope` / signed-proof model from `p2p-runtime.ts`. Frame: `
 
 | kind | payload | routing |
 |---|---|---|
-| `talk-announce` | { talkId, authorId, title, type, qCount, contentHash } | gossip to neighbors, forward by seen-set |
-| `talk-body-request` | { talkId, authorId } | unicast toward author (or any holder) |
-| `talk-body` | { talkId, talkData } (ciphertext) | unicast reply |
+| `talk-announce` | { talkId, authorId, title, type, qCount, contentHash } | direct author → intended receiver |
+| `talk-body-request` | { talkId, authorId, contentHash } | direct receiver → author |
+| `talk-body` | { talkId, talkData } over encrypted channel | direct author → receiver |
 | `talk-response` | { talkId, answers, outcome } (pair ciphertext) | unicast author |
 | `presence-gossip` | { peerId, pub, room, ts } | gossip |
 | `ack` / `receipt` | { msgId } | unicast |
@@ -4334,8 +4344,8 @@ Announce carries only metadata + content hash; the body is pulled on demand (`ta
 
 ### 23.6 Feature-by-feature migration
 
-- **Discovery & connection:** keep room roster + presence on server. On entering a room, fetch roster, pick K bootstrap neighbors via `getP2PBootstrapCandidates` / neighbor cache, run signaling, open DataChannels. Deliverable: `PeerMeshService.joinRoom(roomId)` yields a live neighbor set + send/recv.
-- **Broadcast:** sender emits one `talk-announce` to its neighbors; gossip floods the room (no per-receiver offers). Each receiver runs receiver-side intake (`talkPassesIntakeFilters`); if it passes, `talk-body-request` the author, then `registerSelfAsReceiverOfIncomingTalk` + `maybeAutoChatbotReplyToAnnouncer`. Cost: O(talks) sender work, O(edges) gossip — no O(users×talks) writes.
+- **Discovery & connection:** keep bounded room roster + presence as control data. Both endpoints derive the same circle-method pairings for each 30-second window and open at most K scheduled channels. A stable N-member roster covers every pair within `ceil((N-1)/K)` windows.
+- **Broadcast:** sender commits one encrypted local outbox entry per eligible receiver/revision. When that pair's direct slot opens, it sends a compact `talk-announce`. The receiver runs `talkPassesIntakeFilters`; if accepted and missing, it requests the body directly from the author, persists its private incoming cluster, and only then ACKs. No third phone or server mailbox carries the ordinary body.
 - **Mutual exchange suppression (REQ-LEDGER-16):** before announcing, the sender drops, per tag/identity, any neighbor whose `exchanged/<peerId>/<identityKey>` entry already covers that identity at the current version. So Jerry, having already answered Tom's `tennis`, never re-broadcasts `tennis` to Tom; other not-yet-exchanged tags in the same talk still go through. A new `identityKey` (content change) or a `TALK_ANSWERED` change-of-mind delta is what re-opens delivery.
 - **Incoming index:** `ownerIncomingTalkIndex` stays **local only** (`encrypted-user-owned`), populated from mesh `talk-body`.
 - **Responses & matches:** responder sends `talk-response` directly to the author (or via mailbox if offline). Author keeps a **single local response inbox** keyed by talk — replaces O(receivers) per-pair Gun subscriptions. Match logic stays in `src/shared/talk-engine.ts`; conversation creation becomes local on both sides on mutual match. A changed answer (REQ-LEDGER-04) re-propagates to all original senders with its `version`/timestamp until the talk is retracted.
@@ -4344,7 +4354,9 @@ Announce carries only metadata + content hash; the body is pulled on demand (`ta
 - **Intake filtering / audience preview:** move to receiver; compose-time preview becomes a local estimate from the known roster, or is dropped.
 - **Chatbot:** unchanged; fed from mesh announcements instead of Gun announcements.
 - **Stats:** server talk stats can't exist without seeing talks. Options: (a) drop global stats [recommended v1], (b) privacy-preserving gossip aggregation, (c) opt-in only.
-- **Offline delivery:** for offline targets, write a ciphertext envelope to the server **mailbox** (`mailbox/<recipientPub>`, TTL, metadata-only); recipient drains on connect, then it's deleted.
+- **Offline Talk delivery:** keep the receiver/revision in the author's encrypted local outbox. The
+  next mutually scheduled direct window retries the compact offer. The server mailbox continues to
+  support other pair-private flows, but is not the ordinary Talk-body fallback.
 
 ### 23.7 Topology & scale (1000 × 1000)
 
@@ -4352,18 +4364,16 @@ Do not full-mesh. One million online users have 499,999,500,000 possible pairs. 
 room capacity `C = 498`, they occupy at least 2,009 bounded room overlays; with neighbor limit
 `K = 12`, each
 device attempts at most 12 automatic room links instead of 999,999. A symmetric population-wide
-overlay is approximately six million distributed links rather than approximately 500 billion
-possible pair links. Per-device connection cost is `O(K)` and per-room gossip is `O(CK)`, not
-`O(C²)`.
+schedule has at most approximately six million simultaneous distributed links rather than
+approximately 500 billion possible pair links. Per-device connection cost is `O(K)`; all room
+pairs are covered over time rather than held simultaneously.
 
-Each peer keeps K (≈8–16) neighbor channels chosen by `scoreP2PNeighbor` (recency, room overlap,
-latency, transport cost, device capability, and overlay diversity). Candidate enumeration is
-bounded and room-scoped; a new peer never negotiates simultaneously with the whole roster.
-Announcements propagate through gossip with hop TTL, seen-set, rate limits, backpressure, jitter,
-and reconnect backoff. Talk bodies are **pulled**, so a 1000-peer room broadcasting 1000 talks
-doesn't pre-push 1M bodies. Responses are unicast author-ward; the author's single inbox is
-O(responders) messages, not O(responders) subscriptions. Low-capability peers (mobile/iOS per
-`P2P_PLATFORM_DESCRIPTORS`) lean on neighbor relays or the mailbox.
+Each peer keeps no more than K scheduled channels. Candidate enumeration is bounded and
+room-scoped; a new peer never negotiates simultaneously with the whole roster. Compact inventories
+and pulled bodies avoid pre-pushing every body at once. Responses are unicast author-ward; the
+author's single inbox is O(responders) messages, not O(responders) subscriptions. Low-capability
+peers (mobile/iOS per `P2P_PLATFORM_DESCRIPTORS`) retain pending Talk deliveries locally until a
+direct opportunity.
 
 Capacity is a network-wide protocol parameter, never room metadata. Membership in several rooms
 does not multiply this cost because exactly one room is active per
@@ -4372,7 +4382,13 @@ demand and are not kept as an always-on parallel contact mesh.
 
 ### 23.8 Risks & open questions
 
-NAT traversal needs reliable STUN + TURN fallback (else some pairs must use the mailbox). Gossip storm/dedupe correctness depends on seen-set sizing, TTL hops, and fanout K tuning. Every mesh message is signed (`verifySignedP2PEnvelopeProof`); blocked peers must be dropped at the channel layer. Room leases and rotating rendezvous tokens must prevent cross-room discovery without exposing raw room IDs over nearby radio. Define TTL and "missed while offline" semantics for eventual consistency. Confirm product is OK relaxing global talk stats. iOS can't hold long-lived channels in background — relies on mailbox + notification-assisted wake.
+NAT traversal needs reliable STUN + TURN fallback; a blocked pair remains queued rather than silently
+switching its Talk body to another phone or mailbox. Rotation timing, roster convergence, retry
+retention, and K tuning require physical experiments. Every mesh message is signed
+(`verifySignedP2PEnvelopeProof`); blocked peers must be dropped at the channel layer. Room leases
+and rotating rendezvous tokens must prevent cross-room discovery without exposing raw room IDs over
+nearby radio. Confirm product is OK relaxing global talk stats. Mobile background suspension delays
+direct Talk exchange until both endpoints can run; notification-assisted wake remains future work.
 
 ---
 
@@ -4459,30 +4475,29 @@ Storage: in-memory LRU (capacity 10,000 peers) with a 5-minute TTL; no disk pers
 
 > **Source:** `docs/architecture/p2p-mesh-libp2p-analysis.md` (2026-06-10), merged into this SRS
 > 2026-06-10. **Supersedes:** §24 (Phase D custom DHT bootstrap). **Builds on:** §23 (mesh talk
-> delivery, P0 steps 1-8 shipped), §19.13/§19.14, §20 (ledger). **Status:** requirements approved,
-> implementation not started; sequenced AFTER P0 steps 9-11 in `docs/TODO.md`.
+> delivery), §19.13/§19.14, §20 (ledger). **Status:** incremental implementation is tracked in
+> `docs/TODO.md`.
 
 ### 25.1 Goals & non-goals
 
 **Goals.** (1) Replace the hand-rolled WebRTC connection layer (`p2p-webrtc-session.ts` ~800
 lines + server signaling endpoints) with libp2p streams, keeping every application-layer
-mechanism — `P2PMeshFrame` envelope, SEA signatures, seen-set dedup, split-horizon TTL
-forwarding, TalkLedger ordering — byte-identical. (2) Make peer discovery hub-independent via
+mechanism — `P2PMeshFrame` envelope, SEA signatures, direct Talk inventory/body/ACK semantics,
+and TalkLedger ordering — byte-identical. (2) Make peer discovery hub-independent via
 libp2p Kademlia DHT + mDNS, so the mesh re-forms when `www.iinpublic.com` is offline. (3) Add an
 IPFS content layer (Helia) for content-addressed file sharing, including the **matched-talk
 auto-share link** flow (§25.4, REQ-IPFS-04).
 
 **Non-goals.** No Gun.js replacement (Gun's WebSocket replication + IndexedDB adapter is
 untouched). No SEA→Ed25519 identity migration (two crypto namespaces coexist, REQ-LIBP2P-02). No
-change to gossip semantics — libp2p pubsub is explicitly NOT adopted; our TTL/split-horizon
-flood is more efficient for room-scoped delivery (analysis §3). The hub's encrypted TTL mailbox
-(§23, step 6) remains the offline fallback; IPFS does not replace it (a mailbox envelope carries
-an IPFS *link*, never file bytes — REQ-IPFS-05).
+change to the direct Talk scheduler — libp2p pubsub is explicitly NOT adopted. The hub's encrypted
+TTL mailbox may carry pair-private attachment-share *links* (never file bytes — REQ-IPFS-05), but
+it is not an ordinary Talk-body fallback.
 
 ### 25.2 Architecture after migration
 
 ```
-App logic:    PeerMeshService — P2PMeshFrame build/verify/dedup/forward   (UNCHANGED)
+App logic:    PeerMeshService — direct schedule/inventory/body/ACK        (UNCHANGED)
                   │  send/forward wraps stream writes
                   ▼
 Transport:    libp2p stream handler  /iinpublic/mesh/1.0.0
@@ -4492,15 +4507,15 @@ Transport:    libp2p stream handler  /iinpublic/mesh/1.0.0
 Discovery:    Kademlia DHT (room rendezvous) + mDNS (LAN) + Socket.IO roster (fast path)
 Content:      Helia (IPFS) — CIDv1 attachments, bitswap fetch        (NEW, lazy-init)
 State:        Gun.js relay/IndexedDB                                  (UNCHANGED)
-Offline:      hub encrypted TTL mailbox                               (UNCHANGED)
+Offline:      author local Talk outbox; mailbox for pair-private links/messages
 ```
 
 ### 25.3 Transport & discovery requirements
 
 - **REQ-LIBP2P-01 — Transport abstraction.** `PeerMeshService` SHALL send and receive
   `P2PMeshFrame`s over a libp2p stream protocol registered at `/iinpublic/mesh/1.0.0`. The frame
-  envelope (§23.5), SEA origin verification, bounded seen-set dedup, room scoping, and
-  split-horizon TTL forwarding SHALL remain unchanged. The swap SHALL be made behind the
+  envelope (§23.5), SEA origin verification, bounded seen-set dedup, room scoping, and direct
+  inventory/body/ACK semantics SHALL remain unchanged. The swap SHALL be made behind the
   existing `MeshSession` interface (`ensureConnected` / `sendMeshFrame` /
   `setOnRemoteMeshFrame`) so unit tests and gossip logic are transport-agnostic.
 - **REQ-LIBP2P-02 — Identity binding.** Ed25519 PeerIDs secure the transport (noise) only. SEA
