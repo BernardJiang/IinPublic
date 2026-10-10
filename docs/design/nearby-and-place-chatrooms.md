@@ -237,6 +237,20 @@ protects the first exchange from passive observers while the peer remains **Unkn
 Contact pins the stable identity and enables durable pair state, private conversations, offline
 delivery policy, and future reconnection. Trust changes; basic transport protection does not.
 
+The implemented `iinpublic-p2p-v2` DataChannel bootstrap sends only a stable SEA-signed identity,
+stable user id, and fresh P-256 ECDH public offer in plaintext. Both endpoints derive an AES-256-GCM
+key through HKDF-SHA256 over a transcript that binds the conversation, both stable identities, both
+ephemeral keys, and both random session nonces. Each side must decrypt the other's transcript-id
+confirmation before Talk inventory, bodies, answers, ledgers, conversation control, attachments, or
+DMs can flow. Every ciphertext wrapper remains SEA-signed and nonce/timestamp checked. Replayed
+offers derive a different transcript on the fresh peer, changed/tampered ciphertext fails GCM, and
+legacy plaintext application frames are discarded rather than negotiated as a fallback.
+
+When a user promotes an Unknown peer to Contact, the current stable `pub` (and available `epub`) is
+stored in the user's encrypted known-person record. Edits keep that original pin. A later live
+handshake whose signed stable key differs from the pin fails closed; removing and deliberately
+re-verifying the Contact is required to accept a replacement identity.
+
 “Public Talk” means the author permits eligible room members to read it, not that a network observer
 may read it. Every Talk is signed. Every connection is encrypted.
 

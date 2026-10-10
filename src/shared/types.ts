@@ -35,6 +35,11 @@ export interface TalkIntakeFilters {
 
 export interface KnownPerson {
   userId: string;
+  /** Stable SEA identity pinned when this stranger becomes a Contact. */
+  identityPub?: string;
+  /** Public ECDH identity observed at pin time; retained for durable pair-state migrations. */
+  identityEpub?: string;
+  identityPinnedAt?: Date;
   /**
    * A contact can belong to more than one relationship group at once (e.g. both
    * "friend" and "coworker") — always non-empty. Legacy single-`label` records

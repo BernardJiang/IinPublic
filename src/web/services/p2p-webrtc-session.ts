@@ -30,6 +30,14 @@ import {
 import { GunPubSubSignaler } from './gun-pubsub-signaler';
 import { HttpRelaySignaler } from './http-relay-signaler';
 import { selectedCandidatePairFromStats, type SelectedCandidatePair } from '../../shared/wifi-direct-link';
+import {
+  decryptSecureSessionJson,
+  deriveSecureSession,
+  encryptSecureSessionJson,
+  generateSecureSessionOffer,
+  pinnedIdentityAccepts,
+  type GeneratedSecureSessionOffer,
+} from '../../shared/p2p-secure-session';
 
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
 
@@ -144,6 +152,11 @@ type ChannelFramePayload =
   | AttachChunkWirePayload
   | ConversationControlWirePayload;
 
+type SecureConfirmPayload = {
+  type: 'secure-confirm';
+  sessionId: string;
+};
+
 type SignedChannelWirePayload = {
   type: 'signed-frame';
   peerId: string;
@@ -154,6 +167,21 @@ type SignedChannelWirePayload = {
   signature: string;
   frame: ChannelFramePayload;
 };
+
+type EncryptedChannelWirePayload = {
+  type: 'encrypted-frame';
+  peerId: string;
+  pub: string;
+  timestamp: string;
+  nonce: string;
+  payloadHash: string;
+  signature: string;
+  sessionId: string;
+  iv: string;
+  ciphertext: string;
+};
+
+type ChannelWirePayload = SignedChannelWirePayload | EncryptedChannelWirePayload;
 
 /** Local/same-machine peers should connect well under this; longer waits usually mean a bug. */
 export const P2P_WEBRTC_CONNECT_TIMEOUT_MS = 10_000;
@@ -365,6 +393,18 @@ export type P2PSessionConfig = {
   lookupVerifierKey?: (verifierKeyId: string) => string | undefined;
 };
 
+type ContactIdentityResolver = (
+  localUserId: string,
+  otherUserId: string,
+) => string | undefined | Promise<string | undefined>;
+
+let contactIdentityResolver: ContactIdentityResolver | null = null;
+
+/** Supplies the stable identity pinned in the local user's private Contacts record. */
+export function setP2PContactIdentityResolver(resolver: ContactIdentityResolver | null): void {
+  contactIdentityResolver = resolver;
+}
+
 export class P2PConversationSession {
   private _state: P2PConnectionState = 'idle';
   private pc: RTCPeerConnection | null = null;
@@ -407,6 +447,13 @@ export class P2PConversationSession {
   private handshakeDiagnostics: HandshakeDiagnostics | null = null;
   // Stash remote payload if it arrives before localHandshakePayload is ready
   private pendingRemoteHandshake: P2PHandshakePayload | null = null;
+  private secureOffer: GeneratedSecureSessionOffer | null = null;
+  private remoteHandshakePayload: P2PHandshakePayload | null = null;
+  private secureSessionKey: CryptoKey | null = null;
+  private secureSessionId: string | null = null;
+  private secureSessionConfirmed = false;
+  private secureConfirmSent = false;
+  private readonly pendingEncryptedFrames: EncryptedChannelWirePayload[] = [];
   /** Epoch ms of the most recent transition into 'failed'; null when never failed. */
   private lastFailedAt: number | null = null;
   private readonly stateListeners = new Set<(state: P2PConnectionState) => void>();
@@ -811,8 +858,25 @@ export class P2PConversationSession {
     this.setState('idle');
   }
 
+  private resetSecureSession(): void {
+    this.localHandshakePayload = null;
+    this.pendingRemoteHandshake = null;
+    this.remoteHandshakePayload = null;
+    this.secureOffer = null;
+    this.secureSessionKey = null;
+    this.secureSessionId = null;
+    this.secureSessionConfirmed = false;
+    this.secureConfirmSent = false;
+    this.pendingEncryptedFrames.splice(0);
+    this.ledgerLocalSent = false;
+    this.ledgerRemoteReceived = false;
+    this.ledgerReady = false;
+    this.dataChannelNonces.clear();
+  }
+
   private async start(): Promise<void> {
     if (this._state === 'connecting' || this._state === 'connected') return;
+    this.resetSecureSession();
     this.setState('connecting');
 
     // Create AND FULLY WIRE the RTCPeerConnection before subscribing to signaling.
@@ -880,44 +944,112 @@ export class P2PConversationSession {
 
   private async sendHandshake(): Promise<void> {
     if (!this.config.localPair) return;
+    if (!this.secureOffer) this.secureOffer = await generateSecureSessionOffer();
     const peerId = await derivePeerIdFromPub(this.config.localPub);
     const localBuildTrustCredential = this.config.getBuildTrustCredential?.();
     const payload = buildHandshakePayload({
       peerId,
+      userId: this.config.localUserId,
       publicKey: this.config.localPub,
+      secureSession: this.secureOffer.offer,
       appVersion: readNativeHostInfo().version,
       ...(localBuildTrustCredential ? { buildTrustCredential: localBuildTrustCredential } : {}),
     });
     this.localHandshakePayload = payload;
-    // If the remote handshake already arrived while we were computing peerId, process it now
-    if (this.pendingRemoteHandshake) {
-      const result = negotiateProtocol(payload, this.pendingRemoteHandshake);
-      this.handshakeDiagnostics = {
-        ...buildHandshakeDiagnostics(payload, this.pendingRemoteHandshake, result),
-        buildTrust: this.computeBuildTrust(this.pendingRemoteHandshake),
-      };
-      this.pendingRemoteHandshake = null;
-      this.maybeNotifyVersionMismatch();
-    }
     const frame: HandshakeWirePayload = { type: 'handshake', payload };
-    await this.sendChannelFrame(frame).catch(() => undefined);
+    await this.sendSignedHandshake(frame);
+    if (this.pendingRemoteHandshake) {
+      const remote = this.pendingRemoteHandshake;
+      this.pendingRemoteHandshake = null;
+      await this.acceptRemoteHandshake(remote);
+    }
   }
 
-  private handleHandshake(payload: unknown): void {
+  private async handleHandshake(payload: unknown, signedPub: string, signedPeerId: string): Promise<void> {
     const validation = validateHandshakePayload(payload);
-    if (!validation.ok) return; // silently drop malformed handshakes
-    if (this.localHandshakePayload) {
-      // Local is already set — compute diagnostics immediately
-      const result = negotiateProtocol(this.localHandshakePayload, validation.payload);
-      this.handshakeDiagnostics = {
-        ...buildHandshakeDiagnostics(this.localHandshakePayload, validation.payload, result),
-        buildTrust: this.computeBuildTrust(validation.payload),
-      };
-      this.maybeNotifyVersionMismatch();
-    } else {
-      // Local not ready yet (derivePeerIdFromPub still pending) — stash for sendHandshake to process
-      this.pendingRemoteHandshake = validation.payload;
+    if (!validation.ok) return this.failSecureHandshake(validation.reason);
+    const remote = validation.payload;
+    const derivedPeerId = await derivePeerIdFromPub(remote.publicKey);
+    if (
+      remote.userId !== this.config.otherUserId ||
+      remote.publicKey !== this.config.otherPub ||
+      remote.publicKey !== signedPub ||
+      remote.peerId !== signedPeerId ||
+      derivedPeerId !== signedPeerId
+    ) {
+      return this.failSecureHandshake('handshake identity does not match the signed DataChannel peer');
     }
+    const pinnedPub = await contactIdentityResolver?.(this.config.localUserId, this.config.otherUserId);
+    if (!pinnedIdentityAccepts(pinnedPub, remote.publicKey)) {
+      return this.failSecureHandshake('contact identity key changed');
+    }
+    if (!this.localHandshakePayload) {
+      this.pendingRemoteHandshake = remote;
+      return;
+    }
+    await this.acceptRemoteHandshake(remote);
+  }
+
+  private async acceptRemoteHandshake(remote: P2PHandshakePayload): Promise<void> {
+    if (!this.localHandshakePayload || !this.secureOffer) return;
+    const result = negotiateProtocol(this.localHandshakePayload, remote);
+    this.handshakeDiagnostics = {
+      ...buildHandshakeDiagnostics(this.localHandshakePayload, remote, result),
+      buildTrust: this.computeBuildTrust(remote),
+    };
+    this.maybeNotifyVersionMismatch();
+    if (!result.ok || result.selectedProtocol !== 'iinpublic-p2p-v2') {
+      return this.failSecureHandshake(result.ok ? 'encrypted protocol required' : result.reason);
+    }
+    this.remoteHandshakePayload = remote;
+    if (this.secureSessionKey) return;
+    try {
+      const derived = await deriveSecureSession({
+        conversationId: this.config.conversationId,
+        privateKey: this.secureOffer.privateKey,
+        local: {
+          userId: this.localHandshakePayload.userId,
+          publicKey: this.localHandshakePayload.publicKey,
+          ...this.localHandshakePayload.secureSession,
+        },
+        remote: {
+          userId: remote.userId,
+          publicKey: remote.publicKey,
+          ...remote.secureSession,
+        },
+      });
+      this.secureSessionKey = derived.key;
+      this.secureSessionId = derived.sessionId;
+      if (!this.secureConfirmSent) {
+        this.secureConfirmSent = true;
+        await this.sendEncryptedFrame({ type: 'secure-confirm', sessionId: derived.sessionId }, true);
+      }
+      const pending = this.pendingEncryptedFrames.splice(0);
+      for (const wire of pending) await this.handleEncryptedChannelFrame(wire);
+    } catch {
+      this.failSecureHandshake('could not derive encrypted session');
+    }
+  }
+
+  private failSecureHandshake(reason: string): void {
+    if (this.localHandshakePayload) {
+      this.handshakeDiagnostics = {
+        ...buildHandshakeDiagnostics(this.localHandshakePayload, this.remoteHandshakePayload, null),
+        handshakeState: 'failed',
+        failureReason: reason,
+      };
+    }
+    this.setState('failed');
+    this.closeTransport();
+  }
+
+  private async waitForSecureSession(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS): Promise<void> {
+    const started = Date.now();
+    while (!this.secureSessionConfirmed && Date.now() - started < timeoutMs) {
+      if (this._state === 'failed') throw new Error('Encrypted P2P handshake failed');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    if (!this.secureSessionConfirmed) throw new Error('Encrypted P2P handshake timeout');
   }
 
   /** Scenario 2 (§16): evaluates the REMOTE peer's presented buildTrustCredential (if any) into
@@ -965,14 +1097,17 @@ export class P2PConversationSession {
     channel.onopen = () => {
       this.setState('connected');
       void this.sendHandshake()
+        .then(() => this.waitForSecureSession())
         .then(() => this.sendLedgerState())
         .then(() => this.sendConversationControlSnapshot())
-        .then(() => this.sendSyncDigest());
+        .then(() => this.sendSyncDigest())
+        .catch(() => undefined);
     };
     channel.onmessage = (event) => {
       try {
-        const parsed = JSON.parse(String(event.data)) as SignedChannelWirePayload;
-        void this.handleSignedChannelFrame(parsed);
+        const parsed = JSON.parse(String(event.data)) as ChannelWirePayload;
+        if (parsed.type === 'encrypted-frame') void this.handleEncryptedChannelFrame(parsed);
+        else void this.handleSignedChannelFrame(parsed);
       } catch {
         // ignore malformed frames
       }
@@ -1044,7 +1179,7 @@ export class P2PConversationSession {
     }
   }
 
-  private async sendChannelFrame(frame: ChannelFramePayload): Promise<void> {
+  private async sendSignedHandshake(frame: HandshakeWirePayload): Promise<void> {
     if (!this.config.localPair) throw new Error('P2P DataChannel frames require a SEA signing pair');
     if (!this.dc || this.dc.readyState !== 'open') throw new Error('DataChannel not open');
     const proof = await createSignedP2PEnvelopeProof({
@@ -1067,6 +1202,48 @@ export class P2PConversationSession {
     this.dc.send(JSON.stringify(signed));
   }
 
+  private async sendEncryptedFrame(
+    frame: ChannelFramePayload | SecureConfirmPayload,
+    allowBeforeConfirmation = false,
+  ): Promise<void> {
+    if (!this.config.localPair) throw new Error('P2P DataChannel frames require a SEA signing pair');
+    if (!this.dc || this.dc.readyState !== 'open') throw new Error('DataChannel not open');
+    if (!allowBeforeConfirmation) await this.waitForSecureSession();
+    if (!this.secureSessionKey || !this.secureSessionId) throw new Error('Encrypted P2P session not derived');
+    const encrypted = await encryptSecureSessionJson(this.secureSessionKey, this.secureSessionId, frame);
+    const signedBody = {
+      type: 'encrypted-payload',
+      sessionId: this.secureSessionId,
+      iv: encrypted.iv,
+      ciphertext: encrypted.ciphertext,
+    };
+    const proof = await createSignedP2PEnvelopeProof({
+      pair: this.config.localPair,
+      payload: p2pDataChannelSigningPayload({
+        conversationId: this.config.conversationId,
+        frame: signedBody,
+      }),
+    });
+    const wire: EncryptedChannelWirePayload = {
+      type: 'encrypted-frame',
+      peerId: proof.peerId,
+      pub: this.config.localPub,
+      timestamp: proof.timestamp,
+      nonce: proof.nonce,
+      payloadHash: proof.payloadHash,
+      signature: proof.signature,
+      sessionId: this.secureSessionId,
+      iv: encrypted.iv,
+      ciphertext: encrypted.ciphertext,
+    };
+    this.dc.send(JSON.stringify(wire));
+  }
+
+  private async sendChannelFrame(frame: ChannelFramePayload): Promise<void> {
+    if (frame.type === 'handshake') return this.sendSignedHandshake(frame);
+    return this.sendEncryptedFrame(frame);
+  }
+
   private async handleSignedChannelFrame(parsed: SignedChannelWirePayload): Promise<void> {
     if (parsed?.type !== 'signed-frame' || !parsed.frame || parsed.pub !== this.config.otherPub) return;
     const verification = await verifySignedP2PEnvelopeProof({
@@ -1086,19 +1263,76 @@ export class P2PConversationSession {
     });
     if (!verification.ok) return;
     if (parsed.frame.type === 'handshake') {
-      this.handleHandshake(parsed.frame.payload);
+      await this.handleHandshake(parsed.frame.payload, parsed.pub, parsed.peerId);
+    }
+    // Plaintext application frames are a protocol downgrade and are always discarded.
+  }
+
+  private async handleEncryptedChannelFrame(parsed: EncryptedChannelWirePayload): Promise<void> {
+    if (
+      parsed?.type === 'encrypted-frame' &&
+      parsed.pub === this.config.otherPub &&
+      !this.secureSessionKey &&
+      this.pendingEncryptedFrames.length < 8
+    ) {
+      this.pendingEncryptedFrames.push(parsed);
       return;
     }
-    if (parsed.frame.type === 'ledger-state') {
-      await this.handleLedgerState(parsed.frame.feeds || {});
+    if (
+      parsed?.type !== 'encrypted-frame' ||
+      parsed.pub !== this.config.otherPub ||
+      !this.secureSessionKey ||
+      !this.secureSessionId ||
+      parsed.sessionId !== this.secureSessionId
+    ) return;
+    const signedBody = {
+      type: 'encrypted-payload',
+      sessionId: parsed.sessionId,
+      iv: parsed.iv,
+      ciphertext: parsed.ciphertext,
+    };
+    const verification = await verifySignedP2PEnvelopeProof({
+      proof: {
+        peerId: parsed.peerId,
+        pub: parsed.pub,
+        timestamp: parsed.timestamp,
+        nonce: parsed.nonce,
+        payloadHash: parsed.payloadHash,
+        signature: parsed.signature,
+      },
+      payload: p2pDataChannelSigningPayload({
+        conversationId: this.config.conversationId,
+        frame: signedBody,
+      }),
+      nonceCache: this.dataChannelNonces,
+    });
+    if (!verification.ok) return;
+    let frame: ChannelFramePayload | SecureConfirmPayload;
+    try {
+      frame = await decryptSecureSessionJson<ChannelFramePayload | SecureConfirmPayload>(
+        this.secureSessionKey,
+        this.secureSessionId,
+        { iv: parsed.iv, ciphertext: parsed.ciphertext },
+      );
+    } catch {
       return;
     }
-    if (parsed.frame.type === 'ledger-sync-request') {
+    if (frame.type === 'secure-confirm') {
+      if (frame.sessionId !== this.secureSessionId) return;
+      this.secureSessionConfirmed = true;
+      return;
+    }
+    if (!this.secureSessionConfirmed || frame.type === 'handshake') return;
+    if (frame.type === 'ledger-state') {
+      await this.handleLedgerState(frame.feeds || {});
+      return;
+    }
+    if (frame.type === 'ledger-sync-request') {
       this.sendLedgerState();
       return;
     }
-    if (parsed.frame.type === 'ledger-events') {
-      const events = Array.isArray(parsed.frame.events) ? parsed.frame.events : [];
+    if (frame.type === 'ledger-events') {
+      const events = Array.isArray(frame.events) ? frame.events : [];
       // Do not become a third-party ledger relay: this authenticated channel may carry
       // only events authored by the peer whose identity signed the outer frame.
       if (events.some((event) => event?.pubkey !== this.config.otherPub)) return;
@@ -1108,37 +1342,37 @@ export class P2PConversationSession {
       );
       return;
     }
-    if (parsed.frame.type === 'link-upgrade') {
-      await this.onLinkUpgradeMessage?.(parsed.frame.message);
+    if (frame.type === 'link-upgrade') {
+      await this.onLinkUpgradeMessage?.(frame.message);
       return;
     }
-    if (parsed.frame.type === 'mesh') {
-      await this.config.onRemoteMeshFrame?.(this.config.otherUserId, parsed.frame.frame);
+    if (frame.type === 'mesh') {
+      await this.config.onRemoteMeshFrame?.(this.config.otherUserId, frame.frame);
       return;
     }
-    if (parsed.frame.type === 'sync-digest') {
-      await this.handleSyncDigest(parsed.frame);
+    if (frame.type === 'sync-digest') {
+      await this.handleSyncDigest(frame);
       return;
     }
-    if (parsed.frame.type === 'attach-request') {
-      await this.handleAttachRequest(parsed.frame.cid);
+    if (frame.type === 'attach-request') {
+      await this.handleAttachRequest(frame.cid);
       return;
     }
-    if (parsed.frame.type === 'attach-chunk') {
-      this.handleAttachChunk(parsed.frame);
+    if (frame.type === 'attach-chunk') {
+      this.handleAttachChunk(frame);
       return;
     }
-    if (parsed.frame.type === 'conversation-control') {
-      if (!parsed.frame.metadata || typeof parsed.frame.metadata !== 'object') return;
+    if (frame.type === 'conversation-control') {
+      if (!frame.metadata || typeof frame.metadata !== 'object') return;
       await this.config.onRemoteConversationControl?.(
         this.config.otherUserId,
-        parsed.frame.metadata,
+        frame.metadata,
       );
       return;
     }
-    if (parsed.frame.type !== 'dm' || !('message' in parsed.frame) || !parsed.frame.message) return;
+    if (frame.type !== 'dm' || !('message' in frame) || !frame.message) return;
     if (!this.ledgerReady && this.config.getLedgerState) return;
-    await this.ingestWireMessage(parsed.frame.message);
+    await this.ingestWireMessage(frame.message);
   }
 
   private async ingestWireMessage(

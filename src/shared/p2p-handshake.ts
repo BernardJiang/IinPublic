@@ -10,6 +10,7 @@
 
 import { compareVersions } from './semver-compare';
 import { isWellFormedCredential, type BuildTrustLabel, type OfficialBuildCredential } from './official-build-credential';
+import type { SecureSessionOffer } from './p2p-secure-session';
 
 export const APP_NAME = 'iinpublic';
 export const APP_VERSION = '1.0.0';
@@ -21,7 +22,7 @@ function isComparableVersion(version: string | null | undefined): version is str
 }
 
 /** Wire protocols ordered newest-first; the highest mutually-supported version wins. */
-export const SUPPORTED_PROTOCOLS = ['iinpublic-p2p-v1'] as const;
+export const SUPPORTED_PROTOCOLS = ['iinpublic-p2p-v2'] as const;
 export type SupportedProtocol = (typeof SUPPORTED_PROTOCOLS)[number];
 
 /** Optional capability flags advertised during handshake. */
@@ -32,7 +33,8 @@ export type HandshakeFeature =
   | 'relay-fallback'
   | 'pair-private-responses'
   | 'ledger-sync'
-  | 'schema-migrations';
+  | 'schema-migrations'
+  | 'encrypted-session-v1';
 
 /** Handshake payload sent over the DataChannel immediately after open. */
 export type P2PHandshakePayload = {
@@ -42,8 +44,12 @@ export type P2PHandshakePayload = {
   features: HandshakeFeature[];
   /** SHA-256(pub) derived peer id. */
   peerId: string;
+  /** Stable account id expected by the connection initiator. */
+  userId: string;
   /** SEA public key (no private material). */
   publicKey: string;
+  /** Fresh ECDH offer; its signed transcript derives the per-connection AES key. */
+  secureSession: SecureSessionOffer;
   timestamp: string;
   /** Scenario 2 (§16): this device's current OfficialBuildCredential, if it has one (native
    * attestation bridge available + a successful verify round trip — see
@@ -92,13 +98,16 @@ export type HandshakeDiagnostics = {
  */
 export function buildHandshakePayload(params: {
   peerId: string;
+  userId: string;
   publicKey: string;
+  secureSession: SecureSessionOffer;
   appVersion?: string;
   features?: HandshakeFeature[];
   buildTrustCredential?: OfficialBuildCredential;
   now?: Date;
 }): P2PHandshakePayload {
   if (!params.peerId) throw new Error('handshake requires peerId');
+  if (!params.userId) throw new Error('handshake requires userId');
   if (!params.publicKey) throw new Error('handshake requires publicKey');
   return {
     appName: APP_NAME,
@@ -112,9 +121,12 @@ export function buildHandshakePayload(params: {
       'pair-private-responses',
       'ledger-sync',
       'schema-migrations',
+      'encrypted-session-v1',
     ],
     peerId: params.peerId,
+    userId: params.userId,
     publicKey: params.publicKey,
+    secureSession: params.secureSession,
     timestamp: (params.now ?? new Date()).toISOString(),
     ...(params.buildTrustCredential ? { buildTrustCredential: params.buildTrustCredential } : {}),
   };
@@ -174,8 +186,32 @@ export function validateHandshakePayload(
   if (typeof p.peerId !== 'string' || !p.peerId) {
     return { ok: false, reason: 'missing peerId' };
   }
+  if (typeof p.userId !== 'string' || !p.userId) {
+    return { ok: false, reason: 'missing userId' };
+  }
   if (typeof p.publicKey !== 'string' || !p.publicKey) {
     return { ok: false, reason: 'missing publicKey' };
+  }
+  if (!p.secureSession || typeof p.secureSession !== 'object') {
+    return { ok: false, reason: 'missing secureSession offer' };
+  }
+  const secure = p.secureSession as Record<string, unknown>;
+  if (
+    secure.version !== 1 ||
+    typeof secure.ephemeralPublicKey !== 'string' ||
+    secure.ephemeralPublicKey.length < 80 ||
+    secure.ephemeralPublicKey.length > 120 ||
+    typeof secure.sessionNonce !== 'string' ||
+    secure.sessionNonce.length < 20 ||
+    secure.sessionNonce.length > 64
+  ) {
+    return { ok: false, reason: 'malformed secureSession offer' };
+  }
+  if (!p.supportedProtocols.includes('iinpublic-p2p-v2')) {
+    return { ok: false, reason: 'encrypted protocol required' };
+  }
+  if (!p.features.includes('encrypted-session-v1')) {
+    return { ok: false, reason: 'encrypted-session-v1 feature required' };
   }
   if (typeof p.timestamp !== 'string' || !p.timestamp) {
     return { ok: false, reason: 'missing timestamp' };

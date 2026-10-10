@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-09
 
+## 2026-10-09 — Stranger sessions encrypted before Talk exchange (OPEN-40 slice)
+
+- Replaced plaintext signed DataChannel application frames with `iinpublic-p2p-v2`: a SEA-signed
+  stable identity and fresh P-256 ECDH offer derive a transcript-bound AES-256-GCM session key.
+  Mutual encrypted confirmation now gates Talk, answer, mesh, ledger, conversation-control,
+  attachment, and DM frames; ciphertext wrappers remain signed and replay checked.
+- Plaintext application frames and v1 downgrade offers fail closed. Fresh nonces/ephemeral keys make
+  captured-session replay unusable; GCM rejects substitution/tampering. Unknown peers get encryption
+  automatically, without being promoted to Contacts.
+- Contact creation pins the observed stable SEA identity in the owner's encrypted known-person
+  record; later edits preserve it and a changed live key is rejected until the Contact is removed
+  and deliberately re-verified.
+- Verified typecheck, lint, focused passive-listener/MITM/replay/key-change/downgrade unit gates, and
+  the live two-browser P0 direct-Talk delivery test.
+
 ## 2026-10-09 — Direct Talk scheduler is authoritative (OPEN-40 slice)
 
 - Replaced fixed-first-K/flood/mailbox Talk-body delivery with a symmetric circle-method schedule.

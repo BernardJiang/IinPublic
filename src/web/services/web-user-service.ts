@@ -772,20 +772,35 @@ export class WebUserService {
     targetId: string,
     labels: RelationshipLabel[],
     nickname?: string,
-    extras?: { customLabel?: string; rating?: number; notes?: string },
+    extras?: {
+      customLabel?: string;
+      rating?: number;
+      notes?: string;
+      identityPub?: string;
+      identityEpub?: string;
+    },
   ): Promise<void> {
-    const entry: KnownPerson = {
-      userId: targetId,
-      labels: labels.length > 0 ? labels : ['acquaintance'],
-      ...(nickname ? { nickname } : {}),
-      ...(extras?.customLabel ? { customLabel: extras.customLabel } : {}),
-      ...(typeof extras?.rating === 'number' ? { rating: extras.rating } : {}),
-      ...(extras?.notes ? { notes: extras.notes } : {}),
-      addedAt: new Date(),
-    };
     try {
       await this.withPrivateDataLock(async () => {
         const u = await this.getUser(userId);
+        const existing = (u.knownPeople || []).find((known) => known.userId === targetId);
+        if (existing?.identityPub && extras?.identityPub && existing.identityPub !== extras.identityPub) {
+          throw new Error('Contact identity key changed; remove and verify the contact before adding again');
+        }
+        const identityPub = existing?.identityPub ?? extras?.identityPub;
+        const identityEpub = existing?.identityEpub ?? extras?.identityEpub;
+        const entry: KnownPerson = {
+          userId: targetId,
+          labels: labels.length > 0 ? labels : ['acquaintance'],
+          ...(identityPub ? { identityPub } : {}),
+          ...(identityEpub ? { identityEpub } : {}),
+          ...(identityPub ? { identityPinnedAt: existing?.identityPinnedAt ?? new Date() } : {}),
+          ...(nickname ? { nickname } : {}),
+          ...(extras?.customLabel ? { customLabel: extras.customLabel } : {}),
+          ...(typeof extras?.rating === 'number' ? { rating: extras.rating } : {}),
+          ...(extras?.notes ? { notes: extras.notes } : {}),
+          addedAt: existing?.addedAt ?? new Date(),
+        };
         const list = [...(u.knownPeople || []).filter((k) => k.userId !== targetId), entry];
         await this.putPrivateUserData({ ...u, knownPeople: list });
       });

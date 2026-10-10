@@ -1,7 +1,7 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.9 — Nearby + map Places replace the visible Global/L1-L4 cascade; direct encrypted
+> **Version:** 4.10 — Nearby + map Places replace the visible Global/L1-L4 cascade; direct encrypted
 > stranger exchange is the baseline (§3.3, §6.1, `docs/design/nearby-and-place-chatrooms.md`)
 > **Date:** 2026-10-08
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
@@ -187,7 +187,8 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - Decentralized moderation: blocking, age-gating, reputation, block count.
 - Headshot avatars with chatbot overlays to distinguish bot vs. human replies.
 - Green/Red conversation modes to control chatbot automation level (Auto / Manual).
-- Three-tier message security: public, one-way encrypted (known), mutual ECDH-encrypted (mutual).
+- One encrypted transport baseline for Unknown and Contact peers; audience/trust tiers remain
+  public Talk, unilateral Contact, and mutual durable pair state.
 
 ### 2.3 User Classes and Characteristics
 
@@ -590,7 +591,10 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **REQ-P2P-11:** Trust is local per user; no global trust authority. Default state is **Unknown**; user may promote to **Friend** or **Verified**, or **Blocked**.
 - **REQ-P2P-12:** Reputation statistics SHALL be local per peer and SHALL NOT override explicit user trust or block decisions.
 - **REQ-P2P-13:** Software version, protocol version, and schema version SHALL be independent (e.g. app `1.8.2`, `talk-v2`, answer schema `5`).
-- **REQ-P2P-14:** On P2P connect, peers SHALL exchange a signed handshake (`peerId`, `appName`, `appVersion`, `supportedProtocols`, `features`, `publicKey`, `timestamp`, `signature`) and negotiate the highest mutually supported protocol.
+- **REQ-P2P-14:** On P2P connect, peers SHALL exchange a signed handshake (`peerId`, `userId`,
+  `appName`, `appVersion`, `supportedProtocols`, `features`, `publicKey`, fresh ephemeral session
+  key, session nonce, `timestamp`, `signature`) and negotiate the highest mutually supported
+  encrypted protocol. Stable ids and keys SHALL match the signed outer frame and expected peer.
 - **REQ-P2P-15:** Connection SHALL fail when no common protocol exists; clients SHALL NOT crash on unsupported features (graceful degradation UI).
 - **REQ-P2P-16:** Stored objects SHALL carry `schemaVersion`; migrations SHALL be deterministic with no user data loss.
 - **REQ-P2P-17:** Official client upgrades SHALL verify release signature and hash before install.
@@ -1170,9 +1174,11 @@ When User A marks User B as a known person:
 ```typescript
 interface KnownPerson {
   userId: string;
-  pub: string;           // their SEA public key
-  label: string;         // friend | relative | coworker | acquaintance | partner | custom
-  addedAt: number;
+  identityPub?: string;  // stable SEA signing key pinned on first promotion
+  identityEpub?: string; // observed SEA public encryption key
+  identityPinnedAt?: Date;
+  labels: string[];      // friend | relative | coworker | acquaintance | partner | custom
+  addedAt: Date;
   notes?: string;        // optional private notes, SEA-encrypted
 }
 ```
@@ -3258,27 +3264,41 @@ Each peer maintains **local statistics** per remote peer (and global aggregates 
 - Discovery/signaling: `protocolVersion: 1` on `P2PDiscoveryMessage` ([§19.3](#193-session-bootstrap-when-2-users-are-online)).
 - Content ids: CIDv1 for talks/responses (Phase G).
 
-**Gap:** Full multi-protocol negotiation on WebRTC open — Phase **P2P-Q**.
+**Shipped security baseline:** `iinpublic-p2p-v2` permits no plaintext application fallback. A
+signed identity/ECDH offer and encrypted transcript confirmation complete before any application
+frame is accepted.
 
 #### 19.13.6 Connection Handshake
 
-On P2P connect (WebRTC DataChannel open or first Gun mesh exchange), peers SHALL send a signed **handshake** (REQ-P2P-14):
+On P2P connect (WebRTC DataChannel open), peers SHALL send a signed **handshake** (REQ-P2P-14):
 
 ```json
 {
-  "peerId": "abc123",
-  "appName": "IinPublic",
+  "peerId": "sha256-of-stable-pub",
+  "userId": "user-123",
+  "appName": "iinpublic",
   "appVersion": "1.8.2",
-  "supportedProtocols": ["talk-v1", "talk-v2", "ledger-v1"],
-  "features": ["text", "poll", "encrypted-talk", "ledger-delta"],
+  "supportedProtocols": ["iinpublic-p2p-v2"],
+  "features": ["encrypted-session-v1", "ledger-sync"],
   "publicKey": "<SEA pub>",
-  "timestamp": 1234567890,
-  "nonce": "<random>",
-  "signature": "<SEA sign>"
+  "secureSession": {
+    "version": 1,
+    "ephemeralPublicKey": "<P-256 raw public key, base64url>",
+    "sessionNonce": "<128-bit random, base64url>"
+  },
+  "timestamp": "<ISO-8601>"
 }
 ```
 
-**Protocol negotiation:** Both sides compute the **highest mutually supported** protocol id (lexicographic version suffix or explicit ordered list). Example: A offers `talk-v1`, `talk-v2`; B offers `talk-v1`–`talk-v3` → select **`talk-v2`**.
+The containing DataChannel frame is SEA-signed and includes a replay nonce. Both sides validate that
+`peerId = SHA-256(publicKey)`, `userId` and `publicKey` match the expected endpoint, and a Contact's
+key matches its encrypted pin. They derive ECDH → HKDF-SHA256 → AES-256-GCM over a transcript binding
+the conversation and both offers, then exchange encrypted transcript-id confirmations. Only after
+both confirmations may application frames flow. Those frames are AES-GCM encrypted and SEA-signed.
+
+**Protocol negotiation:** Both sides compute the highest mutually supported protocol from the local
+newest-first list. The production baseline currently requires `iinpublic-p2p-v2`; a v1-only peer
+fails closed rather than downgrading the session to plaintext.
 
 **Connection failure (REQ-P2P-15):** If intersection of `supportedProtocols` is empty, the connection MUST fail cleanly (logged locally, no crash).
 

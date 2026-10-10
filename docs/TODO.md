@@ -83,10 +83,14 @@ its ID.
       longer installs the server-mailbox fallback. Unit coverage proves K-bounded symmetry, complete
       100-user pair coverage, durable retry/ACK clearing, and no mailbox call; the live two-browser
       P0 delivery gate passes without a server Talk inbox.
-  - [ ] **P0 encrypted stranger handshake:** automatically exchange signed public identity plus
+  - [x] **P0 encrypted stranger handshake:** automatically exchange signed public identity plus
     ephemeral session keys for Unknown peers; bind WebRTC/DataChannel identity to that handshake.
     Becoming a Contact pins stable identity and durable pair state rather than enabling encryption
     for the first time. Add passive-listener, MITM, replay, key-change, and downgrade tests.
+    - [x] `iinpublic-p2p-v2` binds signed stable user/pub/peer ids to fresh P-256 ECDH offers,
+      derives transcript-bound AES-256-GCM keys, requires mutual encrypted confirmation, encrypts
+      every later application frame, rejects plaintext downgrade/replay/tamper, and checks a
+      Contact's encrypted stable-key pin. The live two-browser direct-Talk gate passes end to end.
   - [x] **P0 Nearby UI:** replace tree/list hierarchy with current Nearby distance/count, a shaded
     map area, Place pins, and Return to Nearby. Add Contacts-only, Radio nearby, Neighborhood,
     Close nearby, and Location-off settings with explicit home/work exposure text. Never imply that

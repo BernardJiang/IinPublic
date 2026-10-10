@@ -539,6 +539,29 @@ describe('saveKnownPerson', () => {
     expect(currentUser.knownPeople[0].labels).toEqual(['partner']);
   });
 
+  it('preserves the original identity pin and added date when editing a Contact', () => {
+    const addedAt = new Date('2026-01-01');
+    const pinnedAt = new Date('2026-01-02');
+    const currentUser: { knownPeople: KnownPerson[] } = {
+      knownPeople: [{
+        userId: 'u1',
+        labels: ['friend'],
+        identityPub: 'pub-pinned',
+        identityEpub: 'epub-pinned',
+        identityPinnedAt: pinnedAt,
+        addedAt,
+      }],
+    };
+    const d = deps({ getCurrentUser: jest.fn(() => currentUser) });
+    saveKnownPerson('u1', { labels: ['coworker'] }, d);
+    expect(currentUser.knownPeople[0]).toMatchObject({
+      identityPub: 'pub-pinned',
+      identityEpub: 'epub-pinned',
+      identityPinnedAt: pinnedAt,
+      addedAt,
+    });
+  });
+
   it('omits optional fields (nickname/customLabel/rating/notes) when not provided', () => {
     const currentUser: { knownPeople: KnownPerson[] } = { knownPeople: [] };
     const d = deps({ getCurrentUser: jest.fn(() => currentUser) });

@@ -156,7 +156,7 @@ import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import { eraseDevice } from '../services/device-wipe';
 import { parseLinkFragmentPayload, clearLinkFragmentFromUrl } from '../services/identity-link-fragment';
-import { getOrCreateP2PSession, listP2PSessions, onP2PSessionCreated, onP2PVersionMismatch, setLocalLinkIceServer, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
+import { getOrCreateP2PSession, listP2PSessions, onP2PSessionCreated, onP2PVersionMismatch, setLocalLinkIceServer, setP2PContactIdentityResolver, type P2PVersionMismatchEvent } from '../services/p2p-webrtc-session';
 import { WifiDirectLinkService } from '../services/wifi-direct-link-service';
 import { AndroidWifiDirectNative, EmbeddedNodeLocalRelay, readAndroidWifiDirectBridge, resolveWifiDirectLinkFlag } from '../services/android-wifi-direct-native';
 import { NearbyOfflineService, readNearbyOfflineBridge, type NearbyReadinessGap, type NearbyStatus } from '../services/nearby-offline-service';
@@ -1181,6 +1181,11 @@ export class IinPublicApp {
         ? this.uiManager.formatP2PVersionMismatchOlder(event.localVersion, event.remoteVersion)
         : this.uiManager.formatP2PVersionMismatchNewer(event.localVersion, event.remoteVersion);
       this.uiManager.showNotification(message, 'warning', { peerId: event.otherUserId });
+    });
+    setP2PContactIdentityResolver(async (localUserId, otherUserId) => {
+      if (this.currentUser?.id !== localUserId) return undefined;
+      const user = await this.userService.getUser(localUserId).catch(() => this.currentUser!);
+      return user.knownPeople?.find((known) => known.userId === otherUserId)?.identityPub;
     });
   }
 
@@ -7702,13 +7707,32 @@ export class IinPublicApp {
             ...(typeof data.rating === 'number' ? { rating: data.rating } : {}),
             ...(data.notes ? { notes: data.notes } : {}),
           };
+          const existing = this.currentUser.knownPeople?.find((known) => known.userId === data.userId);
+          const target = await this.userService.getUser(data.userId);
+          if (existing?.identityPub && target.pub && existing.identityPub !== target.pub) {
+            throw new Error('Contact identity key changed; remove and verify the contact before adding again');
+          }
+          const liveIdentityPub = listP2PSessions().find((session) => session.getOtherUserId() === data.userId)?.otherPub;
+          const identityPub = existing?.identityPub ?? target.pub ?? liveIdentityPub;
+          if (!identityPub) throw new Error('Cannot add Contact until the peer identity is verified');
+          const identityEpub = existing?.identityEpub ?? target.epub;
           await this.userService.addKnownPerson(
             this.currentUser.id,
             data.userId,
             data.labels,
             data.nickname,
-            extras,
+            {
+              ...extras,
+              identityPub,
+              ...(identityEpub ? { identityEpub } : {}),
+            },
           );
+          const currentEntry = this.currentUser.knownPeople?.find((known) => known.userId === data.userId);
+          if (currentEntry) {
+            currentEntry.identityPub = identityPub;
+            if (identityEpub) currentEntry.identityEpub = identityEpub;
+            currentEntry.identityPinnedAt ??= new Date();
+          }
           // "Block is a status, not a one-time notification" — a contact added or relabeled
           // into a group scope this account already shared a block with catches up now.
           void this.resendSharedBlockSignalsToNewContact({
