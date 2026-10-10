@@ -18,6 +18,18 @@ Last updated: 2026-10-10
   translation gates. The rule is eventual convergence for honest signed claims, not consensus,
   trusted-clock proof, physical-presence proof, or Sybil resistance.
 
+## 2026-10-10 — Stage1 chatroom navigation follows Nearby + immutable Places (OPEN-40 slice)
+
+- Replaced the remaining stage1 Global/tile-tree, open-map grid travel, coordinate-derived custom
+  room id, owner rename, and hidden-map-pin assertions with the accepted flat Nearby + Places model.
+- The browser gate now proves flat current Nearby, no hierarchy/shards, local shaded bounds, no
+  map-tap room invention, immutable content-addressed Place creation, no owner controls, a public
+  Place pin, Return to Nearby, and AppBar back-button isolation from Contacts.
+- The gate exposed a real first-Place join race: cold empty-room Gun fallbacks could exceed the
+  browser's four-second reservation deadline. Membership fallback reads now use short request-path
+  budgets, and the network timeout starts only after local claim signing. The full five-test current-
+  design navigation scenario passes.
+
 ## 2026-10-09 — Stranger sessions encrypted before Talk exchange (OPEN-40 slice)
 
 - Replaced plaintext signed DataChannel application frames with `iinpublic-p2p-v2`: a SEA-signed

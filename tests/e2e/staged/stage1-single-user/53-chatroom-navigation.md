@@ -1,41 +1,15 @@
-# 53-chatroom-navigation
+# 53 — Nearby and Place navigation
 
-covers: SPEC-3.3, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+covers: SPEC-3.3, SPEC-13.1
 
-Merged spec (speed re-organization): one shared boot instead of 3. Sections below are the original per-spec narratives.
+OPEN-40 replacement for the retired Global/tile hierarchy and owner-controlled custom rooms:
 
----
-
-## from 53-chatroom-back-icon.md
-
-# 53 — Chatroom back icon
-
-Room-detail navigation contract (gui-redesign-plan §3, test plan T3):
-
-1. **Icon swap** — the AppBar left zone is empty at the room list; entering a room detail
-   shows the `‹` back icon (`#back-to-chatrooms`); leaving hides it; re-entering another
-   room brings it straight back.
-2. **Return-home per context** — 🏠 is enabled in a non-home room's detail, stays enabled
-   back at the list (current room unchanged), and flips to disabled after clicking it
-   (the app switches to the home room).
-3. **No leakage** — the chatrooms back icon never shows on other tabs.
-
----
-
-## from 60-chatroom-hierarchy-walk.md
-
-# 60-chatroom-hierarchy-walk
-
-Covers TODO item **F** (catalog Part 5 option matrix).
-
-Room tree Global → L1 region tiles (labeled by continent) → grid rooms (no country/state/city rooms), every row shows a headcount, enter a room and back (C1/C2). The map shows the current grid room's marker, and tapping open map opens the GPS grid room at that point.
-
----
-
-## from 55-create-and-rename-room.md
-
-# 55-create-and-rename-room
-
-Covers TODO item **F** (catalog Part 5 option matrix).
-
-Create a custom community room via the Create Room dialog, land on its room detail, then rename it as owner (C5/C6).
+1. The chatroom list contains the active Nearby audience plus flat Community-created Places, with
+   no Global, tile hierarchy, expand controls, or visible capacity shards.
+2. Room detail uses the AppBar back icon; it disappears on the list and never leaks to Contacts.
+3. The map shades the current Nearby area. Tapping open map does not invent or enter a coordinate
+   grid room.
+4. A created Place has an immutable content-addressed identity, appears as a map pin, and exposes no
+   owner rename control. The server rejects mutation for every participant.
+5. A Place visit enables Return to Nearby; returning recomputes the automatic Nearby room and clears
+   the visit state.

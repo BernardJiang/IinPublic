@@ -1,8 +1,6 @@
 /**
- * Chatroom navigation (merged: 53-chatroom-back-icon, 60-chatroom-hierarchy-walk,
- * 55-create-and-rename-room). One boot instead of three; each test starts from the
- * chatroom LIST via toChatroomList(). 55 runs last because it adds (and renames) a
- * community room, mutating the room list the other tests walk.
+ * OPEN-40 chatroom navigation: one automatic Nearby audience plus immutable, ownerless map Places.
+ * This replaces the retired Global/tile-tree, map-tap grid travel, and owner rename expectations.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -10,16 +8,28 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { AREA_PLACES, openAreaRoomAt } from '../../helpers/chatroom-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
-test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename (merged)', () => {
+test.describe('Nearby and Place navigation — back, list/map, create, return home', () => {
   let context: BrowserContext | undefined;
   let page: Page | undefined;
+  let createdPlaceId = '';
+  let createdPlaceName = '';
 
   test.beforeAll(async ({ browser }) => {
     await clearGunForStage1Spec();
     context = await browser.newContext({ viewport: { width: 1100, height: 1100 }, deviceScaleFactor: 1 });
     page = await context.newPage();
+    await page.route('https://tiles.openfreemap.org/styles/liberty*', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        json: {
+          version: 8,
+          sources: {},
+          layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#eef2f7' } }],
+        },
+      });
+    });
     await injectIdbClear(page);
     await gotoWebApp(page, webBaseURL());
     await afterSync();
@@ -31,7 +41,7 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await clearGunForStage1Spec();
   });
 
-  /** Return to the chatroom LIST from wherever the previous test left off. */
+  /** Return to the chatroom list from wherever the previous test left off. */
   async function toChatroomList(p: Page): Promise<void> {
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
@@ -40,15 +50,20 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
       await back.click();
       await afterNav();
     }
+    await p.locator('[data-testid="chatroom-tree-view-btn"]').click();
   }
 
-  test('back icon swaps in for room detail and out for the list', async () => {
+  const currentRoomId = (p: Page) => p.evaluate(() =>
+    (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || '');
+
+  test('back icon swaps in for room detail and out for the flat list', async () => {
     await toChatroomList(page!);
     const p = page!;
     const back = p.locator('#app-bar-left #back-to-chatrooms');
 
     await expect(back).toBeHidden();
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
+    const nearbyId = await openCurrentChatroom(p);
+    expect(nearbyId).toMatch(/^nearby_v1_/);
     await expect(back).toBeVisible();
     await expect(back).toHaveText('‹');
     await expect(p.locator('#chatroom-detail-container')).toBeVisible();
@@ -58,200 +73,134 @@ test.describe('Chatroom navigation — back icon, hierarchy walk, create/rename 
     await expect(back).toBeHidden();
     await expect(p.locator('#chatroom-list-container')).toBeVisible();
 
-    // Re-entering a room brings the icon straight back.
-    await openAreaRoomAt(p, AREA_PLACES.london);
+    await openCurrentChatroom(p);
     await expect(back).toBeVisible();
   });
 
-  test('return-home enable state per context', async () => {
+  test('flat list contains the active Nearby room and no hierarchy or capacity shards', async () => {
     await toChatroomList(page!);
     const p = page!;
-    const home = p.locator('#return-home-btn');
+    const nearbyId = await currentRoomId(p);
+    expect(nearbyId).toMatch(/^nearby_v1_/);
 
-    // Detail of a non-home room → enabled.
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
-    await expect(home).toBeEnabled();
-
-    // Back to the list: current room is still the Tokyo grid room → stays enabled.
-    await p.locator('#back-to-chatrooms').click();
-    await afterNav();
-    await expect(home).toBeEnabled();
-
-    // Return home → lands in the home room; button flips to disabled.
-    await home.click();
-    await afterNav();
-    await expect(home).toBeDisabled({ timeout: 10_000 });
-
-    // The back icon does not leak into other tabs.
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
-    await expect(p.locator('#app-bar-left #back-to-chatrooms')).toBeVisible();
-    await p.locator('.nav-btn[data-view="contacts"]').click();
-    await afterNav();
-    await expect(p.locator('#app-bar-left #back-to-chatrooms')).toBeHidden();
-    await p.locator('.nav-btn[data-view="chatrooms"]').click();
-    await afterNav();
-  });
-
-  test('region-tile tree without country rooms, headcounts present, enter a room', async () => {
-    await toChatroomList(page!);
-    const p = page!;
-    await expect(p.locator('#chatroom-list')).toBeVisible();
-
-    // Every rendered row shows a headcount badge.
     const rows = p.locator('.chatroom-item');
-    const count = await rows.count();
-    expect(count).toBeGreaterThan(0);
-    expect(await p.locator('.chatroom-item .chatroom-headcount').count()).toBe(count);
-
-    // Global → continents → GPS grid rooms: continents are listed, countries/states/cities never.
-    for (const [tile, label] of [['tile_1_2_1', 'North America'], ['tile_1_3_3', 'Europe'], ['tile_1_2_6', 'Asia']]) {
-      await expect(p.locator(`.chatroom-item[data-chatroom-id="${tile}"]`)).toContainText(label);
-    }
-    for (const named of ['usa', 'california', 'san-diego', 'japan']) {
-      await expect(p.locator(`.chatroom-item[data-chatroom-id="${named}"]`)).toHaveCount(0);
-    }
-
-    // Enter a room and see the room detail (members list), then go back.
-    await p.locator('.chatroom-item').first().click();
-    await afterNav();
-    await expect(p.locator('#chatroom-members-list')).toBeVisible({ timeout: 10000 });
-    const back = p.locator('[data-testid="back-to-chatrooms"], #back-to-chatrooms');
-    if (await back.count()) {
-      await back.first().click();
-      await afterNav();
-      await expect(p.locator('#chatroom-list')).toBeVisible();
-    }
+    expect(await rows.count()).toBeGreaterThan(0);
+    expect(await p.locator('.chatroom-item .chatroom-headcount').count()).toBe(await rows.count());
+    await expect(p.locator(`.chatroom-item[data-chatroom-id="${nearbyId}"]`)).toHaveClass(/current-room/);
+    await expect(p.locator('.chatroom-item[data-chatroom-id="global"]')).toHaveCount(0);
+    await expect(p.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
+    await expect(p.locator('.chatroom-item[data-chatroom-id*="_part_"]')).toHaveCount(0);
+    await expect(p.locator('.chatroom-expand-icon')).toHaveCount(0);
   });
 
-  test('toggles between tree and OpenStreetMap views, opens a room marker, and a map tap opens a grid room', async () => {
+  test('list/map toggle shades Nearby and an open-map tap does not invent a grid room', async () => {
+    await toChatroomList(page!);
     const p = page!;
-    // Be in a grid room so the map has a located marker (Global itself has no map position).
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
-    await toChatroomList(p);
-    await p.route('https://tiles.openfreemap.org/styles/liberty*', async (route) => {
-      await route.fulfill({
-        contentType: 'application/json',
-        json: {
-          version: 8,
-          sources: {},
-          layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#eef2f7' } }],
-        },
-      });
-    });
-    const treeButton = p.locator('[data-testid="chatroom-tree-view-btn"]');
+    const listButton = p.locator('[data-testid="chatroom-tree-view-btn"]');
     const mapButton = p.locator('[data-testid="chatroom-map-view-btn"]');
-    const tree = p.locator('#chatroom-list');
+    const list = p.locator('#chatroom-list');
     const map = p.locator('[data-testid="chatroom-map"]');
 
-    await expect(treeButton).toHaveAttribute('aria-pressed', 'true');
+    await listButton.click();
+    await expect(listButton).toHaveAttribute('aria-pressed', 'true');
     await expect(mapButton).toHaveAttribute('aria-pressed', 'false');
-    await expect(p.locator('#app-bar-actions [data-testid="chatroom-tree-view-btn"]')).toBeVisible();
-    await expect(p.locator('#app-bar-actions [data-testid="chatroom-map-view-btn"]')).toBeVisible();
-    await expect(p.locator('.chatroom-view-toolbar')).toHaveCount(0);
-    await expect(tree).toBeVisible();
+    await expect(list).toBeVisible();
     await expect(map).toBeHidden();
 
     await mapButton.click();
     await expect(mapButton).toHaveAttribute('aria-pressed', 'true');
-    await expect(treeButton).toHaveAttribute('aria-pressed', 'false');
-    await expect(tree).toBeHidden();
+    await expect(listButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(list).toBeHidden();
     await expect(map).toBeVisible();
-    await expect(map).toHaveClass(/maplibregl-map/, { timeout: 15_000 });
-    await expect(map).toHaveAttribute('data-map-geojson-feature-count', /[1-9]\d*/);
+    await expect(map).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
+    await expect(map).toHaveAttribute('data-nearby-area-visible', 'true');
     await expect(map).toHaveAttribute('data-map-clustering', 'true');
-    // The current room is drawn as its own (never clustered) marker, so at area zoom the clustered
-    // layer may legitimately render nothing nearby; the marker assertion below covers rendering.
-    await expect(map.locator('.chatroom-map-marker')).not.toHaveCount(0);
+    await expect(p.locator('#chatroom-map-status')).toContainText('shaded Nearby area');
     await expect(map.locator('a[href*="openstreetmap.org/copyright"]')).toBeVisible();
-    await expect(p.locator('#chatroom-map-status')).toContainText('geographic rooms');
 
     await p.setViewportSize({ width: 360, height: 800 });
-    await expect(treeButton).toBeVisible();
-    await expect(mapButton).toBeVisible();
     const compactMapBox = await map.boundingBox();
     expect(compactMapBox?.width).toBeLessThanOrEqual(360);
     expect(compactMapBox?.height).toBeGreaterThanOrEqual(260);
 
-    // The current grid room gets a distinct marker at its cell.
-    await map.locator('.chatroom-map-marker.current-room').click();
-    await afterNav();
-    await expect(p.locator('#chatroom-detail-container')).toBeVisible();
-
-    await p.locator('#back-to-chatrooms').click();
-    await afterNav();
-    await expect(map).toBeVisible();
-    // The tile grid of the layer that fits the zoom is drawn (area zoom → bottom layer, ~78 km).
-    await expect(map).toHaveAttribute('data-grid-layer', '4');
-    await expect(map).toHaveAttribute('data-grid-line-count', /[1-9]\d*/);
-    // Tapping open map (not a marker) selects that tile and offers to enter it.
+    const before = await currentRoomId(p);
     const box = (await map.boundingBox())!;
     await p.mouse.click(box.x + 30, box.y + box.height / 2);
-    await expect(map).toHaveAttribute('data-selected-tile', /^tile_4_/);
-    const card = map.locator('[data-testid="map-tile-card"]');
-    await expect(card).toBeVisible();
-    await expect(card).toContainText('📍');
-    await card.locator('[data-testid="map-tile-enter"]').click();
-    await afterNav();
-    await expect(p.locator('#chatroom-detail-container')).toBeVisible();
-    await expect
-      .poll(() => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''))
-      .toMatch(/^tile_4_/);
-    await expect(p.locator('#current-chatroom-title')).toContainText('📍');
-    await p.locator('#back-to-chatrooms').click();
-    await afterNav();
-    await treeButton.click();
-    await expect(tree).toBeVisible();
-    await expect(map).toBeHidden();
+    await expect(map).not.toHaveAttribute('data-selected-tile', /.+/);
+    await expect(map.locator('[data-testid="map-tile-card"]')).toHaveCount(0);
+    expect(await currentRoomId(p)).toBe(before);
+
+    await listButton.click();
+    await expect(list).toBeVisible();
     await p.setViewportSize({ width: 1100, height: 1100 });
   });
 
-  test('create a community room then rename it', async () => {
+  test('creates one immutable content-addressed Community Place with no owner controls', async () => {
     await toChatroomList(page!);
     const p = page!;
-    const roomName = `E2E Room ${Date.now()}`;
+    createdPlaceName = `E2E Place ${Date.now()}`;
 
-    // Open the Create Room dialog via its trigger (inline at desktop width).
-    // Fire-and-forget: the handler's promise only resolves when the dialog is
-    // submitted/cancelled, so it must NOT be awaited from evaluate.
     await p.evaluate(() => {
       void (window as any).__iinpublic_app?.getApp?.()?.uiManager?.handleCreateCustomChatroomClick?.();
     });
     await afterNav();
-    await p.waitForSelector('[data-testid="custom-room-name-input"]');
-    await p.fill('[data-testid="custom-room-name-input"]', roomName);
+    await p.locator('[data-testid="custom-room-name-input"]').fill(createdPlaceName);
     await p.locator('[data-testid="custom-room-submit-btn"]').click();
     await afterLoad();
+    await expect(p.locator('#chatroom-members-list')).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^place_b[a-z2-7]+$/);
+    createdPlaceId = await currentRoomId(p);
 
-    // Land on the new room's detail (members list) and see its name somewhere.
-    await expect(p.locator('#chatroom-members-list')).toBeVisible({ timeout: 15000 });
-
-    // Rename (owner control).
-    const renameBtn = p.locator('[data-testid="chatroom-rename-btn"]');
-    if (await renameBtn.count()) {
-      await renameBtn.first().click();
-      await afterNav();
-      // The rename input's id is `rename-custom-room-name`; the stable hook is the testid.
-      const input = p.locator('[data-testid="rename-custom-room-input"]');
-      await input.waitFor({ timeout: 8000 });
-      const newName = `${roomName} Renamed`;
-      await input.fill(newName);
-      // Submit the rename form (Enter or the submit button in the dialog).
-      await input.press('Enter');
-      await afterLoad();
-      await expect(p.locator('body')).toContainText('Renamed', { timeout: 10000 });
-    }
+    await expect(p.locator('[data-testid="chatroom-rename-btn"]')).toHaveCount(0);
+    await expect(p.locator('#chatroom-owner-bar')).toBeHidden();
+    const mutationStatus = await p.evaluate(async (roomId) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const apiBase = app?.getBackendApiBase?.() || '';
+      const response = await fetch(`${apiBase}/api/chatrooms/${encodeURIComponent(roomId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: 'creator', name: 'Mutated name' }),
+      });
+      return response.status;
+    }, createdPlaceId);
+    expect(mutationStatus).toBe(410);
 
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
-    const customRow = p.locator('.chatroom-item').filter({ hasText: roomName }).first();
-    const customId = await customRow.getAttribute('data-chatroom-id');
-    expect(customId).toBeTruthy();
-    // Custom rooms are local: anchored to the creator's blurred cell and listed under that cell's
-    // L4 (~78 km) tile — the default test location is San Diego.
-    expect(customId).toMatch(/^place_32\.71_-117\.17_/);
-    await expect(customRow).toHaveAttribute('data-level', '5');
+    const row = p.locator(`.chatroom-item[data-chatroom-id="${createdPlaceId}"]`);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(createdPlaceName);
+    await expect(row).toHaveAttribute('data-level', '0');
+    await expect(row).toHaveAttribute('data-has-children', 'false');
+
     await p.locator('[data-testid="chatroom-map-view-btn"]').click();
-    await expect(p.locator('#chatroom-map-status')).toContainText('custom rooms without a public location');
-    await expect(p.locator(`.chatroom-map-marker[data-chatroom-id="${customId}"]`)).toHaveCount(0);
+    await expect(p.locator('#chatroom-map-status')).toContainText('Showing 1 Places');
+    await expect(p.locator(`.chatroom-map-marker[data-chatroom-id="${createdPlaceId}"]`)).toBeVisible();
+  });
+
+  test('Return to Nearby leaves the Place and the chatroom back icon never leaks to Contacts', async () => {
+    const p = page!;
+    await toChatroomList(p);
+    const home = p.locator('#return-home-btn');
+    await expect(home).toBeEnabled();
+
+    await p.locator(`.chatroom-item[data-chatroom-id="${createdPlaceId}"]`).click();
+    await afterNav();
+    await expect(home).toBeEnabled();
+    await p.locator('#back-to-chatrooms').click();
+    await afterNav();
+    await expect(home).toBeEnabled();
+
+    await home.click();
+    await afterNav();
+    await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^nearby_v1_/);
+    await expect(home).toBeDisabled();
+
+    await p.locator(`.chatroom-item[data-chatroom-id="${createdPlaceId}"]`).click();
+    await afterNav();
+    await expect(p.locator('#app-bar-left #back-to-chatrooms')).toBeVisible();
+    await p.locator('.nav-btn[data-view="contacts"]').click();
+    await afterNav();
+    await expect(p.locator('#app-bar-left #back-to-chatrooms')).toBeHidden();
   });
 });

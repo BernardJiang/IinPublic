@@ -132,8 +132,9 @@ its ID.
     eviction notices, `_part_N` frontier state, tree UI, and stale specifications/tests.
     - [x] Saved Global/tile/grid assignments migrate to Nearby; a selected Place persists; new room
       rendering and map interaction no longer expose the old tree or numbered parts.
-    - [x] Converted the dedicated stage1 tree/map scenario to assert flat Nearby, local shaded
-      bounds, no Global/L1-L4/`_part_N` rows, and no map-tap travel into retired grid rooms.
+    - [x] Converted the stage1 navigation and tree/map scenarios to assert flat Nearby, local shaded
+      bounds, no Global/L1-L4/`_part_N` rows, no map-tap travel into retired grid rooms, immutable
+      content-addressed Place creation, no owner controls, and Return to Nearby.
     - [ ] Remove the mixed-release legacy FIFO controller and obsolete hierarchy fixtures after the
       compatibility window.
   - [ ] **Capacity experiment:** treat `C=498`, initial Nearby scales, and `K` as release-wide

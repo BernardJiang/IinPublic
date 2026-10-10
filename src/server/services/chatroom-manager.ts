@@ -313,9 +313,15 @@ export class ChatroomManager {
     return members;
   }
 
-  private async getPathWithRetry(path: string[], maxAttempts: number = 6, delayMs: number = 150): Promise<any> {
+  private async getPathWithRetry(
+    path: string[],
+    maxAttempts: number = 6,
+    delayMs: number = 150,
+    waitMs?: number,
+    timeoutMs?: number,
+  ): Promise<any> {
     for (let i = 0; i < maxAttempts; i++) {
-      const value = await this.gunService.getPath(path);
+      const value = await this.gunService.getPath(path, waitMs, timeoutMs);
       if (value != null) return value;
       if (i < maxAttempts - 1) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -509,7 +515,7 @@ export class ChatroomManager {
       if (pruned) void this.publishRoomMemberCountValue(chatroomId, fromRoomUsers.length);
       return fromRoomUsers;
     }
-    const users = await this.getPathWithRetry(['chatroomMembers', chatroomId], 4, 100);
+    const users = await this.getPathWithRetry(['chatroomMembers', chatroomId], 4, 80, 100, 150);
     if (!users || typeof users !== 'object') {
       if (pruned) void this.publishRoomMemberCountValue(chatroomId, 0);
       return [];
@@ -583,7 +589,7 @@ export class ChatroomManager {
   ): Promise<Array<{ userId: string; data: any }>> {
     const fromMap = await this.collectRoomMemberRecordsFromGunMap(path, 500);
     if (fromMap.length > 0) return fromMap;
-    const users = await this.getPathWithRetry(path, 2, 80);
+    const users = await this.getPathWithRetry(path, 2, 80, 100, 150);
     if (!users || typeof users !== 'object') return [];
     return Object.entries(users as Record<string, any>)
       .filter(([userId, data]) => !!userId && !userId.startsWith('_') && !!data && typeof data === 'object')
@@ -622,7 +628,7 @@ export class ChatroomManager {
   ): Promise<RoomMemberSummary[]> {
     const fromMap = await this.collectActiveMembersFromGunMap(['chatrooms', chatroomId, 'users'], 500);
     if (fromMap.length > 0) return fromMap;
-    const users = await this.getPathWithRetry(['chatrooms', chatroomId, 'users'], 2, 80);
+    const users = await this.getPathWithRetry(['chatrooms', chatroomId, 'users'], 2, 80, 100, 150);
     if (!users || typeof users !== 'object') return [];
     const members: RoomMemberSummary[] = [];
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {

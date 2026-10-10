@@ -632,12 +632,21 @@ export class WebChatroomService {
     lastSeen: string,
     isTraveler: boolean,
   ): Promise<void> {
+    // Signing can trigger a cold crypto-module load on a browser. Start the network deadline only
+    // after the local claim exists; otherwise a valid first Place join can reach fetch() with an
+    // already-aborted signal and look like a connectivity failure.
+    let admissionClaim: PlaceAdmissionClaim | undefined;
+    try {
+      admissionClaim = isPlaceRoomId(chatroomId)
+        ? await this.createPlaceAdmissionClaim(chatroomId, userId)
+        : undefined;
+    } catch (error) {
+      console.warn('syncMembershipHeartbeatWithServer failed (non-fatal):', error);
+      return;
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
-      const admissionClaim = isPlaceRoomId(chatroomId)
-        ? await this.createPlaceAdmissionClaim(chatroomId, userId)
-        : undefined;
       const response = await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members/${encodeURIComponent(userId)}`,
         {
@@ -721,10 +730,21 @@ export class WebChatroomService {
     stageName: string,
     isTraveler: boolean,
   ): Promise<string> {
+    // See syncMembershipHeartbeatWithServer: signing is local preparation, not network latency.
+    let admissionClaim: PlaceAdmissionClaim;
+    try {
+      admissionClaim = await this.createPlaceAdmissionClaim(chatroomId, userId);
+    } catch (error) {
+      this.clearPlaceAdmissionStay(chatroomId, userId);
+      throw error instanceof PlaceAdmissionUnavailableError
+        ? error
+        : new PlaceAdmissionUnavailableError(
+          `Place admission could not be verified: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
-      const admissionClaim = await this.createPlaceAdmissionClaim(chatroomId, userId);
       const response = await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
         {
