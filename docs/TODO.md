@@ -132,6 +132,38 @@ its ID.
     - [x] Level zero preserves existing room IDs; wider opaque IDs encode `w1`-`w3`. The ordinary
       stop-before-start switch replaces the room, and the existing local map assignment reports the
       widened cell's real bounds/diameter without publishing coordinates or dwell state.
+  - [ ] **P1 discovery/group simplification (audit started 2026-10-10).** Remove redundant radio
+    work while preserving the distinction between audience selection (the active room) and routes
+    to an eligible peer.
+    - [x] Verify the current single-user path. A confirmed exact GPS fix stays device-local; the
+      client derives an opaque Nearby room ID and publishes signed expiring room presence, not a
+      blurred latitude/longitude record. An ordinary browser at `iinpublic.com` uses hub/Gun room
+      discovery and WebRTC but has no Android LAN-NSD, BLE, or Wi-Fi Direct bridge. The Android app
+      additionally starts room-scoped LAN NSD even while the hub is reachable. Its Wi-Fi Direct and
+      BLE switches default on, but those radios start only after the hub is judged unreachable and
+      the saved/runtime permission policy permits them. A lone offline phone advertises/scans but
+      `no-offline-peers` creates no Wi-Fi Direct group.
+    - [ ] Fix or remove the nonfunctional **Radio nearby** mode. It currently selects
+      `local_radio_nearby_v1`, but `isLocalOnlyRoomScope()` causes `activateRoomExchange()` and
+      `syncPeerMeshRoom()` to return before BLE discovery or Talk exchange starts. The accepted
+      design says this mode is BLE-only discovery without a published map cell.
+    - [ ] Decide whether low-duty BLE physical-presence confirmation should run while the hub is
+      reachable. Today enabling Bluetooth in Settings does not start a scan while online; BLE is
+      coupled to the offline Wi-Fi Direct service. If online BLE is retained, it may prioritize or
+      verify already room-eligible peers but must never expand the room audience.
+    - [ ] Replace the current overlapping offline discovery work with an explicit staged policy and
+      bounded timers: room roster/capability first; LAN NSD as the free IP fast path; BLE as scoped
+      short-range presence; Wi-Fi Direct group formation only after an eligible same-room peer is
+      observed; DNS-SD/raw P2P scan only as measured fallbacks. Define backoff and a quiet singleton
+      state so one isolated phone does not scan indefinitely.
+    - [ ] Decide whether always-on Android LAN NSD while the hub is healthy earns its battery/radio
+      cost. Options are: keep it as an immediate free-route optimization, start it only when the
+      room roster contains another peer, or start it only after the Internet path is slow/metered.
+    - [ ] Add state-machine and physical gates for: lone online user, lone offline user, second
+      same-room peer, cross-room radio peer ignored, web-without-native-bridge, hub loss/recovery,
+      no empty Wi-Fi Direct group, bounded scan/backoff, and one elected group for 3+ eligible
+      phones. Record discovery time, scan duty cycle, group churn, duplicate candidates/bytes, and
+      battery before selecting the production policy.
   - [ ] **P1 legacy migration:** stop old-room discovery before moving saved Global/tile/grid/custom
     memberships into Nearby or content-addressed Places. Preserve contacts, private data, Talk queues,
     receipts, and traveler intent without rebroadcasting old Talks. Retire obsolete capacity
