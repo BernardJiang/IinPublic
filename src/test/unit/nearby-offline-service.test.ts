@@ -125,6 +125,36 @@ describe('NearbyOfflineService', () => {
     t.service.dispose();
   });
 
+  it('never exposes group credentials or the room capability in diagnostics', async () => {
+    const t = setup();
+    await t.service.start();
+    t.emitRecord(scopedTxt({
+      id: '000000000000',
+      canHost: true,
+      joinByCredential: true,
+      hostScore: 3,
+      port: 9090,
+      group: hostGroup,
+    }));
+    await t.tick();
+
+    let serialized = JSON.stringify(t.service.getDiagnostics());
+    expect(serialized).not.toContain(TEST_GROUP_CREDENTIALS.passphrase);
+    expect(serialized).not.toContain(TEST_ROOM_SCOPE.roomToken);
+    expect(serialized).toContain('"action":"join"');
+
+    t.native.set({
+      state: 'owner',
+      networkName: TEST_GROUP_CREDENTIALS.networkName,
+      passphrase: TEST_GROUP_CREDENTIALS.passphrase,
+      localIp: '192.168.49.1',
+    });
+    serialized = JSON.stringify(t.service.getDiagnostics());
+    expect(serialized).not.toContain(TEST_GROUP_CREDENTIALS.passphrase);
+    expect(serialized).toContain(TEST_GROUP_CREDENTIALS.networkName);
+    t.service.dispose();
+  });
+
   it('goes offline: asks for permission in context, advertises, and hosts for a peer', async () => {
     const t = setup({ readiness: { permission: false, wifiEnabled: true, locationEnabled: false } });
     await t.service.start();

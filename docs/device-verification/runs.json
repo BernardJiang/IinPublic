@@ -167,6 +167,27 @@
         "forwardingBytes": 0
       },
       "notes": "All four fresh app sandboxes independently derived nearby_v1_e1_p1000_g0_7687df4a5167333068f71903 from the same 10 m-accuracy test location; no coordinates appeared in the shared active scope and the server roster converged to four. The directed Talk reached the Android 14 receiver after foreground resume and the author's encrypted direct outbox cleared only after the end-recipient ACK. This validates the new native onResume signal and bounded WebRTC transport refresh. It does not claim BLE, Wi-Fi Direct, Internet-path, or statistically meaningful battery coverage. Playwright native-app/30 background-only: 1/1 passed in 2.7 min."
+    },
+    {
+      "id": "open40-nearby-offline-wifi-direct-three-phone-1.0.123",
+      "recordedAt": "2026-10-10",
+      "level": "physical",
+      "deviceModel": "Huawei P30 Pro (VOG-L29) owner, C10 tablet client, Essential PH-1 client",
+      "os": "Android 10 / Android 14 / Android 10",
+      "appBuild": "1.0.123",
+      "route": "wifi-direct-offline",
+      "batteryState": "mixed USB-connected smoke snapshot; excluded from drain analysis",
+      "networkType": "configured hub unreachable and LAN discovery disabled; one native Wi-Fi Direct group",
+      "direction": "three-phone ring plus Huawei P30 Pro to post-background C10 tablet",
+      "lifecycleState": "foreground ring; Android 14 receiver sent to HOME and explicitly foregrounded",
+      "result": "pass",
+      "metrics": {
+        "latencyMs": 10216,
+        "p50DeliveryMs": 10216,
+        "p95DeliveryMs": 18314,
+        "forwardingBytes": 0
+      },
+      "notes": "All three fresh sandboxes independently derived the same opaque Nearby room and converged on its three-person roster without the hub. Native state proved one owner with two clients, 192.168.49.x group links, and zero LAN peers. Ring delivery times were 18314, 10216, and 10506 ms; the Android 14 post-background delivery was 9587 ms and cleared the author's encrypted outbox only after its ACK. BLE presence was enabled and scoped peer records were observed, but this run did not isolate BLE from Wi-Fi Direct DNS-SD/peer-scan fallback. Short battery snapshots are not a drain measurement. Playwright native-app/30 offline mode: 1/1 passed in 2.5 min."
     }
   ]
 }

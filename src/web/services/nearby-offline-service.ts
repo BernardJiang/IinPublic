@@ -282,6 +282,24 @@ export class NearbyOfflineService {
 
   getDiagnostics(): Record<string, unknown> {
     const now = this.now();
+    const nativeState = this.opts.native.getState();
+    // The Android owner state contains the active group passphrase, and a join plan contains both
+    // that credential and the full room capability used to derive it. Diagnostics are commonly
+    // attached to E2E failures and copied into support reports, so expose only routing/status data.
+    const { passphrase: _passphrase, ...safeGroupState } = nativeState;
+    const safeLastPlan = this.lastPlan?.action === 'join'
+      ? {
+        action: 'join',
+        record: {
+          id: this.lastPlan.record.id,
+          port: this.lastPlan.record.port,
+          joinByCredential: this.lastPlan.record.joinByCredential,
+          hostScore: this.lastPlan.record.hostScore,
+          hosting: true,
+          ...(this.lastPlan.record.deviceAddress ? { deviceAddress: this.lastPlan.record.deviceAddress } : {}),
+        },
+      }
+      : this.lastPlan;
     return {
       id: this.id,
       lanPeers: [...this.lanIds.entries()].map(([id, at]) => ({ id, ageSeconds: Math.round((now - at) / 1000) })),
@@ -294,9 +312,9 @@ export class NearbyOfflineService {
         joinByCredential: record.joinByCredential,
         ageSeconds: Math.round((now - record.seenAt) / 1000),
       })),
-      group: this.opts.native.getState(),
+      group: safeGroupState,
       relayAddress: this.relayAddress,
-      lastPlan: this.lastPlan,
+      lastPlan: safeLastPlan,
     };
   }
 
@@ -414,7 +432,7 @@ export class NearbyOfflineService {
     switch (plan.action) {
       case 'none':
         return false;
-      case 'join':
+      case 'join': {
         const joinCredentials = this.currentCredentials();
         if (!joinCredentials) return false;
         this.ownsGroup = true;
@@ -422,13 +440,15 @@ export class NearbyOfflineService {
         this.busyUntil = now + JOIN_WAIT_MS;
         this.opts.native.joinGroup(joinCredentials);
         return true;
-      case 'host':
+      }
+      case 'host': {
         const hostCredentials = this.currentCredentials();
         if (!hostCredentials) return false;
         this.ownsGroup = true;
         this.busyUntil = now + CREATE_WAIT_MS;
         this.opts.native.createGroup(hostCredentials);
         return true;
+      }
       case 'leave-and-join':
         // Our empty group loses to the other owner; the next idle tick joins it.
         this.emptySince = null;

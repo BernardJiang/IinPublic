@@ -157,6 +157,14 @@ its ID.
       `onResume` explicitly refreshes stale bounded WebRTC links when WebView omits
       `visibilitychange`. Wi-Fi Direct remained correctly idle on the healthy LAN; the short
       USB-connected battery snapshots are not drain evidence.
+    - [x] Current Nearby/offline Wi-Fi Direct baseline on three compatible physical phones
+      (Android 10, 14, and 10): with the hub unreachable and LAN discovery disabled, all three
+      derived the same opaque room, formed one owner/two-client group with zero LAN peers, converged
+      on the three-person roster, and completed a three-way Talk ring plus Android 14
+      post-background recovery. Four deliveries measured p50 10.2 s / p95 18.3 s. BLE presence was
+      enabled and scoped discovery records were observed, but this run did not isolate BLE from the
+      Wi-Fi discovery fallbacks. It also found and closed a diagnostics leak of the temporary group
+      passphrase and full room capability.
     - [ ] Use three phones across Internet, LAN, BLE, and Wi-Fi Direct to measure discovery time,
       p50/p95 delivery, duplicate bytes, connection failures, background survival, battery drain,
       and radio churn before selecting production values.
@@ -180,7 +188,8 @@ its ID.
       `native-app/30-android-four-phone-nearby.spec.ts`; the focused Android 14 background run passed
       on build 1.0.123 on 2026-10-10. It asserts one opaque Nearby assignment, no public coordinates,
       a four-person server roster, encrypted direct delivery, and author outbox removal only after
-      the receiver ACK.
+      the receiver ACK. Its separate three-phone offline mode also requires actual native
+      owner/client Wi-Fi Direct states and a peer-converged roster before sending.
     - [ ] Run the three-phone transport/background/battery matrix above and collect empirical wording
       feedback for full-Place reconciliation before calling OPEN-40 production-verified.
 

@@ -37,6 +37,7 @@ const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 const ANDROID_DEVICES = resolveAndroidMatrixDevices(process.env.NATIVE_APP_ANDROID_SERIALS || '');
 const RUN = process.env.E2E_REAL_ANDROID_FOUR_PHONE_NEARBY === '1';
 const BACKGROUND_ONLY = process.env.E2E_FOUR_PHONE_BACKGROUND_ONLY === '1';
+const OFFLINE_WIFI_DIRECT = process.env.E2E_NEARBY_OFFLINE_WIFI_DIRECT === '1';
 const FIXED_LOCATION = {
   latitude: 32.7157,
   longitude: -117.1611,
@@ -85,6 +86,22 @@ async function wakeAndUnlock(serial: string): Promise<void> {
   await adb(serial, 'wm', 'dismiss-keyguard').catch(() => '');
   await adb(serial, 'input', 'keyevent', 'KEYCODE_BACK').catch(() => '');
   await adb(serial, 'cmd', 'statusbar', 'collapse').catch(() => '');
+}
+
+async function grantOfflineNearbyPermissions(serial: string, sdk: number): Promise<void> {
+  const permissions = sdk >= 33
+    ? [
+      'android.permission.NEARBY_WIFI_DEVICES',
+      'android.permission.BLUETOOTH_SCAN',
+      'android.permission.BLUETOOTH_ADVERTISE',
+      'android.permission.BLUETOOTH_CONNECT',
+    ]
+    : ['android.permission.ACCESS_FINE_LOCATION'];
+  for (const permission of permissions) {
+    await execFileAsync('adb', ['-s', serial, 'shell', 'pm', 'grant', 'com.iinpublic.app', permission], {
+      timeout: 5_000,
+    });
+  }
 }
 
 async function readBattery(serial: string): Promise<BatterySnapshot> {
@@ -236,7 +253,7 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
     for (const peer of peers) await closeAndroidUser(peer.user);
   });
 
-  test.afterEach(async (_fixtures, testInfo) => {
+  test.afterEach(async ({ browserName: _browserName }, testInfo) => {
     const diagnostics: Record<string, unknown> = {};
     for (const peer of peers) {
       const batteryAfter = await readBattery(peer.device.serial);
@@ -289,8 +306,14 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       ready: await isAndroidDeviceReady(device.serial),
     })));
     const available = readiness.filter((entry) => entry.ready).map((entry) => entry.device);
-    test.skip(available.length !== 4, `This scenario requires exactly 4 connected phones; found ${available.length}.`);
-    const lanHubUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
+    const expectedPhoneCount = OFFLINE_WIFI_DIRECT ? 3 : 4;
+    test.skip(
+      available.length !== expectedPhoneCount,
+      `This scenario requires exactly ${expectedPhoneCount} connected phones; found ${available.length}.`,
+    );
+    const hubUrl = OFFLINE_WIFI_DIRECT
+      ? 'http://127.0.0.1:1/gun'
+      : `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
 
     for (const device of available) {
       await wakeAndUnlock(device.serial);
@@ -302,11 +325,12 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
     for (let index = 0; index < available.length; index += 1) {
       const device = available[index];
       const metadata = await readAndroidDeviceMetadata(device.serial);
+      if (OFFLINE_WIFI_DIRECT) await grantOfflineNearbyPermissions(device.serial, Number(metadata.sdk || 0));
       console.log(`[four-phone-nearby] launching ${device.name} (${metadata.model}, Android ${metadata.release})`);
       const user = await launchAndroidUserViaAdb({
-        hubGunUrl: lanHubUrl,
+        hubGunUrl: hubUrl,
         deviceSerial: device.serial,
-        disableLanDiscovery: false,
+        disableLanDiscovery: OFFLINE_WIFI_DIRECT,
       });
       const id = await bootstrapNativeWindow(user.window, `Nearby ${index + 1}`, {
         waitForSupportGreeting: false,
@@ -324,11 +348,39 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
     const [roomId] = roomIds;
     expect(roomId).toMatch(/^nearby_v1_/);
 
-    await expect.poll(async () => {
-      const members = await readRoomMembers(roomId);
-      const ids = new Set(members.map((member) => member.userId));
-      return peers.filter((peer) => ids.has(peer.id)).length;
-    }, { timeout: 120_000, intervals: [1_000, 2_000, 3_000], message: 'hub roster should contain all four Nearby users' }).toBe(4);
+    if (OFFLINE_WIFI_DIRECT) {
+      await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate(() => {
+        const service = (window as any).__iinpublicNearbyOffline;
+        const status = service?.getStatus?.();
+        const diagnostics = service?.getDiagnostics?.();
+        return status?.kind === 'wifi-direct'
+          && (diagnostics?.group?.state === 'owner' || diagnostics?.group?.state === 'client');
+      }))), {
+        timeout: 180_000,
+        intervals: [2_000, 3_000, 5_000],
+        message: 'all three phones should form one offline Wi-Fi Direct group',
+      }).toEqual(peers.map(() => true));
+
+      await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate((expectedIds) => {
+        const service = (window as any).__iinpublic_app?.getApp?.()?.chatroomService;
+        const ids = new Set<string>(Array.from(service?.activeMembersForList?.keys?.() || []).map(String));
+        return expectedIds.filter((id) => ids.has(id)).length;
+      }, peers.map((candidate) => candidate.id)))), {
+        timeout: 180_000,
+        intervals: [2_000, 3_000, 5_000],
+        message: 'all offline peers should converge on the three-person Nearby roster',
+      }).toEqual(peers.map(() => peers.length));
+    } else {
+      await expect.poll(async () => {
+        const members = await readRoomMembers(roomId);
+        const ids = new Set(members.map((member) => member.userId));
+        return peers.filter((peer) => ids.has(peer.id)).length;
+      }, {
+        timeout: 120_000,
+        intervals: [1_000, 2_000, 3_000],
+        message: 'hub roster should contain all four Nearby users',
+      }).toBe(4);
+    }
 
     const runId = `open40-nearby-${Date.now()}`;
     if (!BACKGROUND_ONLY) {
