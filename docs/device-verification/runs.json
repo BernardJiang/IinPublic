@@ -148,6 +148,25 @@
         "forwardingBytes": 0
       },
       "notes": "After the incoming-talk write-loop fix: P30 Gun traffic 881 B sent / 1.9 KB received in 15 s (was ~240 KB both ways). Battery: P30 app 3.42 mAh (CPU 2.44, Wi-Fi 0.97) over 7 min on battery = 0.70 %/h (was 10.9 %/h on 1.0.107); the window ended early because the P30 performed a scheduled power-off (boot reason shutdown,timealarm), unrelated to the app. The Honor figure from the same window (7.5 %/h, all CPU) is excluded: its first-run walkthrough was left open and its infinite CSS animation kept the compositor busy. RTT median ~50 ms (20–367 ms, Wi-Fi power save); throughput P30→Honor 18.1 Mbps, Honor→P30 161 Mbps; linked 12 s after launch. Versions checked before and after."
+    },
+    {
+      "id": "open40-nearby-lan-four-phone-background-1.0.123",
+      "recordedAt": "2026-10-10",
+      "level": "physical",
+      "deviceModel": "Huawei P30 Pro (VOG-L29), C10 tablet, Essential PH-1, Honor 8 (FRD-L04)",
+      "os": "Android 10 / Android 14 / Android 10 / Android 7.0",
+      "appBuild": "1.0.123",
+      "route": "lan-direct",
+      "batteryState": "mixed USB-connected smoke snapshot; excluded from drain analysis",
+      "networkType": "same Wi-Fi LAN with local hub reachable; Wi-Fi Direct correctly idle",
+      "direction": "Huawei P30 Pro to backgrounded C10 tablet",
+      "lifecycleState": "receiver sent to HOME, then explicitly foregrounded",
+      "result": "pass",
+      "metrics": {
+        "latencyMs": 19216,
+        "forwardingBytes": 0
+      },
+      "notes": "All four fresh app sandboxes independently derived nearby_v1_e1_p1000_g0_7687df4a5167333068f71903 from the same 10 m-accuracy test location; no coordinates appeared in the shared active scope and the server roster converged to four. The directed Talk reached the Android 14 receiver after foreground resume and the author's encrypted direct outbox cleared only after the end-recipient ACK. This validates the new native onResume signal and bounded WebRTC transport refresh. It does not claim BLE, Wi-Fi Direct, Internet-path, or statistically meaningful battery coverage. Playwright native-app/30 background-only: 1/1 passed in 2.7 min."
     }
   ]
 }

@@ -384,6 +384,14 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         isInForeground = true
+        // Android WebView does not consistently emit the browser visibilitychange event when an
+        // Activity returns from HOME (observed on Android 14 hardware). Tell the SPA explicitly so
+        // it can rebuild stale WebRTC room links and drain pending encrypted mailbox work.
+        if (::webView.isInitialized) {
+            webView.post {
+                webView.evaluateJavascript("window.dispatchEvent(new Event('iinpublic-native-resume'));", null)
+            }
+        }
     }
 
     override fun onPause() {

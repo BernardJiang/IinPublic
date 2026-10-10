@@ -364,6 +364,43 @@ describe('PeerMeshService', () => {
     alice.leaveRoom();
   });
 
+  it('recreates apparently-connected neighbor transports when a backgrounded page resumes', async () => {
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+    const disposals: jest.Mock[] = [];
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: () => {
+        const dispose = jest.fn();
+        disposals.push(dispose);
+        return {
+          ensureConnected: jest.fn(async () => undefined),
+          getState: () => 'connected',
+          dispose,
+          setOnRemoteMeshFrame: jest.fn(),
+          sendMeshFrame: jest.fn(async () => undefined),
+        };
+      },
+    });
+    await alice.joinRoom('nearby:test', [
+      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'bob', stageName: 'Bob' },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(alice.getDiagnostics().connectedNeighborCount).toBe(1);
+    expect(disposals).toHaveLength(1);
+
+    await alice.resumeRoomConnections();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(disposals[0]).toHaveBeenCalledTimes(1);
+    expect(disposals).toHaveLength(2);
+    expect(alice.getDiagnostics().connectedNeighborCount).toBe(1);
+    alice.leaveRoom();
+  });
+
   it('reconnects a neighbor whose session died after it had connected (stale connected flag)', async () => {
     jest.useFakeTimers();
     try {

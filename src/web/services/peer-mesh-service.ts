@@ -633,6 +633,22 @@ export class PeerMeshService {
   }
 
   /**
+   * Android may freeze a background WebView without delivering a timely WebRTC close event.
+   * Recreate this phone's bounded neighbor set when the page becomes visible again so peers with
+   * durable direct-Talk outbox entries get a fresh authenticated path and can retry immediately.
+   * Room membership and dedup state stay intact; this is a transport refresh, not a room leave.
+   */
+  async resumeRoomConnections(): Promise<void> {
+    if (!this.currentRoomId) return;
+    for (const neighbor of this.neighbors.values()) neighbor.session.dispose?.();
+    this.neighbors.clear();
+    this.manifestReadyPeerIds.clear();
+    this.manifestRejectedPeerIds.clear();
+    await this.reconcileNeighbors();
+    this.scheduleReconcile();
+  }
+
+  /**
    * Cache a talk body, author-qualified.
    *
    * Talk ids are content-addressed (computeTalkCIDv1, no authorId), so two authors

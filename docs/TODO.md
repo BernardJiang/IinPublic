@@ -149,6 +149,14 @@ its ID.
       10,000-person Nearby arena follows only over-capacity geographic branches, keeps every active
       room at or below `C`, keeps one opaque assignment per user, and proves the direct schedule is
       symmetric and at most `K=12`. Offset sparse arrivals converge through bounded widening.
+    - [x] Current Nearby/LAN baseline on four physical Android phones (Android 7, 10, 10, and 14):
+      all four independently derived the same opaque Nearby room, the hub roster converged to four,
+      and a direct Talk reached the backgrounded Android 14 receiver and returned its end-recipient
+      ACK in 19.2 seconds after the app resumed. This also found and fixed two fresh-install/lifecycle
+      gaps: the first Contacts-only-to-Nearby move now starts the exchange runtime, and Android
+      `onResume` explicitly refreshes stale bounded WebRTC links when WebView omits
+      `visibilitychange`. Wi-Fi Direct remained correctly idle on the healthy LAN; the short
+      USB-connected battery snapshots are not drain evidence.
     - [ ] Use three phones across Internet, LAN, BLE, and Wi-Fi Direct to measure discovery time,
       p50/p95 delivery, duplicate bytes, connection failures, background survival, battery drain,
       and radio churn before selecting production values.
@@ -168,6 +176,11 @@ its ID.
       cached certificate reuse offline; asynchronous sparse convergence; flat map Place/Return to
       Nearby flows; Contacts-only and TechSupport room absence; no exact GPS in public scopes;
       direct-only encrypted delivery; and mixed-release manifest validation.
+    - [x] Added the opt-in destructive physical-device gate
+      `native-app/30-android-four-phone-nearby.spec.ts`; the focused Android 14 background run passed
+      on build 1.0.123 on 2026-10-10. It asserts one opaque Nearby assignment, no public coordinates,
+      a four-person server roster, encrypted direct delivery, and author outbox removal only after
+      the receiver ACK.
     - [ ] Run the three-phone transport/background/battery matrix above and collect empirical wording
       feedback for full-Place reconciliation before calling OPEN-40 production-verified.
 

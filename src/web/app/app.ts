@@ -9098,6 +9098,11 @@ export class IinPublicApp {
           this.uiManager.getTotalMatches(),
         );
       });
+      // A fresh install starts in the local Contacts-only scope, so no active-room controller
+      // exists yet. The first manual Place/Nearby move must create and start the exchange runtime;
+      // otherwise the UI and server roster show the new room while presence, mailbox scoping,
+      // LAN discovery, and Wi-Fi Direct remain silently bound to no public room.
+      if (!isLocalOnlyRoomScope(chatroomId)) await this.activateRoomExchange(chatroomId);
     });
 
     // Handle Gun.js real-time updates
@@ -9113,7 +9118,37 @@ export class IinPublicApp {
       this.uiManager.updateChatroomInfo(update);
     });
 
-    // Handle visibility changes (for offline/online status)
+    // Handle visibility changes (for offline/online status). Android's Activity lifecycle also
+    // dispatches `iinpublic-native-resume`: several WebViews do not emit visibilitychange after
+    // HOME even though onResume ran, which otherwise leaves stale WebRTC sessions untouched.
+    let lastForegroundRecoveryAt = 0;
+    const recoverAfterForeground = () => {
+      if (!this.currentUser) return;
+      const now = Date.now();
+      if (now - lastForegroundRecoveryAt < 500) return;
+      lastForegroundRecoveryAt = now;
+      this.userService.setUserStatus(this.currentUser.id, 'online');
+      const settings = loadConnectivitySettings();
+      if (settings.nearbyMode === 'while-open' && !this.nearbyOfflineService) {
+        const pub = this.gunService.getStoredPair()?.pub;
+        if (pub) this.initNearbyOffline(String(pub));
+      }
+      // Android can freeze a background WebView while its WebRTC objects still report
+      // "connected". Rebuild only the bounded room transports on foreground and drain any
+      // encrypted fallback that accumulated meanwhile. Without this, an author's durable
+      // direct-Talk outbox can keep retrying a stale session indefinitely after the receiver
+      // returns, even though both phones still show the same room.
+      if (this.currentChatroomId && !isLocalOnlyRoomScope(this.currentChatroomId)) {
+        void this.peerMeshService?.resumeRoomConnections().catch((error) => {
+          console.warn('Could not refresh room connections after foregrounding:', error);
+        });
+        this.chatroomService.announceMembershipNow();
+        this.chatroomService.pullMembersFromPeers(this.currentChatroomId);
+      }
+      void this.drainMailbox().catch(() => {});
+      void this.retryFailedMailboxPosts().catch(() => {});
+    };
+    window.addEventListener('iinpublic-native-resume', recoverAfterForeground);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         this.userService.setUserStatus(this.currentUser!.id, 'away');
@@ -9122,12 +9157,7 @@ export class IinPublicApp {
           this.nearbyOfflineService = null;
         }
       } else {
-        this.userService.setUserStatus(this.currentUser!.id, 'online');
-        const settings = loadConnectivitySettings();
-        if (settings.nearbyMode === 'while-open' && !this.nearbyOfflineService) {
-          const pub = this.gunService.getStoredPair()?.pub;
-          if (pub) this.initNearbyOffline(String(pub));
-        }
+        recoverAfterForeground();
       }
     });
 
@@ -9223,9 +9253,28 @@ export class IinPublicApp {
         const currentChatroomId = this.chatroomService.getCurrentChatroomId();
 
         if (newChatroomId !== currentChatroomId) {
-          await this.chatroomService.switchChatroom(this.currentUser.id, newChatroomId);
+          await this.chatroomService.switchChatroom(
+            this.currentUser.id,
+            newChatroomId,
+            this.currentUser.stageName,
+          );
           this.currentChatroomId = newChatroomId;
+          localStorage.setItem('iinpublic_last_chatroom', newChatroomId);
           this.uiManager.setCurrentChatroomId(newChatroomId);
+          this.subscribeToMessages(newChatroomId);
+          this.chatroomService.subscribeToMembers(newChatroomId, (members) => {
+            this.harvestRosterEpubs(members);
+            this.observeNearbyRoomRoster(newChatroomId, members);
+            this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+            this.syncPeerMeshRoom(newChatroomId, members);
+            this.uiManager.updateStatusBar(
+              this.currentUser!.stageName,
+              this.getChatroomDisplayName(newChatroomId),
+              this.countRoomMembers(members),
+              this.uiManager.getTotalMatches(),
+            );
+          });
+          if (!isLocalOnlyRoomScope(newChatroomId)) await this.activateRoomExchange(newChatroomId);
           this.uiManager.showNotification(this.uiManager.formatTravelMovedLocation(), 'info');
         }
       }
