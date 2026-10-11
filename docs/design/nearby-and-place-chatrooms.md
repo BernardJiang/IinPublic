@@ -252,6 +252,46 @@ is eventual bounded convergence, not an instantaneous global consensus claim.
 neighbor/concurrency limit `K` bounds simultaneous direct peer connections and schedules Talk
 exchange across the room. Both `C` and `K` are global protocol-manifest parameters.
 
+### 3.2 Mixed location precision and visitable crowd cohorts
+
+Users may choose different location-disclosure floors. A replacement decision uses a member's
+blurred declared point only while the replacement remains no more precise than that member's
+selected Regional, Citywide, Neighborhood, or Close-nearby floor. A member who has reached their
+floor must be assigned by a deterministic cryptographic cohort decision, not by finer coordinates.
+Consequently, coarse privacy can reduce geographic matching quality in a dense area; the product
+must state that trade-off rather than imply exact-nearest membership.
+
+Capacity-only decisions below a privacy floor are **crowd cohorts**, not smaller geographic rooms.
+They share the same displayed encounter area, and the map must remain clamped to the member's
+chosen disclosure area. It must not draw an identity-derived cohort path as a smaller location.
+Geographic replacement may keep its four-way spatial split; the first implementation should
+evaluate two-way cohort splitting so a `C+1` crowd is not unnecessarily scattered into four mostly
+empty groups.
+
+A stable identity hash selects a member's default cohort, but it must not permanently trap the
+member there. A user may explicitly choose **Meet another group** within the same encounter area,
+visit one cohort at a time, and later **Return to my default group**. This is cohort travel, not map
+travel: it changes neither the declared point, privacy floor, home location, nor map traveler state.
+A deterministic per-identity permutation plus local visited-cohort history should avoid repeatedly
+selecting the same cohort or moving everyone in lockstep.
+
+Switching cohorts uses a bounded two-phase handoff: reserve capacity in a different cohort, stop
+the old room's discovery and Talk exchange, commit the target membership, and release the old
+presence. A failed or full target leaves the old room active. The hard limit remains `C`; a separate
+signed experimental target occupancy or headroom policy may keep seats available for movement.
+Join time must not choose cohorts because decentralized clocks and partitions do not provide a
+trustworthy global arrival order, and first-`C` batching would leave later users isolated.
+
+The UI shows one geographic area or population bubble even when it contains several cohorts. It may
+report that the crowd is divided for performance and offer another-group/default-group actions, but
+must not restore a room tree, overlapping pins, coordinate IDs, or `_part_N` navigation. `C` bounds
+the candidate roster and eventual pair set; `K` remains the direct bound on simultaneous P2P links.
+
+This refinement initially applies only to automatic Nearby. A full Place continues to reject a new
+admission and offer Nearby around its pin. Allowing one visible Place to contain multiple visitable
+cohorts is a separate product/protocol decision because it changes the current Place audience
+semantics.
+
 ## 4. Place rooms and map travel
 
 Any user may publish an immutable, signed, content-addressed Place descriptor containing a display
