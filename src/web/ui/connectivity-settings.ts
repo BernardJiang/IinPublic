@@ -35,7 +35,7 @@ export type ConnectivityDiagnostics = {
 };
 const KEY = 'iinpublic_connectivity_settings_v1';
 const NEARBY_PRIVACY_MODES: readonly NearbyPrivacyMode[] = [
-  'contacts-only', 'radio-nearby', 'neighborhood', 'close-nearby', 'location-off',
+  'contacts-only', 'neighborhood', 'close-nearby', 'citywide', 'regional', 'location-off',
 ];
 
 export function defaultConnectivitySettings(): ConnectivitySettings {
@@ -56,8 +56,13 @@ export function loadConnectivitySettings(): ConnectivitySettings {
     const raw = localStorage.getItem(KEY); if (!raw) return defaultConnectivitySettings();
     const value = JSON.parse(raw) as Partial<ConnectivitySettings>;
     const valid = ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'].includes(String(value.preset));
-    const nearbyPrivacyMode = NEARBY_PRIVACY_MODES.includes(value.nearbyPrivacyMode as NearbyPrivacyMode)
-      ? value.nearbyPrivacyMode as NearbyPrivacyMode
+    // `radio-nearby` used to be an audience mode. Bluetooth is now an independent provider;
+    // migrate that saved choice to the ordinary privacy-safe Nearby room instead.
+    const savedNearbyPrivacyMode = value.nearbyPrivacyMode === 'radio-nearby'
+      ? 'neighborhood'
+      : value.nearbyPrivacyMode;
+    const nearbyPrivacyMode = NEARBY_PRIVACY_MODES.includes(savedNearbyPrivacyMode as NearbyPrivacyMode)
+      ? savedNearbyPrivacyMode as NearbyPrivacyMode
       : 'neighborhood';
     return valid ? { ...defaultConnectivitySettings(), ...value, nearbyPrivacyMode, version: 2, activeRoomSelection: 'manual', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, ...(value.forwarding ?? {}) } } as ConnectivitySettings : defaultConnectivitySettings();
   } catch { return defaultConnectivitySettings(); }

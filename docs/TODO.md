@@ -20,36 +20,35 @@ its ID.
 ## Active execution queue — website and Android first
 
 - [ ] **OPEN-40 — Replace the Global/L1-L4 cascade with Nearby + map Places.** Accepted design:
-  `docs/design/nearby-and-place-chatrooms.md`. Nearby is an adaptive encounter set, not a fixed cell
-  room: with two users online they find each other; as population grows, each user retains at most
-  the nearest mutually eligible `C=498` users around a blurred, self-declared encounter location.
-  Spatial cells are internal search-index buckets only. Phones may start from confirmed blurred GPS;
-  web users must choose a self-defined map location. Travel changes the encounter center and yields
-  a fresh set. Wi-Fi Direct/BLE are routes and proximity evidence, not audience definitions. `498`
-  is an arbitrary signed global experiment parameter and must remain changeable between releases.
+  `docs/design/nearby-and-place-chatrooms.md`. Nearby is one shared adaptive chatroom: with two users
+  online they share the broad root room; as population grows, over-capacity branches divide
+  geographically until every active leaf has at most `C=498` users. Sparse siblings merge after
+  hysteresis. Phones may start from confirmed blurred GPS; web users must choose a self-defined map
+  location. Travel selects a point and joins the shared leaf covering it. Wi-Fi Direct/BLE are routes
+  and proximity evidence, not audience definitions. `498` is an arbitrary signed global experiment
+  parameter and must remain changeable between releases.
   - [x] **Reusable foundations:** exact GPS is local-only; signed expiring room presence, one-active-
     room stop-before-start transitions, traveler propagation, global versioned `C`, neighbor bound
     `K`, verified `C+1` overflow certificates, monotone protocol manifests, and 10,000-identity
     allocator/control tests already exist. Reuse their verification and storage primitives without
     preserving the rejected Global/FIFO/tree product behavior.
-  - [ ] **P0 adaptive nearest-`C` migration (product correction 2026-10-10).** Replace fixed-cell
-    membership, split certificates, and capped sparse widening with an expanding spatial query.
-    - [ ] Define signed `EncounterPresence`: blurred declared area, precision, policy version,
-      travel generation, rotating discovery ID, expiry, and identity signature. A declaration is
-      routing input, not proof of physical presence.
-    - [ ] Build a hierarchical sparse presence index. Query local and progressively farther nonempty
-      cells until all known users are considered or no unsearched cell can beat the current `C`th
-      result. Index buckets must never become user-visible rooms or hard boundaries.
-    - [ ] Rank by blurred-area distance plus a symmetric cryptographic tie-breaker; activate only
-      mutually selected edges; cap each stranger encounter set at `C`; add replacement hysteresis
-      and TTL expiry. Prove that 2 total users meet, at most `C+1` users form one complete encounter
-      set, and million-user simulations remain spatially bounded.
-    - [ ] Migrate the direct scheduler, presence lifecycle, map reach display, local-radio tokens,
-      and Talk outbox audience key from room rosters to encounter sets without regressing `K`, ACK,
-      encryption, or Contacts-only behavior.
-    - [ ] Define partition behavior: offline phones rank at most `C` signed LAN/BLE/Wi-Fi Direct
-      candidates visible locally and reconcile with the wider spatial index after connectivity
-      returns. Never claim an instantaneous globally exact nearest set during a partition.
+  - [ ] **P0 adaptive shared-room completion (product correction 2026-10-10).** Preserve one common
+    room roster/capability while making the invisible coordinate hierarchy expand and contract.
+    - [ ] Define signed root-to-leaf split and sibling-to-parent merge control. The root remains the
+      active room while worldwide occupancy is at most `C`; only overflowing branches subdivide;
+      siblings merge after their combined live occupancy stays at or below `C` for a safe dwell.
+    - [ ] Guarantee one active shared leaf per user, one roster per room, and stop-before-start
+      transitions. Do not implement personalized nearest-498 sets: they cannot provide a common
+      chatroom roster and can exceed inbound traffic bounds.
+    - [ ] Resolve a saved map travel point through the current split tree, join the shared leaf at
+      that point with a traveler marker, follow later split/merge transitions, and restore the home
+      room on Return home. Show the active footprint and optional adjacent-room travel actions.
+    - [ ] Migrate the current capped three-level sparse widening to root-reaching merges. Prove that
+      two total users converge into one room, every dense leaf stays at or below `C`, and million-user
+      simulations keep subscriptions/control reads bounded.
+    - [ ] Define partition behavior: offline phones use only a cached, signed active room and
+      reconcile split/merge state after connectivity returns. Never claim instantaneous global
+      consensus during a partition.
   - [x] **P0 fixed-cell room protocol (implemented, now migration source rather than target):**
     define versioned Nearby IDs from spatial index, precision, protocol
     epoch, and split generation. Replace identity-first lane allocation with geographic subdivision;
@@ -63,9 +62,9 @@ its ID.
       control heartbeat. Certificates are keyed by opaque root/room IDs and requested generation;
       each phone follows only its locally derived geographic child, then uses deterministic identity
       lanes only after its GPS-accuracy split limit. Exact coordinates never enter control records.
-  - [ ] **P0 Gun boundary:** migrate control-plane Nearby records from `room-presence` and
-    `nearby-control` to the accepted `encounter-presence` hierarchical spatial index; retain
-    `places`, Place presence/admission, and manifests. Audit every Talk/Me repository: owner-private records must use
+  - [ ] **P0 Gun boundary:** retain signed `room-presence`, extend `nearby-control` with bounded
+    split/merge occupancy summaries and parent/child references, and retain `places`, Place
+    presence/admission, and manifests. Audit every Talk/Me repository: owner-private records must use
     SEA encryption; room-visible Gun carries metadata/control only. Decide and implement the stronger
     split between local-only encrypted Gun and peered control Gun, or explicitly accept ciphertext
     replication as an interim migration step. Remove plaintext generic `talkJson` and auto-answer
@@ -122,6 +121,11 @@ its ID.
     - [x] The map shades and focuses the locally derived active Nearby cell, reports its actual
       approximate diameter, and keeps Place pins separate. Return to Nearby recomputes the current
       geographic/certificate path and clears traveler state; no cell bounds leave the device.
+    - [x] Settings now provide explicit **Location off**, **Regional (~50 km)**, **Citywide
+      (~10 km)**, **Neighborhood (~1 km)**, and **Close (~400 m)** choices. Location off stops
+      automatic Nearby while retaining Contacts and deliberately selected Places. The UI warns that
+      larger blur reduces precision but cannot guarantee anonymity; saved Radio-nearby audience
+      selections migrate to Neighborhood because Bluetooth is a provider, not a location mode.
   - [x] **P0 Places:** publish signed content-addressed Community-created descriptors indexed by map
     cell; creation grants no authority or trademark claim. A deliberate precise business address
     requires confirmation; community pins snap to the public cell. Joining is an atomic active-room
@@ -145,7 +149,7 @@ its ID.
       browser or embedded phone leaves to Contacts-only with explicit wording and the existing
       optional Nearby-at-the-pin action. Automated partition-order, forgery, expiry, alias, relay,
       and client-fallback gates pass; empirical wording feedback remains part of Verification.
-  - [x] **P1 capped sparse-area behavior (implemented, superseded by adaptive nearest-`C`):** widen Nearby search under a deterministic hysteresis rule while
+  - [x] **P1 capped sparse-area behavior (implemented, superseded by root-reaching shared-room merge):** widen Nearby search under a deterministic hysteresis rule while
     displaying the actual approximate reach. Do not silently activate overlapping room levels or
     subscribe to unbounded parent rosters.
     - [x] One-person generation-zero rosters widen one level after a continuous three-minute dwell;
@@ -155,7 +159,7 @@ its ID.
       stop-before-start switch replaces the room, and the existing local map assignment reports the
       widened cell's real bounds/diameter without publishing coordinates or dwell state.
   - [ ] **P1 discovery/group simplification (audit started 2026-10-10).** Remove redundant radio
-    work while preserving the distinction between encounter-set audience selection and routes to an
+    work while preserving the distinction between active-room audience selection and routes to an
     eligible peer.
     - [x] Product decision (2026-10-10): on phones, Internet, LAN, Wi-Fi Direct, and BLE discovery
       are all enabled by default and each has its own Settings switch. Unsupported browser/device
@@ -163,9 +167,9 @@ its ID.
       parallel, but candidate deduplication and route selection must prevent duplicate logical peers,
       duplicate Talk delivery, or unnecessary Wi-Fi Direct groups.
     - [x] Product decision (2026-10-10): all four providers use one location/audience definition.
-      The client signs one encounter presence and applies the same nearest-`C` policy to Internet,
-      LAN, BLE, and Wi-Fi Direct observations. Provider range affects reachability, never candidate
-      ranking or the `C` limit. **Radio nearby** is retired as a privacy/audience mode; Bluetooth
+      The client signs one active-room presence and applies the same room capability to Internet,
+      LAN, BLE, and Wi-Fi Direct observations. Provider range affects reachability, never room
+      membership or the `C` limit. **Radio nearby** is retired as a privacy/audience mode; Bluetooth
       remains an independent provider switch.
     - [x] Verify the current single-user path. A confirmed exact GPS fix stays device-local; the
       client derives an opaque Nearby room ID and publishes signed expiring room presence, not a
@@ -183,31 +187,33 @@ its ID.
     - [ ] Implement the provider decision. Add independent Internet and LAN switches alongside the
       existing Wi-Fi Direct and Bluetooth switches; make supported phone providers default on;
       expose unavailable/permission-denied states; and run bounded BLE/Wi-Fi Direct discovery even
-      while the hub is reachable. BLE/Wi-Fi Direct may prioritize or connect encounter-eligible
-      peers but must never bypass the nearest-`C` policy. Wi-Fi Direct group formation remains
+      while the hub is reachable. BLE/Wi-Fi Direct may prioritize or connect same-room peers but
+      must never bypass active-room capacity. Wi-Fi Direct group formation remains
       demand-driven and requires at least one eligible peer.
     - [ ] Introduce one provider-neutral candidate registry keyed first by the scoped rotating
       discovery ID and canonically by verified SEA identity after handshake. Merge Internet, LAN,
       BLE, and Wi-Fi Direct sightings into one logical peer; attach route candidates and freshness;
-      deduplicate sessions, Talk delivery, and receipts. Require the full signed encounter presence,
-      compatible policy version, and mutual eligibility before Talk exchange or Wi-Fi Direct group
+      deduplicate sessions, Talk delivery, and receipts. Require the full signed room presence,
+      compatible policy version, and same-room eligibility before Talk exchange or Wi-Fi Direct group
       formation because a short radio-token prefix can collide.
     - [ ] Replace the current overlapping offline discovery work with an explicit staged policy and
-      bounded timers: spatial encounter roster first; LAN NSD as the free IP fast path; BLE as
-      short-range presence; Wi-Fi Direct group formation only after an encounter-eligible peer is
+      bounded timers: active-room roster first; LAN NSD as the free IP fast path; BLE as
+      short-range presence; Wi-Fi Direct group formation only after a same-room peer is
       observed; DNS-SD/raw P2P scan only as measured fallbacks. Define backoff and a quiet singleton
       state so one isolated phone does not scan indefinitely.
     - [ ] Decide whether always-on Android LAN NSD while the hub is healthy earns its battery/radio
       cost. Options are: keep it as an immediate free-route optimization, start it only when the
-      encounter set contains another peer, or start it only after the Internet path is slow/metered.
+      active room contains another peer, or start it only after the Internet path is slow/metered.
     - [ ] Add state-machine and physical gates for: lone online user, lone offline user, second
-      eligible peer, over-`C` candidate rejected, web-without-native-bridge, hub loss/recovery,
+      same-room peer, over-`C` room split, cross-room candidate rejected, web-without-native-bridge,
+      hub loss/recovery,
       no empty Wi-Fi Direct group, bounded scan/backoff, and one elected group for 3+ eligible
       phones. Record discovery time, scan duty cycle, group churn, duplicate candidates/bytes, and
       battery before selecting the production policy.
-    - [x] Product decision (2026-10-10): fixed-grid edges are index boundaries, not audience
-      boundaries. The expanding nearest-`C` query searches adjacent/farther nonempty cells, so two
-      close users are not separated merely because their declared points straddle a cell edge.
+    - [x] Product decision (2026-10-10): a shared chatroom takes priority over exact personalized
+      nearest-`C` membership. Geographic leaves may separate people across a boundary; the map may
+      offer the adjacent room as an explicit travel destination, but the app does not silently join
+      overlapping rooms and exceed the traffic bound.
     - [ ] Decide whether hub-down cold discovery for web↔web and web↔phone is required. Ordinary
       browsers cannot advertise/scan Android LAN NSD, BLE, or Wi-Fi Direct, so today these pairs
       cannot create a new session without Internet room discovery even if WebRTC could later use a
@@ -218,8 +224,8 @@ its ID.
       deliberately self-defined and may be fictional. **Use my current location** may center the
       picker but still requires confirmation. Publish only the blurred signed presence, persist the
       choice, and keep travel to another area distinct from joining a named Place. Cover GPS-less
-      desktops, map-provider disclosure, local-data deletion, travel/return-home, and fresh nearest-
-      `C` selection after every intentional move.
+      desktops, map-provider disclosure, local-data deletion, travel/return-home, and shared-room
+      resolution after every intentional move.
   - [ ] **P1 legacy migration:** stop old-room discovery before moving saved Global/tile/grid/custom
     memberships into Nearby or content-addressed Places. Preserve contacts, private data, Talk queues,
     receipts, and traveler intent without rebroadcasting old Talks. Retire obsolete capacity
@@ -237,10 +243,11 @@ its ID.
       10,000-person Nearby arena follows only over-capacity geographic branches, keeps every active
       room at or below `C`, keeps one opaque assignment per user, and proves the direct schedule is
       symmetric and at most `K=12`. Offset sparse arrivals converge through bounded widening.
-    - [ ] Replace the baseline with adaptive nearest-neighbor experiments at 2, 499, 500, 10,000,
-      and million-user scale. Measure spatial-index reads/writes, candidate churn, mutual-set size,
-      distance distribution, convergence, and `K` scheduling for `C=32/64/128/256/498/1000`.
-      `C=498` remains arbitrary until these results justify a production value.
+    - [ ] Replace the baseline with adaptive shared-room split/merge experiments at 2, 498, 499,
+      10,000, and million-user scale. Measure control reads/writes, room churn, geographic diameter,
+      merge convergence, boundary distribution, and `K` scheduling for
+      `C=32/64/128/256/498/1000`. `C=498` remains arbitrary until these results justify a
+      production value.
     - [x] Current Nearby/LAN baseline on four physical Android phones (Android 7, 10, 10, and 14):
       all four independently derived the same opaque Nearby room, the hub roster converged to four,
       and a direct Talk reached the backgrounded Android 14 receiver and returned its end-recipient
@@ -260,9 +267,9 @@ its ID.
     - [ ] Use three phones across Internet, LAN, BLE, and Wi-Fi Direct to measure discovery time,
       p50/p95 delivery, duplicate bytes, connection failures, background survival, battery drain,
       and radio churn before selecting production values.
-  - [ ] **Verification:** deterministic 2/499/500/10,000/million-person adaptive encounter sets,
-    index-boundary, partition/reconnect, simultaneous-arrival, stale-presence, forged-control,
-    offline local-candidate transport, sparse-to-global expansion,
+  - [ ] **Verification:** deterministic 2/498/499/10,000/million-person adaptive shared rooms,
+    room-boundary travel, split/merge, partition/reconnect, simultaneous-arrival, stale-presence,
+    forged-control, offline cached-room transport, sparse-to-global merge,
     map Place, Contacts-only, TechSupport absence, no-exact-GPS, no-plaintext-private-data, direct-only
     delivery, and mixed-release manifest tests. Assert each client sees at most `C` candidates and
     opens at most `K` direct links.

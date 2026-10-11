@@ -24,6 +24,17 @@ describe('connectivity UI settings', () => {
     expect(loadConnectivitySettings().nearbyPrivacyMode).toBe('neighborhood');
     localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({ preset: 'automatic' }));
     expect(loadConnectivitySettings().nearbyPrivacyMode).toBe('neighborhood');
+    localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({
+      ...defaultConnectivitySettings(), nearbyPrivacyMode: 'radio-nearby',
+    }));
+    expect(loadConnectivitySettings().nearbyPrivacyMode).toBe('neighborhood');
+  });
+  test('persists broad location privacy and location-off choices', () => {
+    for (const nearbyPrivacyMode of ['citywide', 'regional', 'location-off'] as const) {
+      const value = { ...defaultConnectivitySettings(), nearbyPrivacyMode };
+      saveConnectivitySettings(value);
+      expect(loadConnectivitySettings().nearbyPrivacyMode).toBe(nearbyPrivacyMode);
+    }
   });
   test('formats compact active status', () => {
     expect(connectivityStatusText({ directness: 'direct', interface: 'wifi', metered: false })).toBe('direct; wifi; free');

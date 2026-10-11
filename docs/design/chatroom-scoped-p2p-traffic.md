@@ -1,14 +1,14 @@
 # Chatroom-Scoped P2P Traffic and Nearby Connectivity
 
-Status: **superseded for Nearby discovery 2026-10-10** by `nearby-and-place-chatrooms.md`
+Status: **partially superseded and refined 2026-10-10** by `nearby-and-place-chatrooms.md`
 Tracking: `OPEN-37`
 Related: Technical Specification §3.3 and §23; `OPEN-36`; `docs/protocol/connectivity-v1.md`
 
-> Historical decision record only. Global `C`, local `K`, safe audience switching, bounded radio
-> credentials, and direct encrypted author-to-receiver Talk delivery remain useful constraints.
-> Fixed-room Nearby membership, same-room radio authorization, geographic room subdivision, and
-> capped sparse widening are superseded by a self-declared encounter location plus adaptive
-> nearest-`C` selection. Explicit content-addressed Places remain rooms.
+> Global `C`, local `K`, one shared active room, safe room switching, same-room radio authorization,
+> bounded radio credentials, and direct encrypted author-to-receiver Talk delivery remain
+> authoritative. Visible hierarchy, manual child navigation, FIFO overflow, and capped sparse
+> widening are superseded by an invisible adaptive geographic split/merge tree plus map travel.
+> Explicit content-addressed Places remain rooms.
 
 ## Decision
 

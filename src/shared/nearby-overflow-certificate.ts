@@ -2,6 +2,7 @@ import type { RoomProtocolCheckpoint } from './active-exchange-room';
 import type { GPSCoordinate } from './types';
 import {
   deriveNearbyRoomAssignment,
+  isNearbyPublicMode,
   NEARBY_MAX_SPLIT_GENERATION,
   type NearbyPrivacyMode,
   type NearbyPublicMode,
@@ -143,7 +144,7 @@ export async function verifyNearbyOverflowCertificate(
 }
 
 function publicMode(mode: NearbyPrivacyMode): NearbyPublicMode {
-  if (mode !== 'neighborhood' && mode !== 'close-nearby') {
+  if (!isNearbyPublicMode(mode)) {
     throw new Error('Nearby overflow applies only to public location modes');
   }
   return mode;

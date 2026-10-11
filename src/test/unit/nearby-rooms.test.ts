@@ -33,6 +33,42 @@ describe('Nearby geographic room placement', () => {
     expect(alice.roomId).not.toContain('117.1611');
   });
 
+  test('citywide and regional privacy choices produce larger valid shared rooms', () => {
+    const location = point(32.7157, -117.1611);
+    const neighborhood = deriveNearbyRoomAssignment({
+      location,
+      mode: 'neighborhood',
+      identity: 'alice',
+    });
+    const citywide = deriveNearbyRoomAssignment({
+      location,
+      mode: 'citywide',
+      identity: 'alice',
+    });
+    const regional = deriveNearbyRoomAssignment({
+      location,
+      mode: 'regional',
+      identity: 'alice',
+    });
+    expect(citywide.basePrecisionMeters).toBe(10_000);
+    expect(regional.basePrecisionMeters).toBe(50_000);
+    expect(citywide.approximateDiameterMeters).toBeGreaterThan(neighborhood.approximateDiameterMeters);
+    expect(regional.approximateDiameterMeters).toBeGreaterThan(citywide.approximateDiameterMeters);
+    expect(isNearbyRoomId(citywide.roomId)).toBe(true);
+    expect(isNearbyRoomId(regional.roomId)).toBe(true);
+    expect(JSON.stringify(nearbyPublicScope(regional))).not.toContain('32.7157');
+
+    const regionalOverflow = deriveNearbyRoomAssignment({
+      location,
+      mode: 'regional',
+      identity: 'alice',
+      requestedSplitGeneration: 3,
+    });
+    expect(regionalOverflow.splitGeneration).toBe(0);
+    expect(regionalOverflow.identityLaneCount).toBe(8);
+    expect(regionalOverflow.cellSizeMeters).toBe(50_000);
+  });
+
   test('overflow generations group by finer geography before identity', () => {
     const west = deriveNearbyRoomAssignment({
       location: point(32.7157, -117.1625, 5),

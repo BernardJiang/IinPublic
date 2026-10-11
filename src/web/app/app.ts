@@ -54,6 +54,7 @@ import {
   CONTACTS_ONLY_SCOPE_ID,
   deriveNearbyRoomAssignment,
   isLocalOnlyRoomScope,
+  isNearbyPublicMode,
   isNearbyRoomId,
   type NearbyRoomAssignment,
 } from '../../shared/nearby-rooms';
@@ -2163,7 +2164,7 @@ export class IinPublicApp {
     // trust a saved opaque room id after protocol/capacity state may have changed.
     if (this.travelModeActive && this.travelNearbyPoint && this.currentUser) {
       const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
-      const mode = configuredMode === 'close-nearby' ? 'close-nearby' : 'neighborhood';
+      const mode = isNearbyPublicMode(configuredMode) ? configuredMode : 'neighborhood';
       const rootAssignment = deriveNearbyRoomAssignment({
         location: this.travelNearbyPoint,
         mode,
@@ -2766,13 +2767,14 @@ export class IinPublicApp {
       setTalkIntakeFiltersOwner(this.currentUser.id);
       this.currentUser.talkFilters = filters;
     }
-    const publicNearbyMode = settings.nearbyPrivacyMode === 'close-nearby'
-      || settings.nearbyPrivacyMode === 'neighborhood';
+    const publicNearbyMode = isNearbyPublicMode(settings.nearbyPrivacyMode)
+      ? settings.nearbyPrivacyMode
+      : undefined;
     let selectedRoomId: string;
     if (this.travelModeActive && this.travelNearbyPoint && publicNearbyMode) {
       const rootAssignment = deriveNearbyRoomAssignment({
         location: this.travelNearbyPoint,
-        mode: settings.nearbyPrivacyMode as 'close-nearby' | 'neighborhood',
+        mode: publicNearbyMode,
         identity: this.currentUser.id,
       });
       selectedRoomId = await this.resolveNearbyBeforeAdmission(rootAssignment, this.travelNearbyPoint);
@@ -2799,9 +2801,7 @@ export class IinPublicApp {
       selectedRoomId = await this.resolveNearbyBeforeAdmission(nearbyRoot);
     }
     const nextRoomId = isTechSupportUser(this.currentUser) ? CONTACTS_ONLY_SCOPE_ID : selectedRoomId;
-    if (!isNearbyRoomId(nextRoomId)
-      && settings.nearbyPrivacyMode !== 'neighborhood'
-      && settings.nearbyPrivacyMode !== 'close-nearby') {
+    if (!isNearbyRoomId(nextRoomId) && !isNearbyPublicMode(settings.nearbyPrivacyMode)) {
       this.uiManager.setNearbyMapAssignment(null);
     }
     if (nextRoomId === this.currentChatroomId) return;
@@ -2858,7 +2858,7 @@ export class IinPublicApp {
     if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
       || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
     const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
-    const mode = configuredMode === 'close-nearby' ? 'close-nearby' : 'neighborhood';
+    const mode = isNearbyPublicMode(configuredMode) ? configuredMode : 'neighborhood';
     const location: GPSCoordinate = {
       latitude,
       longitude,

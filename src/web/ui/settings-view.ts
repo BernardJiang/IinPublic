@@ -621,15 +621,16 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: 'Choose routes automatically or tune data, battery, and forwarding policy.',
           },
           `<div style="display:grid;gap:12px;">
-            <label>Who can discover me nearby
+            <label>Location privacy and nearby audience
               <select id="settings-nearby-privacy-mode" class="form-input" data-testid="settings-nearby-privacy-mode">
-                <option value="contacts-only" ${connectivity.nearbyPrivacyMode === 'contacts-only' ? 'selected' : ''}>Contacts only — no stranger room</option>
-                <option value="radio-nearby" ${connectivity.nearbyPrivacyMode === 'radio-nearby' ? 'selected' : ''}>Radio nearby — phones within BLE range</option>
+                <option value="location-off" ${connectivity.nearbyPrivacyMode === 'location-off' ? 'selected' : ''}>Location off — stop automatic Nearby; Contacts and selected Places still work</option>
+                <option value="contacts-only" ${connectivity.nearbyPrivacyMode === 'contacts-only' ? 'selected' : ''}>Contacts only — block all stranger discovery</option>
+                <option value="regional" ${connectivity.nearbyPrivacyMode === 'regional' ? 'selected' : ''}>Regional — reveal an approximate 50 km area</option>
+                <option value="citywide" ${connectivity.nearbyPrivacyMode === 'citywide' ? 'selected' : ''}>Citywide — reveal an approximate 10 km area</option>
                 <option value="neighborhood" ${connectivity.nearbyPrivacyMode === 'neighborhood' ? 'selected' : ''}>Neighborhood — reveal an approximate 1 km area</option>
-                <option value="close-nearby" ${connectivity.nearbyPrivacyMode === 'close-nearby' ? 'selected' : ''}>Close nearby — reveal an approximate 200–500 m area</option>
-                <option value="location-off" ${connectivity.nearbyPrivacyMode === 'location-off' ? 'selected' : ''}>Location off — Contacts and selected Places only</option>
+                <option value="close-nearby" ${connectivity.nearbyPrivacyMode === 'close-nearby' ? 'selected' : ''}>Close nearby — reveal an approximate 400 m area</option>
               </select>
-              <small>Close nearby can reveal your home or workplace. Cell identifiers are predictable; hashing does not hide the approximate area.</small>
+              <small>Use Location off at a sensitive home or workplace, or choose a larger area. A larger area reduces precision but cannot guarantee anonymity; repeated activity and network metadata may still reveal patterns.</small>
             </label>
             <label>Preset
               <select id="settings-connectivity-preset" class="form-input" data-testid="settings-connectivity-preset">

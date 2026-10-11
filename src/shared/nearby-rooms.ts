@@ -6,6 +6,9 @@ export const NEARBY_ROOM_VERSION = 1;
 export const NEARBY_PROTOCOL_EPOCH = 1;
 export const NEARBY_NEIGHBORHOOD_METERS = 1_000;
 export const NEARBY_CLOSE_METERS = 400;
+/** Broader privacy choices for homes, workplaces, and other sensitive locations. */
+export const NEARBY_CITYWIDE_METERS = 10_000;
+export const NEARBY_REGIONAL_METERS = 50_000;
 export const NEARBY_BOUNDARY_HYSTERESIS_RATIO = 0.15;
 export const NEARBY_MAX_SPLIT_GENERATION = 20;
 /** Experimental sparse-area ceiling: one active cell may grow to 8x the selected base reach. */
@@ -24,9 +27,14 @@ export type NearbyPrivacyMode =
   | 'radio-nearby'
   | 'neighborhood'
   | 'close-nearby'
+  | 'citywide'
+  | 'regional'
   | 'location-off';
 
-export type NearbyPublicMode = Extract<NearbyPrivacyMode, 'neighborhood' | 'close-nearby'>;
+export type NearbyPublicMode = Extract<
+  NearbyPrivacyMode,
+  'neighborhood' | 'close-nearby' | 'citywide' | 'regional'
+>;
 
 export type NearbyLocalCell = {
   /** Local-only projected cell coordinates. Never publish these fields. */
@@ -93,7 +101,19 @@ function assertWideningLevel(level: number): number {
 }
 
 export function nearbyBasePrecisionMeters(mode: NearbyPublicMode): number {
-  return mode === 'close-nearby' ? NEARBY_CLOSE_METERS : NEARBY_NEIGHBORHOOD_METERS;
+  switch (mode) {
+    case 'close-nearby': return NEARBY_CLOSE_METERS;
+    case 'neighborhood': return NEARBY_NEIGHBORHOOD_METERS;
+    case 'citywide': return NEARBY_CITYWIDE_METERS;
+    case 'regional': return NEARBY_REGIONAL_METERS;
+  }
+}
+
+export function isNearbyPublicMode(mode: NearbyPrivacyMode): mode is NearbyPublicMode {
+  return mode === 'close-nearby'
+    || mode === 'neighborhood'
+    || mode === 'citywide'
+    || mode === 'regional';
 }
 
 /** Web-Mercator is used only locally to obtain a deterministic metric grid. */
@@ -250,10 +270,12 @@ export function deriveNearbyRoomAssignment(input: {
   if (!identity) throw new Error('nearby identity is required');
   const basePrecisionMeters = nearbyBasePrecisionMeters(input.mode);
   const widenedPrecisionMeters = basePrecisionMeters * 2 ** wideningLevel;
-  const geographicLimit = maximumGeographicSplitGeneration(
-    widenedPrecisionMeters,
-    input.location.accuracy,
-  );
+  // Broad modes are explicit home/work privacy floors. An overflow must not silently turn a
+  // 50 km or 10 km choice into a finer public geographic assignment. Until the adaptive hierarchy
+  // can split a broader parent *down to* (but never below) that floor, use opaque identity lanes.
+  const geographicLimit = input.mode === 'citywide' || input.mode === 'regional'
+    ? 0
+    : maximumGeographicSplitGeneration(widenedPrecisionMeters, input.location.accuracy);
   const splitGeneration = Math.min(requestedSplitGeneration, geographicLimit);
   const fallbackGenerations = requestedSplitGeneration - splitGeneration;
   const identityLaneCount = Math.min(NEARBY_MAX_IDENTITY_LANES, 2 ** fallbackGenerations);
@@ -305,7 +327,7 @@ export function nearbyPublicScope(assignment: NearbyRoomAssignment): NearbyPubli
 }
 
 export function isNearbyRoomId(value: string | null | undefined): boolean {
-  return /^nearby_v1_e\d+_p(?:400|1000)(?:_w[1-3])?_g\d+_[a-f0-9]{24}(?:_l\d+of\d+)?$/.test(String(value || ''));
+  return /^nearby_v1_e\d+_p(?:400|1000|10000|50000)(?:_w[1-3])?_g\d+_[a-f0-9]{24}(?:_l\d+of\d+)?$/.test(String(value || ''));
 }
 
 export function isLocalOnlyRoomScope(value: string | null | undefined): boolean {

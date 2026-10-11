@@ -10,9 +10,8 @@ Related: Technical Specification §3.3, §6.1, §19.7, §19.14, and §29
 
 IinPublic has three independent ways to reach people:
 
-1. **Nearby** is an adaptive encounter set containing at most the nearest `C` online strangers to
-   the user's declared encounter location. Spatial cells are internal search-index buckets, not
-   rooms or hard audience boundaries.
+1. **Nearby** is one shared adaptive chatroom containing at most `C` online strangers. Its footprint
+   grows when the network is sparse and divides geographically when occupancy exceeds `C`.
 2. **Places** are user-created map destinations such as a restaurant, event, club, or community.
    A user taps a pin to enter one deliberately.
 3. **Contacts** are direct relationships independent of room membership. TechSupport exists only
@@ -21,9 +20,9 @@ IinPublic has three independent ways to reach people:
 There is no user-facing Global room, geographic tree, country/state hierarchy, L1-L4 navigation,
 or numbered overflow room. Internal spatial-index buckets must not appear as rooms or pins.
 
-Exactly one stranger audience drives discovery and Talk exchange at a time: the adaptive Nearby
-encounter set or one deliberately selected Place. Contacts may reconnect on demand without joining
-that audience.
+Exactly one shared chatroom drives stranger discovery and Talk exchange at a time: the automatic
+Nearby room, a Nearby room selected by traveling on the map, or one named Place. Contacts may
+reconnect on demand without joining that room.
 
 ## 2. Nearby placement and privacy
 
@@ -35,35 +34,47 @@ presence:
 - A web user must choose and confirm a self-defined location on the map before joining stranger
   discovery. Browser geolocation may center the picker, but it is neither required nor silently
   published.
-- A traveler deliberately moves the encounter location to another point and receives a fresh
-  nearest-`C` set. Returning home recomputes or restores the home encounter location.
+- A traveler deliberately moves the encounter location to another point and joins the shared
+  Nearby chatroom covering that point. Returning home recomputes or restores the home room.
 
 GPS can be spoofed and a map location can be fictional. IinPublic describes this as the area where
 the user chooses to meet people, never as verified physical presence. BLE/LAN observations may add
 useful proximity evidence but do not turn the location into an identity or truth claim.
 
-Initial experimental publication precisions are approximately 200-500 metres for **Close nearby**
-and about 1 km for **Neighborhood**. These control location blur, not a maximum search radius or a
-promise about physical radio range. The nearest-user search expands beyond the initial cell until it
-finds all available users in a sparse network or enough candidates to select `C` in a dense one.
+Initial publication precisions are approximately 400 metres for **Close nearby**, 1 km for
+**Neighborhood**, 10 km for **Citywide**, and 50 km for **Regional**. These control how precisely a
+device may place the user, not a promise about physical radio range. The room hierarchy may merge to
+a broader shared parent when sparse, but it must never publish a location more precise than the
+user's choice.
 
 Settings expose the actual trade-off:
 
 - **Contacts only:** no stranger audience or stranger discovery.
+- **Location off:** stop automatic location-based Nearby; Contacts and deliberately selected Places
+  remain available.
+- **Regional:** an approximately 50 km public area.
+- **Citywide:** an approximately 10 km public area.
 - **Neighborhood:** an approximately 1 km public cell.
-- **Close nearby:** an approximately 200-500 m public cell, with an explicit home/work warning.
-- **Location off:** saved Contacts and deliberately selected Places only.
+- **Close nearby:** an approximately 400 m public cell, with an explicit home/work warning.
+
+Settings must preview the approximate map area before applying a precision. A larger area reduces
+the precision of the disclosure but cannot guarantee anonymity: repeated activity, a sparse room,
+map requests, and network metadata can still reveal patterns. **Location off** is the strong choice
+at a sensitive home or workplace; it stops GPS-derived Nearby presence and its stranger radio
+advertisements rather than merely hiding the map drawing. Citywide and Regional are privacy floors:
+capacity handling must use opaque identity lanes rather than subdivide them into a more precise
+public geographic assignment.
 
 **Radio nearby is not a separate audience or location mode.** Bluetooth is one discovery-provider
 switch, alongside Internet, LAN, and Wi-Fi Direct. Turning a provider on or off changes how the
-device can find and reach eligible peers; it never changes the nearest-user eligibility rule.
+device can find and reach eligible peers; it never changes active-room membership.
 
 Hashing a predictable cell is obfuscation, not location secrecy. The UI must state the approximate
 area revealed by each mode. Exact coordinates, accuracy, and GPS timestamps are never public.
 
-Wi-Fi Direct range cannot define the encounter set: radio reach changes with walls and hardware,
-and physical nearness is not transitive. Declared location and the global nearest-`C` policy define
-the eligible audience; BLE can confirm and prioritize a currently reachable peer; LAN, Wi-Fi
+Wi-Fi Direct range cannot define the chatroom: radio reach changes with walls and hardware,
+and physical nearness is not transitive. The active shared room defines the eligible audience; BLE
+can confirm and prioritize a currently reachable peer; LAN, Wi-Fi
 Direct, direct Internet, and TURN are replaceable routes between the same endpoints.
 
 ### Discovery-provider defaults
@@ -76,36 +87,36 @@ normally has Internet discovery and WebRTC routes, but no native BLE, Wi-Fi Dire
 scanner.
 
 Enabling discovery does not mean eagerly forming every possible connection. All provider sightings
-are deduplicated to the same verified peer identity and encounter-policy version. The route selector
+are deduplicated to the same verified peer identity and active-room capability. The route selector
 chooses LAN, direct Internet, Wi-Fi Direct, or relay without changing eligibility. Wi-Fi Direct must
 never form an empty group and should form a group only when an eligible peer needs that route.
 Scanning and advertising use bounded duty cycles/backoff, including a quiet singleton state, while
 remaining discoverable often enough for a newcomer.
 
-### One encounter definition across every provider
+### One active-room definition across every provider
 
-The client derives one signed `EncounterPresence` before starting any provider. It binds the user's
-blurred declared location, precision, current travel generation, rotating discovery identifier,
-expiry, and signed global policy version. Every provider represents that same presence in the form
-its payload allows:
+The client derives one signed `RoomPresence` before starting any provider. It binds the active room,
+privacy precision, current travel generation, rotating discovery identifier, expiry, and signed
+global policy version. Every provider represents that same room capability in the form its payload
+allows:
 
-| Provider | Encounter representation | Possible route after discovery |
+| Provider | Room representation | Possible route after discovery |
 | --- | --- | --- |
-| Internet | Full signed presence in the hierarchical spatial index | Direct WebRTC or TURN |
-| LAN | Compact location/policy token in local service discovery | WebRTC over the existing LAN |
-| BLE | Compact rotating location/policy token | Discovery and proximity evidence only |
-| Wi-Fi Direct | Compact location/policy token; credentials negotiated only after eligibility | WebRTC over the Wi-Fi Direct IP link |
+| Internet | Full signed presence under the active shared room | Direct WebRTC or TURN |
+| LAN | Compact active-room token in local service discovery | WebRTC over the existing LAN |
+| BLE | Compact rotating active-room token | Discovery and proximity evidence only |
+| Wi-Fi Direct | Compact active-room token; credentials negotiated after membership proof | WebRTC over the Wi-Fi Direct IP link |
 
-Range changes which provider can observe a peer; all providers apply the same declared-location
-ranking and `C` limit. Several observations of the same eligible device become one logical peer: a
+Range changes which provider can observe a peer; all providers require the same room and global `C`
+policy. Several observations of the same eligible device become one logical peer: a
 rotating discovery identifier may merge early observations, and authenticated SEA identity becomes
 canonical after the handshake. Internet, LAN, and Wi-Fi Direct are route candidates attached to
 that peer; BLE is evidence, not a Talk-body transport. Talk delivery and receipts are deduplicated
 above the route layer.
 
 A compact radio token is only a prefilter. Before exchanging Talks or forming/joining a Wi-Fi
-Direct group, both sides verify the full signed presence, policy version, mutual encounter-set
-eligibility, and identity. This prevents a truncated-token collision from becoming access.
+Direct group, both sides verify the full signed presence, policy version, same-room membership, and
+identity. This prevents a truncated-token collision from becoming access.
 
 ### The first user and the second arrival
 
@@ -115,8 +126,8 @@ a bounded, quiet-singleton schedule. It creates no connection and no empty Wi-Fi
 completely offline first phone must continue bounded local advertising; otherwise an offline second
 phone cannot find it.
 
-If the second person is the only other online user, both users include each other regardless of the
-distance between their declared locations. Internet discovery therefore connects them. If their
+If the second person is the only other online user, both users occupy the same broad root chatroom
+regardless of the distance between their declared locations. Internet discovery therefore connects them. If their
 devices are also physically within LAN, BLE, or Wi-Fi Direct reach, those providers report the same
 pair and contribute routes/evidence to the one logical session. “Find each other in all possible
 ways” does not imply that a radio can cross physical range or that a web browser gains native radio
@@ -124,15 +135,15 @@ APIs.
 
 | First + second user | Available discovery | Result |
 | --- | --- | --- |
-| Web + web, online | Expanding Internet spatial search | They find each other; WebRTC may select a LAN host path, direct Internet, or TURN. |
-| Web + phone, online | Expanding Internet spatial search | They find each other. The browser cannot scan native LAN/BLE/Wi-Fi Direct, but WebRTC may still select a same-LAN path. |
+| Web + web, online | Shared root-room roster | They find each other; WebRTC may select a LAN host path, direct Internet, or TURN. |
+| Web + phone, online | Shared root-room roster | They find each other. The browser cannot scan native LAN/BLE/Wi-Fi Direct, but WebRTC may still select a same-LAN path. |
 | Phone + phone, online and on one LAN | Internet, LAN, and possibly BLE/Wi-Fi Direct | Merge all observations into one peer; prefer the existing LAN and do not create an unnecessary Wi-Fi Direct group. |
 | Phone + phone, online, physically close but not on one LAN | Internet plus BLE/Wi-Fi Direct | Merge observations; Wi-Fi Direct may become the local/free IP route without creating a second session. |
 | Phone + phone, online but physically far apart | Internet only | They still find each other when the online population has no closer candidates. |
-| Phone + phone, hub unavailable but on one LAN | LAN, and possibly BLE | Rank the locally visible set with the same policy, cap it at `C`, and exchange over LAN. Reconcile with the wider index later. |
-| Phone + phone, hub unavailable, no shared LAN, physically close | BLE/Wi-Fi Direct | Rank the visible set, verify the signed encounter policy, elect one group, and exchange over its IP link. |
+| Phone + phone, hub unavailable but on one LAN | LAN, and possibly BLE | Verify the same cached active-room capability, cap the roster at `C`, and exchange over LAN. Reconcile later. |
+| Phone + phone, hub unavailable, no shared LAN, physically close | BLE/Wi-Fi Direct | Verify the same cached active-room capability, elect one group, and exchange over its IP link. |
 | Web + phone or web + web, Internet index unavailable | No common cold-discovery provider in the current architecture | No new session until Internet discovery returns or a future browser-compatible rendezvous path exists. |
-| More than `C+1` online users | Hierarchical search plus any locally visible providers | Retain at most the nearest mutually eligible `C`; farther candidates are not connected. |
+| More than `C` users in one room | Signed occupancy control | Split the room geographically; each user follows one shared child with at most `C` members. |
 | Any pair deliberately in the same Place | Same Place scope through every supported provider | Apply Place membership; home or traveler location does not alter that explicit audience. |
 | Contacts-only user + stranger | Stranger discovery is disabled | No stranger exchange. Existing Contacts use their independent authenticated path. |
 
@@ -147,43 +158,56 @@ Nearby stranger discovery. Choosing an encounter location is distinct from enter
 The confirmation states the approximate public area and that the map/tile provider may observe the
 requested viewport and network address.
 
-## 3. Adaptive nearest-`C` selection
+## 3. Adaptive shared chatrooms and capacity
 
-One signed, versioned global capacity `C` limits each user's Nearby encounter set. The current value
-`498` is an arbitrary experimental default, not a proven optimum and not a room attribute. It may
-change in a later signed protocol manifest after simulation and real-device evidence.
+One signed, versioned global capacity `C` limits every shared Nearby and Place chatroom. The current
+value `498` is an arbitrary experimental default, not a proven optimum and not a room attribute. It
+may change in a later signed protocol manifest after simulation and real-device evidence.
 
-The target selection rule is:
+The automatic Nearby rule is:
 
-1. Publish one signed, expiring presence under a hierarchical spatial index derived from the blurred
-   declared encounter location. Index cells locate candidates; users never join them as rooms.
-2. Search the local cell and progressively farther nonempty cells. Continue until either every live
-   presence known to the index has been considered or unsearched cells cannot contain a candidate
-   closer than the current `C`th result.
-3. Rank by distance between published blurred areas, then by a symmetric cryptographic pair
-   tie-breaker. Exact GPS is neither required nor published.
-4. Retain at most the nearest `C` candidates. A stranger edge becomes active only when the selection
-   is mutual, so neither endpoint can accumulate more than `C` stranger peers merely by being inside
-   many other users' search results.
-5. Apply replacement hysteresis and presence expiry so small GPS/roster changes do not constantly
-   churn the `C`th position.
+1. The root chatroom covers the whole coordinate space. While the total ordinary online population
+   is at most `C`, all users share that room, so two users always find one another through Internet
+   discovery regardless of distance.
+2. When signed live occupancy proves a room has more than `C` members, it divides into deterministic
+   geographic children. Every member follows exactly one child derived from their blurred declared
+   location before publishing new presence or radio advertisements.
+3. Subdivision repeats only on an overflowing branch until each active leaf has at most `C` members.
+   Political borders, country databases, FIFO age, and visible `_part_N` rooms are never inputs.
+4. When all live sibling occupancy can fit in their parent for a sustained merge dwell, the siblings
+   merge through a stop-old-before-start-parent transition. Merge/split hysteresis prevents churn.
+   If the worldwide population eventually falls to two, they converge back to the root room.
+5. A traveler selects a point on the map. The client resolves the active leaf covering that point
+   and joins its shared roster with a traveler marker. If that branch later splits or merges, the
+   saved travel point deterministically follows the correct replacement room. Return home resolves
+   the current home point through the same tree.
+6. A client subscribes only to its active leaf plus bounded signed parent control summaries needed
+   for split/merge decisions. It never downloads a million-user root roster after subdivision.
 
-Therefore, when only two users are online they find each other through Internet discovery no matter
-how far apart their declared locations are. When no more than `C+1` users are online, every user can
-encounter every other user. As the population grows, the expanding query stops sooner; with millions
-online, each user focuses on at most the nearest mutually eligible `C` rather than a worldwide
-roster. Fixed-cell boundary misses disappear because a cell edge is an index boundary, not an
-audience boundary.
+This restores the defining chatroom property: every member sees the same room identifier, roster,
+capacity, and Talk audience. It also exposes a mathematical trade-off. An exact personalized
+“nearest 498” set cannot be a shared chatroom because neighboring users can have different 498th
+neighbors. IinPublic therefore promises a **locality-optimized shared room** of at most `C`, not an
+exact per-user k-nearest set. Here, “closest shared group” means that the partitioning algorithm
+keeps each room geographically compact while satisfying the stronger common-roster and capacity
+constraints; it does not mean that every member's individual closest `C - 1` people are inside.
+At a partition boundary, the map may offer the adjacent room as a deliberate travel destination;
+the app does not silently join two rooms and double traffic.
 
-A hierarchical sparse directory makes the two-user case possible without scanning every empty map
-cell, and makes the million-user case possible without downloading every presence. During an
-Internet partition a phone ranks only the signed candidates observable through LAN/BLE/Wi-Fi Direct,
-keeps at most `C`, and reconciles when a wider index becomes reachable. This is an eventual bounded
-rule, not a promise of one instantaneous worldwide nearest-neighbor answer during a partition.
+For example, let room capacity be two and place four users on a line at `A=0`, `B=4`, `C=5`, and
+`D=9`. Exact one-nearest choices are `A→B`, `B→C`, `C→B`, and `D→C`; these cannot become disjoint
+two-person rooms because A claims B while B claims C, and D also claims C. A shared-room partition
+must instead make a group decision, such as `{A,B}` and `{C,D}`. B and C are closer than their room
+partners but every membership is symmetric, every member sees the same roster, and capacity is
+actually bounded. The geographic split/merge policy chooses that shared consistency deliberately.
 
-`C` bounds the eligible stranger population but does not require a full mesh. A separate global
+During an Internet partition, phones may reconstruct only a cached active room from signed
+LAN/BLE/Wi-Fi Direct evidence and reconcile split/merge state when wider control data returns. This
+is eventual bounded convergence, not an instantaneous global consensus claim.
+
+`C` bounds eligible room population but does not require a full mesh. A separate global
 neighbor/concurrency limit `K` bounds simultaneous direct peer connections and schedules Talk
-exchange across the encounter set. Both `C` and `K` are global protocol-manifest parameters.
+exchange across the room. Both `C` and `K` are global protocol-manifest parameters.
 
 ## 4. Place rooms and map travel
 
@@ -201,12 +225,12 @@ The device keeps these values separate:
 ```text
 home encounter location    = confirmed GPS-derived or saved self-defined area
 current encounter location = home or a deliberately selected travel area
-active stranger audience   = nearest-C set around that location, or one selected Place
+active stranger audience   = shared Nearby leaf at that location, or one selected Place
 traveler                    = current encounter location differs from home, or a Place is active
 ```
 
-Selecting **Meet people around here** on the map changes the current encounter location and produces
-a fresh nearest-`C` set around that point. Joining a named Place instead stops Nearby discovery
+Selecting **Meet people around here** on the map changes the current encounter location and joins
+the shared Nearby room covering that point. Joining a named Place instead stops Nearby discovery
 before joining the Place's explicit audience. **Return home** recomputes or restores the home
 encounter location and clears traveler state. A travel point or selected Place may persist across
 restart, but the UI must keep that state visible.
@@ -248,13 +272,13 @@ presence, or Sybil resistance. Those limitations remain explicit inputs to abuse
 capacity experiment.
 
 When a full Place has a public pin, the UI offers **Meet people around _Place name_** as a separate,
-deliberate action. It centers the adaptive nearest-`C` search on that already-public point; it does
+deliberate action. It resolves the shared Nearby room at that already-public point; it does
 not use or publish the visitor's GPS as the destination. The visit retains the home encounter
 location, carries a traveler marker, survives restart, and follows later `C` changes. Return home
 restores the home location and clears the visit.
 
-Map UI shows the declared encounter area, the current approximate search reach needed to collect the
-available nearest users, and meaningful Place pins. It does not show internal index buckets, raw
+Map UI shows the declared encounter area, the active shared room footprint, adjacent travel
+destinations when useful, and meaningful Place pins. It does not show the internal tree, raw
 coordinate IDs, Global, TechSupport, or a geographic hierarchy.
 
 ## 5. Gun.js boundary
@@ -267,8 +291,9 @@ Network-visible records:
 ```text
 places/by-id/<placeCID>/descriptor
 places/by-map-cell/<mapCell>/<placeCID>/reference
-encounter-presence/<policyVersion>/<precision>/<cell>/<userPubHash>/signed-expiring-presence
-encounter-index/<policyVersion>/<parentCell>/<childCell>/nonempty-reference
+room-presence/<roomId>/<userPubHash>/signed-expiring-presence
+nearby-control/<policyVersion>/<roomId>/signed-occupancy-summary
+nearby-index/<policyVersion>/<parentRoomId>/<childRoomId>/active-reference
 place-presence/<roomId>/<userPubHash>/signed-expiring-presence
 place-admission-claims/<roomHash>/<identityHash>/signed-expiring-seat-claim
 public/protocol-manifests/<sequence>/signed-manifest
@@ -305,14 +330,13 @@ window; no new message, ledger, or conversation-metadata body is written back th
 paths never contain full Talk bodies, answers, message bodies, ledger histories, match scores, or
 deal state.
 
-The Nearby control graph stores only signed, expiring encounter presences and sparse spatial-index
-references. A presence identifies a blurred self-declared area, precision, policy version, travel
-generation, rotating discovery identifier, and short expiry. Parent-to-child references allow a
-client to find nonempty regions without scanning the world; they are index hints and grant no room
-membership. Clients verify presence signatures, expand the spatial query until the nearest-`C`
-stopping condition is proven, and apply mutual selection locally. This proves a signed declaration,
-not physical location or Sybil resistance. BLE proximity and future abuse controls may strengthen
-evidence without making GPS exact or claiming the declared location is true.
+The Nearby control graph stores signed, expiring room presences, bounded occupancy summaries, and
+active parent/child references. A presence identifies the shared room, privacy precision, policy
+version, travel generation, rotating discovery identifier, and short expiry. Clients verify control
+evidence before following a split or merge and subscribe only to one active roster. This proves
+signed declarations and occupancy observations, not physical location or Sybil resistance. BLE
+proximity and future abuse controls may strengthen evidence without exposing exact GPS or claiming
+the declared location is true.
 
 Public profile fields are deliberate visibility-filtered mirrors. Private Me answers remain
 encrypted. When an author sends a Talk, the receiver obtains the selected body from the author and
@@ -321,13 +345,12 @@ stores its received copy encrypted under the receiver's own key.
 ## 6. Direct Talk exchange and trust
 
 The baseline is **direct endpoint-to-endpoint Talk exchange**. A phone does not forward another
-person's Talk in the first implementation. Each device rotates through at most `K` concurrent
-encounter-set peers, performs compact inventory negotiation, transfers selected bodies directly, and records
+person's Talk in the first implementation. Each device rotates through at most `K` concurrent room
+peers, performs compact inventory negotiation, transfers selected bodies directly, and records
 signed end-recipient acknowledgements. Unreachable delivery stays in the author's local queue for
 a later direct opportunity.
 
-The implemented scheduler currently uses a room's sorted identity set and a circle-method
-tournament; the adaptive migration supplies the mutually selected encounter set instead.
+The implemented scheduler uses the shared room's sorted identity set and a circle-method tournament.
 Every phone independently derives the same pairings for each 30-second window. A window includes at
 most `K` tournament rounds, so both endpoints choose each other, concurrent sessions remain bounded
 by `K`, and a stable N-person roster covers every pair within `ceil((N-1)/K)` windows. A Talk send is
@@ -376,7 +399,7 @@ stored in the user's encrypted known-person record. Edits keep that original pin
 handshake whose signed stable key differs from the pin fails closed; removing and deliberately
 re-verifying the Contact is required to accept a replacement identity.
 
-“Public Talk” means the author permits eligible encounter/Place members to read it, not that a network observer
+“Public Talk” means the author permits eligible room members to read it, not that a network observer
 may read it. Every Talk is signed. Every connection is encrypted.
 
 ## 7. Migration from the current implementation
@@ -387,12 +410,13 @@ they describe implementation status, not the accepted product design in this doc
 
 Migration order:
 
-1. Introduce signed encounter presence, the hierarchical spatial index, Place IDs, and the Gun
+1. Introduce signed room presence, the adaptive split/merge control tree, Place IDs, and the Gun
    control schema.
 2. Move owner-private Talk/Me repositories behind the encrypted storage interface.
    Pair-message history and signed ledgers use the same local boundary and direct endpoint sync.
-3. Replace fixed-cell membership/overflow certificates with adaptive nearest-`C` selection.
-4. Replace tree/map UI with encounter location/reach, Place pins, travel, and Return home.
+3. Extend the existing geographic subdivision into a full root-to-leaf split/merge hierarchy so a
+   sparse population shares a broad room and every dense leaf stays at or below `C`.
+4. Replace tree navigation with one active room footprint, Place pins, map travel, and Return home.
 5. Remove Global and TechSupport room membership/floors.
 6. Make direct delivery scheduling authoritative and disable third-person forwarding by default.
 7. Migrate saved legacy rooms without rebroadcasting old Talks, then retire legacy routing.

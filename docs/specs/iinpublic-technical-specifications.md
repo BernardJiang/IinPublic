@@ -262,24 +262,26 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 > Accepted replacement design: `docs/design/nearby-and-place-chatrooms.md` (revised 2026-10-10). It
 > supersedes the Global-first L1-L4 cascade, visible hierarchy, and numbered overflow rooms.
 
-- **FR-CR-1 (Adaptive Nearby first)**: **Nearby** SHALL be an adaptive encounter set containing at
-  most the nearest `C` mutually eligible online strangers around the user's blurred declared
-  encounter location. Spatial cells SHALL be internal search-index buckets, not rooms or hard
-  audience boundaries. Global SHALL NOT be a user-facing room.
+- **FR-CR-1 (Adaptive shared Nearby room)**: **Nearby** SHALL be one shared chatroom containing at
+  most `C` online strangers. A sparse population shares a broad root; over-capacity branches divide
+  geographically into shared child rooms. The hierarchy SHALL remain internal. Global SHALL NOT be
+  a user-facing room.
 - **FR-CR-2 (Location boundary)**: Exact GPS, accuracy, and fix timestamps SHALL remain local. A
   public Nearby presence necessarily reveals its approximate declared area; hashing a predictable
   cell SHALL NOT be represented as secrecy. A phone MAY offer confirmed blurred GPS as its starting
   location. A web user SHALL explicitly choose a self-defined map location before stranger
-  discovery; that choice MAY be fictional. Settings SHALL distinguish Contacts-only,
-  Neighborhood, Close nearby, and Location-off behavior and warn about home/work exposure.
-- **FR-CR-3 (Adaptive nearest capacity)**: One signed global capacity `C` (currently arbitrary and
-  experimental `498`) SHALL limit every Nearby encounter set. The spatial query SHALL expand until
-  it considers all available users in a sparse population or proves that no unsearched bucket can
-  beat the current `C`th result in a dense population. Selection SHALL rank blurred-location
-  distance with deterministic tie-breaking and require mutual selection, rather than FIFO age,
-  fixed-cell membership, overflow rooms, or `_part_N`.
-- **FR-CR-4 (Simple room UI)**: The room UI SHALL show the current Nearby area, user-created Place
-  pins, approximate search reach, travel/return-home actions, and meaningful Place pins. It SHALL
+  discovery; that choice MAY be fictional. Settings SHALL distinguish Contacts-only, Location off,
+  Regional (~50 km), Citywide (~10 km), Neighborhood (~1 km), and Close nearby (~400 m), preview
+  the approximate disclosed area, and warn about home/work exposure. Location off SHALL stop
+  GPS-derived Nearby presence and stranger radio advertisements while retaining Contacts and
+  deliberately selected Places.
+- **FR-CR-3 (Adaptive shared-room capacity)**: One signed global capacity `C` (currently arbitrary
+  and experimental `498`) SHALL limit every shared room. A room with verified live occupancy above
+  `C` SHALL divide into deterministic geographic children; siblings whose combined occupancy stays
+  at or below `C` MAY merge after hysteresis. FIFO age, visible overflow rooms, and `_part_N` SHALL
+  NOT partition Nearby users.
+- **FR-CR-4 (Simple room UI)**: The room UI SHALL show the current shared Nearby footprint,
+  travel/return-home actions, optional adjacent-room destinations, and meaningful Place pins. It SHALL
   NOT expose Global, L1-L4, country/state rooms, raw coordinate IDs, internal index buckets, or
   numbered overflow rooms.
 - **FR-CR-5 (Map Places)**: Any user MAY publish a signed, immutable, content-addressed **Place**
@@ -308,31 +310,31 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-CR-11 (Content-Addressed Community Identity)**: Each chatroom/community SHALL have a stable, globally unique identifier derived from its immutable root descriptor: `CommunityID = CIDv1(CommunityRootObject)`. The descriptor MAY contain the creator's public key to distinguish otherwise identical roots, but the key is provenance rather than authority. A community address alone SHALL be sufficient to join, discover peers, and synchronize content; no centralized name or trademark registry is required.
 - **FR-CR-12 (No Community Roles)**: User-defined chatrooms SHALL NOT have an owner, moderator, privileged member, guest role, creator-reserved seat, or creator-controlled admission. Every active participant follows the same room rules. A participant may locally leave, hide, block, or distrust a room or peer, but no participant can rename or delete the shared room for everyone.
 - **FR-CR-13 (One Active Stranger Audience)**: A device SHALL have at most one active Nearby
-  encounter set or selected Place. Inactive Places/travel points SHALL NOT create subscriptions,
+  shared room or selected Place. Inactive Places/travel points SHALL NOT create subscriptions,
   discovery, radio advertisements, Talk inventory, or automatic peer links. Direct Contacts are
   independent and reconnect on demand.
 - **FR-CR-14 (Audience as Traffic Partition)**: Every stranger presence, candidate, signaling
-  attempt, automatic link, inventory exchange, and Talk delivery SHALL be authorized by mutual
-  nearest-`C` eligibility or the same selected Place. Missing, expired, incompatible, or
+  attempt, automatic link, inventory exchange, and Talk delivery SHALL be authorized by the same
+  active shared room or selected Place. Missing, expired, incompatible, or
   unauthorized encounter evidence SHALL fail closed.
 - **FR-CR-15 (Capacity and connection bounds)**: Global parameters `C` and `K` SHALL independently
-  bound eligible encounter candidates and simultaneous direct links. `498` and the initial `K` are
+  bound shared-room members and simultaneous direct links. `498` and the initial `K` are
   experimental values requiring simulation and hardware measurement, not proven constants.
-- **FR-CR-16 (No visible index overlay)**: Geographic cells and their parent/child references are
-  sparse search-index buckets, not active user-facing rooms. A client SHALL perform bounded
-  nearest-neighbor search without subscribing to a worldwide roster.
+- **FR-CR-16 (No visible hierarchy overlay)**: Geographic parent/child rooms are control scopes,
+  not navigation hierarchy. A client SHALL subscribe to one active leaf plus bounded control
+  summaries and SHALL NOT subscribe to a million-user root roster after subdivision.
 - **FR-CR-17 (Safe Audience Switching)**: The client SHALL stop old-audience discovery,
   subscriptions, advertisements, and stranger-only links before activating a new encounter
   location or Place. Switching SHALL preserve durable Talk queues, receipts, deduplication state,
   contacts, and pair-private conversations, and SHALL NOT rebroadcast old-audience Talks.
 - **FR-CR-18 (No Per-Room Capacity Policy)**: Capacity SHALL NOT be a creator-, business-, custom-room-, or transport-configurable room attribute. A future capacity change SHALL be a versioned global protocol transition applied uniformly to every room. Clients unable to implement the active protocol epoch SHALL fail closed for new room exchange rather than enforce a conflicting capacity in the same overlay.
 - **FR-CR-19 (Decentralized Capacity Limit)**: Without a coordinator or consensus protocol, `C`
-  SHALL be a hard per-client encounter-set bound and an eventual nearest-neighbor convergence rule,
-  not a claim of one instantaneous globally exact result during a partition. `K` SHALL remain a
+  SHALL be a hard per-client room-roster bound and an eventual split/merge convergence rule, not a
+  claim of instantaneous global consensus during a partition. `K` SHALL remain a
   hard local link bound regardless of convergence state.
 - **FR-CR-20 (Capacity Upgrade)**: A `498 → 1000` protocol-epoch transition SHALL retain the
-  nearest currently eligible participants and admit up to 502 additional next-nearest mutually
-  eligible users. A compatible older release SHALL verify the new manifest and apply `C` through
+  currently eligible room members and permit split siblings to merge when their combined occupancy
+  fits the new limit. A compatible older release SHALL verify the new manifest and apply `C` through
   its generic manifest engine without reinstalling. An incompatible client SHALL fail closed and
   request an update.
 - **FR-CR-21 (Forward Release-Key Chain)**: Every production release SHALL pin the public verification key authorized for the next release. The next release SHALL carry a content-addressed protocol manifest signed offline by that key and SHALL commit the following release key. The signing private key SHALL NOT ship in the application. Any peer MAY relay the public manifest chain; clients SHALL validate it locally and persist a monotonic accepted checkpoint.
@@ -343,7 +345,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-CR-26 (TechSupport is a Contact)**: TechSupport SHALL be a pinned, verified Contact only. It
   SHALL have no room presence, map pin, headcount contribution, capacity exemption, or stranger
   Talk eligibility.
-- **FR-CR-27 (Gun data boundary)**: Network-visible Gun SHALL carry signed encounter/Place control data,
+- **FR-CR-27 (Gun data boundary)**: Network-visible Gun SHALL carry signed room/Place control data,
   presence, signaling, and optional metadata pointers, not full public Talk bodies, answers,
   or conversations. Owner-private Talk and Me records SHALL be SEA-encrypted. Implementations SHALL
   distinguish authenticated write ownership, encryption, and ciphertext replication.
@@ -365,14 +367,16 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   fail closed without being misreported as a reconciliation loss. This rule provides eventual
   convergence for signed claims, not consensus, trustworthy clocks, physical-presence proof, or
   Sybil resistance.
-- **FR-CR-31 (Sparse-to-global encounter expansion)**: The Nearby query SHALL expand through a
-  hierarchical sparse index until it finds every available user when fewer than `C` candidates
-  exist, including the other user in a two-user network. In a dense network it SHALL stop only after
-  proving no unsearched bucket can displace the current `C`th candidate. Cell edges SHALL NOT be
-  audience boundaries. Replacement hysteresis and expiry SHALL limit churn without imposing a
-  maximum search distance.
-- **FR-CR-32 (Unified discovery providers)**: Internet, LAN, BLE, and Wi-Fi Direct SHALL apply the
-  same signed declared-location ranking, policy version, and `C` limit. Their ranges affect only
+- **FR-CR-31 (Sparse-to-global room merging)**: Shared Nearby siblings SHALL merge toward their
+  parent when their combined signed live occupancy remains at or below `C` for the configured dwell.
+  A two-user worldwide population SHALL eventually share the root room. Dense branches SHALL split
+  until every active leaf stays at or below `C`. Split/merge hysteresis and expiry SHALL limit churn.
+- **FR-CR-32 (Travelable Nearby rooms)**: A user MAY select a map point and join the active shared
+  Nearby leaf covering it with a traveler marker. The saved point SHALL follow later split/merge
+  transitions. Return home SHALL restore/recompute the home room. Exact personalized nearest-`C`
+  lists SHALL NOT replace the shared roster; adjacent leaves MAY be offered for deliberate travel.
+- **FR-CR-33 (Unified discovery providers)**: Internet, LAN, BLE, and Wi-Fi Direct SHALL apply the
+  same signed active-room capability, policy version, and `C` limit. Their ranges affect only
   observation and route availability. Multiple sightings SHALL merge into one authenticated peer;
   a compact radio token is only a prefilter and SHALL NOT authorize Talk exchange or group joining.
 
@@ -757,7 +761,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 ```
 /chatrooms
-├── /nearby/{signed-declared-location + adaptive-nearest-C-set}
+├── /nearby/{policy-epoch + adaptive-shared-leaf}
 └── /places/{content-addressed-place-id}           (manual map destinations)
 ```
 
@@ -765,28 +769,30 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - A phone may confirm a GPS-derived blurred encounter location. A web user must choose a
   self-defined map location, which may be fictional, before stranger discovery. Exact GPS remains
   local and declared location is not proof of physical presence.
-- Signed, expiring presences are indexed in hierarchical spatial buckets. The query expands through
-  nonempty buckets until it finds all users in a sparse network or proves the nearest `C` in a dense
-  one. Buckets are never rooms or hard audience boundaries.
-- Moving the encounter location stops the old audience and produces a fresh nearest-`C` set.
+- Signed occupancy control divides an over-capacity room into geographic children and merges sparse
+  siblings toward the root after hysteresis. Each user publishes presence in exactly one shared
+  active leaf. The hierarchy is not exposed as navigation.
+- Moving the encounter location stops the old room and joins the active shared leaf covering the
+  selected map point.
 - A map Place is an immutable signed descriptor. Selecting it stops Nearby exchange, enters the
   Place, and marks the user as a traveler only when it is outside the current home zone.
 - Returning home restores/recomputes the home encounter location. Political boundaries are never
   routing input.
 - TechSupport is a Contact and never appears in this graph.
 
-**Nearby encounter derivation:** The device applies the signed protocol manifest's blur precision,
-spatial index, global `C`, ranking, and hysteresis policy to the confirmed declared location. A cell
+**Nearby room derivation:** The device applies the signed protocol manifest's blur precision,
+spatial index, global `C`, split/merge state, and hysteresis policy to the confirmed declared location. A cell
 identifier reveals an approximate area even if hashed; hashing is not a privacy guarantee. Presence
 publishes no exact GPS, accuracy, or raw fix timestamp.
 
 ```typescript
-export function deriveEncounterPresence(
+export function deriveNearbyRoom(
   declaredPoint: Coordinates,
-  policy: EncounterPolicy,
-): SignedEncounterPresence {
+  policy: NearbyRoomPolicy,
+  verifiedControl: SplitMergeControl,
+): RoomId {
   const blurredArea = policy.spatialIndex.cellAt(declaredPoint, policy.precision);
-  return signEncounterPresence(blurredArea, policy.version);
+  return resolveActiveLeaf(blurredArea, verifiedControl, policy.version);
 }
 ```
 
@@ -1476,11 +1482,14 @@ users/
       private/        ← SEA-encrypted private answers
       history/        ← immutable append-only log
 
-encounter-presence/
-  <policyVersion>/<precision>/<cell>/<userPubHash>/
+room-presence/
+  <roomId>/<userPubHash>/
 
-encounter-index/
-  <policyVersion>/<parentCell>/<childCell>/
+nearby-control/
+  <policyVersion>/<roomId>/occupancy-summary/
+
+nearby-index/
+  <policyVersion>/<parentRoomId>/<childRoomId>/
 
 place-presence/
   <content-addressed-id>/<userPubHash>/
@@ -2585,9 +2594,9 @@ The following items are known open questions or planned post-MVP work:
 ## 17. Key Technical Decisions
 
 - **Decentralized-first**: No central server stores user data. Gun.js P2P is the only data layer.
-- **Adaptive Nearby + Places, no visible hierarchy**: one self-declared encounter location yields
-  at most the nearest mutually eligible `C` users through an expanding spatial index; cells are
-  invisible index buckets, while content-addressed map Places remain deliberate destinations.
+- **Adaptive shared Nearby + Places, no visible hierarchy**: sparse users share a broad room;
+  over-capacity branches split geographically into shared rooms of at most `C`; content-addressed
+  Places and map-selected travel rooms remain deliberate destinations.
 - **Stranger-first trust with encrypted transport**: all users start Unknown, but the first signed
   handshake still establishes an ephemeral encrypted session. Contact status pins identity and
   durable pair state rather than enabling encryption for the first time.
@@ -2596,7 +2605,7 @@ The following items are known open questions or planned post-MVP work:
   a compact direct inventory triggers pull of a missing body, and only a durable end-receiver ACK
   clears it. Third-person phone forwarding is optional future work and disabled by default; ordinary
   Talk-body delivery does not use the server mailbox.
-- **Data ownership boundary**: Three visibility zones — **encounter/Place control**,
+- **Data ownership boundary**: Three visibility zones — **room/Place control**,
   **user-private**, **pair-private** — govern Gun sync and hub persistence
   ([§19.14](#1914-data-ownership-and-visibility-zones)). Local-first private data can be wiped per
   device; server-held export/delete requests are metadata-only; relay-only paths have short TTLs.
@@ -4337,25 +4346,25 @@ Pipeline: `rankPeople(viewer, candidates, sortId, filters)` filters, then ranks 
 > **Status:** Direct Talk delivery is authoritative as of 2026-10-09. Legacy room gossip remains
 > only as disabled-by-default experimental compatibility code. Test impact: `docs/testing/testplan.md`.
 > **Goal:** delete star-topology talk delivery. The Node server keeps only **rendezvous** (who/where peers are) and **signaling** (WebRTC handshake + STUN/TURN). No talk body, offer, response, incoming index, match, conversation, or talk-derived stat is created, relayed, or stored on the server.
-> **Current audience decision:** `docs/design/nearby-and-place-chatrooms.md` defines adaptive
-> nearest-`C` Nearby discovery and explicit Places. `docs/design/chatroom-scoped-p2p-traffic.md` is
+> **Current audience decision:** `docs/design/nearby-and-place-chatrooms.md` defines adaptive shared
+> Nearby rooms and explicit Places. `docs/design/chatroom-scoped-p2p-traffic.md` is
 > retained as a superseded historical record for transport/background constraints.
 
 ### 23.1 Principles
 
-1. **Server is a rendezvous, never a data path.** It answers the bounded spatial candidate query or
-   Place roster and forwards encrypted WebRTC signaling. Once a DataChannel is up, the server is out
-   of the loop.
+1. **Server is a rendezvous, never a data path.** It answers a bounded active-room or Place roster
+   query and forwards encrypted WebRTC signaling. Once a DataChannel is up, the server is out of the
+   loop.
 2. **Author-owned / pair-private data.** Talk bodies are owned by the author and sent over the mesh on demand; responses go pair-to-pair over a DataChannel.
 3. **Receiver-side policy.** Intake filtering (language, distance, content, adult, cutoff) is evaluated by the *receiver* on arrival, not by a server preview. This also removes the `broadcast-receiver-preview` HTTP round-trip.
 4. **Local-first derivation.** Contacts, matches, talk history, and stats are computed locally from what a peer has sent/received — no server peer endpoints.
 5. **Rotating direct pairs, not full mesh.** At N peers a full mesh is N² connections (1000 peers ≈ 500k channels). A symmetric schedule rotates each endpoint through at most K direct peers; a Talk body crosses only its author/receiver pair.
-6. **One active stranger audience, not parallel overlays.** Capacity bounds the candidate set only
+6. **One active shared room, not parallel overlays.** Capacity bounds the candidate set only
    when inactive travel points/Places are silent. Changing encounter location or entering a Place
    stops the old audience before the new one starts.
 7. **Transport does not define audience.** Internet, LAN, BLE discovery, Wi-Fi Aware, and Wi-Fi
-   Direct are replaceable paths beneath the nearest-`C`/Place authorization boundary. Discovering a
-   radio peer never bypasses encounter eligibility.
+   Direct are replaceable paths beneath the room/Place authorization boundary. Discovering a radio
+   peer never bypasses room eligibility.
 
 ### 23.2 Current hub touchpoints to remove
 
@@ -4422,9 +4431,9 @@ Announce carries only metadata + content hash; the body is pulled on demand (`ta
 
 ### 23.6 Feature-by-feature migration
 
-- **Discovery & connection:** keep the bounded mutually selected encounter set plus signed presence
-  as control data. Both endpoints derive the same circle-method pairings for each 30-second window
-  and open at most K scheduled channels. A stable N-member encounter set covers every pair within
+- **Discovery & connection:** keep the bounded shared room roster plus signed presence as control
+  data. Both endpoints derive the same circle-method pairings for each 30-second window and open at
+  most K scheduled channels. A stable N-member room covers every pair within
   `ceil((N-1)/K)` windows.
 - **Broadcast:** sender commits one encrypted local outbox entry per eligible receiver/revision. When that pair's direct slot opens, it sends a compact `talk-announce`. The receiver runs `talkPassesIntakeFilters`; if accepted and missing, it requests the body directly from the author, persists its private incoming cluster, and only then ACKs. No third phone or server mailbox carries the ordinary body.
 - **Mutual exchange suppression (REQ-LEDGER-16):** before announcing, the sender drops, per tag/identity, any neighbor whose `exchanged/<peerId>/<identityKey>` entry already covers that identity at the current version. So Jerry, having already answered Tom's `tennis`, never re-broadcasts `tennis` to Tom; other not-yet-exchanged tags in the same talk still go through. A new `identityKey` (content change) or a `TALK_ANSWERED` change-of-mind delta is what re-opens delivery.
@@ -4432,7 +4441,7 @@ Announce carries only metadata + content hash; the body is pulled on demand (`ta
 - **Responses & matches:** responder sends `talk-response` directly to the author (or via mailbox if offline). Author keeps a **single local response inbox** keyed by talk — replaces O(receivers) per-pair Gun subscriptions. Match logic stays in `src/shared/talk-engine.ts`; conversation creation becomes local on both sides on mutual match. A changed answer (REQ-LEDGER-04) re-propagates to all original senders with its `version`/timestamp until the talk is retracted.
 - **Retraction (delete / uncheck):** when the author retracts a talk, a `TALK_RETRACTED { talkId, retractedAt }` event gossips to every holder (REQ-LEDGER-15). Responders show the "match is gone" notice, end the conversation (`status: 'withdrawn'`), and stop sending change-of-mind updates for that talk; the author drops it from its broadcast set and outcome record. `retractedAt` is authoritative — inbound answers older than it are discarded.
 - **Contacts / peer history:** drop `peer-routes`; the contacts view's local derivations become the only source.
-- **Intake filtering / audience preview:** move to receiver; compose-time preview becomes a local estimate from the known encounter set, or is dropped.
+- **Intake filtering / audience preview:** move to receiver; compose-time preview becomes a local estimate from the known room roster, or is dropped.
 - **Chatbot:** unchanged; fed from mesh announcements instead of Gun announcements.
 - **Stats:** server talk stats can't exist without seeing talks. Options: (a) drop global stats [recommended v1], (b) privacy-preserving gossip aggregation, (c) opt-in only.
 - **Offline Talk delivery:** keep the receiver/revision in the author's encrypted local outbox. The
@@ -5426,8 +5435,8 @@ TechSupport must click through **every** reachable item and establish the empty-
 ##### Stage 2 — Tom + Adam (2 ordinary Nearby users): full two-party Talk lifecycle
 
 - **Onboard:** Tom and Adam choose declared encounter locations. Because they are the only two
-  ordinary users, adaptive discovery includes each in the other's encounter set; **headcount = 2**
-  regardless of declared distance. TechSupport remains a pinned Contact and contributes zero.
+  ordinary users, adaptive merging places them in the shared root room; **headcount = 2** regardless
+  of declared distance. TechSupport remains a pinned Contact and contributes zero.
 - **Adam answers Tom's Talks.** For each same-type triple, Adam gives varied answers across all four types.
 - **Verify on Adam's side:** each talk's outcome is recorded (match vs mismatch/ignore); a conversation is created on match and **not** on mismatch/ignore.
 - **Verify on Tom's side:** Creator reply triage shows Adam's reply per Talk with the correct outcome; matched Talks create the conversation.
@@ -5671,8 +5680,8 @@ Execution: T2/T7 (overflow + responsive sweep) run at **all five** sizes on P1. 
 
 Mixed topologies — different platforms **online simultaneously** against the same hub, extending the existing `native-app/02-browser-and-desktop-app-presence`:
 
-- **X1 — Website + webapp presence (P0):** one user on P1, one on P2, mutually eligible in the same
-  encounter set; both see headcount 2 and each other's member rows; extends `native-app/02`.
+- **X1 — Website + webapp presence (P0):** one user on P1, one on P2, in the same shared room; both
+  see headcount 2 and each other's member rows; extends `native-app/02`.
 - **X2 — Cross-platform talk lifecycle (P0):** broadcast website→webapp and webapp→website; answer on the receiving side; match; conversation-first click and DM reply cross the boundary; per-talk **thread reply round-trips** website↔webapp.
 - **X3 — Identity linking across installations (P0, reconciled 2026-08-21):** website and webapp
   have distinct SEA identities. X3 tests link-code delivery, mutual direct attestations, rejection
@@ -6605,7 +6614,7 @@ The architecture SHALL keep these responsibilities separate:
   mirror or mailbox envelope SHALL NOT be the only authoritative copy of durable application data.
 - **REQ-GUNSYNC-03:** Gun Wire or a documented Gun-compatible delta adapter SHALL be the default
   synchronization format across transports.
-- **REQ-GUNSYNC-04:** Synchronization SHALL be visibility-scoped: encounter/Place control,
+- **REQ-GUNSYNC-04:** Synchronization SHALL be visibility-scoped: room/Place control,
   user-private and
   pair-private graphs SHALL be requested and replicated only by authorized peers.
 - **REQ-GUNSYNC-05:** Receiver intake MAY use a small signed offer before body synchronization so a
@@ -6639,8 +6648,8 @@ Rendered architecture diagrams:
 
 ### 29.5 Discovery providers
 
-- **REQ-DISC-06:** A common provider interface SHALL normalize candidates from the Internet spatial
-  index, known peers, future DHT encounter rendezvous, mDNS/Bonjour, nearby radios, and authenticated
+- **REQ-DISC-06:** A common provider interface SHALL normalize candidates from the Internet room
+  roster, known peers, future DHT room rendezvous, mDNS/Bonjour, nearby radios, and authenticated
   gossip.
 - **REQ-DISC-07:** Candidate presence SHALL NOT imply trust; SEA binding verification occurs after
   a route is established.
@@ -6648,11 +6657,11 @@ Rendered architecture diagrams:
   rate, parsing and retry bounds.
 - **REQ-DISC-09:** Provider failure or permission denial SHALL degrade independently and SHALL NOT
   prevent attempts through remaining providers.
-- **REQ-DISC-10:** Nearby discovery SHALL use a bounded hierarchical spatial index over signed,
-  expiring blurred encounter presences. Any future DHT provider SHALL preserve the same nearest-`C`
-  semantics and receive a separate privacy/enumeration review.
+- **REQ-DISC-10:** Nearby discovery SHALL use a bounded geographic split/merge hierarchy over
+  signed, expiring room presences. Any future DHT provider SHALL preserve the same active-room and
+  global-`C` semantics and receive a separate privacy/enumeration review.
 - **REQ-DISC-11:** Authenticated peers MAY gossip bounded signed connectivity bindings relevant to
-  the active encounter set/Place, requested identity, or recent relationship.
+  the active room/Place, requested identity, or recent relationship.
 
 ### 29.6 Connection Manager and route policy
 

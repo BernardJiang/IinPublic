@@ -135,6 +135,17 @@ describe('settings view extraction', () => {
     expect(document.querySelector('#settings-start-guide-btn')).not.toBeNull();
     expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
     expect(document.querySelector<HTMLSelectElement>('#settings-auto-answer-scope')?.value).toBe('whenever');
+    const nearbyPrivacy = document.querySelector<HTMLSelectElement>('#settings-nearby-privacy-mode');
+    expect(Array.from(nearbyPrivacy?.options ?? [], (option) => option.value)).toEqual([
+      'location-off',
+      'contacts-only',
+      'regional',
+      'citywide',
+      'neighborhood',
+      'close-nearby',
+    ]);
+    expect(nearbyPrivacy?.textContent).not.toContain('Radio nearby');
+    expect(nearbyPrivacy?.parentElement?.textContent).toContain('sensitive home or workplace');
     expect(document.querySelector<HTMLInputElement>('#settings-stage-name-input')?.value).toBe(
       '<Settings>',
     );
