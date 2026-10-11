@@ -33,6 +33,13 @@ import java.util.concurrent.Executors
  * Android delivers in Doze maintenance windows together with a brief network grant; the poll holds
  * a short partial wake lock. In Doze that means minutes of latency — the platform's limit without a
  * push service.
+ *
+ * OPEN-44: some vendor power layers (C10 tablet, Allwinner `powerguru`) withhold even idle-allowed
+ * alarms while the screen is off. Incoming network data still wakes such a device, so a second path
+ * keeps one long-poll open: `GET /api/mailbox/<user>/wait` on the embedded node, which forwards it
+ * to the hub. The response (ids only) arrives the moment a sender posts an envelope — a wake ping
+ * included — or at the server timeout, and the loop immediately re-asks. No device timer is needed
+ * for the happy path; alarms remain the fallback.
  */
 internal class MailboxWatcher(private val context: Context, private val port: Int) {
     companion object {
@@ -46,6 +53,27 @@ internal class MailboxWatcher(private val context: Context, private val port: In
         private const val TAG = "IinPublicMailbox"
         private const val WAKE_LOCK_MS = 20_000L
         private const val MAX_SEEN = 500
+        private const val LATEST_PREF = "latest"
+        private const val WAIT_TIMEOUT_MS = 4 * 60_000L
+        private const val WAIT_RETRY_MIN_MS = 5_000L
+        private const val WAIT_RETRY_MAX_MS = 5 * 60_000L
+
+        /** `{ changed, ids, latest }` from the long-poll; null for a malformed body. */
+        internal fun parseWaitResponse(body: String): Triple<Boolean, List<String>, String>? = try {
+            val json = JSONObject(body)
+            val ids = json.optJSONArray("ids")
+            Triple(
+                json.optBoolean("changed", false),
+                if (ids == null) emptyList() else (0 until ids.length()).mapNotNull { ids.optString(it).takeIf { id -> id.isNotBlank() } },
+                json.optString("latest", ""),
+            )
+        } catch (_: Exception) {
+            null
+        }
+
+        /** Failure backoff for the long-poll loop (pure, unit-tested). */
+        internal fun nextWaitRetry(previousMs: Long): Long =
+            (previousMs * 2).coerceIn(WAIT_RETRY_MIN_MS, WAIT_RETRY_MAX_MS)
 
         /** Envelope ids present now that were not present at the last poll (pure, unit-tested). */
         internal fun newIds(current: Collection<String>, seen: Collection<String>): Set<String> =
@@ -100,19 +128,25 @@ internal class MailboxWatcher(private val context: Context, private val port: In
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val io = Executors.newSingleThreadExecutor()
-    private var running = false
+    private val waiter = Executors.newSingleThreadExecutor()
+    @Volatile private var running = false
+    @Volatile private var waitLoopStarted = false
 
     fun setRecipient(userId: String) {
         val clean = userId.trim().take(128)
         if (clean == prefs.getString(RECIPIENT_PREF, "")) return
         // A different identity on this install: forget the old one's seen ids.
-        prefs.edit().putString(RECIPIENT_PREF, clean).remove(SEEN_PREF).apply()
+        prefs.edit().putString(RECIPIENT_PREF, clean).remove(SEEN_PREF).remove(LATEST_PREF).apply()
     }
 
     fun start() {
         if (running) return
         running = true
         scheduleNext()
+        if (!waitLoopStarted) {
+            waitLoopStarted = true
+            waiter.execute { waitLoop() }
+        }
     }
 
     fun stop() {
@@ -168,6 +202,49 @@ internal class MailboxWatcher(private val context: Context, private val port: In
         // In the foreground the page is live and handles everything itself.
         if (fresh.isEmpty() || MainActivity.isInForeground) return
         notifyNewActivity(fresh.size)
+    }
+
+    /** OPEN-44: network-driven wake path; see the class comment. */
+    private fun waitLoop() {
+        var retryMs = 0L
+        while (running) {
+            val recipient = prefs.getString(RECIPIENT_PREF, "").orEmpty()
+            val result = if (recipient.isBlank()) null else waitOnce(recipient, prefs.getString(LATEST_PREF, "").orEmpty())
+            if (result == null) {
+                retryMs = nextWaitRetry(retryMs)
+                try { Thread.sleep(retryMs) } catch (_: InterruptedException) { return }
+                continue
+            }
+            retryMs = 0L
+            val (changed, _, latest) = result
+            if (latest.isNotBlank()) prefs.edit().putString(LATEST_PREF, latest).apply()
+            if (changed) {
+                // The network interrupt woke the CPU; keep it up while the poll posts the notification.
+                val wakeLock = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
+                    .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IinPublic:mailbox-wait")
+                wakeLock.acquire(WAKE_LOCK_MS)
+                io.execute {
+                    try { pollOnce() } finally { if (wakeLock.isHeld) wakeLock.release() }
+                }
+            }
+        }
+        waitLoopStarted = false
+    }
+
+    private fun waitOnce(recipient: String, since: String): Triple<Boolean, List<String>, String>? = try {
+        val path = URLEncoder.encode(recipient, "UTF-8").replace("+", "%20")
+        val query = "since=" + URLEncoder.encode(since, "UTF-8") + "&timeoutMs=$WAIT_TIMEOUT_MS"
+        val conn = URL("http://127.0.0.1:$port/api/mailbox/$path/wait?$query").openConnection() as HttpURLConnection
+        conn.connectTimeout = 5_000
+        conn.readTimeout = (WAIT_TIMEOUT_MS + 30_000L).toInt()
+        try {
+            if (conn.responseCode != 200) null
+            else parseWaitResponse(conn.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            conn.disconnect()
+        }
+    } catch (_: Exception) {
+        null
     }
 
     private fun fetchEnvelopeIds(recipient: String): List<String>? = try {

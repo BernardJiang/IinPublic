@@ -130,6 +130,9 @@ export interface EmbeddedHubRelayClientLike {
    */
   postMailboxEnvelope(recipientId: string, envelope: { id: string; ciphertext: string; ttlMs?: number }): Promise<void>;
   listMailboxEnvelopes(recipientId: string): Promise<MailboxEnvelope[]>;
+  /** OPEN-44: the hub's mailbox long-poll (ids only). Optional for test doubles. */
+  waitMailbox?(recipientId: string, since: string, timeoutMs: number, signal?: AbortSignal):
+    Promise<{ changed: boolean; ids: string[]; latest: string }>;
   /**
    * Generic counterpart to the bespoke relays above, for src/server/routes/graph-relay-routes.ts's
    * small allowlist of opaque-JSON-blob Gun paths (identity-linking, WP5 device-sync — see that
@@ -424,6 +427,27 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     return Array.isArray(body.envelopes)
       ? (body.envelopes.filter((e): e is MailboxEnvelope => !!e && typeof e === 'object') as MailboxEnvelope[])
       : [];
+  }
+
+  async waitMailbox(
+    recipientId: string,
+    since: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<{ changed: boolean; ids: string[]; latest: string }> {
+    const params = new URLSearchParams({ since, timeoutMs: String(timeoutMs) });
+    // Not `request()`: its short timeout would cut the long-poll; the hub ends it at `timeoutMs`.
+    const response = await fetch(
+      `${this.baseUrl}/api/mailbox/${encodeURIComponent(recipientId)}/wait?${params.toString()}`,
+      signal ? { signal } : {},
+    );
+    if (!response.ok) throw new EmbeddedHubRelayRequestError(response.status, '', `mailbox wait failed with ${response.status}`);
+    const body = (await response.json()) as { changed?: unknown; ids?: unknown; latest?: unknown };
+    return {
+      changed: body.changed === true,
+      ids: Array.isArray(body.ids) ? body.ids.map(String) : [],
+      latest: typeof body.latest === 'string' ? body.latest : since,
+    };
   }
 
   async getGraphBlob(segments: readonly string[]): Promise<unknown | null> {
