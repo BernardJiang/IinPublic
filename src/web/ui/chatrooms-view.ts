@@ -42,12 +42,13 @@ type ChatroomsViewDeps = {
   currentChatroom: string;
   chatroomMemberCounts: Map<string, number>;
   chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }>;
-  chatroomBrowseMode: 'tree' | 'map';
+  chatroomBrowseMode: 'list' | 'map';
   expandedChatrooms: Set<string>;
   matchedUserIds: Set<string>;
   customChatrooms: ReadonlyArray<CustomChatroomRow>;
   nearbyMapArea?: NearbyMapArea;
-  setChatroomBrowseMode: (mode: 'tree' | 'map') => void;
+  travelModeActive: boolean;
+  setChatroomBrowseMode: (mode: 'list' | 'map') => void;
   setCurrentChatroom: (chatroomId: string) => void;
   setCurrentChatroomMembers: (members: ChatroomMember[]) => void;
   escapeHtml: (text: string) => string;
@@ -336,64 +337,69 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     }));
   const currentCustom = deps.customChatrooms.find((room) => room.id === deps.currentChatroom);
   const currentTitle = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
+  const currentIsNearby = isNearbyRoomId(deps.currentChatroom);
+  const currentIsContactsOnly = deps.currentChatroom === CONTACTS_ONLY_SCOPE_ID;
   const currentNode: FlatChatroomNode | null = deps.currentChatroom
     ? {
         id: deps.currentChatroom,
-        name: currentCustom?.name || currentTitle.name,
-        icon: currentCustom ? customRoomIcon(currentCustom.type) : currentTitle.icon,
+        name: currentIsNearby ? deps.text('chatroomNearbyName') : currentCustom?.name || currentTitle.name,
+        icon: currentIsNearby ? '📍' : currentCustom ? customRoomIcon(currentCustom.type) : currentTitle.icon,
         level: 0,
-        description: currentCustom?.description || 'Your active Nearby audience',
+        description: currentIsNearby
+          ? deps.text(deps.travelModeActive ? 'chatroomNearbyTravelDescription' : 'chatroomNearbyHomeDescription')
+          : currentIsContactsOnly
+            ? deps.text('chatroomContactsDescription')
+            : currentCustom?.description || deps.text('chatroomPlaceDescriptionFallback'),
         hasChildren: false,
       }
     : null;
-  const rows = Array.from(new Map(
+  const allChatrooms = Array.from(new Map(
     [...(currentNode ? [currentNode] : []), ...customNodes].map((room) => [room.id, room]),
   ).values());
-  const allChatrooms = rows;
+  const placeRows = customNodes.filter((room) => room.id !== deps.currentChatroom);
 
   const chatroomList = document.getElementById('chatroom-list');
   if (!chatroomList) return;
 
-  chatroomList.innerHTML = rows
-    .map((room) => {
+  const renderRoomRow = (room: FlatChatroomNode, isCurrentRoom: boolean): string => {
       const memberCount = deps.chatroomMemberCounts.get(room.id) || 0;
       const visitCounts = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
-      const isCurrentRoom = deps.currentChatroom === room.id;
-      const isExpanded = deps.expandedChatrooms.has(room.id);
-      const expandIcon = room.hasChildren ? (isExpanded ? '▼' : '▶') : '';
-
+      const showCapacity = room.id !== CONTACTS_ONLY_SCOPE_ID;
       return `
         <div class="chatroom-item ${isCurrentRoom ? 'current-room' : ''}" 
              data-chatroom-id="${room.id}" 
-             data-level="${room.level}"
-             data-has-children="${room.hasChildren}"
-             style="padding-left: ${room.level * 20 + 16}px;">
-          ${room.hasChildren ? `<div class="chatroom-expand-icon" data-chatroom-id="${room.id}">${expandIcon}</div>` : '<div class="chatroom-expand-icon-placeholder"></div>'}
+             data-room-kind="${isPlaceRoomId(room.id) ? 'place' : 'current'}">
           <div class="chatroom-icon">${room.icon}</div>
           <div class="chatroom-info">
             <div class="chatroom-name">
-              ${room.name}
+              ${deps.escapeHtml(room.name)}
               ${isCurrentRoom ? `<span class="current-room-badge">${deps.text('chatroomCurrent')}</span>` : ''}
-              <span class="chatroom-headcount">${memberCount > 0 ? `👥 ${memberCount}` : '👥 0'}</span>
-              <span class="chatroom-visitcount">🚪 ${visitCounts.visitCount}</span>
-              <span class="chatroom-unique-visitors">◎ ${visitCounts.uniqueVisitorCount}</span>
+              ${isCurrentRoom && deps.travelModeActive ? `<span class="current-room-badge">${deps.text('chatroomTraveler')}</span>` : ''}
+            </div>
+            <div class="chatroom-description">${deps.escapeHtml(room.description || '')}</div>
+            <div class="chatroom-flat-metrics">
+              ${showCapacity ? `<span class="chatroom-headcount">${deps.text('chatroomCapacitySummary')
+                .replace('{count}', String(memberCount))
+                .replace('{capacity}', String(CONFIG.CHATROOM_MAX_CAPACITY))}</span>` : ''}
+              ${isPlaceRoomId(room.id) ? `<span class="chatroom-visitcount">${deps.text('chatroomVisits').replace('{count}', String(visitCounts.visitCount))}</span>` : ''}
             </div>
           </div>
           <div class="chatroom-arrow">›</div>
         </div>
       `;
-    })
-    .join('');
+  };
 
-  chatroomList.querySelectorAll('.chatroom-expand-icon').forEach((icon) => {
-    icon.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const chatroomId = icon.getAttribute('data-chatroom-id');
-      if (chatroomId) {
-        toggleChatroomExpanded(deps, chatroomId);
-      }
-    });
-  });
+  chatroomList.innerHTML = `
+    <section class="chatroom-flat-section" data-testid="current-group-section">
+      <h2 class="chatroom-flat-heading">${deps.text('chatroomCurrentGroupHeading')}</h2>
+      ${currentNode ? renderRoomRow(currentNode, true) : ''}
+    </section>
+    <section class="chatroom-flat-section" data-testid="places-section">
+      <h2 class="chatroom-flat-heading">${deps.text('chatroomPlacesHeading')}</h2>
+      ${placeRows.length
+        ? placeRows.map((room) => renderRoomRow(room, false)).join('')
+        : `<p class="chatroom-flat-empty">${deps.text('chatroomPlacesEmpty')}</p>`}
+    </section>`;
 
   chatroomList.querySelectorAll('.chatroom-item').forEach((item) => {
     item.addEventListener('click', () => {
@@ -404,22 +410,22 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     });
   });
 
-  const treeButton = document.getElementById('chatroom-tree-view-btn') as HTMLButtonElement | null;
+  const listButton = document.getElementById('chatroom-list-view-btn') as HTMLButtonElement | null;
   const mapButton = document.getElementById('chatroom-map-view-btn') as HTMLButtonElement | null;
   const mapContainer = document.getElementById('chatroom-map');
   const mapStatus = document.getElementById('chatroom-map-status');
   const listContainer = document.getElementById('chatroom-list-container');
-  if (!treeButton || !mapButton || !mapContainer || !mapStatus || !listContainer) return;
+  if (!listButton || !mapButton || !mapContainer || !mapStatus || !listContainer) return;
 
   const isMap = deps.chatroomBrowseMode === 'map';
-  treeButton.setAttribute('aria-pressed', String(!isMap));
+  listButton.setAttribute('aria-pressed', String(!isMap));
   mapButton.setAttribute('aria-pressed', String(isMap));
   chatroomList.hidden = isMap;
   mapContainer.hidden = !isMap;
   mapStatus.hidden = !isMap;
   listContainer.classList.toggle('map-mode', isMap);
 
-  const activateBrowseMode = (mode: 'tree' | 'map'): void => {
+  const activateBrowseMode = (mode: 'list' | 'map'): void => {
     const detailContainer = document.getElementById('chatroom-detail-container');
     const isAlreadyBrowsing = detailContainer?.style.display === 'none';
     if (deps.chatroomBrowseMode === mode && isAlreadyBrowsing) return;
@@ -430,21 +436,16 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     deps.setChatroomBrowseMode(mode);
     deps.renderChatroomList();
   };
-  treeButton.onclick = () => activateBrowseMode('tree');
+  listButton.onclick = () => activateBrowseMode('list');
   mapButton.onclick = () => activateBrowseMode('map');
 
   if (isMap) {
-    // Pins: Global's region tiles, the current room's path, and rooms outside the tree. The deeper
-    // city sub-tiles are browsable in the tree and visible as the map's grid, not as ~100 pins.
-    const onCurrentPath = new Set(browsePath(deps.currentChatroom));
-    const pinnedRooms = allChatrooms.filter((room) => room.level <= 1 || onCurrentPath.has(room.id) || !parseTileId(splitBaseId(room.id)));
-    const builtInMapRooms: ChatroomMapRoom[] = pinnedRooms.map((room) => {
+    // The map is as flat as the list: the current audience plus public Place pins. Internal
+    // partition cells, parents, children, and capacity shards never become map destinations.
+    const mapRooms: ChatroomMapRoom[] = allChatrooms.map((room) => {
       const visits = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
-      const tile = parseTileId(room.id);
-      const location = getChatroomMapLocation(room.id)
-        ?? coarseCellLocation(room.id)
-        ?? getL1TileInfo(room.id)?.pin
-        ?? (tile ? tileCenter(tile) : undefined);
+      const custom = deps.customChatrooms.find((candidate) => candidate.id === room.id);
+      const location = custom?.location;
       return {
         ...room,
         ...(location ? { location } : {}),
@@ -453,22 +454,8 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
         uniqueVisitorCount: visits.uniqueVisitorCount,
       };
     });
-    const customMapRooms: ChatroomMapRoom[] = customNodes.map((room) => {
-      const custom = deps.customChatrooms.find((candidate) => candidate.id === room.id);
-      const visits = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
-      return {
-        ...room,
-        ...(custom?.location ? { location: custom.location } : {}),
-        memberCount: deps.chatroomMemberCounts.get(room.id) || 0,
-        visitCount: visits.visitCount,
-        uniqueVisitorCount: visits.uniqueVisitorCount,
-      };
-    });
-    const mapRooms = Array.from(
-      new Map([...builtInMapRooms, ...customMapRooms].map((room) => [room.id, room])).values(),
-    );
     const mappedCount = mapRooms.filter((room) => !!room.location).length;
-    const unmappedCustomCount = customMapRooms.filter((room) => !room.location).length;
+    const unmappedCustomCount = customNodes.filter((room) => !deps.customChatrooms.find((candidate) => candidate.id === room.id)?.location).length;
     const customNote = unmappedCustomCount > 0
       ? ` ${deps.text('chatroomMapCustomRoomsNote').replace('{count}', String(unmappedCustomCount))}`
       : '';
@@ -492,6 +479,9 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       currentChatroom: deps.currentChatroom,
       ...(deps.nearbyMapArea ? { nearbyMapArea: deps.nearbyMapArea } : {}),
       openChatroom: (chatroomId) => showChatroomDetail(deps, chatroomId),
+      selectNearbyPoint: (location) => deps.emit('travelNearbyAtPoint', location),
+      nearbyPointTitle: deps.text('chatroomNearbyPointTitle'),
+      nearbyPointAction: deps.text('chatroomNearbyPointAction'),
       mapLoadFailedText: deps.text('chatroomMapLoadFailed'),
       membersText: (count) => deps.text(count === 1 ? 'chatroomMemberOne' : 'chatroomMembers').replace('{count}', String(count)),
       visitsText: (count) => deps.text(count === 1 ? 'chatroomVisitOne' : 'chatroomVisits').replace('{count}', String(count)),
@@ -773,12 +763,6 @@ async function loadMemberStats(
  * "📍 Near San Diego" — instead of the raw id. Later lanes add "· Group N".
  */
 const COARSE_CELL_ID = /^region_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)(?:_room_(\d+))?$/;
-
-/** Map pin for a coarse grid room: the cell's own (already blurred) coordinate from its id. */
-function coarseCellLocation(chatroomId: string): ChatroomMapLocation | undefined {
-  const cell = COARSE_CELL_ID.exec(splitBaseId(chatroomId));
-  return cell ? { latitude: Number(cell[1]), longitude: Number(cell[2]) } : undefined;
-}
 
 function coarseCellTitle(chatroomId: string): string | null {
   const cell = COARSE_CELL_ID.exec(chatroomId);

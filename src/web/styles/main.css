@@ -1176,6 +1176,38 @@ button:focus:not(:focus-visible) {
   position: relative;
 }
 
+.chatroom-flat-section + .chatroom-flat-section {
+  margin-top: 22px;
+}
+
+.chatroom-flat-heading {
+  margin: 4px 8px 10px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chatroom-flat-empty {
+  margin: 0 8px;
+  padding: 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-tertiary);
+  font-size: 0.9rem;
+}
+
+.chatroom-flat-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+  color: var(--text-tertiary);
+  font-size: 0.82rem;
+}
+
 .chatroom-item:hover {
   background: var(--bg-subtle);
   border-color: var(--success);
@@ -1254,7 +1286,7 @@ button:focus:not(:focus-visible) {
 }
 
 .chatroom-headcount {
-  margin-left: 8px;
+  margin-left: 0;
   padding: 2px 8px;
   background: var(--success-soft);
   color: var(--success-text);

@@ -219,9 +219,11 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
           })
           .join('')
       : `<div style="font-size:0.88em;color:var(--text-tertiary);">${escapeHtml(deps.t('meNoPublicProfile'))}</div>`;
+  // Never echo a GPS coordinate in Settings. The person manages the disclosed *area*, while the
+  // exact fix remains an implementation detail on this device.
   const locationText = deps.currentLocation
-    ? `${deps.currentLocation.latitude.toFixed(3)}, ${deps.currentLocation.longitude.toFixed(3)}`
-    : deps.t('settingsUnknown');
+    ? 'Location available · exact GPS stays on this device'
+    : 'Location unavailable · automatic Nearby is inactive';
   const filteredIncoming = filterIncomingTalkClusters(
     (deps.incomingTalkClusters || []).filter((cluster: any) => cluster && cluster.identityKey),
     talkFilters,
@@ -484,8 +486,33 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
         `,
         )}
         ${renderSettingsSection(
-          { id: 'settings-section-distance-home', title: deps.t('settingsDistanceHome') },
+          {
+            id: 'settings-section-distance-home',
+            title: 'Home & sensitive locations',
+            subtitle: 'Control the approximate area used for automatic Nearby without saving a home or work address.',
+          },
           `
+          <div style="padding:12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-subtle);margin-bottom:14px;">
+            <label style="display:flex;flex-direction:column;gap:7px;font-size:0.9em;">
+              <strong>Automatic Nearby privacy</strong>
+              <select id="settings-nearby-privacy-mode" class="form-input" data-testid="settings-nearby-privacy-mode">
+                <optgroup label="Most private">
+                  <option value="location-off" ${connectivity.nearbyPrivacyMode === 'location-off' ? 'selected' : ''}>Location off — no automatic Nearby</option>
+                  <option value="contacts-only" ${connectivity.nearbyPrivacyMode === 'contacts-only' ? 'selected' : ''}>Contacts only — block all stranger discovery</option>
+                </optgroup>
+                <optgroup label="For a sensitive home or workplace">
+                  <option value="regional" ${connectivity.nearbyPrivacyMode === 'regional' ? 'selected' : ''}>Regional — disclose an approximate 50 km area</option>
+                  <option value="citywide" ${connectivity.nearbyPrivacyMode === 'citywide' ? 'selected' : ''}>Citywide — disclose an approximate 10 km area</option>
+                </optgroup>
+                <optgroup label="General nearby use">
+                  <option value="neighborhood" ${connectivity.nearbyPrivacyMode === 'neighborhood' ? 'selected' : ''}>Neighborhood — disclose an approximate 1 km area</option>
+                  <option value="close-nearby" ${connectivity.nearbyPrivacyMode === 'close-nearby' ? 'selected' : ''}>Close nearby — disclose an approximate 400 m area</option>
+                </optgroup>
+              </select>
+              <small>One setting applies wherever automatic Nearby is active, so IinPublic does not need to store a home or work address. Choose a larger area before using it at a sensitive home or workplace. Larger areas reduce precision but cannot guarantee anonymity.</small>
+            </label>
+            <div style="margin-top:8px;font-size:0.82em;color:var(--text-tertiary);">${escapeHtml(locationText)}</div>
+          </div>
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
             <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
               <span>${deps.t('settingsMinDistance')}</span>
@@ -496,8 +523,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
               <input type="number" class="form-input" id="settings-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}">
             </label>
           </div>
-          <div style="margin-top:10px;font-size:0.84em;color:var(--text-tertiary);">Home is your automatic Nearby area. Selecting a map Place is a visible visit; Return to Nearby recomputes home from your current location and privacy setting.</div>
-          <div style="margin-top:4px;font-size:0.82em;color:var(--text-tertiary);">${deps.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
+          <div style="margin-top:10px;font-size:0.84em;color:var(--text-tertiary);">Home means the blurred area computed from the device's current location. Selecting a map Place or point is a visible visit; Return Home recomputes the blurred home area.</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>${deps.t('settingsSentAfter')}</span>
             <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
@@ -621,17 +647,6 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: 'Choose routes automatically or tune data, battery, and forwarding policy.',
           },
           `<div style="display:grid;gap:12px;">
-            <label>Location privacy and nearby audience
-              <select id="settings-nearby-privacy-mode" class="form-input" data-testid="settings-nearby-privacy-mode">
-                <option value="location-off" ${connectivity.nearbyPrivacyMode === 'location-off' ? 'selected' : ''}>Location off — stop automatic Nearby; Contacts and selected Places still work</option>
-                <option value="contacts-only" ${connectivity.nearbyPrivacyMode === 'contacts-only' ? 'selected' : ''}>Contacts only — block all stranger discovery</option>
-                <option value="regional" ${connectivity.nearbyPrivacyMode === 'regional' ? 'selected' : ''}>Regional — reveal an approximate 50 km area</option>
-                <option value="citywide" ${connectivity.nearbyPrivacyMode === 'citywide' ? 'selected' : ''}>Citywide — reveal an approximate 10 km area</option>
-                <option value="neighborhood" ${connectivity.nearbyPrivacyMode === 'neighborhood' ? 'selected' : ''}>Neighborhood — reveal an approximate 1 km area</option>
-                <option value="close-nearby" ${connectivity.nearbyPrivacyMode === 'close-nearby' ? 'selected' : ''}>Close nearby — reveal an approximate 400 m area</option>
-              </select>
-              <small>Use Location off at a sensitive home or workplace, or choose a larger area. A larger area reduces precision but cannot guarantee anonymity; repeated activity and network metadata may still reveal patterns.</small>
-            </label>
             <label>Preset
               <select id="settings-connectivity-preset" class="form-input" data-testid="settings-connectivity-preset">
                 ${(['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'] as ConnectivityPreset[]).map((preset) => `<option value="${preset}" ${connectivity.preset === preset ? 'selected' : ''}>${preset.replace('-', ' ')}</option>`).join('')}

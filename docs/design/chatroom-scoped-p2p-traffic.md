@@ -7,7 +7,7 @@ Related: Technical Specification §3.3 and §23; `OPEN-36`; `docs/protocol/conne
 > Global `C`, local `K`, one shared active room, safe room switching, same-room radio authorization,
 > bounded radio credentials, and direct encrypted author-to-receiver Talk delivery remain
 > authoritative. Visible hierarchy, manual child navigation, FIFO overflow, and capped sparse
-> widening are superseded by an invisible adaptive geographic split/merge tree plus map travel.
+> widening are superseded by flat geographic repartition/coalescing control plus map travel.
 > Explicit content-addressed Places remain rooms.
 
 ## Decision
@@ -77,20 +77,16 @@ under the logical room overlay.
 
 ### Membership, navigation, and active exchange are different
 
-- **Known room:** a room shown in the hierarchy, map, history, or saved list.
+- **Known destination:** Nearby, a Place shown in the flat list/map, or a saved Place/travel point.
 - **Membership:** authorization and metadata that allow the user to enter a room.
 - **Active exchange room:** the only room currently allowed to drive discovery and Talk traffic.
 - **Direct conversation:** an on-demand pair channel independent of room broadcasting.
 
-The Global node and oversized parent location nodes become navigation and discovery directories
-when their active population exceeds capacity. They must not expose a million-member live roster
-or form a global mesh. The user enters an eligible child location, business, event, or custom room
-before exchanging Talks.
-
-Confirmed automatic location selects the smallest blurred GPS-grid room as the default active
-exchange room. It must not silently activate several overlapping location levels. Parent, child,
-nearby business, saved, and travelled rooms are not simultaneously active. The user may manually
-select a different room; a placeholder location must never select a false grid.
+A broad group that exceeds capacity is replaced by flat disjoint geographic groups. No broad group
+becomes a user-facing directory, exposes a million-member live roster, or forms a global mesh.
+Confirmed automatic location selects one shared group from the current partition manifest. A Place
+or map-selected travel point is a deliberate alternative; saved and travelled destinations are not
+simultaneously active. A placeholder location must never select a false group.
 
 ### Capacity behavior
 
@@ -100,16 +96,16 @@ select a different room; a placeholder location must never select a false grid.
   active epoch must update rather than operate a conflicting capacity under the same network ID.
 - Each client evaluates admission before publishing its current-room presence or accepting a
   candidate into its active set.
-- An over-capacity room is split into finer child rooms where the hierarchy permits it.
-- The client receives bounded child-room choices; it never downloads the complete parent roster.
+- An over-capacity group is atomically replaced by disjoint geographically compact groups.
+- The client receives one verified replacement plus bounded control summaries; it never downloads
+  the complete old broad-group roster.
 - Presence from the same identity or its linked devices is deduplicated during deterministic
   active-set selection; linked installations do not receive extra room positions.
 - Switching rooms is explicit. IinPublic may suggest a switch but does not silently broaden reach.
 
-The existing FIFO/room-split product rules remain separate admission-algorithm concerns. Whatever
-algorithm is chosen, it must use the same global `C` and preserve the bound presented to peer
-discovery. FIFO gives the creator no protection: if the creator is the longest-staying active
-participant when a new participant is admitted to a full room, the creator is evicted.
+Legacy FIFO/room-split behavior is migration code, not the accepted Nearby product rule. The flat
+partition algorithm must use the same global `C` and preserve the bound presented to peer discovery.
+Place admission remains ownerless: a creator receives no protected or reserved seat.
 
 ### Coordinator-free enforcement limit
 

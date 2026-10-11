@@ -29,6 +29,10 @@ type ChatroomMapOptions = {
   rooms: ReadonlyArray<ChatroomMapRoom>;
   currentChatroom: string;
   openChatroom: (chatroomId: string) => void;
+  /** Tap empty map space to preview and deliberately travel to Nearby around that point. */
+  selectNearbyPoint?: (location: ChatroomMapLocation) => void;
+  nearbyPointTitle?: string;
+  nearbyPointAction?: string;
   /**
    * Tap on open map: select the tile (of the grid layer drawn at this zoom) under the tap; its
    * "Enter" button opens that room. Without it, taps do nothing.
@@ -211,6 +215,36 @@ function clearTileSelection(state: MapState): void {
   delete state.options.container.dataset.selectedTile;
   const source = state.map.getSource(SELECTED_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
   source?.setData(tileSquares([]) as never);
+}
+
+/** Preview a map point as a flat Nearby destination; no internal tile or room id is exposed. */
+function selectNearbyPoint(
+  maplibre: MapLibre,
+  state: MapState,
+  location: ChatroomMapLocation,
+): void {
+  clearTileSelection(state);
+  const card = document.createElement('div');
+  card.className = 'chatroom-map-tile-card';
+  card.dataset.testid = 'map-nearby-point-card';
+  card.setAttribute('data-testid', 'map-nearby-point-card');
+  const name = document.createElement('strong');
+  name.textContent = state.options.nearbyPointTitle ?? 'Nearby around this point';
+  const enter = document.createElement('button');
+  enter.type = 'button';
+  enter.className = 'chatroom-map-tile-enter';
+  enter.setAttribute('data-testid', 'map-nearby-point-enter');
+  enter.textContent = state.options.nearbyPointAction ?? 'Join as traveler';
+  enter.addEventListener('click', (event) => {
+    event.stopPropagation();
+    clearTileSelection(state);
+    state.options.selectNearbyPoint?.(location);
+  });
+  card.addEventListener('click', (event) => event.stopPropagation());
+  card.append(name, enter);
+  state.selectionMarker = new maplibre.Marker({ element: card, anchor: 'bottom' })
+    .setLngLat([location.longitude, location.latitude])
+    .addTo(state.map);
 }
 
 /** Highlight the tapped tile and offer to enter it (a label with an Enter button at the tap). */
@@ -439,8 +473,16 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
   map.once('error', failBeforeLoad);
   map.on('click', (event) => {
     // Room/cluster markers stop propagation, so this only fires on open map.
-    if (!state.options.openTile) return;
-    selectTile(maplibre, state, tileAtTap(event.lngLat.lat, event.lngLat.lng, map.getZoom()), [event.lngLat.lng, event.lngLat.lat]);
+    if (state.options.selectNearbyPoint) {
+      selectNearbyPoint(maplibre, state, {
+        latitude: event.lngLat.lat,
+        longitude: event.lngLat.lng,
+      });
+      return;
+    }
+    if (state.options.openTile) {
+      selectTile(maplibre, state, tileAtTap(event.lngLat.lat, event.lngLat.lng, map.getZoom()), [event.lngLat.lng, event.lngLat.lat]);
+    }
   });
   map.once('load', () => {
     state.loaded = true;

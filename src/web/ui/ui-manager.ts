@@ -306,7 +306,7 @@ export class UIManager extends EventEmitter {
   private lastNotifiedMessageIdByConversation: Map<string, string> = new Map();
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
-  private chatroomBrowseMode: 'tree' | 'map' = 'tree';
+  private chatroomBrowseMode: 'list' | 'map' = 'list';
   private nearbyMapArea: NearbyMapArea | undefined;
   private expandedChatrooms = new Set<string>();
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
@@ -896,6 +896,7 @@ export class UIManager extends EventEmitter {
         getMatchedUserIds: () => this.matchedUserIds,
         getCustomChatrooms: () => this.customChatrooms,
         getNearbyMapArea: () => this.nearbyMapArea,
+        getTravelModeActive: () => this.travelModeActive,
         setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
         setCurrentUserId: (userId) => { this.currentUserId = userId; },
         setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },

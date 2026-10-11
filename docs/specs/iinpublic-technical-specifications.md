@@ -176,7 +176,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 ### 2.2 Product Functions (High-Level)
 
 - Automatic user identity assignment and location-based chatroom placement.
-- Hierarchical chatrooms with automatic splitting when rooms exceed capacity.
+- Flat Nearby groups with automatic geographic repartitioning when a group exceeds capacity.
 - User profiles as Q/A attribute lists with StageName and a reputation section.
 - Simple predefined Q/A talk system (DAG, no loops, logic-OR allowed).
 - Bulk sending of talks to up to N users (default 1000) in a given scope.
@@ -263,9 +263,9 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 > supersedes the Global-first L1-L4 cascade, visible hierarchy, and numbered overflow rooms.
 
 - **FR-CR-1 (Adaptive shared Nearby room)**: **Nearby** SHALL be one shared chatroom containing at
-  most `C` online strangers. A sparse population shares a broad root; over-capacity branches divide
-  geographically into shared child rooms. The hierarchy SHALL remain internal. Global SHALL NOT be
-  a user-facing room.
+  most `C` online strangers. A sparse population shares one broad group; over-capacity groups are
+  replaced by disjoint, geographically compact groups. Partition control SHALL NOT create a
+  parent/child chatroom model. Global SHALL NOT be a user-facing room.
 - **FR-CR-2 (Location boundary)**: Exact GPS, accuracy, and fix timestamps SHALL remain local. A
   public Nearby presence necessarily reveals its approximate declared area; hashing a predictable
   cell SHALL NOT be represented as secrecy. A phone MAY offer confirmed blurred GPS as its starting
@@ -274,16 +274,19 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   Regional (~50 km), Citywide (~10 km), Neighborhood (~1 km), and Close nearby (~400 m), preview
   the approximate disclosed area, and warn about home/work exposure. Location off SHALL stop
   GPS-derived Nearby presence and stranger radio advertisements while retaining Contacts and
-  deliberately selected Places.
+  deliberately selected Places. This SHALL be one automatic-Nearby disclosure setting; the app
+  SHALL NOT require storing or labelling an exact home/work address. Settings SHALL NOT echo exact
+  latitude/longitude.
 - **FR-CR-3 (Adaptive shared-room capacity)**: One signed global capacity `C` (currently arbitrary
   and experimental `498`) SHALL limit every shared room. A room with verified live occupancy above
-  `C` SHALL divide into deterministic geographic children; siblings whose combined occupancy stays
-  at or below `C` MAY merge after hysteresis. FIFO age, visible overflow rooms, and `_part_N` SHALL
-  NOT partition Nearby users.
-- **FR-CR-4 (Simple room UI)**: The room UI SHALL show the current shared Nearby footprint,
-  travel/return-home actions, optional adjacent-room destinations, and meaningful Place pins. It SHALL
-  NOT expose Global, L1-L4, country/state rooms, raw coordinate IDs, internal index buckets, or
-  numbered overflow rooms.
+  `C` SHALL be replaced by deterministic disjoint geographic groups; adjacent groups whose combined
+  occupancy stays at or below `C` MAY be replaced by one broader group after hysteresis. FIFO age,
+  visible overflow rooms, and `_part_N` SHALL NOT partition Nearby users.
+- **FR-CR-4 (Flat list and map UI)**: List view SHALL contain a **Your current group** section with
+  exactly one active Nearby/Place card and a flat **Places** section. Map view SHALL show only the
+  blurred current-area shading, public Place pins/population bubbles, and an empty-map-point travel
+  preview. Neither view SHALL expose Global, L1-L4, country/state rooms, parent/child navigation,
+  indentation levels, raw coordinate IDs, internal index buckets, or numbered overflow rooms.
 - **FR-CR-5 (Map Places)**: Any user MAY publish a signed, immutable, content-addressed **Place**
   descriptor for a restaurant, event, club, or community at a public map point. Creation makes the
   user the first ordinary participant and grants no ownership, moderation, reserved seat, rename,
@@ -320,9 +323,11 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-CR-15 (Capacity and connection bounds)**: Global parameters `C` and `K` SHALL independently
   bound shared-room members and simultaneous direct links. `498` and the initial `K` are
   experimental values requiring simulation and hardware measurement, not proven constants.
-- **FR-CR-16 (No visible hierarchy overlay)**: Geographic parent/child rooms are control scopes,
-  not navigation hierarchy. A client SHALL subscribe to one active leaf plus bounded control
-  summaries and SHALL NOT subscribe to a million-user root roster after subdivision.
+- **FR-CR-16 (Flat partition control)**: A signed partition manifest MAY replace one flat Nearby
+  group with several disjoint groups or coalesce adjacent groups. Those relationships are control
+  transitions, not persistent parent/child chatrooms. A client SHALL subscribe to one active group
+  plus bounded control summaries and SHALL NOT subscribe to a million-user broad-group roster after
+  repartitioning.
 - **FR-CR-17 (Safe Audience Switching)**: The client SHALL stop old-audience discovery,
   subscriptions, advertisements, and stranger-only links before activating a new encounter
   location or Place. Switching SHALL preserve durable Talk queues, receipts, deduplication state,
@@ -333,7 +338,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   claim of instantaneous global consensus during a partition. `K` SHALL remain a
   hard local link bound regardless of convergence state.
 - **FR-CR-20 (Capacity Upgrade)**: A `498 → 1000` protocol-epoch transition SHALL retain the
-  currently eligible room members and permit split siblings to merge when their combined occupancy
+  currently eligible room members and permit adjacent groups to coalesce when their combined occupancy
   fits the new limit. A compatible older release SHALL verify the new manifest and apply `C` through
   its generic manifest engine without reinstalling. An incompatible client SHALL fail closed and
   request an update.
@@ -367,12 +372,13 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   fail closed without being misreported as a reconciliation loss. This rule provides eventual
   convergence for signed claims, not consensus, trustworthy clocks, physical-presence proof, or
   Sybil resistance.
-- **FR-CR-31 (Sparse-to-global room merging)**: Shared Nearby siblings SHALL merge toward their
-  parent when their combined signed live occupancy remains at or below `C` for the configured dwell.
-  A two-user worldwide population SHALL eventually share the root room. Dense branches SHALL split
-  until every active leaf stays at or below `C`. Split/merge hysteresis and expiry SHALL limit churn.
+- **FR-CR-31 (Sparse-group coalescing)**: Adjacent Nearby groups SHALL be replaced by one broader
+  group when their combined signed live occupancy remains at or below `C` for the configured dwell.
+  A two-user worldwide population SHALL eventually share one broad group. Dense areas SHALL be
+  repartitioned until every active group stays at or below `C`. Repartition hysteresis and expiry
+  SHALL limit churn.
 - **FR-CR-32 (Travelable Nearby rooms)**: A user MAY select a map point and join the active shared
-  Nearby leaf covering it with a traveler marker. The saved point SHALL follow later split/merge
+  Nearby group covering it with a traveler marker. The saved point SHALL follow later repartition
   transitions. Return home SHALL restore/recompute the home room. Exact personalized nearest-`C`
   lists SHALL NOT replace the shared roster; adjacent leaves MAY be offered for deliberate travel.
 - **FR-CR-33 (Unified discovery providers)**: Internet, LAN, BLE, and Wi-Fi Direct SHALL apply the
@@ -761,7 +767,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 ```
 /chatrooms
-├── /nearby/{policy-epoch + adaptive-shared-leaf}
+├── /nearby/{policy-epoch + adaptive-shared-group}
 └── /places/{content-addressed-place-id}           (manual map destinations)
 ```
 
@@ -769,10 +775,10 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - A phone may confirm a GPS-derived blurred encounter location. A web user must choose a
   self-defined map location, which may be fictional, before stranger discovery. Exact GPS remains
   local and declared location is not proof of physical presence.
-- Signed occupancy control divides an over-capacity room into geographic children and merges sparse
-  siblings toward the root after hysteresis. Each user publishes presence in exactly one shared
-  active leaf. The hierarchy is not exposed as navigation.
-- Moving the encounter location stops the old room and joins the active shared leaf covering the
+- Signed occupancy control replaces an over-capacity group with disjoint geographic groups and
+  coalesces adjacent sparse groups after hysteresis. Each user publishes presence in exactly one
+  shared active group. No parent/child chatrooms are created.
+- Moving the encounter location stops the old room and joins the active shared group covering the
   selected map point.
 - A map Place is an immutable signed descriptor. Selecting it stops Nearby exchange, enters the
   Place, and marks the user as a traveler only when it is outside the current home zone.
@@ -1489,7 +1495,7 @@ nearby-control/
   <policyVersion>/<roomId>/occupancy-summary/
 
 nearby-index/
-  <policyVersion>/<parentRoomId>/<childRoomId>/
+  <policyVersion>/<transitionId>/signed-group-replacements/
 
 place-presence/
   <content-addressed-id>/<userPubHash>/
@@ -2594,9 +2600,9 @@ The following items are known open questions or planned post-MVP work:
 ## 17. Key Technical Decisions
 
 - **Decentralized-first**: No central server stores user data. Gun.js P2P is the only data layer.
-- **Adaptive shared Nearby + Places, no visible hierarchy**: sparse users share a broad room;
-  over-capacity branches split geographically into shared rooms of at most `C`; content-addressed
-  Places and map-selected travel rooms remain deliberate destinations.
+- **Adaptive shared Nearby + Places, flat room model**: sparse users share a broad room;
+  over-capacity groups are replaced by disjoint geographically compact rooms of at most `C`;
+  content-addressed Places and map-selected travel rooms remain deliberate destinations.
 - **Stranger-first trust with encrypted transport**: all users start Unknown, but the first signed
   handshake still establishes an ephemeral encrypted session. Contact status pins identity and
   durable pair state rather than enabling encryption for the first time.
@@ -2650,7 +2656,7 @@ The following items are known open questions or planned post-MVP work:
 | Headshot + chatbot overlay | FR-UM-4, FR-UM-5, §13.3 | `UserAvatar`, `MessageList` |
 | Reputation section (read-only) | FR-UM-6, FR-UM-7 | `ReputationManager`, `PrivacyToggle` |
 | Language / grammar / dirty word filters | FR-BF-1 – FR-BF-6 | `src/filters/contentFilters.ts` |
-| Chatroom hierarchy + auto-split | FR-CR-1 – FR-CR-4, §6.1 | `ChatroomManager`, Gun path design |
+| Flat Nearby repartition + Places | FR-CR-1 – FR-CR-4, §6.1 | `nearby-rooms.ts`, room-presence/control design |
 | GPS grid ID (rounded coords + app ID hash) | §6.1 | `src-shared/location/gridHash.ts` |
 | Business chatrooms | FR-CR-5, FR-CR-6 | `IChatroomRepo`, Gun user-defined path |
 | FIFO eviction when full | FR-CR-7 | `ChatroomManager.checkCapacity()` |
@@ -4816,8 +4822,8 @@ Legend: **From → To** with trigger (selector) and back target. `⟨User⟩` = 
 
 | # | From | Trigger | To | Back returns to |
 |---|---|---|---|---|
-| C1 | Chatroom list | click room row in `#chatroom-list` (leaf or custom room) | Room detail (`#chatroom-detail-container`) | Chatroom list |
-| C2 | Chatroom list | click hierarchy node caret | same page (expand/collapse only, no push) | — |
+| C1 | Chatroom list | click current-group or Place row in `#chatroom-list` | Room detail (`#chatroom-detail-container`) | Chatroom list |
+| C2 | Chatroom map | tap empty map, then **Join as traveler** | Nearby group around selected point | Chatroom map |
 | C3 | Room detail | click member row in `#chatroom-members-list` | **⟨Conv⟩ directly** (pushes ⟨User⟩ + ⟨Conv⟩, rule N2a) | ⟨User⟩, then Room detail |
 | C4 | ⟨User⟩ | click a matched-talk row in the thread list | ⟨Thread⟩ for that talk (reply composer included) | ⟨User⟩ |
 | C4b | ⟨User⟩ | open DM in merged messaging area | ⟨Conv⟩ | ⟨User⟩ |
@@ -5143,7 +5149,7 @@ Coverage was measured by counting `tests/e2e/**/*.spec.ts` files that reference 
 ##### B. Chatrooms
 | # | Layout | Key selector / builder | Coverage | Spec count |
 |---|---|---|---|---|
-| B1 | Chatroom list (hierarchy tree) | `#chatroom-list` / `chatrooms-view.ts renderChatroomList` | Moderate | 4 |
+| B1 | Flat current-group + Places list | `#chatroom-list` / `chatrooms-view.ts renderChatroomList` | Moderate | 4 |
 | B2 | Chatroom detail (members + metadata) | `#chatroom-detail-container` / `#chatroom-members-list` / `#current-chatroom-title` | Good | 6 |
 | B3 | Create custom chatroom dialog | `showCreateCustomChatroomDialog()` / `create-custom-chatroom-btn` | Thin | 2 |
 | B4 | Rename custom chatroom dialog | `showRenameCustomChatroomDialog()` | Thin | ~1 |
@@ -5209,9 +5215,9 @@ This is the **target** information architecture (the redesign's intended tree), 
 Main App  ── persistent bottom nav: 5 tabs ──────────────────────────────
 │
 ├─ 1. CHATROOMS
-│   └─ Chatroom list  (hierarchy: Global ▸ Region ▸ City; expand/collapse)
-│       ├─ Create Room            (page)
-│       └─ Room detail            (members + headcount + immutable descriptor)  e.g. "Global"
+│   └─ Flat list: Your current group + Places (List / Map)
+│       ├─ Create Place           (page)
+│       └─ Group/Place detail     (members + headcount + immutable Place descriptor)
 │           └─ (tap a member → Conversation ⟨SHARED⟩ opens DIRECTLY; back lands on User layout)
 │               User layout ⟨SHARED⟩  (matched-talk thread list, email-style)
 │               ├─ Conversation ⟨SHARED⟩      (default DM thread)
@@ -5435,7 +5441,7 @@ TechSupport must click through **every** reachable item and establish the empty-
 ##### Stage 2 — Tom + Adam (2 ordinary Nearby users): full two-party Talk lifecycle
 
 - **Onboard:** Tom and Adam choose declared encounter locations. Because they are the only two
-  ordinary users, adaptive merging places them in the shared root room; **headcount = 2** regardless
+  ordinary users, adaptive coalescing places them in one broad room; **headcount = 2** regardless
   of declared distance. TechSupport remains a pinned Contact and contributes zero.
 - **Adam answers Tom's Talks.** For each same-type triple, Adam gives varied answers across all four types.
 - **Verify on Adam's side:** each talk's outcome is recorded (match vs mismatch/ignore); a conversation is created on match and **not** on mismatch/ignore.
@@ -5475,7 +5481,7 @@ Merged from the former Stages 2 and 3 (both were three-user stages). Where a fun
 | Function area | S1 | S2 | S3 | S4 | S5 |
 |---|:--:|:--:|:--:|:--:|:--:|
 | Every-page clickability sweep | ✓ | | | | |
-| Chatroom hierarchy + headcount | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Flat Nearby/Places + headcount | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Create room (non-privileged creator) | ✓ | | | | |
 | Empty contacts state | ✓ | | | | |
 | Create talks (all 4 types) | ✓ | ✓ | ✓ | | ✓ |
@@ -6657,8 +6663,8 @@ Rendered architecture diagrams:
   rate, parsing and retry bounds.
 - **REQ-DISC-09:** Provider failure or permission denial SHALL degrade independently and SHALL NOT
   prevent attempts through remaining providers.
-- **REQ-DISC-10:** Nearby discovery SHALL use a bounded geographic split/merge hierarchy over
-  signed, expiring room presences. Any future DHT provider SHALL preserve the same active-room and
+- **REQ-DISC-10:** Nearby discovery SHALL use bounded flat geographic repartition/coalescing control
+  over signed, expiring room presences. Any future DHT provider SHALL preserve the same active-room and
   global-`C` semantics and receive a separate privacy/enumeration review.
 - **REQ-DISC-11:** Authenticated peers MAY gossip bounded signed connectivity bindings relevant to
   the active room/Place, requested identity, or recent relationship.

@@ -125,7 +125,10 @@ describe('settings view extraction', () => {
 
   it('renders the complete settings shell and runs the existing post-render lifecycle', () => {
     document.body.innerHTML = '<div id="settings-content"></div>';
-    const deps = viewDeps({ settingsActiveSectionId: 'settings-section-languages' });
+    const deps = viewDeps({
+      settingsActiveSectionId: 'settings-section-languages',
+      currentLocation: { latitude: 32.7157, longitude: -117.1611, accuracy: 20, timestamp: new Date() },
+    });
     const user = makeUser({ stageName: '<Settings>', languages: ['EN', 'zh'] });
 
     renderSettingsView(user, deps);
@@ -146,6 +149,12 @@ describe('settings view extraction', () => {
     ]);
     expect(nearbyPrivacy?.textContent).not.toContain('Radio nearby');
     expect(nearbyPrivacy?.parentElement?.textContent).toContain('sensitive home or workplace');
+    expect(document.querySelector('#settings-section-distance-home')?.textContent).toContain(
+      'exact GPS stays on this device',
+    );
+    expect(document.querySelector('#settings-section-distance-home')?.textContent).not.toContain(
+      '32.',
+    );
     expect(document.querySelector<HTMLInputElement>('#settings-stage-name-input')?.value).toBe(
       '<Settings>',
     );

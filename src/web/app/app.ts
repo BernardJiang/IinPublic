@@ -2849,7 +2849,36 @@ export class IinPublicApp {
       : selectedRoomId;
   }
 
-  /** Offer, but never automatically enter, the real Nearby cell around a full public Place pin. */
+  /** Stage a deliberate flat-map Nearby visit without exposing partition ids in the UI. */
+  private beginNearbyTravel(location: GPSCoordinate, placeId: string, placeName: string): void {
+    if (!this.currentUser) return;
+    const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
+    if (configuredMode === 'contacts-only') {
+      this.uiManager.showNotification('Contacts only is on. Change Location privacy before joining Nearby.', 'warning');
+      return;
+    }
+    const mode = isNearbyPublicMode(configuredMode) ? configuredMode : 'neighborhood';
+    const rootAssignment = deriveNearbyRoomAssignment({
+      location,
+      mode,
+      identity: this.currentUser.id,
+    });
+    const previousAssignment = this.chatroomService.getNearbyRoomAssignment();
+    const previousControlRoot = this.nearbyControlRootAssignment || undefined;
+    const previousControlLocation = this.nearbyControlRoutingLocation || undefined;
+    this.pendingNearbyTravel = {
+      rootAssignment,
+      location,
+      placeId,
+      placeName,
+      ...(previousAssignment ? { previousAssignment } : {}),
+      ...(previousControlRoot ? { previousControlRoot } : {}),
+      ...(previousControlLocation ? { previousControlLocation } : {}),
+    };
+    this.uiManager.emit('chatroomChanged', rootAssignment.roomId);
+  }
+
+  /** Offer, but never automatically enter, Nearby around a full public Place pin. */
   private offerNearbyAroundFullPlace(placeId: string): void {
     if (!this.currentUser) return;
     const place = this.uiManager.getCustomChatroomMeta(placeId);
@@ -2857,36 +2886,12 @@ export class IinPublicApp {
     const longitude = Number(place?.location?.longitude);
     if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
       || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
-    const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
-    const mode = isNearbyPublicMode(configuredMode) ? configuredMode : 'neighborhood';
-    const location: GPSCoordinate = {
-      latitude,
-      longitude,
-      accuracy: 0,
-      timestamp: new Date(),
-    };
-    const rootAssignment = deriveNearbyRoomAssignment({
-      location,
-      mode,
-      identity: this.currentUser.id,
-    });
+    const location: GPSCoordinate = { latitude, longitude, accuracy: 0, timestamp: new Date() };
     const placeName = String(place?.name || this.getChatroomDisplayName(placeId));
     const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
     const label = uiText(language, 'chatroomNearbyAroundPlace').replace('{place}', placeName);
     this.uiManager.showLocationRoomSuggestion(label, () => {
-      const previousAssignment = this.chatroomService.getNearbyRoomAssignment();
-      const previousControlRoot = this.nearbyControlRootAssignment || undefined;
-      const previousControlLocation = this.nearbyControlRoutingLocation || undefined;
-      this.pendingNearbyTravel = {
-        rootAssignment,
-        location,
-        placeId,
-        placeName,
-        ...(previousAssignment ? { previousAssignment } : {}),
-        ...(previousControlRoot ? { previousControlRoot } : {}),
-        ...(previousControlLocation ? { previousControlLocation } : {}),
-      };
-      this.uiManager.emit('chatroomChanged', rootAssignment.roomId);
+      this.beginNearbyTravel(location, placeId, placeName);
     });
   }
 
@@ -8809,6 +8814,18 @@ export class IinPublicApp {
 
     this.uiManager.on('requestLocationUpdate', async () => {
       await this.updateLocationAndMaybeSwitch();
+    });
+
+    this.uiManager.on('travelNearbyAtPoint', (point: { latitude: number; longitude: number }) => {
+      const latitude = Number(point?.latitude);
+      const longitude = Number(point?.longitude);
+      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
+        || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
+      this.beginNearbyTravel(
+        { latitude, longitude, accuracy: 0, timestamp: new Date() },
+        'map-point',
+        'Selected map point',
+      );
     });
 
     this.uiManager.on('returnHomeFromTravel', async () => {

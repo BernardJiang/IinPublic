@@ -21,10 +21,10 @@ its ID.
 
 - [ ] **OPEN-40 — Replace the Global/L1-L4 cascade with Nearby + map Places.** Accepted design:
   `docs/design/nearby-and-place-chatrooms.md`. Nearby is one shared adaptive chatroom: with two users
-  online they share the broad root room; as population grows, over-capacity branches divide
-  geographically until every active leaf has at most `C=498` users. Sparse siblings merge after
+  online they share one broad group; as population grows, over-capacity groups are replaced by
+  disjoint geographic groups with at most `C=498` users. Adjacent sparse groups coalesce after
   hysteresis. Phones may start from confirmed blurred GPS; web users must choose a self-defined map
-  location. Travel selects a point and joins the shared leaf covering it. Wi-Fi Direct/BLE are routes
+  location. Travel selects a point and joins the shared group covering it. Wi-Fi Direct/BLE are routes
   and proximity evidence, not audience definitions. `498` is an arbitrary signed global experiment
   parameter and must remain changeable between releases.
   - [x] **Reusable foundations:** exact GPS is local-only; signed expiring room presence, one-active-
@@ -33,18 +33,20 @@ its ID.
     allocator/control tests already exist. Reuse their verification and storage primitives without
     preserving the rejected Global/FIFO/tree product behavior.
   - [ ] **P0 adaptive shared-room completion (product correction 2026-10-10).** Preserve one common
-    room roster/capability while making the invisible coordinate hierarchy expand and contract.
-    - [ ] Define signed root-to-leaf split and sibling-to-parent merge control. The root remains the
-      active room while worldwide occupancy is at most `C`; only overflowing branches subdivide;
-      siblings merge after their combined live occupancy stays at or below `C` for a safe dwell.
-    - [ ] Guarantee one active shared leaf per user, one roster per room, and stop-before-start
+    room roster/capability while flat geographic groups are repartitioned or coalesced. The signed
+    partition manifest is control data, not a parent/child chatroom tree.
+    - [ ] Define signed replace-group-with-groups and coalesce-adjacent-groups control. One broad
+      group remains active while worldwide occupancy is at most `C`; only overflowing areas are
+      repartitioned; adjacent groups coalesce after their combined live occupancy stays at or below
+      `C` for a safe dwell.
+    - [ ] Guarantee one active shared group per user, one roster per room, and stop-before-start
       transitions. Do not implement personalized nearest-498 sets: they cannot provide a common
       chatroom roster and can exceed inbound traffic bounds.
-    - [ ] Resolve a saved map travel point through the current split tree, join the shared leaf at
-      that point with a traveler marker, follow later split/merge transitions, and restore the home
-      room on Return home. Show the active footprint and optional adjacent-room travel actions.
-    - [ ] Migrate the current capped three-level sparse widening to root-reaching merges. Prove that
-      two total users converge into one room, every dense leaf stays at or below `C`, and million-user
+    - [ ] Resolve a saved map travel point through the current partition manifest, join the shared
+      group at that point with a traveler marker, follow later repartition transitions, and restore
+      the home room on Return Home. Show the active footprint and optional adjacent-group travel actions.
+    - [ ] Migrate the current capped three-level sparse widening to broad-group coalescing. Prove that
+      two total users converge into one room, every dense group stays at or below `C`, and million-user
       simulations keep subscriptions/control reads bounded.
     - [ ] Define partition behavior: offline phones use only a cached, signed active room and
       reconcile split/merge state after connectivity returns. Never claim instantaneous global
@@ -63,7 +65,7 @@ its ID.
       each phone follows only its locally derived geographic child, then uses deterministic identity
       lanes only after its GPS-accuracy split limit. Exact coordinates never enter control records.
   - [ ] **P0 Gun boundary:** retain signed `room-presence`, extend `nearby-control` with bounded
-    split/merge occupancy summaries and parent/child references, and retain `places`, Place
+    repartition/coalescing occupancy summaries and flat group-replacement transitions, and retain `places`, Place
     presence/admission, and manifests. Audit every Talk/Me repository: owner-private records must use
     SEA encryption; room-visible Gun carries metadata/control only. Decide and implement the stronger
     split between local-only encrypted Gun and peered control Gun, or explicitly accept ciphertext
@@ -112,20 +114,24 @@ its ID.
       derives transcript-bound AES-256-GCM keys, requires mutual encrypted confirmation, encrypts
       every later application frame, rejects plaintext downgrade/replay/tamper, and checks a
       Contact's encrypted stable-key pin. The live two-browser direct-Talk gate passes end to end.
-  - [x] **P0 fixed-cell Nearby UI (implemented, now migration source):** replace tree/list hierarchy with current Nearby distance/count, a shaded
-    map area, Place pins, and Return to Nearby. Add Contacts-only, Radio nearby, Neighborhood,
-    Close nearby, and Location-off settings with explicit home/work exposure text. Never imply that
+  - [x] **P0 flat Nearby UI (implemented; protocol allocator remains a migration source):** show one
+    current group, flat Places, a shaded map area, Place pins, and Return Home. Never imply that
     hashing a cell hides its approximate location.
-    - [x] Replaced the rendered hierarchy with one flat active scope plus Community-created Places;
-      added all five privacy modes and the home/work disclosure warning.
+    - [x] Replaced the rendered hierarchy and remaining tree-named UI state with **Your current
+      group** plus a flat **Places** section. Rows expose no level, expand control, room id, split
+      generation, parent, or child. List/Map controls now use list/map state and identifiers.
     - [x] The map shades and focuses the locally derived active Nearby cell, reports its actual
-      approximate diameter, and keeps Place pins separate. Return to Nearby recomputes the current
-      geographic/certificate path and clears traveler state; no cell bounds leave the device.
+      approximate diameter, and keeps Place pins separate. Tapping empty map space previews
+      **Nearby around this point** and joins deliberately as a traveler; Return Home recomputes the
+      current geographic/certificate path and clears traveler state; no cell bounds leave the device.
     - [x] Settings now provide explicit **Location off**, **Regional (~50 km)**, **Citywide
       (~10 km)**, **Neighborhood (~1 km)**, and **Close (~400 m)** choices. Location off stops
       automatic Nearby while retaining Contacts and deliberately selected Places. The UI warns that
       larger blur reduces precision but cannot guarantee anonymity; saved Radio-nearby audience
       selections migrate to Neighborhood because Bluetooth is a provider, not a location mode.
+    - [x] Moved the disclosure choice into **Home & sensitive locations**. One global automatic-
+      Nearby setting protects home/work without storing a labelled address; Settings reports only
+      fix availability and never echoes latitude/longitude.
   - [x] **P0 Places:** publish signed content-addressed Community-created descriptors indexed by map
     cell; creation grants no authority or trademark claim. A deliberate precise business address
     requires confirmation; community pins snap to the public cell. Joining is an atomic active-room

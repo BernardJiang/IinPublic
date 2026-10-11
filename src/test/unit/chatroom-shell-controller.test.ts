@@ -21,10 +21,11 @@ function makeDeps(overrides: Partial<ChatroomShellControllerDeps> = {}): Chatroo
     getCurrentUser: () => undefined,
     getChatroomMemberCounts: () => new Map(),
     getChatroomVisitCounts: () => new Map(),
-    getChatroomBrowseMode: () => 'tree',
+    getChatroomBrowseMode: () => 'list',
     getExpandedChatrooms: () => new Set(),
     getMatchedUserIds: () => new Set(),
     getCustomChatrooms: () => [],
+    getTravelModeActive: () => false,
     setSessionUser: jest.fn(),
     setCurrentUserId: jest.fn(),
     setChatroomBrowseMode: jest.fn(),
@@ -74,7 +75,7 @@ describe('chatroom shell controller', () => {
     expect(renderRooms).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves the first-painted startup hierarchy instead of rendering it twice', () => {
+  it('preserves the first-painted startup list instead of rendering it twice', () => {
     document.body.innerHTML = `<div id="chatroom-list"><div class="chatroom-item"></div></div>`;
     const deps = makeDeps();
 

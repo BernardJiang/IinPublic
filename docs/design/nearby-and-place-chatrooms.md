@@ -11,7 +11,7 @@ Related: Technical Specification §3.3, §6.1, §19.7, §19.14, and §29
 IinPublic has three independent ways to reach people:
 
 1. **Nearby** is one shared adaptive chatroom containing at most `C` online strangers. Its footprint
-   grows when the network is sparse and divides geographically when occupancy exceeds `C`.
+   grows when the network is sparse and is repartitioned geographically when occupancy exceeds `C`.
 2. **Places** are user-created map destinations such as a restaurant, event, club, or community.
    A user taps a pin to enter one deliberately.
 3. **Contacts** are direct relationships independent of room membership. TechSupport exists only
@@ -43,9 +43,9 @@ useful proximity evidence but do not turn the location into an identity or truth
 
 Initial publication precisions are approximately 400 metres for **Close nearby**, 1 km for
 **Neighborhood**, 10 km for **Citywide**, and 50 km for **Regional**. These control how precisely a
-device may place the user, not a promise about physical radio range. The room hierarchy may merge to
-a broader shared parent when sparse, but it must never publish a location more precise than the
-user's choice.
+device may place the user, not a promise about physical radio range. The partition controller may
+coalesce sparse groups into a broader shared group, but it must never publish a location more
+precise than the user's choice.
 
 Settings expose the actual trade-off:
 
@@ -64,6 +64,13 @@ at a sensitive home or workplace; it stops GPS-derived Nearby presence and its s
 advertisements rather than merely hiding the map drawing. Citywide and Regional are privacy floors:
 capacity handling must use opaque identity lanes rather than subdivide them into a more precise
 public geographic assignment.
+
+The setting is global for automatic Nearby. IinPublic does not need to label or store a precise
+home or work address merely to protect it: the user selects Citywide, Regional, or Location off,
+and that disclosure ceiling applies wherever automatic Nearby runs. Settings show whether a local
+location fix is available and the approximate disclosed area, never the latitude/longitude. The
+exact fix may remain in device-local location services/cache; it is not echoed in UI, logs intended
+for sharing, room names, or public records.
 
 **Radio nearby is not a separate audience or location mode.** Bluetooth is one discovery-provider
 switch, alongside Internet, LAN, and Wi-Fi Direct. Turning a provider on or off changes how the
@@ -166,23 +173,28 @@ may change in a later signed protocol manifest after simulation and real-device 
 
 The automatic Nearby rule is:
 
-1. The root chatroom covers the whole coordinate space. While the total ordinary online population
-   is at most `C`, all users share that room, so two users always find one another through Internet
-   discovery regardless of distance.
-2. When signed live occupancy proves a room has more than `C` members, it divides into deterministic
-   geographic children. Every member follows exactly one child derived from their blurred declared
-   location before publishing new presence or radio advertisements.
-3. Subdivision repeats only on an overflowing branch until each active leaf has at most `C` members.
-   Political borders, country databases, FIFO age, and visible `_part_N` rooms are never inputs.
-4. When all live sibling occupancy can fit in their parent for a sustained merge dwell, the siblings
-   merge through a stop-old-before-start-parent transition. Merge/split hysteresis prevents churn.
-   If the worldwide population eventually falls to two, they converge back to the root room.
-5. A traveler selects a point on the map. The client resolves the active leaf covering that point
+1. While the total ordinary online population is at most `C`, all users share one broad Nearby
+   group, so two users can find one another through Internet discovery regardless of distance.
+2. When signed live occupancy proves a group has more than `C` members, a deterministic partition
+   manifest replaces it with disjoint, geographically compact groups. Every member follows exactly
+   one replacement derived from their blurred declared location before publishing new presence or
+   radio advertisements.
+3. Repartitioning continues only where capacity requires it until every active group has at most
+   `C` members. Political borders, country databases, FIFO age, and visible `_part_N` rooms are
+   never inputs.
+4. Adjacent sparse groups that fit together may be replaced by one broader group after a sustained
+   merge dwell. Split/merge hysteresis prevents churn. If the worldwide population eventually falls
+   to two, they converge into one broad group.
+5. A traveler selects a point on the map. The client resolves the active group covering that point
    and joins its shared roster with a traveler marker. If that branch later splits or merges, the
-   saved travel point deterministically follows the correct replacement room. Return home resolves
-   the current home point through the same tree.
-6. A client subscribes only to its active leaf plus bounded signed parent control summaries needed
-   for split/merge decisions. It never downloads a million-user root roster after subdivision.
+   saved travel point deterministically follows the correct replacement group. Return home resolves
+   the current home point through the current partition manifest.
+6. A client subscribes only to its active group plus bounded signed partition-control summaries. It
+   never downloads a million-user broad-group roster after repartitioning.
+
+The partition manifest is protocol control data, not a tree of chatrooms. Groups have no
+user-visible parent, child, level, expandable node, or inherited room attributes. Repartitioning
+replaces flat groups atomically; it does not create a navigation hierarchy.
 
 This restores the defining chatroom property: every member sees the same room identifier, roster,
 capacity, and Talk audience. It also exposes a mathematical trade-off. An exact personalized
@@ -277,9 +289,26 @@ not use or publish the visitor's GPS as the destination. The visit retains the h
 location, carries a traveler marker, survives restart, and follows later `C` changes. Return home
 restores the home location and clears the visit.
 
-Map UI shows the declared encounter area, the active shared room footprint, adjacent travel
-destinations when useful, and meaningful Place pins. It does not show the internal tree, raw
-coordinate IDs, Global, TechSupport, or a geographic hierarchy.
+### Flat list and map presentation
+
+List view has exactly two flat sections:
+
+1. **Your current group** — one Nearby or selected Place card, its description, traveler marker
+   when applicable, headcount, and the global capacity ceiling.
+2. **Places** — independent public Place cards. A Place is never rendered underneath Nearby or
+   another Place. Empty state points to Map or Place creation.
+
+There are no expand arrows, indentation levels, parent/child labels, coordinate IDs, split
+generations, or numbered capacity shards. The UI may call a sparse worldwide audience **Broad
+discovery** rather than Nearby when that distinction is available from verified control state.
+
+Map view shows only the user's blurred encounter-area shading and public Place pins/population
+bubbles. It never plots member coordinates. Tapping a Place opens that Place. Tapping empty map
+space opens a **Nearby around this point** preview; joining changes the encounter location and marks
+the user as a traveler. **Return Home** recomputes the current blurred home area. Internal partition
+boundaries may affect the shaded group footprint, but no partition node is rendered as a pin or
+navigable room. Global, TechSupport, country/state layers, raw coordinate IDs, and room hierarchy
+remain absent.
 
 ## 5. Gun.js boundary
 
@@ -293,7 +322,7 @@ places/by-id/<placeCID>/descriptor
 places/by-map-cell/<mapCell>/<placeCID>/reference
 room-presence/<roomId>/<userPubHash>/signed-expiring-presence
 nearby-control/<policyVersion>/<roomId>/signed-occupancy-summary
-nearby-index/<policyVersion>/<parentRoomId>/<childRoomId>/active-reference
+nearby-index/<policyVersion>/<transitionId>/signed-group-replacements
 place-presence/<roomId>/<userPubHash>/signed-expiring-presence
 place-admission-claims/<roomHash>/<identityHash>/signed-expiring-seat-claim
 public/protocol-manifests/<sequence>/signed-manifest
@@ -331,9 +360,9 @@ paths never contain full Talk bodies, answers, message bodies, ledger histories,
 deal state.
 
 The Nearby control graph stores signed, expiring room presences, bounded occupancy summaries, and
-active parent/child references. A presence identifies the shared room, privacy precision, policy
-version, travel generation, rotating discovery identifier, and short expiry. Clients verify control
-evidence before following a split or merge and subscribe only to one active roster. This proves
+flat group-replacement transitions. A presence identifies the shared room, privacy precision,
+policy version, travel generation, rotating discovery identifier, and short expiry. Clients verify
+control evidence before following a repartition or coalescing transition and subscribe only to one active roster. This proves
 signed declarations and occupancy observations, not physical location or Sybil resistance. BLE
 proximity and future abuse controls may strengthen evidence without exposing exact GPS or claiming
 the declared location is true.
@@ -410,13 +439,13 @@ they describe implementation status, not the accepted product design in this doc
 
 Migration order:
 
-1. Introduce signed room presence, the adaptive split/merge control tree, Place IDs, and the Gun
+1. Introduce signed room presence, the adaptive flat partition manifest, Place IDs, and the Gun
    control schema.
 2. Move owner-private Talk/Me repositories behind the encrypted storage interface.
    Pair-message history and signed ledgers use the same local boundary and direct endpoint sync.
-3. Extend the existing geographic subdivision into a full root-to-leaf split/merge hierarchy so a
-   sparse population shares a broad room and every dense leaf stays at or below `C`.
-4. Replace tree navigation with one active room footprint, Place pins, map travel, and Return home.
+3. Replace the existing geographic subdivision with flat group replacement/coalescing so a sparse
+   population shares one broad room and every dense group stays at or below `C`.
+4. Present one active group card, flat Place cards/pins, map-point travel, and Return Home.
 5. Remove Global and TechSupport room membership/floors.
 6. Make direct delivery scheduling authoritative and disable third-person forwarding by default.
 7. Migrate saved legacy rooms without rebroadcasting old Talks, then retire legacy routing.

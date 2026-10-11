@@ -11,7 +11,7 @@ function buildDeps(overrides: Record<string, unknown> = {}): any {
     currentChatroom: 'global',
     chatroomMemberCounts: new Map(),
     chatroomVisitCounts: new Map(),
-    chatroomBrowseMode: 'tree',
+    chatroomBrowseMode: 'list',
     expandedChatrooms: new Set(),
     matchedUserIds: new Set(),
     customChatrooms: [],

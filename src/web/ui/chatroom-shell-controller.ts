@@ -25,6 +25,7 @@ export type ChatroomShellControllerDeps = {
   getMatchedUserIds: () => Set<string>;
   getCustomChatrooms: () => CustomChatroomRow[];
   getNearbyMapArea?: () => ChatroomsViewDeps['nearbyMapArea'];
+  getTravelModeActive: () => boolean;
   setSessionUser: (user: User) => void;
   setCurrentUserId: (userId: string) => void;
   setChatroomBrowseMode: (mode: ChatroomsViewDeps['chatroomBrowseMode']) => void;
@@ -70,6 +71,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     expandedChatrooms: deps.getExpandedChatrooms(),
     matchedUserIds: deps.getMatchedUserIds(),
     customChatrooms: deps.getCustomChatrooms(),
+    travelModeActive: deps.getTravelModeActive(),
       ...(nearbyMapArea ? { nearbyMapArea } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
