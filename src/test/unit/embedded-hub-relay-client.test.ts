@@ -158,4 +158,29 @@ describe('EmbeddedHubRelayClient', () => {
       }),
     );
   });
+
+  it('forwards only Nearby cohort control paths and preserves conflict responses', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      status: 409,
+      json: async () => ({ code: 'target-full', error: 'Nearby target cohort is full' }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const client = new EmbeddedHubRelayClient({
+      upstreamHubBaseUrl: 'http://127.0.0.1:8080',
+      requestTimeoutMs: 500,
+    });
+
+    await expect(client.forwardNearbyCohort('/api/nearby-cohorts/reservations', 'POST', { claim: 'signed' }))
+      .resolves.toEqual({ status: 409, body: { code: 'target-full', error: 'Nearby target cohort is full' } });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8080/api/nearby-cohorts/reservations',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim: 'signed' }),
+      }),
+    );
+    await expect(client.forwardNearbyCohort('/api/talks/private', 'GET'))
+      .rejects.toThrow(/refuses non-cohort path/);
+  });
 });

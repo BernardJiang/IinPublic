@@ -1,5 +1,6 @@
 import SEA from 'gun/sea';
 import type { RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
+import { createNearbyCohortSeatClaim } from '../../shared/nearby-cohort-admission';
 import {
   createNearbyPartitionTransitionV2,
   nearbyCohortRootGroup,
@@ -142,5 +143,53 @@ describe('OPEN-40-G2 client/index integration', () => {
     expect(await restarted.initialize(context)).toEqual(visited);
     expect(restartLog).toEqual([]);
     expect(restarted.getSnapshot()).toMatchObject({ isDefaultGroup: false, status: 'ready' });
+  });
+
+  it('moves from a replaced parent to its stable child without mis-signing a manual visit', async () => {
+    const store = new NearbyCohortStore();
+    const root = nearbyCohortRootGroup(checkpoint);
+    const signingPair = await SEA.pair() as SeaSigningPair;
+    const rootClaim = await createNearbyCohortSeatClaim({
+      checkpoint,
+      pair: signingPair,
+      userId: 'replacement-user',
+      privacyMode: 'regional',
+      group: root,
+      generation: 1,
+      previousClaimHash: null,
+      now,
+    });
+    const rootReservation = await store.reserve({ claim: rootClaim, now });
+    await store.commit({ reservationToken: rootReservation.reservationToken, claim: rootClaim, now });
+    const transition = createNearbyPartitionTransitionV2({
+      axis: 'cohort',
+      checkpoint,
+      fromGroup: root,
+      evidenceHash: '7'.repeat(64),
+      createdAt: now.toISOString(),
+    });
+    await store.publishTransitions(checkpoint, [transition], now);
+    const context: NearbyCohortTraversalContext = {
+      checkpoint,
+      userId: 'replacement-user',
+      pair: signingPair,
+      privacyMode: 'regional',
+      defaultGroup: transition.toGroups[0]!,
+    };
+    const api = new WebNearbyCohortTraversalApi({
+      apiBase: () => 'https://cohort.test',
+      fetch: storeFetch(store),
+      now: () => new Date(now.getTime() + 1_000),
+    });
+    const client = new NearbyCohortTraversalClient({
+      api,
+      storage: new MemoryStorage(),
+      handoff: handoff([]),
+      now: () => new Date(now.getTime() + 1_000),
+    });
+
+    await expect(client.initialize(context)).resolves.toEqual(context.defaultGroup);
+    expect(store.activeClaim(checkpoint, signingPair.pub, new Date(now.getTime() + 1_000))?.group)
+      .toEqual(context.defaultGroup);
   });
 });

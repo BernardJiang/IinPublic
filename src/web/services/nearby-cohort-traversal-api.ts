@@ -86,7 +86,14 @@ export class WebNearbyCohortTraversalApi implements NearbyCohortTraversalApi {
       now,
       enteredAt: now,
     });
-    const selection = input.targetGroup.roomId === input.fromGroup.roomId
+    const sameCohortLevel = input.targetGroup.address.geographicPath
+        === input.fromGroup.address.geographicPath
+      && input.targetGroup.address.cohortPath.length
+        === input.fromGroup.address.cohortPath.length;
+    // Only a same-area, same-level user visit carries a manual selection. A parent→child move is
+    // an automatic capacity replacement and is authenticated by the index's signed transition;
+    // encoding it as a manual visit would (correctly) fail the protocol's equal-depth check.
+    const selection = input.targetGroup.roomId === input.fromGroup.roomId || !sameCohortLevel
       ? undefined
       : await createNearbyManualCohortSelection({
         checkpoint: input.context.checkpoint,

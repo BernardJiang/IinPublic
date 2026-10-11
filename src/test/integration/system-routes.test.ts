@@ -196,6 +196,40 @@ describe('system routes', () => {
     );
   });
 
+  it('forwards Nearby cohort control through an embedded node with exact status and query', async () => {
+    const forwardNearbyCohort = jest.fn()
+      .mockResolvedValueOnce({ status: 200, body: { cohorts: [{ roomId: 'cohort-a' }] } })
+      .mockResolvedValueOnce({ status: 409, body: { code: 'target-full', error: 'full' } });
+    const { app } = buildApp('test', { forwardNearbyCohort } as unknown as EmbeddedHubRelayClientLike);
+
+    const summary = await request(app)
+      .get('/api/nearby-cohorts/nearby_area_abc/summaries')
+      .query({ networkId: 'physical', protocolEpoch: '2', manifestSequence: '1' });
+    expect(summary.status).toBe(200);
+    expect(summary.body.cohorts).toEqual([{ roomId: 'cohort-a' }]);
+    expect(forwardNearbyCohort).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/^\/api\/nearby-cohorts\/nearby_area_abc\/summaries\?/),
+      'GET',
+      undefined,
+    );
+    const forwardedPath = String(forwardNearbyCohort.mock.calls[0][0]);
+    expect(forwardedPath).toContain('networkId=physical');
+    expect(forwardedPath).toContain('protocolEpoch=2');
+
+    const reserve = await request(app)
+      .post('/api/nearby-cohorts/reservations')
+      .send({ claim: 'signed' });
+    expect(reserve.status).toBe(409);
+    expect(reserve.body).toEqual({ code: 'target-full', error: 'full' });
+    expect(forwardNearbyCohort).toHaveBeenNthCalledWith(
+      2,
+      '/api/nearby-cohorts/reservations',
+      'POST',
+      { claim: 'signed' },
+    );
+  });
+
   it('reports SEA private-key and plaintext relay leaks in debug storage', async () => {
     const { app, gun } = buildApp();
     const graph = gun._.graph as Record<string, unknown>;

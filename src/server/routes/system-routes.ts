@@ -509,7 +509,25 @@ export function registerSystemRoutes(
     res.status(400).json({ error: (error as Error).message });
   };
 
+  const relayCohort = async (
+    res: express.Response,
+    path: string,
+    method: 'GET' | 'POST' | 'DELETE',
+    body?: unknown,
+  ): Promise<boolean> => {
+    if (!hubRelayClient?.forwardNearbyCohort) return false;
+    try {
+      const relayed = await hubRelayClient.forwardNearbyCohort(path, method, body);
+      if (relayed.status === 204) res.status(204).send();
+      else res.status(relayed.status).json(relayed.body);
+    } catch (error) {
+      res.status(503).json({ code: 'policy-unavailable', error: (error as Error).message });
+    }
+    return true;
+  };
+
   app.post('/api/nearby-cohorts/policy', async (req, res) => {
+    if (await relayCohort(res, '/api/nearby-cohorts/policy', 'POST', req.body || {})) return;
     try {
       const checkpoint = req.body?.policy?.checkpoint;
       if (!checkpoint || typeof checkpoint !== 'object') {
@@ -524,6 +542,10 @@ export function registerSystemRoutes(
   });
 
   app.get('/api/nearby-cohorts/:areaBindingId/summaries', async (req, res) => {
+    const summaryQuery = new URLSearchParams(Object.entries(req.query)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+    const summaryPath = `/api/nearby-cohorts/${encodeURIComponent(String(req.params.areaBindingId || ''))}/summaries?${summaryQuery}`;
+    if (await relayCohort(res, summaryPath, 'GET')) return;
     try {
       const checkpoint = partitionCheckpointFrom(req.query as Record<string, unknown>);
       if (!checkpoint) {
@@ -542,6 +564,7 @@ export function registerSystemRoutes(
   });
 
   app.post('/api/nearby-cohorts/reservations', async (req, res) => {
+    if (await relayCohort(res, '/api/nearby-cohorts/reservations', 'POST', req.body || {})) return;
     try {
       const reservation = await nearbyCohortStore.reserve({
         claim: req.body?.claim,
@@ -554,6 +577,8 @@ export function registerSystemRoutes(
   });
 
   app.post('/api/nearby-cohorts/reservations/:token/commit', async (req, res) => {
+    const commitPath = `/api/nearby-cohorts/reservations/${encodeURIComponent(String(req.params.token || ''))}/commit`;
+    if (await relayCohort(res, commitPath, 'POST', req.body || {})) return;
     try {
       const result = await nearbyCohortStore.commit({
         reservationToken: String(req.params.token || ''),
@@ -566,11 +591,17 @@ export function registerSystemRoutes(
   });
 
   app.delete('/api/nearby-cohorts/reservations/:token', (req, res) => {
+    if (hubRelayClient?.forwardNearbyCohort) {
+      const cancelPath = `/api/nearby-cohorts/reservations/${encodeURIComponent(String(req.params.token || ''))}`;
+      void relayCohort(res, cancelPath, 'DELETE');
+      return;
+    }
     nearbyCohortStore.cancelReservation(String(req.params.token || ''));
     res.status(204).send();
   });
 
   app.post('/api/nearby-cohorts/release', async (req, res) => {
+    if (await relayCohort(res, '/api/nearby-cohorts/release', 'POST', req.body || {})) return;
     try {
       res.json(await nearbyCohortStore.release(req.body?.claim));
     } catch (error) {
@@ -579,6 +610,7 @@ export function registerSystemRoutes(
   });
 
   app.post('/api/nearby-cohorts/reconcile', async (req, res) => {
+    if (await relayCohort(res, '/api/nearby-cohorts/reconcile', 'POST', req.body || {})) return;
     try {
       const checkpoint = req.body?.checkpoint;
       if (!checkpoint || typeof checkpoint !== 'object') {
@@ -595,6 +627,13 @@ export function registerSystemRoutes(
   });
 
   app.get('/api/nearby-cohorts/active/:pub', (req, res) => {
+    if (hubRelayClient?.forwardNearbyCohort) {
+      const activeQuery = new URLSearchParams(Object.entries(req.query)
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+      const activePath = `/api/nearby-cohorts/active/${encodeURIComponent(String(req.params.pub || ''))}?${activeQuery}`;
+      void relayCohort(res, activePath, 'GET');
+      return;
+    }
     try {
       const checkpoint = partitionCheckpointFrom(req.query as Record<string, unknown>);
       if (!checkpoint) {
