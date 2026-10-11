@@ -280,12 +280,13 @@ its ID.
       - Bluetooth advertises a beacon online too (permission already granted only, never a
         mid-exchange prompt) with bounded scans.
       - Wi-Fi Direct no longer requires the phone to be offline. An online phone that sees an
-        eligible offline same-room phone links with it to bridge it into the room, and leaves one
-        minute after no offline phone remains. Online pairs keep the hub route. Beacons/TXT carry
-        an online flag (BLE bit 4, TXT `o`).
-      - [ ] Hardware: verify that the bridge actually relays Gun/WebRTC from the offline client to
-        the hub through the owner's embedded node, and that Wi-Fi STA + Wi-Fi Direct concurrency
-        holds on PH-1, P30, C10 and Honor.
+        eligible offline same-room phone links with it so the two can exchange Talks, and leaves
+        one minute after no offline phone remains. Online pairs keep the hub route. Beacons/TXT
+        carry an online flag (BLE bit 4, TXT `o`).
+      - [ ] Hardware: verify that an online and an offline phone exchange Talks over the link, and
+        that Wi-Fi STA + Wi-Fi Direct concurrency holds on PH-1, P30, C10 and Honor.
+      - Deferred (product owner, 2026-10-11): bridging the offline phone onward to the hub/room
+        through the online phone.
     - [x] Added `NearbyCandidateRegistry` (2026-10-10). LAN, BLE and DNS-SD sightings merge into one
       logical peer keyed by rotating id. They are re-keyed by SEA identity when the id matches
       `rotatingNearbyId(pub, room, epoch)` for a signed roster member, so sightings also merge across

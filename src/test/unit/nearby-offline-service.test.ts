@@ -523,7 +523,7 @@ describe('NearbyOfflineService staged discovery', () => {
     t.service.dispose();
   });
 
-  it('network-free: an offline phone links with an online phone that can bridge it', async () => {
+  it('network-free: an offline phone links with a nearby online phone to exchange Talks', async () => {
     const t = setup({ roomPeers: { count: 0, pubs: [] } });
     await t.service.start();
     // Id 000… outranks any local id, so the online phone is the elected host and we wait for it.
@@ -543,7 +543,7 @@ describe('NearbyOfflineService staged discovery', () => {
     t.service.dispose();
   });
 
-  it('an online phone bridges an offline same-room phone it sees nearby, then frees the radio when it leaves', async () => {
+  it('an online phone links with an offline same-room phone it sees nearby, then frees the radio when it leaves', async () => {
     const t = setup({ hubReachable: true, roomPeers: { count: 0, pubs: [] } });
     await t.service.start();
     expect(t.calls).not.toContain('wd-start');

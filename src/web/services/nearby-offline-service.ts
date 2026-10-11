@@ -63,7 +63,7 @@ export type NearbyStatus =
   | { kind: 'searching'; lanPhones: number }
   /** Offline and nobody found: beacon only, the next scan window is backed off. */
   | { kind: 'quiet'; lanPhones: number; nextScanInSeconds: number }
-  /** `online`: this phone reaches the hub and bridges offline nearby phones into the room. */
+  /** `online`: this phone reaches the hub and links with offline nearby phones to exchange Talks. */
   | { kind: 'wifi-direct'; online: boolean; hosting: boolean; phones: number | null; lanPhones: number };
 
 export type NearbyReadinessGap = 'permission' | 'wifi' | 'location' | 'bluetooth';
@@ -132,7 +132,8 @@ const FALLBACK_OWNER_COOLDOWN_MS = 5 * 60_000;
  * - The BLE beacon advertises whenever Bluetooth is on (and, online, already permitted); scans are
  *   duty-cycled with a quiet-singleton backoff.
  * - Wi-Fi Direct is network-free: offline it runs in scan windows; online it stays idle until an
- *   OFFLINE same-room phone needs a link, which the online phone then bridges to the room. A group
+ *   OFFLINE same-room phone needs a link so the two can exchange Talks (bridging that phone on to
+ *   the hub is deferred). A group
  *   forms only for a proof-verified (or roster-bound) same-room phone the LAN does not reach.
  * Every sighting goes through one `NearbyCandidateRegistry`, so a phone seen over LAN, BLE and
  * DNS-SD (and across id rotations) is one logical peer.
@@ -421,7 +422,8 @@ export class NearbyOfflineService {
         && (offline ? true : bleAvailable === 'on' && readiness?.permission === true);
       const lanIds = this.registry.lanIds(now);
       // Network-free: any eligible phone the LAN does not reach needs a link while we are offline;
-      // while we reach the hub, only an OFFLINE phone does (we bridge it; online pairs use the hub).
+      // while we reach the hub, only an OFFLINE phone does (so we can exchange Talks; online pairs
+      // use the hub).
       const groupCandidates = this.registry.eligibleRecords(now)
         .filter((record) => record.id !== this.id && !lanIds.has(record.id) && record.joinByCredential
           && (offline || !record.online)).length;
@@ -442,7 +444,7 @@ export class NearbyOfflineService {
       }
       this.lastDecision = decision;
       this.applyLan(decision.lanNsd);
-      // Online with nobody offline left to bridge: the hub path (and the hub-matchmade upgrade)
+      // Online with no offline phone left to exchange with: the hub path (and the hub-matchmade upgrade)
       // serve everyone; free the radio after a dwell.
       this.onlineSince = !offline && ourGroup && groupCandidates === 0 ? (this.onlineSince ?? now) : null;
       if (this.onlineSince !== null && now - this.onlineSince >= ONLINE_LEAVE_GROUP_MS) {

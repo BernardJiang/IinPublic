@@ -87,10 +87,10 @@ describe('staged discovery policy', () => {
     expect(policy.decide(input({ roomPeerCount: 1, radioPeers: 1, groupCandidates: 0 }))).toMatchObject({ wifiDirectDiscovery: false, groupFormation: false });
   });
 
-  it('network-free: an online phone links an offline same-room phone (bridge)', () => {
+  it('network-free: an online phone links with an offline same-room phone to exchange Talks', () => {
     const decision = new DiscoveryPolicy().decide(input({ radioPeers: 1, groupCandidates: 1 }));
     expect(decision).toMatchObject({ stage: 'online-peers', wifiDirectDiscovery: true, groupFormation: true, lanNsd: true });
-    // In the group an online bridge keeps scanning so it notices when the offline phone leaves.
+    // In the group an online phone keeps scanning so it notices when the offline phone leaves.
     expect(new DiscoveryPolicy().decide(input({ inGroup: true })).bleScan).toBe(true);
   });
 

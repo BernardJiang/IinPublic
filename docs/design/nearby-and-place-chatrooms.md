@@ -115,7 +115,9 @@ remaining discoverable often enough for a newcomer.
   - Offline, discovery runs in scan windows and a group forms for any eligible peer the LAN does
     not reach, including an online one.
   - Online, it stays idle until an eligible OFFLINE same-room phone is seen. The online phone then
-    links with it and bridges it into the room, leaving one minute after no offline phone remains.
+    links with it so the two can exchange Talks, leaving one minute after no offline phone remains.
+    Relaying the offline phone onward to the hub (bridging) is deferred (product owner,
+    2026-10-11).
   - Two online phones never group; the hub and its matchmade link upgrade are their route.
   - Every eligible phone, online or not, takes part in the host election, so all sides agree on
     one host.

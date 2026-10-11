@@ -67,7 +67,7 @@ export type NearbyRecord = {
    * prefix-only (legacy v2) sightings never qualify a peer for Wi-Fi Direct group formation.
    */
   roomVerified?: boolean;
-  /** BLE flag bit 4 / TXT `o`: the phone reaches the hub (a bridge for offline phones). */
+  /** BLE flag bit 4 / TXT `o`: the phone reaches the hub. */
   online?: boolean;
   /** TXT `q` as advertised; the service verifies it against its own full room token. */
   roomProof?: string;
@@ -222,7 +222,7 @@ export function planOfflineGroup(input: {
 /**
  * BLE presence payload (hex, 12 bytes max — the native bridge refuses longer): version, 6-byte
  * rotating id, 4-byte room field, flags — bit 0 hosting the offline group, bit 1 joins by
- * credential, bits 2–3 host score, bit 4 online (reaches the hub; can bridge offline phones — older
+ * credential, bits 2–3 host score, bit 4 online (reaches the hub — older
  * parsers ignore it). v3's room field is `nearbyRoomProof` (full-token bound,
  * id bound, not linkable across rotations); v2's was a static token prefix and is parsed only for
  * the mixed-release window, as an unverified sighting.

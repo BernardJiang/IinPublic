@@ -15,8 +15,9 @@ import { NEARBY_ID_EPOCH_MS, type NearbyRecord } from './nearby-offline';
  *   is still used over Wi-Fi/Ethernet; with no other uplink the phone relies on its radios.
  * - `lan`: Android NSD on the shared Wi-Fi.
  * - `wifi-direct`: room-scoped DNS-SD and demand-driven group formation, online or offline. An
- *   online phone links with an offline same-room phone so that phone reaches the room (and the
- *   hub) through it; two online phones keep using the hub path instead.
+ *   online phone links with an offline same-room phone so the two can exchange Talks; two online
+ *   phones keep using the hub path instead. Relaying the offline phone onward to the hub
+ *   (bridging) is deferred.
  * - `bluetooth`: BLE presence (proximity evidence only; Talks never travel over BLE).
  */
 export type DiscoveryProviderKind = 'cellular' | 'lan' | 'wifi-direct' | 'bluetooth';
