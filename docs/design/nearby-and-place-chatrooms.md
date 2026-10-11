@@ -293,6 +293,40 @@ to reject a new admission when its single audience is full and offer Nearby arou
 4.1 accepts visitable Place cohorts as a separately versioned extension; it must not be inferred by
 reusing Nearby transitions or silently changing the meaning of an existing Place seat claim.
 
+### 3.3 Implemented visitable-cohort control plane
+
+The v2 control plane is implemented but activates only when a verified protocol manifest, the
+client, and the index all advertise `nearby-visitable-cohorts-v2`. A legacy assignment never enables
+it by itself. The implementation consists of:
+
+- signed, expiring seat claims chained by stable public key, generation, and previous-claim hash;
+- a separately signed, trusted experimental occupancy policy for target occupancy, cohort-count
+  bound, and reservation lifetime, while the manifest's `C` remains the hard ceiling;
+- bounded index state and summaries, serialized reserve/commit/cancel/release, deterministic
+  winner selection, and claim-based reconciliation after index partitions;
+- a client-side deterministic visit order with bounded recent history, full-target retry, one
+  queued handoff at a time, safe default return, and committed-visit restoration before room startup;
+- a write-ahead mixed-release migration that keeps v1 lineage rollback-readable and treats a v1
+  identity-lane suffix as non-geographic forever.
+
+The relay exposes signed policy, summaries, reservations, commits, releases, reconciliation, and
+active-claim lookup. It deliberately does **not** expose a route for publishing bare transition
+records: a transition contains an evidence digest rather than the signed claims themselves, so
+accepting one from an arbitrary client would let it reshape the index without proving occupancy.
+Indexes instead recreate transitions from verified reconciled claims. Transition creation is
+deferred while any reservation at that level remains live, preventing a valid token from losing its
+target between reserve and commit.
+
+The flat UI is wired to the real traversal view-model. Runtime activation still requires migration
+to supply a verified v2 default group; until then the existing v1 Nearby path remains authoritative
+and the cohort controls truthfully show that no alternative group is available.
+
+Automated gates cover 2, 498, 499, 10,000, and one million members, all four privacy modes,
+geographic-to-cohort display invariants, concurrent admission/switches, restart, tamper/replay,
+partition/reconnect convergence, geographic split/coalesce, and `K`-bounded direct scheduling. The
+physical policy experiment remains separate: `498` is still an arbitrary experimental default and
+must not be presented as an empirically optimal capacity.
+
 ## 4. Place rooms and map travel
 
 Any user may publish an immutable, signed, content-addressed Place descriptor containing a display

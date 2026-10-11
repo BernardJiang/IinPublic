@@ -16,6 +16,13 @@ const point = (latitude: number, longitude: number, accuracy = 10): GPSCoordinat
 });
 
 describe('Nearby geographic room placement', () => {
+  test('recognizes versioned adaptive and visitable-cohort room IDs without widening the pattern', () => {
+    expect(isNearbyRoomId(`nearby_v2_e1_${'a'.repeat(24)}`)).toBe(true);
+    expect(isNearbyRoomId(`nearby_v3_e2_${'b'.repeat(24)}`)).toBe(true);
+    expect(isNearbyRoomId(`nearby_v3_e2_${'b'.repeat(23)}z`)).toBe(false);
+    expect(isNearbyRoomId(`nearby_v4_e2_${'b'.repeat(24)}`)).toBe(false);
+  });
+
   test('same close-nearby cell converges without exposing coordinates in the room ID', () => {
     const alice = deriveNearbyRoomAssignment({
       location: point(32.7157, -117.1611),

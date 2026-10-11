@@ -80,6 +80,7 @@ import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
 import { MicroRoomControlStore } from '../services/micro-room-control-store';
 import { NearbyControlStore } from '../services/nearby-control-store';
 import { NearbyPartitionStore } from '../services/nearby-partition-store';
+import { NearbyCohortStore, NearbyCohortStoreError } from '../services/nearby-cohort-store';
 import {
   FAQ_ENTRIES_ROOT,
   faqEntryRecordPath,
@@ -160,6 +161,8 @@ type RegisterSystemRoutesDeps = {
   verifyTechSupportDelegateGrant?: (value: unknown) => Promise<TechSupportDelegateGrant | null>;
   /** OPEN-29 test seam; production always uses signature verification rooted in compiled anchors. */
   verifyTechSupportRecoveryAnchor?: (value: unknown) => Promise<RecoveryAnchorRecord | null>;
+  /** Trusted release/policy SEA public keys allowed to tune experimental Nearby cohort headroom. */
+  nearbyCohortPolicySignerPubs?: string[];
 };
 
 export function registerSystemRoutes(
@@ -175,6 +178,7 @@ export function registerSystemRoutes(
     techSupportStore,
     verifyTechSupportDelegateGrant = verifyDelegateGrant,
     verifyTechSupportRecoveryAnchor = verifyRecoveryAnchor,
+    nearbyCohortPolicySignerPubs,
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
@@ -192,6 +196,13 @@ export function registerSystemRoutes(
   const microRoomControlStore = new MicroRoomControlStore();
   const nearbyControlStore = new NearbyControlStore();
   const nearbyPartitionStore = new NearbyPartitionStore();
+  const nearbyCohortStore = new NearbyCohortStore(new Set(
+    nearbyCohortPolicySignerPubs
+      ?? String(process.env.IINPUBLIC_NEARBY_COHORT_POLICY_PUBS || '')
+        .split(',')
+        .map((pub) => pub.trim())
+        .filter(Boolean),
+  ));
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
@@ -487,6 +498,112 @@ export function registerSystemRoutes(
       res.json(registration);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  const cohortError = (res: express.Response, error: unknown): void => {
+    if (error instanceof NearbyCohortStoreError) {
+      res.status(error.status).json({ code: error.code, error: error.message });
+      return;
+    }
+    res.status(400).json({ error: (error as Error).message });
+  };
+
+  app.post('/api/nearby-cohorts/policy', async (req, res) => {
+    try {
+      const checkpoint = req.body?.policy?.checkpoint;
+      if (!checkpoint || typeof checkpoint !== 'object') {
+        res.status(400).json({ error: 'Nearby cohort policy checkpoint is required' });
+        return;
+      }
+      const policy = await nearbyCohortStore.publishPolicy(checkpoint, req.body.policy);
+      res.json({ policy });
+    } catch (error) {
+      cohortError(res, error);
+    }
+  });
+
+  app.get('/api/nearby-cohorts/:areaBindingId/summaries', async (req, res) => {
+    try {
+      const checkpoint = partitionCheckpointFrom(req.query as Record<string, unknown>);
+      if (!checkpoint) {
+        res.status(400).json({ error: 'valid Nearby cohort checkpoint is required' });
+        return;
+      }
+      const result = await nearbyCohortStore.summaries({
+        checkpoint,
+        areaBindingId: String(req.params.areaBindingId || ''),
+        currentRoomId: String(req.query.currentRoomId || ''),
+      });
+      res.json(result);
+    } catch (error) {
+      cohortError(res, error);
+    }
+  });
+
+  app.post('/api/nearby-cohorts/reservations', async (req, res) => {
+    try {
+      const reservation = await nearbyCohortStore.reserve({
+        claim: req.body?.claim,
+        ...(req.body?.selection != null ? { selection: req.body.selection } : {}),
+      });
+      res.status(201).json(reservation);
+    } catch (error) {
+      cohortError(res, error);
+    }
+  });
+
+  app.post('/api/nearby-cohorts/reservations/:token/commit', async (req, res) => {
+    try {
+      const result = await nearbyCohortStore.commit({
+        reservationToken: String(req.params.token || ''),
+        claim: req.body?.claim,
+      });
+      res.json(result);
+    } catch (error) {
+      cohortError(res, error);
+    }
+  });
+
+  app.delete('/api/nearby-cohorts/reservations/:token', (req, res) => {
+    nearbyCohortStore.cancelReservation(String(req.params.token || ''));
+    res.status(204).send();
+  });
+
+  app.post('/api/nearby-cohorts/release', async (req, res) => {
+    try {
+      res.json(await nearbyCohortStore.release(req.body?.claim));
+    } catch (error) {
+      cohortError(res, error);
+    }
+  });
+
+  app.post('/api/nearby-cohorts/reconcile', async (req, res) => {
+    try {
+      const checkpoint = req.body?.checkpoint;
+      if (!checkpoint || typeof checkpoint !== 'object') {
+        res.status(400).json({ error: 'Nearby cohort reconciliation checkpoint is required' });
+        return;
+      }
+      res.json(await nearbyCohortStore.reconcile({
+        checkpoint,
+        claims: Array.isArray(req.body?.claims) ? req.body.claims : [],
+      }));
+    } catch (error) {
+      cohortError(res, error);
+    }
+  });
+
+  app.get('/api/nearby-cohorts/active/:pub', (req, res) => {
+    try {
+      const checkpoint = partitionCheckpointFrom(req.query as Record<string, unknown>);
+      if (!checkpoint) {
+        res.status(400).json({ error: 'valid Nearby cohort checkpoint is required' });
+        return;
+      }
+      res.json({ claim: nearbyCohortStore.activeClaim(checkpoint, String(req.params.pub || '')) });
+    } catch (error) {
+      cohortError(res, error);
     }
   });
 

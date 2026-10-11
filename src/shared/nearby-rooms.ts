@@ -331,7 +331,7 @@ export function nearbyPublicScope(assignment: NearbyRoomAssignment): NearbyPubli
 export function isNearbyRoomId(value: string | null | undefined): boolean {
   const roomId = String(value || '');
   return /^nearby_v1_e\d+_p(?:400|1000|10000|50000)(?:_w[1-3])?_g\d+_[a-f0-9]{24}(?:_l\d+of\d+)?$/.test(roomId)
-    || /^nearby_v2_e\d+_[a-f0-9]{24}$/.test(roomId);
+    || /^nearby_v[23]_e\d+_[a-f0-9]{24}$/.test(roomId);
 }
 
 export function isLocalOnlyRoomScope(value: string | null | undefined): boolean {
