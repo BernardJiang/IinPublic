@@ -1,3 +1,5 @@
+import { getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
+import { showEncounterLocationPicker } from './encounter-location-picker';
 import { getActiveChatroomHierarchy, getFlatChatroomList, type FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { splitBaseId, splitIndex } from '../../shared/chatroom-split';
 import { CONFIG } from '../../shared/config';
@@ -11,7 +13,6 @@ import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId, placeRoomTile } from '../../shared/place-rooms';
 import {
   CONTACTS_ONLY_SCOPE_ID,
-  RADIO_NEARBY_SCOPE_ID,
   isNearbyRoomId,
   type NearbyMapArea,
 } from '../../shared/nearby-rooms';
@@ -393,6 +394,12 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     <section class="chatroom-flat-section" data-testid="current-group-section">
       <h2 class="chatroom-flat-heading">${deps.text('chatroomCurrentGroupHeading')}</h2>
       ${currentNode ? renderRoomRow(currentNode, true) : ''}
+      ${currentIsContactsOnly && usesSelfDefinedEncounterLocation() && !getEncounterLocation()
+        ? `<div class="chatroom-flat-empty" data-testid="encounter-location-nudge">
+            <p>${deps.escapeHtml(deps.text('encounterLocationHelp'))}</p>
+            <button type="button" class="btn primary-btn" id="chatroom-encounter-location-set" data-testid="chatroom-encounter-location-set">${deps.escapeHtml(deps.text('encounterLocationSetButton'))}</button>
+          </div>`
+        : ''}
     </section>
     <section class="chatroom-flat-section" data-testid="places-section">
       <h2 class="chatroom-flat-heading">${deps.text('chatroomPlacesHeading')}</h2>
@@ -400,6 +407,15 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
         ? placeRows.map((room) => renderRoomRow(room, false)).join('')
         : `<p class="chatroom-flat-empty">${deps.text('chatroomPlacesEmpty')}</p>`}
     </section>`;
+
+  document.getElementById('chatroom-encounter-location-set')?.addEventListener('click', () => {
+    showEncounterLocationPicker({
+      t: (key) => deps.text(key),
+      initial: null,
+      // The app re-resolves the shared Nearby room on ENCOUNTER_LOCATION_EVENT.
+      onConfirm: (point) => { setEncounterLocation(point.latitude, point.longitude); },
+    });
+  });
 
   chatroomList.querySelectorAll('.chatroom-item').forEach((item) => {
     item.addEventListener('click', () => {
@@ -781,7 +797,6 @@ function coarseCellTitle(chatroomId: string): string | null {
 
 export function resolveChatroomTitle(chatroomId: string, customChatrooms: readonly CustomChatroomRow[]): string {
   if (chatroomId === CONTACTS_ONLY_SCOPE_ID) return '👥 Contacts only';
-  if (chatroomId === RADIO_NEARBY_SCOPE_ID) return '📡 Radio nearby';
   if (isNearbyRoomId(chatroomId)) return '📍 Nearby';
   // A numbered overflow room (`x_part_3`) is shown as its base room plus the number: "Arena (3)".
   const baseId = splitBaseId(chatroomId);

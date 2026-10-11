@@ -61,6 +61,16 @@ export type NearbyRecord = {
   roomToken?: string;
   /** Host signal only. Credentials are derived locally from the already-held full room token. */
   hostingHint?: boolean;
+  /**
+   * True only when the sighting carried a proof bound to the FULL room token and its rotating id
+   * (BLE v3, TXT `q`). A short token prefix alone can collide or be replayed with another id, so
+   * prefix-only (legacy v2) sightings never qualify a peer for Wi-Fi Direct group formation.
+   */
+  roomVerified?: boolean;
+  /** BLE flag bit 4: the phone reaches the hub and will not form an offline group. */
+  online?: boolean;
+  /** TXT `q` as advertised; the service verifies it against its own full room token. */
+  roomProof?: string;
 };
 
 export type NearbySelf = {
@@ -82,6 +92,19 @@ export async function rotatingNearbyId(seaPub: string, nowMs: number = Date.now(
 }
 
 const ID_PATTERN = /^[0-9a-f]{12}$/;
+
+/**
+ * Room-membership proof bound to the full active-room token and one rotating id. A passive
+ * scanner learns nothing about the token, and a copied proof is useless with any other id.
+ */
+export function nearbyRoomProof(roomToken: string, id: string): string {
+  return portableSha256Hex(`iinpublic:nearby-room-proof:v1:${roomToken}:${id}`);
+}
+
+/** TXT `q`: 64-bit proof. */
+export function verifyNearbyTxtProof(record: Pick<NearbyRecord, 'id' | 'roomProof'>, roomToken: string): boolean {
+  return !!record.roomProof && nearbyRoomProof(roomToken, record.id).slice(0, 16) === record.roomProof;
+}
 /** TXT keys stay short: Wi-Fi Direct service responses are small. */
 export function encodeNearbyTxt(self: NearbySelf & { port: number; roomToken?: string; group?: WifiDirectGroupCredentials | null }): Record<string, string> {
   const txt: Record<string, string> = {
@@ -93,7 +116,11 @@ export function encodeNearbyTxt(self: NearbySelf & { port: number; roomToken?: s
   };
   // Advertise only a short correlation prefix. A passive scanner cannot derive the group
   // passphrase; a legitimate room participant already holds the full authenticated token.
-  if (self.roomToken) txt.r = self.roomToken.slice(0, 8);
+  if (self.roomToken) {
+    txt.r = self.roomToken.slice(0, 8);
+    // Releases without `q` ignore unknown keys; new releases require it for group formation.
+    txt.q = nearbyRoomProof(self.roomToken, self.id).slice(0, 16);
+  }
   if (self.group) {
     txt.h = '1';
   }
@@ -122,6 +149,11 @@ export function parseNearbyTxt(txt: unknown, seenAt: number, deviceAddress?: str
     record.roomToken = roomToken;
   }
   if (text('h') === '1') record.hostingHint = true;
+  const proof = text('q');
+  if (proof) {
+    if (!/^[0-9a-f]{16}$/.test(proof)) return null;
+    record.roomProof = proof;
+  }
   return record;
 }
 
@@ -186,23 +218,29 @@ export function planOfflineGroup(input: {
 }
 
 /**
- * BLE presence payload (hex): version, 6-byte rotating id, flags — bit 0 hosting the offline group,
- * bit 1 joins by credential, bits 2–3 host score.
+ * BLE presence payload (hex, 12 bytes max — the native bridge refuses longer): version, 6-byte
+ * rotating id, 4-byte room field, flags — bit 0 hosting the offline group, bit 1 joins by
+ * credential, bits 2–3 host score, bit 4 online (proximity only; never waited on as a host — older
+ * parsers ignore it). v3's room field is `nearbyRoomProof` (full-token bound,
+ * id bound, not linkable across rotations); v2's was a static token prefix and is parsed only for
+ * the mixed-release window, as an unverified sighting.
  */
-export function encodeBlePresence(self: NearbySelf & { hosting: boolean; roomToken?: string }): string {
-  const flags = (self.hosting ? 1 : 0) | (self.joinByCredential ? 2 : 0) | ((Math.max(0, Math.min(3, Math.round(self.hostScore))) & 3) << 2);
-  if (self.roomToken) return `02${self.id}${self.roomToken.slice(0, 8)}${flags.toString(16).padStart(2, '0')}`;
+export function encodeBlePresence(self: NearbySelf & { hosting: boolean; roomToken?: string; online?: boolean }): string {
+  const flags = (self.hosting ? 1 : 0) | (self.joinByCredential ? 2 : 0) | ((Math.max(0, Math.min(3, Math.round(self.hostScore))) & 3) << 2)
+    | (self.online && self.roomToken ? 16 : 0);
+  if (self.roomToken) return `03${self.id}${nearbyRoomProof(self.roomToken, self.id).slice(0, 8)}${flags.toString(16).padStart(2, '0')}`;
   return `${BLE_PRESENCE_VERSION.toString(16).padStart(2, '0')}${self.id}${flags.toString(16).padStart(2, '0')}`;
 }
 
 export function parseBlePresence(payloadHex: unknown, seenAt: number, port: number, expectedRoomToken?: string): NearbyRecord | null {
-  if (typeof payloadHex !== 'string' || !/^(?:[0-9a-f]{16}|[0-9a-f]{24})$/.test(payloadHex)) return null;
+  if (typeof payloadHex !== 'string' || !/^[0-9a-f]{24}$/.test(payloadHex) || !expectedRoomToken) return null;
   const version = parseInt(payloadHex.slice(0, 2), 16);
-  if (version !== BLE_PRESENCE_VERSION && version !== 2) return null;
+  if (version !== 2 && version !== 3) return null;
   const id = payloadHex.slice(2, 14);
-  const roomTokenPrefix = version === 2 ? payloadHex.slice(14, 22) : '';
-  if (!expectedRoomToken || version !== 2 || !expectedRoomToken.startsWith(roomTokenPrefix)) return null;
-  const flags = parseInt(payloadHex.slice(version === 2 ? 22 : 14, version === 2 ? 24 : 16), 16);
+  const roomField = payloadHex.slice(14, 22);
+  const roomVerified = version === 3 && nearbyRoomProof(expectedRoomToken, id).slice(0, 8) === roomField;
+  if (version === 3 ? !roomVerified : !expectedRoomToken.startsWith(roomField)) return null;
+  const flags = parseInt(payloadHex.slice(22, 24), 16);
   const group = deriveOfflineGroupCredentials({ roomToken: expectedRoomToken } as ActiveRoomScope);
   return {
     id,
@@ -211,6 +249,8 @@ export function parseBlePresence(payloadHex: unknown, seenAt: number, port: numb
     hostScore: (flags >> 2) & 3,
     seenAt,
     roomToken: expectedRoomToken,
+    roomVerified,
+    ...((flags & 16) !== 0 ? { online: true } : {}),
     ...((flags & 1) !== 0 ? { group } : {}),
   };
 }

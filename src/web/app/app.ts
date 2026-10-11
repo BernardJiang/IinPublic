@@ -143,7 +143,9 @@ import {
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
-import { getNearbyBluetoothEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
+import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
+import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
+import { ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
@@ -343,6 +345,7 @@ export class IinPublicApp {
   private peerMeshService: PeerMeshService | null = null;
   private wifiDirectLinkService: WifiDirectLinkService | null = null;
   private nearbyOfflineService: NearbyOfflineService | null = null;
+  private activeRoomRoster: { roomId: string; count: number; pubs: string[] } | null = null;
   private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
   private protocolManifestController: ProtocolManifestController | null = null;
   private protocolActivationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -551,9 +554,39 @@ export class IinPublicApp {
    * partition-control heartbeat, never from one client's partial room view. This preserves one
    * common replacement transition for every member and avoids the retired per-device widening.
    */
-  private observeNearbyRoomRoster(roomId: string, members: Array<{ userId: string }>): void {
-    if (roomId !== this.currentChatroomId || !isNearbyRoomId(roomId)) return;
-    void members;
+  /**
+   * The active room's other members drive the staged discovery policy: LAN NSD stays silent for a
+   * lone user, and roster pubs bind rotating radio ids to SEA identities.
+   */
+  private observeNearbyRoomRoster(roomId: string, members: Array<{ userId: string; pub?: string }>): void {
+    if (roomId !== this.currentChatroomId) return;
+    const others = members.filter((member) => !!member.userId && member.userId !== this.currentUser?.id);
+    const wasAlone = this.activeRoomRoster?.roomId !== roomId || this.activeRoomRoster.count === 0;
+    this.activeRoomRoster = {
+      roomId,
+      count: others.length,
+      pubs: others.map((member) => String(member.pub || '').trim()).filter(Boolean),
+    };
+    if (wasAlone && others.length > 0) this.nearbyOfflineService?.resetDiscoveryBackoff();
+  }
+
+  /**
+   * The Internet discovery switch means cellular: off, discovery never uses cellular data. Wi-Fi
+   * and Ethernet uplinks are unaffected; browsers (no native path data) always may.
+   */
+  private hubDiscoveryAllowedNow(): boolean {
+    const bridge = readNearbyOfflineBridge();
+    if (!bridge?.networkPathState) return true;
+    let path: DiscoveryNetworkPath | null = null;
+    try {
+      path = JSON.parse(bridge.networkPathState()) as DiscoveryNetworkPath;
+    } catch {
+      return true;
+    }
+    return hubDiscoveryPathAllowed(
+      { ...(Array.isArray(path?.transports) ? { transports: path.transports } : {}) },
+      getNearbyProviderEnabled('internet'),
+    );
   }
 
   private loadAttachmentShareSentIds(): void {
@@ -1530,6 +1563,11 @@ export class IinPublicApp {
     if (this.locationConfirmed) {
       void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch(() => {});
     }
+    if (usesSelfDefinedEncounterLocation()) {
+      window.addEventListener(ENCOUNTER_LOCATION_EVENT, (event) => {
+        this.applyEncounterLocationChange((event as CustomEvent<EncounterLocation | null>).detail ?? null);
+      });
+    }
     markStartupPhase('initialSyncComplete');
   }
 
@@ -1589,6 +1627,23 @@ export class IinPublicApp {
    * boot already painted with a cached-or-placeholder location so first paint never waits on it.
    * A no-op before initialization has established a pending first-room assignment.
    */
+  /**
+   * Website/desktop encounter location changed in Settings. Setting it re-resolves the shared Nearby
+   * room at that point (travel, if active, keeps its own point); clearing it returns to Contacts only.
+   */
+  private applyEncounterLocationChange(value: { latitude: number; longitude: number } | null): void {
+    if (value) {
+      this.updateCurrentLocation(encounterLocationCoordinate(value));
+      return;
+    }
+    this.locationConfirmed = false;
+    if (this.currentUser && this.initialized) {
+      void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch((error) => {
+        console.warn('Nearby room refresh after clearing the encounter location failed:', error);
+      });
+    }
+  }
+
   updateCurrentLocation(location: GPSCoordinate): void {
     this.currentLocation = location;
     this.locationConfirmed = true;
@@ -2564,9 +2619,10 @@ export class IinPublicApp {
         pair,
         getRoomScope: () => this.activeExchangeRoomController?.getScope() ?? null,
         getRoomEnteredAt: () => this.activeExchangeRoomController?.getActiveRoom()?.enteredAt ?? null,
+        isDiscoveryAllowed: () => this.hubDiscoveryAllowedNow(),
         ...(pair.epub ? { epub: String(pair.epub) } : {}),
       });
-      const peers = await this.presenceClient.fetchNearby(
+      const peers = !this.hubDiscoveryAllowedNow() ? [] : await this.presenceClient.fetchNearby(
         this.currentUser.id,
         20,
         this.activeExchangeRoomController?.getScope() ?? undefined,
@@ -2870,6 +2926,8 @@ export class IinPublicApp {
         }
         if (nativePath.connected === false || nativePath.validated === false) return false;
         const transports = Array.isArray(nativePath.transports) ? nativePath.transports.map(String) : [];
+        // Internet switch off: a cellular-only path never serves discovery; the radios take over.
+        if (!hubDiscoveryPathAllowed({ transports }, getNearbyProviderEnabled('internet'))) return false;
         const networkInterface: NetworkInterface = transports.includes('wifi')
           ? 'wifi'
           : transports.includes('ethernet')
@@ -2909,7 +2967,12 @@ export class IinPublicApp {
         bridge.requestOfflineNearbyPermission();
       }),
       wifiDirectAllowed: getNearbyWifiDirectEnabled(),
-      lanDiscovery: new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
+      lanDiscovery: getNearbyProviderEnabled('lan') && new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
+      getRoomPeers: () => {
+        const roster = this.activeRoomRoster;
+        const roomId = this.activeExchangeRoomController?.getScope()?.roomId;
+        return roster && roster.roomId === roomId ? { count: roster.count, pubs: roster.pubs } : null;
+      },
       blePresence: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
       onReadinessGap: (gap) => this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
         retry: () => bridge.openNearbySettings(gap === 'permission' ? 'app' : gap),
@@ -2934,6 +2997,7 @@ export class IinPublicApp {
     window.addEventListener(NEARBY_SETTINGS_EVENT, () => service.updateSettings({
       wifiDirect: getNearbyWifiDirectEnabled(),
       bluetooth: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+      lan: getNearbyProviderEnabled('lan') && new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
     }));
     // Awareness: the Settings screen shows what nearby mode is doing right now.
     const statusTimer = setInterval(() => {
@@ -2975,7 +3039,9 @@ export class IinPublicApp {
     const text = (key: UiTranslationKey, count?: number) => uiText(language, key).replace('{count}', String(count ?? ''));
     const main = status.kind === 'wifi-direct'
       ? (status.hosting ? text('settingsNearbyStatusHosting', status.phones ?? 0) : text('settingsNearbyStatusJoined'))
-      : text(status.kind === 'searching' ? 'settingsNearbyStatusSearching' : status.kind === 'off' ? 'settingsNearbyStatusOff' : 'settingsNearbyStatusStandby');
+      : status.kind === 'quiet'
+        ? text('settingsNearbyStatusQuiet', Math.max(1, Math.ceil(status.nextScanInSeconds / 60)))
+        : text(status.kind === 'searching' ? 'settingsNearbyStatusSearching' : status.kind === 'off' ? 'settingsNearbyStatusOff' : 'settingsNearbyStatusStandby');
     return status.lanPhones > 0 ? `${main} ${text('settingsNearbyStatusLan', status.lanPhones)}` : main;
   }
 
@@ -3207,7 +3273,7 @@ export class IinPublicApp {
       .catch((error) => {
         console.warn('Peer mesh room join failed:', error);
       });
-    const discovery = this.ensureRoomDiscoveryService();
+    const discovery = this.hubDiscoveryAllowedNow() ? this.ensureRoomDiscoveryService() : null;
     if (discovery) {
       void discovery.announceRoom(chatroomId).catch((error) => {
         console.warn('Room discovery provide failed:', error);
@@ -9185,7 +9251,13 @@ export class IinPublicApp {
 
   public async updateLocationAndMaybeSwitch(nextLocation?: GPSCoordinate): Promise<void> {
     try {
-      const newLocation = nextLocation || (await LocationPrivacy.getCurrentLocation());
+      // Website/desktop never reads GPS: a refresh re-applies the self-defined encounter location.
+      const encounter = !nextLocation && usesSelfDefinedEncounterLocation() ? getEncounterLocation() : null;
+      if (!nextLocation && usesSelfDefinedEncounterLocation() && !encounter) {
+        this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), 'encounterLocationUnset'), 'info');
+        return;
+      }
+      const newLocation = nextLocation || (encounter ? encounterLocationCoordinate(encounter) : await LocationPrivacy.getCurrentLocation());
       this.currentLocation = newLocation;
       this.locationConfirmed = true;
 

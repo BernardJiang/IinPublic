@@ -8,6 +8,7 @@ import { GPSCoordinate } from '../shared/types';
 import { IDENTITY_CUSTODY_DATABASE_NAME } from './services/identity-custody-store';
 import { PASSWORD_FREE_CUSTODY_DATABASE_NAME } from './services/identity-password-free-custody-store';
 import { getCachedLocation, setCachedLocation } from './services/location-cache';
+import { encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation } from './services/encounter-location';
 import { markStartupPhase } from './performance/startup-metrics';
 
 const STAGE_ZERO_BOOT_KEY = 'iinpublic_stage_zero_boot';
@@ -99,6 +100,14 @@ class WebApp {
           };
           console.log('🧪 Using default TEST location:', location.latitude, location.longitude);
         }
+      } else if (usesSelfDefinedEncounterLocation()) {
+        // Website/desktop (OPEN-40 P1): automatic Nearby never reads GPS here. The person's
+        // self-defined encounter location (Settings → Set encounter location on map) is the only
+        // location; without one the device stays in Contacts only.
+        const encounter = getEncounterLocation();
+        location = encounter ? encounterLocationCoordinate(encounter) : LocationPrivacy.getMockLocation();
+        locationConfirmed = encounter !== null;
+        console.log(encounter ? '📍 Using the self-defined encounter location' : '📍 No encounter location set — Contacts only');
       } else {
         // Cache-first UI: never block first paint on geolocation — a permission prompt, a slow
         // GPS fix, or a device with no GPS at all would otherwise leave the user staring at the

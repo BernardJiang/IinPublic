@@ -8,7 +8,6 @@ import { isPlaceRoomId } from '../../shared/place-rooms';
 import { isTechSupportId } from '../../shared/techsupport';
 import {
   CONTACTS_ONLY_SCOPE_ID,
-  RADIO_NEARBY_SCOPE_ID,
   deriveNearbyRoomAssignment,
   isLocalOnlyRoomScope,
   isNearbyRoomId,
@@ -383,7 +382,6 @@ export class WebChatroomService {
         ? lastChatroomId
         : CONTACTS_ONLY_SCOPE_ID;
     }
-    if (nearbyPrivacyMode === 'radio-nearby') return RADIO_NEARBY_SCOPE_ID;
     // A deliberate Place visit survives restart. Legacy Global/tree/grid rooms do not: with a
     // confirmed fix they migrate directly into the current automatic Nearby cell.
     if (lastChatroomId && isPlaceRoomId(lastChatroomId)) return lastChatroomId;

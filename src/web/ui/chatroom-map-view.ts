@@ -71,7 +71,7 @@ const NEARBY_AREA_SOURCE_ID = 'iinpublic-nearby-area';
 const stateByContainer = new WeakMap<HTMLElement, MapState>();
 let mapLibrePromise: Promise<MapLibre> | undefined;
 
-function loadMapLibre(): Promise<MapLibre> {
+export function loadMapLibre(): Promise<MapLibre> {
   if (!mapLibrePromise) {
     mapLibrePromise = Promise.all([
       import('maplibre-gl'),

@@ -100,6 +100,24 @@ never form an empty group and should form a group only when an eligible peer nee
 Scanning and advertising use bounded duty cycles/backoff, including a quiet singleton state, while
 remaining discoverable often enough for a newcomer.
 
+**Implemented policy (2026-10-10, `src/shared/nearby-discovery-policy.ts`).**
+- **Internet means the cellular network.** With that switch off, discovery never uses cellular
+  data. Wi-Fi and Ethernet uplinks are not a provider switch.
+- **LAN NSD** runs only while the active room has another member, a same-room radio sighting
+  exists, or the hub is unavailable.
+- **BLE** keeps a beacon advertising and scans in 30 s windows. After each empty window the
+  quiet-singleton backoff doubles: offline 30 s → 10 min, online 60 s → 30 min.
+  - Online, the beacon needs an already-granted permission.
+  - Online beacons set flag bit 4, so offline phones treat them as proximity only and never wait
+    on them as hosts.
+- **Wi-Fi Direct** discovery runs only without the hub. A group forms only for an eligible peer the
+  LAN does not reach. Online phones keep the hub and its matchmade link upgrade; Wi-Fi Direct as a
+  free route for online-but-close phones is not implemented.
+- **Eligibility** is either a full-room-token proof bound to the rotating id (BLE v3, DNS-SD TXT
+  `q`) or a rotating id that matches a signed roster member's
+  `rotatingNearbyId(pub, room, epoch)`. A bare token prefix (BLE v2) never qualifies. Talk exchange
+  still requires the signed roster/mesh path.
+
 ### One active-room definition across every provider
 
 The client derives one signed `RoomPresence` before starting any provider. It binds the active room,

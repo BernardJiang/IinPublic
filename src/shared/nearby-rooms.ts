@@ -15,9 +15,8 @@ export const NEARBY_MAX_SPLIT_GENERATION = 24;
 /** Experimental sparse-area ceiling: one active cell may grow to 8x the selected base reach. */
 export const NEARBY_MAX_WIDENING_LEVEL = 3;
 export const NEARBY_MAX_IDENTITY_LANES = 1_048_576;
-/** Local exchange scopes. They must never be published as Internet/Gun room memberships. */
+/** Local exchange scope. It must never be published as an Internet/Gun room membership. */
 export const CONTACTS_ONLY_SCOPE_ID = 'local_contacts_only_v1';
-export const RADIO_NEARBY_SCOPE_ID = 'local_radio_nearby_v1';
 
 const EARTH_RADIUS_METERS = 6_378_137;
 const MAX_MERCATOR_LATITUDE = 85.05112878;
@@ -25,7 +24,6 @@ const ROOM_DOMAIN = 'iinpublic:nearby-room:v1';
 
 export type NearbyPrivacyMode =
   | 'contacts-only'
-  | 'radio-nearby'
   | 'neighborhood'
   | 'close-nearby'
   | 'citywide'
@@ -334,5 +332,5 @@ export function isNearbyRoomId(value: string | null | undefined): boolean {
 }
 
 export function isLocalOnlyRoomScope(value: string | null | undefined): boolean {
-  return value === CONTACTS_ONLY_SCOPE_ID || value === RADIO_NEARBY_SCOPE_ID;
+  return value === CONTACTS_ONLY_SCOPE_ID;
 }

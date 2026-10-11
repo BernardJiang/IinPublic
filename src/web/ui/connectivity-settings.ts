@@ -58,7 +58,7 @@ export function loadConnectivitySettings(): ConnectivitySettings {
     const valid = ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'].includes(String(value.preset));
     // `radio-nearby` used to be an audience mode. Bluetooth is now an independent provider;
     // migrate that saved choice to the ordinary privacy-safe Nearby room instead.
-    const savedNearbyPrivacyMode = value.nearbyPrivacyMode === 'radio-nearby'
+    const savedNearbyPrivacyMode = String(value.nearbyPrivacyMode) === 'radio-nearby'
       ? 'neighborhood'
       : value.nearbyPrivacyMode;
     const nearbyPrivacyMode = NEARBY_PRIVACY_MODES.includes(savedNearbyPrivacyMode as NearbyPrivacyMode)

@@ -59,7 +59,7 @@ const TEST_GROUP_CREDENTIALS = deriveOfflineGroupCredentials(TEST_ROOM_SCOPE);
 const scopedTxt = (input: Parameters<typeof encodeNearbyTxt>[0]) => encodeNearbyTxt({ ...input, roomToken: TEST_ROOM_SCOPE.roomToken });
 const scopedBle = (input: Parameters<typeof encodeBlePresence>[0]) => encodeBlePresence({ ...input, roomToken: TEST_ROOM_SCOPE.roomToken });
 
-function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDirectAllowed?: boolean } = {}) {
+function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDirectAllowed?: boolean; roomPeers?: { count: number; pubs: string[] } | null } = {}) {
   const events = new EventTarget();
   const native = new FakeNative();
   const { bridge, calls, advertised } = fakeBridge(options.readiness);
@@ -69,6 +69,7 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
   const gaps: NearbyReadinessGap[] = [];
   let now = 1_000_000;
   let hubReachable = options.hubReachable ?? false;
+  let roomPeers = options.roomPeers;
   const service = new NearbyOfflineService({
     localPub: 'local-pub',
     getRoomScope: () => TEST_ROOM_SCOPE,
@@ -81,6 +82,7 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
     hubReachable: async () => hubReachable,
     requestPermission: () => native.requestPermission(),
     wifiDirectAllowed: options.wifiDirectAllowed ?? true,
+    ...(options.roomPeers !== undefined ? { getRoomPeers: () => roomPeers ?? null } : {}),
     onReadinessGap: (gap) => gaps.push(gap),
     events,
     now: () => now,
@@ -90,6 +92,7 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
   return {
     service, events, native, calls, advertised, gunPeers, iceServers, relayStarts, gaps,
     setHub: (value: boolean) => { hubReachable = value; },
+    setRoomPeers: (value: { count: number; pubs: string[] } | null) => { roomPeers = value; },
     advance: (ms: number) => { now += ms; },
     tick: () => (service as unknown as { tick(): Promise<void> }).tick(),
     emitLan: (transportId: string, endpoint: string, roomTokenPrefix = TEST_ROOM_SCOPE.roomToken.slice(0, 8)) => events.dispatchEvent(new CustomEvent('iinpublic-nearby-candidate', {
@@ -439,6 +442,105 @@ describe('NearbyOfflineService keeps Gun peers alive', () => {
     t.gunPeers.length = 0;
     await t.tick();
     expect(t.gunPeers).toEqual(['http://192.168.10.71:8088/gun']);
+    t.service.dispose();
+  });
+});
+
+describe('NearbyOfflineService staged discovery', () => {
+  const legacyBle = (id: string, hosting = false) => `02${id}${TEST_ROOM_SCOPE.roomToken.slice(0, 8)}${(hosting ? 1 : 0 | 2 | 4).toString(16).padStart(2, '0')}`;
+
+  it('a lone online user keeps LAN NSD silent; a second room member starts it', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    expect(t.calls.filter((call) => call.startsWith('lan:'))).toEqual([]);
+    t.setRoomPeers({ count: 1, pubs: ['peer-pub'] });
+    await t.tick();
+    expect(t.calls.filter((call) => call.startsWith('lan:'))).toHaveLength(1);
+    t.setRoomPeers({ count: 0, pubs: [] });
+    await t.tick();
+    expect(t.calls).toContain('lan-stop');
+    t.service.dispose();
+  });
+
+  it('online with permission: advertises an online-flagged beacon, never Wi-Fi Direct', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    const ble = t.calls.filter((call) => call.startsWith('ble:'));
+    expect(ble).toHaveLength(1);
+    const flags = parseInt(ble[0]!.slice(4 + 22, 4 + 24), 16);
+    expect(flags & 16).toBe(16);
+    expect(t.calls).not.toContain('wd-start');
+    expect(t.native.permissionRequests).toBe(0);
+    t.service.dispose();
+  });
+
+  it('online without a granted permission: no beacon and no prompt', async () => {
+    const t = setup({ hubReachable: true, readiness: { permission: false, wifiEnabled: true, locationEnabled: true } });
+    await t.service.start();
+    expect(t.calls.some((call) => call.startsWith('ble:'))).toBe(false);
+    expect(t.native.permissionRequests).toBe(0);
+    t.service.dispose();
+  });
+
+  it('a lone offline phone stops Wi-Fi Direct discovery after its scan window (quiet singleton)', async () => {
+    const t = setup({ roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    expect(t.calls).toContain('wd-start');
+    expect(t.service.getStatus().kind).toBe('searching');
+    t.advance(30_000);
+    await t.tick();
+    expect(t.calls).toContain('wd-stop');
+    expect(t.service.getStatus()).toMatchObject({ kind: 'quiet', nextScanInSeconds: 30 });
+    expect(t.native.created).toHaveLength(0);
+    // The beacon keeps advertising (no scan) so an arriving phone still finds this one.
+    expect(t.calls.at(-1)).toMatch(/^ble:03.*:no-scan$/);
+    t.advance(30_000);
+    await t.tick();
+    expect(t.calls.filter((call) => call === 'wd-start')).toHaveLength(2);
+    t.service.dispose();
+  });
+
+  it('never forms a group for a prefix-only (legacy) sighting of an unknown phone', async () => {
+    const t = setup({ roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    t.emitBle(legacyBle('000000000000'));
+    t.emitBle(legacyBle('ffffffffffff', true));
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+    expect(t.native.joined).toHaveLength(0);
+    t.service.dispose();
+  });
+
+  it('a roster-bound legacy sighting is eligible (mixed-release window)', async () => {
+    const peerId = await rotatingNearbyId('peer-pub', 1_000_000, TEST_ROOM_SCOPE.roomToken);
+    const t = setup({ roomPeers: { count: 1, pubs: ['peer-pub'] } });
+    await t.service.start();
+    t.emitBle(legacyBle(peerId));
+    await t.tick();
+    const localId = await rotatingNearbyId('local-pub', 1_000_000, TEST_ROOM_SCOPE.roomToken);
+    const expectHost = [localId, peerId].sort()[0] === localId;
+    expect(t.native.created).toHaveLength(expectHost ? 1 : 0);
+    t.service.dispose();
+  });
+
+  it('an online beacon is proximity only: no group is formed for it', async () => {
+    const t = setup({ roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    t.emitBle(scopedBle({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 0, hosting: false, online: true }));
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+    expect(t.service.getStatus().kind).toBe('searching');
+    t.service.dispose();
+  });
+
+  it('turning the LAN switch off stops NSD right away', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 2, pubs: [] } });
+    await t.service.start();
+    expect(t.calls.some((call) => call.startsWith('lan:'))).toBe(true);
+    t.service.updateSettings({ wifiDirect: true, bluetooth: true, lan: false });
+    expect(t.calls).toContain('lan-stop');
+    await t.tick();
+    expect(t.calls.filter((call) => call.startsWith('lan:'))).toHaveLength(1);
     t.service.dispose();
   });
 });

@@ -9,7 +9,8 @@ import {
   type SettingsViewDeps,
 } from '../../web/ui/settings-view';
 import { uiText } from '../../web/ui/ui-translations';
-import { getAutoAnswerScope, getNearbyBluetoothEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
+import { getEncounterLocation, setEncounterLocation } from '../../web/services/encounter-location';
+import { getAutoAnswerScope, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -254,7 +255,7 @@ describe('settings view extraction', () => {
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
   });
 
-  it('shows the nearby switches only in the Android app, both on by default', () => {
+  it('shows the four discovery provider switches only in the Android app, all on by default', () => {
     document.body.innerHTML = '<div id="settings-content"></div>';
     renderSettingsView(makeUser(), viewDeps());
     expect(document.querySelector('#settings-section-nearby')).toBeNull();
@@ -264,9 +265,37 @@ describe('settings view extraction', () => {
       document.body.innerHTML = '<div id="settings-content"></div>';
       renderSettingsView(makeUser(), viewDeps());
       expect(document.querySelector('#settings-section-nearby')).not.toBeNull();
-      expect(document.querySelector<HTMLInputElement>('#settings-nearby-wifi-direct')?.checked).toBe(true);
-      expect(document.querySelector<HTMLInputElement>('#settings-nearby-bluetooth')?.checked).toBe(true);
+      for (const kind of ['internet', 'lan', 'wifi-direct', 'bluetooth']) {
+        expect(document.querySelector<HTMLInputElement>(`#settings-nearby-${kind}`)?.checked).toBe(true);
+        expect(document.querySelector(`[data-testid="settings-nearby-${kind}-state"]`)?.getAttribute('data-availability')).toBe('on');
+      }
       expect(document.querySelector('#settings-nearby-status')).not.toBeNull();
+    } finally {
+      delete (window as unknown as { IinPublicNearby?: unknown }).IinPublicNearby;
+    }
+  });
+
+  it('shows unavailable and permission states per provider without disabling the others', () => {
+    (window as unknown as { IinPublicNearby?: unknown }).IinPublicNearby = {
+      startLanDiscovery: () => undefined,
+      nearbyReadiness: () => JSON.stringify({ permission: true, bluetoothPermission: false, wifiEnabled: true, bluetoothEnabled: true, wifiDirect: true, joinByCredential: true, ble: true }),
+    };
+    try {
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      const state = (kind: string) => document.querySelector(`[data-testid="settings-nearby-${kind}-state"]`)?.getAttribute('data-availability');
+      expect(state('bluetooth')).toBe('permission-denied');
+      expect(state('wifi-direct')).toBe('on');
+      expect(state('lan')).toBe('on');
+
+      (window as unknown as { IinPublicNearby: { nearbyReadiness: () => string } }).IinPublicNearby.nearbyReadiness = () =>
+        JSON.stringify({ permission: true, wifiEnabled: true, wifiDirect: true, joinByCredential: false, ble: true });
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      expect(state('wifi-direct')).toBe('unsupported');
+      expect(document.querySelector<HTMLInputElement>('#settings-nearby-wifi-direct')?.disabled).toBe(true);
+      expect(state('lan')).toBe('on');
+      expect(document.querySelector<HTMLInputElement>('#settings-nearby-lan')?.disabled).toBe(false);
     } finally {
       delete (window as unknown as { IinPublicNearby?: unknown }).IinPublicNearby;
     }
@@ -286,6 +315,60 @@ describe('settings view extraction', () => {
     expect(changed).toHaveBeenCalledTimes(1);
     expect(getNearbyBluetoothEnabled()).toBe(false);
     expect(getNearbyWifiDirectEnabled()).toBe(true);
+  });
+
+  it('the Internet (cellular) and LAN switches persist independently', () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="settings-nearby-internet" checked>
+      <input type="checkbox" id="settings-nearby-lan" checked>`;
+    bindSettingsControls(controlsDeps());
+    const internet = document.getElementById('settings-nearby-internet') as HTMLInputElement;
+    internet.checked = false;
+    internet.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(getNearbyProviderEnabled('internet')).toBe(false);
+    expect(getNearbyProviderEnabled('lan')).toBe(true);
+    internet.checked = true;
+    internet.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(getNearbyProviderEnabled('internet')).toBe(true);
+  });
+
+  it('website: shows the encounter location without echoing the coordinate, and clears it', () => {
+    localStorage.removeItem('iinpublic_encounter_location_v1');
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    renderSettingsView(makeUser(), viewDeps());
+    const status = () => document.querySelector('[data-testid="settings-encounter-location-status"]');
+    expect(status()?.getAttribute('data-set')).toBe('false');
+    expect(document.querySelector('#settings-encounter-location-set')).not.toBeNull();
+    expect(document.querySelector('#settings-encounter-location-clear')).toBeNull();
+
+    setEncounterLocation(51.50135, -0.14189);
+    const rerender = jest.fn(() => {
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      bindSettingsControls(controlsDeps({ renderSettingsView: rerender }));
+    });
+    rerender();
+    expect(status()?.getAttribute('data-set')).toBe('true');
+    expect(document.querySelector('[data-testid="settings-encounter-location"]')?.textContent).not.toContain('51.50');
+    (document.querySelector('#settings-encounter-location-clear') as HTMLButtonElement).click();
+    expect(getEncounterLocation()).toBeNull();
+    expect(status()?.getAttribute('data-set')).toBe('false');
+
+    (document.querySelector('#settings-encounter-location-set') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="encounter-location-modal"]')).not.toBeNull();
+    document.querySelector('[data-testid="encounter-location-modal"]')?.remove();
+  });
+
+  it('phone app: no encounter-location block (confirmed blurred GPS instead)', () => {
+    const previous = window.location.href;
+    window.history.replaceState(null, '', '/?native_platform=android');
+    try {
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      expect(document.querySelector('[data-testid="settings-encounter-location"]')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', previous);
+    }
   });
 
   it('stores one Auto scope for all answers', () => {

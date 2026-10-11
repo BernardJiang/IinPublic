@@ -262,53 +262,76 @@ its ID.
       BLE switches default on, but those radios start only after the hub is judged unreachable and
       the saved/runtime permission policy permits them. A lone offline phone advertises/scans but
       `no-offline-peers` creates no Wi-Fi Direct group.
-    - [ ] Remove the nonfunctional **Radio nearby** audience mode and migrate saved selections to a
-      clearly disclosed Nearby precision (default Neighborhood unless the user had already chosen
-      another precision). It currently selects `local_radio_nearby_v1`, but
-      `isLocalOnlyRoomScope()` causes `activateRoomExchange()` and `syncPeerMeshRoom()` to return
-      before BLE discovery or Talk exchange starts. Keep Bluetooth only as a provider setting.
-    - [ ] Implement the provider decision. Add independent Internet and LAN switches alongside the
-      existing Wi-Fi Direct and Bluetooth switches; make supported phone providers default on;
-      expose unavailable/permission-denied states; and run bounded BLE/Wi-Fi Direct discovery even
-      while the hub is reachable. BLE/Wi-Fi Direct may prioritize or connect same-room peers but
-      must never bypass active-room capacity. Wi-Fi Direct group formation remains
-      demand-driven and requires at least one eligible peer.
-    - [ ] Introduce one provider-neutral candidate registry keyed first by the scoped rotating
-      discovery ID and canonically by verified SEA identity after handshake. Merge Internet, LAN,
-      BLE, and Wi-Fi Direct sightings into one logical peer; attach route candidates and freshness;
-      deduplicate sessions, Talk delivery, and receipts. Require the full signed room presence,
-      compatible policy version, and same-room eligibility before Talk exchange or Wi-Fi Direct group
-      formation because a short radio-token prefix can collide.
-    - [ ] Replace the current overlapping offline discovery work with an explicit staged policy and
-      bounded timers: active-room roster first; LAN NSD as the free IP fast path; BLE as
-      short-range presence; Wi-Fi Direct group formation only after a same-room peer is
-      observed; DNS-SD/raw P2P scan only as measured fallbacks. Define backoff and a quiet singleton
-      state so one isolated phone does not scan indefinitely.
-    - [ ] Decide whether always-on Android LAN NSD while the hub is healthy earns its battery/radio
-      cost. Options are: keep it as an immediate free-route optimization, start it only when the
-      active room contains another peer, or start it only after the Internet path is slow/metered.
-    - [ ] Add state-machine and physical gates for: lone online user, lone offline user, second
-      same-room peer, over-`C` room split, cross-room candidate rejected, web-without-native-bridge,
-      hub loss/recovery,
-      no empty Wi-Fi Direct group, bounded scan/backoff, and one elected group for 3+ eligible
-      phones. Record discovery time, scan duty cycle, group churn, duplicate candidates/bytes, and
-      battery before selecting the production policy.
+    - [x] Removed the nonfunctional **Radio nearby** audience mode (2026-10-10). `RADIO_NEARBY_SCOPE_ID`
+      and the `radio-nearby` privacy mode are gone; a saved `radio-nearby` setting loads as
+      Neighborhood and a saved `local_radio_nearby_v1` room re-resolves to automatic Nearby.
+      Bluetooth remains only a provider switch.
+    - [x] Implemented the provider decision (2026-10-10, `src/shared/nearby-discovery-policy.ts`).
+      Settings (Android) shows four independent switches — Internet, LAN, Wi-Fi Direct, Bluetooth —
+      all default on, each with a live state: On / Off / Not available on this phone /
+      Permission needed / Turned off in Android. Product decision (2026-10-10): **Internet means the
+      cellular network**; off, discovery never uses cellular data (`hubDiscoveryPathAllowed`): the
+      radio policy treats a cellular-only hub as unavailable, and the signed presence heartbeat,
+      presence fetch and room-discovery announce pause on a cellular-only path. Wi-Fi/Ethernet
+      uplinks are unaffected. Known limit: the Gun websocket still carries the room roster over
+      cellular. Bluetooth now advertises a beacon while online too (permission already granted only,
+      never a mid-exchange prompt) with bounded scans; online beacons carry flag bit 4 so offline
+      phones treat them as proximity only and never wait on them as hosts. Wi-Fi Direct groups stay
+      offline-only and demand-driven.
+    - [x] Added `NearbyCandidateRegistry` (2026-10-10). LAN, BLE and DNS-SD sightings merge into one
+      logical peer keyed by rotating id. They are re-keyed by SEA identity when the id matches
+      `rotatingNearbyId(pub, room, epoch)` for a signed roster member, so sightings also merge across
+      id rotations. Routes and freshness are tracked, and the registry is bounded by `C`. Wi-Fi Direct
+      group formation now requires an **eligible** peer: either a full-token proof bound to the
+      rotating id (BLE v3 payload, same 12 bytes, no native change; DNS-SD TXT `q`) or a
+      roster-bound identity. Prefix-only v2 sightings stay unverified. Talk exchange already requires
+      the signed roster/mesh path.
+      - [ ] Mixed-release: new builds advertise BLE v3 only, so older builds see them via DNS-SD/LAN
+        but not BLE. Retire v2 BLE parsing after the compatibility window.
+      - [ ] Session/receipt dedup across routes still relies on the mesh's per-user keying; wire the
+        registry's logical peer into `PeerMeshService` route selection if hardware shows duplicates.
+    - [x] Replaced the overlapping offline discovery work with `DiscoveryPolicy` (2026-10-10).
+      Stages: online-singleton, online-peers, offline-searching, offline-quiet, offline-peers.
+      - Scans run in 30 s windows.
+      - Quiet-singleton backoff doubles after each empty window: offline 30 s → 10 min (2 min
+        without BLE so DNS-SD windows still meet); online 60 s → 30 min.
+      - The BLE beacon keeps advertising during backoff, and any new sighting, roster change or
+        hub change restarts the window.
+      - Group formation needs an eligible same-room peer that the LAN does not already reach.
+      - Raw P2P peer-scan fallback remains disabled in room-scoped mode.
+      - Settings shows "checking again in about N min" while quiet.
+    - [x] Product decision (2026-10-10): Android LAN NSD runs only while the active room's roster has
+      another member, a same-room radio sighting exists, or the hub is unavailable. A lone online
+      user stays silent. Implemented in `DiscoveryPolicy.lanNsd`, fed by the roster through
+      `getRoomPeers`.
+    - [x] State-machine gates (2026-10-10): `nearby-discovery-policy.test.ts`,
+      `nearby-offline.test.ts`, `nearby-offline-service.test.ts` cover lone online, lone offline
+      (duty cycle < 10 %), second same-room peer, over-`C` registry bound, cross-room/replayed proof
+      rejected, web-without-native-bridge, hub loss/recovery, no empty Wi-Fi Direct group, bounded
+      backoff, and one elected host among 4 eligible phones.
+    - [ ] Physical gates: record discovery time, scan duty cycle, group churn, duplicate
+      candidates/bytes, and battery on ≥ 3 phones before selecting the production timers (the
+      30 s / 10 min / 30 min values above are untested defaults).
     - [x] Product decision (2026-10-10): a shared chatroom takes priority over exact personalized
       nearest-`C` membership. Geographic leaves may separate people across a boundary; the map may
       offer the adjacent room as an explicit travel destination, but the app does not silently join
       overlapping rooms and exceed the traffic bound.
-    - [ ] Decide whether hub-down cold discovery for web↔web and web↔phone is required. Ordinary
-      browsers cannot advertise/scan Android LAN NSD, BLE, or Wi-Fi Direct, so today these pairs
-      cannot create a new session without Internet room discovery even if WebRTC could later use a
-      LAN route. Evaluate a bounded DHT/bootstrap or explicit manual rendezvous; do not imply that
-      browser LAN reachability is itself discovery.
-    - [ ] Add required web encounter-location registration. Before stranger discovery, Settings
-      must offer **Set encounter location on map** and **Clear encounter location**. The location is
-      deliberately self-defined and may be fictional. **Use my current location** may center the
-      picker but still requires confirmation. Publish only the blurred signed presence, persist the
-      choice, and keep travel to another area distinct from joining a named Place. Cover GPS-less
-      desktops, map-provider disclosure, local-data deletion, travel/return-home, and shared-room
-      resolution after every intentional move.
+    - [x] Product decision (2026-10-10): hub-down cold discovery for web↔web and web↔phone is **not
+      required**. Browsers need the hub to find strangers; an existing session may keep using a LAN
+      route. Settings shows the radio switches only in the Android app.
+    - [x] Web/desktop encounter location (2026-10-10, `src/web/services/encounter-location.ts`,
+      `encounter-location-picker.ts`).
+      - Outside the phone shells, production boots never read GPS.
+      - **Set encounter location on map** / **Clear encounter location** live in Settings → Home &
+        sensitive locations; the chatroom list shows a nudge while in Contacts only.
+      - **Use my current location** only drops a pin and still needs confirmation. Coordinates can
+        be typed if the map fails, and the picker discloses the map tile provider.
+      - The point stays in localStorage (device wipe clears it) and is never shown in Settings.
+        Setting it re-resolves the shared Nearby room; clearing it returns to Contacts only. Travel
+        keeps its own point.
+      - Dev/E2E builds keep `__test_location`.
+      - Behavior change: existing website users drop to Contacts only until they choose a point.
+      - [ ] Browser E2E for the picker → Nearby resolution (needs a production-mode web build).
   - [ ] **P1 legacy migration:** stop old-room discovery before moving saved Global/tile/grid/custom
     memberships into Nearby or content-addressed Places. Preserve contacts, private data, Talk queues,
     receipts, and traveler intent without rebroadcasting old Talks. Retire obsolete capacity

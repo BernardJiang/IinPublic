@@ -1,3 +1,5 @@
+import { clearEncounterLocation, getEncounterLocation, setEncounterLocation } from '../services/encounter-location';
+import { showEncounterLocationPicker } from './encounter-location-picker';
 import {
   type GPSCoordinate,
   type QuestionAnswer,
@@ -315,12 +317,27 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
   document.getElementById('settings-copy-talk-autosave')?.addEventListener('change', (event) => {
     setCopyTalkAutoSave((event.currentTarget as HTMLInputElement).checked);
   });
-  document.getElementById('settings-nearby-wifi-direct')?.addEventListener('change', (event) => {
-    setNearbySetting('wifi-direct', (event.currentTarget as HTMLInputElement).checked);
+  document.getElementById('settings-encounter-location-set')?.addEventListener('click', () => {
+    const current = getEncounterLocation();
+    showEncounterLocationPicker({
+      t: deps.t,
+      initial: current ? { latitude: current.latitude, longitude: current.longitude } : null,
+      onConfirm: (point) => {
+        // The app listens for the change and re-resolves the shared Nearby room at this point.
+        setEncounterLocation(point.latitude, point.longitude);
+        if (deps.currentUser) deps.renderSettingsView(deps.currentUser);
+      },
+    });
   });
-  document.getElementById('settings-nearby-bluetooth')?.addEventListener('change', (event) => {
-    setNearbySetting('bluetooth', (event.currentTarget as HTMLInputElement).checked);
+  document.getElementById('settings-encounter-location-clear')?.addEventListener('click', () => {
+    clearEncounterLocation();
+    if (deps.currentUser) deps.renderSettingsView(deps.currentUser);
   });
+  for (const kind of ['internet', 'lan', 'wifi-direct', 'bluetooth'] as const) {
+    document.getElementById(`settings-nearby-${kind}`)?.addEventListener('change', (event) => {
+      setNearbySetting(kind, (event.currentTarget as HTMLInputElement).checked);
+    });
+  }
   document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
     setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
   });

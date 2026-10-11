@@ -7,6 +7,13 @@ import {
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
+import { getEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
+import {
+  discoveryProviderAvailability,
+  type DiscoveryProviderAvailability,
+  type DiscoveryProviderEnvironment,
+  type DiscoveryReadiness,
+} from '../../shared/nearby-discovery-policy';
 import { renderSettingsSection } from './settings-section-template';
 import { loadConnectivitySettings, type ConnectivityPreset } from './connectivity-settings';
 import {
@@ -19,8 +26,8 @@ import {
   getKeepOldTalkOnEdit,
   getLocationAutoMatchConsent,
   type ColorScheme,
-  getNearbyWifiDirectEnabled,
-  getNearbyBluetoothEnabled,
+  getNearbyProviderEnabled,
+  type NearbyProviderSetting,
 } from './ui-settings-storage';
 import { renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { renderTechSupportFaqHelpList } from './techsupport-faq-help-view';
@@ -492,6 +499,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: 'Control the approximate area used for automatic Nearby without saving a home or work address.',
           },
           `
+          ${usesSelfDefinedEncounterLocation() ? renderEncounterLocationBlock(deps.t) : ''}
           <div style="padding:12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-subtle);margin-bottom:14px;">
             <label style="display:flex;flex-direction:column;gap:7px;font-size:0.9em;">
               <strong>Automatic Nearby privacy</strong>
@@ -620,14 +628,10 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
               </select>
               <small>Applies to the one active room. Changing rooms is always manual.</small>
             </label>
-            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
-              <input type="checkbox" id="settings-nearby-wifi-direct" ${getNearbyWifiDirectEnabled() ? 'checked' : ''}>
-              <span><strong>${deps.t('settingsNearbyWifiDirect')}</strong><br><small>${deps.t('settingsNearbyWifiDirectHelp')}</small></span>
-            </label>
-            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
-              <input type="checkbox" id="settings-nearby-bluetooth" ${getNearbyBluetoothEnabled() ? 'checked' : ''}>
-              <span><strong>${deps.t('settingsNearbyBluetooth')}</strong><br><small>${deps.t('settingsNearbyBluetoothHelp')}</small></span>
-            </label>
+            ${renderNearbyProviderRow('internet', 'settingsNearbyInternet', 'settingsNearbyInternetHelp', deps.t)}
+            ${renderNearbyProviderRow('lan', 'settingsNearbyLan', 'settingsNearbyLanHelp', deps.t)}
+            ${renderNearbyProviderRow('wifi-direct', 'settingsNearbyWifiDirect', 'settingsNearbyWifiDirectHelp', deps.t)}
+            ${renderNearbyProviderRow('bluetooth', 'settingsNearbyBluetooth', 'settingsNearbyBluetoothHelp', deps.t)}
             <details><summary>${deps.t('settingsNearbyPrivacyTitle')}</summary>
               <ul style="margin:6px 0 0 18px;padding:0;font-size:0.88em;">
                 <li>${deps.t('settingsNearbyPrivacySameWifi')}</li>
@@ -758,6 +762,65 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   deps.renderTechSupportRecoveryBannerIfPresent();
   deps.renderSupportDelegateOptInSectionIfPresent();
   deps.applySettingsSectionView(deps.settingsActiveSectionId);
+}
+
+/** Web/desktop: the self-defined encounter location replaces GPS for automatic Nearby. */
+function renderEncounterLocationBlock(t: (key: UiTranslationKey) => string): string {
+  const encounter = getEncounterLocation();
+  // Never echo the coordinate here: Settings shows only that a point is set, and when.
+  const statusText = encounter
+    ? t('encounterLocationSet').replace('{date}', encounter.setAt ? new Date(encounter.setAt).toLocaleDateString() : '—')
+    : t('encounterLocationUnset');
+  return `<div data-testid="settings-encounter-location" style="padding:12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-subtle);margin-bottom:14px;">
+            <strong>${t('encounterLocationTitle')}</strong>
+            <div style="font-size:0.85em;margin:4px 0 8px;">${t('encounterLocationHelp')}</div>
+            <div role="status" data-testid="settings-encounter-location-status" data-set="${encounter ? 'true' : 'false'}" style="font-size:0.85em;font-weight:600;margin-bottom:8px;">${escapeHtml(statusText)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn primary-btn" id="settings-encounter-location-set" data-testid="settings-encounter-location-set">${t(encounter ? 'encounterLocationChangeButton' : 'encounterLocationSetButton')}</button>
+              ${encounter ? `<button type="button" class="btn btn-secondary" id="settings-encounter-location-clear" data-testid="settings-encounter-location-clear">${t('encounterLocationClearButton')}</button>` : ''}
+            </div>
+          </div>`;
+}
+
+const PROVIDER_STATE_KEYS: Record<DiscoveryProviderAvailability, UiTranslationKey> = {
+  on: 'settingsProviderOn',
+  off: 'settingsProviderOff',
+  unsupported: 'settingsProviderUnsupported',
+  'permission-denied': 'settingsProviderPermissionDenied',
+  'radio-off': 'settingsProviderRadioOff',
+};
+
+/** One discovery provider switch with its live availability (unsupported, permission, radio off). */
+function renderNearbyProviderRow(
+  kind: NearbyProviderSetting,
+  titleKey: UiTranslationKey,
+  helpKey: UiTranslationKey,
+  t: (key: UiTranslationKey) => string,
+): string {
+  const enabled = getNearbyProviderEnabled(kind);
+  const availability = discoveryProviderAvailability(kind, enabled, nearbyProviderEnvironment());
+  const unsupported = availability === 'unsupported';
+  const attention = availability === 'permission-denied' || availability === 'radio-off';
+  return `<label style="display:flex;align-items:flex-start;gap:10px;cursor:${unsupported ? 'default' : 'pointer'};">
+              <input type="checkbox" id="settings-nearby-${kind}" ${enabled && !unsupported ? 'checked' : ''} ${unsupported ? 'disabled' : ''}>
+              <span><strong>${t(titleKey)}</strong>
+                <small data-testid="settings-nearby-${kind}-state" data-availability="${availability}" style="margin-left:6px;${attention ? 'color:var(--warning-text);' : 'color:var(--text-tertiary);'}">${escapeHtml(t(PROVIDER_STATE_KEYS[availability]))}</small>
+                <br><small>${t(helpKey)}</small></span>
+            </label>`;
+}
+
+function nearbyProviderEnvironment(): DiscoveryProviderEnvironment {
+  const win = window as unknown as {
+    IinPublicNearby?: { startLanDiscovery?: unknown; nearbyReadiness?: () => string };
+    __iinpublicNearbyOffline?: { getDiagnostics?: () => Record<string, unknown> };
+  };
+  let readiness: DiscoveryReadiness | null = null;
+  try {
+    readiness = win.IinPublicNearby?.nearbyReadiness ? JSON.parse(win.IinPublicNearby.nearbyReadiness()) as DiscoveryReadiness : null;
+  } catch { readiness = null; }
+  let permissionDenied = false;
+  try { permissionDenied = win.__iinpublicNearbyOffline?.getDiagnostics?.().permissionDenied === true; } catch { /* service not started */ }
+  return { nativeBridge: hasNearbyBridge(), readiness, permissionDenied };
 }
 
 /** The nearby switches only mean something inside the Android app (offline discovery bridge). */
