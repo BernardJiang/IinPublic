@@ -165,10 +165,10 @@ export function saveChatbotTemplate(talkId: string, data: ChatbotTemplate): void
  */
 export const NEARBY_SETTINGS_EVENT = 'iinpublic-nearby-settings-changed';
 
-export type NearbyProviderSetting = 'internet' | 'lan' | 'wifi-direct' | 'bluetooth';
+export type NearbyProviderSetting = 'cellular' | 'lan' | 'wifi-direct' | 'bluetooth';
 
 const NEARBY_PROVIDER_KEYS: Record<NearbyProviderSetting, string> = {
-  internet: 'iinpublic_nearby_internet',
+  cellular: 'iinpublic_nearby_cellular',
   lan: 'iinpublic_nearby_lan',
   'wifi-direct': 'iinpublic_nearby_wifi_direct',
   bluetooth: 'iinpublic_nearby_bluetooth',

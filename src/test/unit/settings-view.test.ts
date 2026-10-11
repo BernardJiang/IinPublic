@@ -265,7 +265,7 @@ describe('settings view extraction', () => {
       document.body.innerHTML = '<div id="settings-content"></div>';
       renderSettingsView(makeUser(), viewDeps());
       expect(document.querySelector('#settings-section-nearby')).not.toBeNull();
-      for (const kind of ['internet', 'lan', 'wifi-direct', 'bluetooth']) {
+      for (const kind of ['cellular', 'lan', 'wifi-direct', 'bluetooth']) {
         expect(document.querySelector<HTMLInputElement>(`#settings-nearby-${kind}`)?.checked).toBe(true);
         expect(document.querySelector(`[data-testid="settings-nearby-${kind}-state"]`)?.getAttribute('data-availability')).toBe('on');
       }
@@ -317,19 +317,19 @@ describe('settings view extraction', () => {
     expect(getNearbyWifiDirectEnabled()).toBe(true);
   });
 
-  it('the Internet (cellular) and LAN switches persist independently', () => {
+  it('the Cellular and LAN switches persist independently', () => {
     document.body.innerHTML = `
-      <input type="checkbox" id="settings-nearby-internet" checked>
+      <input type="checkbox" id="settings-nearby-cellular" checked>
       <input type="checkbox" id="settings-nearby-lan" checked>`;
     bindSettingsControls(controlsDeps());
-    const internet = document.getElementById('settings-nearby-internet') as HTMLInputElement;
+    const internet = document.getElementById('settings-nearby-cellular') as HTMLInputElement;
     internet.checked = false;
     internet.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(getNearbyProviderEnabled('internet')).toBe(false);
+    expect(getNearbyProviderEnabled('cellular')).toBe(false);
     expect(getNearbyProviderEnabled('lan')).toBe(true);
     internet.checked = true;
     internet.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(getNearbyProviderEnabled('internet')).toBe(true);
+    expect(getNearbyProviderEnabled('cellular')).toBe(true);
   });
 
   it('website: shows the encounter location without echoing the coordinate, and clears it', () => {

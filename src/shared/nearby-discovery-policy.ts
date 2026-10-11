@@ -7,15 +7,20 @@ import { NEARBY_ID_EPOCH_MS, type NearbyRecord } from './nearby-offline';
  * Four providers, one audience. Every provider observes the same signed active-room capability;
  * provider range affects reachability, never room membership or the `C` limit.
  *
- * - `internet`: the hub over the CELLULAR network. Wi-Fi/Ethernet hub access is not a provider
- *   switch (it is the LAN path's Internet uplink and costs nothing extra). Off: discovery never
- *   uses cellular data; with no other uplink the phone behaves as if the hub were unreachable.
+ * Network-free principle (product owner, 2026-10-11): every provider works with whatever network is
+ * up, and any working network is used to reach as many room members as possible. Only the hub
+ * uplink over cellular is a switch; LAN, Wi-Fi Direct and Bluetooth never depend on the hub.
+ *
+ * - `cellular`: reaching the hub over mobile data. Off: discovery never uses cellular data. The hub
+ *   is still used over Wi-Fi/Ethernet; with no other uplink the phone relies on its radios.
  * - `lan`: Android NSD on the shared Wi-Fi.
- * - `wifi-direct`: room-scoped DNS-SD and demand-driven group formation.
+ * - `wifi-direct`: room-scoped DNS-SD and demand-driven group formation, online or offline. An
+ *   online phone links with an offline same-room phone so that phone reaches the room (and the
+ *   hub) through it; two online phones keep using the hub path instead.
  * - `bluetooth`: BLE presence (proximity evidence only; Talks never travel over BLE).
  */
-export type DiscoveryProviderKind = 'internet' | 'lan' | 'wifi-direct' | 'bluetooth';
-export const DISCOVERY_PROVIDER_KINDS: readonly DiscoveryProviderKind[] = ['internet', 'lan', 'wifi-direct', 'bluetooth'];
+export type DiscoveryProviderKind = 'cellular' | 'lan' | 'wifi-direct' | 'bluetooth';
+export const DISCOVERY_PROVIDER_KINDS: readonly DiscoveryProviderKind[] = ['cellular', 'lan', 'wifi-direct', 'bluetooth'];
 
 export type DiscoveryProviderAvailability =
   | 'on'
@@ -55,7 +60,7 @@ export function discoveryProviderAvailability(
   if (!env.nativeBridge) return 'unsupported';
   const readiness = env.readiness ?? {};
   switch (kind) {
-    case 'internet':
+    case 'cellular':
       return enabled ? 'on' : 'off';
     case 'lan':
       if (!enabled) return 'off';
@@ -86,12 +91,12 @@ export type DiscoveryNetworkPath = {
 
 /**
  * The hub may be used for discovery over this path. Only a cellular-only path is affected by the
- * Internet switch; an unknown path (older shells) keeps the reachable-hub behavior.
+ * Cellular switch; an unknown path (older shells) keeps the reachable-hub behavior.
  */
-export function hubDiscoveryPathAllowed(path: DiscoveryNetworkPath | null, internetEnabled: boolean): boolean {
+export function hubDiscoveryPathAllowed(path: DiscoveryNetworkPath | null, cellularEnabled: boolean): boolean {
   if (!path) return true;
   if (path.connected === false || path.validated === false) return false;
-  if (internetEnabled) return true;
+  if (cellularEnabled) return true;
   const transports = (path.transports ?? []).map(String);
   const freeUplink = transports.includes('wifi') || transports.includes('ethernet');
   return freeUplink || !transports.includes('cellular');
@@ -127,13 +132,16 @@ export type DiscoveryPolicyInput = {
   lan: boolean;
   wifiDirect: boolean;
   bluetooth: boolean;
-  /** The hub is reachable over a path the policy permits (Internet switch, metered policy). */
+  /** The hub is reachable over a path the policy permits (Cellular switch, metered policy). */
   hubForDiscovery: boolean;
   /** Other members of the active room in the verified roster; null = unknown. */
   roomPeerCount: number | null;
   /** Fresh same-room sightings from LAN/BLE/DNS-SD (provisional or verified). */
   radioPeers: number;
-  /** Verified same-room phones that are not already reachable over the LAN. */
+  /**
+   * Eligible same-room phones the LAN does not reach that need a Wi-Fi Direct link: any such phone
+   * while this one is offline; only OFFLINE such phones while this one reaches the hub.
+   */
   groupCandidates: number;
   /** Currently in the room's offline Wi-Fi Direct group. */
   inGroup: boolean;
@@ -148,7 +156,7 @@ export type DiscoveryPolicyDecision = {
   bleScan: boolean;
   /** Wi-Fi Direct DNS-SD advertise + discovery. */
   wifiDirectDiscovery: boolean;
-  /** May create or join the room's offline group (offline only, eligible peer required). */
+  /** May create or join the room's Wi-Fi Direct group (an eligible peer that needs it is required). */
   groupFormation: boolean;
   /** When the policy wants to be re-evaluated even if nothing else changes. */
   nextReviewAt: number;
@@ -212,10 +220,13 @@ export class DiscoveryPolicy {
       // The free IP path: only worth multicast wake-ups when there is somebody to find.
       lanNsd: input.lan && (offline || roomHasPeers || input.radioPeers > 0),
       bleAdvertise: input.bluetooth,
-      bleScan: input.bluetooth && scanning && !input.inGroup,
-      // Online, the hub (and its matchmade link upgrade) is the route; Wi-Fi Direct stays idle.
-      wifiDirectDiscovery: input.wifiDirect && offline && (scanning || input.inGroup),
-      groupFormation: input.wifiDirect && offline && input.groupCandidates > 0,
+      // An offline group member stops scanning (battery); an online bridge keeps bounded scans so it
+      // notices when the offline phones it serves are gone.
+      bleScan: input.bluetooth && scanning && !(input.inGroup && offline),
+      // Offline: Wi-Fi Direct DNS-SD runs in scan windows. Online it stays idle (it takes the radio
+      // off the Wi-Fi channel) until an offline same-room phone needs it.
+      wifiDirectDiscovery: input.wifiDirect && (input.inGroup || input.groupCandidates > 0 || (offline && scanning)),
+      groupFormation: input.wifiDirect && input.groupCandidates > 0,
       nextReviewAt,
     };
   }

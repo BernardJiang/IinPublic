@@ -67,7 +67,7 @@ export type NearbyRecord = {
    * prefix-only (legacy v2) sightings never qualify a peer for Wi-Fi Direct group formation.
    */
   roomVerified?: boolean;
-  /** BLE flag bit 4: the phone reaches the hub and will not form an offline group. */
+  /** BLE flag bit 4 / TXT `o`: the phone reaches the hub (a bridge for offline phones). */
   online?: boolean;
   /** TXT `q` as advertised; the service verifies it against its own full room token. */
   roomProof?: string;
@@ -106,7 +106,7 @@ export function verifyNearbyTxtProof(record: Pick<NearbyRecord, 'id' | 'roomProo
   return !!record.roomProof && nearbyRoomProof(roomToken, record.id).slice(0, 16) === record.roomProof;
 }
 /** TXT keys stay short: Wi-Fi Direct service responses are small. */
-export function encodeNearbyTxt(self: NearbySelf & { port: number; roomToken?: string; group?: WifiDirectGroupCredentials | null }): Record<string, string> {
+export function encodeNearbyTxt(self: NearbySelf & { port: number; roomToken?: string; group?: WifiDirectGroupCredentials | null; online?: boolean }): Record<string, string> {
   const txt: Record<string, string> = {
     v: NEARBY_TXT_VERSION,
     id: self.id,
@@ -124,6 +124,7 @@ export function encodeNearbyTxt(self: NearbySelf & { port: number; roomToken?: s
   if (self.group) {
     txt.h = '1';
   }
+  if (self.online) txt.o = '1';
   return txt;
 }
 
@@ -149,6 +150,7 @@ export function parseNearbyTxt(txt: unknown, seenAt: number, deviceAddress?: str
     record.roomToken = roomToken;
   }
   if (text('h') === '1') record.hostingHint = true;
+  if (text('o') === '1') record.online = true;
   const proof = text('q');
   if (proof) {
     if (!/^[0-9a-f]{16}$/.test(proof)) return null;
@@ -220,7 +222,7 @@ export function planOfflineGroup(input: {
 /**
  * BLE presence payload (hex, 12 bytes max — the native bridge refuses longer): version, 6-byte
  * rotating id, 4-byte room field, flags — bit 0 hosting the offline group, bit 1 joins by
- * credential, bits 2–3 host score, bit 4 online (proximity only; never waited on as a host — older
+ * credential, bits 2–3 host score, bit 4 online (reaches the hub; can bridge offline phones — older
  * parsers ignore it). v3's room field is `nearbyRoomProof` (full-token bound,
  * id bound, not linkable across rotations); v2's was a static token prefix and is parsed only for
  * the mixed-release window, as an unverified sighting.

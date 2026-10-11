@@ -32,13 +32,13 @@ describe('discovery provider availability', () => {
   const env = (readiness = ready, permissionDenied = false) => ({ nativeBridge: true, readiness, permissionDenied });
 
   it('marks every provider unsupported in an ordinary browser (web-without-native-bridge)', () => {
-    for (const kind of ['internet', 'lan', 'wifi-direct', 'bluetooth'] as const) {
+    for (const kind of ['cellular', 'lan', 'wifi-direct', 'bluetooth'] as const) {
       expect(discoveryProviderAvailability(kind, true, { nativeBridge: false, readiness: null, permissionDenied: false })).toBe('unsupported');
     }
   });
 
   it('defaults every supported provider on and honors each switch independently', () => {
-    for (const kind of ['internet', 'lan', 'wifi-direct', 'bluetooth'] as const) {
+    for (const kind of ['cellular', 'lan', 'wifi-direct', 'bluetooth'] as const) {
       expect(discoveryProviderAvailability(kind, true, env())).toBe('on');
       expect(discoveryProviderAvailability(kind, false, env())).toBe('off');
     }
@@ -55,10 +55,10 @@ describe('discovery provider availability', () => {
     expect(discoveryProviderAvailability('bluetooth', true, env({ ...ready, bluetoothEnabled: false }))).toBe('radio-off');
     expect(discoveryProviderAvailability('wifi-direct', true, env({ ...ready, bluetoothEnabled: false }))).toBe('on');
     expect(discoveryProviderAvailability('lan', true, env({ ...ready, wifiEnabled: false }))).toBe('radio-off');
-    expect(discoveryProviderAvailability('internet', true, env({ ...ready, wifiEnabled: false }))).toBe('on');
+    expect(discoveryProviderAvailability('cellular', true, env({ ...ready, wifiEnabled: false }))).toBe('on');
   });
 
-  it('Internet switch off excludes only a cellular-only path', () => {
+  it('Cellular switch off excludes only a cellular-only path', () => {
     expect(hubDiscoveryPathAllowed({ transports: ['cellular'] }, true)).toBe(true);
     expect(hubDiscoveryPathAllowed({ transports: ['cellular'] }, false)).toBe(false);
     expect(hubDiscoveryPathAllowed({ transports: ['wifi'] }, false)).toBe(true);
@@ -80,11 +80,18 @@ describe('staged discovery policy', () => {
     expect(closed.nextReviewAt).toBe(T0 + DISCOVERY_SCAN_WINDOW_MS + DISCOVERY_ONLINE_BACKOFF_BASE_MS);
   });
 
-  it('second same-room member online: LAN NSD starts, still no Wi-Fi Direct group', () => {
+  it('second same-room member online: LAN NSD starts, no Wi-Fi Direct while nobody needs it', () => {
     const policy = new DiscoveryPolicy();
     expect(policy.decide(input({ roomPeerCount: 1 }))).toMatchObject({ stage: 'online-peers', lanNsd: true, wifiDirectDiscovery: false, groupFormation: false });
-    // A verified radio peer while online never forms a group either: the hub is the route.
-    expect(policy.decide(input({ roomPeerCount: 1, radioPeers: 1, groupCandidates: 1 })).groupFormation).toBe(false);
+    // An online phone near another online phone: no candidate (the hub is their route).
+    expect(policy.decide(input({ roomPeerCount: 1, radioPeers: 1, groupCandidates: 0 }))).toMatchObject({ wifiDirectDiscovery: false, groupFormation: false });
+  });
+
+  it('network-free: an online phone links an offline same-room phone (bridge)', () => {
+    const decision = new DiscoveryPolicy().decide(input({ radioPeers: 1, groupCandidates: 1 }));
+    expect(decision).toMatchObject({ stage: 'online-peers', wifiDirectDiscovery: true, groupFormation: true, lanNsd: true });
+    // In the group an online bridge keeps scanning so it notices when the offline phone leaves.
+    expect(new DiscoveryPolicy().decide(input({ inGroup: true })).bleScan).toBe(true);
   });
 
   it('unknown roster keeps LAN on (older callers)', () => {

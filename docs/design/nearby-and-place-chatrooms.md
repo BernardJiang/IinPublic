@@ -101,18 +101,24 @@ Scanning and advertising use bounded duty cycles/backoff, including a quiet sing
 remaining discoverable often enough for a newcomer.
 
 **Implemented policy (2026-10-10, `src/shared/nearby-discovery-policy.ts`).**
-- **Internet means the cellular network.** With that switch off, discovery never uses cellular
-  data. Wi-Fi and Ethernet uplinks are not a provider switch.
+- **Network-free principle (product owner, 2026-10-11).** Every provider works with whatever
+  network is up, and any working network is used to reach as many room members as possible.
+- **Cellular** is the only uplink switch. Off, discovery never uses mobile data; the hub is still
+  reached over Wi-Fi/Ethernet.
 - **LAN NSD** runs only while the active room has another member, a same-room radio sighting
   exists, or the hub is unavailable.
 - **BLE** keeps a beacon advertising and scans in 30 s windows. After each empty window the
   quiet-singleton backoff doubles: offline 30 s → 10 min, online 60 s → 30 min.
   - Online, the beacon needs an already-granted permission.
-  - Online beacons set flag bit 4, so offline phones treat them as proximity only and never wait
-    on them as hosts.
-- **Wi-Fi Direct** discovery runs only without the hub. A group forms only for an eligible peer the
-  LAN does not reach. Online phones keep the hub and its matchmade link upgrade; Wi-Fi Direct as a
-  free route for online-but-close phones is not implemented.
+  - Online beacons (and DNS-SD TXT) set an "online" flag (BLE bit 4, TXT `o`).
+- **Wi-Fi Direct** does not depend on the hub.
+  - Offline, discovery runs in scan windows and a group forms for any eligible peer the LAN does
+    not reach, including an online one.
+  - Online, it stays idle until an eligible OFFLINE same-room phone is seen. The online phone then
+    links with it and bridges it into the room, leaving one minute after no offline phone remains.
+  - Two online phones never group; the hub and its matchmade link upgrade are their route.
+  - Every eligible phone, online or not, takes part in the host election, so all sides agree on
+    one host.
 - **Eligibility** is either a full-room-token proof bound to the rotating id (BLE v3, DNS-SD TXT
   `q`) or a rotating id that matches a signed roster member's
   `rotatingNearbyId(pub, room, epoch)`. A bare token prefix (BLE v2) never qualifies. Talk exchange

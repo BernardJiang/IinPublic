@@ -355,7 +355,7 @@ describe('NearbyOfflineService settings switches and status', () => {
     await t.service.start();
     t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 2, ...TEST_GROUP_CREDENTIALS });
     await flush();
-    expect(t.service.getStatus()).toEqual({ kind: 'wifi-direct', hosting: true, phones: 2, lanPhones: 0 });
+    expect(t.service.getStatus()).toEqual({ kind: 'wifi-direct', online: false, hosting: true, phones: 2, lanPhones: 0 });
     t.service.updateSettings({ wifiDirect: false, bluetooth: true });
     expect(t.native.left).toBe(1);
     expect(t.calls).toContain('wd-stop');
@@ -523,13 +523,48 @@ describe('NearbyOfflineService staged discovery', () => {
     t.service.dispose();
   });
 
-  it('an online beacon is proximity only: no group is formed for it', async () => {
+  it('network-free: an offline phone links with an online phone that can bridge it', async () => {
     const t = setup({ roomPeers: { count: 0, pubs: [] } });
     await t.service.start();
-    t.emitBle(scopedBle({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 0, hosting: false, online: true }));
+    // Id 000… outranks any local id, so the online phone is the elected host and we wait for it.
+    t.emitBle(scopedBle({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 3, hosting: true, online: true }));
+    await t.tick();
+    expect(t.native.joined).toEqual([TEST_GROUP_CREDENTIALS]);
+    t.service.dispose();
+  });
+
+  it('two online phones never form a Wi-Fi Direct group; the hub is their route', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 1, pubs: [] } });
+    await t.service.start();
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 0, hosting: false, online: true }));
     await t.tick();
     expect(t.native.created).toHaveLength(0);
-    expect(t.service.getStatus().kind).toBe('searching');
+    expect(t.calls).not.toContain('wd-start');
+    t.service.dispose();
+  });
+
+  it('an online phone bridges an offline same-room phone it sees nearby, then frees the radio when it leaves', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    expect(t.calls).not.toContain('wd-start');
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 0, hosting: false }));
+    await t.tick();
+    expect(t.calls).toContain('wd-start');
+    expect(t.native.created).toEqual([TEST_GROUP_CREDENTIALS]);
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 1, ...TEST_GROUP_CREDENTIALS });
+    await flush();
+    expect(t.service.getStatus()).toMatchObject({ kind: 'wifi-direct', online: true, hosting: true });
+    // Still serving: the offline phone's beacon stays fresh.
+    t.advance(60_000);
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 0, hosting: false }));
+    await t.tick();
+    expect(t.native.left).toBe(0);
+    // Gone: its sightings expire, then after the dwell the bridge leaves the group.
+    t.advance(120_000);
+    await t.tick();
+    t.advance(60_000);
+    await t.tick();
+    expect(t.native.left).toBe(1);
     t.service.dispose();
   });
 

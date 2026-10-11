@@ -585,7 +585,7 @@ export class IinPublicApp {
     }
     return hubDiscoveryPathAllowed(
       { ...(Array.isArray(path?.transports) ? { transports: path.transports } : {}) },
-      getNearbyProviderEnabled('internet'),
+      getNearbyProviderEnabled('cellular'),
     );
   }
 
@@ -2926,8 +2926,8 @@ export class IinPublicApp {
         }
         if (nativePath.connected === false || nativePath.validated === false) return false;
         const transports = Array.isArray(nativePath.transports) ? nativePath.transports.map(String) : [];
-        // Internet switch off: a cellular-only path never serves discovery; the radios take over.
-        if (!hubDiscoveryPathAllowed({ transports }, getNearbyProviderEnabled('internet'))) return false;
+        // Cellular switch off: a cellular-only path never serves discovery; the radios take over.
+        if (!hubDiscoveryPathAllowed({ transports }, getNearbyProviderEnabled('cellular'))) return false;
         const networkInterface: NetworkInterface = transports.includes('wifi')
           ? 'wifi'
           : transports.includes('ethernet')
@@ -3038,7 +3038,9 @@ export class IinPublicApp {
     const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
     const text = (key: UiTranslationKey, count?: number) => uiText(language, key).replace('{count}', String(count ?? ''));
     const main = status.kind === 'wifi-direct'
-      ? (status.hosting ? text('settingsNearbyStatusHosting', status.phones ?? 0) : text('settingsNearbyStatusJoined'))
+      ? (status.online
+        ? (status.hosting ? text('settingsNearbyStatusBridging', status.phones ?? 0) : text('settingsNearbyStatusBridgingJoined'))
+        : (status.hosting ? text('settingsNearbyStatusHosting', status.phones ?? 0) : text('settingsNearbyStatusJoined')))
       : status.kind === 'quiet'
         ? text('settingsNearbyStatusQuiet', Math.max(1, Math.ceil(status.nextScanInSeconds / 60)))
         : text(status.kind === 'searching' ? 'settingsNearbyStatusSearching' : status.kind === 'off' ? 'settingsNearbyStatusOff' : 'settingsNearbyStatusStandby');

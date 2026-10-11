@@ -628,7 +628,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
               </select>
               <small>Applies to the one active room. Changing rooms is always manual.</small>
             </label>
-            ${renderNearbyProviderRow('internet', 'settingsNearbyInternet', 'settingsNearbyInternetHelp', deps.t)}
+            ${renderNearbyProviderRow('cellular', 'settingsNearbyCellular', 'settingsNearbyCellularHelp', deps.t)}
             ${renderNearbyProviderRow('lan', 'settingsNearbyLan', 'settingsNearbyLanHelp', deps.t)}
             ${renderNearbyProviderRow('wifi-direct', 'settingsNearbyWifiDirect', 'settingsNearbyWifiDirectHelp', deps.t)}
             ${renderNearbyProviderRow('bluetooth', 'settingsNearbyBluetooth', 'settingsNearbyBluetoothHelp', deps.t)}

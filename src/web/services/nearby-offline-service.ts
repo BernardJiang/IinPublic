@@ -63,7 +63,8 @@ export type NearbyStatus =
   | { kind: 'searching'; lanPhones: number }
   /** Offline and nobody found: beacon only, the next scan window is backed off. */
   | { kind: 'quiet'; lanPhones: number; nextScanInSeconds: number }
-  | { kind: 'wifi-direct'; hosting: boolean; phones: number | null; lanPhones: number };
+  /** `online`: this phone reaches the hub and bridges offline nearby phones into the room. */
+  | { kind: 'wifi-direct'; online: boolean; hosting: boolean; phones: number | null; lanPhones: number };
 
 export type NearbyReadinessGap = 'permission' | 'wifi' | 'location' | 'bluetooth';
 
@@ -130,9 +131,9 @@ const FALLBACK_OWNER_COOLDOWN_MS = 5 * 60_000;
  *   another member or the hub is unavailable — a lone online user stays silent.
  * - The BLE beacon advertises whenever Bluetooth is on (and, online, already permitted); scans are
  *   duty-cycled with a quiet-singleton backoff.
- * - Wi-Fi Direct discovery runs only without the hub, inside scan windows; a group forms only for
- *   a proof-verified (or roster-bound) same-room phone that the LAN does not already reach. Online,
- *   the hub and its matchmade link upgrade stay the route.
+ * - Wi-Fi Direct is network-free: offline it runs in scan windows; online it stays idle until an
+ *   OFFLINE same-room phone needs a link, which the online phone then bridges to the room. A group
+ *   forms only for a proof-verified (or roster-bound) same-room phone the LAN does not reach.
  * Every sighting goes through one `NearbyCandidateRegistry`, so a phone seen over LAN, BLE and
  * DNS-SD (and across id rotations) is one logical peer.
  */
@@ -308,6 +309,7 @@ export class NearbyOfflineService {
     if ((state.state === 'owner' || state.state === 'client') && state.networkName === this.currentCredentials()?.networkName) {
       return {
         kind: 'wifi-direct',
+        online: this.isOnlineStage(),
         hosting: state.state === 'owner',
         // Only the host knows how many phones joined.
         phones: state.state === 'owner' ? state.clientCount ?? 0 : null,
@@ -418,8 +420,11 @@ export class NearbyOfflineService {
         && caps.wifiDirect && caps.joinByCredential
         && (offline ? true : bleAvailable === 'on' && readiness?.permission === true);
       const lanIds = this.registry.lanIds(now);
-      const groupCandidates = this.groupEligibleRecords(now)
-        .filter((record) => record.id !== this.id && !lanIds.has(record.id) && record.joinByCredential).length;
+      // Network-free: any eligible phone the LAN does not reach needs a link while we are offline;
+      // while we reach the hub, only an OFFLINE phone does (we bridge it; online pairs use the hub).
+      const groupCandidates = this.registry.eligibleRecords(now)
+        .filter((record) => record.id !== this.id && !lanIds.has(record.id) && record.joinByCredential
+          && (offline || !record.online)).length;
       const decision = this.policy.decide({
         now,
         lan: this.lanAllowed,
@@ -437,9 +442,10 @@ export class NearbyOfflineService {
       }
       this.lastDecision = decision;
       this.applyLan(decision.lanNsd);
-      this.onlineSince = offline ? null : (this.onlineSince ?? now);
-      if (!offline && ourGroup && now - this.onlineSince! >= ONLINE_LEAVE_GROUP_MS) {
-        // Online again: the hub path (and the hub-matchmade upgrade) take over; free the radio.
+      // Online with nobody offline left to bridge: the hub path (and the hub-matchmade upgrade)
+      // serve everyone; free the radio after a dwell.
+      this.onlineSince = !offline && ourGroup && groupCandidates === 0 ? (this.onlineSince ?? now) : null;
+      if (this.onlineSince !== null && now - this.onlineSince >= ONLINE_LEAVE_GROUP_MS) {
         this.onlineSince = null;
         this.ownsGroup = false;
         this.opts.native.leaveGroup();
@@ -452,7 +458,7 @@ export class NearbyOfflineService {
         this.stopWifiDirect(offline ? 'quiet-backoff' : 'hub-reachable');
       }
       if (this.disposed) return;
-      this.applyBle(decision.bleAdvertise && !this.permissionDenied, decision.bleScan && !inGroup);
+      this.applyBle(decision.bleAdvertise && !this.permissionDenied, decision.bleScan && !(inGroup && offline));
       if (!this.wifiDirectActive) return;
       this.advertise();
       if (inGroup) {
@@ -460,15 +466,14 @@ export class NearbyOfflineService {
         return this.maybeTearDown(state);
       }
       if (state.state === 'forming' || state.state === 'joining' || this.now() < this.busyUntil) return;
-      this.plan(offline && decision.groupFormation);
+      this.plan(decision.groupFormation, offline);
     } finally {
       this.ticking = false;
     }
   }
 
-  /** Verified same-room phones that are themselves offline (an online beacon never joins a group). */
-  private groupEligibleRecords(now: number): NearbyRecord[] {
-    return this.registry.eligibleRecords(now).filter((record) => !record.online);
+  private isOnlineStage(): boolean {
+    return this.lastDecision?.stage?.startsWith('online') === true;
   }
 
   /** LAN NSD (advertise + discover) on or off; restarted with every id rotation while on. */
@@ -499,7 +504,7 @@ export class NearbyOfflineService {
     const hosting = state.state === 'owner' && !!state.networkName && state.networkName === this.currentCredentials()?.networkName;
     const payload = encodeBlePresence({
       id: this.id, canHost: caps.wifiDirect, joinByCredential: caps.joinByCredential, hostScore: caps.hostScore,
-      roomToken: scope.roomToken, hosting, online: !this.wifiDirectActive && this.lastDecision?.stage?.startsWith('online') === true,
+      roomToken: scope.roomToken, hosting, online: this.isOnlineStage(),
     });
     const next = `${payload}|${scan}`;
     if (next === this.bleState) return;
@@ -507,13 +512,15 @@ export class NearbyOfflineService {
     this.opts.bridge.startBlePresence(payload, scan);
   }
 
-  private plan(offline: boolean): void {
+  private plan(mayForm: boolean, offline: boolean): void {
     const caps = this.opts.native.capabilities();
     const now = this.now();
     // Only proof-verified or roster-bound phones: a short room prefix can collide or be replayed.
     const plan = planOfflineGroup({
       self: { id: this.id, canHost: caps.wifiDirect, joinByCredential: caps.joinByCredential, hostScore: caps.hostScore },
-      records: this.groupEligibleRecords(now),
+      // Every eligible phone takes part in the election (online ones too) so all sides agree on
+      // one host; whether to act at all is the policy's `groupFormation`.
+      records: this.registry.eligibleRecords(now),
       lanIds: this.registry.lanIds(now),
       now,
     });
@@ -521,7 +528,7 @@ export class NearbyOfflineService {
       this.opts.onEvent?.({ type: 'plan', plan });
     }
     this.lastPlan = plan;
-    if (!offline) return;
+    if (!mayForm) return;
     if (plan.action === 'none' && plan.reason === 'no-offline-peers') {
       this.fallback(offline, this.opts.native.getState());
       return;
@@ -651,7 +658,7 @@ export class NearbyOfflineService {
       : null;
     const self = { id: this.id, canHost: caps.wifiDirect, joinByCredential: caps.joinByCredential, hostScore: caps.hostScore };
     const inGroup = state.state === 'owner' || state.state === 'client';
-    const txt = JSON.stringify(encodeNearbyTxt({ ...self, port: this.opts.port, roomToken: scope.roomToken, group }));
+    const txt = JSON.stringify(encodeNearbyTxt({ ...self, port: this.opts.port, roomToken: scope.roomToken, group, online: this.isOnlineStage() }));
     const advertisementState = txt + (inGroup ? '|in-group' : '');
     if (this.bleState) this.applyBle(true, !inGroup && (this.lastDecision?.bleScan ?? true));
     if (advertisementState === this.lastAdvertised) return;

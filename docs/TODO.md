@@ -267,17 +267,25 @@ its ID.
       Neighborhood and a saved `local_radio_nearby_v1` room re-resolves to automatic Nearby.
       Bluetooth remains only a provider switch.
     - [x] Implemented the provider decision (2026-10-10, `src/shared/nearby-discovery-policy.ts`).
-      Settings (Android) shows four independent switches — Internet, LAN, Wi-Fi Direct, Bluetooth —
+      Settings (Android) shows four independent switches — Cellular, LAN, Wi-Fi Direct, Bluetooth —
       all default on, each with a live state: On / Off / Not available on this phone /
-      Permission needed / Turned off in Android. Product decision (2026-10-10): **Internet means the
-      cellular network**; off, discovery never uses cellular data (`hubDiscoveryPathAllowed`): the
-      radio policy treats a cellular-only hub as unavailable, and the signed presence heartbeat,
-      presence fetch and room-discovery announce pause on a cellular-only path. Wi-Fi/Ethernet
-      uplinks are unaffected. Known limit: the Gun websocket still carries the room roster over
-      cellular. Bluetooth now advertises a beacon while online too (permission already granted only,
-      never a mid-exchange prompt) with bounded scans; online beacons carry flag bit 4 so offline
-      phones treat them as proximity only and never wait on them as hosts. Wi-Fi Direct groups stay
-      offline-only and demand-driven.
+      Permission needed / Turned off in Android.
+      - Product decision (2026-10-11): the switch is **Cellular**. Off, discovery never uses mobile
+        data (`hubDiscoveryPathAllowed`): on a cellular-only path the radio policy treats the hub as
+        unavailable, and the signed presence heartbeat, presence fetch and room-discovery announce
+        pause. Over Wi-Fi/Ethernet the hub is still reached.
+      - Known limit: the Gun websocket still carries the room roster over cellular.
+      - **Network-free** (2026-10-11): every other provider works with whatever network is up, and
+        any working network is used to reach as many room members as possible.
+      - Bluetooth advertises a beacon online too (permission already granted only, never a
+        mid-exchange prompt) with bounded scans.
+      - Wi-Fi Direct no longer requires the phone to be offline. An online phone that sees an
+        eligible offline same-room phone links with it to bridge it into the room, and leaves one
+        minute after no offline phone remains. Online pairs keep the hub route. Beacons/TXT carry
+        an online flag (BLE bit 4, TXT `o`).
+      - [ ] Hardware: verify that the bridge actually relays Gun/WebRTC from the offline client to
+        the hub through the owner's embedded node, and that Wi-Fi STA + Wi-Fi Direct concurrency
+        holds on PH-1, P30, C10 and Honor.
     - [x] Added `NearbyCandidateRegistry` (2026-10-10). LAN, BLE and DNS-SD sightings merge into one
       logical peer keyed by rotating id. They are re-keyed by SEA identity when the id matches
       `rotatingNearbyId(pub, room, epoch)` for a signed roster member, so sightings also merge across

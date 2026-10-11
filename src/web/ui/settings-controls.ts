@@ -333,7 +333,7 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     clearEncounterLocation();
     if (deps.currentUser) deps.renderSettingsView(deps.currentUser);
   });
-  for (const kind of ['internet', 'lan', 'wifi-direct', 'bluetooth'] as const) {
+  for (const kind of ['cellular', 'lan', 'wifi-direct', 'bluetooth'] as const) {
     document.getElementById(`settings-nearby-${kind}`)?.addEventListener('change', (event) => {
       setNearbySetting(kind, (event.currentTarget as HTMLInputElement).checked);
     });
