@@ -49,6 +49,32 @@ physical nearness is not transitive. Location defines the eligible audience; BLE
 prioritizes physically present peers; LAN, Wi-Fi Direct, direct Internet, and TURN are replaceable
 routes between the same endpoints.
 
+### Discovery-provider defaults
+
+On a phone, every supported discovery provider is enabled by default: Internet room discovery,
+LAN discovery, BLE presence, and Wi-Fi Direct discovery. Settings expose one independent switch for
+each provider. A missing platform capability, denied OS permission, or browser sandbox disables only
+that provider and explains why; it does not disable the others. An ordinary web browser therefore
+normally has Internet discovery and WebRTC routes, but no native BLE, Wi-Fi Direct, or LAN-NSD
+scanner.
+
+Enabling discovery does not mean eagerly forming every possible connection. All provider sightings
+are deduplicated to the same verified peer identity and active-room capability. The route selector
+chooses LAN, direct Internet, Wi-Fi Direct, or relay without changing room membership. Wi-Fi Direct
+must never form an empty group and should form a group only when at least one eligible same-room peer
+needs that route. Scanning and advertising use bounded duty cycles/backoff, including a quiet
+singleton state, while remaining discoverable often enough for a newcomer.
+
+### Manual web location
+
+A web user who cannot or does not want to use browser geolocation may choose **Set home area on
+map**. The selected point is local routing input, equivalent to a GPS fix: the client previews and
+snaps it to the selected Neighborhood or Close-nearby cell, stores the choice locally, and publishes
+only the resulting opaque room presence. The user can replace it with the current device location or
+clear it. Choosing a home area is distinct from clicking a Place, which remains an explicit traveler
+visit. The confirmation must state the approximate public area and that the map/tile provider may
+observe the requested viewport and network address.
+
 ## 3. Capacity and spatial subdivision
 
 One signed, versioned global capacity `C` applies to every Nearby and Place room. The current value

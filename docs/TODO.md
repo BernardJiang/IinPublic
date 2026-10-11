@@ -135,6 +135,11 @@ its ID.
   - [ ] **P1 discovery/group simplification (audit started 2026-10-10).** Remove redundant radio
     work while preserving the distinction between audience selection (the active room) and routes
     to an eligible peer.
+    - [x] Product decision (2026-10-10): on phones, Internet, LAN, Wi-Fi Direct, and BLE discovery
+      are all enabled by default and each has its own Settings switch. Unsupported browser/device
+      capabilities and denied permissions disable only the affected provider. Discovery may run in
+      parallel, but candidate deduplication and route selection must prevent duplicate logical peers,
+      duplicate Talk delivery, or unnecessary Wi-Fi Direct groups.
     - [x] Verify the current single-user path. A confirmed exact GPS fix stays device-local; the
       client derives an opaque Nearby room ID and publishes signed expiring room presence, not a
       blurred latitude/longitude record. An ordinary browser at `iinpublic.com` uses hub/Gun room
@@ -147,10 +152,12 @@ its ID.
       `local_radio_nearby_v1`, but `isLocalOnlyRoomScope()` causes `activateRoomExchange()` and
       `syncPeerMeshRoom()` to return before BLE discovery or Talk exchange starts. The accepted
       design says this mode is BLE-only discovery without a published map cell.
-    - [ ] Decide whether low-duty BLE physical-presence confirmation should run while the hub is
-      reachable. Today enabling Bluetooth in Settings does not start a scan while online; BLE is
-      coupled to the offline Wi-Fi Direct service. If online BLE is retained, it may prioritize or
-      verify already room-eligible peers but must never expand the room audience.
+    - [ ] Implement the provider decision. Add independent Internet and LAN switches alongside the
+      existing Wi-Fi Direct and Bluetooth switches; make supported phone providers default on;
+      expose unavailable/permission-denied states; and run bounded BLE/Wi-Fi Direct discovery even
+      while the hub is reachable. BLE/Wi-Fi Direct may prioritize or connect already room-eligible
+      peers but must never expand the active room audience. Wi-Fi Direct group formation remains
+      demand-driven and requires at least one eligible peer.
     - [ ] Replace the current overlapping offline discovery work with an explicit staged policy and
       bounded timers: room roster/capability first; LAN NSD as the free IP fast path; BLE as scoped
       short-range presence; Wi-Fi Direct group formation only after an eligible same-room peer is
@@ -164,6 +171,12 @@ its ID.
       no empty Wi-Fi Direct group, bounded scan/backoff, and one elected group for 3+ eligible
       phones. Record discovery time, scan duty cycle, group churn, duplicate candidates/bytes, and
       battery before selecting the production policy.
+    - [ ] Add manual web home-area registration. Settings must offer **Use current location**,
+      **Set home area on map**, and **Clear home area**. A manual point stays local, previews/snaps
+      to the selected 1 km Neighborhood or 400 m Close-nearby cell, publishes only opaque room
+      presence, survives reload, and remains distinct from a traveler visit to a Place. Cover
+      permission-denied/GPS-less desktops, switching back to browser geolocation, boundary
+      hysteresis, map-provider disclosure, and local-data deletion.
   - [ ] **P1 legacy migration:** stop old-room discovery before moving saved Global/tile/grid/custom
     memberships into Nearby or content-addressed Places. Preserve contacts, private data, Talk queues,
     receipts, and traveler intent without rebroadcasting old Talks. Retire obsolete capacity
