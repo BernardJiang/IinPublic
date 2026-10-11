@@ -107,6 +107,7 @@ export function nearbyBasePrecisionMeters(mode: NearbyPublicMode): number {
     case 'neighborhood': return NEARBY_NEIGHBORHOOD_METERS;
     case 'citywide': return NEARBY_CITYWIDE_METERS;
     case 'regional': return NEARBY_REGIONAL_METERS;
+    default: throw new Error('location mode cannot participate in automatic Nearby');
   }
 }
 

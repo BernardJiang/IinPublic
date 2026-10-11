@@ -59,8 +59,8 @@ its ID.
     physical gate, not parallel implementation. Accepted behavior is in design section 3.2: mixed
     privacy floors, a stable default cohort, explicit one-at-a-time cohort visits, no join-time
     allocation, and no map precision below the selected privacy floor.
-    - [ ] **Group 1 — Parallel foundations (start together).**
-      - [ ] **OPEN-40-G1.1 — Version the geographic-versus-cohort protocol contract.** Define shared types
+    - [x] **Group 1 — Parallel foundations (completed 2026-10-10).**
+      - [x] **OPEN-40-G1.1 — Version the geographic-versus-cohort protocol contract.** Define shared types
       and canonical signing payloads that distinguish a four-way geographic replacement from a
       capacity-only cohort split; carry geographic depth separately from cohort depth; derive a
       stable default cohort from checkpoint, immutable transition seed, and SEA public identity;
@@ -70,26 +70,41 @@ its ID.
       migration orchestration. Acceptance: two users with different blur levels verify the same
       transition, stop geographic selection independently at their own floors, and obtain no
       identity-derived location claim.
-      - [ ] **OPEN-40-G1.2 — Correct mixed-blur geometry and map privacy.** Clamp every public/map footprint
+        Implemented in `nearby-cohort-protocol.ts`: v2 separates geographic quadtree and binary
+        cohort paths, derives opaque v3 room IDs and stable default cohorts, signs same-area manual
+        selections, accepts verified v1 controls through an explicit union parser, and rejects
+        unknown, ambiguous, downgraded, or tampered records. Local routing consumes the same
+        latitude/GPS-accuracy-aware privacy depth as map geometry; no coordinate enters the record.
+      - [x] **OPEN-40-G1.2 — Correct mixed-blur geometry and map privacy.** Clamp every public/map footprint
       to the member's Regional, Citywide, Neighborhood, or Close-nearby geographic floor; never feed
       identity/cohort path digits into `localCell`, `cellSizeMeters`, map bounds, approximate diameter,
       logs, or publishable scope. Define and test mixed-mode behavior at boundaries and high latitude.
       Keep Location off out of automatic Nearby. This task owns assignment geometry, map-area helpers,
       and privacy regression tests and can proceed independently of admission using synthetic cohort
       depths.
-      - [ ] **OPEN-40-G1.3 — Add the flat visitable-cohort UI shell.** In **Your current group**, add **Meet
+        Implemented `nearby-partition-geometry.ts` and routed selection/assignment through it.
+        Identity/cohort suffixes no longer shrink `localCell`, displayed diameter, or map shading;
+        high latitude, weak GPS accuracy, mixed modes, boundaries, and Location off are covered.
+      - [x] **OPEN-40-G1.3 — Add the flat visitable-cohort UI shell.** In **Your current group**, add **Meet
       another group** and **Return to my default group**, with pending/full/offline/error states and an
       explanation that location is unchanged. Show one area/bubble with an optional aggregate cohort
       count; never render overlapping cohort pins, a tree, `_part_N`, coordinates, identity-lane IDs,
       or smaller shading. Keep map travel, Return Home, Place entry, and cohort switching visibly
       distinct. This task owns UI/i18n/accessibility/component tests and uses a local mocked traversal
       view-model; wiring the real service belongs to `OPEN-40-G2.2`.
-      - [ ] **OPEN-40-G1.4 — Decide whether Places may contain visitable cohorts.** Keep the current
+        Implemented a typed injection seam and truthful one-group local model, accessible pending/
+        full/offline/error states, English/Chinese text, responsive controls, and aggregate same-area
+        count without additional pins or shading. The real handoff remains disabled until G2.2.
+      - [x] **OPEN-40-G1.4 — Decide whether Places may contain visitable cohorts.** Keep the current
       ownerless first-`C` admission and Nearby-at-the-pin fallback unchanged while independently
       evaluating large restaurants/events. Specify whether one visible Place may contain several
       invisible exchange cohorts, how a visitor changes cohorts, what its Talk audience means, and
       how signed Place seat claims converge. Do not reuse Nearby's implementation until the product
       semantics, abuse implications, migration, and UI wording are accepted.
+        Accepted as a separate signed v2 global protocol feature: one visible Place may contain
+        invisible visitable cohorts, but current v1 first-`C` admission and Nearby-at-the-pin fallback
+        remain unchanged. Design section 4.1 fixes audience, convergence, abuse, migration, Gun
+        control-path, flat-UI, and implementation acceptance semantics.
     - [ ] **Group 2 — Contract-dependent implementation and verification.** Begin after
       `OPEN-40-G1.1` is frozen. Tasks G2.1–G2.4 may proceed concurrently with mocks, but each must pass
       integrated contract tests before completion; G2.5 runs last.

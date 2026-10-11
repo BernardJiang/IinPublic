@@ -10,6 +10,10 @@ import {
 } from './chatrooms-view';
 import { normalizeStringList, normalizeTalkFilterShape } from './settings-view';
 import type { CustomChatroomDraft } from './custom-chatroom-dialogs';
+import {
+  createLocalCohortTraversalViewModel,
+  type CohortTraversalViewModel,
+} from './cohort-traversal-view-model';
 
 type ChatroomsViewDeps = Parameters<typeof renderChatrooms>[0];
 
@@ -26,6 +30,8 @@ export type ChatroomShellControllerDeps = {
   getCustomChatrooms: () => CustomChatroomRow[];
   getNearbyMapArea?: () => ChatroomsViewDeps['nearbyMapArea'];
   getTravelModeActive: () => boolean;
+  /** Group 2 supplies the network-backed model; Group 1 keeps a truthful one-group local shell. */
+  getCohortTraversalViewModel?: () => CohortTraversalViewModel;
   setSessionUser: (user: User) => void;
   setCurrentUserId: (userId: string) => void;
   setChatroomBrowseMode: (mode: ChatroomsViewDeps['chatroomBrowseMode']) => void;
@@ -56,10 +62,7 @@ export type ChatroomShellControllerDeps = {
 export type ChatroomShellController = ReturnType<typeof createChatroomShellController>;
 
 export function createChatroomShellController(deps: ChatroomShellControllerDeps) {
-  let controller: {
-    renderChatroomList: () => void;
-    showChatroomDetail: (chatroomId: string) => void;
-  };
+  const localCohortTraversal = createLocalCohortTraversalViewModel();
 
   const viewDeps = (): ChatroomsViewDeps => {
     const nearbyMapArea = deps.getNearbyMapArea?.();
@@ -72,6 +75,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     matchedUserIds: deps.getMatchedUserIds(),
     customChatrooms: deps.getCustomChatrooms(),
     travelModeActive: deps.getTravelModeActive(),
+    cohortTraversal: deps.getCohortTraversalViewModel?.() ?? localCohortTraversal,
       ...(nearbyMapArea ? { nearbyMapArea } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
@@ -80,7 +84,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     },
     setCurrentChatroomMembers: deps.setCurrentChatroomMembers,
     escapeHtml,
-    renderChatroomList: () => controller.renderChatroomList(),
+    renderChatroomList: () => renderChatroomList(),
     openPeerDetail: deps.openPeerDetail,
     emit: deps.emit,
     currentUserId: deps.getCurrentUserId(),
@@ -195,7 +199,6 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     }
   };
 
-  controller = { renderChatroomList, showChatroomDetail };
   return {
     handleCreateCustomChatroomClick,
     renderChatroomList,

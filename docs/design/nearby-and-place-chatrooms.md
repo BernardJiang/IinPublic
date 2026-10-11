@@ -13,7 +13,8 @@ IinPublic has three independent ways to reach people:
 1. **Nearby** is one shared adaptive chatroom containing at most `C` online strangers. Its footprint
    grows when the network is sparse and is repartitioned geographically when occupancy exceeds `C`.
 2. **Places** are user-created map destinations such as a restaurant, event, club, or community.
-   A user taps a pin to enter one deliberately.
+   A user taps a pin to enter one deliberately. A busy Place may contain several invisible,
+   capacity-bounded exchange cohorts while remaining one visible Place.
 3. **Contacts** are direct relationships independent of room membership. TechSupport exists only
    here; it has no room presence, map pin, headcount, or capacity exemption.
 
@@ -287,10 +288,10 @@ report that the crowd is divided for performance and offer another-group/default
 must not restore a room tree, overlapping pins, coordinate IDs, or `_part_N` navigation. `C` bounds
 the candidate roster and eventual pair set; `K` remains the direct bound on simultaneous P2P links.
 
-This refinement initially applies only to automatic Nearby. A full Place continues to reject a new
-admission and offer Nearby around its pin. Allowing one visible Place to contain multiple visitable
-cohorts is a separate product/protocol decision because it changes the current Place audience
-semantics.
+This refinement initially applies only to automatic Nearby. The current Place protocol continues
+to reject a new admission when its single audience is full and offer Nearby around its pin. Section
+4.1 accepts visitable Place cohorts as a separately versioned extension; it must not be inferred by
+reusing Nearby transitions or silently changing the meaning of an existing Place seat claim.
 
 ## 4. Place rooms and map travel
 
@@ -321,7 +322,8 @@ restart, but the UI must keep that state visible.
 Place rooms also use `C`. They do not subdivide by the visitors' physical locations because remote
 visitors deliberately chose the same destination. The initial simple rule is: when a Place is full,
 do not create visible `_part_N` rooms; keep the entrant in their current room and offer the Nearby
-room around that point.
+room around that point. This remains the complete rule for the current v1 Place-admission protocol
+and for clients that cannot verify the later cohort extension.
 
 The implemented admission rule is deliberately ownerless and easy to explain:
 
@@ -360,6 +362,143 @@ not use or publish the visitor's GPS as the destination. The visit retains the h
 location, carries a traveler marker, survives restart, and follows later `C` changes. Return home
 restores the home location and clears the visit.
 
+### 4.1 Decision: one visible Place may contain visitable exchange cohorts
+
+**Accepted product direction, staged behind a new signed protocol version:** a sufficiently busy
+Place may contain several invisible exchange cohorts. The Place remains one immutable descriptor,
+one map pin, and one deliberate destination. Cohorts are runtime capacity scopes, not child Places,
+map regions, owner-created rooms, or attributes stored in the Place descriptor. The global signed
+protocol manifest enables the behavior for all Places; the creator cannot enable, disable, name,
+moderate, reserve, or choose a cohort.
+
+This extension exists for large restaurants, conferences, festivals, and stadiums where rejecting
+everyone after the first `C` would make the Place increasingly useless. It does not promise that
+every visitor at the Place can be reached at once. Its promise is narrower: a visitor can meet one
+capacity-bounded group at a time and deliberately visit other groups over time. The current v1
+first-`C` admission, creator equality, expiring claims, deterministic partition reconciliation,
+and **Nearby around _Place name_** fallback remain unchanged until a client and index both verify
+the new manifest and cohort evidence.
+
+#### Audience and movement semantics
+
+- The **active Place cohort**, not the aggregate Place, is the Talk audience. A sender offers Talks
+  only to the at-most-`C` people in that cohort. There is no Place-wide broadcast, aggregate roster,
+  automatic cross-cohort forwarding, or third-person relay.
+- A visitor has at most one active stranger audience and one active Place cohort under a stable
+  signing identity. Joining a Place still stops Nearby first. Changing cohorts keeps the same Place,
+  public pin, traveler state, and location disclosure; it changes only the eligible stranger set.
+- A stable identity and immutable cohort epoch determine the visitor's default cohort and a
+  repeat-avoiding order for alternatives. The default provides a predictable return point, not a
+  permanent assignment. **Meet another group at this place** visits one available cohort;
+  **Return to my default group** attempts the identity-derived default.
+- Movement uses the same safety shape as current Place entry: reserve a target seat, stop the old
+  cohort, commit the target, and release the old claim. A full, stale, offline, or unverifiable
+  target leaves the old cohort active. A reservation is not presence and exchanges no Talks.
+- The sender may re-offer their own eligible Talks after entering another cohort according to the
+  ordinary Talk rules. The client does not carry other people's Talks, answers, rosters, or
+  conversations between cohorts. Previously received owner-private data remains local.
+- Cohort capacity is the same global `C`; direct simultaneous connections remain bounded separately
+  by global `K`. Aggregate Place attendance may exceed `C`, but it does not become one P2P mesh.
+
+Place cohorts are not geographic. They must never inspect visitor GPS, change the Place pin, draw a
+smaller map area, or imply physical proximity within the Place. They also must not reuse Nearby's
+geographic replacement records. A Place-specific, versioned control record derives opaque cohort
+IDs from the Place CID, policy epoch, and an immutable transition seed. New cohorts may be opened
+only from bounded, verified occupancy/headroom evidence under the global policy, not by the Place
+creator or an unsigned client request. An experimental target occupancy below hard `C` may preserve
+switching headroom, but `C` is always the fail-closed ceiling.
+
+#### Signed seat claims and convergence
+
+The existing v1 claim remains valid only for the legacy single Place audience and is not silently
+reinterpreted. A future Place-cohort claim must bind at least:
+
+```text
+protocol/policy version + Place CID + opaque cohort ID + cohort epoch
+stable public identity + user handle + global C
+selection generation + previous-selection claim hash
+stable cohort-entry time + observation time + expiry
+```
+
+The selection generation and previous-claim link let indexes converge on one active cohort for one
+signing key. On reconnect, the highest valid linked generation wins; a same-generation fork uses a
+content-hash tie-breaker and is abuse evidence. Superseded claims consume no seat. Within each
+cohort, the current ownerless rule remains: deduplicate by stable public key, verify freshness and
+scope, order by stable cohort-entry time with a content-derived tie-breaker, and retain the first
+`C`. Merge order must not affect either the active-cohort choice or the winner set.
+
+Two indexes separated by a network partition can still admit temporarily conflicting occupants.
+Reconciliation is eventual, just as it is for current Place admission. A confirmed loser is removed
+on heartbeat and may try another verified Place cohort; if none can be verified, the existing
+Contacts-only state and **Meet people around _Place name_** option remain the safe fallback. A
+failed switch never converts the old committed seat into a reconciliation loss merely because the
+target reservation failed.
+
+#### Presentation
+
+List and map view continue to show one Place card and one pin. They never expose cohort IDs,
+numbers, a tree, `_part_N`, or overlapping pins. When verified aggregate control data is available,
+the Place may say, for example, **1,240 people · 3 groups**. This is a bounded, possibly stale
+summary, not a downloadable aggregate roster. The current-group card says **Meeting one group at
+_Place name_** and shows that cohort's headcount and `C` ceiling.
+
+The Place-specific actions are **Meet another group at this place**, **Return to my default group**,
+and the existing **Meet people around _Place name_**. The first two stay inside the named Place;
+the last leaves it for Nearby at the public pin. Wording must explain that changing groups does not
+change or refine location. A legacy or unverifiable full Place keeps the current simple message and
+Nearby fallback instead of advertising cohorts it cannot safely enter.
+
+#### Abuse and resource limits
+
+- Cohort hopping intentionally lets a person meet more than `C` visitors over time; it is not a
+  privacy or moderation boundary. Apply a signed-manifest cooldown/backoff and bounded recent-visit
+  history so one client cannot enumerate every cohort continuously or create radio churn.
+- Stable-key deduplication prevents aliases under one key from consuming multiple seats, but keys
+  are cheap. Cohort claims do not prove one human, honest clocks, physical presence, or resistance
+  to Sybil seat exhaustion. The UI and capacity experiments must not claim otherwise.
+- Cohort creation and aggregate summaries are bounded by verified live claims, expiration, a
+  protocol maximum cohort count, and garbage collection after a stable empty dwell. Clients fetch
+  summaries and the active cohort roster only, never every cohort roster.
+- A Place remains ownerless. Cohorts add no moderator, trademark enforcement, creator priority, or
+  power to exclude a participant. Blocking and Contacts-only policy continue to apply per user.
+
+#### Mixed-release migration
+
+The original Place room ID becomes the **legacy cohort** during migration. V1 clients continue to
+use its unchanged signed claims, first-`C` winner rule, and full-room Nearby fallback. They neither
+parse nor advertise additional cohorts. A capable client enters cohort mode only when the signed
+manifest, index, and client all support the Place-cohort version; otherwise it behaves exactly as
+v1. New cohort room IDs use a separate namespace so an old client cannot mistake one for a Place
+descriptor or join it without verifying its transition.
+
+V2 clients may treat the legacy cohort as one eligible cohort, subject to its existing `C`, but
+must not evict or silently redistribute its v1 occupants merely to balance newer cohorts. No Talk,
+answer, or conversation history migrates between cohorts. The global release policy may stop new
+v1 admissions only after the normal signed mixed-release retirement process; cohort support is not
+a per-Place flag and requires no descriptor rewrite.
+
+#### Acceptance criteria for implementation
+
+1. Before activation, a Place with at most `C` visitors behaves exactly as v1. After activation,
+   low occupancy remains one cohort; creators and ordinary visitors receive identical admission
+   priority in either version.
+2. Under the cohort protocol, 10,000 simulated visitors produce bounded opaque cohorts, every
+   active cohort remains at or below `C`, and no client downloads the aggregate roster.
+3. Two indexes given the same signed claims in different orders converge on one cohort per stable
+   key and the same at-most-`C` winner set per cohort; expired, forked, tampered, and wrong-policy
+   claims fail closed.
+4. A successful visit performs reserve/stop/commit/release and exposes exactly one active stranger
+   audience. Full, offline, expired, or unverifiable targets leave the old cohort and Talk audience
+   unchanged.
+5. Talks reach only the active cohort. Switching neither rebroadcasts third-party content nor
+   reveals or refines the visitor's location.
+6. One Place card and pin represent all cohorts. UI and accessibility tests distinguish switching
+   Place cohorts, entering Nearby at the pin, and returning home without exposing internal IDs.
+7. V1 clients retain the legacy first-`C` behavior and Nearby fallback in a mixed release; v2-only
+   records cannot be accepted as v1 claims or downgrade the signed global policy.
+8. Churn, expiration, partition/reconnect, rapid-switch abuse, cohort garbage collection, and the
+   separate `C`/`K` limits pass automated scale tests before the feature is enabled in production.
+
 ### Flat list and map presentation
 
 List view has exactly two flat sections:
@@ -396,8 +535,15 @@ nearby-control/<policyVersion>/<roomId>/signed-occupancy-summary
 nearby-index/<policyVersion>/<transitionId>/signed-group-replacements
 place-presence/<roomId>/<userPubHash>/signed-expiring-presence
 place-admission-claims/<roomHash>/<identityHash>/signed-expiring-seat-claim
+place-cohort-index/<policyVersion>/<placeCID>/<transitionId>/signed-cohort-control
+place-cohort-selections/<placeHash>/<identityHash>/<selectionHash>/signed-selection
+place-cohort-admission-claims/<placeHash>/<cohortHash>/<identityHash>/signed-expiring-seat-claim
 public/protocol-manifests/<sequence>/signed-manifest
 ```
+
+The three `place-cohort-*` paths are reserved for the accepted, not-yet-enabled v2 extension in
+section 4.1. V1 clients neither read nor write them. Implementations must bound selection history,
+cohort summaries, and expired claims; listing a Place must never require walking all three graphs.
 
 The authoritative private store holds owner data:
 
